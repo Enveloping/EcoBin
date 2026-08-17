@@ -255,7 +255,7 @@ export function releaseWithdrawalConfiguration(
   intent: CommandIntent,
 ) {
   if (context.domain === 'platform') {
-    throw new Error('提现规则只能由目标租户的工作人员发布');
+    throw new Error('提现审核规则只能由目标租户的工作人员修改');
   }
   return intent.execute<
     WithdrawalConfiguration,

@@ -5,10 +5,8 @@ import {
   App,
   Button,
   Card,
-  Descriptions,
   Form,
   Input,
-  Modal,
   Select,
   Skeleton,
   Space,
@@ -42,24 +40,24 @@ type ReviewMode = DeliveryConfigurationVersion['reviewMode'];
 
 const REVIEW_MODE: Record<ReviewMode, { label: string; description: string }> = {
   ALL_MANUAL: {
-    label: '全部人工审核',
+    label: '全部投递订单人工审核',
     description: '每笔投递都由工作人员审核后才进入钱包',
   },
   NORMAL_AUTO_IMMEDIATE: {
-    label: '正常订单立即自动审核',
+    label: '正常投递订单立即自动审核',
     description: '后端收到正常投递后立即审核；异常订单仍转人工',
   },
   NORMAL_AUTO_AFTER_24H: {
-    label: '正常订单 24 小时后自动审核',
+    label: '正常投递订单 24 小时后自动审核',
     description: '从后端收到投递的时间开始等待 24 小时；异常订单仍转人工',
   },
   NORMAL_AUTO_AFTER_48H: {
-    label: '正常订单 48 小时后自动审核',
+    label: '正常投递订单 48 小时后自动审核',
     description: '从后端收到投递的时间开始等待 48 小时；异常订单仍转人工',
   },
 };
 
-interface ReleaseForm {
+interface DeliveryConfigurationForm {
   reviewMode: ReviewMode;
   automaticReviewMaxAmountYuan?: string;
   openBalanceFloorYuan: string;
@@ -84,7 +82,7 @@ export default function OrganizationDeliveryConfiguration({
   const { message } = App.useApp();
   const executeCommand = useCommandExecutor();
   const requestSequence = useRef(0);
-  const [form] = Form.useForm<ReleaseForm>();
+  const [form] = Form.useForm<DeliveryConfigurationForm>();
   const selectedReviewMode = Form.useWatch('reviewMode', form);
   const [current, setCurrent] =
     useState<DeliveryConfigurationVersion | null>(null);
@@ -92,7 +90,6 @@ export default function OrganizationDeliveryConfiguration({
     useState<DeliveryConfigurationVersion[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [releaseOpen, setReleaseOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const clear = useCallback(() => {
@@ -102,7 +99,6 @@ export default function OrganizationDeliveryConfiguration({
     setLoadError(null);
     setLoading(false);
     setSubmitting(false);
-    setReleaseOpen(false);
     form.resetFields();
   }, [form]);
 
@@ -121,6 +117,15 @@ export default function OrganizationDeliveryConfiguration({
       if (requestSequence.current !== sequence) return;
       setCurrent(loadedCurrent);
       setVersions(history.items);
+      form.setFieldsValue({
+        reviewMode: loadedCurrent.reviewMode,
+        automaticReviewMaxAmountYuan:
+          loadedCurrent.automaticReviewMaxAmountYuan ?? undefined,
+        openBalanceFloorYuan: loadedCurrent.openBalanceFloorYuan,
+        maxReviewAbsoluteWeightKg:
+          loadedCurrent.maxReviewAbsoluteWeightKg,
+        reason: undefined,
+      });
     } catch (error) {
       if (requestSequence.current !== sequence) return;
       setCurrent(null);
@@ -129,7 +134,7 @@ export default function OrganizationDeliveryConfiguration({
     } finally {
       if (requestSequence.current === sequence) setLoading(false);
     }
-  }, [active, context, organizationCode]);
+  }, [active, context, form, organizationCode]);
 
   useEffect(() => {
     if (active) {
@@ -142,27 +147,8 @@ export default function OrganizationDeliveryConfiguration({
     return undefined;
   }, [active, clear, load]);
 
-  const openRelease = () => {
+  const submit = async (values: DeliveryConfigurationForm) => {
     if (!current) return;
-    form.setFieldsValue({
-      reviewMode: current.reviewMode,
-      automaticReviewMaxAmountYuan:
-        current.automaticReviewMaxAmountYuan ?? undefined,
-      openBalanceFloorYuan: current.openBalanceFloorYuan,
-      maxReviewAbsoluteWeightKg: current.maxReviewAbsoluteWeightKg,
-      reason: undefined,
-    });
-    setReleaseOpen(true);
-  };
-
-  const submit = async () => {
-    if (!current) return;
-    let values: ReleaseForm;
-    try {
-      values = await form.validateFields();
-    } catch {
-      return;
-    }
     const payload: DeliveryConfigurationReleaseRequest = {
       expectedLatestVersion: current.versionNo,
       reviewMode: values.reviewMode,
@@ -190,8 +176,7 @@ export default function OrganizationDeliveryConfiguration({
           intent,
         ),
       );
-      message.success('机构投递规则已发布');
-      setReleaseOpen(false);
+      message.success('投递审核规则已保存');
       await load();
     } catch (error) {
       message.error(errorMessage(error));
@@ -236,146 +221,25 @@ export default function OrganizationDeliveryConfiguration({
       <Alert
         showIcon
         type="info"
-        message="投递规则按版本发布"
-        description="新版本只影响之后开始的投递；已开始的会话和订单继续使用当时冻结的规则。"
+        message="页面中的规则可直接修改"
+        description="点击保存后，修改只影响之后开始的投递；已开始的会话和订单继续使用当时的规则。系统会自动保留修改记录。"
       />
 
       <Card
         size="small"
-        title={(
-          <Space>
-            <span>当前投递与审核规则</span>
-            <Tag color="blue">v{current.versionNo}</Tag>
-          </Space>
-        )}
-        extra={(
-          <Button type="primary" onClick={openRelease}>
-            发布新版本
-          </Button>
-        )}
+        title="投递审核规则"
       >
-        <Descriptions size="small" bordered column={{ xs: 1, md: 2 }}>
-          <Descriptions.Item label="审核方式">
-            <Space direction="vertical" size={0}>
-              <Typography.Text>
-                {REVIEW_MODE[current.reviewMode].label}
-              </Typography.Text>
-              <Typography.Text type="secondary">
-                {REVIEW_MODE[current.reviewMode].description}
-              </Typography.Text>
-            </Space>
-          </Descriptions.Item>
-          <Descriptions.Item label="负余额停投下限">
-            ¥ {current.openBalanceFloorYuan}
-          </Descriptions.Item>
-          <Descriptions.Item label="自动审核结算金额上限">
-            {current.automaticReviewMaxAmountYuan === null
-              ? '不适用（全部人工审核）'
-              : `¥ ${current.automaticReviewMaxAmountYuan}`}
-          </Descriptions.Item>
-          <Descriptions.Item label="人工认定重量上限">
-            ±{current.maxReviewAbsoluteWeightKg} kg
-          </Descriptions.Item>
-          <Descriptions.Item label="发布时间">
-            {formatShanghaiTime(current.publishedAt)}
-          </Descriptions.Item>
-          <Descriptions.Item label="发布人">
-            {current.publishedBy}
-          </Descriptions.Item>
-          <Descriptions.Item label="配置摘要">
-            <Typography.Text copyable ellipsis>
-              {current.contentSha256}
-            </Typography.Text>
-          </Descriptions.Item>
-        </Descriptions>
-      </Card>
-
-      <Card size="small" title="历史版本">
-        <Table<DeliveryConfigurationVersion>
-          size="small"
-          rowKey="versionNo"
-          pagination={false}
-          dataSource={versions}
-          scroll={{ x: 760 }}
-          columns={[
-            {
-              title: '版本',
-              dataIndex: 'versionNo',
-              width: 100,
-              render: (value, row) => (
-                <Space>
-                  <span>v{value}</span>
-                  {row.current && <Tag color="blue">当前</Tag>}
-                </Space>
-              ),
-            },
-            {
-              title: '审核方式',
-              dataIndex: 'reviewMode',
-              width: 220,
-              render: (value: ReviewMode) => REVIEW_MODE[value].label,
-            },
-            {
-              title: '自动审核金额上限',
-              dataIndex: 'automaticReviewMaxAmountYuan',
-              width: 150,
-              render: (value) => value === null ? '不适用' : `¥ ${value}`,
-            },
-            {
-              title: '停投下限',
-              dataIndex: 'openBalanceFloorYuan',
-              width: 120,
-              render: (value) => `¥ ${value}`,
-            },
-            {
-              title: '认定上限',
-              dataIndex: 'maxReviewAbsoluteWeightKg',
-              width: 130,
-              render: (value) => `±${value} kg`,
-            },
-            {
-              title: '发布人',
-              dataIndex: 'publishedBy',
-              width: 130,
-            },
-            {
-              title: '发布时间',
-              dataIndex: 'publishedAt',
-              width: 170,
-              render: (value) => formatShanghaiTime(value),
-            },
-          ]}
-        />
-      </Card>
-
-      <Modal
-        title="发布新的投递与审核规则"
-        open={releaseOpen}
-        width={620}
-        confirmLoading={submitting}
-        okText="确认发布"
-        cancelText="取消"
-        onOk={() => void submit()}
-        onCancel={() => !submitting && setReleaseOpen(false)}
-        destroyOnClose
-      >
-        <Alert
-          showIcon
-          type="warning"
-          message="发布后不可覆盖或删除"
-          description="如需再次调整，必须在当前版本之上发布另一个新版本。"
-          style={{ marginBottom: 16 }}
-        />
-        <Form<ReleaseForm>
+        <Form<DeliveryConfigurationForm>
           form={form}
           layout="vertical"
           disabled={submitting}
+          onFinish={(values) => void submit(values)}
         >
           <Form.Item
             name="reviewMode"
-            label="审核方式"
+            label="投递订单审核方式"
             extra="只有重量可靠、金额不为负且没有用户或系统异常的正常订单才会自动审核；其他订单仍进入人工审核。"
-            rules={[{ required: true, message: '请选择审核方式' }]}
+            rules={[{ required: true, message: '请选择投递订单审核方式' }]}
           >
             <Select
               options={(Object.entries(REVIEW_MODE) as Array<[
@@ -390,7 +254,7 @@ export default function OrganizationDeliveryConfiguration({
           {selectedReviewMode && selectedReviewMode !== 'ALL_MANUAL' && (
             <Form.Item
               name="automaticReviewMaxAmountYuan"
-              label="自动审核单笔结算金额上限（元）"
+              label="投递自动审核单笔结算金额上限（元）"
               extra="原始结算金额小于或等于该值时，正常订单才按上面的时间自动审核；超过后只等待人工审核，不会记为异常。允许填写 0.00。"
               rules={[
                 { required: true, message: '请输入自动审核金额上限' },
@@ -448,16 +312,76 @@ export default function OrganizationDeliveryConfiguration({
           </Form.Item>
           <Form.Item
             name="reason"
-            label="发布原因"
-            rules={[{ max: 500, message: '发布原因最多 500 个字符' }]}
+            label="修改说明（可选）"
+            rules={[{ max: 500, message: '修改说明最多 500 个字符' }]}
           >
             <Input.TextArea
               rows={3}
               placeholder="说明为什么调整本机构规则"
             />
           </Form.Item>
+          <Space wrap>
+            <Button type="primary" htmlType="submit" loading={submitting}>
+              保存投递配置
+            </Button>
+            <Typography.Text type="secondary">
+              上次保存：{formatShanghaiTime(current.publishedAt)}，操作人：{current.publishedBy}
+            </Typography.Text>
+          </Space>
         </Form>
-      </Modal>
+      </Card>
+
+      <Card size="small" title="修改记录">
+        <Table<DeliveryConfigurationVersion>
+          size="small"
+          rowKey="versionNo"
+          pagination={false}
+          dataSource={versions}
+          scroll={{ x: 760 }}
+          columns={[
+            {
+              title: '保存时间',
+              dataIndex: 'publishedAt',
+              width: 220,
+              render: (value, row) => (
+                <Space>
+                  <span>{formatShanghaiTime(value)}</span>
+                  {row.current && <Tag color="blue">当前</Tag>}
+                </Space>
+              ),
+            },
+            {
+              title: '投递订单审核方式',
+              dataIndex: 'reviewMode',
+              width: 220,
+              render: (value: ReviewMode) => REVIEW_MODE[value].label,
+            },
+            {
+              title: '投递自动审核金额上限',
+              dataIndex: 'automaticReviewMaxAmountYuan',
+              width: 150,
+              render: (value) => value === null ? '不适用' : `¥ ${value}`,
+            },
+            {
+              title: '停投下限',
+              dataIndex: 'openBalanceFloorYuan',
+              width: 120,
+              render: (value) => `¥ ${value}`,
+            },
+            {
+              title: '认定上限',
+              dataIndex: 'maxReviewAbsoluteWeightKg',
+              width: 130,
+              render: (value) => `±${value} kg`,
+            },
+            {
+              title: '修改人',
+              dataIndex: 'publishedBy',
+              width: 130,
+            },
+          ]}
+        />
+      </Card>
     </Space>
   );
 }

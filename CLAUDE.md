@@ -21,7 +21,7 @@
 - V50 平台管理员治理以 [`platform-administrator-governance-v50.md`](docs/architecture/platform-administrator-governance-v50.md) 为准：空管理员表创建唯一受保护默认账号；只有默认管理员能治理其他平台管理员，普通管理员只能自行改密；已有唯一账号升级时保留原密码。
 - V43 防伪袋码的权威裁决是 [`authenticated-bag-labels-v43.md`](docs/architecture/authenticated-bag-labels-v43.md)：平台只按批签发和打印 EB1 标签，不预建袋库存或分配关系；厂家登记和清运换袋由后端验真，未知有效码首次使用时才在当前机构建袋。
 - V52 设备注册、厂家验收和远程维护以 [`device-enrollment-factory-acceptance-remote-support-v52.md`](docs/architecture/device-enrollment-factory-acceptance-remote-support-v52.md) 为准：厂家 K1 只用于首次自注册并在正式凭证落盘后删除；厂家真实扫描所有初始袋后才允许自动验收；管理员公钥只登记一次，后端通过 OneNet 和四个复用端口建立短期反向 SSH。
-- V53 投递自动审核和审核后自动提现以 [`delivery-auto-review-and-withdrawal-v53.md`](docs/architecture/delivery-auto-review-and-withdrawal-v53.md) 为准：机构分别按版本发布投递审核和提现规则；异常投递始终转人工；自动提现只处理本次首次审核产生的正返现，业务条件不满足时安全跳过且不事后补建。
+- V53 投递自动审核和审核后自动提现以 [`delivery-auto-review-and-withdrawal-v53.md`](docs/architecture/delivery-auto-review-and-withdrawal-v53.md) 为准：机构分别维护投递审核规则和提现审核规则，每次保存由系统自动生成不可变版本；异常投递始终转人工；自动提现只处理本次首次审核产生的正返现，业务条件不满足时安全跳过且不事后补建。
 - V54 投递审核金额阈值和 Web 配置中心以 [`delivery-review-amount-limit-and-configuration-center-v54.md`](docs/architecture/delivery-review-amount-limit-and-configuration-center-v54.md) 为准：自动模式必须设置单笔结算金额上限，超过上限的正常订单等待人工审核；提现复用现有单次硬上限；Web 只收拢投递审核和提现两类机构规则。
 - 当前仓库已由 F-03 收口为最终九模块 reactor。独立目标数据库迁移已推进到 V54：V52 共 112 张领域表，V53 新增自动提现决策事实，V54 只扩展投递规则和订单快照，仍为 113 张领域表、76 条有效权限定义。服务器实际版本仍必须在部署前现场核对并用 H-02 续跑到 V54，不能仅凭旧记录假定已经升级。
 - 近期交付重点仍是公司自用的受控 P0：用户投递及其审核返现、清运换袋、机构充值和真实微信零钱提现闭环。真实资金、物理门控、租户/机构隔离和失败恢复不能因时间紧张而省略。

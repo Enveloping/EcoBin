@@ -66,7 +66,7 @@ export default function DeliveryConfigurationPage() {
   return (
     <PageContainer
       {...pageHeader(
-        '投递与审核规则',
+        '投递审核规则',
         '按机构发布不可变规则版本；已经开始的投递继续使用开始时冻结的旧版本。',
       )}
     >

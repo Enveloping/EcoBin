@@ -7,17 +7,14 @@ import {
   Button,
   Card,
   Col,
-  Descriptions,
   Empty,
   Form,
   Input,
-  Modal,
   Row,
   Select,
   Space,
   Spin,
   Switch,
-  Tag,
   Typography,
 } from 'antd';
 import {
@@ -54,7 +51,7 @@ function errorText(error: unknown): string {
       ? `${error.message}（请求 ID：${error.requestId}）`
       : error.message;
   }
-  return error instanceof Error ? error.message : '提现规则加载失败';
+  return error instanceof Error ? error.message : '提现审核规则加载失败';
 }
 
 export default function WithdrawalConfigurationPage() {
@@ -73,7 +70,6 @@ export default function WithdrawalConfigurationPage() {
     useState<WithdrawalConfiguration | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string>();
-  const [releaseOpen, setReleaseOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const mayManage = directory.context?.domain !== 'platform'
@@ -95,6 +91,18 @@ export default function WithdrawalConfigurationPage() {
       );
       if (loadSequence.current !== sequence) return;
       setConfiguration(loaded);
+      form.setFieldsValue({
+        hardLimitYuan: loaded.hardLimitYuan,
+        manualMinimumYuan: loaded.manualMinimumYuan,
+        manualMaximumYuan: loaded.manualMaximumYuan,
+        manualReviewFreeThresholdYuan:
+          loaded.manualReviewFreeThresholdYuan,
+        autoWithdrawalEnabled: loaded.autoWithdrawalEnabled,
+        autoMinimumYuan: loaded.autoMinimumYuan ?? undefined,
+        autoMaximumYuan: loaded.autoMaximumYuan ?? undefined,
+        autoReviewFreeThresholdYuan:
+          loaded.autoReviewFreeThresholdYuan ?? undefined,
+      });
     } catch (error) {
       if (loadSequence.current !== sequence) return;
       setConfiguration(null);
@@ -102,7 +110,7 @@ export default function WithdrawalConfigurationPage() {
     } finally {
       if (loadSequence.current === sequence) setLoading(false);
     }
-  }, [directory.context, organization.organizationCode]);
+  }, [directory.context, form, organization.organizationCode]);
 
   useEffect(() => {
     void load();
@@ -111,36 +119,13 @@ export default function WithdrawalConfigurationPage() {
     };
   }, [load]);
 
-  const openRelease = () => {
-    if (!configuration) return;
-    form.setFieldsValue({
-      hardLimitYuan: configuration.hardLimitYuan,
-      manualMinimumYuan: configuration.manualMinimumYuan,
-      manualMaximumYuan: configuration.manualMaximumYuan,
-      manualReviewFreeThresholdYuan:
-        configuration.manualReviewFreeThresholdYuan,
-      autoWithdrawalEnabled: configuration.autoWithdrawalEnabled,
-      autoMinimumYuan: configuration.autoMinimumYuan ?? undefined,
-      autoMaximumYuan: configuration.autoMaximumYuan ?? undefined,
-      autoReviewFreeThresholdYuan:
-        configuration.autoReviewFreeThresholdYuan ?? undefined,
-    });
-    setReleaseOpen(true);
-  };
-
-  const release = async () => {
+  const save = async (values: WithdrawalConfigurationForm) => {
     if (
       !configuration
       || !directory.context
       || !organization.organizationCode
       || !mayManage
     ) return;
-    let values: WithdrawalConfigurationForm;
-    try {
-      values = await form.validateFields();
-    } catch {
-      return;
-    }
     const enabled = values.autoWithdrawalEnabled;
     const payload: ReleaseWithdrawalConfigurationRequest = {
       expectedCurrentVersion: configuration.versionNo,
@@ -172,8 +157,7 @@ export default function WithdrawalConfigurationPage() {
           intent,
         ),
       );
-      setReleaseOpen(false);
-      message.success('提现规则新版本已发布');
+      message.success('提现审核规则已保存');
       await load();
     } catch (error) {
       message.error(errorText(error));
@@ -220,56 +204,150 @@ export default function WithdrawalConfigurationPage() {
             showIcon
             type="info"
             message="平台管理员只读查看"
-            description="提现规则属于机构资金决策，只能由目标租户内具有提现规则管理权限的工作人员发布。"
+            description="提现审核规则属于机构资金决策，只能由目标租户内具有提现审核规则管理权限的工作人员修改并保存。"
           />
         )}
         {loadError && (
           <Alert
             showIcon
             type="error"
-            message="暂时无法读取提现规则"
+            message="暂时无法读取提现审核规则"
             description={loadError}
             action={<Button size="small" onClick={() => void load()}>重试</Button>}
           />
         )}
         {loading ? (
-          <Card><Spin tip="正在读取当前提现规则" /></Card>
+          <Card><Spin tip="正在读取当前提现审核规则" /></Card>
         ) : configuration && (
-          <Card
-            title={<Space><WalletOutlined />当前提现规则<Tag color="blue">v{configuration.versionNo}</Tag></Space>}
-            extra={mayManage && (
-              <Button type="primary" onClick={openRelease}>发布新版本</Button>
-            )}
-          >
-            <Descriptions bordered size="small" column={{ xs: 1, md: 2 }}>
-              <Descriptions.Item label="单次最大提现金额">
-                ¥ {configuration.hardLimitYuan}
-              </Descriptions.Item>
-              <Descriptions.Item label="手动提现范围">
-                ¥ {configuration.manualMinimumYuan} — ¥ {configuration.manualMaximumYuan}
-              </Descriptions.Item>
-              <Descriptions.Item label="手动提现免审阈值">
-                不超过 ¥ {configuration.manualReviewFreeThresholdYuan}
-              </Descriptions.Item>
-              <Descriptions.Item label="投递返现自动提现">
-                <Tag color={configuration.autoWithdrawalEnabled ? 'success' : 'default'}>
-                  {configuration.autoWithdrawalEnabled ? '已启用' : '未启用'}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="自动提现范围">
-                {configuration.autoWithdrawalEnabled
-                  ? `¥ ${configuration.autoMinimumYuan} — ¥ ${configuration.autoMaximumYuan}`
-                  : '不适用'}
-              </Descriptions.Item>
-              <Descriptions.Item label="自动提现免审阈值">
-                {configuration.autoWithdrawalEnabled
-                  ? `不超过 ¥ ${configuration.autoReviewFreeThresholdYuan}`
-                  : '不适用'}
-              </Descriptions.Item>
-              <Descriptions.Item label="发布时间">
-                {formatShanghaiTime(configuration.publishedAt)}
-              </Descriptions.Item>
-            </Descriptions>
+          <Card title={<Space><WalletOutlined />提现审核规则设置</Space>}>
+            <Alert
+              showIcon
+              type="info"
+              message="提现审核与投递审核相互独立"
+              description="投递订单何时自动审核由“投递审核规则”管理；本页只决定提现订单何时自动批准或等待人工审核。"
+              style={{ marginBottom: 20 }}
+            />
+            <Form<WithdrawalConfigurationForm>
+              form={form}
+              layout="vertical"
+              disabled={!mayManage || submitting}
+              onFinish={(values) => void save(values)}
+            >
+              <Space direction="vertical" size={24} style={{ width: '100%' }}>
+                <section
+                  aria-labelledby="withdrawal-common-title"
+                  style={{ width: '100%' }}
+                >
+                  <Typography.Title
+                    id="withdrawal-common-title"
+                    level={5}
+                    style={{ marginTop: 0, marginBottom: 4 }}
+                  >
+                    共同金额限制
+                  </Typography.Title>
+                  <Typography.Paragraph
+                    type="secondary"
+                    style={{ marginBottom: 12 }}
+                  >
+                    同时约束手动提现和自动提现，与投递订单审核方式无关。
+                  </Typography.Paragraph>
+                  <MoneyField
+                    name="hardLimitYuan"
+                    label="单次最大提现金额（元）"
+                    extra="手动和自动提现都不能超过该值；当前系统硬约束最高为 200.00 元。"
+                  />
+                </section>
+
+                <section
+                  aria-labelledby="manual-withdrawal-title"
+                  style={{ width: '100%' }}
+                >
+                  <Typography.Title
+                    id="manual-withdrawal-title"
+                    level={5}
+                    style={{ marginTop: 0, marginBottom: 4 }}
+                  >
+                    手动提现审核
+                  </Typography.Title>
+                  <Typography.Paragraph
+                    type="secondary"
+                    style={{ marginBottom: 12 }}
+                  >
+                    仅用于用户在小程序主动发起的提现订单。
+                  </Typography.Paragraph>
+                  <Row gutter={16}>
+                    <Col xs={24} md={12}>
+                      <MoneyField name="manualMinimumYuan" label="手动提现最低额（元）" />
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <MoneyField name="manualMaximumYuan" label="手动提现最高额（元）" />
+                    </Col>
+                  </Row>
+                  <MoneyField
+                    name="manualReviewFreeThresholdYuan"
+                    label="手动提现自动批准金额上限（元）"
+                    extra="不超过该值时自动批准，超过后等待人工审核；填写 0.00 表示所有正金额都需要人工审核。"
+                  />
+                </section>
+
+                <section
+                  aria-labelledby="auto-withdrawal-title"
+                  style={{ width: '100%' }}
+                >
+                  <Typography.Title
+                    id="auto-withdrawal-title"
+                    level={5}
+                    style={{ marginTop: 0, marginBottom: 4 }}
+                  >
+                    投递返现自动提现审核
+                  </Typography.Title>
+                  <Typography.Paragraph
+                    type="secondary"
+                    style={{ marginBottom: 12 }}
+                  >
+                    投递订单审核通过并产生正返现后，决定是否自动创建和自动批准提现订单。
+                  </Typography.Paragraph>
+                  <Form.Item
+                    name="autoWithdrawalEnabled"
+                    label="审核通过后自动创建提现"
+                    valuePropName="checked"
+                  >
+                    <Switch checkedChildren="启用" unCheckedChildren="停用" />
+                  </Form.Item>
+                  {automaticWithdrawalEnabled && (
+                    <>
+                      <Row gutter={16}>
+                        <Col xs={24} md={12}>
+                          <MoneyField name="autoMinimumYuan" label="自动提现最低额（元）" />
+                        </Col>
+                        <Col xs={24} md={12}>
+                          <MoneyField name="autoMaximumYuan" label="自动提现最高额（元）" />
+                        </Col>
+                      </Row>
+                      <MoneyField
+                        name="autoReviewFreeThresholdYuan"
+                        label="自动提现自动批准金额上限（元）"
+                        extra="不超过该值时自动批准并提交微信，超过后等待人工审核。"
+                      />
+                    </>
+                  )}
+                </section>
+
+                {mayManage && (
+                  <Space wrap>
+                    <Button type="primary" htmlType="submit" loading={submitting}>
+                      保存提现配置
+                    </Button>
+                    <Typography.Text type="secondary">
+                      保存后只影响之后创建的提现，系统会自动保留修改记录。
+                    </Typography.Text>
+                  </Space>
+                )}
+                <Typography.Text type="secondary">
+                  上次保存：{formatShanghaiTime(configuration.publishedAt)}
+                </Typography.Text>
+              </Space>
+            </Form>
           </Card>
         )}
       </Space>
@@ -279,79 +357,12 @@ export default function WithdrawalConfigurationPage() {
   return (
     <PageContainer
       {...pageHeader(
-        '提现规则',
+        '提现审核规则',
         '统一设置手动提现、投递返现自动提现及共用的单次最大金额。',
       )}
     >
       <DirectoryScopeBar scope={directory} />
       {content}
-
-      <Modal
-        title="发布新的提现规则"
-        open={releaseOpen}
-        width={680}
-        okText="确认发布"
-        confirmLoading={submitting}
-        onOk={() => void release()}
-        onCancel={() => !submitting && setReleaseOpen(false)}
-        destroyOnClose
-      >
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 18 }}
-          message="规则按版本冻结，发布后不覆盖历史提现"
-          description="自动提现只处理本次投递首次审核产生的正返现。不满足授权、余额或金额范围等条件时，本次安全跳过，不会事后补建。"
-        />
-        <Form<WithdrawalConfigurationForm>
-          form={form}
-          layout="vertical"
-          disabled={submitting}
-        >
-          <MoneyField
-            name="hardLimitYuan"
-            label="单次最大提现金额（元）"
-            extra="手动和自动提现都不能超过该值；当前系统硬约束最高为 200.00 元。"
-          />
-          <Row gutter={16}>
-            <Col span={12}>
-              <MoneyField name="manualMinimumYuan" label="手动提现最低额（元）" />
-            </Col>
-            <Col span={12}>
-              <MoneyField name="manualMaximumYuan" label="手动提现最高额（元）" />
-            </Col>
-          </Row>
-          <MoneyField
-            name="manualReviewFreeThresholdYuan"
-            label="手动提现免人工审核阈值（元）"
-            extra="金额小于或等于该值时，系统直接批准；填写 0.00 表示所有正金额都需要人工审核。"
-          />
-          <Form.Item
-            name="autoWithdrawalEnabled"
-            label="投递返现自动提现"
-            valuePropName="checked"
-          >
-            <Switch checkedChildren="启用" unCheckedChildren="停用" />
-          </Form.Item>
-          {automaticWithdrawalEnabled && (
-            <>
-              <Row gutter={16}>
-                <Col span={12}>
-                  <MoneyField name="autoMinimumYuan" label="自动提现最低额（元）" />
-                </Col>
-                <Col span={12}>
-                  <MoneyField name="autoMaximumYuan" label="自动提现最高额（元）" />
-                </Col>
-              </Row>
-              <MoneyField
-                name="autoReviewFreeThresholdYuan"
-                label="自动提现免人工审核阈值（元）"
-                extra="自动创建的提现不超过该值时，系统直接批准并提交微信；超过后仍需工作人员审核。"
-              />
-            </>
-          )}
-        </Form>
-      </Modal>
     </PageContainer>
   );
 }

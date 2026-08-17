@@ -193,7 +193,7 @@ export const appRoutes: AppRoute[] = [
   },
   {
     path: '/configurations/delivery',
-    name: '投递与审核规则',
+    name: '投递审核规则',
     icon: <SlidersOutlined />,
     element: <DeliveryConfigurationPage />,
     allOf: ['delivery.configuration.manage'],
@@ -205,7 +205,7 @@ export const appRoutes: AppRoute[] = [
   },
   {
     path: '/configurations/withdrawal',
-    name: '提现规则',
+    name: '提现审核规则',
     icon: <DollarOutlined />,
     element: <WithdrawalConfigurationPage />,
     anyOf: ['withdrawal.read', 'withdrawal.configuration.manage'],

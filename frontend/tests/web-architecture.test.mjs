@@ -377,6 +377,9 @@ test('business rules stay versioned under one configuration menu', () => {
     /path: '\/configurations\/withdrawal'[\s\S]*?withdrawal\.configuration\.manage/,
   );
   assert.match(routeSource, /name: '配置管理'/);
+  assert.match(routeSource, /name: '投递审核规则'/);
+  assert.match(routeSource, /name: '提现审核规则'/);
+  assert.doesNotMatch(routeSource, /投递与审核规则|name: '提现规则'/);
   assert.match(
     routeSource,
     /LegacyDeliveryConfigurationRedirect[\s\S]*?location\.search/,
@@ -390,15 +393,49 @@ test('business rules stay versioned under one configuration menu', () => {
   );
   assert.doesNotMatch(
     fundsSource,
-    /getWithdrawalConfiguration|releaseWithdrawalConfiguration|提现规则/,
+    /getWithdrawalConfiguration|releaseWithdrawalConfiguration|提现(?:审核)?规则/,
   );
   assert.match(configurationSource, /expectedLatestVersion:\s*current\.versionNo/);
   assert.match(configurationSource, /automaticReviewMaxAmountYuan/);
+  assert.match(configurationSource, /label="投递订单审核方式"/);
+  assert.doesNotMatch(configurationSource, /label="审核方式"/);
+  assert.match(configurationSource, /onFinish=\{\(values\) => void submit\(values\)\}/);
+  assert.match(configurationSource, /保存投递配置/);
+  assert.match(configurationSource, /系统会自动保留修改记录/);
+  assert.doesNotMatch(
+    configurationSource,
+    /发布新版本|确认发布|<Modal/,
+  );
   assert.match(configurationSource, /requestSequence/);
   assert.doesNotMatch(configurationSource, /randomUUID|Math\.random/);
   assert.match(
     withdrawalConfigurationSource,
     /label="单次最大提现金额（元）"/,
+  );
+  assert.match(
+    withdrawalConfigurationSource,
+    /共同金额限制[\s\S]*手动提现审核[\s\S]*投递返现自动提现审核/,
+  );
+  assert.match(
+    withdrawalConfigurationSource,
+    /提现审核与投递审核相互独立/,
+  );
+  assert.match(
+    withdrawalConfigurationSource,
+    /手动提现自动批准金额上限（元）/,
+  );
+  assert.match(
+    withdrawalConfigurationSource,
+    /自动提现自动批准金额上限（元）/,
+  );
+  assert.match(
+    withdrawalConfigurationSource,
+    /onFinish=\{\(values\) => void save\(values\)\}/,
+  );
+  assert.match(withdrawalConfigurationSource, /保存提现配置/);
+  assert.doesNotMatch(
+    withdrawalConfigurationSource,
+    /发布新版本|确认发布|<Modal/,
   );
   assert.match(
     withdrawalConfigurationSource,
