@@ -89,8 +89,8 @@ public class FundsOperationalControlService
             long organizationId,
             long requiredAmountCent,
             LocalDateTime observedAt) {
-        String aggregation = "AUTO_WITHDRAWAL_LIQUIDITY:"
-                + tenantId + ":" + organizationId;
+        String aggregation = autoWithdrawalLiquiditySourceKey(
+                tenantId, organizationId);
         String safeParameters = "{\"requiredAmountCent\":"
                 + requiredAmountCent + "}";
         jdbc.update("""
@@ -112,18 +112,55 @@ public class FundsOperationalControlService
                 ON DUPLICATE KEY UPDATE
                     last_seen_at = VALUES(last_seen_at),
                     discovery_count = discovery_count + 1,
+                    status = 'OPEN',
                     current_severity = 'WARNING',
                     highest_severity = IF(
                         highest_severity = 'CRITICAL',
                         'CRITICAL',
                         'WARNING'),
                     safe_display_parameters = VALUES(safe_display_parameters),
+                    acknowledged_at = NULL,
+                    acknowledged_audit_id = NULL,
+                    resolved_at = NULL,
                     lock_version = lock_version + 1,
                     updated_at = VALUES(updated_at)
                 """, UUID.randomUUID().toString(), tenantId,
                 organizationId, aggregation, sha256(aggregation),
                 observedAt, observedAt, safeParameters,
                 observedAt, observedAt);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void resolveAutoWithdrawalOrganizationLiquidityShortageIfCovered(
+            long tenantId,
+            long organizationId,
+            long availableAmountCent,
+            LocalDateTime resolvedAt) {
+        if (tenantId <= 0 || organizationId <= 0
+                || availableAmountCent < 0) {
+            throw new IllegalArgumentException(
+                    "organization liquidity scope and balance are invalid");
+        }
+        Objects.requireNonNull(resolvedAt, "resolvedAt");
+        jdbc.update("""
+                UPDATE ops_alert
+                SET status = 'RESOLVED', current_severity = 'INFO',
+                    resolved_at = ?, lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE scope_kind = 'ORGANIZATION'
+                  AND tenant_id = ? AND organization_id = ?
+                  AND alert_code =
+                      'FUNDS.AUTO_WITHDRAWAL_LIQUIDITY_SHORTAGE'
+                  AND source_kind = 'DOMAIN_FACT'
+                  AND source_type = 'ORGANIZATION_PAYOUT_ACCOUNT'
+                  AND source_key = ? AND status = 'OPEN'
+                  AND CAST(JSON_UNQUOTE(JSON_EXTRACT(
+                        safe_display_parameters,
+                        '$.requiredAmountCent')) AS UNSIGNED) <= ?
+                """, resolvedAt, resolvedAt, tenantId, organizationId,
+                autoWithdrawalLiquiditySourceKey(tenantId, organizationId),
+                availableAmountCent);
     }
 
     @Override
@@ -611,6 +648,13 @@ public class FundsOperationalControlService
             long merchantProfileId,
             UUID pausedEventUid) {
         return "PAYOUT_GATE:" + merchantProfileId + ":" + pausedEventUid;
+    }
+
+    private static String autoWithdrawalLiquiditySourceKey(
+            long tenantId,
+            long organizationId) {
+        return "AUTO_WITHDRAWAL_LIQUIDITY:"
+                + tenantId + ":" + organizationId;
     }
 
     private static String payoutWaitReason(UUID pausedEventUid) {

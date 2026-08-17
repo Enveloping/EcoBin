@@ -39,6 +39,10 @@ class DeliveryAutoReviewWithdrawalMigrationTest {
                 "AUTOMATIC_REVIEW_DUE_AT IS NULL",
                 "OUTCOME = 'SKIPPED'",
                 "UNIQUE (DELIVERY_REVISION_ID)");
+        assertThat(sql).contains(
+                "AUTO_MIN_CENT IS NOT NULL",
+                "AUTO_MAX_CENT IS NOT NULL",
+                "AUTO_REVIEW_FREE_THRESHOLD_CENT IS NOT NULL");
         assertThat(sql)
                 .doesNotContain("UPDATE REC_DELIVERY_ORDER")
                 .doesNotContain("UPDATE FUND_WITHDRAWAL_ORDER")

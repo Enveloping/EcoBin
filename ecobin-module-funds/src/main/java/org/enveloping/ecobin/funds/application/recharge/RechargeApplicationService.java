@@ -1081,6 +1081,9 @@ public class RechargeApplicationService {
                         updated_at = ?
                     WHERE id = ? AND available_payout_cent = ?
                     """, after, now, account.id(), account.availableCent());
+            operationalControl
+                    .resolveAutoWithdrawalOrganizationLiquidityShortageIfCovered(
+                            row.tenantId(), row.organizationId(), after, now);
             jdbc.update("""
                     UPDATE fund_recharge_order
                     SET business_state = 'POSTED', posted_at = ?,

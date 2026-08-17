@@ -27,6 +27,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -91,6 +92,25 @@ class DeliveryAutoWithdrawalServiceTest {
     }
 
     @Test
+    void rejectsEnabledConfigurationWithMissingAutomaticAmounts() {
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> new DeliveryAutoWithdrawalService.AutoConfig(
+                        TENANT_ID,
+                        ORGANIZATION_ID,
+                        100L,
+                        4L,
+                        20_000L,
+                        true,
+                        null,
+                        200L,
+                        80L));
+
+        assertThat(failure.getMessage())
+                .contains("automatic withdrawal configuration");
+    }
+
+    @Test
     void createsAndFreezesReviewFreeAutomaticWithdrawalAtomically() {
         service.complete(
                 readyPlan(80L),
@@ -119,6 +139,9 @@ class DeliveryAutoWithdrawalServiceTest {
         assertThat(jdbc.argumentsFor(
                 "fund_delivery_auto_withdrawal_decision"))
                 .contains("CREATED_READY_TO_SUBMIT");
+        verify(operationalControl)
+                .resolveAutoWithdrawalOrganizationLiquidityShortageIfCovered(
+                        TENANT_ID, ORGANIZATION_ID, 1_000L, NOW);
 
         ArgumentCaptor<ReliableFundsTaskRegistrationPort
                 .ReliableFundsTaskRegistration> task =

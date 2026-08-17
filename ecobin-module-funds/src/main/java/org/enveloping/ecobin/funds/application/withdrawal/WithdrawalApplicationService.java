@@ -211,6 +211,11 @@ public class WithdrawalApplicationService {
         if (request == null || request.expectedCurrentVersion() == null) {
             throw validation("expectedCurrentVersion 不能为空");
         }
+        if (request.manualReviewFreeThresholdYuan() == null
+                || request.autoWithdrawalEnabled() == null) {
+            throw validation(
+                    "manualReviewFreeThresholdYuan 和 autoWithdrawalEnabled 不能为空，请刷新页面后重试");
+        }
         long hard = RechargeApplicationService.parseCent(
                 request.hardLimitYuan(), "hardLimitYuan");
         long minimum = RechargeApplicationService.parseCent(
@@ -218,12 +223,9 @@ public class WithdrawalApplicationService {
         long maximum = RechargeApplicationService.parseCent(
                 request.manualMaximumYuan(), "manualMaximumYuan");
         long manualReviewFree = RechargeApplicationService.parseCent(
-                request.manualReviewFreeThresholdYuan() == null
-                        ? "0.00"
-                        : request.manualReviewFreeThresholdYuan(),
+                request.manualReviewFreeThresholdYuan(),
                 "manualReviewFreeThresholdYuan");
-        boolean autoEnabled = Boolean.TRUE.equals(
-                request.autoWithdrawalEnabled());
+        boolean autoEnabled = request.autoWithdrawalEnabled();
         Long autoMinimum = autoEnabled
                 ? RechargeApplicationService.parseCent(
                         request.autoMinimumYuan(), "autoMinimumYuan")
@@ -1742,6 +1744,10 @@ public class WithdrawalApplicationService {
         long accountAvailableAfter = account.availableCent() + order.amountCent();
         long accountFrozenAfter = account.frozenCent() - order.amountCent();
         updateAccount(account, accountAvailableAfter, accountFrozenAfter, now);
+        operationalControl
+                .resolveAutoWithdrawalOrganizationLiquidityShortageIfCovered(
+                        order.tenantId(), order.organizationId(),
+                        accountAvailableAfter, now);
         insertPayoutFinalEntry(
                 order.tenantId(), order.organizationId(), account.id(),
                 order.id(), "WITHDRAWAL_RELEASED", "FINAL",

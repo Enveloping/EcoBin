@@ -117,6 +117,9 @@ ALTER TABLE fund_organization_withdraw_config
             OR
             (
                 auto_withdrawal_enabled = 1
+                AND auto_min_cent IS NOT NULL
+                AND auto_max_cent IS NOT NULL
+                AND auto_review_free_threshold_cent IS NOT NULL
                 AND auto_min_cent BETWEEN 10 AND auto_max_cent
                 AND auto_max_cent <= hard_limit_cent
                 AND auto_review_free_threshold_cent

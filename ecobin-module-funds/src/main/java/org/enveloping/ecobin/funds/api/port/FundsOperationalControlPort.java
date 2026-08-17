@@ -25,6 +25,12 @@ public interface FundsOperationalControlPort {
             long requiredAmountCent,
             LocalDateTime observedAt);
 
+    void resolveAutoWithdrawalOrganizationLiquidityShortageIfCovered(
+            long tenantId,
+            long organizationId,
+            long availableAmountCent,
+            LocalDateTime resolvedAt);
+
     void markPayoutTaskWaiting(
             UUID taskUid,
             long merchantProfileId,

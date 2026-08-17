@@ -232,6 +232,12 @@ class DeliveryAutoWithdrawalService {
             return;
         }
 
+        operationalControl
+                .resolveAutoWithdrawalOrganizationLiquidityShortageIfCovered(
+                        plan.user().tenantId(),
+                        plan.user().organizationId(),
+                        account.availableCent(),
+                        occurredAt);
         boolean reviewRequired = command.deltaCent()
                 > plan.config().reviewFreeCent();
         String withdrawalNo = "AW" + command.revisionUid()
@@ -727,6 +733,21 @@ class DeliveryAutoWithdrawalService {
             Long minimumCent,
             Long maximumCent,
             Long reviewFreeCent) {
+
+        AutoConfig {
+            if (enabled && (minimumCent == null
+                    || maximumCent == null
+                    || reviewFreeCent == null)) {
+                throw new IllegalStateException(
+                        "enabled automatic withdrawal configuration is incomplete");
+            }
+            if (!enabled && (minimumCent != null
+                    || maximumCent != null
+                    || reviewFreeCent != null)) {
+                throw new IllegalStateException(
+                        "disabled automatic withdrawal configuration contains amounts");
+            }
+        }
     }
 
     private record ConfigHead(long configId, long version) {
