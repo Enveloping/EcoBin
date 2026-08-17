@@ -97,6 +97,7 @@ class OrganizationDeliveryConfigurationServiceTest {
 
         assertThat(result.versionNo()).isEqualTo(1);
         assertThat(result.reviewMode()).isEqualTo("ALL_MANUAL");
+        assertThat(result.automaticReviewMaxAmountYuan()).isNull();
         assertThat(result.openBalanceFloorYuan())
                 .isEqualTo("-10.00");
         assertThat(result.maxReviewAbsoluteWeightKg())
@@ -199,18 +200,67 @@ class OrganizationDeliveryConfigurationServiceTest {
                 new DeliveryConfigurationReleaseRequest(
                         1L,
                         "NORMAL_AUTO_AFTER_24H",
+                        "25.00",
                         "-10.00",
                         "100.000",
                         "enable automatic review"));
 
         assertThat(result.reviewMode())
                 .isEqualTo("NORMAL_AUTO_AFTER_24H");
+        assertThat(result.automaticReviewMaxAmountYuan())
+                .isEqualTo("25.00");
         ArgumentCaptor<NewDeliveryConfigurationVersion> inserted =
                 ArgumentCaptor.forClass(
                         NewDeliveryConfigurationVersion.class);
         verify(repository).insertVersion(any(), inserted.capture());
         assertThat(inserted.getValue().reviewMode())
                 .isEqualTo("NORMAL_AUTO_AFTER_24H");
+        assertThat(inserted.getValue().automaticReviewMaxAmountCent())
+                .isEqualTo(2_500L);
+    }
+
+    @Test
+    void automaticReviewModeRequiresAnAmountLimit() {
+        var request = new DeliveryConfigurationReleaseRequest(
+                1L,
+                "NORMAL_AUTO_IMMEDIATE",
+                null,
+                "-10.00",
+                "100.000",
+                null);
+
+        assertThatThrownBy(() -> service.release(
+                false,
+                null,
+                "organization-a",
+                OPERATION_UID,
+                request)).isInstanceOfSatisfying(
+                        TargetApiException.class,
+                        failure -> assertThat(failure.code()).isEqualTo(
+                                "DELIVERY.AUTO_REVIEW_AMOUNT_LIMIT_REQUIRED"));
+
+        verify(repository, never()).insertVersion(any(), any());
+    }
+
+    @Test
+    void allManualModeRejectsAnAutomaticAmountLimit() {
+        var request = new DeliveryConfigurationReleaseRequest(
+                1L,
+                "ALL_MANUAL",
+                "0.00",
+                "-10.00",
+                "100.000",
+                null);
+
+        assertThatThrownBy(() -> service.release(
+                false,
+                null,
+                "organization-a",
+                OPERATION_UID,
+                request)).isInstanceOfSatisfying(
+                        TargetApiException.class,
+                        failure -> assertThat(failure.code()).isEqualTo(
+                                "DELIVERY.AUTO_REVIEW_AMOUNT_LIMIT_NOT_APPLICABLE"));
     }
 
     @Test
@@ -295,6 +345,7 @@ class OrganizationDeliveryConfigurationServiceTest {
         return new DeliveryConfigurationReleaseRequest(
                 expectedVersion,
                 "ALL_MANUAL",
+                null,
                 floor,
                 maximumWeight,
                 "adjust pilot rule");
@@ -312,6 +363,7 @@ class OrganizationDeliveryConfigurationServiceTest {
                 version,
                 digest,
                 "ALL_MANUAL",
+                null,
                 floorCent,
                 maximumWeightGram,
                 "STAFF",

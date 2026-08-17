@@ -336,7 +336,7 @@ test('cleaning Web slice separates operation facts from editable records', () =>
   assert.doesNotMatch(recordPage, /审核|拒绝/);
 });
 
-test('organization delivery rules stay versioned and share one Web panel', () => {
+test('business rules stay versioned under one configuration menu', () => {
   const routeSource = readFileSync(
     new URL('src/router/routes.tsx', webRoot),
     'utf8',
@@ -353,6 +353,14 @@ test('organization delivery rules stay versioned and share one Web panel', () =>
     new URL('src/pages/organization/index.tsx', webRoot),
     'utf8',
   );
+  const fundsSource = readFileSync(
+    new URL('src/pages/funds/index.tsx', webRoot),
+    'utf8',
+  );
+  const withdrawalConfigurationSource = readFileSync(
+    new URL('src/pages/withdrawal-configuration/index.tsx', webRoot),
+    'utf8',
+  );
   const configurationSource = readFileSync(
     new URL(
       'src/pages/organization/OrganizationDeliveryConfiguration.tsx',
@@ -362,19 +370,41 @@ test('organization delivery rules stay versioned and share one Web panel', () =>
   );
   assert.match(
     routeSource,
-    /path: '\/delivery-configuration'[\s\S]*?delivery\.configuration\.manage/,
+    /path: '\/configurations\/delivery'[\s\S]*?delivery\.configuration\.manage/,
+  );
+  assert.match(
+    routeSource,
+    /path: '\/configurations\/withdrawal'[\s\S]*?withdrawal\.configuration\.manage/,
+  );
+  assert.match(routeSource, /name: '配置管理'/);
+  assert.match(
+    routeSource,
+    /LegacyDeliveryConfigurationRedirect[\s\S]*?location\.search/,
   );
   assert.match(apiSource, /DeliveryConfigurationReleaseRequest/);
   assert.match(apiSource, /intent\.execute/);
   assert.match(pageSource, /OrganizationDeliveryConfiguration/);
-  assert.match(
+  assert.doesNotMatch(
     organizationSource,
-    /hasCapability\('delivery\.configuration\.manage'\)/,
+    /delivery\.configuration\.manage|OrganizationDeliveryConfiguration/,
   );
-  assert.match(organizationSource, /OrganizationDeliveryConfiguration/);
+  assert.doesNotMatch(
+    fundsSource,
+    /getWithdrawalConfiguration|releaseWithdrawalConfiguration|提现规则/,
+  );
   assert.match(configurationSource, /expectedLatestVersion:\s*current\.versionNo/);
+  assert.match(configurationSource, /automaticReviewMaxAmountYuan/);
   assert.match(configurationSource, /requestSequence/);
   assert.doesNotMatch(configurationSource, /randomUUID|Math\.random/);
+  assert.match(
+    withdrawalConfigurationSource,
+    /label="单次最大提现金额（元）"/,
+  );
+  assert.match(
+    withdrawalConfigurationSource,
+    /directory\.context\?\.domain !== 'platform'/,
+  );
+  assert.match(withdrawalConfigurationSource, /releaseWithdrawalConfiguration/);
 });
 
 test('device Web slice keeps one permanent asset and automatic activation model', () => {

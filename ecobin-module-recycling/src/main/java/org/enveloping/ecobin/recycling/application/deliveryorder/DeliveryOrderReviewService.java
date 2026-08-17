@@ -315,6 +315,9 @@ public class DeliveryOrderReviewService
                 && order.rawNetWeightGram() >= 0
                 && order.rawAmountCent() != null
                 && order.rawAmountCent() >= 0
+                && order.automaticReviewMaxAmountCentSnapshot() != null
+                && order.rawAmountCent()
+                <= order.automaticReviewMaxAmountCentSnapshot()
                 && !order.negativeWeightAnomaly();
     }
 

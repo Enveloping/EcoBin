@@ -17,10 +17,10 @@ if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
 
 if ($provisionSource -notmatch '\$tables\.Count -ne 113' -or
         $provisionSource -notmatch 'Expected 113 domain tables') {
-    throw "H-02 provisioning must enforce the V53 113-table shape"
+    throw "H-02 provisioning must enforce the V54 113-table shape"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 53') {
-    throw "H-02 provisioning must migrate through V53"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 54') {
+    throw "H-02 provisioning must migrate through V54"
 }
 if ($provisionSource -notmatch
         'sha256:9cffaceb9b62d4280247acdb2324b380d2b36208ae34dfe9f0afb62eeaf70f08' -or

@@ -33,7 +33,6 @@ import DirectoryScopeBar from '@/pages/identity/DirectoryScopeBar';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { directoryPath } from '@/router/directoryQuery';
-import OrganizationDeliveryConfiguration from './OrganizationDeliveryConfiguration';
 import OrganizationMiniappConfiguration from './OrganizationMiniappConfiguration';
 
 interface OrganizationForm {
@@ -51,11 +50,8 @@ export default function OrganizationPage() {
     state.hasCapability('organization.manage'));
   const canManageMiniapp = useAuthStore((state) =>
     state.hasCapability('miniapp.manage'));
-  const canManageDeliveryConfiguration = useAuthStore((state) =>
-    state.hasCapability('delivery.configuration.manage'));
   const canEdit = canManage
-    || canManageMiniapp
-    || canManageDeliveryConfiguration;
+    || canManageMiniapp;
   const [editing, setEditing] = useState<IdentityOrganization | null>(null);
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('profile');
@@ -437,25 +433,6 @@ export default function OrganizationPage() {
                     children: (
                       <OrganizationMiniappConfiguration
                         active={open && activeTab === 'miniapp'}
-                        context={scope.context}
-                        organizationCode={editing.organizationCode}
-                      />
-                    ),
-                  },
-                ]
-              : []),
-            ...(editing
-              && canManageDeliveryConfiguration
-              && scope.context
-              ? [
-                  {
-                    key: 'delivery-configuration',
-                    label: '投递规则',
-                    children: (
-                      <OrganizationDeliveryConfiguration
-                        active={
-                          open && activeTab === 'delivery-configuration'
-                        }
                         context={scope.context}
                         organizationCode={editing.organizationCode}
                       />

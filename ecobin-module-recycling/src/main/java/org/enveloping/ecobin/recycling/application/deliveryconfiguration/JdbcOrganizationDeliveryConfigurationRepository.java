@@ -23,6 +23,7 @@ class JdbcOrganizationDeliveryConfigurationRepository
                    config.version_no,
                    config.content_sha256,
                    config.review_mode,
+                   config.automatic_review_max_amount_cent,
                    config.open_balance_floor_cent,
                    config.max_review_abs_weight_g,
                    config.publication_source,
@@ -116,6 +117,7 @@ class JdbcOrganizationDeliveryConfigurationRepository
                         row.versionNo(),
                         row.contentSha256(),
                         row.reviewMode(),
+                        row.automaticReviewMaxAmountCent(),
                         row.openBalanceFloorCent(),
                         row.maxReviewAbsoluteWeightGram(),
                         row.publicationSource(),
@@ -190,33 +192,41 @@ class JdbcOrganizationDeliveryConfigurationRepository
                         version_no,
                         content_sha256,
                         review_mode,
+                        automatic_review_max_amount_cent,
                         open_balance_floor_cent,
                         max_review_abs_weight_g,
                         publication_source,
                         published_by_staff_account_id,
                         published_at,
                         created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, Statement.RETURN_GENERATED_KEYS);
             statement.setLong(1, scope.tenantId());
             statement.setLong(2, scope.organizationId());
             statement.setLong(3, version.versionNo());
             statement.setBytes(4, version.contentSha256());
             statement.setString(5, version.reviewMode());
-            statement.setLong(6, version.openBalanceFloorCent());
-            statement.setLong(
-                    7,
-                    version.maxReviewAbsoluteWeightGram());
-            statement.setString(8, version.publicationSource());
-            if (version.publishedByStaffAccountId() == null) {
-                statement.setNull(9, java.sql.Types.BIGINT);
+            if (version.automaticReviewMaxAmountCent() == null) {
+                statement.setNull(6, java.sql.Types.BIGINT);
             } else {
                 statement.setLong(
-                        9,
+                        6,
+                        version.automaticReviewMaxAmountCent());
+            }
+            statement.setLong(7, version.openBalanceFloorCent());
+            statement.setLong(
+                    8,
+                    version.maxReviewAbsoluteWeightGram());
+            statement.setString(9, version.publicationSource());
+            if (version.publishedByStaffAccountId() == null) {
+                statement.setNull(10, java.sql.Types.BIGINT);
+            } else {
+                statement.setLong(
+                        10,
                         version.publishedByStaffAccountId());
             }
-            statement.setObject(10, version.publishedAt());
             statement.setObject(11, version.publishedAt());
+            statement.setObject(12, version.publishedAt());
             return statement;
         }, keyHolder);
         Number key = keyHolder.getKey();
@@ -271,6 +281,9 @@ class JdbcOrganizationDeliveryConfigurationRepository
                 rs.getLong("version_no"),
                 rs.getBytes("content_sha256"),
                 rs.getString("review_mode"),
+                nullableLong(
+                        rs,
+                        "automatic_review_max_amount_cent"),
                 rs.getLong("open_balance_floor_cent"),
                 rs.getLong("max_review_abs_weight_g"),
                 rs.getString("publication_source"),
@@ -281,6 +294,13 @@ class JdbcOrganizationDeliveryConfigurationRepository
                 rs.getObject("published_at", LocalDateTime.class),
                 rs.getBoolean("is_current"),
                 rs.getLong("head_lock_version"));
+    }
+
+    private static Long nullableLong(
+            ResultSet rs,
+            String column) throws SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
     }
 
     private record HeadRow(

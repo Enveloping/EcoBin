@@ -52,6 +52,7 @@ public class JdbcOrganizationBootstrapParticipant
                                 INSERT INTO rec_organization_delivery_config (
                                     tenant_id, organization_id, version_no,
                                     content_sha256, review_mode,
+                                    automatic_review_max_amount_cent,
                                     open_balance_floor_cent,
                                     max_review_abs_weight_g,
                                     publication_source,
@@ -59,7 +60,7 @@ public class JdbcOrganizationBootstrapParticipant
                                     published_at, created_at
                                 ) VALUES (
                                     ?, ?, 1, ?, 'ALL_MANUAL',
-                                    ?, ?, 'SYSTEM', NULL,
+                                    NULL, ?, ?, 'SYSTEM', NULL,
                                     UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
                                 )
                                 """, Statement.RETURN_GENERATED_KEYS);

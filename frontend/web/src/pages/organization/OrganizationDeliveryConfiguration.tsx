@@ -29,6 +29,7 @@ import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { formatShanghaiTime } from '@/utils/decimal';
 
 const FLOOR_PATTERN = /^-(0|[1-9][0-9]*)\.[0-9]{2}$/;
+const MONEY_PATTERN = /^(0|[1-9][0-9]*)\.[0-9]{2}$/;
 const WEIGHT_PATTERN = /^(0|[1-9][0-9]*)\.[0-9]{3}$/;
 
 interface OrganizationDeliveryConfigurationProps {
@@ -60,6 +61,7 @@ const REVIEW_MODE: Record<ReviewMode, { label: string; description: string }> = 
 
 interface ReleaseForm {
   reviewMode: ReviewMode;
+  automaticReviewMaxAmountYuan?: string;
   openBalanceFloorYuan: string;
   maxReviewAbsoluteWeightKg: string;
   reason?: string;
@@ -83,6 +85,7 @@ export default function OrganizationDeliveryConfiguration({
   const executeCommand = useCommandExecutor();
   const requestSequence = useRef(0);
   const [form] = Form.useForm<ReleaseForm>();
+  const selectedReviewMode = Form.useWatch('reviewMode', form);
   const [current, setCurrent] =
     useState<DeliveryConfigurationVersion | null>(null);
   const [versions, setVersions] =
@@ -143,6 +146,8 @@ export default function OrganizationDeliveryConfiguration({
     if (!current) return;
     form.setFieldsValue({
       reviewMode: current.reviewMode,
+      automaticReviewMaxAmountYuan:
+        current.automaticReviewMaxAmountYuan ?? undefined,
       openBalanceFloorYuan: current.openBalanceFloorYuan,
       maxReviewAbsoluteWeightKg: current.maxReviewAbsoluteWeightKg,
       reason: undefined,
@@ -161,6 +166,9 @@ export default function OrganizationDeliveryConfiguration({
     const payload: DeliveryConfigurationReleaseRequest = {
       expectedLatestVersion: current.versionNo,
       reviewMode: values.reviewMode,
+      automaticReviewMaxAmountYuan: values.reviewMode === 'ALL_MANUAL'
+        ? null
+        : values.automaticReviewMaxAmountYuan?.trim() ?? null,
       openBalanceFloorYuan: values.openBalanceFloorYuan.trim(),
       maxReviewAbsoluteWeightKg:
         values.maxReviewAbsoluteWeightKg.trim(),
@@ -260,6 +268,11 @@ export default function OrganizationDeliveryConfiguration({
           <Descriptions.Item label="负余额停投下限">
             ¥ {current.openBalanceFloorYuan}
           </Descriptions.Item>
+          <Descriptions.Item label="自动审核结算金额上限">
+            {current.automaticReviewMaxAmountYuan === null
+              ? '不适用（全部人工审核）'
+              : `¥ ${current.automaticReviewMaxAmountYuan}`}
+          </Descriptions.Item>
           <Descriptions.Item label="人工认定重量上限">
             ±{current.maxReviewAbsoluteWeightKg} kg
           </Descriptions.Item>
@@ -301,6 +314,12 @@ export default function OrganizationDeliveryConfiguration({
               dataIndex: 'reviewMode',
               width: 220,
               render: (value: ReviewMode) => REVIEW_MODE[value].label,
+            },
+            {
+              title: '自动审核金额上限',
+              dataIndex: 'automaticReviewMaxAmountYuan',
+              width: 150,
+              render: (value) => value === null ? '不适用' : `¥ ${value}`,
             },
             {
               title: '停投下限',
@@ -368,6 +387,22 @@ export default function OrganizationDeliveryConfiguration({
               }))}
             />
           </Form.Item>
+          {selectedReviewMode && selectedReviewMode !== 'ALL_MANUAL' && (
+            <Form.Item
+              name="automaticReviewMaxAmountYuan"
+              label="自动审核单笔结算金额上限（元）"
+              extra="原始结算金额小于或等于该值时，正常订单才按上面的时间自动审核；超过后只等待人工审核，不会记为异常。允许填写 0.00。"
+              rules={[
+                { required: true, message: '请输入自动审核金额上限' },
+                {
+                  pattern: MONEY_PATTERN,
+                  message: '请输入非负金额并精确到分，例如 10.00',
+                },
+              ]}
+            >
+              <Input placeholder="10.00" />
+            </Form.Item>
+          )}
           <Form.Item
             name="openBalanceFloorYuan"
             label="负余额停投下限（元）"

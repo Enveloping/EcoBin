@@ -381,7 +381,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V53 application exited before readiness`n$diagnostic"
+            throw "correct V54 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -419,7 +419,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V53 application did not become ready; " +
+    throw "correct V54 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -980,7 +980,7 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV53Ready = $true
+        correctV54Ready = $true
         existingAdministratorPromotedWithoutCredentialChange = $true
         fakeIngressBlocked = $true
         fakeIngressContextPathBlocked = $true

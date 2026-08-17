@@ -10479,6 +10479,7 @@
         "required": [
           "expectedLatestVersion",
           "reviewMode",
+          "automaticReviewMaxAmountYuan",
           "openBalanceFloorYuan",
           "maxReviewAbsoluteWeightKg"
         ],
@@ -10490,6 +10491,12 @@
           },
           "reviewMode": {
             "$ref": "#/components/schemas/DeliveryReviewMode"
+          },
+          "automaticReviewMaxAmountYuan": {
+            "type": ["string", "null"],
+            "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$",
+            "description": "Maximum raw settlement amount eligible for automatic review. Required for automatic modes and null for ALL_MANUAL.",
+            "example": "10.00"
           },
           "openBalanceFloorYuan": {
             "type": "string",
@@ -10516,6 +10523,7 @@
           "versionNo",
           "contentSha256",
           "reviewMode",
+          "automaticReviewMaxAmountYuan",
           "openBalanceFloorYuan",
           "maxReviewAbsoluteWeightKg",
           "publicationSource",
@@ -10535,6 +10543,10 @@
           },
           "reviewMode": {
             "$ref": "#/components/schemas/DeliveryReviewMode"
+          },
+          "automaticReviewMaxAmountYuan": {
+            "type": ["string", "null"],
+            "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$"
           },
           "openBalanceFloorYuan": {
             "type": "string",

@@ -387,6 +387,7 @@ class JdbcDeliveryOrderRepository {
                                raw_calculation_status,
                                negative_weight_anomaly,
                                review_mode_snapshot,
+                               automatic_review_max_amount_cent_snapshot,
                                automatic_review_due_at,
                                EXISTS (
                                    SELECT 1
@@ -433,6 +434,7 @@ class JdbcDeliveryOrderRepository {
                                raw_calculation_status,
                                negative_weight_anomaly,
                                review_mode_snapshot,
+                               automatic_review_max_amount_cent_snapshot,
                                automatic_review_due_at,
                                EXISTS (
                                    SELECT 1
@@ -739,6 +741,9 @@ class JdbcDeliveryOrderRepository {
                 rs.getString("raw_calculation_status"),
                 rs.getBoolean("negative_weight_anomaly"),
                 rs.getString("review_mode_snapshot"),
+                nullableLong(
+                        rs,
+                        "automatic_review_max_amount_cent_snapshot"),
                 rs.getObject(
                         "automatic_review_due_at",
                         LocalDateTime.class),
@@ -924,6 +929,7 @@ record LockedDeliveryOrderRow(
         String rawCalculationStatus,
         boolean negativeWeightAnomaly,
         String reviewModeSnapshot,
+        Long automaticReviewMaxAmountCentSnapshot,
         LocalDateTime automaticReviewDueAt,
         boolean netWeightInconsistent,
         String reviewStatus,

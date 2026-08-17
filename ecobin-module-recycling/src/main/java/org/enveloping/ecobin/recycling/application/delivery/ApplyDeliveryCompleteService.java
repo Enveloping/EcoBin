@@ -197,6 +197,7 @@ public class ApplyDeliveryCompleteService
                         SELECT version_no,
                                content_sha256,
                                review_mode,
+                               automatic_review_max_amount_cent,
                                open_balance_floor_cent,
                                max_review_abs_weight_g
                         FROM rec_organization_delivery_config
@@ -208,6 +209,9 @@ public class ApplyDeliveryCompleteService
                         rs.getLong("version_no"),
                         rs.getBytes("content_sha256"),
                         rs.getString("review_mode"),
+                        nullableLong(
+                                rs,
+                                "automatic_review_max_amount_cent"),
                         rs.getLong("open_balance_floor_cent"),
                         rs.getLong("max_review_abs_weight_g")),
                 facts.tenantId(),
@@ -372,6 +376,7 @@ public class ApplyDeliveryCompleteService
                             delivery_config_version_no,
                             delivery_config_content_sha256,
                             review_mode_snapshot,
+                            automatic_review_max_amount_cent_snapshot,
                             automatic_review_due_at,
                             unit_price_yuan_per_kg,
                             open_balance_floor_cent,
@@ -402,6 +407,7 @@ public class ApplyDeliveryCompleteService
                             ?, ?,
                             ?,
                             ?, ?,
+                            ?,
                             ?,
                             ?,
                             ?,
@@ -446,6 +452,7 @@ public class ApplyDeliveryCompleteService
                 configuration.versionNo(),
                 facts.deliveryConfigContentSha256(),
                 configuration.reviewMode(),
+                configuration.automaticReviewMaxAmountCent(),
                 automaticReviewDueAt(
                         configuration.reviewMode(),
                         facts.backendReceivedAt()),
@@ -738,8 +745,9 @@ public class ApplyDeliveryCompleteService
                 facts.organizationId(), orderId);
         boolean eligible = "RELIABLE".equals(calculation.status())
                 && calculation.netWeightGrams() >= 0
-                && calculation.amountCent() != null
-                && calculation.amountCent() >= 0
+                && automaticReviewAmountWithinLimit(
+                        calculation.amountCent(),
+                        configuration.automaticReviewMaxAmountCent())
                 && !facts.physicalFact().negativeWeightAnomaly()
                 && (anomalies == null || anomalies == 0);
         if (!eligible) {
@@ -762,6 +770,16 @@ public class ApplyDeliveryCompleteService
                 sha256(snapshot),
                 20,
                 dueAt));
+    }
+
+    static boolean automaticReviewAmountWithinLimit(
+            Long amountCent,
+            Long maximumAmountCent) {
+        return amountCent != null
+                && amountCent >= 0
+                && maximumAmountCent != null
+                && maximumAmountCent >= 0
+                && amountCent <= maximumAmountCent;
     }
 
     private static LocalDateTime automaticReviewDueAt(
@@ -930,6 +948,7 @@ public class ApplyDeliveryCompleteService
             long versionNo,
             byte[] contentSha256,
             String reviewMode,
+            Long automaticReviewMaxAmountCent,
             long openBalanceFloorCent,
             long maxReviewAbsWeightGrams) {
     }

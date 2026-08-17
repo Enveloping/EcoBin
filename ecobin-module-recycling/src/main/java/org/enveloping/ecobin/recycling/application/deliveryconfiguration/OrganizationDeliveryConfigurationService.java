@@ -58,12 +58,14 @@ public class OrganizationDeliveryConfigurationService {
             "delivery.configuration.release";
     private static final String TARGET_TYPE =
             "ORGANIZATION_DELIVERY_CONFIGURATION";
-    private static final int SCHEMA_VERSION = 2;
+    private static final int SCHEMA_VERSION = 3;
     private static final int DEFAULT_LIMIT = 20;
     private static final int MAX_LIMIT = 100;
     private static final long MAX_VERSION = 9_007_199_254_740_991L;
     private static final Pattern MONEY_PATTERN =
             Pattern.compile("^-?(0|[1-9][0-9]*)\\.[0-9]{2}$");
+    private static final Pattern NON_NEGATIVE_MONEY_PATTERN =
+            Pattern.compile("^(0|[1-9][0-9]*)\\.[0-9]{2}$");
     private static final Pattern WEIGHT_PATTERN =
             Pattern.compile("^(0|[1-9][0-9]*)\\.[0-9]{3}$");
 
@@ -308,6 +310,7 @@ public class OrganizationDeliveryConfigurationService {
                         versionNo,
                         contentSha256,
                         request.reviewMode(),
+                        request.automaticReviewMaxAmountCent(),
                         request.openBalanceFloorCent(),
                         request.maxReviewAbsoluteWeightGram(),
                         publicationSource,
@@ -325,6 +328,8 @@ public class OrganizationDeliveryConfigurationService {
                         versionNo,
                         HexFormat.of().formatHex(contentSha256),
                         request.reviewMode(),
+                        nullableMoney(
+                                request.automaticReviewMaxAmountCent()),
                         money(request.openBalanceFloorCent()),
                         weight(request.maxReviewAbsoluteWeightGram()),
                         publicationSource,
@@ -392,6 +397,10 @@ public class OrganizationDeliveryConfigurationService {
                             REVIEW_MODES.stream().sorted().toList()));
         }
         long floorCent = parseFloor(request.openBalanceFloorYuan());
+        Long automaticReviewMaxAmountCent =
+                parseAutomaticReviewMaxAmount(
+                        reviewMode,
+                        request.automaticReviewMaxAmountYuan());
         long maximumWeightGram = parseMaximumWeight(
                 request.maxReviewAbsoluteWeightKg());
         String reason = trimToNull(request.reason());
@@ -401,6 +410,7 @@ public class OrganizationDeliveryConfigurationService {
         return new NormalizedRelease(
                 request.expectedLatestVersion(),
                 reviewMode,
+                automaticReviewMaxAmountCent,
                 floorCent,
                 maximumWeightGram,
                 reason);
@@ -429,6 +439,39 @@ public class OrganizationDeliveryConfigurationService {
         }
     }
 
+    private static Long parseAutomaticReviewMaxAmount(
+            String reviewMode,
+            String value) {
+        String normalized = trimToNull(value);
+        if ("ALL_MANUAL".equals(reviewMode)) {
+            if (normalized != null) {
+                throw new TargetApiException(
+                        422,
+                        "DELIVERY.AUTO_REVIEW_AMOUNT_LIMIT_NOT_APPLICABLE",
+                        "全部人工审核模式不能设置自动审核金额上限");
+            }
+            return null;
+        }
+        if (normalized == null) {
+            throw new TargetApiException(
+                    422,
+                    "DELIVERY.AUTO_REVIEW_AMOUNT_LIMIT_REQUIRED",
+                    "自动审核模式必须设置单笔结算金额上限");
+        }
+        if (!NON_NEGATIVE_MONEY_PATTERN.matcher(normalized).matches()) {
+            throw invalidRequest(
+                    "automaticReviewMaxAmountYuan 必须是精确到分的非负金额字符串");
+        }
+        try {
+            return new BigDecimal(normalized)
+                    .movePointRight(2)
+                    .longValueExact();
+        } catch (ArithmeticException exception) {
+            throw invalidRequest(
+                    "automaticReviewMaxAmountYuan 超出可保存范围");
+        }
+    }
+
     private static long parseMaximumWeight(String value) {
         String normalized = required(value);
         if (!WEIGHT_PATTERN.matcher(normalized).matches()) {
@@ -454,8 +497,11 @@ public class OrganizationDeliveryConfigurationService {
 
     private byte[] contentSha256(NormalizedRelease request) {
         String canonical = """
-                {"maxReviewAbsoluteWeightGram":%d,"openBalanceFloorCent":%d,"reviewMode":"%s","schemaVersion":%d}"""
+                {"automaticReviewMaxAmountCent":%s,"maxReviewAbsoluteWeightGram":%d,"openBalanceFloorCent":%d,"reviewMode":"%s","schemaVersion":%d}"""
                 .formatted(
+                        request.automaticReviewMaxAmountCent() == null
+                                ? "null"
+                                : request.automaticReviewMaxAmountCent(),
                         request.maxReviewAbsoluteWeightGram(),
                         request.openBalanceFloorCent(),
                         request.reviewMode(),
@@ -482,6 +528,9 @@ public class OrganizationDeliveryConfigurationService {
                 "expectedLatestVersion",
                 request.expectedLatestVersion());
         canonical.put("reviewMode", request.reviewMode());
+        canonical.put(
+                "automaticReviewMaxAmountCent",
+                request.automaticReviewMaxAmountCent());
         canonical.put(
                 "openBalanceFloorCent",
                 request.openBalanceFloorCent());
@@ -512,13 +561,19 @@ public class OrganizationDeliveryConfigurationService {
             String fingerprint) {
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("fingerprint", fingerprint);
-        summary.put("before", Map.of(
-                "versionNo", before.versionNo(),
-                "reviewMode", before.reviewMode(),
+        Map<String, Object> beforeSummary = new LinkedHashMap<>();
+        beforeSummary.put("versionNo", before.versionNo());
+        beforeSummary.put("reviewMode", before.reviewMode());
+        beforeSummary.put(
+                "automaticReviewMaxAmountYuan",
+                nullableMoney(before.automaticReviewMaxAmountCent()));
+        beforeSummary.put(
                 "openBalanceFloorYuan",
-                money(before.openBalanceFloorCent()),
+                money(before.openBalanceFloorCent()));
+        beforeSummary.put(
                 "maxReviewAbsoluteWeightKg",
-                weight(before.maxReviewAbsoluteWeightGram())));
+                weight(before.maxReviewAbsoluteWeightGram()));
+        summary.put("before", beforeSummary);
         summary.put("after", response);
         summary.put("response", response);
         summary.put("reasonPresent", request.reason() != null);
@@ -611,6 +666,7 @@ public class OrganizationDeliveryConfigurationService {
                 row.versionNo(),
                 HexFormat.of().formatHex(row.contentSha256()),
                 row.reviewMode(),
+                nullableMoney(row.automaticReviewMaxAmountCent()),
                 money(row.openBalanceFloorCent()),
                 weight(row.maxReviewAbsoluteWeightGram()),
                 row.publicationSource(),
@@ -665,6 +721,10 @@ public class OrganizationDeliveryConfigurationService {
                 .toPlainString();
     }
 
+    private static String nullableMoney(Long cents) {
+        return cents == null ? null : money(cents);
+    }
+
     private static String weight(long grams) {
         return BigDecimal.valueOf(grams, 3)
                 .setScale(3, RoundingMode.UNNECESSARY)
@@ -702,6 +762,7 @@ public class OrganizationDeliveryConfigurationService {
     private record NormalizedRelease(
             long expectedLatestVersion,
             String reviewMode,
+            Long automaticReviewMaxAmountCent,
             long openBalanceFloorCent,
             long maxReviewAbsoluteWeightGram,
             String reason) {

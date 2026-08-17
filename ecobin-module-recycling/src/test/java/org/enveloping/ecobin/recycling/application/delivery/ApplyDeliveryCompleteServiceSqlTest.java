@@ -75,6 +75,20 @@ class ApplyDeliveryCompleteServiceSqlTest {
                 .isEqualTo("CAPACITY_STATE_MISSING");
     }
 
+    @Test
+    void automaticReviewAmountLimitIncludesTheExactBoundary() {
+        assertThat(ApplyDeliveryCompleteService
+                .automaticReviewAmountWithinLimit(0L, 0L)).isTrue();
+        assertThat(ApplyDeliveryCompleteService
+                .automaticReviewAmountWithinLimit(1_000L, 1_000L))
+                .isTrue();
+        assertThat(ApplyDeliveryCompleteService
+                .automaticReviewAmountWithinLimit(1_001L, 1_000L))
+                .isFalse();
+        assertThat(ApplyDeliveryCompleteService
+                .automaticReviewAmountWithinLimit(0L, null)).isFalse();
+    }
+
     private static ApplyDeliveryCompleteService.CapacityState capacity(
             Long capacityBagId,
             String baselineState,

@@ -22,7 +22,8 @@
 - V43 防伪袋码的权威裁决是 [`authenticated-bag-labels-v43.md`](docs/architecture/authenticated-bag-labels-v43.md)：平台只按批签发和打印 EB1 标签，不预建袋库存或分配关系；厂家登记和清运换袋由后端验真，未知有效码首次使用时才在当前机构建袋。
 - V52 设备注册、厂家验收和远程维护以 [`device-enrollment-factory-acceptance-remote-support-v52.md`](docs/architecture/device-enrollment-factory-acceptance-remote-support-v52.md) 为准：厂家 K1 只用于首次自注册并在正式凭证落盘后删除；厂家真实扫描所有初始袋后才允许自动验收；管理员公钥只登记一次，后端通过 OneNet 和四个复用端口建立短期反向 SSH。
 - V53 投递自动审核和审核后自动提现以 [`delivery-auto-review-and-withdrawal-v53.md`](docs/architecture/delivery-auto-review-and-withdrawal-v53.md) 为准：机构分别按版本发布投递审核和提现规则；异常投递始终转人工；自动提现只处理本次首次审核产生的正返现，业务条件不满足时安全跳过且不事后补建。
-- 当前仓库已由 F-03 收口为最终九模块 reactor。独立目标数据库迁移已推进到 V53：V52 共 112 张领域表，V53 新增自动提现决策事实并扩展投递/提现快照，共 113 张领域表、76 条有效权限定义。服务器实际版本仍必须在部署前现场核对并用 H-02 续跑到 V53，不能仅凭旧记录假定已经升级。
+- V54 投递审核金额阈值和 Web 配置中心以 [`delivery-review-amount-limit-and-configuration-center-v54.md`](docs/architecture/delivery-review-amount-limit-and-configuration-center-v54.md) 为准：自动模式必须设置单笔结算金额上限，超过上限的正常订单等待人工审核；提现复用现有单次硬上限；Web 只收拢投递审核和提现两类机构规则。
+- 当前仓库已由 F-03 收口为最终九模块 reactor。独立目标数据库迁移已推进到 V54：V52 共 112 张领域表，V53 新增自动提现决策事实，V54 只扩展投递规则和订单快照，仍为 113 张领域表、76 条有效权限定义。服务器实际版本仍必须在部署前现场核对并用 H-02 续跑到 V54，不能仅凭旧记录假定已经升级。
 - 近期交付重点仍是公司自用的受控 P0：用户投递及其审核返现、清运换袋、机构充值和真实微信零钱提现闭环。真实资金、物理门控、租户/机构隔离和失败恢复不能因时间紧张而省略。
 - P0 是近期承诺范围，M0 是 P0 通过受控真实验收后的里程碑，M1 才是公司自用正式上线准备；三者不能混用。
 
@@ -38,7 +39,7 @@
    5. [`database-design-draft.md`](docs/planning/database-design-draft.md)
    6. [`interface-design-draft.md`](docs/planning/interface-design-draft.md)
    7. [`detailed-design-draft.md`](docs/planning/detailed-design-draft.md)
-4. 判断“系统现在如何运行”时，以当前代码、测试、根 `pom.xml`、旧运行 Flyway V1～V14、独立目标迁移 `db/p0-migration/V1～V53`、当前 OneNet v2 物模型和设备程序为准。
+4. 判断“系统现在如何运行”时，以当前代码、测试、根 `pom.xml`、旧运行 Flyway V1～V14、独立目标迁移 `db/p0-migration/V1～V54`、当前 OneNet v2 物模型和设备程序为准。
 5. 目标基线与当前实现冲突并不代表文档错误：先明确是在描述现状、迁移过程还是目标，禁止用旧代码反向推翻已确认目标，也禁止把目标文档当作已运行事实。
 
 ## 3. 当前实现与冻结目标必须分开
@@ -46,7 +47,7 @@
 | 范围 | 当前运行事实 | 冻结目标 |
 |---|---|---|
 | 后端模块 | 最终 9 模块 reactor 已完成；system/business 已退出，跨业务模块只经 `.api`，外部适配位于 integration | 9 模块物理边界已完成；后续在冻结边界内实现目标纵向业务 |
-| 数据库 | 旧栈恢复单元仍是 V1～V14/13 张主要表；目标 V1～V53 为 113 张领域表，迁移只由独立 Maven 作业执行，新运行制品不含 Flyway 运行库或迁移脚本，并以固定 V1 marker + V53 guard 检查；服务器实际版本部署前必须现场核对并补齐到 V53 | 新旧应用/数据库成对隔离；V36～V52 保留既有永久资产、共享小程序、设备契约、资金状态与设备自注册演进；V53 增加投递自动审核和自动提现决策事实 |
+| 数据库 | 旧栈恢复单元仍是 V1～V14/13 张主要表；目标 V1～V54 为 113 张领域表，迁移只由独立 Maven 作业执行，新运行制品不含 Flyway 运行库或迁移脚本，并以固定 V1 marker + V54 guard 检查；服务器实际版本部署前必须现场核对并补齐到 V54 | 新旧应用/数据库成对隔离；V36～V53 保留既有永久资产、共享小程序、设备契约、资金状态与自动审核/提现演进；V54 增加投递自动审核金额阈值及订单快照 |
 | Web 会话 | `localStorage` Bearer JWT，旧角色/路由 | 同源 `Secure + HttpOnly` Cookie、SPA CSRF、服务端 `jti` 会话和实时能力复核 |
 | 小程序 | 旧普通用户/清运身份与接口 | 普通/清运 `aud=miniapp`；工作人员经 Web 人工绑定后用独立 `aud=miniapp-staff` 免密进入当前机构精简管理页 |
 | 投递 | 旧会话、旧事件字段和当前状态拼接 | 一次有效扫码 session 一单；中间继续轮次只在设备本地，最终首末重量/四图一次上报并可靠确认 |
@@ -150,7 +151,7 @@
 
 1. 首个纵向切片的入口、应用用例、模块端口、表、可靠任务、边缘状态和验收证据；
 2. 目标 9 模块的物理创建、代码搬迁和旧 `system/business` 删除顺序；
-3. 新数据库 V1～V53 的 DDL/Flyway、种子数据、数据库账号和旧新应用/数据库成对切换；
+3. 新数据库 V1～V54 的 DDL/Flyway、种子数据、数据库账号和旧新应用/数据库成对切换；
 4. HTTP OpenAPI、OneNet Schema、UART Registry 和各端实现的先后关系；
 5. 后端、Web、小程序、香橙派和 MCU 每个任务的依赖、完成条件与手工联调点；
 6. 哪些失败分支由单元/集成测试证明，哪些必须由真实 MySQL、真机或真实微信小额验收证明。

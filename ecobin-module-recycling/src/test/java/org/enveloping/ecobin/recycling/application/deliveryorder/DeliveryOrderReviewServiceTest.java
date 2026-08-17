@@ -890,6 +890,29 @@ class DeliveryOrderReviewServiceTest {
         verify(funds, never()).applyDeliveryRevisionDelta(any());
     }
 
+    @Test
+    void amountAboveTheFrozenLimitKeepsAutomaticOrderForHumanReview() {
+        DeliveryOrderScope scope = new DeliveryOrderScope(
+                TENANT_ID, ORGANIZATION_ID, null);
+        LockedDeliveryOrderRow order = automaticOrder(
+                "NORMAL_AUTO_IMMEDIATE",
+                REVIEWED_AT_DATABASE,
+                79L);
+        when(repository.findScopeByOrderNo(ORDER_NO))
+                .thenReturn(Optional.of(scope));
+        when(repository.lockOrder(scope, ORDER_NO))
+                .thenReturn(Optional.of(order));
+
+        ReliableRecyclingTaskExecutorPort.Result result = service.execute(
+                automaticReviewCommand());
+
+        assertThat(result.outcome()).isEqualTo(
+                ReliableRecyclingTaskExecutorPort.Result.Outcome.DONE);
+        assertThat(result.diagnostic()).contains("manual review");
+        verify(repository, never()).insertRevision(any(), any(), any());
+        verify(funds, never()).applyDeliveryRevisionDelta(any());
+    }
+
     private AuthorizedDeliveryScope authorized(
             boolean deliveryRead,
             boolean reviewExecute,
@@ -982,6 +1005,7 @@ class DeliveryOrderReviewServiceTest {
                 false,
                 "ALL_MANUAL",
                 null,
+                null,
                 false,
                 "PENDING",
                 0L,
@@ -1006,6 +1030,7 @@ class DeliveryOrderReviewServiceTest {
                 false,
                 "ALL_MANUAL",
                 null,
+                null,
                 false,
                 "APPROVED",
                 revisionNo,
@@ -1018,6 +1043,13 @@ class DeliveryOrderReviewServiceTest {
     private static LockedDeliveryOrderRow automaticOrder(
             String reviewMode,
             LocalDateTime dueAt) {
+        return automaticOrder(reviewMode, dueAt, 80L);
+    }
+
+    private static LockedDeliveryOrderRow automaticOrder(
+            String reviewMode,
+            LocalDateTime dueAt,
+            long maximumAmountCent) {
         return new LockedDeliveryOrderRow(
                 10L,
                 ORDER_NO,
@@ -1030,6 +1062,7 @@ class DeliveryOrderReviewServiceTest {
                 "RELIABLE",
                 false,
                 reviewMode,
+                maximumAmountCent,
                 dueAt,
                 false,
                 "PENDING",

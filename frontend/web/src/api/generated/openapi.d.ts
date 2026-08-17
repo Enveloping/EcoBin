@@ -6295,6 +6295,11 @@ export interface components {
             expectedLatestVersion: number;
             reviewMode: components["schemas"]["DeliveryReviewMode"];
             /**
+             * @description Maximum raw settlement amount eligible for automatic review. Required for automatic modes and null for ALL_MANUAL.
+             * @example 10.00
+             */
+            automaticReviewMaxAmountYuan: string | null;
+            /**
              * @description A strictly negative wallet balance. A user below this value cannot start another delivery.
              * @example -10.00
              */
@@ -6310,6 +6315,7 @@ export interface components {
             versionNo: number;
             contentSha256: components["schemas"]["Sha256Hex"];
             reviewMode: components["schemas"]["DeliveryReviewMode"];
+            automaticReviewMaxAmountYuan: string | null;
             openBalanceFloorYuan: string;
             maxReviewAbsoluteWeightKg: string;
             /** @enum {string} */

@@ -43,6 +43,9 @@ const DeliveryOrdersPage = lazy(
 const DeliveryConfigurationPage = lazy(
   () => import('@/pages/delivery-configuration'),
 );
+const WithdrawalConfigurationPage = lazy(
+  () => import('@/pages/withdrawal-configuration'),
+);
 const CleanOperationsPage = lazy(
   () => import('@/pages/clean-operations'),
 );
@@ -89,6 +92,16 @@ function LegacyUserBindingsRedirect() {
         tenant: source.get('tenant') ?? undefined,
         organization: source.get('organization') ?? undefined,
       })}
+    />
+  );
+}
+
+function LegacyDeliveryConfigurationRedirect() {
+  const location = useLocation();
+  return (
+    <Navigate
+      replace
+      to={`/configurations/delivery${location.search}`}
     />
   );
 }
@@ -179,11 +192,23 @@ export const appRoutes: AppRoute[] = [
     anyOf: ['delivery.read', 'review.execute'],
   },
   {
-    path: '/delivery-configuration',
+    path: '/configurations/delivery',
     name: '投递与审核规则',
     icon: <SlidersOutlined />,
     element: <DeliveryConfigurationPage />,
     allOf: ['delivery.configuration.manage'],
+  },
+  {
+    path: '/delivery-configuration',
+    element: <LegacyDeliveryConfigurationRedirect />,
+    allOf: ['delivery.configuration.manage'],
+  },
+  {
+    path: '/configurations/withdrawal',
+    name: '提现规则',
+    icon: <DollarOutlined />,
+    element: <WithdrawalConfigurationPage />,
+    anyOf: ['withdrawal.read', 'withdrawal.configuration.manage'],
   },
   {
     path: '/wallet-entries',
@@ -336,43 +361,27 @@ export function menuRoutesFor(
   }
 
   const delivery = visibleRoute(session, '/deliveries');
-  const deliveryConfiguration = visibleRoute(
-    session,
-    '/delivery-configuration',
-  );
-  if (delivery || deliveryConfiguration) {
+  if (delivery) {
     const deliveryRoutes: AppMenuRoute[] = [];
-    if (delivery) {
-      deliveryRoutes.push(
-        leaf(delivery, delivery.path, delivery.name ?? '', false),
-        {
-          path: '/menu/deliveries/rejected',
-          name: '已拒绝订单',
-          disabled: true,
-          tooltip: '目标投递契约没有“拒绝”终态',
-        },
-        {
-          path: '/menu/deliveries/corrected',
-          name: '已纠正订单',
-          disabled: true,
-          tooltip: '目标契约尚未提供仅看纠正订单的列表筛选',
-        },
-      );
-    }
-    if (deliveryConfiguration) {
-      deliveryRoutes.push(
-        leaf(
-          deliveryConfiguration,
-          deliveryConfiguration.path,
-          deliveryConfiguration.name ?? '',
-          false,
-        ),
-      );
-    }
+    deliveryRoutes.push(
+      leaf(delivery, delivery.path, delivery.name ?? '', false),
+      {
+        path: '/menu/deliveries/rejected',
+        name: '已拒绝订单',
+        disabled: true,
+        tooltip: '目标投递契约没有“拒绝”终态',
+      },
+      {
+        path: '/menu/deliveries/corrected',
+        name: '已纠正订单',
+        disabled: true,
+        tooltip: '目标契约尚未提供仅看纠正订单的列表筛选',
+      },
+    );
     menu.push({
       path: '/menu/deliveries',
       name: '投递管理',
-      icon: delivery?.icon ?? deliveryConfiguration?.icon,
+      icon: delivery.icon,
       routes: deliveryRoutes,
     });
   }
@@ -406,6 +415,30 @@ export function menuRoutesFor(
       name: '资金管理',
       icon: funds?.icon ?? withdrawal?.icon,
       routes: fundsRoutes,
+    });
+  }
+
+  const deliveryConfiguration = visibleRoute(
+    session,
+    '/configurations/delivery',
+  );
+  const withdrawalConfiguration = visibleRoute(
+    session,
+    '/configurations/withdrawal',
+  );
+  if (deliveryConfiguration || withdrawalConfiguration) {
+    menu.push({
+      path: '/menu/configurations',
+      name: '配置管理',
+      icon: <SlidersOutlined />,
+      routes: [deliveryConfiguration, withdrawalConfiguration]
+        .filter((route): route is AppRoute => !!route)
+        .map((route) => leaf(
+          route,
+          route.path,
+          route.name ?? '',
+          false,
+        )),
     });
   }
 

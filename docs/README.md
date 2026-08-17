@@ -8,6 +8,7 @@
 2. [V52 设备自注册、厂家初始袋与按需远程维护](architecture/device-enrollment-factory-acceptance-remote-support-v52.md)：全局厂家引导密钥的一次性清理、OneNet 自动创建设备、验收前真实装袋、管理员公钥一次登记及四端口按需反向 SSH。
 3. [V52 设备出厂与远程维护代码审查](review/device-enrollment-factory-remote-support-v52-review-2026-08-15.md)：跟踪厂家袋扫码、验收证据代次、远程租约与生产证书权限的 4 项 P1、3 项 P2 及修复证据。
 4. [V53 投递自动审核与自动提现](architecture/delivery-auto-review-and-withdrawal-v53.md)：正常投递的版本化自动审核、异常转人工、首次正返现自动提现及安全跳过边界。
+5. [V54 投递审核金额阈值与 Web 配置中心](architecture/delivery-review-amount-limit-and-configuration-center-v54.md)：按结算金额决定自动或人工审核，复用单次最大提现金额，并收拢两类机构业务规则入口。
 2. [V36 设备永久归属、自动验收与无部署码模型](architecture/permanent-device-ownership-v36.md)：设备全链路目标，覆盖旧部署、调拨和人工激活模型；2026-08-10 补充未分配设备运行、故障与安全事实的平台作用域。
 3. [V41 全局固定设备二维码入口](architecture/global-miniapp-device-entry-v41.md)：普通二维码统一使用全局地址，设备公开码区分设备和机构，渠道/机构不再保存入口地址。
 4. [V42 设备入口 URL 下发](architecture/device-entry-url-edge-delivery-v42.md)：验收时保存完整 URL，全局地址改变时自动下发，MCU 无应答且屏幕结果不进入平台验收。
@@ -28,7 +29,7 @@
 19. [P0 详细设计与任务拆分](planning/detailed-design-draft.md)：已批准的施工方案、跨端责任、任务依赖与目标窗口。
 20. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：历史任务入口；设备相关旧部署步骤由 V36 裁决覆盖。
 21. [权限与角色设计](architecture/permission-design.md)：三类登录主体、多租户隔离和接口鉴权。
-22. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构；新栈目标迁移已推进到 V53，并由只读 epoch guard 校验，运行制品不携带 Flyway 或迁移脚本。
+22. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构；新栈目标迁移已推进到 V54，并由只读 epoch guard 校验，运行制品不携带 Flyway 或迁移脚本。
 
 ## 目录说明
 
@@ -38,6 +39,7 @@
 - [V52 设备自注册、厂家初始袋与按需远程维护](architecture/device-enrollment-factory-acceptance-remote-support-v52.md)
 - [V52 设备出厂与远程维护代码审查](review/device-enrollment-factory-remote-support-v52-review-2026-08-15.md)
 - [V53 投递自动审核与自动提现](architecture/delivery-auto-review-and-withdrawal-v53.md)
+- [V54 投递审核金额阈值与 Web 配置中心](architecture/delivery-review-amount-limit-and-configuration-center-v54.md)
 - [V25 设备上报当前袋满溢状态](architecture/fullness-reporting-v25.md)
 - [V41 全局固定设备二维码入口](architecture/global-miniapp-device-entry-v41.md)
 - [V42 设备入口 URL 下发](architecture/device-entry-url-edge-delivery-v42.md)

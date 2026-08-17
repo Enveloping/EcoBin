@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 26
+    CatalogVersion = 27
 
     ReadOnlyTables = @(
         "iam_permission_definition"

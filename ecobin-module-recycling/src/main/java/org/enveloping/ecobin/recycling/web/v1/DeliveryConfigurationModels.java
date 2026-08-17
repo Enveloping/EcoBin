@@ -17,6 +17,7 @@ public final class DeliveryConfigurationModels {
     public record DeliveryConfigurationReleaseRequest(
             @NotNull @Min(1) Long expectedLatestVersion,
             @NotBlank String reviewMode,
+            String automaticReviewMaxAmountYuan,
             @NotBlank String openBalanceFloorYuan,
             @NotBlank String maxReviewAbsoluteWeightKg,
             @Size(max = 500) String reason) {
@@ -26,6 +27,7 @@ public final class DeliveryConfigurationModels {
             long versionNo,
             String contentSha256,
             String reviewMode,
+            String automaticReviewMaxAmountYuan,
             String openBalanceFloorYuan,
             String maxReviewAbsoluteWeightKg,
             String publicationSource,
