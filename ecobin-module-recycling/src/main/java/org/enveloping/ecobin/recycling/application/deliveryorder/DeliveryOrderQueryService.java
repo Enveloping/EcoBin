@@ -66,6 +66,9 @@ public class DeliveryOrderQueryService {
             "BEFORE_OUTER",
             "AFTER_INNER",
             "AFTER_OUTER");
+    private static final String SYSTEM_REVIEWER_KIND = "SYSTEM";
+    private static final String SYSTEM_REVIEWER_DISPLAY_NAME =
+            "系统自动审核";
 
     private final MiniappDeliveryIdentityQueryPort miniappIdentity;
     private final DeliveryScopeAuthorizationPort authorization;
@@ -701,7 +704,26 @@ public class DeliveryOrderQueryService {
                 new ArrayList<>(revisions.size());
         Map<DeliveryIdentityFactToken, Long> revisionNumbers =
                 new HashMap<>();
+        Map<Long, ResolvedRevisionOperator> operators =
+                new HashMap<>();
         for (DeliveryRevisionRow revision : revisions) {
+            if (SYSTEM_REVIEWER_KIND.equals(
+                    revision.reviewerKind())) {
+                if (revision.platformAdminId() != null
+                        || revision.staffAccountId() != null) {
+                    throw new IllegalStateException(
+                            "delivery system reviewer facts are inconsistent");
+                }
+                putRevisionOperator(
+                        operators,
+                        revision.revisionNo(),
+                        new ResolvedRevisionOperator(
+                                SYSTEM_REVIEWER_KIND,
+                                null,
+                                SYSTEM_REVIEWER_DISPLAY_NAME),
+                        "delivery system reviewer facts are inconsistent");
+                continue;
+            }
             DeliveryIdentityFactToken token =
                     DeliveryIdentityFactToken.create();
             revisionNumbers.put(token, revision.revisionNo());
@@ -711,8 +733,7 @@ public class DeliveryOrderQueryService {
                             token,
                             scope.tenantId(),
                             scope.organizationId(),
-                            ReviewerKind.valueOf(
-                                    revision.reviewerKind()),
+                            humanReviewerKind(revision),
                             revision.platformAdminId(),
                             revision.staffAccountId()));
         }
@@ -733,23 +754,62 @@ public class DeliveryOrderQueryService {
             throw new IllegalStateException(
                     "delivery order owner identity is incomplete");
         }
-        Map<Long, DeliveryOrderIdentityFacts.ReviewerIdentity>
-                reviewers = new HashMap<>();
         resolved.reviewers().forEach((token, identity) -> {
             Long revisionNo = revisionNumbers.get(token);
-            if (revisionNo == null
-                    || reviewers.put(revisionNo, identity) != null) {
+            if (revisionNo == null) {
                 throw new IllegalStateException(
                         "delivery reviewer identities are inconsistent");
             }
+            putRevisionOperator(
+                    operators,
+                    revisionNo,
+                    new ResolvedRevisionOperator(
+                            identity.actorKind().name(),
+                            identity.actorUid().value(),
+                            identity.displayName()),
+                    "delivery reviewer identities are inconsistent");
         });
-        if (reviewers.size() != revisions.size()) {
+        if (operators.size() != revisions.size()) {
             throw new IllegalStateException(
                     "delivery reviewer identities are incomplete");
         }
         return new ResolvedDetailIdentities(
                 owner,
-                Map.copyOf(reviewers));
+                Map.copyOf(operators));
+    }
+
+    private static ReviewerKind humanReviewerKind(
+            DeliveryRevisionRow revision) {
+        return switch (revision.reviewerKind()) {
+            case "PLATFORM_ADMIN" -> {
+                if (revision.platformAdminId() == null
+                        || revision.staffAccountId() != null) {
+                    throw new IllegalStateException(
+                            "delivery platform reviewer facts are inconsistent");
+                }
+                yield ReviewerKind.PLATFORM_ADMIN;
+            }
+            case "STAFF" -> {
+                if (revision.platformAdminId() != null
+                        || revision.staffAccountId() == null) {
+                    throw new IllegalStateException(
+                            "delivery staff reviewer facts are inconsistent");
+                }
+                yield ReviewerKind.STAFF;
+            }
+            default -> throw new IllegalStateException(
+                    "delivery reviewer kind is unsupported");
+        };
+    }
+
+    private static void putRevisionOperator(
+            Map<Long, ResolvedRevisionOperator> operators,
+            long revisionNo,
+            ResolvedRevisionOperator operator,
+            String inconsistencyMessage) {
+        if (operators.put(revisionNo, operator) != null) {
+            throw new IllegalStateException(inconsistencyMessage);
+        }
     }
 
     private static MiniappDeliveryOrderItem miniappItem(
@@ -904,8 +964,8 @@ public class DeliveryOrderQueryService {
 
     private static DeliveryRevision revision(
             DeliveryRevisionRow revision,
-            DeliveryOrderIdentityFacts.ReviewerIdentity identity) {
-        if (identity == null) {
+            ResolvedRevisionOperator operator) {
+        if (operator == null) {
             throw new IllegalStateException(
                     "delivery reviewer identity is missing");
         }
@@ -921,9 +981,9 @@ public class DeliveryOrderQueryService {
                 money(revision.amountDeltaCent()),
                 revision.reason(),
                 new DeliveryRevisionOperator(
-                        identity.actorKind().name(),
-                        identity.actorUid().value(),
-                        identity.displayName()),
+                        operator.actorKind(),
+                        operator.actorUid(),
+                        operator.displayName()),
                 instant(revision.reviewedAt()));
     }
 
@@ -1246,7 +1306,12 @@ public class DeliveryOrderQueryService {
 
     private record ResolvedDetailIdentities(
             OrganizationUserUid ownerUid,
-            Map<Long, DeliveryOrderIdentityFacts.ReviewerIdentity>
-                    reviewers) {
+            Map<Long, ResolvedRevisionOperator> reviewers) {
+    }
+
+    private record ResolvedRevisionOperator(
+            String actorKind,
+            UUID actorUid,
+            String displayName) {
     }
 }

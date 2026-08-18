@@ -8,6 +8,7 @@ import org.enveloping.ecobin.device.api.query.DeliveryOrderDeviceFilterQuery;
 import org.enveloping.ecobin.device.api.result.DeliveryOrderDeviceFacts;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.id.OrganizationUserUid;
+import org.enveloping.ecobin.identity.api.id.PrincipalUid;
 import org.enveloping.ecobin.identity.api.persistence.DeliveryOrderIdentityBatchRef;
 import org.enveloping.ecobin.identity.api.persistence.DeliveryQueryOrganizationUserRef;
 import org.enveloping.ecobin.identity.api.persistence.DeliveryScopePersistenceRef;
@@ -18,6 +19,7 @@ import org.enveloping.ecobin.identity.api.result.AuthorizedDeliveryScope;
 import org.enveloping.ecobin.identity.api.result.CurrentMiniappDeliveryIdentity;
 import org.enveloping.ecobin.identity.api.result.DeliveryOrderIdentityFacts;
 import org.enveloping.ecobin.identity.api.value.DeliveryIdentityFactToken;
+import org.enveloping.ecobin.identity.api.value.IdentityPrincipalKind;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.CursorPage;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.MiniappDeliveryOrderDetail;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.MiniappDeliveryOrderItem;
@@ -64,6 +66,7 @@ class DeliveryOrderQueryServiceTest {
     private static final long TENANT_ID = 11L;
     private static final long ORGANIZATION_ID = 12L;
     private static final long ORGANIZATION_USER_ID = 13L;
+    private static final long STAFF_ACCOUNT_ID = 14L;
     private static final String TENANT_CODE = "T_demo";
     private static final String ORGANIZATION_CODE = "ORG_demo";
     private static final UUID ORGANIZATION_USER_UID = UUID.fromString(
@@ -349,6 +352,117 @@ class DeliveryOrderQueryServiceTest {
     }
 
     @Test
+    void deliveryReadDetailProjectsSystemAutomaticReviewWithoutHumanIdentityLookup() {
+        when(authorization.authorize(any()))
+                .thenReturn(authorized(true, false, false));
+        answerScopeRef();
+        answerResolvedDeviceFacts();
+        answerOrganizationUserFacts();
+        DeliveryOrderRootRow root = approvedRoot(
+                103L,
+                "DO2026072900103");
+        when(repository.findDetail(
+                new DeliveryOrderScope(
+                        TENANT_ID,
+                        ORGANIZATION_ID,
+                        null),
+                root.deliveryOrderNo()))
+                .thenReturn(Optional.of(root));
+        when(repository.findAnomalies(root.id()))
+                .thenReturn(List.of());
+        when(repository.findPhotos(root.id()))
+                .thenReturn(completePhotos());
+        when(repository.findRevisions(root.id()))
+                .thenReturn(List.of(new DeliveryRevisionRow(
+                        UUID.fromString(
+                                "60000000-0000-4000-8000-000000000001"),
+                        1L,
+                        "INITIAL_REVIEW",
+                        "ORIGINAL_APPROVED",
+                        null,
+                        null,
+                        new BigDecimal("1.25"),
+                        100L,
+                        100L,
+                        "正常订单由系统自动审核",
+                        "SYSTEM",
+                        null,
+                        null,
+                        time(11))));
+
+        var detail = service.webOrder(
+                true,
+                TENANT_CODE,
+                ORGANIZATION_CODE,
+                root.deliveryOrderNo());
+
+        assertThat(detail.revisions()).singleElement()
+                .satisfies(revision -> {
+                    assertThat(revision.operator().actorKind())
+                            .isEqualTo("SYSTEM");
+                    assertThat(revision.operator().actorUid()).isNull();
+                    assertThat(revision.operator().displayName())
+                            .isEqualTo("系统自动审核");
+                });
+    }
+
+    @Test
+    void deliveryReadDetailStillResolvesHumanReviewerIdentity() {
+        when(authorization.authorize(any()))
+                .thenReturn(authorized(true, false, false));
+        answerScopeRef();
+        answerResolvedDeviceFacts();
+        answerOrganizationUserAndStaffReviewerFacts();
+        DeliveryOrderRootRow root = approvedRoot(
+                104L,
+                "DO2026072900104");
+        when(repository.findDetail(
+                new DeliveryOrderScope(
+                        TENANT_ID,
+                        ORGANIZATION_ID,
+                        null),
+                root.deliveryOrderNo()))
+                .thenReturn(Optional.of(root));
+        when(repository.findAnomalies(root.id()))
+                .thenReturn(List.of());
+        when(repository.findPhotos(root.id()))
+                .thenReturn(completePhotos());
+        when(repository.findRevisions(root.id()))
+                .thenReturn(List.of(new DeliveryRevisionRow(
+                        UUID.fromString(
+                                "60000000-0000-4000-8000-000000000002"),
+                        1L,
+                        "INITIAL_REVIEW",
+                        "ORIGINAL_APPROVED",
+                        null,
+                        null,
+                        new BigDecimal("1.25"),
+                        100L,
+                        100L,
+                        "工作人员确认设备原始结果",
+                        "STAFF",
+                        null,
+                        STAFF_ACCOUNT_ID,
+                        time(11))));
+
+        var detail = service.webOrder(
+                true,
+                TENANT_CODE,
+                ORGANIZATION_CODE,
+                root.deliveryOrderNo());
+
+        assertThat(detail.revisions()).singleElement()
+                .satisfies(revision -> {
+                    assertThat(revision.operator().actorKind())
+                            .isEqualTo("STAFF_ACCOUNT");
+                    assertThat(revision.operator().actorUid())
+                            .isEqualTo(PRINCIPAL_UID);
+                    assertThat(revision.operator().displayName())
+                            .isEqualTo("审核工作人员");
+                });
+    }
+
+    @Test
     void miniappDetailOutsideCurrentUserScopeReturnsNotFound() {
         answerMiniappIdentityScope();
         when(repository.findDetail(
@@ -567,12 +681,24 @@ class DeliveryOrderQueryServiceTest {
     }
 
     private void answerOrganizationUserFacts() {
+        answerOrganizationUserFacts(false);
+    }
+
+    private void answerOrganizationUserAndStaffReviewerFacts() {
+        answerOrganizationUserFacts(true);
+    }
+
+    private void answerOrganizationUserFacts(
+            boolean expectStaffReviewer) {
         when(identityFacts.resolveFacts(any()))
                 .thenAnswer(invocation -> {
                     DeliveryOrderIdentityBatchRef reference =
                             invocation.getArgument(0);
                     Map<DeliveryIdentityFactToken, OrganizationUserUid>
                             users = new HashMap<>();
+                    Map<DeliveryIdentityFactToken,
+                            DeliveryOrderIdentityFacts.ReviewerIdentity>
+                            reviewers = new HashMap<>();
                     reference.consumeOnce(
                             new DeliveryOrderIdentityBatchRef.EntrySink() {
                                 @Override
@@ -604,13 +730,37 @@ class DeliveryOrderQueryServiceTest {
                                                 .ReviewerKind reviewerKind,
                                         Long platformAdminKey,
                                         Long staffAccountKey) {
-                                    throw new AssertionError(
-                                            "reviewer facts were not expected");
+                                    if (!expectStaffReviewer) {
+                                        throw new AssertionError(
+                                                "reviewer facts were not expected");
+                                    }
+                                    assertThat(tenantKey)
+                                            .isEqualTo(TENANT_ID);
+                                    assertThat(organizationKey)
+                                            .isEqualTo(ORGANIZATION_ID);
+                                    assertThat(reviewerKind)
+                                            .isEqualTo(
+                                                    DeliveryOrderIdentityBatchRef
+                                                            .ReviewerKind.STAFF);
+                                    assertThat(platformAdminKey).isNull();
+                                    assertThat(staffAccountKey)
+                                            .isEqualTo(STAFF_ACCOUNT_ID);
+                                    reviewers.put(
+                                            token,
+                                            new DeliveryOrderIdentityFacts
+                                                    .ReviewerIdentity(
+                                                    IdentityPrincipalKind
+                                                            .STAFF_ACCOUNT,
+                                                    new PrincipalUid(
+                                                            PRINCIPAL_UID),
+                                                    "审核工作人员"));
                                 }
                             });
+                    assertThat(reviewers)
+                            .hasSize(expectStaffReviewer ? 1 : 0);
                     return new DeliveryOrderIdentityFacts(
                             users,
-                            Map.of());
+                            reviewers);
                 });
     }
 

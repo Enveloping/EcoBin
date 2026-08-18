@@ -10292,7 +10292,7 @@
       },
       "DeliveryReviewerKind": {
         "type": "string",
-        "enum": ["PLATFORM_ADMIN", "TENANT_PRINCIPAL", "STAFF_ACCOUNT"]
+        "enum": ["PLATFORM_ADMIN", "TENANT_PRINCIPAL", "STAFF_ACCOUNT", "SYSTEM"]
       },
       "DeliveryWalletEffect": {
         "type": "string",
@@ -10880,7 +10880,11 @@
             "$ref": "#/components/schemas/DeliveryReviewerKind"
           },
           "actorUid": {
-            "$ref": "#/components/schemas/PublicUid"
+            "oneOf": [
+              {"$ref": "#/components/schemas/PublicUid"},
+              {"type": "null"}
+            ],
+            "description": "Human reviewer public identity; null only when actorKind is SYSTEM"
           },
           "displayName": {
             "type": "string",

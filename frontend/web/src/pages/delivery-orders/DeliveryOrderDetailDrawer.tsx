@@ -63,6 +63,7 @@ const reviewerKindLabels: Record<string, string> = {
   PLATFORM_ADMIN: '平台管理员',
   TENANT_PRINCIPAL: '租户主体',
   STAFF_ACCOUNT: '工作人员',
+  SYSTEM: '系统',
 };
 
 function reviewStatusTag(status: string) {

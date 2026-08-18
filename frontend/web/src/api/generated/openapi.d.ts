@@ -6244,7 +6244,7 @@ export interface components {
         /** @enum {string} */
         DeliveryAnomalyCategory: "USER" | "SYSTEM";
         /** @enum {string} */
-        DeliveryReviewerKind: "PLATFORM_ADMIN" | "TENANT_PRINCIPAL" | "STAFF_ACCOUNT";
+        DeliveryReviewerKind: "PLATFORM_ADMIN" | "TENANT_PRINCIPAL" | "STAFF_ACCOUNT" | "SYSTEM";
         /** @enum {string} */
         DeliveryWalletEffect: "APPLIED" | "NO_CHANGE";
         MiniappDeliveryOrderItem: {
@@ -6403,7 +6403,8 @@ export interface components {
         };
         DeliveryRevisionOperator: {
             actorKind: components["schemas"]["DeliveryReviewerKind"];
-            actorUid: components["schemas"]["PublicUid"];
+            /** @description Human reviewer public identity; null only when actorKind is SYSTEM */
+            actorUid: components["schemas"]["PublicUid"] | null;
             displayName: string;
         };
         DeliveryRevision: {
