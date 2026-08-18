@@ -240,8 +240,8 @@ class DeliveryAutoWithdrawalService {
                         occurredAt);
         boolean reviewRequired = command.deltaCent()
                 > plan.config().reviewFreeCent();
-        String withdrawalNo = "AW" + command.revisionUid()
-                .toString().replace("-", "");
+        String withdrawalNo = RechargeApplicationService.stableNo(
+                "AW", command.revisionUid());
         String businessState = reviewRequired
                 ? "PENDING_REVIEW"
                 : "READY_TO_SUBMIT";

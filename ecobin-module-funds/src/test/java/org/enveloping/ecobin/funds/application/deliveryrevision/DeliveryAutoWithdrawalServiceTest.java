@@ -151,7 +151,8 @@ class DeliveryAutoWithdrawalServiceTest {
         assertThat(task.getValue().taskType())
                 .isEqualTo("SUBMIT_MERCHANT_TRANSFER");
         assertThat(task.getValue().targetStableKey())
-                .startsWith("AW");
+                .isEqualTo("AW200000000000400080000000000000")
+                .hasSize(32);
     }
 
     @Test

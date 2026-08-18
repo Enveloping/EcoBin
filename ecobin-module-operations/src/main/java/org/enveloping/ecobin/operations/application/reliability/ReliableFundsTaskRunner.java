@@ -5,6 +5,8 @@ import org.enveloping.ecobin.funds.api.port.ReliableFundsTaskExecutorPort.Result
 import org.enveloping.ecobin.operations.api.reliability.ReliableFundsTaskWorkerPort;
 import org.enveloping.ecobin.operations.infrastructure.config.ReliableTaskProperties;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableFundsTaskJdbcRepository;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
@@ -40,6 +42,14 @@ public class ReliableFundsTaskRunner implements ReliableFundsTaskWorkerPort {
                             claim.taskUid(), claim.attemptUid(),
                             claim.attemptId(), claim.taskType(),
                             claim.targetStableKey()));
+        } catch (DuplicateKeyException failure) {
+            result = new Result(
+                    Result.Outcome.RETRY,
+                    "funds executor raised DuplicateKeyException");
+        } catch (DataIntegrityViolationException failure) {
+            result = new Result(
+                    Result.Outcome.BLOCKED,
+                    "funds executor hit permanent database constraint");
         } catch (RuntimeException failure) {
             result = new Result(
                     Result.Outcome.RETRY,

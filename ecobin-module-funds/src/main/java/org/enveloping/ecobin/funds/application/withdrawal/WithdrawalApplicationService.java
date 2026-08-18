@@ -1063,7 +1063,7 @@ public class WithdrawalApplicationService {
                 || account.frozenCent() < row.amountCent()) {
             throw stateConflict("提现双方冻结事实不完整，已停止提交微信");
         }
-        String outBillNo = "MT" + withdrawalNo.substring(2);
+        String outBillNo = merchantTransferOutBillNo(withdrawalNo);
         String notifyUrl = notifyBaseUrl
                 + "/api/v1/wechat-pay/notifications/merchant-transfers";
         String remark = "环保回收提现";
@@ -1114,6 +1114,21 @@ public class WithdrawalApplicationService {
                 WHERE id = ? AND business_state = 'READY_TO_SUBMIT'
                 """, now, now, row.id());
         return TransferPreparation.created(transferSnapshot(withdrawalNo));
+    }
+
+    static String merchantTransferOutBillNo(String withdrawalNo) {
+        if (withdrawalNo == null || withdrawalNo.length() < 8) {
+            throw new IllegalArgumentException(
+                    "withdrawalNo must contain a stable business suffix");
+        }
+        String suffix = withdrawalNo.substring(2);
+        String outBillNo = "MT" + suffix.substring(
+                0, Math.min(30, suffix.length()));
+        if (!outBillNo.matches("^[A-Za-z0-9]{8,32}$")) {
+            throw new IllegalArgumentException(
+                    "withdrawalNo cannot produce a WeChat merchant bill number");
+        }
+        return outBillNo;
     }
 
     private TransferPreparation abortUnavailableAuthorization(

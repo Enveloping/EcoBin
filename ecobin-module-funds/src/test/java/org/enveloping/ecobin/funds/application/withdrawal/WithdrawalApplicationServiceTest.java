@@ -92,6 +92,31 @@ class WithdrawalApplicationServiceTest {
                 null));
     }
 
+    @Test
+    void mapsLegacyAutomaticWithdrawalNumberToStableWechatBillNumber() {
+        String legacyAutomaticWithdrawalNo =
+                "AW20000000000040008000000000000001";
+
+        String outBillNo = WithdrawalApplicationService
+                .merchantTransferOutBillNo(legacyAutomaticWithdrawalNo);
+
+        assertThat(legacyAutomaticWithdrawalNo).hasSize(34);
+        assertThat(outBillNo)
+                .isEqualTo("MT200000000000400080000000000000")
+                .hasSize(32)
+                .matches("^[A-Za-z0-9]+$");
+    }
+
+    @Test
+    void keepsExistingManualWithdrawalBillNumberStable() {
+        String manualWithdrawalNo =
+                "WD100000000000400080000000000000";
+
+        assertThat(WithdrawalApplicationService
+                .merchantTransferOutBillNo(manualWithdrawalNo))
+                .isEqualTo("MT100000000000400080000000000000");
+    }
+
     private void assertMissingRequiredV53Field(
             ReleaseWithdrawalConfigurationRequest request) {
         TargetApiException failure = assertThrows(

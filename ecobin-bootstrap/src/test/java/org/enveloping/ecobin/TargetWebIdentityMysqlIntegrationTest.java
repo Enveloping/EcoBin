@@ -50,6 +50,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -965,6 +967,92 @@ class TargetWebIdentityMysqlIntegrationTest {
                   AND entry_row.source_no = ?
                 """, Integer.class, withdrawalNo,
                 fixture.userUid().toString(), withdrawalNo));
+    }
+
+    @Test
+    void legacyAutomaticWithdrawalUsesWechatCompatibleMerchantBillNumber()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("la");
+        String organizationCode = code("oa");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Legacy automatic withdrawal bill number");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(),
+                UUID.randomUUID(), "legacy-auto-withdrawal-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.currentMiniapp(false)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
+        AuditPort audit = mock(AuditPort.class);
+        when(audit.append(any())).thenReturn(1L);
+        ScriptedMerchantTransferChannel channel =
+                new ScriptedMerchantTransferChannel(fixture.openid());
+        WithdrawalApplicationService service =
+                new WithdrawalApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class), channel,
+                        new TransactionTemplate(transactionManager), audit,
+                        fundsOperationalControl, fundsListCursorCodec,
+                        merchantTransferAuthorizationService,
+                        "https://fake.invalid");
+
+        UUID createOperationUid = UUID.randomUUID();
+        service.create(createOperationUid, new CreateWithdrawalRequest("0.10"));
+        String createdWithdrawalNo = RechargeApplicationService.stableNo(
+                "WD", createOperationUid);
+        String legacySuffix = UUID.randomUUID().toString().replace("-", "");
+        String legacyWithdrawalNo = "AW" + legacySuffix;
+        String expectedOutBillNo = "MT" + legacySuffix.substring(0, 30);
+        LocalDateTime now = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        cloneWithdrawalForLegacyNumberTest(
+                createdWithdrawalNo, legacyWithdrawalNo, now);
+        String snapshot = "{\"withdrawalNo\":\""
+                + legacyWithdrawalNo + "\"}";
+        UUID taskUid = new TransactionTemplate(transactionManager).execute(
+                status -> reliableFundsTasks.register(
+                        new ReliableFundsTaskRegistrationPort
+                                .ReliableFundsTaskRegistration(
+                                fixture.tenantId(), fixture.organizationId(),
+                                "SUBMIT_MERCHANT_TRANSFER",
+                                "SUBMIT_MERCHANT_TRANSFER:"
+                                        + legacyWithdrawalNo,
+                                "WITHDRAWAL_ORDER", legacyWithdrawalNo,
+                                1, snapshot,
+                                RechargeApplicationService.sha256(snapshot),
+                                500, null)));
+        assertNotNull(taskUid);
+        long taskId = jdbc.queryForObject("""
+                SELECT id FROM ops_reliable_task WHERE task_uid = ?
+                """, Long.class, taskUid.toString());
+
+        ReliableFundsTaskExecutorPort.Result result = service.executeTask(
+                fundsCommand(taskUid, taskId, 1, fixture,
+                        legacyWithdrawalNo));
+
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.RETRY,
+                result.outcome());
+        assertEquals(34, legacyWithdrawalNo.length());
+        assertEquals(32, expectedOutBillNo.length());
+        assertEquals(expectedOutBillNo, jdbc.queryForObject("""
+                SELECT transfer_row.out_bill_no
+                FROM fund_wechat_transfer transfer_row
+                JOIN fund_withdrawal_order withdrawal
+                  ON withdrawal.id = transfer_row.withdrawal_order_id
+                WHERE withdrawal.withdrawal_order_no = ?
+                """, String.class, legacyWithdrawalNo));
+        assertEquals(expectedOutBillNo,
+                channel.originalRequest.outBillNo());
     }
 
     @Test
@@ -2848,6 +2936,50 @@ class TargetWebIdentityMysqlIntegrationTest {
                          account.available_payout_cent,
                          account.frozen_withdrawal_cent
                 """, String.class, withdrawalNo);
+    }
+
+    private void cloneWithdrawalForLegacyNumberTest(
+            String sourceWithdrawalNo,
+            String legacyWithdrawalNo,
+            LocalDateTime now) {
+        List<String> columns = jdbc.queryForList("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'fund_withdrawal_order'
+                  AND column_name <> 'id'
+                  AND extra NOT LIKE '%GENERATED%'
+                ORDER BY ordinal_position
+                """, String.class);
+        List<String> quotedColumns = new ArrayList<>();
+        List<String> selectedValues = new ArrayList<>();
+        List<Object> arguments = new ArrayList<>();
+        for (String column : columns) {
+            quotedColumns.add("`" + column + "`");
+            switch (column) {
+                case "withdrawal_order_no" -> {
+                    selectedValues.add("?");
+                    arguments.add(legacyWithdrawalNo);
+                }
+                case "business_state" ->
+                        selectedValues.add("'READY_TO_SUBMIT'");
+                case "reviewed_at", "updated_at" -> {
+                    selectedValues.add("?");
+                    arguments.add(now);
+                }
+                case "lock_version" -> selectedValues.add(
+                        "source_row.`lock_version` + 1");
+                default -> selectedValues.add(
+                        "source_row.`" + column + "`");
+            }
+        }
+        arguments.add(sourceWithdrawalNo);
+        String sql = "INSERT INTO fund_withdrawal_order ("
+                + String.join(", ", quotedColumns) + ") SELECT "
+                + String.join(", ", selectedValues)
+                + " FROM fund_withdrawal_order source_row"
+                + " WHERE source_row.withdrawal_order_no = ?";
+        assertEquals(1, jdbc.update(sql, arguments.toArray()));
     }
 
     private ReliableFundsTaskExecutorPort.Command fundsCommand(
