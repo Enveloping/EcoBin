@@ -163,7 +163,8 @@ def test_command_line_defaults_expose_a_stable_linux_serial_link():
     assert args.response_delay_ms == 500
     assert args.delivery_result_delay_ms == 40_000
     assert args.clean_result_delay_ms == 40_000
-    assert args.delivery_post_grams > args.delivery_pre_grams
+    assert args.delivery_post_grams - args.delivery_pre_grams == 1_200
+    assert args.clean_pre_grams == args.delivery_post_grams
     assert args.clean_post_grams < args.clean_pre_grams
     assert args.self_test_weight_valid == 1
     assert args.self_test_full_valid == 1
@@ -241,7 +242,7 @@ def test_real_fixed_frame_adapter_round_trips_over_linux_pty(tmp_path):
         assert delivery_command["acked"] is True
         assert delivery["message_name"] == "COMPAT_DELIVERY_RESULT"
         assert delivery["payload"]["preWeightGrams"] == 10_000
-        assert delivery["payload"]["postWeightGrams"] == 12_500
+        assert delivery["payload"]["postWeightGrams"] == 11_200
         assert simulator.model.last_price_digit == 4
 
         clean_command = adapter.send_command(
@@ -252,7 +253,7 @@ def test_real_fixed_frame_adapter_round_trips_over_linux_pty(tmp_path):
 
         assert clean_command["acked"] is True
         assert clean["message_name"] == "COMPAT_CLEAN_RESULT"
-        assert clean["payload"]["preWeightGrams"] == 12_500
+        assert clean["payload"]["preWeightGrams"] == 11_200
         assert clean["payload"]["postWeightGrams"] == 800
     finally:
         adapter.close()

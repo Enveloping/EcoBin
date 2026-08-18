@@ -50,10 +50,10 @@ uv sync --python 3.11
 uv run --python 3.11 python tools/fixed_frame_pty_simulator.py \
   --link /tmp/ecobin-fixed-frame-mcu \
   --delivery-pre-grams 10000 \
-  --delivery-post-grams 12500 \
+  --delivery-post-grams 11200 \
   --delivery-full 0 \
   --delivery-result-delay-ms 40000 \
-  --clean-pre-grams 12500 \
+  --clean-pre-grams 11200 \
   --clean-post-grams 800 \
   --clean-full 0 \
   --clean-result-delay-ms 40000 \
@@ -86,10 +86,10 @@ uv run --python 3.11 python tools/fixed_frame_pty_simulator.py --help
 | 参数 | 含义 | 默认值 |
 |---|---|---:|
 | `--delivery-pre-grams` | DD 的投递前总重量 | `10000` |
-| `--delivery-post-grams` | DD 的投递后总重量 | `12500` |
+| `--delivery-post-grams` | DD 的投递后总重量 | `11200` |
 | `--delivery-full` | DD 红外原始值，`0` 未遮挡、`1` 遮挡 | `0` |
 | `--delivery-result-delay-ms` | 收到 AA 后等待多久发送 DD | `40000` |
-| `--clean-pre-grams` | EF 的清运前总重量 | `12500` |
+| `--clean-pre-grams` | EF 的清运前总重量 | `11200` |
 | `--clean-post-grams` | EF 的清运后新袋皮重 | `800` |
 | `--clean-full` | EF 红外原始值，`0` 未遮挡、`1` 遮挡 | `0` |
 | `--clean-result-delay-ms` | 收到 EE 后等待多久发送 EF | `40000` |
@@ -172,7 +172,7 @@ TX SELF_TEST_RESULT frame=F1 ... validFlags=03 weightGrams=10000 infraredBlocked
    ```text
    RX PRICE frame=BB 04 BB digit=4 displayYuanPerKg=0.4
    RX DELIVERY_START frame=AA 01 AA
-   TX DELIVERY_START_RESULT frame=DD ... preGrams=10000 postGrams=12500 infraredBlocked=0
+   TX DELIVERY_START_RESULT frame=DD ... preGrams=10000 postGrams=11200 infraredBlocked=0
    ```
 
 4. 终端 B 应先记录服务命令已经受理，随后处理
@@ -191,7 +191,7 @@ TX SELF_TEST_RESULT frame=F1 ... validFlags=03 weightGrams=10000 infraredBlocked
 
    ```text
    RX CLEAN_START frame=EE 01 EE
-   TX CLEAN_START_RESULT frame=EF ... preGrams=12500 postGrams=800 infraredBlocked=0
+   TX CLEAN_START_RESULT frame=EF ... preGrams=11200 postGrams=800 infraredBlocked=0
    ```
 
 3. 终端 B 应处理 `COMPAT_CLEAN_RESULT`，保存 `POST=800` 为新袋皮重，按

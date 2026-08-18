@@ -226,9 +226,9 @@ class DownstreamFrameParser:
 @dataclass(frozen=True)
 class SimulatorConfig:
     delivery_pre_weight_grams: int = 10_000
-    delivery_post_weight_grams: int = 12_500
+    delivery_post_weight_grams: int = 11_200
     delivery_infrared_blocked: int = 0
-    clean_pre_weight_grams: int = 12_500
+    clean_pre_weight_grams: int = 11_200
     clean_post_weight_grams: int = 800
     clean_infrared_blocked: int = 0
     self_test_weight_grams: int = 10_000
@@ -660,7 +660,7 @@ def parse_args(
     parser.add_argument(
         "--delivery-post-grams",
         type=_weight_argument,
-        default=12_500,
+        default=11_200,
     )
     parser.add_argument(
         "--delivery-full",
@@ -672,7 +672,7 @@ def parse_args(
     parser.add_argument(
         "--clean-pre-grams",
         type=_weight_argument,
-        default=12_500,
+        default=11_200,
     )
     parser.add_argument(
         "--clean-post-grams",
