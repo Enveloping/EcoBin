@@ -57,6 +57,8 @@ secrets/
 hardware/data/*.json
 hardware/data/*.tmp
 
+hardware_mcu/
+
 test_report/
 /release-output/
 /docs/deploy-docker.md
