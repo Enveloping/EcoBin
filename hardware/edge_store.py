@@ -2771,6 +2771,115 @@ class EdgeStore:
 
     # ── 独立远程维护隧道槽 ──
 
+    def import_remote_support_status_event(
+        self,
+        fact: dict[str, Any],
+    ) -> str:
+        """Reliably adopt one fact from the independent tunnel agent.
+
+        The agent keeps the fact until this EdgeStore transaction commits and
+        the local RPC acknowledgement succeeds.  Replaying the same event UID
+        is therefore normal after either process crashes.
+        """
+
+        required = {
+            "eventUid",
+            "sessionUid",
+            "commandUid",
+            "deviceName",
+            "remotePort",
+            "state",
+            "failureCode",
+            "occurredAt",
+        }
+        if not isinstance(fact, dict) or set(fact) != required:
+            raise ValueError("remote support status fact fields are invalid")
+        event_uid = _require_uuid4_local(fact["eventUid"], "eventUid")
+        session_uid = _require_uuid4_local(
+            fact["sessionUid"],
+            "sessionUid",
+        )
+        command_uid = _require_uuid4_local(
+            fact["commandUid"],
+            "commandUid",
+        )
+        device_name = fact["deviceName"]
+        if (
+            not isinstance(device_name, str)
+            or not 1 <= len(device_name) <= 64
+            or any(character in device_name for character in "\x00\r\n")
+        ):
+            raise ValueError("remote support status deviceName is invalid")
+        remote_port = fact["remotePort"]
+        if (
+            isinstance(remote_port, bool)
+            or not isinstance(remote_port, int)
+            or remote_port not in range(22011, 22015)
+        ):
+            raise ValueError("remote support status remotePort is invalid")
+        state = fact["state"]
+        if state not in {
+            "CONNECTING",
+            "OPEN",
+            "CLOSED",
+            "FAILED",
+            "EXPIRED",
+        }:
+            raise ValueError("remote support status state is invalid")
+        failure_code = fact["failureCode"]
+        if (
+            failure_code is not None
+            and failure_code not in REMOTE_SUPPORT_FAILURE_CODES
+        ):
+            raise ValueError("remote support status failureCode is invalid")
+        if state == "FAILED" and failure_code is None:
+            raise ValueError("FAILED remote support status requires failureCode")
+        occurred_at = fact["occurredAt"]
+        _parse_utc_instant(occurred_at, "occurredAt")
+        payload = {
+            "sessionUid": session_uid,
+            "state": state,
+            "remotePort": remote_port,
+            "failureCode": failure_code,
+        }
+
+        with self.transaction():
+            existing = self._conn.execute(
+                "SELECT payload_json FROM event_outbox WHERE event_uid=?",
+                (event_uid,),
+            ).fetchone()
+            if existing is not None:
+                envelope = _json.loads(existing["payload_json"])
+                same = (
+                    envelope.get("eventType")
+                    == "REMOTE_SUPPORT_TUNNEL_STATUS"
+                    and envelope.get("commandUid") == command_uid
+                    and envelope.get("target")
+                    == {"type": "DEVICE_ASSET", "uid": device_name}
+                    and envelope.get("occurredAt") == occurred_at
+                    and envelope.get("payload") == payload
+                )
+                return "DUPLICATE" if same else "CONFLICT"
+            sequence = self._next_seq(self._conn)
+            envelope = build_event_envelope(
+                event_uid=event_uid,
+                device_name=device_name,
+                edge_event_sequence=sequence,
+                event_type="REMOTE_SUPPORT_TUNNEL_STATUS",
+                target_type="DEVICE_ASSET",
+                target_uid=device_name,
+                command_uid=command_uid,
+                delivery_class="RELIABLE_FACT",
+                payload=payload,
+            )
+            envelope["occurredAt"] = occurred_at
+            self._insert_event(
+                self._conn,
+                envelope,
+                "REMOTE_SUPPORT_TUNNEL_STATUS",
+            )
+            return "ACCEPTED"
+
     def request_remote_support_open(
         self,
         *,

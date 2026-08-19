@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 from device_credentials import RemoteSupportCredentials
 from edge_store import EdgeStore
 from remote_support import RemoteSupportManager, _BoundedOutputCollector
+from remote_support_store import RemoteSupportStore
 
 
 def _uid() -> str:
@@ -47,7 +48,13 @@ def credentials() -> RemoteSupportCredentials:
     )
 
 
-def store(tmp_path: Path) -> EdgeStore:
+def store(tmp_path: Path) -> RemoteSupportStore:
+    result = RemoteSupportStore(tmp_path / "remote-support.db")
+    result.initialize()
+    return result
+
+
+def legacy_store(tmp_path: Path) -> EdgeStore:
     result = EdgeStore(str(tmp_path / "edge.db"))
     result.initialize()
     return result
@@ -128,7 +135,7 @@ def test_v9_store_is_additively_upgraded_to_remote_support_v10(tmp_path: Path):
 
 
 def test_open_is_persisted_outside_work_slot_and_emits_connecting(tmp_path: Path):
-    edge = store(tmp_path)
+    edge = legacy_store(tmp_path)
     session_uid = _uid()
     command_uid = _uid()
 
@@ -162,7 +169,7 @@ def test_open_is_persisted_outside_work_slot_and_emits_connecting(tmp_path: Path
 
 
 def test_terminal_session_uid_is_idempotent_and_never_reopened(tmp_path: Path):
-    edge = store(tmp_path)
+    edge = legacy_store(tmp_path)
     session_uid = _uid()
     request = {
         "session_uid": session_uid,

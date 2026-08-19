@@ -10,6 +10,17 @@
 > [`delivery-review-amount-limit-and-configuration-center-v54.md`](delivery-review-amount-limit-and-configuration-center-v54.md)。
 
 > [!IMPORTANT]
+> 2026-08-19 已把香橙派反向 SSH 从普通硬件主进程拆为独立
+> `ecobin-remote-support.service`。普通硬件进程仍是唯一 OneNet 客户端，通过 root 专用
+> Unix Domain Socket 下发 OPEN/CLOSE，并把代理私有 SQLite 中的状态事实幂等转入
+> EdgeStore；代理以低权限账号独立持有 OpenSSH 子进程和隧道凭证。只重启或更新
+> `ecobin-hardware.service` 不再中断已建立的维护连接，代理或整机重启才按原期限重连。
+> 设备侧实现与首次切换步骤见
+> [`../../hardware/docs/enrollment-and-remote-support.md`](../../hardware/docs/enrollment-and-remote-support.md)
+> 和
+> [`../deployment/device-enrollment-and-remote-support-rollout.md`](../deployment/device-enrollment-and-remote-support-rollout.md)。
+
+> [!IMPORTANT]
 > 2026-08-17 已重新冻结并实施 V53 投递自动审核与审核后自动提现。机构可选择全部
 > 人工、正常订单立即自动审核、收到后 24 小时或 48 小时自动审核；负重量、不可可靠计算
 > 或带用户/系统异常的订单仍由人工处理。首次审核形成正返现后，只有机构已启用、金额在
@@ -382,7 +393,9 @@ P0-FOLLOWUP-01；H-03 的 F-11 依赖已经解除并转为 `ready`，V-09 的 V-
 当前 OneNet MQTT 已联通，开发环境 STS/COS upload/head/delete smoke 和真实香橙派
 双摄上传/匿名下载已通过；固定帧 MCU 适配已合入，传感器使用 F0/F1 自检和 CC 烟感
 变化上报，不支持的 MCU 功能仍按“本地保存/明确失败/未知占位”降级。Python 3.11
-硬件套件当前为 `290 passed, 9 skipped, 5 subtests passed`，
+硬件套件当前在 Python 3.11/Linux 为
+`353 passed, 4 skipped, 5 subtests passed`，在 Python 3.11/Windows 为
+`344 passed, 13 skipped, 5 subtests passed`，
 契约套件为 `55 passed, 828 subtests passed`。香橙派当时的默认路由/DNS 波动按
 项目负责人决定暂不处理且不阻塞 F-11；微信支付/商家转账仍不可联调。真实条件或
 软件链路缺失时只能标记相应软件阶段，不能宣称 M0。

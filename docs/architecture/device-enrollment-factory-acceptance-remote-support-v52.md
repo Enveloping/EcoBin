@@ -200,8 +200,12 @@ SHA-256 指纹、所有者、状态和版本；不接受也不保存私钥。管
 4. 后端先在同一个数据库事务中提交会话、端口保留、可靠 OneNet
    `OPEN_REMOTE_SUPPORT_TUNNEL` 命令和审计事实；提交成功后，才在服务器 `desired`
    目录原子发布只含设备隧道公钥、端口、会话和期限的租约。
-5. 香橙派可靠保存命令到 SQLite，使用自己的隧道私钥、严格固定的跳板 Host Key 和
-   `ExitOnForwardFailure` 发起反向 SSH，并上报 `CONNECTING/OPEN/FAILED/EXPIRED`。
+5. 香橙派普通硬件进程先把命令可靠保存到业务 SQLite，再通过 root 专用的本地 Unix
+   Domain Socket 把 OPEN/CLOSE 意图交给独立 `ecobin-remote-support.service`。独立代理
+   在自己的 SQLite 中保存会话，使用只包含隧道身份的 systemd 临时凭证、严格固定的跳板
+   Host Key 和 `ExitOnForwardFailure` 发起反向 SSH；状态事实先在代理队列持久化，再由
+   普通硬件进程幂等转存并上报 `CONNECTING/OPEN/FAILED/EXPIRED`。代理不接入 OneNet，
+   也不与普通硬件进程共同写同一个 SQLite 文件。
 6. 跳板 `ecobin-tunnel` 账号没有普通 `authorized_keys`。`AuthorizedKeysCommand` 只在
    当前 desired 租约与设备公钥、端口和期限完全匹配时临时授权；强制命令确认回环监听
    真实存在后才写入 `actual` 标记，并持续检查租约。
@@ -230,13 +234,20 @@ SHA-256 指纹、所有者、状态和版本；不接受也不保存私钥。管
 - 设备上报终态失败；
 - desired、actual、设备名、端口、公钥指纹或会话编号不一致。
 
-香橙派重启时，未过期的 SQLite desired 状态会重新发起连接；服务器重启时 `/run` 下的
-actual 自动清空。已处于 `OPEN` 的会话如果只观察到 actual 暂时消失，后端进入
+仅重启普通 `ecobin-hardware.service` 时，独立代理和它持有的 OpenSSH 子进程不停止，
+已连接的管理员终端及服务器监听继续存在；这使管理员能够通过当前隧道更新普通硬件代码、
+重启该服务并验证结果。独立代理或香橙派整机重启时，代理私有 SQLite 中未过期的 desired
+状态会重新发起连接；服务器重启时 `/run` 下的 actual 自动清空。已处于 `OPEN` 的会话如果
+只观察到 actual 暂时消失，后端进入
 `RECONNECTING`（等待重连），保留同一端口、原期限、证书和 desired，不把正常重启误判为
 失败；actual 再次与会话完全匹配后回到 `OPEN`，但不会延长到期时间。若 actual 存在却与
 设备名、会话、端口、公钥指纹或期限冲突，则按服务端租约冲突失败关闭，并在旧入口真正
 消失前继续占住槽位，避免旧监听和新设备重叠。四个槽只限制并发数，不把端口永久绑定给
 某台设备。
+
+普通硬件进程停止期间只能维持已经建立的隧道，不能受理新的 OneNet 开启命令；代理产生的
+状态事实会在本机排队，待普通硬件进程恢复后上报。管理员关闭和到期仍由服务器先撤销
+desired，lease guard 不依赖设备主进程即可终止旧入口。
 
 ### 4.4 SSH 信任和权限
 
@@ -276,8 +287,12 @@ V52 将目标数据库推进到 52 条迁移、112 张领域表、76 条权限�
 - 权威 OneNet：`contracts/onenet/` 及生成物
 - 后端：identity 的厂家操作员小程序/维护公钥，device 的 enrollment/factory/remote，integration
   的 OneNet 设备供应
-- 香橙派：`device_enrollment.py`、`enrollment_bootstrap.py`、`device_credentials.py`、
-  `maintenance_ssh_setup.py`、`remote_support.py`
+- 香橙派注册：`device_enrollment.py`、`enrollment_bootstrap.py`、`device_credentials.py`、
+  `maintenance_ssh_setup.py`、`remote_support_credentials.py`
+- 香橙派独立维护代理：`ecobin-remote-support.service`、`remote_support_agent.py`、
+  `remote_support_control.py`、`remote_support_store.py`、`remote_support.py`
+- 香橙派普通硬件进程：`ecobin-hardware.service`、`main.py`；它是唯一 OneNet 客户端，并将
+  代理状态事实转存到 EdgeStore 后上报
 - 跳板：`tools/remote-support/`
 - 数据库：`V52__device_enrollment_factory_support_and_remote_access.sql`
 

@@ -24,6 +24,9 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 
 
 DEFAULT_CREDENTIALS_PATH = "/etc/ecobin/device-credentials.json"
+DEFAULT_REMOTE_SUPPORT_CREDENTIALS_PATH = (
+    "/etc/ecobin/remote-support-credentials.json"
+)
 _SSH_PUBLIC_KEY = re.compile(
     r"^ssh-ed25519 [A-Za-z0-9+/]+={0,2}(?: [^\r\n]{1,128})?$"
 )
@@ -113,6 +116,59 @@ def load_device_credentials(
     return validate_device_credentials(document)
 
 
+def load_remote_support_credentials(
+    path: str | os.PathLike[str] = DEFAULT_REMOTE_SUPPORT_CREDENTIALS_PATH,
+    *,
+    required: bool = False,
+) -> RemoteSupportCredentials | None:
+    """Read the tunnel-only credential document used by the agent."""
+
+    resolved = Path(path)
+    try:
+        raw_bytes = resolved.read_bytes()
+    except FileNotFoundError:
+        if required:
+            raise ValueError(
+                f"remote support credentials do not exist: {resolved}"
+            )
+        return None
+    if os.name != "nt":
+        mode = stat.S_IMODE(resolved.stat().st_mode)
+        if mode & 0o077:
+            raise ValueError(
+                "remote support credentials must not be group/world accessible"
+            )
+    if not raw_bytes or len(raw_bytes) > 16 * 1024:
+        raise ValueError(
+            "remote support credentials must contain 1..16384 bytes"
+        )
+    try:
+        document = json.loads(raw_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(
+            "remote support credentials are not valid UTF-8 JSON"
+        ) from error
+    if not isinstance(document, dict):
+        raise ValueError("remote support credentials root must be an object")
+    return validate_remote_support_credentials(document)
+
+
+def validate_remote_support_credentials(
+    document: dict[str, Any],
+) -> RemoteSupportCredentials:
+    if set(document) != {"schemaVersion", "hardwareSn", "remoteSupport"}:
+        raise ValueError("remote support credential fields are invalid")
+    if document.get("schemaVersion") != 1:
+        raise ValueError(
+            "unsupported remote support credentials schemaVersion"
+        )
+    hardware_sn = _required_text(document, "hardwareSn", maximum=64)
+    return _validate_remote_support_section(
+        _required_object(document, "remoteSupport"),
+        hardware_sn,
+    )
+
+
 def validate_device_credentials(document: dict[str, Any]) -> DeviceCredentials:
     if document.get("schemaVersion") != 1:
         raise ValueError("unsupported device credentials schemaVersion")
@@ -150,7 +206,38 @@ def validate_device_credentials(document: dict[str, Any]) -> DeviceCredentials:
     if one_net.device_name != hardware_sn:
         raise ValueError("OneNet deviceName must equal hardwareSn")
 
-    remote_raw = _required_object(document, "remoteSupport")
+    remote_support = _validate_remote_support_section(
+        _required_object(document, "remoteSupport"),
+        hardware_sn,
+    )
+
+    entry_url = document.get("deviceEntryUrl")
+    if entry_url is not None:
+        if (
+            not isinstance(entry_url, str)
+            or not entry_url.startswith("https://")
+            or not 1 <= len(entry_url) <= 192
+        ):
+            raise ValueError("deviceEntryUrl must be an HTTPS URL within 192 characters")
+
+    return DeviceCredentials(
+        schema_version=1,
+        asset_uid=asset_uid,
+        hardware_sn=hardware_sn,
+        model_code="EC-M0",
+        expected_port_count=1,
+        ssh_host_public_key=ssh_host_public_key,
+        one_net=one_net,
+        remote_support=remote_support,
+        device_entry_url=entry_url,
+        raw=dict(document),
+    )
+
+
+def _validate_remote_support_section(
+    remote_raw: dict[str, Any],
+    hardware_sn: str,
+) -> RemoteSupportCredentials:
     host = _required_text(remote_raw, "tunnelHost", maximum=253)
     if not _HOST.fullmatch(host) or ".." in host:
         raise ValueError("remote support serverHost is invalid")
@@ -207,35 +294,15 @@ def validate_device_credentials(document: dict[str, Any]) -> DeviceCredentials:
         raise ValueError("maintenance CA public key must be ssh-ed25519")
     _validate_ed25519_blob(maintenance_ca, "maintenance CA public key")
 
-    entry_url = document.get("deviceEntryUrl")
-    if entry_url is not None:
-        if (
-            not isinstance(entry_url, str)
-            or not entry_url.startswith("https://")
-            or not 1 <= len(entry_url) <= 192
-        ):
-            raise ValueError("deviceEntryUrl must be an HTTPS URL within 192 characters")
-
-    return DeviceCredentials(
-        schema_version=1,
-        asset_uid=asset_uid,
-        hardware_sn=hardware_sn,
-        model_code="EC-M0",
-        expected_port_count=1,
-        ssh_host_public_key=ssh_host_public_key,
-        one_net=one_net,
-        remote_support=RemoteSupportCredentials(
-            server_host=host,
-            server_port=port,
-            server_user=user,
-            server_host_public_key=host_key,
-            identity_private_key=identity,
-            jump_user=jump_user,
-            maintenance_principal=maintenance_principal,
-            maintenance_ca_public_key=maintenance_ca,
-        ),
-        device_entry_url=entry_url,
-        raw=dict(document),
+    return RemoteSupportCredentials(
+        server_host=host,
+        server_port=port,
+        server_user=user,
+        server_host_public_key=host_key,
+        identity_private_key=identity,
+        jump_user=jump_user,
+        maintenance_principal=maintenance_principal,
+        maintenance_ca_public_key=maintenance_ca,
     )
 
 

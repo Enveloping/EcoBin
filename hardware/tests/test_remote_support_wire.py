@@ -174,7 +174,7 @@ def test_persisted_command_processor_delegates_without_touching_uart(tmp_path: P
     processor = CommandProcessor(
         edge,
         object(),
-        remote_support_manager=Remote(),
+        remote_support_controller=Remote(),
     )
 
     assert processor.process_next() is True

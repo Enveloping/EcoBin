@@ -87,11 +87,6 @@ _onenet_credentials = effective_onenet_credentials(DEVICE_CREDENTIALS)
 PRODUCT_ID = _onenet_credentials.product_id
 DEVICE_NAME = _onenet_credentials.device_name
 DEVICE_KEY = _onenet_credentials.device_key
-REMOTE_SUPPORT_CREDENTIALS = (
-    DEVICE_CREDENTIALS.remote_support
-    if DEVICE_CREDENTIALS is not None
-    else None
-)
 
 # ── COS 可信公开环境 ──
 # 同时兼容项目根 .env 使用的 Spring 风格名称；永久密钥不会在设备侧读取。
@@ -206,9 +201,9 @@ EDGE_BOOT_ID_PATH = os.getenv(
 )
 EDGE_PHOTO_DIR = os.path.join(DATA_DIR, "photos")
 EDGE_FAULT_DIR = os.path.join(DATA_DIR, "faults")
-REMOTE_SUPPORT_RUNTIME_DIR = os.getenv(
-    "ECOBIN_REMOTE_SUPPORT_RUNTIME_DIR",
-    "/run/ecobin/remote-support",
+REMOTE_SUPPORT_CONTROL_SOCKET = os.getenv(
+    "ECOBIN_REMOTE_SUPPORT_SOCKET",
+    "/run/ecobin/remote-support/control.sock",
 )
 # 尚无已应用平台配置时只采用固定的一小时默认值；正式周期来自平台
 # applyConfiguration，避免环境变量形成未受平台审计的单设备覆盖。

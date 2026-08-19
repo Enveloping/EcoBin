@@ -31,7 +31,7 @@ from config import (
     EDGE_PHOTO_DIR, PHOTO_UPLOAD_POLL_SECONDS,
     PHOTO_GRANT_EXPIRY_SKEW_SECONDS, PHOTO_RETENTION_HOURS,
     TRUSTED_COS_ENVIRONMENT, COS_REQUEST_TIMEOUT_SECONDS,
-    REMOTE_SUPPORT_CREDENTIALS, REMOTE_SUPPORT_RUNTIME_DIR,
+    REMOTE_SUPPORT_CONTROL_SOCKET,
     DEVICE_CREDENTIALS,
     validate as config_validate,
 )
@@ -53,7 +53,11 @@ from fixed_frame_health_recovery import (
     runtime_uart_state,
 )
 from device_entry_url_refresh import DeviceEntryUrlRefreshController
-from remote_support import RemoteSupportManager
+from remote_support_control import (
+    RemoteSupportControlClient,
+    RemoteSupportStatusBridge,
+    RemoteSupportUnavailable,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,6 +79,8 @@ class EcoBinEdge:
         self._last_runtime_snapshot_monotonic = 0.0
         self._last_runtime_snapshot_fingerprint = None
         self._next_runtime_snapshot_monotonic = 0.0
+        self._remote_support_bridge_retry_at = 0.0
+        self._remote_support_bridge_last_warning_at = 0.0
 
         config_validate()
         # -- EdgeStore (SQLite) --
@@ -159,10 +165,12 @@ class EcoBinEdge:
             device_name=DEVICE_NAME,
             edge_software_version=EDGE_SOFTWARE_VERSION,
         )
-        self.remote_support = RemoteSupportManager(
+        self.remote_support = RemoteSupportControlClient(
+            REMOTE_SUPPORT_CONTROL_SOCKET,
+        )
+        self.remote_support_status = RemoteSupportStatusBridge(
+            self.remote_support,
             self.store,
-            REMOTE_SUPPORT_CREDENTIALS,
-            runtime_dir=REMOTE_SUPPORT_RUNTIME_DIR,
         )
         self.commands = CommandProcessor(
             self.store,
@@ -170,7 +178,7 @@ class EcoBinEdge:
             self.work,
             acceptance_runner=self.acceptance,
             trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
-            remote_support_manager=self.remote_support,
+            remote_support_controller=self.remote_support,
         )
         self.fixed_frame_health_recovery = FixedFrameHealthRecoveryController(
             self.store,
@@ -224,11 +232,6 @@ class EcoBinEdge:
 
     def run(self):
         logger.info("EcoBin Edge v2 starting (boot_id=%d)", self._edge_boot_id)
-        # Remote support is intentionally independent from UART and the single
-        # physical work slot.  A still-valid session can reconnect even while
-        # the MCU boot check is diagnosing a fault.
-        self.remote_support.start()
-
         # -- Boot sequence --
         result = boot_sequence(
             store=self.store, uart_link=self.uart,
@@ -350,6 +353,8 @@ class EcoBinEdge:
             try:
                 if self.work.expire_fixed_frame_work():
                     progressed = True
+                if self._poll_remote_support_status():
+                    progressed = True
                 for event in self.store.list_pending_mcu_events(limit=20):
                     try:
                         self.commands.process_mcu_event(event)
@@ -387,6 +392,32 @@ class EcoBinEdge:
             else:
                 self._request_runtime_snapshot()
         logger.info("command consumer stopped")
+
+    def _poll_remote_support_status(self) -> int:
+        now = time.monotonic()
+        if now < self._remote_support_bridge_retry_at:
+            return 0
+        try:
+            imported = self.remote_support_status.poll_once()
+            self._remote_support_bridge_retry_at = 0.0
+            return imported
+        except RemoteSupportUnavailable:
+            self._remote_support_bridge_retry_at = now + 2.0
+            if now - self._remote_support_bridge_last_warning_at >= 30.0:
+                logger.warning(
+                    "independent remote support agent is unavailable"
+                )
+                self._remote_support_bridge_last_warning_at = now
+            return 0
+        except Exception as error:
+            self._remote_support_bridge_retry_at = now + 5.0
+            if now - self._remote_support_bridge_last_warning_at >= 30.0:
+                logger.error(
+                    "remote support status bridge failed: %s",
+                    type(error).__name__,
+                )
+                self._remote_support_bridge_last_warning_at = now
+            return 0
 
     def _runtime_snapshot_loop(self):
         """Publish state-change snapshots plus a low-frequency fallback."""
@@ -565,10 +596,6 @@ class EcoBinEdge:
             pass
         try:
             self.photo.close()
-        except Exception:
-            pass
-        try:
-            self.remote_support.stop()
         except Exception:
             pass
         try:

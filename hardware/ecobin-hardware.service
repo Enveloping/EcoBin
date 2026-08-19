@@ -1,8 +1,8 @@
 [Unit]
 Description=EcoBin Orange Pi hardware gateway
-Wants=network-online.target
+Wants=network-online.target ecobin-remote-support.service
 Requires=ecobin-enrollment.service
-After=network-online.target ecobin-enrollment.service
+After=network-online.target ecobin-enrollment.service ecobin-remote-support.service
 ConditionPathExists=/etc/ecobin/device-credentials.json
 StartLimitIntervalSec=0
 
@@ -17,8 +17,6 @@ KillSignal=SIGTERM
 TimeoutStopSec=15
 Environment=PYTHONUNBUFFERED=1
 UMask=0077
-RuntimeDirectory=ecobin/remote-support
-RuntimeDirectoryMode=0700
 
 [Install]
 WantedBy=multi-user.target

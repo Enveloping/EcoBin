@@ -155,14 +155,29 @@ sudo /usr/local/sbin/ecobin-runtime-secret-probe
 
 ## 7. 制作香橙派注册包
 
-将 `hardware/` 运行代码和注册代码部署到两个职责目录：普通硬件程序保持既有位置；一次性
-注册程序建议安装到 `/opt/ecobin-enrollment`，创建 Python 3.11 虚拟环境并安装锁定依赖。
-安装：
+将 `hardware/` 代码部署到三个职责目录，三个目录不能通过同一个“当前版本”软链接一起
+切换：
+
+- 普通硬件程序保持 `/root/EcoBin/hardware`；
+- 一次性注册程序安装到 `/opt/ecobin-enrollment`，其中增加
+  `remote_support_credentials.py`；
+- 独立远程维护程序安装到 `/opt/ecobin-remote-support`，至少包含
+  `remote_support_agent.py`、`remote_support_control.py`、`remote_support_store.py`、
+  `remote_support.py`、`device_credentials.py` 和 `secure_files.py`。该目录和 Python 3.11
+  虚拟环境由 root 管理，运行账号 `ecobin-remote` 只有读取代码的权限。它只需要锁定版本的
+  `cryptography` 及其传递依赖，不安装 MQTT、串口、相机或 COS 组件。
+
+安装 systemd 单元：
 
 - `hardware/ecobin-enrollment.service` → `/etc/systemd/system/`；
+- `hardware/ecobin-remote-support.service` → `/etc/systemd/system/`；
 - 更新后的 `hardware/ecobin-hardware.service` → `/etc/systemd/system/`；
 - `hardware/enrollment.env.example` 的现场副本 → `/etc/ecobin/enrollment.env`；
 - 厂家 `K1` → `/etc/ecobin/enrollment.key`，`0600`。
+
+`ecobin-remote-support.service` 使用 systemd `LoadCredential=` 隔离隧道私钥，目标系统的
+systemd 必须支持该指令（建议 248 或更高；Debian 12/Ubuntu 22.04 及更新版本满足）。版本
+过旧时应先升级系统，不能通过放宽 `/etc/ecobin` 或凭证文件权限来绕过。
 
 现场配置至少指定 HTTPS 后端地址：
 
@@ -188,12 +203,18 @@ device name 和 device key 三项，避免正式凭证与旧环境变量并存�
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable ecobin-enrollment.service ecobin-hardware.service
+sudo systemd-analyze verify /etc/systemd/system/ecobin-enrollment.service \
+  /etc/systemd/system/ecobin-remote-support.service \
+  /etc/systemd/system/ecobin-hardware.service
+sudo systemctl enable ecobin-enrollment.service \
+  ecobin-remote-support.service ecobin-hardware.service
 sudo systemctl start ecobin-hardware.service
 ```
 
-硬件服务会等待一次性注册成功。注册服务为 `Restart=on-failure`，断网或突然断电后自动使用
-已保存状态重试；正式凭证存在时只验证并继续清理，不会再向后端创建资产。
+硬件服务会等待一次性注册成功以及远程维护代理的本地控制 Socket 就绪。注册服务为
+`Restart=on-failure`，断网或突然断电后自动使用已保存状态重试；正式凭证存在时只验证并
+继续清理，不会再向后端创建资产。注册后的 `ExecStartPost` 会创建 `ecobin-remote` 账号，
+并生成只含隧道身份、不含 OneNet 密钥的 root-only 凭证投影。
 
 注册成功后逐项检查：
 
@@ -201,11 +222,61 @@ sudo systemctl start ecobin-hardware.service
 sudo test -s /etc/ecobin/device-credentials.json
 sudo test ! -e /etc/ecobin/enrollment.key
 sudo test ! -e /var/lib/ecobin/enrollment-state.json
+sudo test "$(stat -c '%U:%G %a' /etc/ecobin/remote-support-credentials.json)" \
+  = "root:root 600"
+sudo systemctl is-active ecobin-remote-support.service
 sudo systemctl is-active ecobin-hardware.service
+sudo test -S /run/ecobin/remote-support/control.sock
 ```
 
 还要核对注册实现的两个生产副本已经删除。仓库开发副本仍可存在于开发机；离厂设备不能
 保留可直接配合 K1 批量注册的生产副本。
+
+### 7.1 存量设备首次切换
+
+旧版本把 OpenSSH 子进程和隧道状态放在普通硬件进程中。每台存量设备只执行一次以下切换：
+
+1. 先部署并校验 `/opt/ecobin-remote-support`、凭证投影脚本和三个新 unit 文件，但不要同时
+   运行新旧两个隧道管理器；
+2. 停止旧 `ecobin-hardware.service`，确认其 Python 和 OpenSSH 子进程已经退出；
+3. 以 root 运行一次 `remote_support_credentials.py`，再执行
+   `remote_support_agent.py --migrate-only --legacy-edge-store
+   /root/EcoBin/hardware/data/edge.db`。同时显式指定正式凭证、
+   `/var/lib/ecobin/remote-support/state.db`，并在命令结束后把该状态目录递归设为
+   `ecobin-remote:ecobin-remote`、移除组和其他用户权限；
+4. 启动 `ecobin-remote-support.service`，确认 READY 和 Socket 后，再启动新版
+   `ecobin-hardware.service`；
+5. 若旧库中有尚未到期的活动会话，迁移会把它作为 CONNECTING 接管并使用原端口、原期限
+   重连；终态或已过期会话不会复活。迁移命令可重复执行，代理库一旦初始化便不会覆盖。
+
+默认路径下第 3 步的完整命令是：
+
+```bash
+sudo /opt/ecobin-enrollment/.venv/bin/python \
+  /opt/ecobin-enrollment/remote_support_credentials.py
+sudo /opt/ecobin-remote-support/.venv/bin/python \
+  /opt/ecobin-remote-support/remote_support_agent.py \
+  --credentials /etc/ecobin/remote-support-credentials.json \
+  --state /var/lib/ecobin/remote-support/state.db \
+  --legacy-edge-store /root/EcoBin/hardware/data/edge.db \
+  --migrate-only
+sudo chown -R ecobin-remote:ecobin-remote \
+  /var/lib/ecobin/remote-support
+sudo chmod -R go-rwx /var/lib/ecobin/remote-support
+```
+
+若现场 `.env` 改过 `ECOBIN_EDGE_STORE_PATH`，必须把上述 legacy 路径替换成设备实际路径；
+迁移前先确认目标是单台设备的 `edge.db`，不能指向仓库根目录或其他设备的数据目录。
+
+停止旧硬件服务会切断它持有的旧隧道。如果部署人员正是通过该隧道操作，必须改用现场串口、
+同局域网 SSH，或者先把完整且已校验的幂等切换脚本交给 `systemd-run` 脱离当前终端执行；
+不能在交互会话中先停止服务、再指望同一连接继续输入后续命令。切换完成后，仅更新普通硬件
+代码和重启 `ecobin-hardware.service` 不再影响现有隧道。升级代理自身、重启整机或停止
+`ecobin-enrollment.service` 仍可能短断并在原会话期限内重连。
+
+回退到旧架构前必须先关闭平台活动会话、确认服务器 desired/actual 均已撤销，再停止独立
+代理；不得让旧主进程和独立代理同时争用同一个反向端口。代理私有库产生过新会话后，也不能
+把未同步的旧 EdgeStore 隧道行当作回退事实源。
 
 ## 8. 厂家验收操作
 
@@ -238,9 +309,11 @@ ssh-keygen -t ed25519 -f ~/.ssh/ecobin-maintenance
 3. 保存页面给出的短期证书和 known_hosts 行，并使用自己的私钥连接；
 4. 核对目标 Host Key 指纹、设备 `hardwareSn`、服务器 actual 标记和后端会话一致；
 5. 点击关闭，确认五秒内 actual 消失、回环监听不可再连接、端口槽释放；
-6. 香橙派断电后确认 Web 进入 `RECONNECTING` 且端口和原到期时间不变；重新通电后应回到
+6. 保持终端连接时只重启 `ecobin-hardware.service`，确认同一 SSH 会话和反向监听均未断开，
+   普通硬件进程恢复后还能继续转发代理队列中的状态事实；
+7. 香橙派断电后确认 Web 进入 `RECONNECTING` 且端口和原到期时间不变；重新通电后应回到
    `OPEN`，不能变成新的 30 分钟会话；
-7. 再测试服务器重启、证书过期、错误 principal、错误 Host Key、撤销管理员公钥和第五个
+8. 再测试独立代理重启、服务器重启、证书过期、错误 principal、错误 Host Key、撤销管理员公钥和第五个
    并发会话；关闭离线设备时也应在 actual 消失后及时释放端口。
 
 真实验收详细安全项见 `tools/remote-support/README.md`。

@@ -24,14 +24,14 @@ class CommandProcessor:
         *,
         acceptance_runner=None,
         trusted_cos_environment=None,
-        remote_support_manager=None,
+        remote_support_controller=None,
     ):
         self._store = store
         self._uart = uart_link
         self._work = work_manager
         self._acceptance = acceptance_runner
         self._trusted_cos_environment = trusted_cos_environment
-        self._remote_support = remote_support_manager
+        self._remote_support = remote_support_controller
         self._wake_event = threading.Event()
         self._grant_lock = threading.Lock()
         self._volatile_cos_grants: dict[str, dict] = {}
@@ -241,7 +241,7 @@ class CommandProcessor:
 
     def _open_remote_support_tunnel(self, command: dict) -> None:
         if self._remote_support is None:
-            raise RuntimeError("remote support manager is required")
+            raise RuntimeError("remote support controller is required")
         payload = command["payload"]
         disposition = self._remote_support.open_session(
             session_uid=payload["sessionUid"],
@@ -260,7 +260,7 @@ class CommandProcessor:
 
     def _close_remote_support_tunnel(self, command: dict) -> None:
         if self._remote_support is None:
-            raise RuntimeError("remote support manager is required")
+            raise RuntimeError("remote support controller is required")
         session_uid = command["payload"]["sessionUid"]
         disposition = self._remote_support.close_session(
             session_uid=session_uid,
