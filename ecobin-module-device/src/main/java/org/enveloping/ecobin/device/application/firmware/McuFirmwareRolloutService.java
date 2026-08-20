@@ -654,6 +654,11 @@ public class McuFirmwareRolloutService {
                 return TrustedDeviceEventApplyResult.APPLIED;
             }
             if (!advancesProjection) {
+                if ("PACKAGE_FETCH_FAILED".equals(stage)) {
+                    taskWake.wake(new ReliableTaskWake(
+                            deployment.taskUid(),
+                            "MCU_FIRMWARE_PACKAGE_FETCH_FAILED"));
+                }
                 return TrustedDeviceEventApplyResult.APPLIED;
             }
             LocalDateTime completedAt = TERMINAL.contains(stage) ? now : null;

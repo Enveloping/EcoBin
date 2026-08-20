@@ -341,6 +341,57 @@ def test_mcu_firmware_command_without_volatile_grant_fails_closed(tmp_path):
     store.close()
 
 
+def test_disabled_mcu_updater_reports_terminal_rejection(tmp_path):
+    store = make_store(tmp_path)
+    command = valid_service_command(
+        "start-mcu-firmware-update.service-wire.json"
+    )
+    command["cosGrant"]["expiresAt"] = (
+        datetime.now(timezone.utc) + timedelta(minutes=10)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    trusted = {
+        field: command["cosGrant"][field]
+        for field in ("bucket", "region", "baseUrl")
+    }
+    assert store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    ) == "ACCEPTED"
+    processor = CommandProcessor(
+        store,
+        FakeUart(),
+        trusted_cos_environment=trusted,
+        mcu_firmware_updater=None,
+        device_name="SN-TEST-1",
+    )
+    assert processor.offer_cos_grant(
+        command["commandUid"],
+        command["cosGrant"],
+    )
+
+    assert processor.process_next()
+
+    row = store.get_command(command["commandUid"])
+    assert row["state"] == "FAILED"
+    assert row["last_error"] == "MCU_UPDATE_DISABLED"
+    update = store.get_mcu_firmware_update_by_deployment(
+        command["payload"]["deploymentUid"]
+    )
+    assert update["state"] == "REJECTED"
+    assert update["last_error_code"] == "MCU_UPDATE_DISABLED"
+    assert store.get_maintenance_lock() is None
+    events = [
+        json.loads(item["payload_json"])
+        for item in store.list_pending_events()
+        if item["event_type"] == "MCU_FIRMWARE_UPDATE_PROGRESS"
+    ]
+    assert [event["payload"]["stage"] for event in events] == [
+        "REJECTED"
+    ]
+    store.close()
+
+
 def test_apply_configuration_consumes_inbox_and_waits_for_mcu_result(tmp_path):
     store = make_store(tmp_path)
     uart = FakeUart()

@@ -44,6 +44,7 @@ logger = logging.getLogger("mcu-firmware-updater")
 
 TARGET_ATTEMPT_LIMIT = 3
 ROLLBACK_ATTEMPT_LIMIT = 3
+PACKAGE_ACQUISITION_ATTEMPT_LIMIT = 3
 STM32_BOOTLOADER_BAUDRATE = 115200
 STM32_BOOTLOADER_SERIAL_MODE = "8e1"
 STM32FLASH_INTERNAL_RETRIES = 3
@@ -53,6 +54,11 @@ RESET_ASSERT_SECONDS = 0.05
 BOOTLOADER_SETTLE_SECONDS = 0.25
 OUTPUT_LIMIT = 4096
 HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+RETRYABLE_PACKAGE_ACQUISITION_ERRORS = frozenset({
+    "COS_DOWNLOAD_FAILED",
+    "COS_GRANT_MISSING",
+    "COS_RESPONSE_INVALID",
+})
 
 
 class McuUpdateError(RuntimeError):
@@ -620,7 +626,6 @@ class McuFirmwareUpdater:
         firmware_identity_hex: str,
         requested_reason: Optional[str] = None,
     ) -> dict:
-        self._require_enabled()
         if not self.device_name:
             raise McuUpdateError(
                 "DEVICE_NAME_UNAVAILABLE",
@@ -635,6 +640,28 @@ class McuFirmwareUpdater:
             "fixedFrameRevision": 2,
         }
         update_uid = str(uuid.uuid4())
+        if not self.enabled:
+            error = McuUpdateError(
+                "MCU_UPDATE_DISABLED",
+                "MCU firmware update is disabled on this edge device",
+            )
+            rejected = self.store.reject_mcu_firmware_update_before_start(
+                update_uid=update_uid,
+                deployment_uid=deployment_uid,
+                command_uid=command_uid,
+                package_sha256=package_sha256,
+                manifest=provisional_manifest,
+                error_code=error.code,
+                error_message=_safe_message(error),
+                device_name=self.device_name,
+                requested_reason=requested_reason,
+            )
+            if rejected not in {"ACCEPTED", "DUPLICATE"}:
+                raise McuUpdateError(
+                    "UPDATE_REJECTION_CONFLICT",
+                    "disabled MCU update rejection conflicts with journal",
+                )
+            raise error
         disposition = self.store.begin_mcu_firmware_update(
             update_uid=update_uid,
             deployment_uid=deployment_uid,
@@ -676,10 +703,53 @@ class McuFirmwareUpdater:
                     "WORK_BUSY": "PHYSICAL_WORK_BUSY",
                     "COMMAND_BUSY": "PHYSICAL_COMMAND_BUSY",
                 }.get(disposition, "UPDATE_QUEUE_REJECTED")
-                raise McuUpdateError(
+                error = McuUpdateError(
                     code,
                     f"MCU update queue rejected: {disposition}",
                 )
+                if disposition in {
+                    "MAINTENANCE_BUSY",
+                    "WORK_BUSY",
+                    "COMMAND_BUSY",
+                }:
+                    rejected = (
+                        self.store.reject_mcu_firmware_update_before_start(
+                            update_uid=update_uid,
+                            deployment_uid=deployment_uid,
+                            command_uid=command_uid,
+                            package_sha256=package_sha256,
+                            manifest=provisional_manifest,
+                            error_code=error.code,
+                            error_message=_safe_message(error),
+                            device_name=self.device_name,
+                            requested_reason=requested_reason,
+                        )
+                    )
+                    if rejected not in {"ACCEPTED", "DUPLICATE"}:
+                        raise McuUpdateError(
+                            "UPDATE_REJECTION_CONFLICT",
+                            "MCU queue rejection could not be journaled",
+                        )
+                raise error
+
+        acquisition_attempt = (
+            self.store.record_mcu_firmware_package_acquisition_attempt(
+                update_uid,
+                attempt_limit=PACKAGE_ACQUISITION_ATTEMPT_LIMIT,
+            )
+        )
+        if acquisition_attempt is None:
+            exhausted = McuUpdateError(
+                "PACKAGE_FETCH_RETRY_EXHAUSTED",
+                "MCU package acquisition retry limit is exhausted",
+            )
+            self.store.reject_mcu_firmware_update(
+                update_uid,
+                exhausted.code,
+                _safe_message(exhausted),
+                device_name=self.device_name,
+            )
+            raise exhausted
 
         try:
             temporary = self.downloader.download(
@@ -721,12 +791,24 @@ class McuFirmwareUpdater:
                     f"verified MCU package could not be attached: {attached}",
                 )
         except McuUpdateError as error:
-            self.store.fail_mcu_firmware_package_acquisition(
-                update_uid,
-                error.code,
-                _safe_message(error),
-                device_name=self.device_name,
-            )
+            if (
+                error.code in RETRYABLE_PACKAGE_ACQUISITION_ERRORS
+                and acquisition_attempt
+                < PACKAGE_ACQUISITION_ATTEMPT_LIMIT
+            ):
+                self.store.fail_mcu_firmware_package_acquisition(
+                    update_uid,
+                    error.code,
+                    _safe_message(error),
+                    device_name=self.device_name,
+                )
+            else:
+                self.store.reject_mcu_firmware_update(
+                    update_uid,
+                    error.code,
+                    _safe_message(error),
+                    device_name=self.device_name,
+                )
             raise
         except Exception as error:
             acquisition_error = McuUpdateError(
@@ -734,7 +816,7 @@ class McuFirmwareUpdater:
                 "unexpected failure while acquiring the MCU firmware package: "
                 f"{type(error).__name__}",
             )
-            self.store.fail_mcu_firmware_package_acquisition(
+            self.store.reject_mcu_firmware_update(
                 update_uid,
                 acquisition_error.code,
                 _safe_message(acquisition_error),

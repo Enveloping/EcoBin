@@ -225,7 +225,16 @@ class FixedFrameBootUart:
     def __init__(self):
         self.opened = False
         self.self_test_queries = 0
+        self.firmware_identity_queries = 0
         self.device_entry_urls = []
+        self.firmware_identity_result = {
+            "queryStatus": "OK",
+            "statusCode": 0,
+            "protocolRevision": 2,
+            "firmwareVersionCode": 20_100,
+            "firmwareVersion": "2.1.0",
+            "firmwareIdentityHex": "0123456789abcdef",
+        }
 
     def open(self):
         self.opened = True
@@ -275,6 +284,11 @@ class FixedFrameBootUart:
         if on_result is not None:
             on_result(result)
         return result
+
+    def query_firmware_identity(self, timeout_ms=3000):
+        assert timeout_ms == 3000
+        self.firmware_identity_queries += 1
+        return dict(self.firmware_identity_result)
 
     def send_device_entry_url(self, url):
         self.device_entry_urls.append(url)
@@ -590,6 +604,7 @@ def test_fixed_frame_boot_queries_sensors_and_releases_stale_local_work(
     assert result["status"] == "READY"
     assert result["snapshot_count"] == 1
     assert uart.self_test_queries == 1
+    assert uart.firmware_identity_queries == 1
     assert uart.device_entry_urls == [device_entry_url]
     assert store.get_work_slot() is None
     inbox = store.get_command(command_uid)
@@ -601,6 +616,15 @@ def test_fixed_frame_boot_queries_sensors_and_releases_stale_local_work(
     snapshot = mqtt.published[-1][1]["payload"]
     assert snapshot["uartProtocolMajor"] is None
     assert snapshot["uartProtocolMinor"] is None
+    assert snapshot["mcuFirmwareVersion"] == "2.1.0"
+    assert snapshot["mcuFirmwareIdentity"] == {
+        "queryStatus": "OK",
+        "statusCode": 0,
+        "fixedFrameRevision": 2,
+        "firmwareVersionCode": 20_100,
+        "firmwareVersion": "2.1.0",
+        "firmwareIdentityHex": "0123456789abcdef",
+    }
     assert snapshot["ports"][0]["fullnessSensorKind"] == (
         "DIGITAL_INFRARED"
     )
@@ -610,6 +634,27 @@ def test_fixed_frame_boot_queries_sensors_and_releases_stale_local_work(
         "DEVICE_RUNTIME_SNAPSHOT",
         mqtt.published[-1][1],
     )
+    store.close()
+
+
+def test_fixed_frame_boot_does_not_publish_internal_error_as_identity(
+    tmp_path,
+    monkeypatch,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    store.set_edge_boot_id("123")
+    uart = FixedFrameBootUart()
+    uart.firmware_identity_result["statusCode"] = 3
+    mqtt = FakeMqttClient()
+    monkeypatch.setattr("edge_boot.time.sleep", lambda _: None)
+
+    result = boot_sequence(store, uart, mqtt, None, None)
+
+    assert result["status"] == "READY"
+    snapshot = mqtt.published[-1][1]["payload"]
+    assert "mcuFirmwareIdentity" not in snapshot
+    assert snapshot["mcuFirmwareVersion"] == "fixed-frame-compat"
     store.close()
 
 

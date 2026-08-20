@@ -5706,6 +5706,89 @@
     {
      "dataType": {
       "specs": {
+       "false": "null",
+       "true": "present"
+      },
+      "type": "bool"
+     },
+     "identifier": "mcuFirmwareIdentityPresent",
+     "name": "mcuFirmwareIdentityPresent"
+    },
+    {
+     "dataType": {
+      "specs": [
+       {
+        "dataType": {
+         "specs": {
+          "1": "OK"
+         },
+         "type": "enum"
+        },
+        "identifier": "queryStatus",
+        "name": "queryStatus"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "1": "0"
+         },
+         "type": "enum"
+        },
+        "identifier": "statusCode",
+        "name": "statusCode"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "1": "2"
+         },
+         "type": "enum"
+        },
+        "identifier": "fixedFrameRevision",
+        "name": "fixedFrameRevision"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "max": "4294967295",
+          "min": "1",
+          "step": "1",
+          "unit": ""
+         },
+         "type": "int64"
+        },
+        "identifier": "firmwareVersionCode",
+        "name": "firmwareVersionCode"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 32
+         },
+         "type": "string"
+        },
+        "identifier": "firmwareVersion",
+        "name": "firmwareVersion"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 512
+         },
+         "type": "string"
+        },
+        "identifier": "firmwareIdentityHex",
+        "name": "firmwareIdentityHex"
+       }
+      ],
+      "type": "struct"
+     },
+     "identifier": "mcuFirmwareIdentity",
+     "name": "mcuFirmwareIdentity"
+    },
+    {
+     "dataType": {
+      "specs": {
        "1": "DISCONNECTED",
        "2": "NEGOTIATING",
        "3": "READY",

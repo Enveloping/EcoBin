@@ -4,6 +4,7 @@ import org.enveloping.ecobin.device.api.port.TrustedDeviceSourceScopePort;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.framework.reliability.TrustedInboxScopeResolver;
 import org.enveloping.ecobin.integration.cos.CosProperties;
+import org.enveloping.ecobin.integration.onenet.inbound.OneNetCanonicalJson;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetEventDispatcher;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetPermanentMessageException;
 import org.enveloping.ecobin.integration.onenet.outbound.OneNetProperties;
@@ -17,6 +18,7 @@ import org.mockito.ArgumentCaptor;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -208,11 +210,76 @@ class OneNetEventDispatcherTest {
             assertThat(normalized.path("eventCanonicalSha256")
                     .asText())
                     .matches("[0-9a-f]{64}");
+            if ("DEVICE_RUNTIME_SNAPSHOT".equals(
+                    message.messageKind())) {
+                JsonNode identity = normalized.path("event")
+                        .path("payload")
+                        .path("mcuFirmwareIdentity");
+                assertThat(identity.path("queryStatus").asText())
+                        .isEqualTo("OK");
+                assertThat(identity.path("statusCode").asInt())
+                        .isZero();
+                assertThat(identity.path("fixedFrameRevision").asInt())
+                        .isEqualTo(2);
+            }
         }
         verify(sourceScopePort,
                 org.mockito.Mockito.times(4))
                 .resolverForPermanentAssetFact(
                         eq(HARDWARE_SN), any(Instant.class));
+    }
+
+    @Test
+    void runtimeSnapshotBeforeIdentityFieldDeploymentRemainsValid()
+            throws Exception {
+        ObjectNode wireExample = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "device-runtime-snapshot.event-wire.json")));
+        ObjectNode wire = (ObjectNode) wireExample.path("oneJsonPayload")
+                .path("params")
+                .path("deviceRuntimeSnapshot")
+                .path("value");
+        wire.remove("mcuFirmwareIdentityPresent");
+        wire.remove("mcuFirmwareIdentity");
+
+        ObjectNode semantic = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "device-runtime-snapshot.event.json")));
+        ObjectNode payload = (ObjectNode) semantic.path("payload");
+        payload.remove("mcuFirmwareIdentity");
+        wire.put(
+                "payloadSha256",
+                OneNetCanonicalJson.payloadSha256(
+                        objectMapper.convertValue(payload, Map.class)));
+        String decrypted = """
+                {
+                  "msgType": "thingEvent",
+                  "subData": {
+                    "productId": "%s",
+                    "deviceName": "%s",
+                    "params": %s
+                  }
+                }
+                """.formatted(
+                PRODUCT_ID,
+                HARDWARE_SN,
+                wireExample.path("oneJsonPayload")
+                        .path("params").toString());
+
+        dispatcher.handle(
+                decrypted,
+                "mq-runtime-before-f3-identity",
+                RAW_TRANSPORT);
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort).receive(captor.capture());
+        JsonNode normalized = objectMapper.readTree(
+                captor.getValue().normalizedPayload());
+        assertThat(normalized.path("event").path("payload")
+                .has("mcuFirmwareIdentity")).isFalse();
     }
 
     @Test

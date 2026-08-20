@@ -143,7 +143,7 @@ class EcoBinEdge:
             clean_session=MQTT_CLEAN_SESSION,
             trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
             unsupported_command_types=(
-                ({
+                {
                     "END_CLEAN_BEFORE_UNLOCK",
                     "RESUME_CLEAN_OPERATION",
                 }
@@ -152,12 +152,7 @@ class EcoBinEdge:
                     "compatibility_mode",
                     False,
                 )
-                else set())
-                | (
-                    set()
-                    if MCU_UPDATE_ENABLED
-                    else {"START_MCU_FIRMWARE_UPDATE"}
-                )
+                else set()
             ),
         )
 
@@ -237,6 +232,7 @@ class EcoBinEdge:
             trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
             remote_support_controller=self.remote_support,
             mcu_firmware_updater=self.mcu_updater,
+            device_name=DEVICE_NAME,
         )
         self.fixed_frame_health_recovery = FixedFrameHealthRecoveryController(
             self.store,
@@ -469,6 +465,7 @@ class EcoBinEdge:
                         and self.mcu_updater.process_active()
                     ):
                         progressed = True
+                        self._request_runtime_snapshot()
                     if self.store.get_maintenance_lock() is not None:
                         if self._poll_remote_support_status():
                             progressed = True
@@ -676,6 +673,11 @@ class EcoBinEdge:
                     self.uart,
                     "_mcu_firmware_version",
                     "",
+                ),
+                "mcu_firmware_identity": getattr(
+                    self.uart,
+                    "verified_firmware_identity",
+                    None,
                 ),
                 "uart_protocol_major": (
                     None if compatibility_mode else 1

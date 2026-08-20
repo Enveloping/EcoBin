@@ -514,6 +514,30 @@ def test_firmware_identity_query_updates_handshake_identity():
     assert handshake["mcu_firmware_version"] == "1.2.3"
     assert handshake["mcu_firmware_version_code"] == 10203
     assert handshake["fixed_frame_revision"] == 2
+    assert adapter.verified_firmware_identity == {
+        "queryStatus": "OK",
+        "statusCode": 0,
+        "fixedFrameRevision": 2,
+        "firmwareVersionCode": 10203,
+        "firmwareVersion": "1.2.3",
+        "firmwareIdentityHex": "0102030405060708",
+    }
+
+
+def test_short_firmware_version_is_not_exposed_as_registration_fact():
+    response = firmware_status_frame(mode=1, version="1")
+    fake = FirmwareRespondingSerial({1: response})
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    result = adapter.query_firmware_identity(timeout_ms=20)
+
+    assert result["queryStatus"] == "OK"
+    assert adapter.verified_firmware_identity is None
 
 
 def test_prepare_firmware_update_requires_success_and_all_safe_flags():
@@ -547,6 +571,7 @@ def test_prepare_firmware_update_rejects_busy_or_incomplete_safe_state():
     assert result["queryStatus"] == "OK"
     assert result["status"] == "BUSY"
     assert result["prepared"] is False
+    assert adapter.verified_firmware_identity is None
 
 
 def test_unsolicited_firmware_status_is_not_projected_as_business_event():

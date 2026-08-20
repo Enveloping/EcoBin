@@ -3,6 +3,7 @@ package org.enveloping.ecobin.device.application.firmware;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedPlatformDeviceAssetFactEvent;
 import org.enveloping.ecobin.device.application.target.DeviceConfigurationCanonicalizer;
+import org.enveloping.ecobin.device.application.target.TrustedMcuFirmwareIdentityService;
 import org.enveloping.ecobin.device.web.v1.firmware.McuFirmwareModels.CreateRolloutRequest;
 import org.enveloping.ecobin.device.web.v1.firmware.McuFirmwareModels.DeploymentView;
 import org.enveloping.ecobin.device.web.v1.firmware.McuFirmwareModels.RegisterReleaseRequest;
@@ -325,6 +326,16 @@ class McuFirmwareRolloutServiceIntegrationTest {
 
         service.applyProgress(progress(
                 deployment,
+                "PACKAGE_FETCH_FAILED",
+                0,
+                0,
+                null,
+                null,
+                null));
+        verify(taskWake, times(2)).wake(any(ReliableTaskWake.class));
+
+        service.applyProgress(progress(
+                deployment,
                 "PREFLIGHT",
                 0,
                 0,
@@ -335,7 +346,52 @@ class McuFirmwareRolloutServiceIntegrationTest {
                 service.detail(rolloutUid), "VALIDATION", 0);
         assertEquals("PREFLIGHT", resumed.status());
         assertEquals(null, resumed.errorCode());
-        verify(taskWake, times(1)).wake(any(ReliableTaskWake.class));
+        verify(taskWake, times(2)).wake(any(ReliableTaskWake.class));
+    }
+
+    @Test
+    void trustedF3RuntimeObservationUnlocksTheFirstCloudRollout() {
+        registerRelease(UUID.randomUUID(), "first cloud release");
+        jdbc.update("""
+                        UPDATE dev_device_asset
+                        SET mcu_firmware_version_code = NULL,
+                            mcu_firmware_identity_hex = NULL,
+                            mcu_fixed_frame_revision = NULL
+                        WHERE hardware_sn = ?
+                        """,
+                VALIDATION_SN);
+        TargetApiException beforeObservation = assertThrows(
+                TargetApiException.class,
+                () -> service.createRollout(
+                        UUID.randomUUID(),
+                        rolloutRequest(RELEASE_UID, "before F3 fact")));
+        assertEquals(
+                "DEVICE.MCU_FIRMWARE_PROTOCOL_REVISION_UNSUPPORTED",
+                beforeObservation.code());
+
+        ObjectNode runtimePayload = objectMapper.createObjectNode();
+        runtimePayload.put("mcuFirmwareVersion", "1.9.0");
+        runtimePayload.putObject("mcuFirmwareIdentity")
+                .put("queryStatus", "OK")
+                .put("statusCode", 0)
+                .put("fixedFrameRevision", 2)
+                .put("firmwareVersionCode", 10_900L)
+                .put("firmwareVersion", "1.9.0")
+                .put("firmwareIdentityHex", "fedcba9876543210");
+        new TrustedMcuFirmwareIdentityService(jdbc)
+                .applyTrustedRuntimeObservation(
+                        1L,
+                        runtimePayload,
+                        LocalDateTime.now(ZoneOffset.UTC));
+
+        RolloutView rollout = service.createRollout(
+                UUID.randomUUID(),
+                rolloutRequest(RELEASE_UID, "after trusted F3 fact"));
+        assertEquals("DRAFT", rollout.status());
+        assertEquals(2, jdbc.queryForObject(
+                "SELECT mcu_fixed_frame_revision"
+                        + " FROM dev_device_asset WHERE id = 1",
+                Integer.class));
     }
 
     @Test

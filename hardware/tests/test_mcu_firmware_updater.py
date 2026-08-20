@@ -510,7 +510,7 @@ def test_each_package_acquisition_failure_emits_a_fresh_retry_fact(
         version_code=20000,
         marker=2,
     )
-    updater.downloader = FailingOnceDownloader(package_path, failures=2)
+    updater.downloader = FailingOnceDownloader(package_path, failures=3)
     updater.device_name = "SN-TEST-1"
     arguments = {
         "deployment_uid": str(uuid.uuid4()),
@@ -536,7 +536,7 @@ def test_each_package_acquisition_failure_emits_a_fresh_retry_fact(
         ],
     }
 
-    for _ in range(2):
+    for _ in range(3):
         with pytest.raises(McuUpdateError):
             updater.queue_cloud(**arguments)
 
@@ -548,10 +548,17 @@ def test_each_package_acquisition_failure_emits_a_fresh_retry_fact(
         "QUEUED",
         "PACKAGE_FETCH_FAILED",
         "PACKAGE_FETCH_FAILED",
+        "REJECTED",
     ]
+    update = store.get_mcu_firmware_update_by_deployment(
+        arguments["deployment_uid"]
+    )
+    assert update["state"] == "REJECTED"
+    assert update["package_acquisition_attempt_count"] == 3
+    assert store.get_maintenance_lock() is None
 
 
-def test_unexpected_package_io_failure_is_journaled_and_reported(tmp_path):
+def test_unexpected_package_io_failure_is_terminal_and_unlocks(tmp_path):
     (
         private_path,
         store,
@@ -599,14 +606,221 @@ def test_unexpected_package_io_failure_is_journaled_and_reported(tmp_path):
         )
 
     assert failure.value.code == "PACKAGE_ACQUISITION_FAILED"
-    update = store.get_active_mcu_firmware_update()
-    assert update["state"] == "PACKAGE_FETCH_FAILED"
+    update = store.get_mcu_firmware_update_by_deployment(
+        next(
+            json.loads(row["payload_json"])["payload"]["deploymentUid"]
+            for row in store.list_pending_events()
+        )
+    )
+    assert update["state"] == "REJECTED"
     assert update["last_error_code"] == "PACKAGE_ACQUISITION_FAILED"
     stages = [
         json.loads(row["payload_json"])["payload"]["stage"]
         for row in store.list_pending_events()
     ]
-    assert stages == ["QUEUED", "PACKAGE_FETCH_FAILED"]
+    assert stages == ["QUEUED", "REJECTED"]
+    assert store.get_maintenance_lock() is None
+
+
+def test_invalid_signature_is_rejected_without_credential_retry(tmp_path):
+    (
+        _,
+        store,
+        _,
+        _,
+        _,
+        _,
+        _,
+        updater,
+    ) = updater_fixture(tmp_path)
+    rogue_dir = tmp_path / "rogue-key"
+    rogue_dir.mkdir()
+    _, rogue_private_path = signing_key(rogue_dir)
+    rogue_package, rogue = build_package(
+        tmp_path,
+        rogue_private_path,
+        version="9.9.9",
+        version_code=90_909,
+        marker=9,
+    )
+    updater.downloader = FailingOnceDownloader(
+        rogue_package,
+        failures=0,
+    )
+    updater.device_name = "SN-TEST-1"
+    deployment_uid = str(uuid.uuid4())
+
+    with pytest.raises(McuUpdateError) as failure:
+        updater.queue_cloud(
+            deployment_uid=deployment_uid,
+            command_uid=str(uuid.uuid4()),
+            object_key=(
+                f"ecobin/mcu-firmware/{rogue.manifest['releaseUid']}/"
+                f"{rogue.package_sha256}.efw"
+            ),
+            package_sha256=rogue.package_sha256,
+            package_size=rogue.package_size,
+            cos_grant={
+                "keyPrefix": (
+                    f"ecobin/mcu-firmware/"
+                    f"{rogue.manifest['releaseUid']}/"
+                )
+            },
+            release_uid=rogue.manifest["releaseUid"],
+            firmware_version=rogue.manifest["firmwareVersion"],
+            firmware_version_code=rogue.manifest[
+                "firmwareVersionCode"
+            ],
+            firmware_identity_hex=rogue.manifest[
+                "firmwareIdentityHex"
+            ],
+        )
+
+    assert failure.value.code == "PACKAGE_INVALID"
+    update = store.get_mcu_firmware_update_by_deployment(deployment_uid)
+    assert update["state"] == "REJECTED"
+    assert update["last_error_code"] == "PACKAGE_INVALID"
+    assert store.get_maintenance_lock() is None
+    assert [
+        json.loads(row["payload_json"])["payload"]["stage"]
+        for row in store.list_pending_events()
+    ] == ["QUEUED", "REJECTED"]
+
+
+def test_busy_physical_work_is_reported_as_terminal_rejection(tmp_path):
+    (
+        private_path,
+        store,
+        _,
+        _,
+        _,
+        _,
+        _,
+        updater,
+    ) = updater_fixture(tmp_path)
+    package_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20_000,
+        marker=2,
+    )
+    updater.downloader = FailingOnceDownloader(package_path, failures=0)
+    updater.device_name = "SN-TEST-1"
+    assert store.acquire_work_slot(
+        "DELIVERY",
+        str(uuid.uuid4()),
+        1,
+        {},
+    )
+    deployment_uid = str(uuid.uuid4())
+
+    with pytest.raises(McuUpdateError) as failure:
+        updater.queue_cloud(
+            deployment_uid=deployment_uid,
+            command_uid=str(uuid.uuid4()),
+            object_key=(
+                f"ecobin/mcu-firmware/{target.manifest['releaseUid']}/"
+                f"{target.package_sha256}.efw"
+            ),
+            package_sha256=target.package_sha256,
+            package_size=target.package_size,
+            cos_grant={
+                "keyPrefix": (
+                    f"ecobin/mcu-firmware/"
+                    f"{target.manifest['releaseUid']}/"
+                )
+            },
+            release_uid=target.manifest["releaseUid"],
+            firmware_version=target.manifest["firmwareVersion"],
+            firmware_version_code=target.manifest[
+                "firmwareVersionCode"
+            ],
+            firmware_identity_hex=target.manifest[
+                "firmwareIdentityHex"
+            ],
+        )
+
+    assert failure.value.code == "PHYSICAL_WORK_BUSY"
+    update = store.get_mcu_firmware_update_by_deployment(deployment_uid)
+    assert update["state"] == "REJECTED"
+    assert update["last_error_code"] == "PHYSICAL_WORK_BUSY"
+    assert store.get_maintenance_lock() is None
+    assert store.get_work_slot()["work_type"] == "DELIVERY"
+    assert [
+        json.loads(row["payload_json"])["payload"]["stage"]
+        for row in store.list_pending_events()
+    ] == ["REJECTED"]
+
+
+def test_other_maintenance_owner_is_preserved_when_cloud_update_rejected(
+    tmp_path,
+):
+    (
+        private_path,
+        store,
+        _,
+        _,
+        _,
+        _,
+        _,
+        updater,
+    ) = updater_fixture(tmp_path)
+    package_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20_000,
+        marker=2,
+    )
+    updater.downloader = FailingOnceDownloader(package_path, failures=0)
+    updater.device_name = "SN-TEST-1"
+    owner_uid = str(uuid.uuid4())
+    assert store.begin_mcu_firmware_update(
+        update_uid=owner_uid,
+        deployment_uid=str(uuid.uuid4()),
+        source="LOCAL",
+        package_path=str(package_path.resolve()),
+        package_sha256=target.package_sha256,
+        manifest=target.manifest,
+    ) == "ACCEPTED"
+    deployment_uid = str(uuid.uuid4())
+
+    with pytest.raises(McuUpdateError) as failure:
+        updater.queue_cloud(
+            deployment_uid=deployment_uid,
+            command_uid=str(uuid.uuid4()),
+            object_key=(
+                f"ecobin/mcu-firmware/{target.manifest['releaseUid']}/"
+                f"{target.package_sha256}.efw"
+            ),
+            package_sha256=target.package_sha256,
+            package_size=target.package_size,
+            cos_grant={
+                "keyPrefix": (
+                    f"ecobin/mcu-firmware/"
+                    f"{target.manifest['releaseUid']}/"
+                )
+            },
+            release_uid=target.manifest["releaseUid"],
+            firmware_version=target.manifest["firmwareVersion"],
+            firmware_version_code=target.manifest[
+                "firmwareVersionCode"
+            ],
+            firmware_identity_hex=target.manifest[
+                "firmwareIdentityHex"
+            ],
+        )
+
+    assert failure.value.code == "MAINTENANCE_BUSY"
+    update = store.get_mcu_firmware_update_by_deployment(deployment_uid)
+    assert update["state"] == "REJECTED"
+    assert update["last_error_code"] == "MAINTENANCE_BUSY"
+    assert store.get_maintenance_lock()["owner_uid"] == owner_uid
+    assert [
+        json.loads(row["payload_json"])["payload"]["stage"]
+        for row in store.list_pending_events()
+    ] == ["REJECTED"]
 
 
 def test_target_and_rollback_failure_leave_persistent_business_lock(tmp_path):

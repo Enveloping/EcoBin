@@ -26,7 +26,7 @@ from onenet_wire import (
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 12
+CURRENT_SCHEMA_VERSION = 13
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -155,7 +155,7 @@ class EdgeStore:
         current = row[0] or 0
         if current == CURRENT_SCHEMA_VERSION:
             return
-        if current not in {0, 9, 10, 11}:
+        if current not in {0, 9, 10, 11, 12}:
             raise RuntimeError(
                 "EdgeStore 数据库时代不兼容；永久资产 v9 不读取旧设备数据库"
             )
@@ -206,6 +206,10 @@ class EdgeStore:
         if current < 12:
             self._migrate_v12()
             conn.execute("INSERT INTO schema_version (version) VALUES (12)")
+            current = 12
+        if current < 13:
+            self._migrate_v13()
+            conn.execute("INSERT INTO schema_version (version) VALUES (13)")
         conn.commit()
 
     def _migrate_v10(self) -> None:
@@ -388,6 +392,16 @@ class EdgeStore:
         self._conn.execute(
             """CREATE INDEX IF NOT EXISTS idx_mcu_update_state
                ON mcu_firmware_update(state, requested_at)"""
+        )
+
+    def _migrate_v13(self) -> None:
+        """Bound cloud package acquisition across task wake generations."""
+
+        self._conn.execute(
+            """ALTER TABLE mcu_firmware_update
+               ADD COLUMN package_acquisition_attempt_count INTEGER
+                   NOT NULL DEFAULT 0
+                   CHECK (package_acquisition_attempt_count >= 0)"""
         )
 
     def _create_tables(self) -> None:
@@ -2250,6 +2264,167 @@ class EdgeStore:
             result[f"{prefix}_manifest"] = _json.loads(raw) if raw else None
         return result
 
+    def record_mcu_firmware_package_acquisition_attempt(
+        self,
+        update_uid: str,
+        *,
+        attempt_limit: int,
+    ) -> Optional[int]:
+        """Start one package attempt, or return ``None`` at the total limit."""
+        if (
+            not isinstance(attempt_limit, int)
+            or isinstance(attempt_limit, bool)
+            or attempt_limit <= 0
+        ):
+            raise ValueError("package acquisition attempt limit is invalid")
+        now = self._now()
+        with self.transaction():
+            owner = self._conn.execute(
+                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            update = self._conn.execute(
+                """SELECT package_ready, state,
+                          package_acquisition_attempt_count
+                   FROM mcu_firmware_update WHERE update_uid=?""",
+                (update_uid,),
+            ).fetchone()
+            if (
+                not owner
+                or owner["owner_uid"] != update_uid
+                or not update
+                or bool(update["package_ready"])
+                or update["state"] not in {
+                    "QUEUED",
+                    "PACKAGE_FETCH_FAILED",
+                }
+            ):
+                raise ValueError("MCU package acquisition is not active")
+            previous = int(
+                update["package_acquisition_attempt_count"]
+            )
+            if previous >= attempt_limit:
+                return None
+            current = previous + 1
+            changed = self._conn.execute(
+                """UPDATE mcu_firmware_update
+                   SET package_acquisition_attempt_count=?, state='QUEUED',
+                       last_error_code=NULL, last_error_message=NULL,
+                       updated_at=?
+                   WHERE update_uid=?""",
+                (current, now, update_uid),
+            )
+            if changed.rowcount != 1:
+                raise RuntimeError("MCU package attempt journal update lost")
+            self._conn.execute(
+                "UPDATE maintenance_lock SET updated_at=? WHERE owner_uid=?",
+                (now, update_uid),
+            )
+            return current
+
+    def reject_mcu_firmware_update_before_start(
+        self,
+        *,
+        update_uid: str,
+        deployment_uid: str,
+        command_uid: str,
+        package_sha256: str,
+        manifest: dict,
+        error_code: str,
+        error_message: str,
+        device_name: str,
+        requested_reason: Optional[str] = None,
+    ) -> str:
+        """Persist a reliable terminal refusal without taking maintenance."""
+        _require_uuid4_local(update_uid, "update_uid")
+        _require_uuid4_local(deployment_uid, "deployment_uid")
+        _require_uuid4_local(command_uid, "command_uid")
+        if (
+            not isinstance(package_sha256, str)
+            or len(package_sha256) != 64
+            or any(c not in "0123456789abcdef" for c in package_sha256)
+        ):
+            raise ValueError("MCU package SHA-256 is invalid")
+        if not isinstance(manifest, dict):
+            raise ValueError("MCU package manifest must be an object")
+        if not device_name:
+            raise ValueError("device name is required for MCU rejection")
+        manifest_json = _json.dumps(
+            manifest,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        package_path = os.path.abspath(
+            os.path.join(
+                os.path.dirname(os.path.abspath(self.db_path)),
+                "mcu-firmware-rejected",
+                f"{package_sha256}.efw",
+            )
+        )
+        now = self._now()
+        with self.transaction():
+            existing = self._conn.execute(
+                "SELECT * FROM mcu_firmware_update WHERE deployment_uid=?",
+                (deployment_uid,),
+            ).fetchone()
+            if existing:
+                same = (
+                    existing["command_uid"] == command_uid
+                    and existing["package_sha256"] == package_sha256
+                    and existing["manifest_json"] == manifest_json
+                    and existing["state"] == "REJECTED"
+                    and existing["last_error_code"] == error_code
+                )
+                return "DUPLICATE" if same else "CONFLICT"
+            stable = self._conn.execute(
+                "SELECT * FROM mcu_firmware_state WHERE singleton_id=1"
+            ).fetchone()
+            self._conn.execute(
+                """INSERT INTO mcu_firmware_update (
+                     update_uid, deployment_uid, command_uid, source,
+                     package_path, package_sha256, manifest_json,
+                     package_ready, state, legacy_preflight,
+                     allow_downgrade, requested_reason,
+                     previous_package_path, previous_package_sha256,
+                     previous_manifest_json, last_error_code,
+                     last_error_message, requested_at, updated_at,
+                     completed_at
+                   ) VALUES (?, ?, ?, 'CLOUD', ?, ?, ?, 0, 'REJECTED',
+                             0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    update_uid,
+                    deployment_uid,
+                    command_uid,
+                    package_path,
+                    package_sha256,
+                    manifest_json,
+                    requested_reason,
+                    stable["current_package_path"] if stable else None,
+                    stable["current_package_sha256"] if stable else None,
+                    stable["current_manifest_json"] if stable else None,
+                    error_code,
+                    error_message,
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='FAILED', processed_at=?,
+                       processing_started_at=NULL, last_error=?
+                   WHERE command_uid=? AND state='PROCESSING'""",
+                (now, error_code, command_uid),
+            )
+            self._create_mcu_firmware_progress_event_in_tx(
+                self._conn,
+                device_name=device_name,
+                update_uid=update_uid,
+                stage="REJECTED",
+                error_code=error_code,
+            )
+            return "ACCEPTED"
+
     def attach_mcu_firmware_package(
         self,
         update_uid: str,
@@ -2629,6 +2804,19 @@ class EdgeStore:
                      last_error_message=? WHERE update_uid=?""",
                 (now, now, error_code, error_message, update_uid),
             )
+            command = self._conn.execute(
+                """SELECT command_uid FROM mcu_firmware_update
+                   WHERE update_uid=?""",
+                (update_uid,),
+            ).fetchone()
+            if command and command["command_uid"]:
+                self._conn.execute(
+                    """UPDATE command_inbox
+                       SET state='FAILED', processed_at=?,
+                           processing_started_at=NULL, last_error=?
+                       WHERE command_uid=? AND state='PROCESSING'""",
+                    (now, error_code, command["command_uid"]),
+                )
             if device_name is not None:
                 self._create_mcu_firmware_progress_event_in_tx(
                     self._conn,

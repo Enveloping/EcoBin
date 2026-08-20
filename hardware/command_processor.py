@@ -26,6 +26,7 @@ class CommandProcessor:
         trusted_cos_environment=None,
         remote_support_controller=None,
         mcu_firmware_updater=None,
+        device_name=None,
     ):
         self._store = store
         self._uart = uart_link
@@ -34,6 +35,7 @@ class CommandProcessor:
         self._trusted_cos_environment = trusted_cos_environment
         self._remote_support = remote_support_controller
         self._mcu_firmware_updater = mcu_firmware_updater
+        self._device_name = device_name
         self._wake_event = threading.Event()
         self._grant_lock = threading.Lock()
         self._volatile_cos_grants: dict[str, dict] = {}
@@ -299,7 +301,39 @@ class CommandProcessor:
 
     def _start_mcu_firmware_update(self, command: dict) -> None:
         if self._mcu_firmware_updater is None:
-            raise RuntimeError("MCU firmware updater is not enabled")
+            if not self._device_name:
+                raise RuntimeError("MCU firmware updater is not enabled")
+            payload = command["payload"]
+            disposition = (
+                self._store.reject_mcu_firmware_update_before_start(
+                    update_uid=str(uuid.uuid4()),
+                    deployment_uid=payload["deploymentUid"],
+                    command_uid=command["commandUid"],
+                    package_sha256=payload["packageSha256"],
+                    manifest={
+                        "releaseUid": payload["releaseUid"],
+                        "firmwareVersion": payload["firmwareVersion"],
+                        "firmwareVersionCode": payload[
+                            "firmwareVersionCode"
+                        ],
+                        "firmwareIdentityHex": payload[
+                            "firmwareIdentityHex"
+                        ],
+                        "fixedFrameRevision": 2,
+                    },
+                    error_code="MCU_UPDATE_DISABLED",
+                    error_message=(
+                        "MCU firmware update is disabled on this edge device"
+                    ),
+                    device_name=self._device_name,
+                    requested_reason=payload.get("reason"),
+                )
+            )
+            if disposition not in {"ACCEPTED", "DUPLICATE"}:
+                raise RuntimeError(
+                    "disabled MCU firmware rejection conflicts with journal"
+                )
+            return
         payload = command["payload"]
         queued = self._mcu_firmware_updater.queue_cloud(
             deployment_uid=payload["deploymentUid"],

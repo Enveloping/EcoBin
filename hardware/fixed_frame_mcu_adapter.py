@@ -319,6 +319,7 @@ class FixedFrameMcuAdapter:
         self._mcu_firmware_version_code = None
         self._mcu_firmware_identity = None
         self._fixed_frame_revision = 1
+        self._verified_firmware_identity = None
         self._mcu_event_sequence = 0
         self._has_opened_once = False
 
@@ -331,6 +332,15 @@ class FixedFrameMcuAdapter:
     @property
     def mcu_session_ready(self) -> bool:
         return self.is_open
+
+    @property
+    def verified_firmware_identity(self) -> Optional[dict]:
+        """Last F3 identity proven by a successful MCU status response."""
+        return (
+            dict(self._verified_firmware_identity)
+            if self._verified_firmware_identity is not None
+            else None
+        )
 
     def open(self) -> bool:
         with self._foreground_io("OPEN"):
@@ -350,6 +360,7 @@ class FixedFrameMcuAdapter:
                     stopbits=1,
                     timeout=self.timeout_s,
                 )
+                self._verified_firmware_identity = None
                 logger.info(
                     "fixed-frame MCU UART opened: port=%s baudrate=%d",
                     self.port,
@@ -1139,6 +1150,25 @@ class FixedFrameMcuAdapter:
         self._mcu_firmware_version_code = decoded["firmware_version_code"]
         self._mcu_firmware_identity = decoded["firmware_identity_hex"]
         self._fixed_frame_revision = decoded["protocol_revision"]
+        if (
+            decoded["status_code"] == 0
+            and decoded["protocol_revision"] == 2
+            and 5 <= len(decoded["firmware_version"]) <= 32
+        ):
+            self._verified_firmware_identity = {
+                "queryStatus": "OK",
+                "statusCode": 0,
+                "fixedFrameRevision": 2,
+                "firmwareVersionCode": decoded[
+                    "firmware_version_code"
+                ],
+                "firmwareVersion": decoded["firmware_version"],
+                "firmwareIdentityHex": decoded[
+                    "firmware_identity_hex"
+                ],
+            }
+        else:
+            self._verified_firmware_identity = None
 
     @staticmethod
     def _successful_firmware_query(decoded: dict) -> dict:

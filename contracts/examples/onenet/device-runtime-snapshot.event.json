@@ -18,6 +18,14 @@
     "edgeVersion": "1.0.0-rc.3",
     "localStorageState": "HEALTHY",
     "mcuBootId": 101,
+    "mcuFirmwareIdentity": {
+      "firmwareIdentityHex": "0123456789abcdef",
+      "firmwareVersion": "1.0.0-rc.3",
+      "firmwareVersionCode": 10003,
+      "fixedFrameRevision": 2,
+      "queryStatus": "OK",
+      "statusCode": 0
+    },
     "mcuFirmwareVersion": "1.0.0-rc.3",
     "pendingReliableEventCount": 2,
     "ports": [
@@ -86,7 +94,7 @@
     "uartProtocolMinor": 0,
     "uartState": "READY"
   },
-  "payloadSha256": "754c170c8b901684d2640ff0c2573e06725a700edfc753ebcce7cbe5810edf23",
+  "payloadSha256": "0b653ed6ef518204633d647e763c6cdbb8bf41d9e407f12cdafd3f2f673d050d",
   "schemaVersion": 2,
   "target": {
     "type": "DEVICE_ASSET",

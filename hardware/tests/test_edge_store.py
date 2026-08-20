@@ -97,6 +97,31 @@ class TestEdgeStoreInit:
         assert row[0] == CURRENT_SCHEMA_VERSION
         store.close()
 
+    def test_v11_to_v12_migration_recreates_firmware_state_index(
+        self,
+        tmp_path,
+    ):
+        path = str(tmp_path / "v11-firmware.db")
+        store = EdgeStore(path)
+        store.initialize()
+        store._conn.execute(
+            "DELETE FROM schema_version WHERE version >= 12"
+        )
+        store._conn.commit()
+        store.close()
+
+        migrated = EdgeStore(path)
+        migrated.initialize()
+
+        indexes = {
+            row["name"]
+            for row in migrated._conn.execute(
+                "PRAGMA index_list('mcu_firmware_update')"
+            ).fetchall()
+        }
+        assert "idx_mcu_update_state" in indexes
+        migrated.close()
+
     def test_v9_rejects_a_v5_database_instead_of_migrating_it(self):
         path = os.path.join(tempfile.mkdtemp(), "v5-photo-url.db")
         store = EdgeStore(path)

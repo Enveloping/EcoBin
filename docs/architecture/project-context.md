@@ -11,6 +11,12 @@
 > [`../../hardware/docs/mcu-remote-firmware-update-runbook.md`](../../hardware/docs/mcu-remote-firmware-update-runbook.md)。
 
 > [!IMPORTANT]
+> 2026-08-20 补充首次准入闭环：设备启动或本地升级完成后查询 F3，只有
+> `STATUS=00 + revision 2` 的完整身份才随已认证运行快照登记到资产；因此 SSH 首次迁移不再
+> 依赖一次不可能先发起的云端升级。COS 临时失败跨可靠任务唤醒总计最多尝试 3 次；签名、
+> 板型、摘要或发布身份错误，以及现场忙碌/升级禁用，均以可靠 `REJECTED` 终态收敛。
+
+> [!IMPORTANT]
 > 2026-08-17 已冻结 V54 投递审核金额阈值和 Web 配置中心。自动审核模式必须设置单笔
 > 结算金额上限，新订单把上限固化为快照；超过上限的正常订单等待人工审核且不记异常。
 > 提现继续复用现有单次最大提现金额。Web 只集中投递审核规则与提现审核规则，不迁移设备或渠道
@@ -403,7 +409,7 @@ P0-FOLLOWUP-01；H-03 的 F-11 依赖已经解除并转为 `ready`，V-09 的 V-
 变化上报，不支持的 MCU 功能仍按“本地保存/明确失败/未知占位”降级。Python 3.11
 硬件套件当前在 Python 3.11/Linux 为
 `353 passed, 4 skipped, 5 subtests passed`，在 Python 3.11/Windows 为
-`344 passed, 13 skipped, 5 subtests passed`，
-契约套件为 `55 passed, 828 subtests passed`。香橙派当时的默认路由/DNS 波动按
+`396 passed, 13 skipped, 5 subtests passed`；契约单元套件为 `59 passed`，生成/跨语言
+校验为 `23 passed, 1 note`。香橙派当时的默认路由/DNS 波动按
 项目负责人决定暂不处理且不阻塞 F-11；微信支付/商家转账仍不可联调。真实条件或
 软件链路缺失时只能标记相应软件阶段，不能宣称 M0。

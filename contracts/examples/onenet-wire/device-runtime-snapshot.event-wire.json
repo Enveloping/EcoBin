@@ -25,11 +25,20 @@
           "localStorageState": 1,
           "mcuBootId": 101,
           "mcuBootIdPresent": true,
+          "mcuFirmwareIdentity": {
+            "firmwareIdentityHex": "0123456789abcdef",
+            "firmwareVersion": "1.0.0-rc.3",
+            "firmwareVersionCode": 10003,
+            "fixedFrameRevision": 1,
+            "queryStatus": 1,
+            "statusCode": 1
+          },
+          "mcuFirmwareIdentityPresent": true,
           "mcuFirmwareVersion": "1.0.0-rc.3",
           "mcuFirmwareVersionPresent": true,
           "occurredAt": "2026-07-24T01:00:30.000Z",
           "occurredAtPresent": true,
-          "payloadSha256": "754c170c8b901684d2640ff0c2573e06725a700edfc753ebcce7cbe5810edf23",
+          "payloadSha256": "0b653ed6ef518204633d647e763c6cdbb8bf41d9e407f12cdafd3f2f673d050d",
           "pendingReliableEventCount": 2,
           "ports": [
             {

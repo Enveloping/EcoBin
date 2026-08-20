@@ -1595,6 +1595,12 @@
         },
         {
           "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuFirmwareIdentity",
+          "nullable": true,
+          "wireIdentifier": "mcuFirmwareIdentity"
+        },
+        {
+          "encoding": "FLAT_TYPED",
           "jsonPath": "$.payload.uartState",
           "nullable": false,
           "wireIdentifier": "uartState"

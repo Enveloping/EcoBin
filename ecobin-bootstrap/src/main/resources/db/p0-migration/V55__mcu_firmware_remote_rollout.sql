@@ -3,6 +3,10 @@
 -- backend only records their immutable identity and creates short-lived,
 -- read-only download grants when a reliable command is actually dispatched.
 
+-- These fields deliberately start NULL. They become eligible only after an
+-- authenticated DEVICE_RUNTIME_SNAPSHOT carries a successful revision-2 F3
+-- identity observation (STATUS=00), or after a verified cloud update result.
+-- A blanket migration backfill would turn an unobserved MCU into a trusted one.
 ALTER TABLE dev_device_asset
     ADD COLUMN mcu_firmware_version_code BIGINT UNSIGNED NULL
         AFTER factory_bag_set_sha256,

@@ -2080,6 +2080,56 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                         "^.{1,64}$",
                         64);
         payload.put("mcuFirmwareVersion", mcuFirmwareVersion);
+        JsonNode identityPresence = wire.get(
+                "mcuFirmwareIdentityPresent");
+        boolean identityPresent = identityPresence != null
+                && bool(wire, "mcuFirmwareIdentityPresent");
+        if (identityPresent) {
+            JsonNode identity = wire.get("mcuFirmwareIdentity");
+            if (identity == null || !identity.isObject()) {
+                throw permanent(
+                        "mcuFirmwareIdentity must exist when marked present");
+            }
+            Map<String, Object> observation = new LinkedHashMap<>();
+            observation.put(
+                    "queryStatus",
+                    exactEnum(identity, "queryStatus", 1L, "OK"));
+            observation.put(
+                    "statusCode",
+                    exactEnum(identity, "statusCode", 1L, 0L));
+            observation.put(
+                    "fixedFrameRevision",
+                    exactEnum(
+                            identity,
+                            "fixedFrameRevision",
+                            1L,
+                            2L));
+            long versionCode = integer(
+                    identity,
+                    "firmwareVersionCode");
+            if (versionCode < 1 || versionCode > 4_294_967_295L) {
+                throw permanent(
+                        "firmwareVersionCode is outside uint32");
+            }
+            observation.put("firmwareVersionCode", versionCode);
+            String identityVersion = text(
+                    identity,
+                    "firmwareVersion",
+                    32);
+            if (identityVersion.length() < 5
+                    || !identityVersion.equals(mcuFirmwareVersion)) {
+                throw permanent(
+                        "MCU identity and runtime firmware versions differ");
+            }
+            observation.put("firmwareVersion", identityVersion);
+            observation.put(
+                    "firmwareIdentityHex",
+                    pattern(
+                            identity,
+                            "firmwareIdentityHex",
+                            "^[0-9a-f]{16}$"));
+            payload.put("mcuFirmwareIdentity", observation);
+        }
         payload.put(
                 "uartState",
                 enumText(

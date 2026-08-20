@@ -69,8 +69,15 @@ def test_command_loop_processes_owner_retry_before_resuming_updater():
     edge.commands = RetryCommands(edge.store)
     edge.mcu_updater = RetryUpdater()
     edge._poll_remote_support_status = lambda: 0
+    edge.runtime_snapshot_requests = 0
+    edge._request_runtime_snapshot = lambda: setattr(
+        edge,
+        "runtime_snapshot_requests",
+        edge.runtime_snapshot_requests + 1,
+    )
 
     edge._command_loop()
 
     assert edge.commands.process_calls == 1
     assert edge.mcu_updater.process_calls == 1
+    assert edge.runtime_snapshot_requests == 1

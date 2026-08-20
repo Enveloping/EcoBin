@@ -13,6 +13,38 @@ from onenet_wire import canonical_payload_sha256, utc_now_rfc3339
 logger = logging.getLogger("edge-boot")
 
 
+def _verified_firmware_identity(result):
+    """Normalize only a successful revision-2 F3 identity observation."""
+    if not isinstance(result, dict):
+        return None
+    identity = result.get("firmwareIdentityHex")
+    version = result.get("firmwareVersion")
+    version_code = result.get("firmwareVersionCode")
+    if (
+        result.get("queryStatus") != "OK"
+        or result.get("statusCode") != 0
+        or result.get("protocolRevision") != 2
+        or not isinstance(version, str)
+        or len(version) < 5
+        or len(version) > 32
+        or not isinstance(version_code, int)
+        or isinstance(version_code, bool)
+        or not 1 <= version_code <= 4_294_967_295
+        or not isinstance(identity, str)
+        or len(identity) != 16
+        or any(character not in "0123456789abcdef" for character in identity)
+    ):
+        return None
+    return {
+        "queryStatus": "OK",
+        "statusCode": 0,
+        "fixedFrameRevision": 2,
+        "firmwareVersionCode": version_code,
+        "firmwareVersion": version,
+        "firmwareIdentityHex": identity,
+    }
+
+
 def _device_name(mqtt_client) -> str:
     return str(
         getattr(mqtt_client, "device_name", "") or ""
@@ -272,6 +304,31 @@ def _boot_fixed_frame_compatibility(
     communication_healthy = bool(
         self_test.get("communicationHealthy") is True
     )
+    firmware_identity = None
+    identity_query = getattr(
+        uart_link,
+        "query_firmware_identity",
+        None,
+    )
+    if communication_healthy and callable(identity_query):
+        try:
+            firmware_identity = _verified_firmware_identity(
+                identity_query(timeout_ms=3_000)
+            )
+        except Exception as error:
+            logger.warning(
+                "BOOT: fixed-frame firmware identity query failed: %s",
+                error,
+            )
+    mcu_info["mcu_firmware_identity"] = firmware_identity
+    if firmware_identity is not None:
+        mcu_info["mcu_firmware_version"] = firmware_identity[
+            "firmwareVersion"
+        ]
+        mcu_info["mcu_firmware_version_code"] = firmware_identity[
+            "firmwareVersionCode"
+        ]
+        mcu_info["fixed_frame_revision"] = 2
     sensors_healthy = bool(
         communication_healthy
         and self_test.get("queryStatus") == "OK"
@@ -599,8 +656,15 @@ def _build_runtime_snapshot_payload(store, mcu_info, snapshots):
         mcu_boot_id = edge_boot_id
     if not isinstance(mcu_boot_id, int) or mcu_boot_id <= 0:
         mcu_boot_id = None
-    firmware_version = mcu_info.get("mcu_firmware_version")
-    if compatibility_mode:
+    firmware_identity = mcu_info.get("mcu_firmware_identity")
+    if not isinstance(firmware_identity, dict):
+        firmware_identity = None
+    firmware_version = (
+        firmware_identity.get("firmwareVersion")
+        if firmware_identity is not None
+        else mcu_info.get("mcu_firmware_version")
+    )
+    if compatibility_mode and not firmware_version:
         firmware_version = "fixed-frame-compat"
     if not firmware_version:
         firmware_version = None
@@ -633,6 +697,8 @@ def _build_runtime_snapshot_payload(store, mcu_info, snapshots):
         "capabilityBitmapHex": f"{int(mcu_info.get('mcu_capability', 0)):016x}",
         "ports": ports,
     }
+    if firmware_identity is not None:
+        payload["mcuFirmwareIdentity"] = firmware_identity
     return payload
 
 

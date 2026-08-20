@@ -41,8 +41,9 @@ import java.util.UUID;
 /**
  * Applies trusted runtime facts reported by the Orange Pi through OneNet.
  *
- * <p>MCU and UART fields are retained as diagnostics. They are deliberately
- * not interpreted as backend activation gates.</p>
+ * <p>Most MCU and UART fields are retained as diagnostics.  A successful,
+ * internally consistent revision-2 F3 identity observation is additionally
+ * registered as the explicit eligibility fact for MCU cloud rollout.</p>
  */
 @Service
 public class TrustedOrangePiRuntimeFactService
@@ -208,6 +209,7 @@ public class TrustedOrangePiRuntimeFactService
             deliveryCommandObservation;
     private final BaselineMeasurementTechnicalAbortService
             baselineTechnicalAborts;
+    private final TrustedMcuFirmwareIdentityService mcuFirmwareIdentities;
     private final List<TrustedCleanCommandObservationBusinessPort>
             cleanCommandObservationBusinessPorts;
     private final List<TrustedEdgeRestartedBusinessPort>
@@ -226,6 +228,7 @@ public class TrustedOrangePiRuntimeFactService
                     deliveryCommandObservation,
             BaselineMeasurementTechnicalAbortService
                     baselineTechnicalAborts,
+            TrustedMcuFirmwareIdentityService mcuFirmwareIdentities,
             List<TrustedCleanCommandObservationBusinessPort>
                     cleanCommandObservationBusinessPorts,
             List<TrustedEdgeRestartedBusinessPort>
@@ -240,6 +243,7 @@ public class TrustedOrangePiRuntimeFactService
         this.photoUploadGrants = photoUploadGrants;
         this.deliveryCommandObservation = deliveryCommandObservation;
         this.baselineTechnicalAborts = baselineTechnicalAborts;
+        this.mcuFirmwareIdentities = mcuFirmwareIdentities;
         this.cleanCommandObservationBusinessPorts = List.copyOf(
                 cleanCommandObservationBusinessPorts);
         this.edgeRestartedBusinessPorts = List.copyOf(
@@ -1476,6 +1480,10 @@ public class TrustedOrangePiRuntimeFactService
             return;
         }
         requireSingle(updated, "merge Orange Pi runtime snapshot");
+        mcuFirmwareIdentities.applyTrustedRuntimeObservation(
+                asset.assetId(),
+                payload,
+                now);
         for (JsonNode port : normalizedPorts) {
             mergePortRuntime(
                     port,

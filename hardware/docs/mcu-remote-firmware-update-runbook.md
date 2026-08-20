@@ -230,15 +230,20 @@ cd /root/EcoBin/hardware
 ```
 
 应看到 `state=SUCCEEDED`、`stableFirmware.current_manifest` 为目标版本、维护锁为空。此后
-设备才具备云端预检和自动回滚基础。
+重启 `ecobin-hardware.service`（或等待主进程完成升级后立即触发的运行快照），香橙派会发送
+`F2 01 F2`。只有 F3 返回 `STATUS=00`、revision 2，且版本码、版本文本和 8 字节身份完整，
+运行快照才携带 `mcuFirmwareIdentity`。后端收到这个已认证且序列更新的事实后，才把该设备
+登记为 revision 2；这一步不依赖来源为 `CLOUD` 的升级进度。登记完成前创建灰度计划会被
+明确拒绝，因此首次迁移后不能只看本地 `SUCCEEDED` 就直接开始云端灰度。
 
 ## 7. 后端、OneNet、COS 和 Web 发布
 
 1. 先用独立迁移作业把目标数据库推进到 V55。V55 新增 3 个设备固件字段和 5 张固件
    发布/灰度表；应用运行制品本身不会执行迁移。
 2. 把 [OneNet 候选物模型](../../contracts/onenet/generated/onenet-thing-model.candidate.json)
-   中的 `startMcuFirmwareUpdate` 服务和 `mcuFirmwareUpdateProgress` 事件更新到 OneNet，
-   再按控制台实际结果复核映射。
+   中的 `startMcuFirmwareUpdate` 服务、`mcuFirmwareUpdateProgress` 事件，以及
+   `deviceRuntimeSnapshot.mcuFirmwareIdentity` 字段更新到 OneNet，再按控制台实际结果复核
+   映射。
 3. 将 `.efw` 上传到私有 COS，键必须精确为：
 
    ```text
@@ -263,12 +268,12 @@ cd /root/EcoBin/hardware
 | 设备状态 | 含义 | 是否阻止新业务 |
 |---|---|---:|
 | `QUEUED/PREFLIGHT/PREPARED` | 已取得维护锁，正在取包或执行擦写前检查 | 是 |
-| `PACKAGE_FETCH_FAILED` | 下载、验签或本地缓存失败；平台会用同一命令编号和新 COS 临时凭证重试 | 是 |
+| `PACKAGE_FETCH_FAILED` | 仅表示 COS 超时、临时凭证失效或临时响应不可读；平台会用同一命令编号和新凭证重试，设备总共最多尝试 3 次 | 是 |
 | `FLASHING_TARGET/VERIFYING_TARGET` | 正在刷目标或核验 F3/F1 | 是 |
 | `ROLLING_BACK/VERIFYING_ROLLBACK` | 目标失败，正在恢复上一稳定版本 | 是 |
 | `SUCCEEDED` | 目标身份和自检均通过 | 否 |
 | `ROLLED_BACK` | 上一稳定版本恢复成功 | 否，但后端阻止继续灰度 |
-| `REJECTED` | 擦写前因设备忙碌、版本策略或安全条件拒绝 | 否 |
+| `REJECTED` | 擦写前因投递/清运或其他维护占用、升级开关关闭、签名/板型/摘要/发布身份错误，或 COS 临时失败达到 3 次而终止；设备释放本次升级维护锁 | 否 |
 | `FAILED_LOCKED` | 目标和回滚都无法证明安全 | 是，重启后仍保持 |
 
 查看指定记录：

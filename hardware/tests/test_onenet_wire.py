@@ -32,6 +32,25 @@ def test_all_service_wire_examples_reconstruct_stable_payload_digest():
         assert canonical_payload_sha256(command["payload"]) == command["payloadSha256"], path.name
 
 
+def test_runtime_snapshot_without_optional_mcu_identity_still_encodes():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "contracts"
+        / "examples"
+        / "onenet"
+        / "device-runtime-snapshot.event.json"
+    )
+    with path.open(encoding="utf-8") as source:
+        event = json.load(source)
+    event["payload"].pop("mcuFirmwareIdentity")
+    event["payloadSha256"] = canonical_payload_sha256(event["payload"])
+
+    wire = encode_event_post("DEVICE_RUNTIME_SNAPSHOT", event)
+    value = wire["params"]["deviceRuntimeSnapshot"]["value"]
+
+    assert value["mcuFirmwareIdentityPresent"] is False
+
+
 def test_decode_start_delivery_session_wire_example():
     path = os.path.join(
         os.path.dirname(__file__),

@@ -1033,7 +1033,15 @@ def _encode_function_parameters(
             else identifier
         )
         field_mapping = mapping_by_identifier[source_identifier]
-        source_value = _json_path_value(instance, field_mapping["jsonPath"])
+        try:
+            source_value = _json_path_value(
+                instance,
+                field_mapping["jsonPath"],
+            )
+        except KeyError:
+            if not field_mapping.get("nullable"):
+                raise
+            source_value = None
         if identifier.endswith("Present"):
             encoded[identifier] = source_value is not None
         else:

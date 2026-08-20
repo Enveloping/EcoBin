@@ -54,7 +54,13 @@ F3 只是状态快照，不确认 AA、EE 等业务命令，也不得据此补�
 ## 部署边界
 
 - revision 1 设备不响应 F2，只允许通过受控 SSH 的 legacy preflight 完成首次升级。
-- OneNet 自动升级只允许最后一次已确认固件声明 revision 2 的设备。
+- 香橙派在启动时发送 `F2 01 F2`。只有对应 F3 同时满足 `STATUS=00`、
+  `PROTOCOL_REV=02` 且身份字段完整时，才把该身份放入已认证的
+  `DEVICE_RUNTIME_SNAPSHOT.payload.mcuFirmwareIdentity`；超时、解析失败、忙碌、不安全或
+  `STATUS=03` 都不能携带该身份字段，也不能登记 revision 2。
+- 后端按设备认证身份和单调事件序列接收上述运行事实后，记录最近确认的版本码、8 字节身份
+  和 revision 2。这条路径用于受控 SSH 首次迁移后的准入，不要求先成功执行一次云端升级。
+- OneNet 自动升级只允许最后一次通过上述 F3 事实或云端升级终态确认 revision 2 的设备。
 - 正常业务串口为 `115200/8N1`；STM32 系统 ROM Bootloader 会话为 `115200/8E1`，
   两者不得同时打开。
 - 自动升级开始前必须收到 `F2 02 F2` 对应的 `MODE=02`、`STATUS=00` 且

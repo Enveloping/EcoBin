@@ -1324,6 +1324,37 @@
         }
       }
     },
+    "mcuFirmwareIdentityObservation": {
+      "type": "object",
+      "required": [
+        "queryStatus",
+        "statusCode",
+        "fixedFrameRevision",
+        "firmwareVersionCode",
+        "firmwareVersion",
+        "firmwareIdentityHex"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "queryStatus": { "const": "OK" },
+        "statusCode": { "const": 0 },
+        "fixedFrameRevision": { "const": 2 },
+        "firmwareVersionCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "firmwareVersion": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 32
+        },
+        "firmwareIdentityHex": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        }
+      }
+    },
     "deviceRuntimeSnapshotPayload": {
       "type": "object",
       "required": [
@@ -1361,6 +1392,14 @@
         "mcuFirmwareVersion": {
           "type": ["string", "null"],
           "maxLength": 32
+        },
+        "mcuFirmwareIdentity": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/mcuFirmwareIdentityObservation"
+            },
+            { "type": "null" }
+          ]
         },
         "uartState": {
           "enum": ["DISCONNECTED", "NEGOTIATING", "READY", "INCOMPATIBLE", "FAULT"]
