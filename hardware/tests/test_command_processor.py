@@ -329,6 +329,15 @@ def test_mcu_firmware_command_without_volatile_grant_fails_closed(tmp_path):
     row = store.get_command(command["commandUid"])
     assert row["state"] == "FAILED"
     assert row["last_error"] == "FIRMWARE_GRANT_NOT_AVAILABLE"
+
+    command["cosGrant"]["expiresAt"] = (
+        datetime.now(timezone.utc) + timedelta(minutes=10)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    assert processor.offer_cos_grant(
+        command["commandUid"],
+        command["cosGrant"],
+    )
+    assert store.get_command(command["commandUid"])["state"] == "PENDING"
     store.close()
 
 

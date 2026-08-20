@@ -408,6 +408,87 @@ def test_duplicate_apply_configuration_is_acknowledged_without_redispatch(
     store.close()
 
 
+def test_duplicate_firmware_command_redispatches_fresh_cos_grant(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    paho = LifecyclePahoClient()
+    client = MqttClient.__new__(MqttClient)
+    client._store = store
+    client.client = paho
+    client.product_id = "product"
+    client.device_name = "SN-CONTRACT-0001"
+    client.edge_boot_id = 9001
+    client._unsupported_command_types = frozenset()
+    client._trusted_cos_environment = {
+        "bucket": "ecobin-contract-1250000000",
+        "region": "ap-guangzhou",
+        "baseUrl": (
+            "https://ecobin-contract-1250000000"
+            ".cos.ap-guangzhou.myqcloud.com"
+        ),
+    }
+    dispatched = []
+    client.on_command_received = (
+        lambda *args: dispatched.append(args) or True
+    )
+
+    example_path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "contracts",
+        "examples",
+        "onenet-wire",
+        "start-mcu-firmware-update.service-wire.json",
+    )
+    with open(example_path, encoding="utf-8") as source:
+        wire = json.load(source)
+    body = wire["callServiceApiBodyTemplate"]
+    params = dict(body["params"])
+    params["scalarFields1"] = dict(params["scalarFields1"])
+    params["scalarFields2"] = dict(params["scalarFields2"])
+    now = datetime.now(timezone.utc)
+    params["scalarFields1"]["issuedAt"] = now.isoformat(
+        timespec="milliseconds"
+    ).replace("+00:00", "Z")
+    params["scalarFields1"]["expiresAt"] = (
+        now + timedelta(minutes=5)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    params["scalarFields2"]["cosGrantExpiresAt"] = (
+        now + timedelta(minutes=10)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    decoded = decode_service_command(body["identifier"], params)
+    params["scalarFields1"]["payloadSha256"] = (
+        canonical_payload_sha256(decoded["payload"])
+    )
+    topic = (
+        "$sys/product/device/thing/service/"
+        f"{body['identifier']}/invoke"
+    )
+    request = {"id": "request-firmware", "params": params}
+
+    client._handle_service_call(topic, request)
+    params["scalarFields1"]["cosGrantGrantUid"] = (
+        "71000000-0000-4000-8000-000000000008"
+    )
+    params["scalarFields1"]["cosGrantTmpSecretId"] = "FRESH_SECRET_ID"
+    params["scalarFields2"]["cosGrantTmpSecretKey"] = "FRESH_SECRET_KEY"
+    client._handle_service_call(topic, request)
+
+    assert len(dispatched) == 2
+    assert dispatched[0][0] == decoded["commandUid"]
+    assert dispatched[1][0] == decoded["commandUid"]
+    assert dispatched[0][2]["cosGrant"]["tmpSecretId"] == "TMP_SECRET_ID_7"
+    assert dispatched[1][2]["cosGrant"]["tmpSecretId"] == "FRESH_SECRET_ID"
+    replies = [
+        payload
+        for reply_topic, payload, _qos in paho.publishes
+        if reply_topic.endswith("/invoke_reply")
+    ]
+    assert [reply["data"]["receiptState"] for reply in replies] == [1, 2]
+    store.close()
+
+
 def test_accepted_business_confirmation_notifies_reliable_count_change_once(
     tmp_path,
 ):

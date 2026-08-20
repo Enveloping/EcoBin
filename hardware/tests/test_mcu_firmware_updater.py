@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import io
+import json
+
+import pytest
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +16,7 @@ from mcu_firmware_package import create_package, generate_identity
 from mcu_firmware_updater import (
     CosFirmwareDownloader,
     FirmwarePackageCache,
+    McuUpdateError,
     McuFirmwareUpdater,
     Stm32FlashRunner,
     WiringOpBootControl,
@@ -77,6 +81,7 @@ class FakeUart:
         self.is_open = False
         self.current_manifest = None
         self.failed_self_test_identities = set()
+        self.internal_error_identities = set()
         self.open_count = 0
         self.close_count = 0
         self.prepare_count = 0
@@ -96,6 +101,12 @@ class FakeUart:
         manifest = self.current_manifest
         return {
             "queryStatus": "OK",
+            "statusCode": (
+                3
+                if manifest["firmwareIdentityHex"]
+                in self.internal_error_identities
+                else 0
+            ),
             "protocolRevision": manifest["fixedFrameRevision"],
             "firmwareVersionCode": manifest["firmwareVersionCode"],
             "firmwareVersion": manifest["firmwareVersion"],
@@ -163,6 +174,29 @@ class InstallingFlashRunner:
             image_path.stem
         ]
         return {"returnCode": 0}
+
+
+class FailingOnceDownloader:
+    def __init__(self, source_path: Path, failures: int = 1):
+        self.source_path = source_path
+        self.calls = 0
+        self.failures = failures
+
+    def download(self, *, destination_directory: Path, **_kwargs):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise McuUpdateError(
+                "COS_DOWNLOAD_FAILED",
+                "injected temporary COS failure",
+            )
+        destination = destination_directory / "retried-firmware.efw"
+        destination.write_bytes(self.source_path.read_bytes())
+        return destination
+
+
+class UnexpectedFailingDownloader:
+    def download(self, **_kwargs):
+        raise OSError("injected cache I/O failure")
 
 
 def updater_fixture(tmp_path: Path):
@@ -339,6 +373,240 @@ def test_three_target_failures_automatically_restore_previous_stable(tmp_path):
     assert store.get_mcu_firmware_state()["current_manifest"] == stable.manifest
     assert len(flasher.calls) - calls_before == 4
     assert store.get_maintenance_lock() is None
+
+
+def test_f3_internal_error_can_never_promote_target_firmware(tmp_path):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        _,
+        _,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    _, stable = install_first_stable(
+        tmp_path,
+        private_path,
+        store,
+        uart,
+        manifests,
+        updater,
+    )
+    target_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    register_manifest(manifests, target)
+    uart.internal_error_identities.add(
+        target.manifest["firmwareIdentityHex"]
+    )
+
+    queued = updater.queue_local(target_path, legacy_preflight=True)
+    assert updater.process_active()
+
+    update = store.get_mcu_firmware_update(queued["updateUid"])
+    assert update["state"] == "ROLLED_BACK"
+    assert update["target_attempt_count"] == 3
+    assert store.get_mcu_firmware_state()["current_manifest"] == (
+        stable.manifest
+    )
+    assert uart.current_manifest == stable.manifest
+
+
+def test_cloud_download_failure_is_journaled_reported_and_retryable(
+    tmp_path,
+):
+    (
+        private_path,
+        store,
+        _,
+        _,
+        _,
+        _,
+        _,
+        updater,
+    ) = updater_fixture(tmp_path)
+    package_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    updater.downloader = FailingOnceDownloader(package_path)
+    updater.device_name = "SN-TEST-1"
+    deployment_uid = str(uuid.uuid4())
+    command_uid = str(uuid.uuid4())
+    arguments = {
+        "deployment_uid": deployment_uid,
+        "command_uid": command_uid,
+        "object_key": (
+            f"ecobin/mcu-firmware/{target.manifest['releaseUid']}/"
+            f"{target.package_sha256}.efw"
+        ),
+        "package_sha256": target.package_sha256,
+        "package_size": target.package_size,
+        "cos_grant": {
+            "keyPrefix": (
+                f"ecobin/mcu-firmware/{target.manifest['releaseUid']}/"
+            )
+        },
+        "release_uid": target.manifest["releaseUid"],
+        "firmware_version": target.manifest["firmwareVersion"],
+        "firmware_version_code": target.manifest[
+            "firmwareVersionCode"
+        ],
+        "firmware_identity_hex": target.manifest[
+            "firmwareIdentityHex"
+        ],
+    }
+
+    with pytest.raises(McuUpdateError) as failure:
+        updater.queue_cloud(**arguments)
+    assert failure.value.code == "COS_DOWNLOAD_FAILED"
+
+    interrupted = store.get_mcu_firmware_update_by_deployment(
+        deployment_uid
+    )
+    assert interrupted is not None
+    assert interrupted["state"] == "PACKAGE_FETCH_FAILED"
+    assert interrupted["last_error_code"] == "COS_DOWNLOAD_FAILED"
+    stages = [
+        json.loads(row["payload_json"])["payload"]["stage"]
+        for row in store.list_pending_events()
+    ]
+    assert stages == ["QUEUED", "PACKAGE_FETCH_FAILED"]
+
+    queued = updater.queue_cloud(**arguments)
+    assert queued["updateUid"] == interrupted["update_uid"]
+    assert queued["state"] == "QUEUED"
+    assert store.get_mcu_firmware_update(
+        queued["updateUid"]
+    )["package_ready"] is True
+
+
+def test_each_package_acquisition_failure_emits_a_fresh_retry_fact(
+    tmp_path,
+):
+    (
+        private_path,
+        store,
+        _,
+        _,
+        _,
+        _,
+        _,
+        updater,
+    ) = updater_fixture(tmp_path)
+    package_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    updater.downloader = FailingOnceDownloader(package_path, failures=2)
+    updater.device_name = "SN-TEST-1"
+    arguments = {
+        "deployment_uid": str(uuid.uuid4()),
+        "command_uid": str(uuid.uuid4()),
+        "object_key": (
+            f"ecobin/mcu-firmware/{target.manifest['releaseUid']}/"
+            f"{target.package_sha256}.efw"
+        ),
+        "package_sha256": target.package_sha256,
+        "package_size": target.package_size,
+        "cos_grant": {
+            "keyPrefix": (
+                f"ecobin/mcu-firmware/{target.manifest['releaseUid']}/"
+            )
+        },
+        "release_uid": target.manifest["releaseUid"],
+        "firmware_version": target.manifest["firmwareVersion"],
+        "firmware_version_code": target.manifest[
+            "firmwareVersionCode"
+        ],
+        "firmware_identity_hex": target.manifest[
+            "firmwareIdentityHex"
+        ],
+    }
+
+    for _ in range(2):
+        with pytest.raises(McuUpdateError):
+            updater.queue_cloud(**arguments)
+
+    stages = [
+        json.loads(row["payload_json"])["payload"]["stage"]
+        for row in store.list_pending_events()
+    ]
+    assert stages == [
+        "QUEUED",
+        "PACKAGE_FETCH_FAILED",
+        "PACKAGE_FETCH_FAILED",
+    ]
+
+
+def test_unexpected_package_io_failure_is_journaled_and_reported(tmp_path):
+    (
+        private_path,
+        store,
+        _,
+        _,
+        _,
+        _,
+        _,
+        updater,
+    ) = updater_fixture(tmp_path)
+    _, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    updater.downloader = UnexpectedFailingDownloader()
+    updater.device_name = "SN-TEST-1"
+
+    with pytest.raises(McuUpdateError) as failure:
+        updater.queue_cloud(
+            deployment_uid=str(uuid.uuid4()),
+            command_uid=str(uuid.uuid4()),
+            object_key=(
+                f"ecobin/mcu-firmware/{target.manifest['releaseUid']}/"
+                f"{target.package_sha256}.efw"
+            ),
+            package_sha256=target.package_sha256,
+            package_size=target.package_size,
+            cos_grant={
+                "keyPrefix": (
+                    f"ecobin/mcu-firmware/"
+                    f"{target.manifest['releaseUid']}/"
+                )
+            },
+            release_uid=target.manifest["releaseUid"],
+            firmware_version=target.manifest["firmwareVersion"],
+            firmware_version_code=target.manifest[
+                "firmwareVersionCode"
+            ],
+            firmware_identity_hex=target.manifest[
+                "firmwareIdentityHex"
+            ],
+        )
+
+    assert failure.value.code == "PACKAGE_ACQUISITION_FAILED"
+    update = store.get_active_mcu_firmware_update()
+    assert update["state"] == "PACKAGE_FETCH_FAILED"
+    assert update["last_error_code"] == "PACKAGE_ACQUISITION_FAILED"
+    stages = [
+        json.loads(row["payload_json"])["payload"]["stage"]
+        for row in store.list_pending_events()
+    ]
+    assert stages == ["QUEUED", "PACKAGE_FETCH_FAILED"]
 
 
 def test_target_and_rollback_failure_leave_persistent_business_lock(tmp_path):

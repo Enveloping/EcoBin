@@ -42,7 +42,7 @@ def firmware_manifest(version_code: int = 10000) -> dict:
         "schemaVersion": 1,
         "releaseUid": str(uuid.uuid4()),
         "mcuPartNumber": "STM32F103C8T6",
-        "hardwareCompatibility": ["ecobin-controller-v1"],
+        "hardwareCompatibility": "ECOBIN_MAINBOARD_V1.1",
         "firmwareVersion": "1.0.0",
         "firmwareVersionCode": version_code,
         "fixedFrameRevision": 2,
@@ -282,6 +282,47 @@ class TestMcuFirmwareUpdateJournal:
         assert store.claim_next_command() is None
         store.close()
 
+    def test_update_lock_allows_only_its_failed_package_command_retry(
+        self,
+        tmp_path,
+    ):
+        store = EdgeStore(str(tmp_path / "edge.db"))
+        store.initialize()
+        command_uid = str(uuid.uuid4())
+        update_uid = str(uuid.uuid4())
+        deployment_uid = str(uuid.uuid4())
+        store.receive_command(
+            command_uid,
+            "START_MCU_FIRMWARE_UPDATE",
+            {"commandUid": command_uid},
+        )
+        assert store.claim_next_command()["command_uid"] == command_uid
+        assert store.begin_mcu_firmware_update(
+            update_uid=update_uid,
+            deployment_uid=deployment_uid,
+            command_uid=command_uid,
+            source="CLOUD",
+            package_path=str((tmp_path / "release.efw").resolve()),
+            package_sha256="1" * 64,
+            manifest=firmware_manifest(),
+            package_ready=False,
+        ) == "ACCEPTED"
+        assert store.fail_mcu_firmware_package_acquisition(
+            update_uid,
+            "COS_DOWNLOAD_FAILED",
+            "temporary download failure",
+        )
+        failed = store.get_command(command_uid)
+        assert failed["state"] == "FAILED"
+        assert failed["last_error"] == "COS_DOWNLOAD_FAILED"
+        assert store.requeue_failed_mcu_firmware_command(command_uid)
+
+        retried = store.claim_next_command()
+
+        assert retried["command_uid"] == command_uid
+        assert retried["attempt_count"] == 2
+        store.close()
+
     def test_current_and_previous_stable_packages_are_shifted_atomically(
         self,
         tmp_path,
@@ -469,6 +510,78 @@ class TestMcuFirmwareUpdateJournal:
         assert envelope["payload"]["stage"] == "QUEUED"
         assert envelope["payload"]["releaseUid"] == manifest["releaseUid"]
         assert envelope["payload"]["installedFirmwareVersion"] is None
+        store.close()
+
+    def test_success_state_and_progress_event_commit_atomically(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        store = EdgeStore(str(tmp_path / "edge.db"))
+        store.initialize()
+        update_uid = str(uuid.uuid4())
+        assert store.begin_mcu_firmware_update(
+            update_uid=update_uid,
+            deployment_uid=str(uuid.uuid4()),
+            source="CLOUD",
+            package_path=str((tmp_path / "release.efw").resolve()),
+            package_sha256="6" * 64,
+            manifest=firmware_manifest(),
+        ) == "ACCEPTED"
+        store.record_mcu_firmware_attempt(update_uid, rollback=False)
+        store.transition_mcu_firmware_update(
+            update_uid,
+            "VERIFYING_TARGET",
+        )
+
+        def fail_outbox_insert(*_args, **_kwargs):
+            raise RuntimeError("injected outbox failure")
+
+        monkeypatch.setattr(store, "_insert_event", fail_outbox_insert)
+        with pytest.raises(RuntimeError, match="outbox failure"):
+            store.complete_mcu_firmware_update(
+                update_uid,
+                device_name="SN-TEST-1",
+            )
+
+        update = store.get_mcu_firmware_update(update_uid)
+        assert update["state"] == "VERIFYING_TARGET"
+        assert store.get_maintenance_lock()["owner_uid"] == update_uid
+        assert store.list_pending_events() == []
+        store.close()
+
+    def test_startup_reconciliation_backfills_a_missing_terminal_event(
+        self,
+        tmp_path,
+    ):
+        store = EdgeStore(str(tmp_path / "edge.db"))
+        store.initialize()
+        update_uid = str(uuid.uuid4())
+        assert store.begin_mcu_firmware_update(
+            update_uid=update_uid,
+            deployment_uid=str(uuid.uuid4()),
+            source="CLOUD",
+            package_path=str((tmp_path / "release.efw").resolve()),
+            package_sha256="7" * 64,
+            manifest=firmware_manifest(),
+        ) == "ACCEPTED"
+        assert store.record_mcu_firmware_attempt(
+            update_uid,
+            rollback=False,
+        ) == 1
+        assert store.complete_mcu_firmware_update(update_uid)
+        assert store.list_pending_events() == []
+
+        assert store.reconcile_mcu_firmware_progress_events(
+            "SN-TEST-1"
+        ) == 1
+        assert store.reconcile_mcu_firmware_progress_events(
+            "SN-TEST-1"
+        ) == 0
+        events = store.list_pending_events()
+        assert len(events) == 1
+        envelope = json.loads(events[0]["payload_json"])
+        assert envelope["payload"]["stage"] == "SUCCEEDED"
         store.close()
 
 

@@ -572,9 +572,7 @@ class McuFirmwareUpdater:
         flash_runner: Stm32FlashRunner,
         downloader: Optional[CosFirmwareDownloader] = None,
         enabled: bool = True,
-        progress_reporter: Optional[
-            Callable[[dict, str, Optional[str], Optional[str]], None]
-        ] = None,
+        device_name: Optional[str] = None,
     ):
         self.store = store
         self.uart = uart_link
@@ -583,7 +581,7 @@ class McuFirmwareUpdater:
         self.flash_runner = flash_runner
         self.downloader = downloader or CosFirmwareDownloader()
         self.enabled = bool(enabled)
-        self._progress_reporter = progress_reporter
+        self.device_name = device_name
         self._execution_lock = threading.Lock()
 
     def queue_local(
@@ -623,47 +621,163 @@ class McuFirmwareUpdater:
         requested_reason: Optional[str] = None,
     ) -> dict:
         self._require_enabled()
-        temporary = self.downloader.download(
-            grant=cos_grant,
-            object_key=object_key,
-            expected_sha256=package_sha256,
-            expected_size=package_size,
-            destination_directory=self.cache.incoming,
-        )
-        try:
-            staged = self.cache.stage(temporary)
-        finally:
-            if temporary.exists():
-                temporary.unlink()
-        if staged.verified.package_sha256 != package_sha256:
+        if not self.device_name:
             raise McuUpdateError(
-                "PACKAGE_DIGEST_MISMATCH",
-                "verified MCU package differs from deployment digest",
+                "DEVICE_NAME_UNAVAILABLE",
+                "cloud MCU updates require a device name for reliable progress",
             )
-        expected_identity = {
+        provisional_manifest = {
             "releaseUid": release_uid,
+            "hardwareCompatibility": self.cache.hardware_compatibility,
             "firmwareVersion": firmware_version,
             "firmwareVersionCode": firmware_version_code,
             "firmwareIdentityHex": firmware_identity_hex,
+            "fixedFrameRevision": 2,
         }
-        actual_identity = {
-            key: staged.verified.manifest.get(key)
-            for key in expected_identity
-        }
-        if actual_identity != expected_identity:
-            raise McuUpdateError(
-                "PACKAGE_IDENTITY_MISMATCH",
-                "signed MCU manifest identity differs from deployment command",
-            )
-        return self._queue_staged(
-            staged,
+        update_uid = str(uuid.uuid4())
+        disposition = self.store.begin_mcu_firmware_update(
+            update_uid=update_uid,
             deployment_uid=deployment_uid,
             command_uid=command_uid,
             source="CLOUD",
+            package_path=str(
+                (self.cache.packages / f"{package_sha256}.efw").resolve()
+            ),
+            package_sha256=package_sha256,
+            manifest=provisional_manifest,
             legacy_preflight=False,
             allow_downgrade=False,
             requested_reason=requested_reason,
+            package_ready=False,
+            device_name=self.device_name,
         )
+        if disposition != "ACCEPTED":
+            existing = self.store.get_mcu_firmware_update_by_deployment(
+                deployment_uid
+            )
+            if existing is not None and self._same_cloud_request(
+                existing,
+                command_uid=command_uid,
+                package_sha256=package_sha256,
+                expected_identity=provisional_manifest,
+            ):
+                update_uid = existing["update_uid"]
+                if existing["package_ready"]:
+                    return self._duplicate_result(existing)
+                if existing["state"] not in {
+                    "QUEUED",
+                    "PACKAGE_FETCH_FAILED",
+                }:
+                    return self._duplicate_result(existing)
+            else:
+                code = {
+                    "CONFLICT": "DEPLOYMENT_CONFLICT",
+                    "MAINTENANCE_BUSY": "MAINTENANCE_BUSY",
+                    "WORK_BUSY": "PHYSICAL_WORK_BUSY",
+                    "COMMAND_BUSY": "PHYSICAL_COMMAND_BUSY",
+                }.get(disposition, "UPDATE_QUEUE_REJECTED")
+                raise McuUpdateError(
+                    code,
+                    f"MCU update queue rejected: {disposition}",
+                )
+
+        try:
+            temporary = self.downloader.download(
+                grant=cos_grant,
+                object_key=object_key,
+                expected_sha256=package_sha256,
+                expected_size=package_size,
+                destination_directory=self.cache.incoming,
+            )
+            try:
+                staged = self.cache.stage(temporary)
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
+            if staged.verified.package_sha256 != package_sha256:
+                raise McuUpdateError(
+                    "PACKAGE_DIGEST_MISMATCH",
+                    "verified MCU package differs from deployment digest",
+                )
+            actual_identity = {
+                key: staged.verified.manifest.get(key)
+                for key in provisional_manifest
+            }
+            if actual_identity != provisional_manifest:
+                raise McuUpdateError(
+                    "PACKAGE_IDENTITY_MISMATCH",
+                    "signed MCU manifest identity differs from deployment command",
+                )
+            attached = self.store.attach_mcu_firmware_package(
+                update_uid,
+                package_path=str(staged.package_path),
+                package_sha256=staged.verified.package_sha256,
+                manifest=staged.verified.manifest,
+                device_name=self.device_name,
+            )
+            if attached not in {"ACCEPTED", "DUPLICATE"}:
+                raise McuUpdateError(
+                    "PACKAGE_ATTACH_CONFLICT",
+                    f"verified MCU package could not be attached: {attached}",
+                )
+        except McuUpdateError as error:
+            self.store.fail_mcu_firmware_package_acquisition(
+                update_uid,
+                error.code,
+                _safe_message(error),
+                device_name=self.device_name,
+            )
+            raise
+        except Exception as error:
+            acquisition_error = McuUpdateError(
+                "PACKAGE_ACQUISITION_FAILED",
+                "unexpected failure while acquiring the MCU firmware package: "
+                f"{type(error).__name__}",
+            )
+            self.store.fail_mcu_firmware_package_acquisition(
+                update_uid,
+                acquisition_error.code,
+                _safe_message(acquisition_error),
+                device_name=self.device_name,
+            )
+            raise acquisition_error from error
+
+        update = self.store.get_mcu_firmware_update(update_uid)
+        return {
+            "disposition": "QUEUED",
+            "updateUid": update_uid,
+            "deploymentUid": deployment_uid,
+            "state": "QUEUED",
+            "manifest": update["manifest"],
+        }
+
+    @staticmethod
+    def _same_cloud_request(
+        update: dict,
+        *,
+        command_uid: str,
+        package_sha256: str,
+        expected_identity: dict,
+    ) -> bool:
+        return (
+            update["source"] == "CLOUD"
+            and update["command_uid"] == command_uid
+            and update["package_sha256"] == package_sha256
+            and all(
+                update["manifest"].get(key) == value
+                for key, value in expected_identity.items()
+            )
+        )
+
+    @staticmethod
+    def _duplicate_result(update: dict) -> dict:
+        return {
+            "disposition": "DUPLICATE",
+            "updateUid": update["update_uid"],
+            "deploymentUid": update["deployment_uid"],
+            "state": update["state"],
+            "manifest": update["manifest"],
+        }
 
     def _queue_staged(
         self,
@@ -688,6 +802,8 @@ class McuFirmwareUpdater:
             legacy_preflight=legacy_preflight,
             allow_downgrade=allow_downgrade,
             requested_reason=requested_reason,
+            package_ready=True,
+            device_name=self.device_name,
         )
         if disposition == "DUPLICATE":
             existing = self.store.get_mcu_firmware_update_by_deployment(
@@ -709,7 +825,6 @@ class McuFirmwareUpdater:
             }.get(disposition, "UPDATE_QUEUE_REJECTED")
             raise McuUpdateError(code, f"MCU update queue rejected: {disposition}")
         update = self.store.get_mcu_firmware_update(update_uid)
-        self._report(update, "QUEUED")
         return {
             "disposition": "QUEUED",
             "updateUid": update_uid,
@@ -733,6 +848,16 @@ class McuFirmwareUpdater:
                 )
                 return False
             if update["state"] == "FAILED_LOCKED":
+                return False
+            if not update["package_ready"]:
+                if update["state"] != "PACKAGE_FETCH_FAILED":
+                    self.store.fail_mcu_firmware_package_acquisition(
+                        update["update_uid"],
+                        "PACKAGE_ACQUISITION_INTERRUPTED",
+                        "edge restarted before the MCU package was cached",
+                        device_name=self.device_name,
+                    )
+                    return True
                 return False
             try:
                 self._execute(update)
@@ -863,9 +988,9 @@ class McuFirmwareUpdater:
         self.store.transition_mcu_firmware_update(
             update["update_uid"],
             "PREFLIGHT",
+            device_name=self.device_name,
         )
         update = self.store.get_mcu_firmware_update(update["update_uid"])
-        self._report(update, "PREFLIGHT")
         if self.store.get_work_slot() is not None:
             raise McuUpdateError(
                 "PHYSICAL_WORK_BUSY",
@@ -897,7 +1022,7 @@ class McuFirmwareUpdater:
                     "application UART could not open for update preflight",
                 )
             identity = self.uart.query_firmware_identity()
-            if identity.get("queryStatus") != "OK":
+            if not self._identity_response_ok(identity):
                 raise McuUpdateError(
                     "FIRMWARE_IDENTITY_UNAVAILABLE",
                     "MCU did not return a valid revision-2 identity snapshot",
@@ -923,10 +1048,7 @@ class McuFirmwareUpdater:
         self.store.transition_mcu_firmware_update(
             update["update_uid"],
             "PREPARED",
-        )
-        self._report(
-            self.store.get_mcu_firmware_update(update["update_uid"]),
-            "PREPARED",
+            device_name=self.device_name,
         )
 
     @staticmethod
@@ -961,19 +1083,19 @@ class McuFirmwareUpdater:
             attempt = self.store.record_mcu_firmware_attempt(
                 update["update_uid"],
                 rollback=False,
+                device_name=self.device_name,
             )
             update = self.store.get_mcu_firmware_update(update["update_uid"])
-            self._report(update, "FLASHING_TARGET")
             try:
                 self._flash(target)
                 self.store.transition_mcu_firmware_update(
                     update["update_uid"],
                     "VERIFYING_TARGET",
+                    device_name=self.device_name,
                 )
                 update = self.store.get_mcu_firmware_update(
                     update["update_uid"]
                 )
-                self._report(update, "VERIFYING_TARGET")
                 self._verify_application(target.verified.manifest)
                 self._complete_target(update)
                 return
@@ -1048,19 +1170,19 @@ class McuFirmwareUpdater:
             attempt = self.store.record_mcu_firmware_attempt(
                 update["update_uid"],
                 rollback=True,
+                device_name=self.device_name,
             )
             update = self.store.get_mcu_firmware_update(update["update_uid"])
-            self._report(update, "ROLLING_BACK")
             try:
                 self._flash(rollback)
                 self.store.transition_mcu_firmware_update(
                     update["update_uid"],
                     "VERIFYING_ROLLBACK",
+                    device_name=self.device_name,
                 )
                 update = self.store.get_mcu_firmware_update(
                     update["update_uid"]
                 )
-                self._report(update, "VERIFYING_ROLLBACK")
                 self._verify_application(rollback.verified.manifest)
                 self._complete_rollback(update)
                 return
@@ -1101,7 +1223,7 @@ class McuFirmwareUpdater:
                 "MCU application UART did not reopen after reset",
             )
         identity = self.uart.query_firmware_identity()
-        if identity.get("queryStatus") != "OK":
+        if not self._identity_response_ok(identity):
             raise McuUpdateError(
                 "APPLICATION_IDENTITY_TIMEOUT",
                 "flashed MCU application did not return a valid F3 identity",
@@ -1134,13 +1256,14 @@ class McuFirmwareUpdater:
         self.boot.force_application_selection()
 
     def _complete_target(self, update: dict) -> None:
-        if not self.store.complete_mcu_firmware_update(update["update_uid"]):
+        if not self.store.complete_mcu_firmware_update(
+            update["update_uid"],
+            device_name=self.device_name,
+        ):
             raise McuUpdateError(
                 "JOURNAL_COMMIT_FAILED",
                 "target firmware verified but stable-state commit failed",
             )
-        completed = self.store.get_mcu_firmware_update(update["update_uid"])
-        self._report(completed, "SUCCEEDED")
         logger.info(
             "MCU firmware update succeeded: update=%s version=%s",
             update["update_uid"],
@@ -1148,13 +1271,14 @@ class McuFirmwareUpdater:
         )
 
     def _complete_rollback(self, update: dict) -> None:
-        if not self.store.complete_mcu_firmware_rollback(update["update_uid"]):
+        if not self.store.complete_mcu_firmware_rollback(
+            update["update_uid"],
+            device_name=self.device_name,
+        ):
             raise McuUpdateError(
                 "JOURNAL_COMMIT_FAILED",
                 "rollback verified but journal commit failed",
             )
-        completed = self.store.get_mcu_firmware_update(update["update_uid"])
-        self._report(completed, "ROLLED_BACK")
         logger.error(
             "MCU target failed and previous stable firmware was restored: %s",
             update["update_uid"],
@@ -1165,9 +1289,8 @@ class McuFirmwareUpdater:
             update["update_uid"],
             error.code,
             _safe_message(error),
+            device_name=self.device_name,
         )
-        rejected = self.store.get_mcu_firmware_update(update["update_uid"])
-        self._report(rejected, "REJECTED", error.code, _safe_message(error))
         logger.warning(
             "MCU firmware update rejected before flash: update=%s code=%s",
             update["update_uid"],
@@ -1184,13 +1307,7 @@ class McuFirmwareUpdater:
             update["update_uid"],
             error.code,
             _safe_message(error),
-        )
-        failed = self.store.get_mcu_firmware_update(update["update_uid"])
-        self._report(
-            failed,
-            "FAILED_LOCKED",
-            error.code,
-            _safe_message(error),
+            device_name=self.device_name,
         )
         logger.critical(
             "MCU update and rollback failed; business remains locked: "
@@ -1214,28 +1331,12 @@ class McuFirmwareUpdater:
             error_message=_safe_message(error),
         )
 
-    def _report(
-        self,
-        update: Optional[dict],
-        stage: str,
-        error_code: Optional[str] = None,
-        error_message: Optional[str] = None,
-    ) -> None:
-        if update is None or self._progress_reporter is None:
-            return
-        try:
-            self._progress_reporter(
-                update,
-                stage,
-                error_code,
-                error_message,
-            )
-        except Exception:
-            logger.exception(
-                "failed to persist MCU firmware progress event: update=%s stage=%s",
-                update.get("update_uid"),
-                stage,
-            )
+    @staticmethod
+    def _identity_response_ok(identity: dict) -> bool:
+        return (
+            identity.get("queryStatus") == "OK"
+            and identity.get("statusCode") == 0
+        )
 
     def _require_enabled(self) -> None:
         if not self.enabled:

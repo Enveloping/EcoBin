@@ -18,6 +18,8 @@ import tools.jackson.databind.node.ObjectNode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -110,6 +112,66 @@ class OneNetEventDispatcherMcuFirmwareTest {
         assertEquals("PLATFORM", kind.get());
         assertNull(tenantId.get());
         assertNull(organizationId.get());
+    }
+
+    @Test
+    void packageFetchFailureCodeTwelveIsNormalizedWithItsError()
+            throws Exception {
+        ObjectNode wire = wireValue();
+        wire.put("stage", 12);
+        wire.put("targetAttemptCount", 0);
+        wire.put("installedFirmwareVersionPresent", false);
+        wire.put("installedFirmwareVersion", "");
+        wire.put("installedFirmwareVersionCPresent", false);
+        wire.put("installedFirmwareVersionC", 0);
+        wire.put("installedFirmwareIdentityPresent", false);
+        wire.put("installedFirmwareIdentity", "");
+        wire.put("errorCodePresent", true);
+        wire.put("errorCode", "COS_DOWNLOAD_FAILED");
+        Map<String, Object> semanticPayload = new LinkedHashMap<>();
+        semanticPayload.put(
+                "deploymentUid",
+                "8c000000-0000-4000-8000-000000000002");
+        semanticPayload.put(
+                "updateUid",
+                "8c000000-0000-4000-8000-000000000004");
+        semanticPayload.put(
+                "releaseUid",
+                "8c000000-0000-4000-8000-000000000001");
+        semanticPayload.put("source", "CLOUD");
+        semanticPayload.put("stage", "PACKAGE_FETCH_FAILED");
+        semanticPayload.put("firmwareVersion", "2.1.0");
+        semanticPayload.put("firmwareVersionCode", 20_100L);
+        semanticPayload.put("firmwareIdentityHex", "0123456789abcdef");
+        semanticPayload.put("fixedFrameRevision", 2L);
+        semanticPayload.put("targetAttemptCount", 0L);
+        semanticPayload.put("rollbackAttemptCount", 0L);
+        semanticPayload.put("legacyPreflight", false);
+        semanticPayload.put("downgradeAuthorized", false);
+        semanticPayload.put("installedFirmwareVersion", null);
+        semanticPayload.put("installedFirmwareVersionCode", null);
+        semanticPayload.put("installedFirmwareIdentityHex", null);
+        semanticPayload.put("errorCode", "COS_DOWNLOAD_FAILED");
+        wire.put(
+                "payloadSha256",
+                OneNetCanonicalJson.payloadSha256(semanticPayload));
+
+        dispatcher.handle(
+                decrypted(wire),
+                "mq-mcu-firmware-package-fetch-failed",
+                "encrypted-mcu-firmware-package-fetch-failed"
+                        .getBytes(StandardCharsets.UTF_8));
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort).receive(captor.capture());
+        JsonNode payload = objectMapper.readTree(
+                captor.getValue().normalizedPayload())
+                .path("event")
+                .path("payload");
+        assertEquals("PACKAGE_FETCH_FAILED", payload.path("stage").asText());
+        assertEquals("COS_DOWNLOAD_FAILED", payload.path("errorCode").asText());
+        assertEquals(0, payload.path("targetAttemptCount").asInt());
     }
 
     private String decrypted(ObjectNode value) {

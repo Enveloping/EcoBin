@@ -10,8 +10,11 @@ import org.enveloping.ecobin.device.web.v1.firmware.McuFirmwareModels.RolloutAct
 import org.enveloping.ecobin.device.web.v1.firmware.McuFirmwareModels.RolloutView;
 import org.enveloping.ecobin.framework.reliability.PlatformDeviceAssetTaskRef;
 import org.enveloping.ecobin.framework.reliability.PlatformDeviceAssetTaskRefFactory;
+import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
 import org.enveloping.ecobin.framework.reliability.ReliablePlatformDeviceControlTaskRegistration;
 import org.enveloping.ecobin.framework.reliability.ReliablePlatformDeviceControlTaskRegistrationPort;
+import org.enveloping.ecobin.framework.reliability.ReliableTaskWake;
+import org.enveloping.ecobin.framework.reliability.ReliableTaskWakePort;
 import org.enveloping.ecobin.framework.reliability.TrustedPlatformInboxRef;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.persistence.DeviceScopePersistenceRef;
@@ -20,7 +23,9 @@ import org.enveloping.ecobin.identity.api.result.AuthorizedDeviceScope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -33,6 +38,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+import javax.sql.DataSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -41,6 +54,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class McuFirmwareRolloutServiceIntegrationTest {
@@ -51,24 +66,31 @@ class McuFirmwareRolloutServiceIntegrationTest {
     private static final String VERSION = "2.1.0";
     private static final long VERSION_CODE = 20100;
     private static final String IDENTITY = "0123456789abcdef";
+    private static final String HARDWARE_COMPATIBILITY =
+            "ECOBIN_MAINBOARD_V1.1";
     private static final String VALIDATION_SN = "SN-FIRMWARE-VALIDATION-01";
     private static final String WAVE_ONE_SN = "SN-FIRMWARE-WAVE-000001";
     private static final String WAVE_TWO_SN = "SN-FIRMWARE-WAVE-000002";
 
     private JdbcTemplate jdbc;
+    private DataSource dataSource;
     private JsonMapper objectMapper;
     private McuFirmwareRolloutService service;
     private List<ReliablePlatformDeviceControlTaskRegistration> tasks;
     private Map<UUID, UUID> updateUids;
+    private ReliableDeviceTaskProofPort taskProof;
+    private ReliableTaskWakePort taskWake;
     private long nextInboxId;
 
     @BeforeEach
     void setUp() {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource();
-        dataSource.setDriverClassName("org.h2.Driver");
-        dataSource.setUrl("jdbc:h2:mem:mcu_firmware_"
+        DriverManagerDataSource configuredDataSource =
+                new DriverManagerDataSource();
+        configuredDataSource.setDriverClassName("org.h2.Driver");
+        configuredDataSource.setUrl("jdbc:h2:mem:mcu_firmware_"
                 + UUID.randomUUID()
                 + ";MODE=MySQL;DB_CLOSE_DELAY=-1");
+        dataSource = configuredDataSource;
         jdbc = new DatabaseClockJdbcTemplate(dataSource);
         objectMapper = JsonMapper.builder().build();
         createSchema();
@@ -89,13 +111,17 @@ class McuFirmwareRolloutServiceIntegrationTest {
             tasks.add(invocation.getArgument(0));
             return UUID.randomUUID();
         });
+        taskProof = mock(ReliableDeviceTaskProofPort.class);
+        taskWake = mock(ReliableTaskWakePort.class);
         service = new McuFirmwareRolloutService(
                 jdbc,
                 objectMapper,
                 authorization,
                 new DeviceConfigurationCanonicalizer(),
                 taskRefs,
-                registrations);
+                registrations,
+                taskProof,
+                taskWake);
         nextInboxId = 100;
     }
 
@@ -268,6 +294,172 @@ class McuFirmwareRolloutServiceIntegrationTest {
         assertEquals("DEVICE.IDEMPOTENCY_CONFLICT", changedAction.code());
     }
 
+    @Test
+    void packageAcquisitionFailureIsVisibleAndMayAdvanceAfterRetry() {
+        registerRelease(UUID.randomUUID(), "retryable package acquisition");
+        UUID rolloutUid = UUID.randomUUID();
+        service.createRollout(
+                rolloutUid,
+                rolloutRequest(RELEASE_UID, "download retry test"));
+        RolloutView validating = service.startValidation(
+                UUID.randomUUID(),
+                rolloutUid,
+                new RolloutActionRequest("start validation"));
+        DeploymentView deployment = deployment(validating, "VALIDATION", 0);
+
+        service.applyProgress(progress(
+                deployment,
+                "PACKAGE_FETCH_FAILED",
+                0,
+                0,
+                null,
+                null,
+                null));
+        DeploymentView failedAcquisition = deployment(
+                service.detail(rolloutUid), "VALIDATION", 0);
+        assertEquals(
+                "PACKAGE_FETCH_FAILED",
+                failedAcquisition.status());
+        assertEquals("COS_DOWNLOAD_FAILED", failedAcquisition.errorCode());
+        verify(taskWake).wake(any(ReliableTaskWake.class));
+
+        service.applyProgress(progress(
+                deployment,
+                "PREFLIGHT",
+                0,
+                0,
+                null,
+                null,
+                null));
+        DeploymentView resumed = deployment(
+                service.detail(rolloutUid), "VALIDATION", 0);
+        assertEquals("PREFLIGHT", resumed.status());
+        assertEquals(null, resumed.errorCode());
+        verify(taskWake, times(1)).wake(any(ReliableTaskWake.class));
+    }
+
+    @Test
+    void revisionOneDeviceCannotEnterAutomaticFirmwareRollout() {
+        registerRelease(UUID.randomUUID(), "revision two only");
+        jdbc.update("""
+                        UPDATE dev_device_asset
+                        SET mcu_fixed_frame_revision = 1
+                        WHERE hardware_sn = ?
+                        """,
+                VALIDATION_SN);
+
+        TargetApiException rejected = assertThrows(
+                TargetApiException.class,
+                () -> service.createRollout(
+                        UUID.randomUUID(),
+                        new CreateRolloutRequest(
+                                RELEASE_UID,
+                                VALIDATION_SN,
+                                List.of(WAVE_ONE_SN),
+                                1,
+                                "must reject revision one")));
+
+        assertEquals(
+                "DEVICE.MCU_FIRMWARE_PROTOCOL_REVISION_UNSUPPORTED",
+                rejected.code());
+        assertEquals(0L, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM dev_mcu_firmware_rollout",
+                Long.class));
+    }
+
+    @Test
+    void concurrentRolloutsCannotReserveTheSamePhysicalAssets()
+            throws Exception {
+        registerRelease(UUID.randomUUID(), "first release");
+        UUID secondReleaseUid = UUID.randomUUID();
+        String secondPackageSha256 = "d".repeat(64);
+        service.registerRelease(
+                UUID.randomUUID(),
+                new RegisterReleaseRequest(
+                        secondReleaseUid,
+                        "2.2.0",
+                        20200L,
+                        "fedcba9876543210",
+                        HARDWARE_COMPATIBILITY,
+                        2,
+                        "ecobin/mcu-firmware/" + secondReleaseUid + "/"
+                                + secondPackageSha256 + ".efw",
+                        secondPackageSha256,
+                        8192L,
+                        "second release"));
+
+        TransactionTemplate transaction = new TransactionTemplate(
+                new DataSourceTransactionManager(dataSource));
+        CountDownLatch firstCreated = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<RolloutView> first = executor.submit(() ->
+                    transaction.execute(status -> {
+                        RolloutView created = service.createRollout(
+                                UUID.randomUUID(),
+                                rolloutRequest(RELEASE_UID, "first rollout"));
+                        firstCreated.countDown();
+                        await(releaseFirst);
+                        return created;
+                    }));
+            assertTrue(firstCreated.await(5, TimeUnit.SECONDS));
+
+            Future<Object> second = executor.submit(() -> {
+                try {
+                    return transaction.execute(status ->
+                            service.createRollout(
+                                    UUID.randomUUID(),
+                                    rolloutRequest(
+                                            secondReleaseUid,
+                                            "competing rollout")));
+                } catch (TargetApiException exception) {
+                    return exception;
+                }
+            });
+
+            assertThrows(
+                    TimeoutException.class,
+                    () -> second.get(250, TimeUnit.MILLISECONDS));
+            releaseFirst.countDown();
+
+            assertEquals("DRAFT", first.get(5, TimeUnit.SECONDS).status());
+            Object competing = second.get(5, TimeUnit.SECONDS);
+            assertTrue(competing instanceof TargetApiException);
+            assertEquals(
+                    "DEVICE.MCU_FIRMWARE_DEVICE_BUSY",
+                    ((TargetApiException) competing).code());
+            assertEquals(1L, jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM dev_mcu_firmware_rollout",
+                    Long.class));
+        } finally {
+            releaseFirst.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    private static CreateRolloutRequest rolloutRequest(
+            UUID releaseUid,
+            String reason) {
+        return new CreateRolloutRequest(
+                releaseUid,
+                VALIDATION_SN,
+                List.of(WAVE_ONE_SN, WAVE_TWO_SN),
+                1,
+                reason);
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("timed out waiting for test latch");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while waiting", exception);
+        }
+    }
+
     private void registerRelease(UUID operationUid, String notes) {
         service.registerRelease(
                 operationUid,
@@ -276,7 +468,7 @@ class McuFirmwareRolloutServiceIntegrationTest {
                         VERSION,
                         VERSION_CODE,
                         IDENTITY,
-                        "STM32F103C8T6",
+                        HARDWARE_COMPATIBILITY,
                         2,
                         "ecobin/mcu-firmware/" + RELEASE_UID + "/"
                                 + PACKAGE_SHA256 + ".efw",
@@ -319,7 +511,11 @@ class McuFirmwareRolloutServiceIntegrationTest {
         payload.put("stage", stage);
         payload.put("targetAttemptCount", targetAttempts);
         payload.put("rollbackAttemptCount", rollbackAttempts);
-        payload.putNull("errorCode");
+        if ("PACKAGE_FETCH_FAILED".equals(stage)) {
+            payload.put("errorCode", "COS_DOWNLOAD_FAILED");
+        } else {
+            payload.putNull("errorCode");
+        }
         payload.put("updateUid", stableUpdateUid(deployment).toString());
         if (installedVersion == null) {
             payload.putNull("installedFirmwareVersion");
@@ -487,7 +683,7 @@ class McuFirmwareRolloutServiceIntegrationTest {
                     organization_id BIGINT,
                     deployment_kind VARCHAR(16) NOT NULL,
                     wave_no INT NOT NULL,
-                    deployment_status VARCHAR(24) NOT NULL,
+                    deployment_status VARCHAR(32) NOT NULL,
                     command_uid VARCHAR(36),
                     reliable_task_uid VARCHAR(36),
                     edge_update_uid VARCHAR(36),
@@ -512,7 +708,7 @@ class McuFirmwareRolloutServiceIntegrationTest {
                     source_inbox_id BIGINT NOT NULL UNIQUE,
                     deployment_id BIGINT NOT NULL,
                     edge_update_uid VARCHAR(36) NOT NULL,
-                    stage VARCHAR(24) NOT NULL,
+                    stage VARCHAR(32) NOT NULL,
                     target_attempt_count INT NOT NULL,
                     rollback_attempt_count INT NOT NULL,
                     error_code VARCHAR(64),
@@ -550,8 +746,11 @@ class McuFirmwareRolloutServiceIntegrationTest {
                             INSERT INTO dev_device_asset (
                                 id, hardware_sn, tenant_id, organization_id,
                                 lifecycle_status, acceptance_status,
+                                mcu_fixed_frame_revision,
                                 updated_at
-                            ) VALUES (?, ?, NULL, NULL, 'NORMAL', 'PASSED', ?)
+                            ) VALUES (
+                                ?, ?, NULL, NULL, 'NORMAL', 'PASSED', 2, ?
+                            )
                             """,
                     assetId,
                     hardwareSns.get(index),

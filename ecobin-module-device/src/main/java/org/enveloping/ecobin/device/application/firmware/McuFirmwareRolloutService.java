@@ -11,8 +11,11 @@ import org.enveloping.ecobin.device.web.v1.firmware.McuFirmwareModels.ReleaseVie
 import org.enveloping.ecobin.device.web.v1.firmware.McuFirmwareModels.RolloutActionRequest;
 import org.enveloping.ecobin.device.web.v1.firmware.McuFirmwareModels.RolloutView;
 import org.enveloping.ecobin.framework.reliability.PlatformDeviceAssetTaskRefFactory;
+import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
 import org.enveloping.ecobin.framework.reliability.ReliablePlatformDeviceControlTaskRegistration;
 import org.enveloping.ecobin.framework.reliability.ReliablePlatformDeviceControlTaskRegistrationPort;
+import org.enveloping.ecobin.framework.reliability.ReliableTaskWake;
+import org.enveloping.ecobin.framework.reliability.ReliableTaskWakePort;
 import org.enveloping.ecobin.framework.web.TargetWebAuditRequestContext;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.port.DeviceScopeAuthorizationPort;
@@ -57,7 +60,8 @@ public class McuFirmwareRolloutService {
     public static final String EVENT_TYPE = "MCU_FIRMWARE_UPDATE_PROGRESS";
     private static final String COMMAND_TYPE = "START_MCU_FIRMWARE_UPDATE";
     private static final String TARGET_TYPE = "MCU_FIRMWARE_DEPLOYMENT";
-    private static final String HARDWARE = "STM32F103C8T6";
+    private static final String HARDWARE_COMPATIBILITY =
+            "ECOBIN_MAINBOARD_V1.1";
     private static final String UUID_V4 =
             "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
                     + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
@@ -66,7 +70,8 @@ public class McuFirmwareRolloutService {
     private static final Set<String> TERMINAL = Set.of(
             "SUCCEEDED", "ROLLED_BACK", "FAILED_LOCKED", "REJECTED");
     private static final Set<String> RUNNING = Set.of(
-            "QUEUED", "PREFLIGHT", "PREPARED", "FLASHING_TARGET",
+            "QUEUED", "PACKAGE_FETCH_FAILED", "PREFLIGHT",
+            "PREPARED", "FLASHING_TARGET",
             "VERIFYING_TARGET", "ROLLING_BACK", "VERIFYING_ROLLBACK");
     private static final Set<String> TARGET_ATTEMPT_STAGES = Set.of(
             "FLASHING_TARGET", "VERIFYING_TARGET", "SUCCEEDED");
@@ -74,16 +79,17 @@ public class McuFirmwareRolloutService {
             "ROLLING_BACK", "VERIFYING_ROLLBACK", "ROLLED_BACK");
     private static final Map<String, Integer> STAGE_ORDER = Map.ofEntries(
             Map.entry("QUEUED", 0),
-            Map.entry("PREFLIGHT", 1),
-            Map.entry("PREPARED", 2),
-            Map.entry("FLASHING_TARGET", 3),
-            Map.entry("VERIFYING_TARGET", 4),
-            Map.entry("SUCCEEDED", 5),
-            Map.entry("REJECTED", 5),
-            Map.entry("ROLLING_BACK", 6),
-            Map.entry("VERIFYING_ROLLBACK", 7),
-            Map.entry("ROLLED_BACK", 8),
-            Map.entry("FAILED_LOCKED", 9));
+            Map.entry("PACKAGE_FETCH_FAILED", 1),
+            Map.entry("PREFLIGHT", 2),
+            Map.entry("PREPARED", 3),
+            Map.entry("FLASHING_TARGET", 4),
+            Map.entry("VERIFYING_TARGET", 5),
+            Map.entry("SUCCEEDED", 6),
+            Map.entry("REJECTED", 6),
+            Map.entry("ROLLING_BACK", 7),
+            Map.entry("VERIFYING_ROLLBACK", 8),
+            Map.entry("ROLLED_BACK", 9),
+            Map.entry("FAILED_LOCKED", 10));
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -91,6 +97,8 @@ public class McuFirmwareRolloutService {
     private final DeviceConfigurationCanonicalizer canonicalizer;
     private final PlatformDeviceAssetTaskRefFactory taskRefFactory;
     private final ReliablePlatformDeviceControlTaskRegistrationPort tasks;
+    private final ReliableDeviceTaskProofPort taskProof;
+    private final ReliableTaskWakePort taskWake;
 
     public McuFirmwareRolloutService(
             JdbcTemplate jdbc,
@@ -98,13 +106,17 @@ public class McuFirmwareRolloutService {
             DeviceScopeAuthorizationPort authorization,
             DeviceConfigurationCanonicalizer canonicalizer,
             PlatformDeviceAssetTaskRefFactory taskRefFactory,
-            ReliablePlatformDeviceControlTaskRegistrationPort tasks) {
+            ReliablePlatformDeviceControlTaskRegistrationPort tasks,
+            ReliableDeviceTaskProofPort taskProof,
+            ReliableTaskWakePort taskWake) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.authorization = authorization;
         this.canonicalizer = canonicalizer;
         this.taskRefFactory = taskRefFactory;
         this.tasks = tasks;
+        this.taskProof = taskProof;
+        this.taskWake = taskWake;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -126,9 +138,12 @@ public class McuFirmwareRolloutService {
             requireReleaseReplay(replay, request);
             return releaseView(replay);
         }
-        if (!HARDWARE.equals(request.hardwareCompatibility())
+        if (!HARDWARE_COMPATIBILITY.equals(
+                request.hardwareCompatibility())
                 || request.fixedFrameRevision() != 2) {
-            throw invalid("当前只接受 STM32F103C8T6 且固定帧协议修订号为 2 的固件");
+            throw invalid(
+                    "当前只接受主板 ECOBIN_MAINBOARD_V1.1、MCU STM32F103C8T6"
+                            + " 且固定帧协议修订号为 2 的固件");
         }
         String expectedObjectKey = "ecobin/mcu-firmware/"
                 + request.releaseUid()
@@ -247,6 +262,10 @@ public class McuFirmwareRolloutService {
         if (targetSet.isEmpty()) {
             throw invalid("除单设备验证机外，至少还要选择一台灰度目标设备");
         }
+        List<String> assetHardwareSns = new ArrayList<>();
+        assetHardwareSns.add(validationHardwareSn);
+        assetHardwareSns.addAll(targetSet);
+        lockAssetsForRollout(assetHardwareSns);
         Asset validation = requireEligibleAsset(validationHardwareSn, false);
         List<Asset> targets = new ArrayList<>();
         for (String target : targetSet) {
@@ -572,7 +591,10 @@ public class McuFirmwareRolloutService {
                     payload, "rollbackAttemptCount", 0, 3));
             String errorCode = nullablePattern(
                     payload, "errorCode", "^[A-Z][A-Z0-9_]{0,63}$", 64);
-            if (Set.of("FAILED_LOCKED", "REJECTED").contains(stage)
+            if (Set.of(
+                    "PACKAGE_FETCH_FAILED",
+                    "FAILED_LOCKED",
+                    "REJECTED").contains(stage)
                     != (errorCode != null)) {
                 throw new IllegalArgumentException(
                         "firmware progress failure code differs from stage");
@@ -668,6 +690,16 @@ public class McuFirmwareRolloutService {
             if (updated != 1) {
                 throw new IllegalStateException(
                         "firmware deployment update lost its lock");
+            }
+            if ("PACKAGE_FETCH_FAILED".equals(stage)) {
+                taskWake.wake(new ReliableTaskWake(
+                        deployment.taskUid(),
+                        "MCU_FIRMWARE_PACKAGE_FETCH_FAILED"));
+            } else {
+                taskProof.completeFromTrustedProof(
+                        COMMAND_TYPE,
+                        TARGET_TYPE,
+                        deployment.uid().toString());
             }
             if (installed != null && TERMINAL.contains(stage)) {
                 jdbc.update("""
@@ -899,6 +931,19 @@ public class McuFirmwareRolloutService {
         }
     }
 
+    private void lockAssetsForRollout(List<String> hardwareSns) {
+        for (String hardwareSn : hardwareSns.stream().sorted().toList()) {
+            List<Long> rows = jdbc.query(
+                    "SELECT id FROM dev_device_asset"
+                            + " WHERE hardware_sn = ? FOR UPDATE",
+                    (rs, ignored) -> rs.getLong("id"),
+                    hardwareSn);
+            if (rows.size() != 1) {
+                throw notFound("目标设备不存在");
+            }
+        }
+    }
+
     private Asset requireEligibleAsset(
             String hardwareSn,
             boolean requireOnline) {
@@ -907,6 +952,7 @@ public class McuFirmwareRolloutService {
                                asset.tenant_id, asset.organization_id,
                                asset.lifecycle_status,
                                asset.acceptance_status,
+                               asset.mcu_fixed_frame_revision,
                                COALESCE(transport.onenet_connection_status,
                                         'UNKNOWN') AS transport_status
                         FROM dev_device_asset asset
@@ -921,6 +967,7 @@ public class McuFirmwareRolloutService {
                         rs.getObject("organization_id", Long.class),
                         rs.getString("lifecycle_status"),
                         rs.getString("acceptance_status"),
+                        rs.getObject("mcu_fixed_frame_revision", Integer.class),
                         rs.getString("transport_status")),
                 hardwareSn);
         if (rows.size() != 1) {
@@ -932,6 +979,12 @@ public class McuFirmwareRolloutService {
             throw conflict(
                     "DEVICE.MCU_FIRMWARE_ASSET_UNAVAILABLE",
                     "设备 " + hardwareSn + " 未通过验收或已被禁用/报废");
+        }
+        if (!Integer.valueOf(2).equals(asset.fixedFrameRevision())) {
+            throw conflict(
+                    "DEVICE.MCU_FIRMWARE_PROTOCOL_REVISION_UNSUPPORTED",
+                    "设备 " + hardwareSn
+                            + " 最近一次确认的 MCU 固定帧协议修订号不是 2");
         }
         if (requireOnline && !"ONLINE".equals(asset.transportStatus())) {
             throw conflict(
@@ -1268,6 +1321,11 @@ public class McuFirmwareRolloutService {
             throw new IllegalArgumentException(
                     "rejected progress cannot follow a flash attempt");
         }
+        if ("PACKAGE_FETCH_FAILED".equals(stage)
+                && (targetAttempts != 0 || rollbackAttempts != 0)) {
+            throw new IllegalArgumentException(
+                    "package acquisition failed after a flash attempt");
+        }
         if (rollbackAttempts > 0
                 && !ROLLBACK_ATTEMPT_STAGES.contains(stage)
                 && !"FAILED_LOCKED".equals(stage)) {
@@ -1421,9 +1479,10 @@ public class McuFirmwareRolloutService {
     }
 
     private static String stage(JsonNode payload) {
-        String stage = text(payload, "stage", 24);
+        String stage = text(payload, "stage", 32);
         if (!Set.of(
-                "QUEUED", "PREFLIGHT", "PREPARED", "FLASHING_TARGET",
+                "QUEUED", "PACKAGE_FETCH_FAILED", "PREFLIGHT",
+                "PREPARED", "FLASHING_TARGET",
                 "VERIFYING_TARGET", "ROLLING_BACK", "VERIFYING_ROLLBACK",
                 "SUCCEEDED", "ROLLED_BACK", "FAILED_LOCKED", "REJECTED")
                 .contains(stage)) {
@@ -1718,6 +1777,7 @@ public class McuFirmwareRolloutService {
             Long organizationId,
             String lifecycleStatus,
             String acceptanceStatus,
+            Integer fixedFrameRevision,
             String transportStatus) {
     }
 

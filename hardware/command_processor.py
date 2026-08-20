@@ -58,17 +58,23 @@ class CommandProcessor:
                 return False
             row = self._store.get_command(command_uid)
         if row["state"] == "FAILED":
-            expected_error = (
-                "ACCEPTANCE_GRANT_NOT_AVAILABLE"
-                if row["command_type"]
-                == "REQUEST_DEVICE_ACCEPTANCE"
-                else "PHOTO_GRANT_NOT_AVAILABLE"
-            )
-            if not self._store.requeue_failed_command(
-                command_uid,
-                expected_error,
-            ):
-                return False
+            if row["command_type"] == "START_MCU_FIRMWARE_UPDATE":
+                if not self._store.requeue_failed_mcu_firmware_command(
+                    command_uid
+                ):
+                    return False
+            else:
+                expected_error = (
+                    "ACCEPTANCE_GRANT_NOT_AVAILABLE"
+                    if row["command_type"]
+                    == "REQUEST_DEVICE_ACCEPTANCE"
+                    else "PHOTO_GRANT_NOT_AVAILABLE"
+                )
+                if not self._store.requeue_failed_command(
+                    command_uid,
+                    expected_error,
+                ):
+                    return False
         with self._grant_lock:
             self._volatile_cos_grants[command_uid] = {
                 **grant,
@@ -220,6 +226,13 @@ class CommandProcessor:
                     error_code,
                     stage="FAILED",
                 )
+            elif command.get("commandType") == "START_MCU_FIRMWARE_UPDATE":
+                # Package-acquisition failure atomically changes this command
+                # before exposing its retry fact. Do not overwrite a PENDING
+                # state if fresh credentials raced with this exception path.
+                current = self._store.get_command(command_uid)
+                if current and current["state"] == "PROCESSING":
+                    self._store.fail_command(command_uid, error_code)
             else:
                 self._store.fail_command(command_uid, error_code)
             logger.error("command %s failed: %s", command_uid, error)

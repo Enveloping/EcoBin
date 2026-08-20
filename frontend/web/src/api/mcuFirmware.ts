@@ -24,7 +24,7 @@ export interface RegisterMcuFirmwareReleaseRequest {
   firmwareVersion: string;
   firmwareVersionCode: number;
   firmwareIdentityHex: string;
-  hardwareCompatibility: 'STM32F103C8T6';
+  hardwareCompatibility: 'ECOBIN_MAINBOARD_V1.1';
   fixedFrameRevision: 2;
   objectKey: string;
   packageSha256: string;
@@ -35,6 +35,7 @@ export interface RegisterMcuFirmwareReleaseRequest {
 export type McuFirmwareDeploymentStatus =
   | 'PENDING'
   | 'QUEUED'
+  | 'PACKAGE_FETCH_FAILED'
   | 'PREFLIGHT'
   | 'PREPARED'
   | 'FLASHING_TARGET'

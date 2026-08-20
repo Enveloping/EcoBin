@@ -80,6 +80,14 @@ logging.basicConfig(
 logger = logging.getLogger("main")
 
 
+def _is_mcu_package_retry_wait(update: dict | None) -> bool:
+    return bool(
+        update is not None
+        and not update["package_ready"]
+        and update["state"] in {"QUEUED", "PACKAGE_FETCH_FAILED"}
+    )
+
+
 class EcoBinEdge:
     """EcoBin 香橙派边缘网关 v2。"""
 
@@ -219,15 +227,7 @@ class EcoBinEdge:
                     timeout_seconds=COS_REQUEST_TIMEOUT_SECONDS,
                 ),
                 enabled=True,
-                progress_reporter=(
-                    lambda update, stage, error_code, error_message:
-                    self.store.create_mcu_firmware_progress_event(
-                        device_name=DEVICE_NAME,
-                        update_uid=update["update_uid"],
-                        stage=stage,
-                        error_code=error_code,
-                    )
-                ),
+                device_name=DEVICE_NAME,
             )
         self.commands = CommandProcessor(
             self.store,
@@ -290,6 +290,14 @@ class EcoBinEdge:
 
     def run(self):
         logger.info("EcoBin Edge v2 starting (boot_id=%d)", self._edge_boot_id)
+        reconciled_progress = (
+            self.store.reconcile_mcu_firmware_progress_events(DEVICE_NAME)
+        )
+        if reconciled_progress:
+            logger.warning(
+                "backfilled %d MCU firmware progress event(s) from journal",
+                reconciled_progress,
+            )
         active_update = self.store.get_active_mcu_firmware_update()
         if (
             active_update is not None
@@ -303,8 +311,13 @@ class EcoBinEdge:
             self.mcu_updater.process_active()
             active_update = self.store.get_active_mcu_firmware_update()
 
+        package_retry_wait = _is_mcu_package_retry_wait(active_update)
+
         # -- Boot sequence --
-        if active_update is None:
+        # Package acquisition has not touched MCU flash, so UART/session boot
+        # is still safe and is required after a process restart. The retained
+        # maintenance lock continues to block all physical business work.
+        if active_update is None or package_retry_wait:
             # The updater leaves a verified application UART open. The normal
             # boot path owns its own fresh handshake/generation, so close once.
             self.uart.close()
@@ -442,7 +455,16 @@ class EcoBinEdge:
                 active_update = self.store.get_active_mcu_firmware_update()
                 if active_update is not None:
                     if (
-                        self.mcu_updater is not None
+                        _is_mcu_package_retry_wait(active_update)
+                        and self.commands.process_next()
+                    ):
+                        progressed = True
+                        active_update = (
+                            self.store.get_active_mcu_firmware_update()
+                        )
+                    if (
+                        active_update is not None
+                        and self.mcu_updater is not None
                         and active_update["state"] != "FAILED_LOCKED"
                         and self.mcu_updater.process_active()
                     ):

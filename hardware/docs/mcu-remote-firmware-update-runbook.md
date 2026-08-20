@@ -19,7 +19,8 @@
   → 人工启动单机验证
   → 后端登记可靠 OneNet 命令（不保存 COS 临时密钥）
   → 实际发送前生成最长 15 分钟的只读 COS 凭证
-  → 香橙派验签、校验板型/版本/摘要并取得本地维护锁
+  → 香橙派先建立升级日志、取得本地维护锁并可靠上报已排队
+  → 香橙派下载固件包，验签并校验主板兼容标识、版本和摘要
   → MCU F2 确认当前没有作业且执行器处于安全状态
   → 香橙派关闭应用 UART，拉高 BOOT0 并脉冲 NRST
   → stm32flash 以 115200/8E1 写入 0x08000000 并回读校验
@@ -261,12 +262,13 @@ cd /root/EcoBin/hardware
 
 | 设备状态 | 含义 | 是否阻止新业务 |
 |---|---|---:|
-| `QUEUED/PREFLIGHT/PREPARED` | 已取得维护锁，尚未开始擦写 | 是 |
+| `QUEUED/PREFLIGHT/PREPARED` | 已取得维护锁，正在取包或执行擦写前检查 | 是 |
+| `PACKAGE_FETCH_FAILED` | 下载、验签或本地缓存失败；平台会用同一命令编号和新 COS 临时凭证重试 | 是 |
 | `FLASHING_TARGET/VERIFYING_TARGET` | 正在刷目标或核验 F3/F1 | 是 |
 | `ROLLING_BACK/VERIFYING_ROLLBACK` | 目标失败，正在恢复上一稳定版本 | 是 |
 | `SUCCEEDED` | 目标身份和自检均通过 | 否 |
 | `ROLLED_BACK` | 上一稳定版本恢复成功 | 否，但后端阻止继续灰度 |
-| `REJECTED` | 擦写前因忙碌、版本、签名或安全条件拒绝 | 否 |
+| `REJECTED` | 擦写前因设备忙碌、版本策略或安全条件拒绝 | 否 |
 | `FAILED_LOCKED` | 目标和回滚都无法证明安全 | 是，重启后仍保持 |
 
 查看指定记录：

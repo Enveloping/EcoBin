@@ -8395,7 +8395,7 @@ export interface components {
             firmwareVersionCode: number;
             firmwareIdentityHex: string;
             /** @constant */
-            hardwareCompatibility: "STM32F103C8T6";
+            hardwareCompatibility: "ECOBIN_MAINBOARD_V1.1";
             /** @constant */
             fixedFrameRevision: 2;
             objectKey: string;
@@ -8421,7 +8421,7 @@ export interface components {
             firmwareVersionCode: number;
             firmwareIdentityHex: string;
             /** @constant */
-            hardwareCompatibility: "STM32F103C8T6";
+            hardwareCompatibility: "ECOBIN_MAINBOARD_V1.1";
             /** @constant */
             fixedFrameRevision: 2;
             objectKey: string;
@@ -8445,7 +8445,7 @@ export interface components {
             kind: "VALIDATION" | "WAVE";
             waveNo: number;
             /** @enum {string} */
-            status: "PENDING" | "QUEUED" | "PREFLIGHT" | "PREPARED" | "FLASHING_TARGET" | "VERIFYING_TARGET" | "ROLLING_BACK" | "VERIFYING_ROLLBACK" | "SUCCEEDED" | "ROLLED_BACK" | "FAILED_LOCKED" | "REJECTED";
+            status: "PENDING" | "QUEUED" | "PACKAGE_FETCH_FAILED" | "PREFLIGHT" | "PREPARED" | "FLASHING_TARGET" | "VERIFYING_TARGET" | "ROLLING_BACK" | "VERIFYING_ROLLBACK" | "SUCCEEDED" | "ROLLED_BACK" | "FAILED_LOCKED" | "REJECTED";
             commandUid: components["schemas"]["UuidV4"] | null;
             reliableTaskUid: components["schemas"]["UuidV4"] | null;
             edgeUpdateUid: components["schemas"]["UuidV4"] | null;

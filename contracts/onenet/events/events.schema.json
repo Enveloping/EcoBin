@@ -1068,7 +1068,8 @@
             "SUCCEEDED",
             "ROLLED_BACK",
             "FAILED_LOCKED",
-            "REJECTED"
+            "REJECTED",
+            "PACKAGE_FETCH_FAILED"
           ]
         },
         "firmwareVersion": {
@@ -1122,7 +1123,13 @@
         {
           "if": {
             "properties": {
-              "stage": { "enum": ["FAILED_LOCKED", "REJECTED"] }
+              "stage": {
+                "enum": [
+                  "FAILED_LOCKED",
+                  "REJECTED",
+                  "PACKAGE_FETCH_FAILED"
+                ]
+              }
             },
             "required": ["stage"]
           },

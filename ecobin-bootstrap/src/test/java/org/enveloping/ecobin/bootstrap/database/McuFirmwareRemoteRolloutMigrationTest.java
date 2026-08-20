@@ -42,6 +42,9 @@ class McuFirmwareRemoteRolloutMigrationTest {
         assertTrue(sql.contains("uq_dev_mcu_progress_inbox"));
         assertTrue(sql.contains("fk_dev_mcu_progress_inbox"));
         assertTrue(sql.contains("REFERENCES ops_inbox_message (id)"));
+        assertTrue(sql.contains(
+                "hardware_compatibility = 'ECOBIN_MAINBOARD_V1.1'"));
+        assertTrue(sql.contains("'PACKAGE_FETCH_FAILED'"));
         assertTrue(sql.contains("'FAILED_LOCKED'"));
         assertTrue(sql.contains("'AWAITING_PROMOTION'"));
         assertTrue(sql.contains("'ADVANCE_WAVE'"));

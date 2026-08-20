@@ -2667,7 +2667,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                         Map.entry(8L, "SUCCEEDED"),
                         Map.entry(9L, "ROLLED_BACK"),
                         Map.entry(10L, "FAILED_LOCKED"),
-                        Map.entry(11L, "REJECTED")),
+                        Map.entry(11L, "REJECTED"),
+                        Map.entry(12L, "PACKAGE_FETCH_FAILED")),
                 "stage");
         payload.put("stage", stage);
         payload.put(
@@ -2741,7 +2742,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 "errorCode",
                 "^[A-Z][A-Z0-9_]{0,63}$",
                 64);
-        boolean failure = "FAILED_LOCKED".equals(stage)
+        boolean failure = "PACKAGE_FETCH_FAILED".equals(stage)
+                || "FAILED_LOCKED".equals(stage)
                 || "REJECTED".equals(stage);
         if (failure != (errorCode != null)) {
             throw permanent(

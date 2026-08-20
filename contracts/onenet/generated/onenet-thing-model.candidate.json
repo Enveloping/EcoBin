@@ -7124,6 +7124,7 @@
        "1": "QUEUED",
        "10": "FAILED_LOCKED",
        "11": "REJECTED",
+       "12": "PACKAGE_FETCH_FAILED",
        "2": "PREFLIGHT",
        "3": "PREPARED",
        "4": "FLASHING_TARGET",

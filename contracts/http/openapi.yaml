@@ -13864,7 +13864,7 @@
             "type": "string", "pattern": "^[0-9a-f]{16}$"
           },
           "hardwareCompatibility": {
-            "type": "string", "const": "STM32F103C8T6"
+            "type": "string", "const": "ECOBIN_MAINBOARD_V1.1"
           },
           "fixedFrameRevision": {"type": "integer", "const": 2},
           "objectKey": {
@@ -13930,7 +13930,7 @@
             "minimum": 1, "maximum": 4294967295
           },
           "firmwareIdentityHex": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
-          "hardwareCompatibility": {"type": "string", "const": "STM32F103C8T6"},
+          "hardwareCompatibility": {"type": "string", "const": "ECOBIN_MAINBOARD_V1.1"},
           "fixedFrameRevision": {"type": "integer", "const": 2},
           "objectKey": {"type": "string", "minLength": 1, "maxLength": 512},
           "packageSha256": {"$ref": "#/components/schemas/Sha256Hex"},
@@ -13972,7 +13972,8 @@
           "status": {
             "type": "string",
             "enum": [
-              "PENDING", "QUEUED", "PREFLIGHT", "PREPARED",
+              "PENDING", "QUEUED", "PACKAGE_FETCH_FAILED",
+              "PREFLIGHT", "PREPARED",
               "FLASHING_TARGET", "VERIFYING_TARGET", "ROLLING_BACK",
               "VERIFYING_ROLLBACK", "SUCCEEDED", "ROLLED_BACK",
               "FAILED_LOCKED", "REJECTED"

@@ -474,6 +474,7 @@ class MqttClient:
                 in {
                     "PROVIDE_PHOTO_UPLOAD_GRANT",
                     "REQUEST_DEVICE_ACCEPTANCE",
+                    "START_MCU_FIRMWARE_UPDATE",
                 }
             )
             if (
@@ -481,8 +482,8 @@ class MqttClient:
                 and command["commandType"] != "CONFIRM_EDGE_EVENT"
                 and not control_dispatched
             ):
-                # 普通命令在回复后只唤醒持久 inbox 消费者。验收命令的
-                # DUPLICATE 只补充内存中的短期 COS 凭证；已完成命令不会重跑。
+                # 普通命令在回复后只唤醒持久 inbox 消费者。验收和固件命令的
+                # DUPLICATE 只补充短期 COS 凭证；状态机决定是否允许重新执行。
                 # 物理开始命令的 DUPLICATE 仍不会触发，避免第二次开门。
                 if self.on_command_received:
                     self.on_command_received(command_uid, command["commandType"], command)

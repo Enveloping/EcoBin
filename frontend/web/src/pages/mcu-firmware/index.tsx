@@ -81,6 +81,7 @@ const rolloutColors: Record<string, string> = {
 const deploymentLabels: Record<string, string> = {
   PENDING: '等待人工下发',
   QUEUED: '已进入可靠队列',
+  PACKAGE_FETCH_FAILED: '固件包获取失败，等待重试',
   PREFLIGHT: '升级前检查',
   PREPARED: '设备已进入安全态',
   FLASHING_TARGET: '正在烧录目标固件',
@@ -139,7 +140,7 @@ export default function McuFirmwarePage() {
     releaseForm.resetFields();
     releaseForm.setFieldsValue({
       releaseUid: newUuid(),
-      hardwareCompatibility: 'STM32F103C8T6',
+      hardwareCompatibility: 'ECOBIN_MAINBOARD_V1.1',
       fixedFrameRevision: 2,
     });
     setReleaseModalOpen(true);
@@ -374,6 +375,8 @@ export default function McuFirmwarePage() {
         <Tag color={
           status === 'SUCCEEDED'
             ? 'success'
+            : status === 'PACKAGE_FETCH_FAILED'
+              ? 'warning'
             : ['ROLLED_BACK', 'FAILED_LOCKED', 'REJECTED'].includes(status)
               ? 'error'
               : status === 'PENDING' ? 'default' : 'processing'
@@ -520,7 +523,7 @@ export default function McuFirmwarePage() {
             </Form.Item>
           </Space>
           <Space align="start" size={16}>
-            <Form.Item name="hardwareCompatibility" label="兼容芯片" rules={[{ required: true }]}>
+            <Form.Item name="hardwareCompatibility" label="兼容主板" rules={[{ required: true }]}>
               <Input disabled />
             </Form.Item>
             <Form.Item name="fixedFrameRevision" label="UART 固定帧修订号" rules={[{ required: true }]}>

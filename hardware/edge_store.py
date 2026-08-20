@@ -26,7 +26,7 @@ from onenet_wire import (
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 12
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -57,6 +57,7 @@ REMOTE_SUPPORT_FAILURE_CODES = frozenset({
 })
 MCU_UPDATE_ACTIVE_STATES = frozenset({
     "QUEUED",
+    "PACKAGE_FETCH_FAILED",
     "PREFLIGHT",
     "PREPARED",
     "FLASHING_TARGET",
@@ -154,7 +155,7 @@ class EdgeStore:
         current = row[0] or 0
         if current == CURRENT_SCHEMA_VERSION:
             return
-        if current not in {0, 9, 10}:
+        if current not in {0, 9, 10, 11}:
             raise RuntimeError(
                 "EdgeStore 数据库时代不兼容；永久资产 v9 不读取旧设备数据库"
             )
@@ -201,6 +202,10 @@ class EdgeStore:
         if current < 11:
             self._migrate_v11()
             conn.execute("INSERT INTO schema_version (version) VALUES (11)")
+            current = 11
+        if current < 12:
+            self._migrate_v12()
+            conn.execute("INSERT INTO schema_version (version) VALUES (12)")
         conn.commit()
 
     def _migrate_v10(self) -> None:
@@ -313,6 +318,76 @@ class EdgeStore:
             """INSERT OR IGNORE INTO mcu_firmware_state
                (singleton_id, updated_at) VALUES (1, ?)""",
             (now,),
+        )
+
+    def _migrate_v12(self) -> None:
+        """Reserve cloud updates before package I/O and widen the journal state."""
+
+        self._conn.execute(
+            "ALTER TABLE mcu_firmware_update RENAME TO mcu_firmware_update_v11"
+        )
+        self._conn.execute(
+            """CREATE TABLE mcu_firmware_update (
+                update_uid TEXT PRIMARY KEY,
+                deployment_uid TEXT NOT NULL UNIQUE,
+                command_uid TEXT UNIQUE,
+                source TEXT NOT NULL CHECK (source IN ('CLOUD', 'LOCAL')),
+                package_path TEXT NOT NULL,
+                package_sha256 TEXT NOT NULL,
+                manifest_json TEXT NOT NULL,
+                package_ready INTEGER NOT NULL DEFAULT 1
+                    CHECK (package_ready IN (0, 1)),
+                state TEXT NOT NULL CHECK (state IN (
+                    'QUEUED', 'PACKAGE_FETCH_FAILED',
+                    'PREFLIGHT', 'PREPARED',
+                    'FLASHING_TARGET', 'VERIFYING_TARGET',
+                    'ROLLING_BACK', 'VERIFYING_ROLLBACK',
+                    'SUCCEEDED', 'ROLLED_BACK', 'FAILED_LOCKED',
+                    'REJECTED'
+                )),
+                legacy_preflight INTEGER NOT NULL DEFAULT 0
+                    CHECK (legacy_preflight IN (0, 1)),
+                allow_downgrade INTEGER NOT NULL DEFAULT 0
+                    CHECK (allow_downgrade IN (0, 1)),
+                requested_reason TEXT,
+                target_attempt_count INTEGER NOT NULL DEFAULT 0,
+                rollback_attempt_count INTEGER NOT NULL DEFAULT 0,
+                previous_package_path TEXT,
+                previous_package_sha256 TEXT,
+                previous_manifest_json TEXT,
+                last_error_code TEXT,
+                last_error_message TEXT,
+                requested_at TEXT NOT NULL,
+                started_at TEXT,
+                updated_at TEXT NOT NULL,
+                completed_at TEXT
+            )"""
+        )
+        self._conn.execute(
+            """INSERT INTO mcu_firmware_update (
+                 update_uid, deployment_uid, command_uid, source,
+                 package_path, package_sha256, manifest_json,
+                 package_ready, state, legacy_preflight, allow_downgrade,
+                 requested_reason, target_attempt_count,
+                 rollback_attempt_count, previous_package_path,
+                 previous_package_sha256, previous_manifest_json,
+                 last_error_code, last_error_message, requested_at,
+                 started_at, updated_at, completed_at
+               )
+               SELECT update_uid, deployment_uid, command_uid, source,
+                      package_path, package_sha256, manifest_json,
+                      1, state, legacy_preflight, allow_downgrade,
+                      requested_reason, target_attempt_count,
+                      rollback_attempt_count, previous_package_path,
+                      previous_package_sha256, previous_manifest_json,
+                      last_error_code, last_error_message, requested_at,
+                      started_at, updated_at, completed_at
+               FROM mcu_firmware_update_v11"""
+        )
+        self._conn.execute("DROP TABLE mcu_firmware_update_v11")
+        self._conn.execute(
+            """CREATE INDEX IF NOT EXISTS idx_mcu_update_state
+               ON mcu_firmware_update(state, requested_at)"""
         )
 
     def _create_tables(self) -> None:
@@ -996,14 +1071,37 @@ class EdgeStore:
     def claim_next_command(self) -> Optional[dict]:
         with self.transaction():
             maintenance = self._conn.execute(
-                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+                """SELECT lock_type, owner_uid
+                   FROM maintenance_lock WHERE singleton_id=1"""
             ).fetchone()
             if maintenance:
-                return None
-            row = self._conn.execute(
-                """SELECT * FROM command_inbox
-                   WHERE state='PENDING' ORDER BY rowid LIMIT 1"""
-            ).fetchone()
+                # A firmware package fetch deliberately keeps maintenance
+                # locked. Only the command owning that exact journal may be
+                # reclaimed with fresh execution-only COS credentials; every
+                # unrelated physical command remains blocked.
+                if maintenance["lock_type"] != "MCU_FIRMWARE_UPDATE":
+                    return None
+                row = self._conn.execute(
+                    """SELECT command_row.*
+                       FROM command_inbox command_row
+                       JOIN mcu_firmware_update firmware_update
+                         ON firmware_update.command_uid=command_row.command_uid
+                       WHERE firmware_update.update_uid=?
+                         AND firmware_update.package_ready=0
+                         AND firmware_update.state IN (
+                           'QUEUED', 'PACKAGE_FETCH_FAILED'
+                         )
+                         AND command_row.command_type=
+                           'START_MCU_FIRMWARE_UPDATE'
+                         AND command_row.state='PENDING'
+                       LIMIT 1""",
+                    (maintenance["owner_uid"],),
+                ).fetchone()
+            else:
+                row = self._conn.execute(
+                    """SELECT * FROM command_inbox
+                       WHERE state='PENDING' ORDER BY rowid LIMIT 1"""
+                ).fetchone()
             if not row:
                 return None
             now = self._now()
@@ -1246,6 +1344,33 @@ class EdgeStore:
             )
             return cur.rowcount == 1
 
+    def requeue_failed_mcu_firmware_command(
+        self,
+        command_uid: str,
+    ) -> bool:
+        """Retry package acquisition only when a fresh COS grant can help."""
+        with self.transaction():
+            cur = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='PENDING', processed_at=NULL,
+                       processing_started_at=NULL, last_error=NULL
+                   WHERE command_uid=? AND state='FAILED'
+                     AND command_type='START_MCU_FIRMWARE_UPDATE'
+                     AND (
+                       last_error='FIRMWARE_GRANT_NOT_AVAILABLE'
+                       OR EXISTS (
+                         SELECT 1 FROM mcu_firmware_update firmware_update
+                         WHERE firmware_update.command_uid=command_inbox.command_uid
+                           AND firmware_update.package_ready=0
+                           AND firmware_update.state IN (
+                             'QUEUED', 'PACKAGE_FETCH_FAILED'
+                           )
+                       )
+                     )""",
+                (command_uid,),
+            )
+            return cur.rowcount == 1
+
     def recover_interrupted_commands(
         self,
         *,
@@ -1288,6 +1413,18 @@ class EdgeStore:
                      AND command_type='REQUEST_DEVICE_ACCEPTANCE'""",
                 (self._now(),),
             ).rowcount
+            firmware = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='FAILED', processed_at=?,
+                       processing_started_at=NULL,
+                       last_error='FIRMWARE_GRANT_NOT_AVAILABLE'
+                   WHERE state IN (
+                       'PROCESSING', 'WAITING_MCU_RESULT',
+                       'RECOVERY_REQUIRED'
+                   )
+                     AND command_type='START_MCU_FIRMWARE_UPDATE'""",
+                (self._now(),),
+            ).rowcount
             rows = self._conn.execute(
                 """SELECT command_uid, payload_json
                    FROM command_inbox
@@ -1298,6 +1435,7 @@ class EdgeStore:
                      AND command_type NOT IN (
                          'APPLY_CONFIGURATION',
                          'REQUEST_DEVICE_ACCEPTANCE',
+                         'START_MCU_FIRMWARE_UPDATE',
                          'OPEN_REMOTE_SUPPORT_TUNNEL',
                          'CLOSE_REMOTE_SUPPORT_TUNNEL'
                      )"""
@@ -1330,6 +1468,7 @@ class EdgeStore:
                 "configuration_requeued": config,
                 "remote_support_requeued": remote_support,
                 "acceptance_grant_lost": acceptance,
+                "firmware_grant_lost": firmware,
                 "physical_locked": 0,
                 "physical_failed": physical_failed,
             }
@@ -1906,6 +2045,8 @@ class EdgeStore:
         legacy_preflight: bool = False,
         allow_downgrade: bool = False,
         requested_reason: Optional[str] = None,
+        package_ready: bool = True,
+        device_name: Optional[str] = None,
     ) -> str:
         """Journal an update and atomically exclude physical business work."""
         _require_uuid4_local(update_uid, "update_uid")
@@ -1928,6 +2069,8 @@ class EdgeStore:
             raise ValueError("legacy_preflight must be boolean")
         if not isinstance(allow_downgrade, bool):
             raise ValueError("allow_downgrade must be boolean")
+        if not isinstance(package_ready, bool):
+            raise ValueError("package_ready must be boolean")
 
         manifest_json = _json.dumps(
             manifest,
@@ -1939,7 +2082,7 @@ class EdgeStore:
         with self.transaction():
             existing = self._conn.execute(
                 """SELECT update_uid, package_sha256, manifest_json,
-                          legacy_preflight, allow_downgrade
+                          legacy_preflight, allow_downgrade, package_ready
                    FROM mcu_firmware_update WHERE deployment_uid=?""",
                 (deployment_uid,),
             ).fetchone()
@@ -1951,6 +2094,7 @@ class EdgeStore:
                     == legacy_preflight
                     and bool(existing["allow_downgrade"])
                     == allow_downgrade
+                    and bool(existing["package_ready"]) == package_ready
                 )
                 return "DUPLICATE" if same else "CONFLICT"
 
@@ -1990,11 +2134,12 @@ class EdgeStore:
             self._conn.execute(
                 """INSERT INTO mcu_firmware_update (
                      update_uid, deployment_uid, command_uid, source,
-                     package_path, package_sha256, manifest_json, state,
+                     package_path, package_sha256, manifest_json,
+                     package_ready, state,
                      legacy_preflight, allow_downgrade, requested_reason,
                      previous_package_path, previous_package_sha256,
                      previous_manifest_json, requested_at, updated_at
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     update_uid,
                     deployment_uid,
@@ -2003,6 +2148,7 @@ class EdgeStore:
                     package_path,
                     package_sha256,
                     manifest_json,
+                    int(package_ready),
                     int(legacy_preflight),
                     int(allow_downgrade),
                     requested_reason,
@@ -2028,6 +2174,13 @@ class EdgeStore:
                     now,
                 ),
             )
+            if device_name is not None:
+                self._create_mcu_firmware_progress_event_in_tx(
+                    self._conn,
+                    device_name=device_name,
+                    update_uid=update_uid,
+                    stage="QUEUED",
+                )
             return "ACCEPTED"
 
     @staticmethod
@@ -2042,6 +2195,7 @@ class EdgeStore:
         )
         result["legacy_preflight"] = bool(result["legacy_preflight"])
         result["allow_downgrade"] = bool(result["allow_downgrade"])
+        result["package_ready"] = bool(result["package_ready"])
         return result
 
     def get_mcu_firmware_update(self, update_uid: str) -> Optional[dict]:
@@ -2096,6 +2250,166 @@ class EdgeStore:
             result[f"{prefix}_manifest"] = _json.loads(raw) if raw else None
         return result
 
+    def attach_mcu_firmware_package(
+        self,
+        update_uid: str,
+        *,
+        package_path: str,
+        package_sha256: str,
+        manifest: dict,
+        device_name: Optional[str] = None,
+    ) -> str:
+        """Atomically attach a verified package to its pre-I/O reservation."""
+        if not os.path.isabs(package_path):
+            raise ValueError("MCU package path must be absolute")
+        if (
+            not isinstance(package_sha256, str)
+            or len(package_sha256) != 64
+            or any(c not in "0123456789abcdef" for c in package_sha256)
+        ):
+            raise ValueError("MCU package SHA-256 is invalid")
+        if not isinstance(manifest, dict):
+            raise ValueError("MCU package manifest must be an object")
+        manifest_json = _json.dumps(
+            manifest,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        identity_fields = (
+            "releaseUid",
+            "firmwareVersion",
+            "firmwareVersionCode",
+            "firmwareIdentityHex",
+            "hardwareCompatibility",
+            "fixedFrameRevision",
+        )
+        now = self._now()
+        with self.transaction():
+            owner = self._conn.execute(
+                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            update = self._conn.execute(
+                "SELECT * FROM mcu_firmware_update WHERE update_uid=?",
+                (update_uid,),
+            ).fetchone()
+            if not owner or owner["owner_uid"] != update_uid or not update:
+                return "NOT_ACTIVE"
+            if update["source"] != "CLOUD":
+                return "CONFLICT"
+            reserved = _json.loads(update["manifest_json"])
+            if (
+                update["package_sha256"] != package_sha256
+                or any(
+                    reserved.get(field) != manifest.get(field)
+                    for field in identity_fields
+                )
+            ):
+                return "CONFLICT"
+            if bool(update["package_ready"]):
+                return "DUPLICATE" if update["manifest_json"] == manifest_json else "CONFLICT"
+            if update["state"] not in {
+                "QUEUED",
+                "PACKAGE_FETCH_FAILED",
+            }:
+                return "CONFLICT"
+            self._conn.execute(
+                """UPDATE mcu_firmware_update
+                   SET package_path=?, package_sha256=?, manifest_json=?,
+                       package_ready=1, state='QUEUED',
+                       last_error_code=NULL, last_error_message=NULL,
+                       updated_at=?
+                   WHERE update_uid=?""",
+                (
+                    package_path,
+                    package_sha256,
+                    manifest_json,
+                    now,
+                    update_uid,
+                ),
+            )
+            self._conn.execute(
+                "UPDATE maintenance_lock SET updated_at=? WHERE owner_uid=?",
+                (now, update_uid),
+            )
+            if device_name is not None:
+                self._create_mcu_firmware_progress_event_in_tx(
+                    self._conn,
+                    device_name=device_name,
+                    update_uid=update_uid,
+                    stage="QUEUED",
+                )
+            return "ACCEPTED"
+
+    def fail_mcu_firmware_package_acquisition(
+        self,
+        update_uid: str,
+        error_code: str,
+        error_message: str,
+        *,
+        device_name: Optional[str] = None,
+    ) -> bool:
+        """Keep the maintenance lock and expose a retryable package failure."""
+        now = self._now()
+        with self.transaction():
+            owner = self._conn.execute(
+                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            update = self._conn.execute(
+                """SELECT command_uid, package_ready
+                   FROM mcu_firmware_update WHERE update_uid=?""",
+                (update_uid,),
+            ).fetchone()
+            if (
+                not owner
+                or owner["owner_uid"] != update_uid
+                or not update
+                or bool(update["package_ready"])
+            ):
+                return False
+            changed = self._conn.execute(
+                """UPDATE mcu_firmware_update
+                   SET state='PACKAGE_FETCH_FAILED', updated_at=?,
+                       last_error_code=?, last_error_message=?
+                   WHERE update_uid=?""",
+                (now, error_code, error_message, update_uid),
+            )
+            self._conn.execute(
+                "UPDATE maintenance_lock SET updated_at=? WHERE owner_uid=?",
+                (now, update_uid),
+            )
+            if update["command_uid"]:
+                # Publish the retry fact only after the owning inbox command
+                # is durably retryable. This closes the race where a fresh
+                # grant arrives before CommandProcessor handles the exception.
+                self._conn.execute(
+                    """UPDATE command_inbox
+                       SET state='FAILED', processed_at=?,
+                           processing_started_at=NULL, last_error=?
+                       WHERE command_uid=? AND state='PROCESSING'""",
+                    (now, error_code, update["command_uid"]),
+                )
+            if device_name is not None:
+                # Each fresh credential attempt must produce a fresh reliable
+                # failure fact so the platform can wake the same command task
+                # again. The immutable outbox event remains retained.
+                self._conn.execute(
+                    """DELETE FROM mcu_firmware_progress
+                       WHERE update_uid=?
+                         AND stage='PACKAGE_FETCH_FAILED'
+                         AND target_attempt_count=0
+                         AND rollback_attempt_count=0""",
+                    (update_uid,),
+                )
+                self._create_mcu_firmware_progress_event_in_tx(
+                    self._conn,
+                    device_name=device_name,
+                    update_uid=update_uid,
+                    stage="PACKAGE_FETCH_FAILED",
+                    error_code=error_code,
+                )
+            return changed.rowcount == 1
+
     def transition_mcu_firmware_update(
         self,
         update_uid: str,
@@ -2103,6 +2417,7 @@ class EdgeStore:
         *,
         error_code: Optional[str] = None,
         error_message: Optional[str] = None,
+        device_name: Optional[str] = None,
     ) -> bool:
         allowed = MCU_UPDATE_ACTIVE_STATES | MCU_UPDATE_TERMINAL_STATES
         if state not in allowed:
@@ -2135,6 +2450,14 @@ class EdgeStore:
                 "UPDATE maintenance_lock SET updated_at=? WHERE owner_uid=?",
                 (now, update_uid),
             )
+            if device_name is not None:
+                self._create_mcu_firmware_progress_event_in_tx(
+                    self._conn,
+                    device_name=device_name,
+                    update_uid=update_uid,
+                    stage=state,
+                    error_code=error_code,
+                )
             return updated.rowcount == 1
 
     def record_mcu_firmware_attempt(
@@ -2142,6 +2465,7 @@ class EdgeStore:
         update_uid: str,
         *,
         rollback: bool,
+        device_name: Optional[str] = None,
     ) -> int:
         state = "ROLLING_BACK" if rollback else "FLASHING_TARGET"
         column = (
@@ -2166,9 +2490,21 @@ class EdgeStore:
                 f"SELECT {column} AS count FROM mcu_firmware_update WHERE update_uid=?",
                 (update_uid,),
             ).fetchone()
+            if device_name is not None:
+                self._create_mcu_firmware_progress_event_in_tx(
+                    self._conn,
+                    device_name=device_name,
+                    update_uid=update_uid,
+                    stage=state,
+                )
             return int(row["count"])
 
-    def complete_mcu_firmware_update(self, update_uid: str) -> bool:
+    def complete_mcu_firmware_update(
+        self,
+        update_uid: str,
+        *,
+        device_name: Optional[str] = None,
+    ) -> bool:
         """Promote the verified target, retain one prior stable package, unlock."""
         now = self._now()
         with self.transaction():
@@ -2209,13 +2545,25 @@ class EdgeStore:
                      last_error_message=NULL WHERE update_uid=?""",
                 (now, now, update_uid),
             )
+            if device_name is not None:
+                self._create_mcu_firmware_progress_event_in_tx(
+                    self._conn,
+                    device_name=device_name,
+                    update_uid=update_uid,
+                    stage="SUCCEEDED",
+                )
             self._conn.execute(
                 "DELETE FROM maintenance_lock WHERE owner_uid=?",
                 (update_uid,),
             )
             return True
 
-    def complete_mcu_firmware_rollback(self, update_uid: str) -> bool:
+    def complete_mcu_firmware_rollback(
+        self,
+        update_uid: str,
+        *,
+        device_name: Optional[str] = None,
+    ) -> bool:
         """Record successful restoration of the unchanged prior stable image."""
         now = self._now()
         with self.transaction():
@@ -2229,6 +2577,13 @@ class EdgeStore:
                      updated_at=?, completed_at=? WHERE update_uid=?""",
                 (now, now, update_uid),
             )
+            if device_name is not None:
+                self._create_mcu_firmware_progress_event_in_tx(
+                    self._conn,
+                    device_name=device_name,
+                    update_uid=update_uid,
+                    stage="ROLLED_BACK",
+                )
             self._conn.execute(
                 "DELETE FROM maintenance_lock WHERE owner_uid=?",
                 (update_uid,),
@@ -2240,6 +2595,8 @@ class EdgeStore:
         update_uid: str,
         error_code: str,
         error_message: str,
+        *,
+        device_name: Optional[str] = None,
     ) -> bool:
         """Keep maintenance locked when neither target nor rollback is safe."""
         return self.transition_mcu_firmware_update(
@@ -2247,6 +2604,7 @@ class EdgeStore:
             "FAILED_LOCKED",
             error_code=error_code,
             error_message=error_message,
+            device_name=device_name,
         )
 
     def reject_mcu_firmware_update(
@@ -2254,6 +2612,8 @@ class EdgeStore:
         update_uid: str,
         error_code: str,
         error_message: str,
+        *,
+        device_name: Optional[str] = None,
     ) -> bool:
         """Reject before touching flash and release the maintenance lock."""
         now = self._now()
@@ -2269,6 +2629,14 @@ class EdgeStore:
                      last_error_message=? WHERE update_uid=?""",
                 (now, now, error_code, error_message, update_uid),
             )
+            if device_name is not None:
+                self._create_mcu_firmware_progress_event_in_tx(
+                    self._conn,
+                    device_name=device_name,
+                    update_uid=update_uid,
+                    stage="REJECTED",
+                    error_code=error_code,
+                )
             self._conn.execute(
                 "DELETE FROM maintenance_lock WHERE owner_uid=?",
                 (update_uid,),
@@ -2334,106 +2702,158 @@ class EdgeStore:
         if not device_name:
             raise ValueError("device name is required for MCU progress")
         with self.transaction():
-            update = self._conn.execute(
-                "SELECT * FROM mcu_firmware_update WHERE update_uid=?",
-                (update_uid,),
-            ).fetchone()
-            if update is None or update["state"] != stage:
-                raise ValueError("MCU progress stage differs from journal")
-            key = (
-                update_uid,
-                stage,
-                update["target_attempt_count"],
-                update["rollback_attempt_count"],
-            )
-            existing = self._conn.execute(
-                """SELECT event_uid FROM mcu_firmware_progress
-                   WHERE update_uid=? AND stage=?
-                     AND target_attempt_count=?
-                     AND rollback_attempt_count=?""",
-                key,
-            ).fetchone()
-            if existing:
-                return "DUPLICATE"
-
-            manifest = _json.loads(update["manifest_json"])
-            installed_manifest = None
-            if stage == "SUCCEEDED":
-                installed_manifest = manifest
-            elif stage == "ROLLED_BACK" and update["previous_manifest_json"]:
-                installed_manifest = _json.loads(
-                    update["previous_manifest_json"]
-                )
-            elif stage in {"QUEUED", "PREFLIGHT", "PREPARED", "REJECTED"}:
-                stable = self._conn.execute(
-                    """SELECT current_manifest_json
-                       FROM mcu_firmware_state WHERE singleton_id=1"""
-                ).fetchone()
-                if stable and stable["current_manifest_json"]:
-                    installed_manifest = _json.loads(
-                        stable["current_manifest_json"]
-                    )
-            if stage in {"FAILED_LOCKED", "REJECTED"}:
-                stable_error = error_code or update["last_error_code"]
-                if not stable_error:
-                    raise ValueError("terminal MCU progress requires an error code")
-                progress_error = stable_error
-            else:
-                progress_error = None
-            payload = {
-                "deploymentUid": update["deployment_uid"],
-                "updateUid": update_uid,
-                "releaseUid": manifest["releaseUid"],
-                "source": update["source"],
-                "stage": stage,
-                "firmwareVersion": manifest["firmwareVersion"],
-                "firmwareVersionCode": manifest["firmwareVersionCode"],
-                "firmwareIdentityHex": manifest["firmwareIdentityHex"],
-                "fixedFrameRevision": manifest["fixedFrameRevision"],
-                "targetAttemptCount": update["target_attempt_count"],
-                "rollbackAttemptCount": update["rollback_attempt_count"],
-                "legacyPreflight": bool(update["legacy_preflight"]),
-                "downgradeAuthorized": bool(update["allow_downgrade"]),
-                "installedFirmwareVersion": (
-                    installed_manifest["firmwareVersion"]
-                    if installed_manifest else None
-                ),
-                "installedFirmwareVersionCode": (
-                    installed_manifest["firmwareVersionCode"]
-                    if installed_manifest else None
-                ),
-                "installedFirmwareIdentityHex": (
-                    installed_manifest["firmwareIdentityHex"]
-                    if installed_manifest else None
-                ),
-                "errorCode": progress_error,
-            }
-            event_uid = self._new_uid()
-            sequence = self._next_seq(self._conn)
-            event = build_event_envelope(
-                event_uid=event_uid,
-                device_name=device_name,
-                edge_event_sequence=sequence,
-                event_type="MCU_FIRMWARE_UPDATE_PROGRESS",
-                target_type="MCU_FIRMWARE_DEPLOYMENT",
-                target_uid=update["deployment_uid"],
-                command_uid=update["command_uid"],
-                delivery_class="RELIABLE_FACT",
-                payload=payload,
-            )
-            self._insert_event(
+            return self._create_mcu_firmware_progress_event_in_tx(
                 self._conn,
-                event,
-                "MCU_FIRMWARE_UPDATE_PROGRESS",
+                device_name=device_name,
+                update_uid=update_uid,
+                stage=stage,
+                error_code=error_code,
             )
-            self._conn.execute(
-                """INSERT INTO mcu_firmware_progress
-                   (update_uid, stage, target_attempt_count,
-                    rollback_attempt_count, event_uid, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (*key, event_uid, self._now()),
+
+    def _create_mcu_firmware_progress_event_in_tx(
+        self,
+        conn,
+        *,
+        device_name: str,
+        update_uid: str,
+        stage: str,
+        error_code: Optional[str] = None,
+    ) -> str:
+        if not device_name:
+            raise ValueError("device name is required for MCU progress")
+        update = conn.execute(
+            "SELECT * FROM mcu_firmware_update WHERE update_uid=?",
+            (update_uid,),
+        ).fetchone()
+        if update is None or update["state"] != stage:
+            raise ValueError("MCU progress stage differs from journal")
+        key = (
+            update_uid,
+            stage,
+            update["target_attempt_count"],
+            update["rollback_attempt_count"],
+        )
+        existing = conn.execute(
+            """SELECT event_uid FROM mcu_firmware_progress
+               WHERE update_uid=? AND stage=?
+                 AND target_attempt_count=?
+                 AND rollback_attempt_count=?""",
+            key,
+        ).fetchone()
+        if existing:
+            return "DUPLICATE"
+
+        manifest = _json.loads(update["manifest_json"])
+        installed_manifest = None
+        if stage == "SUCCEEDED":
+            installed_manifest = manifest
+        elif stage == "ROLLED_BACK" and update["previous_manifest_json"]:
+            installed_manifest = _json.loads(
+                update["previous_manifest_json"]
             )
-            return "ACCEPTED"
+        elif stage in {
+            "QUEUED",
+            "PACKAGE_FETCH_FAILED",
+            "PREFLIGHT",
+            "PREPARED",
+            "REJECTED",
+        }:
+            stable = conn.execute(
+                """SELECT current_manifest_json
+                   FROM mcu_firmware_state WHERE singleton_id=1"""
+            ).fetchone()
+            if stable and stable["current_manifest_json"]:
+                installed_manifest = _json.loads(
+                    stable["current_manifest_json"]
+                )
+        if stage in {
+            "PACKAGE_FETCH_FAILED",
+            "FAILED_LOCKED",
+            "REJECTED",
+        }:
+            stable_error = error_code or update["last_error_code"]
+            if not stable_error:
+                raise ValueError("failed MCU progress requires an error code")
+            progress_error = stable_error
+        else:
+            progress_error = None
+        payload = {
+            "deploymentUid": update["deployment_uid"],
+            "updateUid": update_uid,
+            "releaseUid": manifest["releaseUid"],
+            "source": update["source"],
+            "stage": stage,
+            "firmwareVersion": manifest["firmwareVersion"],
+            "firmwareVersionCode": manifest["firmwareVersionCode"],
+            "firmwareIdentityHex": manifest["firmwareIdentityHex"],
+            "fixedFrameRevision": manifest["fixedFrameRevision"],
+            "targetAttemptCount": update["target_attempt_count"],
+            "rollbackAttemptCount": update["rollback_attempt_count"],
+            "legacyPreflight": bool(update["legacy_preflight"]),
+            "downgradeAuthorized": bool(update["allow_downgrade"]),
+            "installedFirmwareVersion": (
+                installed_manifest["firmwareVersion"]
+                if installed_manifest else None
+            ),
+            "installedFirmwareVersionCode": (
+                installed_manifest["firmwareVersionCode"]
+                if installed_manifest else None
+            ),
+            "installedFirmwareIdentityHex": (
+                installed_manifest["firmwareIdentityHex"]
+                if installed_manifest else None
+            ),
+            "errorCode": progress_error,
+        }
+        event_uid = self._new_uid()
+        sequence = self._next_seq(conn)
+        event = build_event_envelope(
+            event_uid=event_uid,
+            device_name=device_name,
+            edge_event_sequence=sequence,
+            event_type="MCU_FIRMWARE_UPDATE_PROGRESS",
+            target_type="MCU_FIRMWARE_DEPLOYMENT",
+            target_uid=update["deployment_uid"],
+            command_uid=update["command_uid"],
+            delivery_class="RELIABLE_FACT",
+            payload=payload,
+        )
+        self._insert_event(
+            conn,
+            event,
+            "MCU_FIRMWARE_UPDATE_PROGRESS",
+        )
+        conn.execute(
+            """INSERT INTO mcu_firmware_progress
+               (update_uid, stage, target_attempt_count,
+                rollback_attempt_count, event_uid, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (*key, event_uid, self._now()),
+        )
+        return "ACCEPTED"
+
+    def reconcile_mcu_firmware_progress_events(
+        self,
+        device_name: str,
+    ) -> int:
+        """Backfill the current journal state after upgrading from schema v11."""
+        if not device_name:
+            raise ValueError("device name is required for MCU progress")
+        with self.transaction():
+            rows = self._conn.execute(
+                "SELECT update_uid, state FROM mcu_firmware_update"
+            ).fetchall()
+            created = 0
+            for row in rows:
+                disposition = self._create_mcu_firmware_progress_event_in_tx(
+                    self._conn,
+                    device_name=device_name,
+                    update_uid=row["update_uid"],
+                    stage=row["state"],
+                )
+                if disposition == "ACCEPTED":
+                    created += 1
+            return created
 
     def acquire_work_slot(
         self,

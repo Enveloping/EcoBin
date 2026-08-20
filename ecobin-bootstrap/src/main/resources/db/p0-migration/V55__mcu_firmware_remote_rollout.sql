@@ -68,7 +68,7 @@ CREATE TABLE dev_mcu_firmware_release (
             '^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$'
         AND firmware_version_code BETWEEN 1 AND 4294967295
         AND firmware_identity_hex REGEXP '^[0-9a-f]{16}$'
-        AND hardware_compatibility = 'STM32F103C8T6'
+        AND hardware_compatibility = 'ECOBIN_MAINBOARD_V1.1'
         AND fixed_frame_revision = 2
     ),
     CONSTRAINT ck_dev_mcu_release_package CHECK (
@@ -203,7 +203,7 @@ CREATE TABLE dev_mcu_firmware_deployment (
     deployment_kind VARCHAR(16)
         CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     wave_no INT NOT NULL,
-    deployment_status VARCHAR(24)
+    deployment_status VARCHAR(32)
         CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     command_uid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
     reliable_task_uid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
@@ -241,7 +241,8 @@ CREATE TABLE dev_mcu_firmware_deployment (
     ),
     CONSTRAINT ck_dev_mcu_deployment_status CHECK (
         deployment_status IN (
-            'PENDING', 'QUEUED', 'PREFLIGHT', 'PREPARED',
+            'PENDING', 'QUEUED', 'PACKAGE_FETCH_FAILED',
+            'PREFLIGHT', 'PREPARED',
             'FLASHING_TARGET', 'VERIFYING_TARGET', 'ROLLING_BACK',
             'VERIFYING_ROLLBACK', 'SUCCEEDED', 'ROLLED_BACK',
             'FAILED_LOCKED', 'REJECTED'
@@ -260,9 +261,13 @@ CREATE TABLE dev_mcu_firmware_deployment (
                 AND queued_at IS NOT NULL)
         )
         AND (
-            (deployment_status IN ('FAILED_LOCKED', 'REJECTED')
+            (deployment_status IN (
+                'PACKAGE_FETCH_FAILED', 'FAILED_LOCKED', 'REJECTED'
+            )
                 AND error_code IS NOT NULL)
-            OR deployment_status NOT IN ('FAILED_LOCKED', 'REJECTED')
+            OR deployment_status NOT IN (
+                'PACKAGE_FETCH_FAILED', 'FAILED_LOCKED', 'REJECTED'
+            )
         )
         AND (
             (deployment_status IN (
@@ -321,7 +326,7 @@ CREATE TABLE dev_mcu_firmware_progress (
     source_inbox_id BIGINT NOT NULL,
     deployment_id BIGINT NOT NULL,
     edge_update_uid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    stage VARCHAR(24) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    stage VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     target_attempt_count INT NOT NULL,
     rollback_attempt_count INT NOT NULL,
     error_code VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
