@@ -3,6 +3,7 @@ package org.enveloping.ecobin.device.application.target;
 import org.enveloping.ecobin.device.api.port.TrustedPlatformDeviceAssetFactPort;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedPlatformDeviceAssetFactEvent;
+import org.enveloping.ecobin.device.application.firmware.McuFirmwareRolloutService;
 import org.enveloping.ecobin.device.application.remote.RemoteSupportSessionService;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,7 +31,8 @@ public class TrustedPlatformDeviceAssetFactService
             "DEVICE_FAULT_OBSERVED",
             "DEVICE_FAULT_RECOVERED",
             "SAFETY_SENSOR_STATE_CHANGED",
-            "REMOTE_SUPPORT_TUNNEL_STATUS");
+            "REMOTE_SUPPORT_TUNNEL_STATUS",
+            McuFirmwareRolloutService.EVENT_TYPE);
     private static final String UUID_V4 =
             "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
                     + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
@@ -40,16 +42,19 @@ public class TrustedPlatformDeviceAssetFactService
     private final ObjectMapper objectMapper;
     private final ReliablePlatformEdgeConfirmationService confirmationService;
     private final RemoteSupportSessionService remoteSupportSessions;
+    private final McuFirmwareRolloutService firmwareRollouts;
 
     public TrustedPlatformDeviceAssetFactService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             ReliablePlatformEdgeConfirmationService confirmationService,
-            RemoteSupportSessionService remoteSupportSessions) {
+            RemoteSupportSessionService remoteSupportSessions,
+            McuFirmwareRolloutService firmwareRollouts) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.confirmationService = confirmationService;
         this.remoteSupportSessions = remoteSupportSessions;
+        this.firmwareRollouts = firmwareRollouts;
     }
 
     @Override
@@ -59,6 +64,10 @@ public class TrustedPlatformDeviceAssetFactService
         if (!SUPPORTED.contains(inboxEvent.messageKind())) {
             throw new IllegalArgumentException(
                     "unsupported platform device asset fact");
+        }
+        if (McuFirmwareRolloutService.EVENT_TYPE.equals(
+                inboxEvent.messageKind())) {
+            return firmwareRollouts.applyProgress(inboxEvent);
         }
         return inboxEvent.sourceInbox().use(sourceInboxId -> {
             JsonNode normalized = objectMapper.readTree(

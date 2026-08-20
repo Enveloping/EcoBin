@@ -3,10 +3,12 @@
 The deployed MCU uses a deliberately small fixed-frame protocol:
 
     Edge -> MCU: AA 01 AA, BB PRICE BB, EE 01 EE, F0 01 F0,
-                 A0 LEN URL_DATA[192] A0
+                 F2 MODE F2, A0 LEN URL_DATA[192] A0
     MCU -> Edge: DD PRE:u24 POST:u24 FULL DD
                  EF PRE:u24 POST:u24 FULL EF
                  F1 VALID WEIGHT:u24 FULL SMOKE F1
+                 F3 MODE STATUS REV VERSION_CODE:u32 VERSION_LEN
+                    VERSION[32] IDENTITY[8] SAFE_FLAGS F3
                  CC SMOKE CC
 
 The adapter keeps the wire simple: no CRC, generic ACK, retry, flow identity,
@@ -36,13 +38,21 @@ CLEAN_HEADER = 0xEF
 SMOKE_HEADER = 0xCC
 SELF_TEST_QUERY_HEADER = 0xF0
 SELF_TEST_RESPONSE_HEADER = 0xF1
+FIRMWARE_QUERY_HEADER = 0xF2
+FIRMWARE_STATUS_HEADER = 0xF3
 DEVICE_ENTRY_URL_HEADER = 0xA0
 
 RESULT_FRAME_LENGTH = 9
 SMOKE_FRAME_LENGTH = 3
 SELF_TEST_FRAME_LENGTH = 8
+FIRMWARE_STATUS_FRAME_LENGTH = 51
 SELF_TEST_QUERY_FRAME = bytes((SELF_TEST_QUERY_HEADER, 0x01, SELF_TEST_QUERY_HEADER))
 SELF_TEST_TIMEOUT_MS = 3_000
+FIRMWARE_QUERY_TIMEOUT_MS = 3_000
+FIRMWARE_PROTOCOL_REVISION = 2
+FIRMWARE_QUERY_IDENTITY_MODE = 1
+FIRMWARE_PREPARE_UPDATE_MODE = 2
+FIRMWARE_REQUIRED_SAFE_FLAGS = 0x1F
 DEVICE_ENTRY_URL_FIELD_LENGTH = 192
 DEVICE_ENTRY_URL_FRAME_LENGTH = 195
 MAXIMUM_WEIGHT_GRAMS = 350_000
@@ -54,6 +64,14 @@ FRAME_LENGTHS = {
     CLEAN_HEADER: RESULT_FRAME_LENGTH,
     SMOKE_HEADER: SMOKE_FRAME_LENGTH,
     SELF_TEST_RESPONSE_HEADER: SELF_TEST_FRAME_LENGTH,
+    FIRMWARE_STATUS_HEADER: FIRMWARE_STATUS_FRAME_LENGTH,
+}
+
+FIRMWARE_STATUS_NAMES = {
+    0: "READY",
+    1: "BUSY",
+    2: "UNSAFE",
+    3: "INTERNAL_ERROR",
 }
 
 COMPAT_DELIVERY_RESULT_TYPE = 240
@@ -208,6 +226,53 @@ class FixedFrameParser:
                 "raw_frame_hex": frame.hex(),
             }
 
+        if header == FIRMWARE_STATUS_HEADER:
+            if len(frame) != FIRMWARE_STATUS_FRAME_LENGTH:
+                return None
+            mode = frame[1]
+            status_code = frame[2]
+            protocol_revision = frame[3]
+            version_code = int.from_bytes(frame[4:8], "big", signed=False)
+            version_length = frame[8]
+            version_field = frame[9:41]
+            identity = frame[41:49]
+            safe_flags = frame[49]
+            if (
+                mode not in {
+                    FIRMWARE_QUERY_IDENTITY_MODE,
+                    FIRMWARE_PREPARE_UPDATE_MODE,
+                }
+                or status_code not in FIRMWARE_STATUS_NAMES
+                or protocol_revision != FIRMWARE_PROTOCOL_REVISION
+                or version_code == 0
+                or not 1 <= version_length <= len(version_field)
+                or safe_flags & ~FIRMWARE_REQUIRED_SAFE_FLAGS
+                or not any(identity)
+            ):
+                return None
+            encoded_version = version_field[:version_length]
+            if (
+                any(byte < 0x21 or byte > 0x7E for byte in encoded_version)
+                or any(version_field[version_length:])
+            ):
+                return None
+            try:
+                version = encoded_version.decode("ascii")
+            except UnicodeDecodeError:
+                return None
+            return {
+                "frame_type": "FIRMWARE_STATUS",
+                "mode": mode,
+                "status_code": status_code,
+                "status": FIRMWARE_STATUS_NAMES[status_code],
+                "protocol_revision": protocol_revision,
+                "firmware_version_code": version_code,
+                "firmware_version": version,
+                "firmware_identity_hex": identity.hex(),
+                "safe_flags": safe_flags,
+                "raw_frame_hex": frame.hex(),
+            }
+
         return None
 
 
@@ -251,6 +316,9 @@ class FixedFrameMcuAdapter:
         self._mcu_boot_id = edge_boot_id
         self._mcu_capability = 0
         self._mcu_firmware_version = "fixed-frame-compat"
+        self._mcu_firmware_version_code = None
+        self._mcu_firmware_identity = None
+        self._fixed_frame_revision = 1
         self._mcu_event_sequence = 0
         self._has_opened_once = False
 
@@ -329,8 +397,13 @@ class FixedFrameMcuAdapter:
             "mcu_boot_id": self._mcu_boot_id,
             "mcu_capability": 0,
             "mcu_port_count": 1,
-            "mcu_firmware_identity": "negotiated-fixed-frame-mcu",
+            "mcu_firmware_identity": (
+                self._mcu_firmware_identity
+                or "negotiated-fixed-frame-mcu"
+            ),
             "mcu_firmware_version": self._mcu_firmware_version,
+            "mcu_firmware_version_code": self._mcu_firmware_version_code,
+            "fixed_frame_revision": self._fixed_frame_revision,
             "mcu_pending_critical_events": 0,
             "uart_protocol_major": None,
             "uart_protocol_minor": None,
@@ -343,6 +416,108 @@ class FixedFrameMcuAdapter:
         """The fixed-frame MCU still has no general work/state query."""
         del on_segment
         return []
+
+    def query_firmware_identity(
+        self,
+        timeout_ms: int = FIRMWARE_QUERY_TIMEOUT_MS,
+    ) -> dict:
+        """Query the revision-2 firmware identity without changing MCU state."""
+        return self.query_firmware_status(
+            FIRMWARE_QUERY_IDENTITY_MODE,
+            timeout_ms=timeout_ms,
+        )
+
+    def prepare_firmware_update(
+        self,
+        timeout_ms: int = FIRMWARE_QUERY_TIMEOUT_MS,
+    ) -> dict:
+        """Ask the MCU to enter its latched, mechanically safe update state."""
+        result = self.query_firmware_status(
+            FIRMWARE_PREPARE_UPDATE_MODE,
+            timeout_ms=timeout_ms,
+        )
+        result["prepared"] = bool(
+            result.get("queryStatus") == "OK"
+            and result.get("statusCode") == 0
+            and (result.get("safeFlags") or 0) & FIRMWARE_REQUIRED_SAFE_FLAGS
+            == FIRMWARE_REQUIRED_SAFE_FLAGS
+        )
+        return result
+
+    def query_firmware_status(
+        self,
+        mode: int,
+        timeout_ms: int = FIRMWARE_QUERY_TIMEOUT_MS,
+    ) -> dict:
+        """Send one F2 challenge and return the matching fresh F3 snapshot."""
+        if mode not in {
+            FIRMWARE_QUERY_IDENTITY_MODE,
+            FIRMWARE_PREPARE_UPDATE_MODE,
+        }:
+            raise ValueError("firmware query mode must be 1 or 2")
+        if (
+            not isinstance(timeout_ms, int)
+            or isinstance(timeout_ms, bool)
+            or timeout_ms <= 0
+        ):
+            raise ValueError("firmware query timeout must be a positive integer")
+
+        with self._foreground_io("FIRMWARE_STATUS"):
+            if not self.is_open:
+                return self._failed_firmware_query("UART_CLOSED", mode)
+
+            self._drain_before_firmware_query()
+            invalid_before = self._parser.invalid_count(
+                FIRMWARE_STATUS_HEADER
+            )
+            try:
+                self._write_exact(
+                    bytes((FIRMWARE_QUERY_HEADER, mode, FIRMWARE_QUERY_HEADER))
+                )
+            except Exception as error:
+                logger.error("fixed-frame firmware query write failed: %s", error)
+                return self._failed_firmware_query("UART_WRITE_FAILED", mode)
+
+            deadline = time.monotonic() + timeout_ms / 1000.0
+            response = None
+            while time.monotonic() < deadline:
+                chunk = self._read_chunk(deadline)
+                if not chunk:
+                    continue
+                invalid_smoke_before = self._parser.invalid_count(SMOKE_HEADER)
+                for item in self._parser.feed(chunk):
+                    frame_type = item["frame_type"]
+                    if frame_type == "FIRMWARE_STATUS":
+                        if item["mode"] == mode and response is None:
+                            response = item
+                        else:
+                            logger.warning(
+                                "discarding stale or duplicate firmware status: "
+                                "expected_mode=%d actual_mode=%d",
+                                mode,
+                                item["mode"],
+                            )
+                    elif frame_type == "SELF_TEST":
+                        self._pending_events.append(
+                            self._to_safety_event(
+                                item["smoke_code"],
+                                raw_frame_hex=item["raw_frame_hex"],
+                            )
+                        )
+                    else:
+                        self._pending_events.append(self._to_event(item))
+                self._queue_invalid_smoke_events(invalid_smoke_before)
+                if response is not None:
+                    self._remember_firmware_status(response)
+                    return self._successful_firmware_query(response)
+
+            query_status = (
+                "PROTOCOL_ERROR"
+                if self._parser.invalid_count(FIRMWARE_STATUS_HEADER)
+                > invalid_before
+                else "TIMEOUT"
+            )
+            return self._failed_firmware_query(query_status, mode)
 
     def query_self_test(
         self,
@@ -724,6 +899,9 @@ class FixedFrameMcuAdapter:
             if item["frame_type"] == "SELF_TEST":
                 logger.warning("discarding stale fixed-frame self-test response")
                 continue
+            if item["frame_type"] == "FIRMWARE_STATUS":
+                logger.warning("discarding unsolicited firmware status")
+                continue
             self._pending_events.append(self._to_event(item))
         for _ in range(invalid_smoke):
             self._pending_events.append(
@@ -736,6 +914,33 @@ class FixedFrameMcuAdapter:
             DELIVERY_HEADER,
             CLEAN_HEADER,
             SMOKE_HEADER,
+        })
+
+    def _drain_before_firmware_query(self) -> None:
+        decoded, invalid_smoke = self._read_available_decoded()
+        for item in decoded:
+            frame_type = item["frame_type"]
+            if frame_type == "FIRMWARE_STATUS":
+                logger.warning("discarding stale fixed-frame firmware status")
+            elif frame_type == "SELF_TEST":
+                self._pending_events.append(
+                    self._to_safety_event(
+                        item["smoke_code"],
+                        raw_frame_hex=item["raw_frame_hex"],
+                    )
+                )
+            else:
+                self._pending_events.append(self._to_event(item))
+        for _ in range(invalid_smoke):
+            self._pending_events.append(
+                self._to_safety_event(None, health="PROTOCOL_ERROR")
+            )
+        # An F3 prefix received before this challenge is stale evidence.
+        self._parser.discard_incomplete_except({
+            DELIVERY_HEADER,
+            CLEAN_HEADER,
+            SMOKE_HEADER,
+            SELF_TEST_RESPONSE_HEADER,
         })
 
     def _discard_stale_business_input(self) -> None:
@@ -792,7 +997,10 @@ class FixedFrameMcuAdapter:
                 events = [
                     self._to_event(item)
                     for item in decoded
-                    if item["frame_type"] != "SELF_TEST"
+                    if item["frame_type"] not in {
+                        "SELF_TEST",
+                        "FIRMWARE_STATUS",
+                    }
                 ]
                 self._pending_events.extend(events)
                 self._queue_invalid_smoke_events(invalid_smoke_before)
@@ -924,6 +1132,42 @@ class FixedFrameMcuAdapter:
             "smokeSensorHealth": smoke_health,
             "faultCode": fault_code,
             "rawFrameHex": decoded["raw_frame_hex"],
+        }
+
+    def _remember_firmware_status(self, decoded: dict) -> None:
+        self._mcu_firmware_version = decoded["firmware_version"]
+        self._mcu_firmware_version_code = decoded["firmware_version_code"]
+        self._mcu_firmware_identity = decoded["firmware_identity_hex"]
+        self._fixed_frame_revision = decoded["protocol_revision"]
+
+    @staticmethod
+    def _successful_firmware_query(decoded: dict) -> dict:
+        return {
+            "queryStatus": "OK",
+            "mode": decoded["mode"],
+            "statusCode": decoded["status_code"],
+            "status": decoded["status"],
+            "protocolRevision": decoded["protocol_revision"],
+            "firmwareVersionCode": decoded["firmware_version_code"],
+            "firmwareVersion": decoded["firmware_version"],
+            "firmwareIdentityHex": decoded["firmware_identity_hex"],
+            "safeFlags": decoded["safe_flags"],
+            "rawFrameHex": decoded["raw_frame_hex"],
+        }
+
+    @staticmethod
+    def _failed_firmware_query(query_status: str, mode: int) -> dict:
+        return {
+            "queryStatus": query_status,
+            "mode": mode,
+            "statusCode": None,
+            "status": None,
+            "protocolRevision": None,
+            "firmwareVersionCode": None,
+            "firmwareVersion": None,
+            "firmwareIdentityHex": None,
+            "safeFlags": None,
+            "rawFrameHex": None,
         }
 
     @staticmethod

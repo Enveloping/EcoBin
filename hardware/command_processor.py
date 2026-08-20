@@ -25,6 +25,7 @@ class CommandProcessor:
         acceptance_runner=None,
         trusted_cos_environment=None,
         remote_support_controller=None,
+        mcu_firmware_updater=None,
     ):
         self._store = store
         self._uart = uart_link
@@ -32,6 +33,7 @@ class CommandProcessor:
         self._acceptance = acceptance_runner
         self._trusted_cos_environment = trusted_cos_environment
         self._remote_support = remote_support_controller
+        self._mcu_firmware_updater = mcu_firmware_updater
         self._wake_event = threading.Event()
         self._grant_lock = threading.Lock()
         self._volatile_cos_grants: dict[str, dict] = {}
@@ -141,6 +143,7 @@ class CommandProcessor:
                 in {
                     "PROVIDE_PHOTO_UPLOAD_GRANT",
                     "REQUEST_DEVICE_ACCEPTANCE",
+                    "START_MCU_FIRMWARE_UPDATE",
                 }
                 and not command.get("cosGrant")
             ):
@@ -149,6 +152,11 @@ class CommandProcessor:
                     == "REQUEST_DEVICE_ACCEPTANCE"
                 ):
                     raise ValueError("acceptance grant not available")
+                if (
+                    command.get("commandType")
+                    == "START_MCU_FIRMWARE_UPDATE"
+                ):
+                    raise ValueError("firmware grant not available")
                 raise ValueError("photo grant not available")
             validate_command_envelope(
                 command,
@@ -187,6 +195,8 @@ class CommandProcessor:
                 self._open_remote_support_tunnel(command)
             elif command["commandType"] == "CLOSE_REMOTE_SUPPORT_TUNNEL":
                 self._close_remote_support_tunnel(command)
+            elif command["commandType"] == "START_MCU_FIRMWARE_UPDATE":
+                self._start_mcu_firmware_update(command)
             else:
                 self._store.fail_command(command_uid, "COMMAND_NOT_IMPLEMENTED")
                 logger.warning(
@@ -271,6 +281,37 @@ class CommandProcessor:
             {
                 "sessionUid": session_uid,
                 "disposition": disposition,
+            },
+        )
+
+    def _start_mcu_firmware_update(self, command: dict) -> None:
+        if self._mcu_firmware_updater is None:
+            raise RuntimeError("MCU firmware updater is not enabled")
+        payload = command["payload"]
+        queued = self._mcu_firmware_updater.queue_cloud(
+            deployment_uid=payload["deploymentUid"],
+            command_uid=command["commandUid"],
+            object_key=payload["objectKey"],
+            package_sha256=payload["packageSha256"],
+            package_size=payload["packageSize"],
+            cos_grant=command["cosGrant"],
+            release_uid=payload["releaseUid"],
+            firmware_version=payload["firmwareVersion"],
+            firmware_version_code=payload["firmwareVersionCode"],
+            firmware_identity_hex=payload["firmwareIdentityHex"],
+            requested_reason=payload.get("reason"),
+        )
+        manifest = queued["manifest"]
+        self._store.complete_command(
+            command["commandUid"],
+            {
+                "deploymentUid": queued["deploymentUid"],
+                "updateUid": queued["updateUid"],
+                "disposition": queued["disposition"],
+                "state": queued["state"],
+                "firmwareVersion": manifest["firmwareVersion"],
+                "firmwareVersionCode": manifest["firmwareVersionCode"],
+                "firmwareIdentityHex": manifest["firmwareIdentityHex"],
             },
         )
 
@@ -503,11 +544,16 @@ def _last_part_uid(result: dict) -> Optional[str]:
 
 
 def _error_code(error: Exception) -> str:
+    stable_code = getattr(error, "code", None)
+    if stable_code:
+        return _symbol(str(stable_code))
     message = str(error).upper()
     if "ACCEPTANCE GRANT NOT AVAILABLE" in message:
         return "ACCEPTANCE_GRANT_NOT_AVAILABLE"
     if "PHOTO GRANT NOT AVAILABLE" in message:
         return "PHOTO_GRANT_NOT_AVAILABLE"
+    if "FIRMWARE GRANT NOT AVAILABLE" in message:
+        return "FIRMWARE_GRANT_NOT_AVAILABLE"
     if "EXPIRED" in message:
         return "COMMAND_EXPIRED"
     if "MCUPAYLOADSHA256" in message:

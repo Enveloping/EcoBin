@@ -86,6 +86,7 @@ WORK_PATH_SEGMENT = {
     "DELIVERY_SESSION": "delivery-session",
     "CLEAN_OPERATION": "clean-operation",
     "DEVICE_ACCEPTANCE": "device-acceptance",
+    "MCU_FIRMWARE_RELEASE": "mcu-firmware",
 }
 
 
@@ -631,6 +632,7 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         "FULLNESS_SAMPLE_COMPLETE": "detectionUid",
         "BASELINE_MEASUREMENT_COMPLETE": "measurementUid",
         "CONFIGURATION_PROGRESS": "applicationUid",
+        "MCU_FIRMWARE_UPDATE_PROGRESS": "deploymentUid",
     }.get(event_type)
     if uid_field and instance["target"]["uid"] != payload[uid_field]:
         raise ContractError(f"{event_type}: target UID differs from payload")
@@ -653,6 +655,35 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         and instance["target"]["uid"] != instance["commandUid"]
     ):
         raise ContractError("DEVICE_COMMAND_OBSERVED target must be the commandUid")
+
+    if event_type == "MCU_FIRMWARE_UPDATE_PROGRESS":
+        if payload["source"] == "CLOUD" and instance["commandUid"] is None:
+            raise ContractError(
+                "cloud MCU firmware progress requires the originating commandUid"
+            )
+        if payload["source"] == "LOCAL" and instance["commandUid"] is not None:
+            raise ContractError(
+                "local MCU firmware progress must not claim a cloud commandUid"
+            )
+        installed_fields = (
+            payload["installedFirmwareVersion"],
+            payload["installedFirmwareVersionCode"],
+            payload["installedFirmwareIdentityHex"],
+        )
+        if any(value is None for value in installed_fields) and not all(
+            value is None for value in installed_fields
+        ):
+            raise ContractError(
+                "installed MCU firmware identity must be wholly present or null"
+            )
+        if payload["stage"] == "SUCCEEDED" and installed_fields != (
+            payload["firmwareVersion"],
+            payload["firmwareVersionCode"],
+            payload["firmwareIdentityHex"],
+        ):
+            raise ContractError(
+                "successful MCU progress must report the target as installed"
+            )
 
     if event_type == "DELIVERY_COMPLETE":
         slots = [photo["slot"] for photo in payload["photos"]]
@@ -903,6 +934,7 @@ def _validate_command_semantics(
         "PROVIDE_PHOTO_UPLOAD_GRANT": "grantRequestEventUid",
         "OPEN_REMOTE_SUPPORT_TUNNEL": "sessionUid",
         "CLOSE_REMOTE_SUPPORT_TUNNEL": "sessionUid",
+        "START_MCU_FIRMWARE_UPDATE": "deploymentUid",
     }.get(command_type)
     if command_type in {
         "REQUEST_DEVICE_ACCEPTANCE",
@@ -956,6 +988,16 @@ def _validate_command_semantics(
                     "APPLY_CONFIGURATION minimum valid fullness samples exceed total"
                 )
 
+    if command_type == "START_MCU_FIRMWARE_UPDATE":
+        expected_key = (
+            f"ecobin/mcu-firmware/{payload['releaseUid']}/"
+            f"{payload['packageSha256']}.efw"
+        )
+        if payload["objectKey"] != expected_key:
+            raise ContractError(
+                "START_MCU_FIRMWARE_UPDATE object key differs from signed identity"
+            )
+
     work_type: str | None = None
     work_uid: str | None = None
     if command_type == "START_DELIVERY_SESSION":
@@ -976,6 +1018,9 @@ def _validate_command_semantics(
     elif command_type == "REQUEST_DEVICE_ACCEPTANCE":
         work_type = "DEVICE_ACCEPTANCE"
         work_uid = payload["challengeUid"]
+    elif command_type == "START_MCU_FIRMWARE_UPDATE":
+        work_type = "MCU_FIRMWARE_RELEASE"
+        work_uid = payload["releaseUid"]
     if work_type is not None and work_uid is not None:
         _validate_cos_grant(
             instance,

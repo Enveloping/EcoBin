@@ -69,6 +69,10 @@
       "schema": "../../onenet/commands/commands.schema.json"
     },
     {
+      "file": "start-mcu-firmware-update.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
       "file": "open-remote-support-tunnel.command.json",
       "schema": "../../onenet/commands/commands.schema.json"
     },
@@ -118,6 +122,10 @@
     },
     {
       "file": "remote-support-tunnel-status.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "mcu-firmware-update-progress.event.json",
       "schema": "../../onenet/events/events.schema.json"
     }
   ],

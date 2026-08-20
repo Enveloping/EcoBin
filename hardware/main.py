@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from config import (
     PRODUCT_ID, DEVICE_NAME, DEVICE_KEY, MQTT_HOST, MQTT_PORT,
@@ -33,6 +34,10 @@ from config import (
     TRUSTED_COS_ENVIRONMENT, COS_REQUEST_TIMEOUT_SECONDS,
     REMOTE_SUPPORT_CONTROL_SOCKET,
     DEVICE_CREDENTIALS,
+    MCU_UPDATE_ENABLED, MCU_BOOT0_WPI, MCU_RESET_WPI,
+    MCU_BOOT0_ACTIVE_LEVEL, MCU_RESET_ACTIVE_LEVEL,
+    MCU_HARDWARE_COMPATIBILITY, MCU_SIGNING_PUBLIC_KEYS_DIR,
+    MCU_FIRMWARE_CACHE_DIR, STM32FLASH_PATH, GPIO_PATH,
     validate as config_validate,
 )
 from cos_photo_uploader import CosPhotoUploader
@@ -57,6 +62,14 @@ from remote_support_control import (
     RemoteSupportControlClient,
     RemoteSupportStatusBridge,
     RemoteSupportUnavailable,
+)
+from mcu_firmware_updater import (
+    CosFirmwareDownloader,
+    FirmwarePackageCache,
+    McuFirmwareUpdater,
+    Stm32FlashRunner,
+    WiringOpBootControl,
+    load_release_public_keys,
 )
 
 logging.basicConfig(
@@ -122,7 +135,7 @@ class EcoBinEdge:
             clean_session=MQTT_CLEAN_SESSION,
             trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
             unsupported_command_types=(
-                {
+                ({
                     "END_CLEAN_BEFORE_UNLOCK",
                     "RESUME_CLEAN_OPERATION",
                 }
@@ -131,7 +144,12 @@ class EcoBinEdge:
                     "compatibility_mode",
                     False,
                 )
-                else set()
+                else set())
+                | (
+                    set()
+                    if MCU_UPDATE_ENABLED
+                    else {"START_MCU_FIRMWARE_UPDATE"}
+                )
             ),
         )
 
@@ -172,6 +190,45 @@ class EcoBinEdge:
             self.remote_support,
             self.store,
         )
+        self.mcu_updater = None
+        if MCU_UPDATE_ENABLED:
+            release_keys = load_release_public_keys(
+                Path(MCU_SIGNING_PUBLIC_KEYS_DIR)
+            )
+            firmware_cache = FirmwarePackageCache(
+                Path(MCU_FIRMWARE_CACHE_DIR),
+                release_keys,
+                MCU_HARDWARE_COMPATIBILITY,
+            )
+            self.mcu_updater = McuFirmwareUpdater(
+                store=self.store,
+                uart_link=self.uart,
+                package_cache=firmware_cache,
+                boot_control=WiringOpBootControl(
+                    gpio_path=GPIO_PATH,
+                    boot0_wpi=MCU_BOOT0_WPI,
+                    reset_wpi=MCU_RESET_WPI,
+                    boot0_active_level=MCU_BOOT0_ACTIVE_LEVEL,
+                    reset_active_level=MCU_RESET_ACTIVE_LEVEL,
+                ),
+                flash_runner=Stm32FlashRunner(
+                    executable_path=STM32FLASH_PATH,
+                    serial_port=SERIAL_PORT,
+                ),
+                downloader=CosFirmwareDownloader(
+                    timeout_seconds=COS_REQUEST_TIMEOUT_SECONDS,
+                ),
+                enabled=True,
+                progress_reporter=(
+                    lambda update, stage, error_code, error_message:
+                    self.store.create_mcu_firmware_progress_event(
+                        device_name=DEVICE_NAME,
+                        update_uid=update["update_uid"],
+                        stage=stage,
+                        error_code=error_code,
+                    )
+                ),
+            )
         self.commands = CommandProcessor(
             self.store,
             self.uart,
@@ -179,6 +236,7 @@ class EcoBinEdge:
             acceptance_runner=self.acceptance,
             trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
             remote_support_controller=self.remote_support,
+            mcu_firmware_updater=self.mcu_updater,
         )
         self.fixed_frame_health_recovery = FixedFrameHealthRecoveryController(
             self.store,
@@ -232,12 +290,42 @@ class EcoBinEdge:
 
     def run(self):
         logger.info("EcoBin Edge v2 starting (boot_id=%d)", self._edge_boot_id)
+        active_update = self.store.get_active_mcu_firmware_update()
+        if (
+            active_update is not None
+            and active_update["state"] != "FAILED_LOCKED"
+            and self.mcu_updater is not None
+        ):
+            logger.warning(
+                "resuming interrupted MCU firmware update before business boot: %s",
+                active_update["update_uid"],
+            )
+            self.mcu_updater.process_active()
+            active_update = self.store.get_active_mcu_firmware_update()
+
         # -- Boot sequence --
-        result = boot_sequence(
-            store=self.store, uart_link=self.uart,
-            mqtt_client=self.mqtt, work_manager=self.work,
-            photo_manager=self.photo,
-        )
+        if active_update is None:
+            # The updater leaves a verified application UART open. The normal
+            # boot path owns its own fresh handshake/generation, so close once.
+            self.uart.close()
+            result = boot_sequence(
+                store=self.store, uart_link=self.uart,
+                mqtt_client=self.mqtt, work_manager=self.work,
+                photo_manager=self.photo,
+            )
+        else:
+            result = {
+                "status": "MCU_UPDATE_FAILED_LOCKED",
+                "reason": active_update.get("last_error_code")
+                or "MCU_UPDATE_DISABLED_OR_INTERRUPTED",
+            }
+            logger.critical(
+                "business boot is blocked by MCU firmware maintenance: "
+                "update=%s state=%s reason=%s",
+                active_update["update_uid"],
+                active_update["state"],
+                result["reason"],
+            )
         if result["status"] == "SAFETY_LOCKED":
             logger.critical("BOOT FAILED: %s", result.get("reason"))
             self._shutdown()
@@ -351,6 +439,20 @@ class EcoBinEdge:
         while not self._exit_flag.is_set():
             progressed = False
             try:
+                active_update = self.store.get_active_mcu_firmware_update()
+                if active_update is not None:
+                    if (
+                        self.mcu_updater is not None
+                        and active_update["state"] != "FAILED_LOCKED"
+                        and self.mcu_updater.process_active()
+                    ):
+                        progressed = True
+                    if self.store.get_maintenance_lock() is not None:
+                        if self._poll_remote_support_status():
+                            progressed = True
+                        if not progressed:
+                            self.commands.wait(0.5)
+                        continue
                 if self.work.expire_fixed_frame_work():
                     progressed = True
                 if self._poll_remote_support_status():

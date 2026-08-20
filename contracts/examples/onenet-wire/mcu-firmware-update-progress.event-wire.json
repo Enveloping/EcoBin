@@ -1,0 +1,52 @@
+{
+  "identifier": "mcuFirmwareUpdateProgress",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "116",
+    "params": {
+      "mcuFirmwareUpdateProgress": {
+        "value": {
+          "clockQuality": 1,
+          "commandUid": "8c000000-0000-4000-8000-000000000003",
+          "commandUidPresent": true,
+          "deliveryClass": 1,
+          "deploymentUid": "8c000000-0000-4000-8000-000000000002",
+          "downgradeAuthorized": false,
+          "edgeEventSequence": 1057,
+          "errorCode": "",
+          "errorCodePresent": false,
+          "eventType": 1,
+          "eventUid": "8c000000-0000-4000-8000-000000000005",
+          "firmwareIdentityHex": "0123456789abcdef",
+          "firmwareVersion": "2.1.0",
+          "firmwareVersionCode": 20100,
+          "fixedFrameRevision": 1,
+          "installedFirmwareIdentity": "0123456789abcdef",
+          "installedFirmwareIdentityPresent": true,
+          "installedFirmwareVersion": "2.1.0",
+          "installedFirmwareVersionC": 20100,
+          "installedFirmwareVersionCPresent": true,
+          "installedFirmwareVersionPresent": true,
+          "legacyPreflight": false,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "1e1fd4197f9269ecb842b7e872d79d0d396572e28bf6e1fceab6edc1078e75d2",
+          "releaseUid": "8c000000-0000-4000-8000-000000000001",
+          "rollbackAttemptCount": 0,
+          "schemaVersion": 1,
+          "source": 1,
+          "stage": 8,
+          "target": {
+            "type": 1,
+            "uid": "8c000000-0000-4000-8000-000000000002"
+          },
+          "targetAttemptCount": 1,
+          "updateUid": "8c000000-0000-4000-8000-000000000004"
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

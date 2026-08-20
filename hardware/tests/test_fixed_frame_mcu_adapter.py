@@ -5,6 +5,7 @@ import pytest
 
 from fixed_frame_mcu_adapter import (
     DEVICE_ENTRY_URL_FRAME_LENGTH,
+    FIRMWARE_STATUS_FRAME_LENGTH,
     FixedFrameMcuAdapter,
     FixedFrameParser,
     price_digit_from_ten_thousandths,
@@ -65,6 +66,49 @@ class RespondingSerial(FakeSerial):
         if bytes(data) == bytes.fromhex("F0 01 F0"):
             self.inject(self.response)
         return written
+
+
+class FirmwareRespondingSerial(FakeSerial):
+    def __init__(self, responses):
+        super().__init__()
+        self.responses = {
+            int(mode): bytes(response)
+            for mode, response in responses.items()
+        }
+
+    def write(self, data):
+        written = super().write(data)
+        wire = bytes(data)
+        if len(wire) == 3 and wire[0] == 0xF2 and wire[2] == 0xF2:
+            response = self.responses.get(wire[1])
+            if response is not None:
+                self.inject(response)
+        return written
+
+
+def firmware_status_frame(
+    *,
+    mode=1,
+    status=0,
+    revision=2,
+    version_code=10203,
+    version="1.2.3",
+    identity=bytes.fromhex("0102030405060708"),
+    safe_flags=0x0F,
+):
+    encoded = version.encode("ascii")
+    frame = b"".join(
+        (
+            bytes((0xF3, mode, status, revision)),
+            version_code.to_bytes(4, "big"),
+            bytes((len(encoded),)),
+            encoded.ljust(32, b"\x00"),
+            identity,
+            bytes((safe_flags, 0xF3)),
+        )
+    )
+    assert len(frame) == FIRMWARE_STATUS_FRAME_LENGTH
+    return frame
 
 
 class ContendedSerial(FakeSerial):
@@ -399,6 +443,123 @@ def test_parser_handles_self_test_and_smoke_frames_without_changing_lengths():
             "raw_frame_hex": smoke.hex(),
         },
     ]
+
+
+def test_parser_decodes_revision_two_firmware_status():
+    parser = FixedFrameParser()
+    frame = firmware_status_frame(safe_flags=0x1F)
+
+    assert parser.feed(frame[:19]) == []
+    assert parser.feed(frame[19:]) == [
+        {
+            "frame_type": "FIRMWARE_STATUS",
+            "mode": 1,
+            "status_code": 0,
+            "status": "READY",
+            "protocol_revision": 2,
+            "firmware_version_code": 10203,
+            "firmware_version": "1.2.3",
+            "firmware_identity_hex": "0102030405060708",
+            "safe_flags": 0x1F,
+            "raw_frame_hex": frame.hex(),
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        firmware_status_frame(revision=1),
+        firmware_status_frame(version="1.2.3")[:-2]
+        + b"\x80"
+        + firmware_status_frame(version="1.2.3")[-1:],
+        firmware_status_frame(identity=b"\x00" * 8),
+        firmware_status_frame(safe_flags=0x80),
+    ],
+)
+def test_parser_rejects_invalid_firmware_status(frame):
+    parser = FixedFrameParser()
+
+    assert parser.feed(frame) == []
+    assert parser.invalid_count(0xF3) == 1
+
+
+def test_firmware_identity_query_updates_handshake_identity():
+    response = firmware_status_frame(mode=1, safe_flags=0x0F)
+    fake = FirmwareRespondingSerial({1: response})
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    result = adapter.query_firmware_identity(timeout_ms=20)
+    handshake = adapter.handshake()
+
+    assert fake.writes == [bytes.fromhex("F2 01 F2")]
+    assert result == {
+        "queryStatus": "OK",
+        "mode": 1,
+        "statusCode": 0,
+        "status": "READY",
+        "protocolRevision": 2,
+        "firmwareVersionCode": 10203,
+        "firmwareVersion": "1.2.3",
+        "firmwareIdentityHex": "0102030405060708",
+        "safeFlags": 0x0F,
+        "rawFrameHex": response.hex(),
+    }
+    assert handshake["mcu_firmware_identity"] == "0102030405060708"
+    assert handshake["mcu_firmware_version"] == "1.2.3"
+    assert handshake["mcu_firmware_version_code"] == 10203
+    assert handshake["fixed_frame_revision"] == 2
+
+
+def test_prepare_firmware_update_requires_success_and_all_safe_flags():
+    ready = firmware_status_frame(mode=2, safe_flags=0x1F)
+    fake = FirmwareRespondingSerial({2: ready})
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    result = adapter.prepare_firmware_update(timeout_ms=20)
+
+    assert fake.writes == [bytes.fromhex("F2 02 F2")]
+    assert result["prepared"] is True
+
+
+def test_prepare_firmware_update_rejects_busy_or_incomplete_safe_state():
+    busy = firmware_status_frame(mode=2, status=1, safe_flags=0x0F)
+    fake = FirmwareRespondingSerial({2: busy})
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    result = adapter.prepare_firmware_update(timeout_ms=20)
+
+    assert result["queryStatus"] == "OK"
+    assert result["status"] == "BUSY"
+    assert result["prepared"] is False
+
+
+def test_unsolicited_firmware_status_is_not_projected_as_business_event():
+    fake = FakeSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    fake.inject(firmware_status_frame())
+
+    assert adapter.read_mcu_event(timeout_ms=20) is None
 
 
 def test_self_test_query_returns_fresh_snapshot_and_queues_safety_event():

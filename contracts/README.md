@@ -14,6 +14,8 @@
   现有固定帧单片机由 F-11 显式适配，不要求运行本生成 C 程序。
 - 现有 MCU 固定帧：[`ecobin-mcu-fixed-frame-v1`](mcu-fixed-frame-v1.md) `1.0.0`
   冻结五类帧、字段和恢复限制，作为 F-11 适配与 H-03 真机验收的逐字节来源。
+- MCU 固件升级扩展：[`ecobin-mcu-fixed-frame-v2`](mcu-fixed-frame-v2.md) `2.0.0`
+  只增加 F2/F3 固件身份和升级准备快照；原业务帧保持不变，仍不增加通用 ACK 或 CRC。
 - HTTP：属于 F-09，不在 F-10 中创建。
 
 F-10 完成不是生产切换授权。当前固定帧协议只允许在 F-11 的显式 `fixed-frame` 模式

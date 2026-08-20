@@ -13,6 +13,7 @@ from onenet_wire import (
     decode_service_command,
     encode_command_receipt,
     encode_event_post,
+    validate_command_envelope,
     validate_cos_grant,
 )
 
@@ -136,6 +137,105 @@ def test_decode_required_photo_grant_without_presence_flag():
         "TOKEN_5_PART_1",
         "TOKEN_5_PART_2",
     ]
+
+
+def test_decode_and_validate_mcu_firmware_update_wire_example():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "contracts"
+        / "examples"
+        / "onenet-wire"
+        / "start-mcu-firmware-update.service-wire.json"
+    )
+    with path.open(encoding="utf-8") as source:
+        body = json.load(source)["callServiceApiBodyTemplate"]
+    command = decode_service_command(body["identifier"], body["params"])
+    now = datetime.now(timezone.utc)
+    command["issuedAt"] = now.isoformat(timespec="milliseconds").replace(
+        "+00:00", "Z"
+    )
+    command["expiresAt"] = (
+        now + timedelta(minutes=5)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    command["cosGrant"]["expiresAt"] = (
+        now + timedelta(minutes=10)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    validate_command_envelope(
+        command,
+        trusted_environment={
+            "bucket": command["cosGrant"]["bucket"],
+            "region": command["cosGrant"]["region"],
+            "baseUrl": command["cosGrant"]["baseUrl"],
+        },
+    )
+
+    assert command["commandType"] == "START_MCU_FIRMWARE_UPDATE"
+    assert command["target"]["type"] == "MCU_FIRMWARE_DEPLOYMENT"
+    assert command["payload"]["firmwareVersion"] == "2.1.0"
+    assert command["payload"]["firmwareVersionCode"] == 20100
+    assert command["payload"]["reason"] == "single-device validation"
+
+
+def test_mcu_firmware_update_rejects_object_outside_signed_release_prefix():
+    now = datetime.now(timezone.utc)
+    deployment_uid = str(uuid.uuid4())
+    release_uid = str(uuid.uuid4())
+    package_sha256 = "a" * 64
+    payload = {
+        "deploymentUid": deployment_uid,
+        "releaseUid": release_uid,
+        "firmwareVersion": "2.0.0",
+        "firmwareVersionCode": 20000,
+        "firmwareIdentityHex": "0123456789abcdef",
+        "objectKey": f"ecobin/mcu-firmware/{release_uid}/wrong.efw",
+        "packageSha256": package_sha256,
+        "packageSize": 1024,
+        "reason": None,
+    }
+    base_url = "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com"
+    command = {
+        "schemaVersion": 2,
+        "commandUid": str(uuid.uuid4()),
+        "commandType": "START_MCU_FIRMWARE_UPDATE",
+        "targetDeviceName": "SN-TEST",
+        "target": {
+            "type": "MCU_FIRMWARE_DEPLOYMENT",
+            "uid": deployment_uid,
+        },
+        "issuedAt": now.isoformat(timespec="milliseconds").replace(
+            "+00:00", "Z"
+        ),
+        "expiresAt": (now + timedelta(minutes=5)).isoformat(
+            timespec="milliseconds"
+        ).replace("+00:00", "Z"),
+        "payloadSchemaVersion": 2,
+        "payloadSha256": canonical_payload_sha256(payload),
+        "payload": payload,
+        "cosGrant": {
+            "grantUid": str(uuid.uuid4()),
+            "tmpSecretId": "temporary-id",
+            "tmpSecretKey": "temporary-key",
+            "sessionTokenParts": ["temporary-token"],
+            "bucket": "bucket-1250000000",
+            "region": "ap-guangzhou",
+            "baseUrl": base_url,
+            "keyPrefix": f"ecobin/mcu-firmware/{release_uid}/",
+            "expiresAt": (now + timedelta(minutes=10)).isoformat(
+                timespec="milliseconds"
+            ).replace("+00:00", "Z"),
+        },
+    }
+
+    with pytest.raises(ValueError, match="objectKey"):
+        validate_command_envelope(
+            command,
+            trusted_environment={
+                "bucket": "bucket-1250000000",
+                "region": "ap-guangzhou",
+                "baseUrl": base_url,
+            },
+        )
 
 
 def test_cos_grant_must_match_trusted_runtime_environment():

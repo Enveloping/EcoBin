@@ -16,6 +16,7 @@
     "end-clean-before-unlock.service-wire.json",
     "fullness-sample-complete.event-wire.json",
     "fullness-state-changed.event-wire.json",
+    "mcu-firmware-update-progress.event-wire.json",
     "measure-empty-bag-baseline.service-wire.json",
     "open-remote-support-tunnel.service-wire.json",
     "photo-status-reported.event-wire.json",
@@ -28,6 +29,7 @@
     "sample-fullness.service-wire.json",
     "start-clean-operation.service-wire.json",
     "start-delivery-session.service-wire.json",
+    "start-mcu-firmware-update.service-wire.json",
     "sync-device-entry-url.service-wire.json"
   ],
   "generated": true,

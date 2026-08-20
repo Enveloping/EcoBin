@@ -73,7 +73,8 @@ class RuntimeSafetyConfigurationTest {
             "V51__merchant_transfer_authorization_create_rejection.sql",
             "V52__device_enrollment_factory_support_and_remote_access.sql",
             "V53__delivery_auto_review_and_withdrawal.sql",
-            "V54__delivery_auto_review_amount_limit.sql"
+            "V54__delivery_auto_review_amount_limit.sql",
+            "V55__mcu_firmware_remote_rollout.sql"
     };
 
     @Test

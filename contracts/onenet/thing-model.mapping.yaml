@@ -163,6 +163,13 @@
       "deliveryKind": "CONTROL_COMMAND",
       "cosGrantAllowed": false
     },
+    "startMcuFirmwareUpdate": {
+      "commandType": "START_MCU_FIRMWARE_UPDATE",
+      "targetType": "MCU_FIRMWARE_DEPLOYMENT",
+      "schemaRef": "commands/commands.schema.json#/$defs/startMcuFirmwareUpdateCommand",
+      "deliveryKind": "CONTROL_COMMAND",
+      "cosGrantAllowed": true
+    },
     "openRemoteSupportTunnel": {
       "commandType": "OPEN_REMOTE_SUPPORT_TUNNEL",
       "targetType": "REMOTE_SUPPORT_SESSION",
@@ -274,6 +281,12 @@
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/remoteSupportTunnelStatusEvent"
+    },
+    "mcuFirmwareUpdateProgress": {
+      "eventType": "MCU_FIRMWARE_UPDATE_PROGRESS",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "MCU_FIRMWARE_DEPLOYMENT",
+      "schemaRef": "events/events.schema.json#/$defs/mcuFirmwareUpdateProgressEvent"
     }
   },
   "semanticChecksBeyondJsonSchema": [
@@ -292,7 +305,8 @@
     "available photo URL and COS grant bucket/region/baseUrl exactly match trusted runtime configuration, and key/path exactly bind work, slot and photo identity",
     "OneNet nullable presence flags and integer enums are decoded before JSON Schema and payload digest validation"
     ,"REQUEST_DEVICE_ACCEPTANCE target uid and targetDeviceName both equal the authenticated immutable device name; challengeUid binds its COS prefix and evidence; factory bag revision and digest must be echoed by DEVICE_ACCEPTANCE_EVIDENCE and still match the current asset",
-    "remote support commands target the session UID; OPEN payload expiry exactly equals envelope expiry and is at most 30 minutes; status target is the authenticated device asset and carries the originating command UID"
+    "remote support commands target the session UID; OPEN payload expiry exactly equals envelope expiry and is at most 30 minutes; status target is the authenticated device asset and carries the originating command UID",
+    "MCU firmware deployment target equals deploymentUid; COS key and grant prefix are derived from releaseUid and packageSha256; signed manifest identity must equal the command payload; cloud downgrade and legacy preflight are forbidden"
   ],
   "forbiddenLegacyIdentifiers": [
     "openDeliveryDoor",
@@ -330,6 +344,9 @@
     "SYNC_DEVICE_ENTRY_URL": "SYNC_DEVICE_URL",
     "OPEN_REMOTE_SUPPORT_TUNNEL": "OPEN_REMOTE_TUNNEL",
     "CLOSE_REMOTE_SUPPORT_TUNNEL": "CLOSE_REMOTE_TUNNEL",
+    "START_MCU_FIRMWARE_UPDATE": "START_MCU_FW_UPDATE",
+    "MCU_FIRMWARE_UPDATE_PROGRESS": "MCU_FW_PROGRESS",
+    "MCU_FIRMWARE_DEPLOYMENT": "MCU_FW_DEPLOYMENT",
     "REMOTE_SUPPORT_TUNNEL_STATUS": "REMOTE_TUNNEL_STATUS",
     "REMOTE_SUPPORT_SESSION": "REMOTE_SESSION",
     "CONFIGURATION_APPLICATION": "CONFIG_APPLICATION",

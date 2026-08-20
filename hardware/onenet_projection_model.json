@@ -26,6 +26,8 @@
     "FULLNESS_STATE_CHANGED": "FULLNESS_STATE_CHG",
     "INITIAL_GRANT_MISSING": "INIT_GRANT_MISSING",
     "INSUFFICIENT_VALID_SAMPLES_CLEAR_FALLBACK": "INSUFF_SAMPLES_CLEAR",
+    "MCU_FIRMWARE_DEPLOYMENT": "MCU_FW_DEPLOYMENT",
+    "MCU_FIRMWARE_UPDATE_PROGRESS": "MCU_FW_PROGRESS",
     "MCU_INDEPENDENT_RECHECK": "MCU_RECHECK",
     "MEASURE_EMPTY_BAG_BASELINE": "MEAS_BAG_BASELINE",
     "NO_ECHO_CLEAR_FALLBACK": "NO_ECHO_CLEAR",
@@ -42,6 +44,7 @@
     "START_AUTHORIZATION_EXPIRED": "START_AUTH_EXPIRED",
     "START_CLEAN_OPERATION": "START_CLEAN_OPT",
     "START_DELIVERY_SESSION": "START_DELIV_SESSION",
+    "START_MCU_FIRMWARE_UPDATE": "START_MCU_FW_UPDATE",
     "SYNC_DEVICE_ENTRY_URL": "SYNC_DEVICE_URL",
     "TERMINAL_WEIGHT_FAILURE": "TERM_WEIGHT_FAIL"
   },
@@ -7381,6 +7384,560 @@
           "jsonPath": "$.payload.frozenConfig",
           "nullable": false,
           "wireIdentifier": "frozenConfig"
+        }
+      ]
+    },
+    "mcuFirmwareUpdateProgress": {
+      "eventType": "MCU_FIRMWARE_UPDATE_PROGRESS",
+      "outputData": [
+        {
+          "dataType": {
+            "specs": {
+              "1": "2"
+            },
+            "type": "enum"
+          },
+          "identifier": "schemaVersion",
+          "name": "schemaVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "eventUid",
+          "name": "eventUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "9007199254740991",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "edgeEventSequence",
+          "name": "edgeEventSequence"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "MCU_FW_PROGRESS"
+            },
+            "type": "enum"
+          },
+          "identifier": "eventType",
+          "name": "eventType"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "RELIABLE_FACT"
+            },
+            "type": "enum"
+          },
+          "identifier": "deliveryClass",
+          "name": "deliveryClass"
+        },
+        {
+          "dataType": {
+            "specs": [
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "MCU_FW_DEPLOYMENT"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "type",
+                "name": "type"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 64
+                  },
+                  "type": "string"
+                },
+                "identifier": "uid",
+                "name": "uid"
+              }
+            ],
+            "type": "struct"
+          },
+          "identifier": "target",
+          "name": "target"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "commandUidPresent",
+          "name": "commandUidPresent"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "commandUid",
+          "name": "commandUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "occurredAtPresent",
+          "name": "occurredAtPresent"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 30
+            },
+            "type": "string"
+          },
+          "identifier": "occurredAt",
+          "name": "occurredAt"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "SYNCED",
+              "2": "ESTIMATED",
+              "3": "UNAVAILABLE"
+            },
+            "type": "enum"
+          },
+          "identifier": "clockQuality",
+          "name": "clockQuality"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "payloadSha256",
+          "name": "payloadSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "deploymentUid",
+          "name": "deploymentUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "updateUid",
+          "name": "updateUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "releaseUid",
+          "name": "releaseUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "CLOUD",
+              "2": "LOCAL"
+            },
+            "type": "enum"
+          },
+          "identifier": "source",
+          "name": "source"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "QUEUED",
+              "10": "FAILED_LOCKED",
+              "11": "REJECTED",
+              "2": "PREFLIGHT",
+              "3": "PREPARED",
+              "4": "FLASHING_TARGET",
+              "5": "VERIFYING_TARGET",
+              "6": "ROLLING_BACK",
+              "7": "VERIFYING_ROLLBACK",
+              "8": "SUCCEEDED",
+              "9": "ROLLED_BACK"
+            },
+            "type": "enum"
+          },
+          "identifier": "stage",
+          "name": "stage"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 32
+            },
+            "type": "string"
+          },
+          "identifier": "firmwareVersion",
+          "name": "firmwareVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "4294967295",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "firmwareVersionCode",
+          "name": "firmwareVersionCode"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 512
+            },
+            "type": "string"
+          },
+          "identifier": "firmwareIdentityHex",
+          "name": "firmwareIdentityHex"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "2"
+            },
+            "type": "enum"
+          },
+          "identifier": "fixedFrameRevision",
+          "name": "fixedFrameRevision"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "3",
+              "min": "0",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int32"
+          },
+          "identifier": "targetAttemptCount",
+          "name": "targetAttemptCount"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "3",
+              "min": "0",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int32"
+          },
+          "identifier": "rollbackAttemptCount",
+          "name": "rollbackAttemptCount"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "false",
+              "true": "true"
+            },
+            "type": "bool"
+          },
+          "identifier": "legacyPreflight",
+          "name": "legacyPreflight"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "false",
+              "true": "true"
+            },
+            "type": "bool"
+          },
+          "identifier": "downgradeAuthorized",
+          "name": "downgradeAuthorized"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "installedFirmwareVersionPresent",
+          "name": "installedFirmwareVersionPresen"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 32
+            },
+            "type": "string"
+          },
+          "identifier": "installedFirmwareVersion",
+          "name": "installedFirmwareVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "installedFirmwareVersionCPresent",
+          "name": "installedFirmwareVersionCPrese"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "4294967295",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "installedFirmwareVersionC",
+          "name": "installedFirmwareVersionC"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "installedFirmwareIdentityPresent",
+          "name": "installedFirmwareIdentityPrese"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 512
+            },
+            "type": "string"
+          },
+          "identifier": "installedFirmwareIdentity",
+          "name": "installedFirmwareIdentity"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "errorCodePresent",
+          "name": "errorCodePresent"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "errorCode",
+          "name": "errorCode"
+        }
+      ],
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": true,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deploymentUid",
+          "nullable": false,
+          "wireIdentifier": "deploymentUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.updateUid",
+          "nullable": false,
+          "wireIdentifier": "updateUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.releaseUid",
+          "nullable": false,
+          "wireIdentifier": "releaseUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.source",
+          "nullable": false,
+          "wireIdentifier": "source"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.stage",
+          "nullable": false,
+          "wireIdentifier": "stage"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.firmwareVersion",
+          "nullable": false,
+          "wireIdentifier": "firmwareVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.firmwareVersionCode",
+          "nullable": false,
+          "wireIdentifier": "firmwareVersionCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.firmwareIdentityHex",
+          "nullable": false,
+          "wireIdentifier": "firmwareIdentityHex"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.fixedFrameRevision",
+          "nullable": false,
+          "wireIdentifier": "fixedFrameRevision"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.targetAttemptCount",
+          "nullable": false,
+          "wireIdentifier": "targetAttemptCount"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.rollbackAttemptCount",
+          "nullable": false,
+          "wireIdentifier": "rollbackAttemptCount"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.legacyPreflight",
+          "nullable": false,
+          "wireIdentifier": "legacyPreflight"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.downgradeAuthorized",
+          "nullable": false,
+          "wireIdentifier": "downgradeAuthorized"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.installedFirmwareVersion",
+          "nullable": true,
+          "wireIdentifier": "installedFirmwareVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.installedFirmwareVersionCode",
+          "nullable": true,
+          "wireIdentifier": "installedFirmwareVersionC"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.installedFirmwareIdentityHex",
+          "nullable": true,
+          "wireIdentifier": "installedFirmwareIdentity"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
         }
       ]
     },

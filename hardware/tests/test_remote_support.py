@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from device_credentials import RemoteSupportCredentials
-from edge_store import EdgeStore
+from edge_store import CURRENT_SCHEMA_VERSION, EdgeStore
 from remote_support import RemoteSupportManager, _BoundedOutputCollector
 from remote_support_store import RemoteSupportStore
 
@@ -113,12 +113,15 @@ class CapturingPopen:
         return self.processes.pop(0)
 
 
-def test_v9_store_is_additively_upgraded_to_remote_support_v10(tmp_path: Path):
+def test_v9_store_is_additively_upgraded_through_current_schema(tmp_path: Path):
     path = tmp_path / "edge.db"
     original = EdgeStore(str(path))
     original.initialize()
-    original._conn.execute("DELETE FROM schema_version WHERE version=10")
+    original._conn.execute("DELETE FROM schema_version WHERE version>=10")
     original._conn.execute("DROP TABLE remote_support_session")
+    original._conn.execute("DROP TABLE maintenance_lock")
+    original._conn.execute("DROP TABLE mcu_firmware_update")
+    original._conn.execute("DROP TABLE mcu_firmware_state")
     original._conn.commit()
     original.close()
 
@@ -127,7 +130,7 @@ def test_v9_store_is_additively_upgraded_to_remote_support_v10(tmp_path: Path):
 
     assert upgraded._conn.execute(
         "SELECT MAX(version) FROM schema_version"
-    ).fetchone()[0] == 10
+    ).fetchone()[0] == CURRENT_SCHEMA_VERSION
     assert upgraded._conn.execute(
         "SELECT name FROM sqlite_master WHERE name='remote_support_session'"
     ).fetchone() is not None

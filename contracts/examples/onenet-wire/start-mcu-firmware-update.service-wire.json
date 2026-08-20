@@ -1,0 +1,64 @@
+{
+  "callServiceApiBodyTemplate": {
+    "device_name": "<HARDWARE_SN>",
+    "identifier": "startMcuFirmwareUpdate",
+    "params": {
+      "cosGrantSessionTokenParts": [
+        "TOKEN_7_PART_1",
+        "TOKEN_7_PART_2"
+      ],
+      "scalarFields1": {
+        "commandType": 1,
+        "commandUid": "8c000000-0000-4000-8000-000000000003",
+        "cosGrantGrantUid": "71000000-0000-4000-8000-000000000007",
+        "cosGrantTmpSecretId": "TMP_SECRET_ID_7",
+        "deploymentUid": "8c000000-0000-4000-8000-000000000002",
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "firmwareIdentityHex": "0123456789abcdef",
+        "firmwareVersion": "2.1.0",
+        "firmwareVersionCode": 20100,
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "objectKey": "ecobin/mcu-firmware/8c000000-0000-4000-8000-000000000001/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.efw",
+        "packageSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "packageSize": 65536,
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "67ab989089404c6abcbd9db743bc27133cae44020211b18295ec4f3b367894cd",
+        "reason": "single-device validation",
+        "reasonPresent": true,
+        "releaseUid": "8c000000-0000-4000-8000-000000000001",
+        "schemaVersion": 1,
+        "targetDeviceName": "SN-CONTRACT-0001"
+      },
+      "scalarFields2": {
+        "cosGrantBaseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com",
+        "cosGrantBucket": "ecobin-contract-1250000000",
+        "cosGrantExpiresAt": "2026-07-24T01:30:00.000Z",
+        "cosGrantKeyPrefix": "ecobin/mcu-firmware/8c000000-0000-4000-8000-000000000001/",
+        "cosGrantRegion": "ap-guangzhou",
+        "cosGrantTmpSecretKey": "TMP_SECRET_KEY_7"
+      },
+      "target": {
+        "type": 1,
+        "uid": "8c000000-0000-4000-8000-000000000002"
+      }
+    },
+    "product_id": "<PRODUCT_ID>"
+  },
+  "deviceAcceptedReplyTemplate": {
+    "code": 200,
+    "data": {
+      "commandUid": "8c000000-0000-4000-8000-000000000003",
+      "edgeBootId": 9001,
+      "errorCode": "",
+      "errorCodePresent": false,
+      "receiptState": 1,
+      "schemaVersion": 1
+    },
+    "id": "<COPY_REQUEST_ID>",
+    "msg": "accepted"
+  },
+  "deviceInvokeTopicTemplate": "$sys/{pid}/{device-name}/thing/service/startMcuFirmwareUpdate/invoke",
+  "deviceReplyTopicTemplate": "$sys/{pid}/{device-name}/thing/service/startMcuFirmwareUpdate/invoke_reply",
+  "identifier": "startMcuFirmwareUpdate",
+  "kind": "SYNC_SERVICE"
+}

@@ -21,6 +21,14 @@ OneNet 迁移优先级: 完整旧 .env 三项 > 注册凭证；禁止部分混�
                             可选 uart-v1，仅保留原 UART 1.0 实现）
     ECOBIN_MCU_SIMULATED  — 当前串口对端是否为模拟器（默认: false；
                             使用 PTY 模拟器时必须显式设为 true）
+    ECOBIN_MCU_UPDATE_ENABLED— 是否允许 STM32 ROM Bootloader 升级（默认: false）
+    ECOBIN_MCU_BOOT0_WPI  — 香橙派连接 MCU BOOT0 的 WiringOP wPi 编号
+    ECOBIN_MCU_RESET_WPI  — 香橙派连接 MCU NRST 的 WiringOP wPi 编号
+    ECOBIN_MCU_HARDWARE_COMPATIBILITY— 本机主板兼容标识
+    ECOBIN_MCU_SIGNING_PUBLIC_KEYS_DIR— Ed25519 发布公钥目录
+    ECOBIN_MCU_FIRMWARE_CACHE_DIR— 已验证固件包和镜像缓存目录
+    ECOBIN_STM32FLASH_PATH— stm32flash 可执行文件绝对路径
+    ECOBIN_GPIO_PATH      — WiringOP gpio 可执行文件绝对路径
     ECOBIN_UART_PORT_COUNT— 设备端口数（fixed-frame 默认: 1；
                             uart-v1 默认: 6）
     ECOBIN_UART_HIL_REQUIRED_CAPABILITIES
@@ -144,6 +152,39 @@ _mcu_simulated_raw = os.getenv(
     "false",
 ).strip().lower()
 MCU_SIMULATED = _mcu_simulated_raw in {"true", "1", "yes"}
+_mcu_update_enabled_raw = os.getenv(
+    "ECOBIN_MCU_UPDATE_ENABLED",
+    "false",
+).strip().lower()
+MCU_UPDATE_ENABLED = _mcu_update_enabled_raw in {"true", "1", "yes"}
+_mcu_boot0_wpi_raw = os.getenv("ECOBIN_MCU_BOOT0_WPI", "").strip()
+_mcu_reset_wpi_raw = os.getenv("ECOBIN_MCU_RESET_WPI", "").strip()
+MCU_BOOT0_WPI = int(_mcu_boot0_wpi_raw) if _mcu_boot0_wpi_raw else None
+MCU_RESET_WPI = int(_mcu_reset_wpi_raw) if _mcu_reset_wpi_raw else None
+MCU_BOOT0_ACTIVE_LEVEL = int(os.getenv(
+    "ECOBIN_MCU_BOOT0_ACTIVE_LEVEL",
+    "1",
+))
+MCU_RESET_ACTIVE_LEVEL = int(os.getenv(
+    "ECOBIN_MCU_RESET_ACTIVE_LEVEL",
+    "0",
+))
+MCU_HARDWARE_COMPATIBILITY = os.getenv(
+    "ECOBIN_MCU_HARDWARE_COMPATIBILITY",
+    "ECOBIN_MAINBOARD_V1.1",
+).strip()
+MCU_SIGNING_PUBLIC_KEYS_DIR = os.getenv(
+    "ECOBIN_MCU_SIGNING_PUBLIC_KEYS_DIR",
+    "/etc/ecobin/mcu-release-keys",
+).strip()
+STM32FLASH_PATH = os.getenv(
+    "ECOBIN_STM32FLASH_PATH",
+    "/usr/bin/stm32flash",
+).strip()
+GPIO_PATH = os.getenv(
+    "ECOBIN_GPIO_PATH",
+    "/usr/local/bin/gpio",
+).strip()
 UART_PORT_COUNT = int(os.getenv(
     "ECOBIN_UART_PORT_COUNT",
     "1" if MCU_PROTOCOL_MODE == "fixed-frame" else "6",
@@ -201,6 +242,15 @@ EDGE_BOOT_ID_PATH = os.getenv(
 )
 EDGE_PHOTO_DIR = os.path.join(DATA_DIR, "photos")
 EDGE_FAULT_DIR = os.path.join(DATA_DIR, "faults")
+_mcu_firmware_cache_dir = os.getenv(
+    "ECOBIN_MCU_FIRMWARE_CACHE_DIR",
+    os.path.join(DATA_DIR, "mcu-firmware"),
+)
+MCU_FIRMWARE_CACHE_DIR = (
+    _mcu_firmware_cache_dir
+    if os.path.isabs(_mcu_firmware_cache_dir)
+    else os.path.join(_project_root, _mcu_firmware_cache_dir)
+)
 REMOTE_SUPPORT_CONTROL_SOCKET = os.getenv(
     "ECOBIN_REMOTE_SUPPORT_SOCKET",
     "/run/ecobin/remote-support/control.sock",
@@ -238,6 +288,46 @@ def validate():
         raise ValueError(
             "ECOBIN_MCU_SIMULATED must be true or false"
         )
+    if _mcu_update_enabled_raw not in {
+        "true", "1", "yes", "false", "0", "no",
+    }:
+        raise ValueError(
+            "ECOBIN_MCU_UPDATE_ENABLED must be true or false"
+        )
+    if MCU_UPDATE_ENABLED:
+        if MCU_PROTOCOL_MODE != "fixed-frame":
+            raise ValueError(
+                "MCU firmware update requires the fixed-frame protocol"
+            )
+        if MCU_SIMULATED:
+            raise ValueError(
+                "MCU firmware update is forbidden for a simulated MCU"
+            )
+        if SERIAL_BAUDRATE != 115200:
+            raise ValueError(
+                "MCU application UART must use 115200 baud for updates"
+            )
+        if MCU_BOOT0_WPI is None or MCU_RESET_WPI is None:
+            raise ValueError(
+                "MCU BOOT0 and NRST WiringOP pins are required"
+            )
+        if MCU_BOOT0_WPI < 0 or MCU_RESET_WPI < 0:
+            raise ValueError("MCU WiringOP pins must be non-negative")
+        if MCU_BOOT0_WPI == MCU_RESET_WPI:
+            raise ValueError("MCU BOOT0 and NRST pins must be different")
+        if MCU_BOOT0_ACTIVE_LEVEL not in {0, 1}:
+            raise ValueError("MCU BOOT0 active level must be 0 or 1")
+        if MCU_RESET_ACTIVE_LEVEL not in {0, 1}:
+            raise ValueError("MCU NRST active level must be 0 or 1")
+        if not MCU_HARDWARE_COMPATIBILITY:
+            raise ValueError("MCU hardware compatibility must not be empty")
+        for name, path in (
+            ("MCU signing public-key directory", MCU_SIGNING_PUBLIC_KEYS_DIR),
+            ("stm32flash", STM32FLASH_PATH),
+            ("WiringOP gpio", GPIO_PATH),
+        ):
+            if not path or not os.path.isabs(path):
+                raise ValueError(f"{name} path must be absolute")
     if (
         not math.isfinite(DEVICE_ENTRY_URL_REFRESH_SECONDS)
         or DEVICE_ENTRY_URL_REFRESH_SECONDS <= 0
@@ -304,3 +394,5 @@ def validate():
     # 确保 DATA_DIR 存在
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(EDGE_PHOTO_DIR, exist_ok=True)
+    if MCU_UPDATE_ENABLED:
+        os.makedirs(MCU_FIRMWARE_CACHE_DIR, mode=0o700, exist_ok=True)

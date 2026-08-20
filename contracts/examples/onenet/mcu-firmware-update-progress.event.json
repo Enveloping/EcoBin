@@ -1,0 +1,34 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "8c000000-0000-4000-8000-000000000003",
+  "deliveryClass": "RELIABLE_FACT",
+  "edgeEventSequence": 1057,
+  "eventType": "MCU_FIRMWARE_UPDATE_PROGRESS",
+  "eventUid": "8c000000-0000-4000-8000-000000000005",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "deploymentUid": "8c000000-0000-4000-8000-000000000002",
+    "downgradeAuthorized": false,
+    "errorCode": null,
+    "firmwareIdentityHex": "0123456789abcdef",
+    "firmwareVersion": "2.1.0",
+    "firmwareVersionCode": 20100,
+    "fixedFrameRevision": 2,
+    "installedFirmwareIdentityHex": "0123456789abcdef",
+    "installedFirmwareVersion": "2.1.0",
+    "installedFirmwareVersionCode": 20100,
+    "legacyPreflight": false,
+    "releaseUid": "8c000000-0000-4000-8000-000000000001",
+    "rollbackAttemptCount": 0,
+    "source": "CLOUD",
+    "stage": "SUCCEEDED",
+    "targetAttemptCount": 1,
+    "updateUid": "8c000000-0000-4000-8000-000000000004"
+  },
+  "payloadSha256": "1e1fd4197f9269ecb842b7e872d79d0d396572e28bf6e1fceab6edc1078e75d2",
+  "schemaVersion": 2,
+  "target": {
+    "type": "MCU_FIRMWARE_DEPLOYMENT",
+    "uid": "8c000000-0000-4000-8000-000000000002"
+  }
+}

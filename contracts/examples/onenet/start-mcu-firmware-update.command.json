@@ -1,0 +1,39 @@
+{
+  "commandType": "START_MCU_FIRMWARE_UPDATE",
+  "commandUid": "8c000000-0000-4000-8000-000000000003",
+  "cosGrant": {
+    "baseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com",
+    "bucket": "ecobin-contract-1250000000",
+    "expiresAt": "2026-07-24T01:30:00.000Z",
+    "grantUid": "71000000-0000-4000-8000-000000000007",
+    "keyPrefix": "ecobin/mcu-firmware/8c000000-0000-4000-8000-000000000001/",
+    "region": "ap-guangzhou",
+    "sessionTokenParts": [
+      "TOKEN_7_PART_1",
+      "TOKEN_7_PART_2"
+    ],
+    "tmpSecretId": "TMP_SECRET_ID_7",
+    "tmpSecretKey": "TMP_SECRET_KEY_7"
+  },
+  "expiresAt": "2026-07-24T01:01:00.000Z",
+  "issuedAt": "2026-07-24T01:00:00.000Z",
+  "payload": {
+    "deploymentUid": "8c000000-0000-4000-8000-000000000002",
+    "firmwareIdentityHex": "0123456789abcdef",
+    "firmwareVersion": "2.1.0",
+    "firmwareVersionCode": 20100,
+    "objectKey": "ecobin/mcu-firmware/8c000000-0000-4000-8000-000000000001/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.efw",
+    "packageSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "packageSize": 65536,
+    "reason": "single-device validation",
+    "releaseUid": "8c000000-0000-4000-8000-000000000001"
+  },
+  "payloadSchemaVersion": 2,
+  "payloadSha256": "67ab989089404c6abcbd9db743bc27133cae44020211b18295ec4f3b367894cd",
+  "schemaVersion": 2,
+  "target": {
+    "type": "MCU_FIRMWARE_DEPLOYMENT",
+    "uid": "8c000000-0000-4000-8000-000000000002"
+  },
+  "targetDeviceName": "SN-CONTRACT-0001"
+}

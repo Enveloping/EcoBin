@@ -166,7 +166,8 @@
             "EDGE_EVENT",
             "BUSINESS_CONFIRMATION",
             "PHOTO_GRANT_REQUEST",
-            "REMOTE_SUPPORT_SESSION"
+            "REMOTE_SUPPORT_SESSION",
+            "MCU_FIRMWARE_DEPLOYMENT"
           ]
         },
         "uid": {
@@ -621,7 +622,7 @@
         },
         "keyPrefix": {
           "type": "string",
-          "pattern": "^ecobin/(delivery-session|clean-operation|device-acceptance)/[0-9a-f-]{36}/$",
+          "pattern": "^ecobin/(delivery-session|clean-operation|device-acceptance|mcu-firmware)/[0-9a-f-]{36}/$",
           "maxLength": 256
         },
         "expiresAt": { "$ref": "#/$defs/utcInstant" }

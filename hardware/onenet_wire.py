@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
@@ -28,6 +29,7 @@ COMMAND_IDENTIFIERS = {
     "providePhotoUploadGrant": "PROVIDE_PHOTO_UPLOAD_GRANT",
     "requestDeviceAcceptance": "REQUEST_DEVICE_ACCEPTANCE",
     "syncDeviceEntryUrl": "SYNC_DEVICE_ENTRY_URL",
+    "startMcuFirmwareUpdate": "START_MCU_FIRMWARE_UPDATE",
     "openRemoteSupportTunnel": "OPEN_REMOTE_SUPPORT_TUNNEL",
     "closeRemoteSupportTunnel": "CLOSE_REMOTE_SUPPORT_TUNNEL",
 }
@@ -105,7 +107,13 @@ WORK_TYPE_PATH = {
     "DELIVERY_SESSION": "delivery-session",
     "CLEAN_OPERATION": "clean-operation",
     "DEVICE_ACCEPTANCE": "device-acceptance",
+    "MCU_FIRMWARE_RELEASE": "mcu-firmware",
 }
+SEMVER_PATTERN = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
 TARGET_TYPE_BY_CODE = {
     1: None,  # decoded from command/event context where OneNet enum is local.
 }
@@ -226,6 +234,11 @@ def validate_command_envelope(
         _validate_open_remote_support(command)
     elif command_type == "CLOSE_REMOTE_SUPPORT_TUNNEL":
         _validate_close_remote_support(command)
+    elif command_type == "START_MCU_FIRMWARE_UPDATE":
+        _validate_start_mcu_firmware_update(
+            command,
+            trusted_environment=trusted_environment,
+        )
     elif command_type == "START_DELIVERY_SESSION" and command.get("cosGrant"):
         validate_cos_grant(
             command["cosGrant"],
@@ -294,6 +307,10 @@ def _validate_command_target(command: dict[str, Any]) -> None:
         "CLOSE_REMOTE_SUPPORT_TUNNEL": (
             "REMOTE_SUPPORT_SESSION",
             "sessionUid",
+        ),
+        "START_MCU_FIRMWARE_UPDATE": (
+            "MCU_FIRMWARE_DEPLOYMENT",
+            "deploymentUid",
         ),
     }
     if command_type in {
@@ -434,10 +451,10 @@ def validate_cos_grant(
         )
     ):
         raise ValueError("cosGrant.sessionTokenParts is invalid")
-    _require_uuid4(work_uid, "photo workUid")
+    _require_uuid4(work_uid, "COS grant scope UID")
     work_path = WORK_TYPE_PATH.get(work_type)
     if work_path is None:
-        raise ValueError("photo workType is invalid")
+        raise ValueError("COS grant scope type is invalid")
     expected_prefix = f"ecobin/{work_path}/{work_uid}/"
     if grant["keyPrefix"] != expected_prefix:
         raise ValueError("cosGrant.keyPrefix differs from work identity")
@@ -594,6 +611,94 @@ def _validate_device_entry_url_payload(payload: dict[str, Any]) -> None:
         raise ValueError("deviceEntryUrlSha256 is invalid")
     if hashlib.sha256(url.encode("ascii")).hexdigest() != digest:
         raise ValueError("deviceEntryUrlSha256 mismatch")
+
+
+def _validate_start_mcu_firmware_update(
+    command: dict[str, Any],
+    *,
+    trusted_environment: dict[str, str] | None,
+) -> None:
+    payload = command["payload"]
+    required = {
+        "deploymentUid",
+        "releaseUid",
+        "firmwareVersion",
+        "firmwareVersionCode",
+        "firmwareIdentityHex",
+        "objectKey",
+        "packageSha256",
+        "packageSize",
+        "reason",
+    }
+    if set(payload) != required:
+        raise ValueError("MCU firmware update payload fields are invalid")
+    deployment_uid = _require_uuid4(
+        payload["deploymentUid"],
+        "deploymentUid",
+    )
+    release_uid = _require_uuid4(payload["releaseUid"], "releaseUid")
+    if command["target"] != {
+        "type": "MCU_FIRMWARE_DEPLOYMENT",
+        "uid": deployment_uid,
+    }:
+        raise ValueError("MCU firmware target differs from deploymentUid")
+    version = payload["firmwareVersion"]
+    if (
+        not isinstance(version, str)
+        or len(version) > 32
+        or not SEMVER_PATTERN.fullmatch(version)
+    ):
+        raise ValueError("firmwareVersion must be ASCII SemVer")
+    version_code = payload["firmwareVersionCode"]
+    if (
+        isinstance(version_code, bool)
+        or not isinstance(version_code, int)
+        or not 1 <= version_code <= 0xFFFFFFFF
+    ):
+        raise ValueError("firmwareVersionCode is outside uint32")
+    identity = payload["firmwareIdentityHex"]
+    if (
+        not isinstance(identity, str)
+        or not re.fullmatch(r"[0-9a-f]{16}", identity)
+    ):
+        raise ValueError("firmwareIdentityHex is invalid")
+    package_sha256 = payload["packageSha256"]
+    if not _is_sha256(package_sha256):
+        raise ValueError("packageSha256 is invalid")
+    package_size = payload["packageSize"]
+    if (
+        isinstance(package_size, bool)
+        or not isinstance(package_size, int)
+        or not 1 <= package_size <= 128 * 1024
+    ):
+        raise ValueError("packageSize is outside 1..131072")
+    expected_key = (
+        f"ecobin/mcu-firmware/{release_uid}/{package_sha256}.efw"
+    )
+    if payload["objectKey"] != expected_key:
+        raise ValueError("firmware objectKey differs from release and package digest")
+    reason = payload["reason"]
+    if reason is not None and (
+        not isinstance(reason, str) or not 1 <= len(reason) <= 512
+    ):
+        raise ValueError("firmware update reason is invalid")
+    issued_at = _parse_utc_instant(command["issuedAt"], "issuedAt")
+    expires_at = _parse_utc_instant(command["expiresAt"], "expiresAt")
+    if not issued_at < expires_at <= issued_at + timedelta(minutes=15):
+        raise ValueError("MCU firmware command lifetime must not exceed 15 minutes")
+    validate_cos_grant(
+        command.get("cosGrant"),
+        device_name=command["targetDeviceName"],
+        work_type="MCU_FIRMWARE_RELEASE",
+        work_uid=release_uid,
+        trusted_environment=trusted_environment,
+    )
+    grant_expiry = _parse_utc_instant(
+        command["cosGrant"]["expiresAt"],
+        "cosGrant.expiresAt",
+    )
+    if grant_expiry < expires_at:
+        raise ValueError("firmware COS grant expires before the command")
 
 
 def _validate_open_remote_support(command: dict[str, Any]) -> None:
@@ -1083,6 +1188,18 @@ def _extract_payload(identifier: str, scalars: dict[str, Any],
             "deviceEntryUrl": scalars.get("deviceEntryUrl"),
             "deviceEntryUrlSha256": scalars.get("deviceEntryUrlSha256"),
         }
+    if identifier == "startMcuFirmwareUpdate":
+        return {
+            "deploymentUid": scalars.get("deploymentUid"),
+            "releaseUid": scalars.get("releaseUid"),
+            "firmwareVersion": scalars.get("firmwareVersion"),
+            "firmwareVersionCode": scalars.get("firmwareVersionCode"),
+            "firmwareIdentityHex": scalars.get("firmwareIdentityHex"),
+            "objectKey": scalars.get("objectKey"),
+            "packageSha256": scalars.get("packageSha256"),
+            "packageSize": scalars.get("packageSize"),
+            "reason": _none_if_absent(scalars, "reason"),
+        }
     if identifier == "openRemoteSupportTunnel":
         return {
             "sessionUid": scalars.get("sessionUid"),
@@ -1173,6 +1290,7 @@ def _target_type_for_command(command_type: str, wire_value: Any) -> str:
         "SYNC_DEVICE_ENTRY_URL": "DEVICE_ASSET",
         "OPEN_REMOTE_SUPPORT_TUNNEL": "REMOTE_SUPPORT_SESSION",
         "CLOSE_REMOTE_SUPPORT_TUNNEL": "REMOTE_SUPPORT_SESSION",
+        "START_MCU_FIRMWARE_UPDATE": "MCU_FIRMWARE_DEPLOYMENT",
     }
     return mapping.get(command_type, str(wire_value))
 

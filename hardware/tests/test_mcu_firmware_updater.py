@@ -1,0 +1,647 @@
+from __future__ import annotations
+
+import io
+import uuid
+from pathlib import Path
+from types import SimpleNamespace
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from edge_store import EdgeStore
+from mcu_firmware_package import create_package, generate_identity
+from mcu_firmware_updater import (
+    CosFirmwareDownloader,
+    FirmwarePackageCache,
+    McuFirmwareUpdater,
+    Stm32FlashRunner,
+    WiringOpBootControl,
+)
+
+HARDWARE = "ECOBIN_MAINBOARD_V1.1"
+KEY_ID = "RELEASE_2026_01"
+
+
+def signing_key(tmp_path: Path):
+    private = Ed25519PrivateKey.generate()
+    path = tmp_path / "release-private.pem"
+    path.write_bytes(
+        private.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    return private, path
+
+
+def build_package(
+    tmp_path: Path,
+    private_key_path: Path,
+    *,
+    version: str,
+    version_code: int,
+    marker: int,
+):
+    directory = tmp_path / f"release-{version_code}"
+    directory.mkdir()
+    identity_path = directory / "identity.json"
+    generate_identity(
+        version=version,
+        version_code=version_code,
+        header_path=directory / "firmware_identity.h",
+        metadata_path=identity_path,
+    )
+    image_path = directory / "firmware.bin"
+    image_path.write_bytes(
+        b"\x00\x20\x00\x08" + bytes((marker,)) * 4092
+    )
+    package_path = directory / "firmware.efw"
+    verified = create_package(
+        image_path=image_path,
+        identity_metadata_path=identity_path,
+        private_key_path=private_key_path,
+        key_id=KEY_ID,
+        hardware_compatibility=HARDWARE,
+        build_commit=f"{marker:02x}" * 8,
+        built_at="2026-08-19T10:00:00Z",
+        output_path=package_path,
+    )
+    return package_path, verified
+
+
+class FakeUart:
+    compatibility_mode = True
+
+    def __init__(self):
+        self.is_open = False
+        self.current_manifest = None
+        self.failed_self_test_identities = set()
+        self.open_count = 0
+        self.close_count = 0
+        self.prepare_count = 0
+
+    def open(self):
+        self.is_open = True
+        self.open_count += 1
+        return True
+
+    def close(self):
+        self.is_open = False
+        self.close_count += 1
+
+    def query_firmware_identity(self):
+        if not self.is_open or self.current_manifest is None:
+            return {"queryStatus": "TIMEOUT"}
+        manifest = self.current_manifest
+        return {
+            "queryStatus": "OK",
+            "protocolRevision": manifest["fixedFrameRevision"],
+            "firmwareVersionCode": manifest["firmwareVersionCode"],
+            "firmwareVersion": manifest["firmwareVersion"],
+            "firmwareIdentityHex": manifest["firmwareIdentityHex"],
+        }
+
+    def prepare_firmware_update(self):
+        self.prepare_count += 1
+        return {
+            "queryStatus": "OK",
+            "status": "READY",
+            "safeFlags": 0x1F,
+            "prepared": True,
+        }
+
+    def query_self_test(self):
+        failed = (
+            self.current_manifest is None
+            or self.current_manifest["firmwareIdentityHex"]
+            in self.failed_self_test_identities
+        )
+        return {
+            "queryStatus": "OK" if not failed else "PROTOCOL_ERROR",
+            "communicationHealthy": not failed,
+            "validFlags": 3 if not failed else 0,
+            "weightValid": not failed,
+            "infraredValid": not failed,
+            "smokeSensorHealth": "OK" if not failed else "PROTOCOL_ERROR",
+        }
+
+
+class FakeBootControl:
+    def __init__(self):
+        self.operations = []
+
+    def enter_system_bootloader(self):
+        self.operations.append("BOOTLOADER")
+
+    def boot_application(self):
+        self.operations.append("APPLICATION")
+
+    def force_application_selection(self):
+        self.operations.append("APPLICATION_SELECTED")
+
+
+class InstallingFlashRunner:
+    def __init__(self, uart: FakeUart, manifests_by_image_sha: dict):
+        self.uart = uart
+        self.manifests_by_image_sha = manifests_by_image_sha
+        self.calls = []
+        self.failures_remaining = 0
+        self.unexpected_failures_remaining = 0
+
+    def flash(self, image_path: Path, image_size: int):
+        self.calls.append((image_path, image_size))
+        if self.unexpected_failures_remaining:
+            self.unexpected_failures_remaining -= 1
+            raise RuntimeError("injected unexpected flash failure")
+        if self.failures_remaining:
+            self.failures_remaining -= 1
+            from mcu_firmware_updater import McuUpdateError
+
+            raise McuUpdateError("STM32FLASH_FAILED", "injected flash failure")
+        self.uart.current_manifest = self.manifests_by_image_sha[
+            image_path.stem
+        ]
+        return {"returnCode": 0}
+
+
+def updater_fixture(tmp_path: Path):
+    private, private_path = signing_key(tmp_path)
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    cache = FirmwarePackageCache(
+        tmp_path / "cache",
+        {KEY_ID: private.public_key()},
+        HARDWARE,
+    )
+    uart = FakeUart()
+    boot = FakeBootControl()
+    manifests = {}
+    flasher = InstallingFlashRunner(uart, manifests)
+    updater = McuFirmwareUpdater(
+        store=store,
+        uart_link=uart,
+        package_cache=cache,
+        boot_control=boot,
+        flash_runner=flasher,
+    )
+    return private_path, store, cache, uart, boot, flasher, manifests, updater
+
+
+def register_manifest(manifests: dict, verified):
+    manifests[verified.manifest["imageSha256"]] = verified.manifest
+
+
+def install_first_stable(
+    tmp_path,
+    private_path,
+    store,
+    uart,
+    manifests,
+    updater,
+    *,
+    version="1.0.0",
+    version_code=10000,
+    marker=1,
+):
+    package, verified = build_package(
+        tmp_path,
+        private_path,
+        version=version,
+        version_code=version_code,
+        marker=marker,
+    )
+    register_manifest(manifests, verified)
+    queued = updater.queue_local(package, legacy_preflight=True)
+    assert updater.process_active()
+    assert store.get_mcu_firmware_update(queued["updateUid"])["state"] == "SUCCEEDED"
+    assert uart.current_manifest == verified.manifest
+    return package, verified
+
+
+def test_local_legacy_first_install_is_verified_flashed_and_promoted(tmp_path):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        boot,
+        flasher,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    package, verified = build_package(
+        tmp_path,
+        private_path,
+        version="1.0.0",
+        version_code=10000,
+        marker=1,
+    )
+    register_manifest(manifests, verified)
+
+    queued = updater.queue_local(
+        package,
+        legacy_preflight=True,
+        requested_reason="first revision-2 install",
+    )
+    assert updater.process_active()
+
+    update = store.get_mcu_firmware_update(queued["updateUid"])
+    stable = store.get_mcu_firmware_state()
+    assert update["state"] == "SUCCEEDED"
+    assert update["target_attempt_count"] == 1
+    assert stable["current_manifest"] == verified.manifest
+    assert store.get_maintenance_lock() is None
+    assert len(flasher.calls) == 1
+    assert boot.operations == [
+        "BOOTLOADER",
+        "APPLICATION",
+        "APPLICATION_SELECTED",
+    ]
+    assert uart.is_open is True
+
+
+def test_revision_two_preflight_uses_f2_prepare_before_update(tmp_path):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        _,
+        _,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    install_first_stable(
+        tmp_path,
+        private_path,
+        store,
+        uart,
+        manifests,
+        updater,
+    )
+    target, verified = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    register_manifest(manifests, verified)
+
+    queued = updater.queue_local(target)
+    assert updater.process_active()
+
+    assert store.get_mcu_firmware_update(queued["updateUid"])["state"] == "SUCCEEDED"
+    assert uart.prepare_count == 1
+
+
+def test_three_target_failures_automatically_restore_previous_stable(tmp_path):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        _,
+        flasher,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    _, stable = install_first_stable(
+        tmp_path,
+        private_path,
+        store,
+        uart,
+        manifests,
+        updater,
+    )
+    target_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    register_manifest(manifests, target)
+    uart.failed_self_test_identities.add(
+        target.manifest["firmwareIdentityHex"]
+    )
+    calls_before = len(flasher.calls)
+
+    queued = updater.queue_local(target_path)
+    assert updater.process_active()
+
+    update = store.get_mcu_firmware_update(queued["updateUid"])
+    assert update["state"] == "ROLLED_BACK"
+    assert update["target_attempt_count"] == 3
+    assert update["rollback_attempt_count"] == 1
+    assert uart.current_manifest == stable.manifest
+    assert store.get_mcu_firmware_state()["current_manifest"] == stable.manifest
+    assert len(flasher.calls) - calls_before == 4
+    assert store.get_maintenance_lock() is None
+
+
+def test_target_and_rollback_failure_leave_persistent_business_lock(tmp_path):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        _,
+        _,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    _, stable = install_first_stable(
+        tmp_path,
+        private_path,
+        store,
+        uart,
+        manifests,
+        updater,
+    )
+    target_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    register_manifest(manifests, target)
+    uart.failed_self_test_identities.update(
+        {
+            target.manifest["firmwareIdentityHex"],
+            stable.manifest["firmwareIdentityHex"],
+        }
+    )
+
+    queued = updater.queue_local(target_path)
+    assert updater.process_active()
+
+    update = store.get_mcu_firmware_update(queued["updateUid"])
+    assert update["state"] == "FAILED_LOCKED"
+    assert update["target_attempt_count"] == 3
+    assert update["rollback_attempt_count"] == 3
+    assert store.get_maintenance_lock()["owner_uid"] == queued["updateUid"]
+    assert uart.is_open is False
+
+
+def test_unexpected_preflash_failure_is_rejected_and_unlocks(tmp_path):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        _,
+        _,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    install_first_stable(
+        tmp_path,
+        private_path,
+        store,
+        uart,
+        manifests,
+        updater,
+    )
+    target_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    register_manifest(manifests, target)
+
+    def fail_prepare():
+        raise RuntimeError("injected unexpected preflight failure")
+
+    uart.prepare_firmware_update = fail_prepare
+    queued = updater.queue_local(target_path)
+
+    assert updater.process_active()
+    update = store.get_mcu_firmware_update(queued["updateUid"])
+    assert update["state"] == "REJECTED"
+    assert update["last_error_code"] == "MCU_UPDATE_INTERNAL_ERROR"
+    assert update["target_attempt_count"] == 0
+    assert store.get_maintenance_lock() is None
+
+
+def test_unexpected_postflash_failure_automatically_rolls_back(tmp_path):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        _,
+        flasher,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    _, stable = install_first_stable(
+        tmp_path,
+        private_path,
+        store,
+        uart,
+        manifests,
+        updater,
+    )
+    target_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    register_manifest(manifests, target)
+    flasher.unexpected_failures_remaining = 1
+    queued = updater.queue_local(target_path)
+
+    assert updater.process_active()
+    update = store.get_mcu_firmware_update(queued["updateUid"])
+    assert update["state"] == "ROLLED_BACK"
+    assert update["target_attempt_count"] == 1
+    assert update["rollback_attempt_count"] == 1
+    assert uart.current_manifest == stable.manifest
+    assert store.get_maintenance_lock() is None
+
+
+def test_downgrade_is_rejected_unless_local_break_glass_is_explicit(tmp_path):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        _,
+        _,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    install_first_stable(
+        tmp_path,
+        private_path,
+        store,
+        uart,
+        manifests,
+        updater,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    older_path, older = build_package(
+        tmp_path,
+        private_path,
+        version="1.0.0",
+        version_code=10000,
+        marker=1,
+    )
+    register_manifest(manifests, older)
+
+    rejected = updater.queue_local(older_path)
+    assert updater.process_active()
+    assert store.get_mcu_firmware_update(rejected["updateUid"])["state"] == "REJECTED"
+    assert uart.current_manifest["firmwareVersionCode"] == 20000
+
+    allowed = updater.queue_local(older_path, allow_downgrade=True)
+    assert updater.process_active()
+    assert store.get_mcu_firmware_update(allowed["updateUid"])["state"] == "SUCCEEDED"
+    assert uart.current_manifest["firmwareVersionCode"] == 10000
+
+
+def test_restart_verifies_completed_target_before_reflashing(tmp_path):
+    (
+        private_path,
+        store,
+        cache,
+        uart,
+        _,
+        flasher,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    target_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="1.0.0",
+        version_code=10000,
+        marker=1,
+    )
+    register_manifest(manifests, target)
+    queued = updater.queue_local(target_path, legacy_preflight=True)
+    store.transition_mcu_firmware_update(queued["updateUid"], "PREPARED")
+    store.record_mcu_firmware_attempt(queued["updateUid"], rollback=False)
+    store.transition_mcu_firmware_update(queued["updateUid"], "VERIFYING_TARGET")
+    uart.current_manifest = target.manifest
+    calls_before = len(flasher.calls)
+
+    resumed = McuFirmwareUpdater(
+        store=store,
+        uart_link=uart,
+        package_cache=cache,
+        boot_control=FakeBootControl(),
+        flash_runner=flasher,
+    )
+    assert resumed.process_active()
+
+    assert store.get_mcu_firmware_update(queued["updateUid"])["state"] == "SUCCEEDED"
+    assert len(flasher.calls) == calls_before
+
+
+def test_wiringop_boot_control_uses_explicit_wpi_commands_without_shell():
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return SimpleNamespace(returncode=0, stdout="")
+
+    control = WiringOpBootControl(
+        gpio_path="/usr/local/bin/gpio",
+        boot0_wpi=2,
+        reset_wpi=5,
+        command_runner=run,
+        sleeper=lambda _: None,
+    )
+
+    control.enter_system_bootloader()
+    control.boot_application()
+
+    assert [call[0] for call in calls] == [
+        ["/usr/local/bin/gpio", "mode", "2", "out"],
+        ["/usr/local/bin/gpio", "mode", "5", "out"],
+        ["/usr/local/bin/gpio", "write", "2", "1"],
+        ["/usr/local/bin/gpio", "write", "5", "0"],
+        ["/usr/local/bin/gpio", "write", "5", "1"],
+        ["/usr/local/bin/gpio", "mode", "2", "out"],
+        ["/usr/local/bin/gpio", "mode", "5", "out"],
+        ["/usr/local/bin/gpio", "write", "2", "0"],
+        ["/usr/local/bin/gpio", "write", "5", "0"],
+        ["/usr/local/bin/gpio", "write", "5", "1"],
+    ]
+    assert all("shell" not in kwargs for _, kwargs in calls)
+
+
+def test_stm32flash_runner_uses_8e1_bounded_flash_range_and_verify(tmp_path):
+    image = tmp_path / "image.bin"
+    image.write_bytes(b"x" * 1024)
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return SimpleNamespace(returncode=0, stdout="verified")
+
+    runner = Stm32FlashRunner(
+        executable_path="/usr/bin/stm32flash",
+        serial_port="/dev/ttyS5",
+        command_runner=run,
+    )
+    result = runner.flash(image, 1024)
+
+    assert calls[0][0] == [
+        "/usr/bin/stm32flash",
+        "-b",
+        "115200",
+        "-m",
+        "8e1",
+        "-f",
+        "-S",
+        "0x08000000:1024",
+        "-w",
+        str(image.resolve()),
+        "-v",
+        "-n",
+        "3",
+        "/dev/ttyS5",
+    ]
+    assert "shell" not in calls[0][1]
+    assert result["output"] == "verified"
+
+
+def test_cos_downloader_bounds_and_hashes_private_object(tmp_path):
+    payload = b"signed-package-bytes"
+    import hashlib
+
+    class Client:
+        def get_object(self, **kwargs):
+            assert kwargs == {"Bucket": "private-bucket", "Key": "mcu/a.efw"}
+            return {"Body": io.BytesIO(payload)}
+
+    downloader = CosFirmwareDownloader(
+        client_factory=lambda grant: Client(),
+    )
+    grant = {
+        "bucket": "private-bucket",
+        "keyPrefix": "mcu/",
+        "tmpSecretId": "never-persist-me",
+        "tmpSecretKey": "never-persist-me-either",
+        "sessionTokenParts": ["secret-token"],
+    }
+    path = downloader.download(
+        grant=grant,
+        object_key="mcu/a.efw",
+        expected_sha256=hashlib.sha256(payload).hexdigest(),
+        expected_size=len(payload),
+        destination_directory=tmp_path,
+    )
+
+    assert path.read_bytes() == payload

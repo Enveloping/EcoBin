@@ -4514,6 +4514,168 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/mcu-firmware-releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List immutable offline-signed MCU firmware releases */
+        get: operations["listPlatformMcuFirmwareReleases"];
+        put?: never;
+        /**
+         * Register one already uploaded, offline-signed and immutable firmware package
+         * @description The backend verifies stable metadata and the exact private-COS object-key shape. It never receives the signing private key and never rewrites the package.
+         */
+        post: operations["registerPlatformMcuFirmwareRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/mcu-firmware-releases/{releaseUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        /** Read one immutable MCU firmware release */
+        get: operations["getPlatformMcuFirmwareRelease"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/mcu-firmware-rollouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List manual MCU firmware rollout plans */
+        get: operations["listPlatformMcuFirmwareRollouts"];
+        put?: never;
+        /**
+         * Create a rollout without dispatching any device command
+         * @description Exactly one selected device becomes wave zero for validation. Remaining devices are frozen into explicit waves and are not dispatched automatically.
+         */
+        post: operations["createPlatformMcuFirmwareRollout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/mcu-firmware-rollouts/{rolloutUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        /** Read rollout, wave and per-device progress */
+        get: operations["getPlatformMcuFirmwareRollout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/mcu-firmware-rollouts/{rolloutUid}/validation-starts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dispatch only the single validation device */
+        post: operations["startPlatformMcuFirmwareValidation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/mcu-firmware-rollouts/{rolloutUid}/promotions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Explicitly approve a successfully validated release for waves
+         * @description Promotion never dispatches the first wave; a separate manual wave-advancement request is still required.
+         */
+        post: operations["promotePlatformMcuFirmwareRollout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/mcu-firmware-rollouts/{rolloutUid}/wave-advancements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dispatch exactly the next wave or confirm all waves complete
+         * @description Any running, rolled-back, rejected or failed device in the current wave blocks advancement. Every target in the next wave must be online before the all-or-none dispatch transaction commits.
+         */
+        post: operations["advancePlatformMcuFirmwareWave"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/mcu-firmware-rollouts/{rolloutUid}/stoppages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop a promoted rollout after every dispatched device is terminal */
+        post: operations["stopPlatformMcuFirmwareRollout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/device-assets": {
         parameters: {
             query?: never;
@@ -8225,6 +8387,146 @@ export interface components {
             automaticAttemptLimit: number | null;
             occurredAt: components["schemas"]["UtcTimestamp"] | null;
             nextActions: ("WAIT" | "REEVALUATE_ACCEPTANCE" | "RESYNCHRONIZE_CONFIGURATION" | "PUBLISH_NEW_CONFIGURATION" | "START_MANUAL_BASELINE_MEASUREMENT" | "USER_RESTART_REQUIRED" | "CLEANER_RESTART_REQUIRED" | "CONTACT_SUPPORT")[];
+        };
+        RegisterMcuFirmwareReleaseRequest: {
+            releaseUid: components["schemas"]["UuidV4"];
+            firmwareVersion: string;
+            /** Format: int64 */
+            firmwareVersionCode: number;
+            firmwareIdentityHex: string;
+            /** @constant */
+            hardwareCompatibility: "STM32F103C8T6";
+            /** @constant */
+            fixedFrameRevision: 2;
+            objectKey: string;
+            packageSha256: components["schemas"]["Sha256Hex"];
+            /** Format: int64 */
+            packageSize: number;
+            releaseNotes?: string | null;
+        };
+        CreateMcuFirmwareRolloutRequest: {
+            releaseUid: components["schemas"]["UuidV4"];
+            validationHardwareSn: components["schemas"]["HardwareSn"];
+            targetHardwareSns: components["schemas"]["HardwareSn"][];
+            batchSize: number;
+            reason: string;
+        };
+        McuFirmwareRolloutActionRequest: {
+            reason: string;
+        };
+        McuFirmwareRelease: {
+            releaseUid: components["schemas"]["UuidV4"];
+            firmwareVersion: string;
+            /** Format: int64 */
+            firmwareVersionCode: number;
+            firmwareIdentityHex: string;
+            /** @constant */
+            hardwareCompatibility: "STM32F103C8T6";
+            /** @constant */
+            fixedFrameRevision: 2;
+            objectKey: string;
+            packageSha256: components["schemas"]["Sha256Hex"];
+            /** Format: int64 */
+            packageSize: number;
+            /** @enum {string} */
+            status: "READY" | "PROMOTED" | "ARCHIVED";
+            releaseNotes: string | null;
+            createdBy: string;
+            promotedBy: string | null;
+            promotedAt: components["schemas"]["UtcTimestamp"] | null;
+            createdAt: components["schemas"]["UtcTimestamp"];
+        };
+        McuFirmwareDeployment: {
+            deploymentUid: components["schemas"]["UuidV4"];
+            hardwareSn: components["schemas"]["HardwareSn"];
+            tenantCode: string | null;
+            organizationCode: string | null;
+            /** @enum {string} */
+            kind: "VALIDATION" | "WAVE";
+            waveNo: number;
+            /** @enum {string} */
+            status: "PENDING" | "QUEUED" | "PREFLIGHT" | "PREPARED" | "FLASHING_TARGET" | "VERIFYING_TARGET" | "ROLLING_BACK" | "VERIFYING_ROLLBACK" | "SUCCEEDED" | "ROLLED_BACK" | "FAILED_LOCKED" | "REJECTED";
+            commandUid: components["schemas"]["UuidV4"] | null;
+            reliableTaskUid: components["schemas"]["UuidV4"] | null;
+            edgeUpdateUid: components["schemas"]["UuidV4"] | null;
+            targetAttemptCount: number;
+            rollbackAttemptCount: number;
+            installedFirmwareVersion: string | null;
+            /** Format: int64 */
+            installedFirmwareVersionCode: number | null;
+            installedFirmwareIdentityHex: string | null;
+            errorCode: string | null;
+            queuedAt: components["schemas"]["UtcTimestamp"] | null;
+            completedAt: components["schemas"]["UtcTimestamp"] | null;
+            updatedAt: components["schemas"]["UtcTimestamp"];
+        };
+        McuFirmwareRollout: {
+            rolloutUid: components["schemas"]["UuidV4"];
+            release: components["schemas"]["McuFirmwareRelease"];
+            /** @enum {string} */
+            status: "DRAFT" | "VALIDATING" | "VALIDATION_FAILED" | "AWAITING_PROMOTION" | "ACTIVE" | "COMPLETED" | "STOPPED";
+            batchSize: number;
+            maximumWaveNo: number;
+            currentWaveNo: number;
+            validationHardwareSn: components["schemas"]["HardwareSn"];
+            reason: string;
+            createdBy: string;
+            promotedBy: string | null;
+            promotedAt: components["schemas"]["UtcTimestamp"] | null;
+            stoppedBy: string | null;
+            stoppedAt: components["schemas"]["UtcTimestamp"] | null;
+            stopReason: string | null;
+            /** Format: int64 */
+            pendingCount: number;
+            /** Format: int64 */
+            runningCount: number;
+            /** Format: int64 */
+            succeededCount: number;
+            /** Format: int64 */
+            rolledBackCount: number;
+            /** Format: int64 */
+            failedCount: number;
+            createdAt: components["schemas"]["UtcTimestamp"];
+            updatedAt: components["schemas"]["UtcTimestamp"];
+            deployments: components["schemas"]["McuFirmwareDeployment"][];
+        };
+        McuFirmwareReleasePage: {
+            items: components["schemas"]["McuFirmwareRelease"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        McuFirmwareRolloutPage: {
+            items: components["schemas"]["McuFirmwareRollout"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        McuFirmwareReleaseEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["McuFirmwareRelease"];
+            requestId: string;
+        };
+        McuFirmwareReleasePageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["McuFirmwareReleasePage"];
+            requestId: string;
+        };
+        McuFirmwareRolloutEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["McuFirmwareRollout"];
+            requestId: string;
+        };
+        McuFirmwareRolloutPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["McuFirmwareRolloutPage"];
+            requestId: string;
         };
         RuntimeSnapshotPolicyReleaseRequest: {
             /** Format: int64 */
@@ -15448,6 +15750,305 @@ export interface operations {
             403: components["responses"]["ForbiddenProblem"];
             409: components["responses"]["ConflictProblem"];
             422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    listPlatformMcuFirmwareReleases: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MCU firmware release page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McuFirmwareReleasePageEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    registerPlatformMcuFirmwareRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterMcuFirmwareReleaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Immutable release registered */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McuFirmwareReleaseEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getPlatformMcuFirmwareRelease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Immutable MCU firmware release */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McuFirmwareReleaseEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listPlatformMcuFirmwareRollouts: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MCU firmware rollout page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McuFirmwareRolloutPageEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    createPlatformMcuFirmwareRollout: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMcuFirmwareRolloutRequest"];
+            };
+        };
+        responses: {
+            /** @description Manual rollout created in DRAFT state */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McuFirmwareRolloutEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getPlatformMcuFirmwareRollout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current rollout projection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McuFirmwareRolloutEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    startPlatformMcuFirmwareValidation: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["McuFirmwareRolloutActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Validation command durably queued */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McuFirmwareRolloutEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    promotePlatformMcuFirmwareRollout: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["McuFirmwareRolloutActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Release promoted without wave dispatch */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McuFirmwareRolloutEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    advancePlatformMcuFirmwareWave: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["McuFirmwareRolloutActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Next wave queued or rollout completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McuFirmwareRolloutEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    stopPlatformMcuFirmwareRollout: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["McuFirmwareRolloutActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Undispatched devices remain on their current firmware */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McuFirmwareRolloutEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
         };
     };
     listPlatformDeviceAssets: {

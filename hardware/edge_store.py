@@ -26,7 +26,7 @@ from onenet_wire import (
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -54,6 +54,21 @@ REMOTE_SUPPORT_FAILURE_CODES = frozenset({
     "SSH_START_FAILED",
     "SSH_EXITED",
     "PROCESS_SUPERVISION_FAILED",
+})
+MCU_UPDATE_ACTIVE_STATES = frozenset({
+    "QUEUED",
+    "PREFLIGHT",
+    "PREPARED",
+    "FLASHING_TARGET",
+    "VERIFYING_TARGET",
+    "ROLLING_BACK",
+    "VERIFYING_ROLLBACK",
+    "FAILED_LOCKED",
+})
+MCU_UPDATE_TERMINAL_STATES = frozenset({
+    "SUCCEEDED",
+    "ROLLED_BACK",
+    "REJECTED",
 })
 
 
@@ -139,7 +154,7 @@ class EdgeStore:
         current = row[0] or 0
         if current == CURRENT_SCHEMA_VERSION:
             return
-        if current not in {0, 9}:
+        if current not in {0, 9, 10}:
             raise RuntimeError(
                 "EdgeStore 数据库时代不兼容；永久资产 v9 不读取旧设备数据库"
             )
@@ -182,6 +197,10 @@ class EdgeStore:
         if current < 10:
             self._migrate_v10()
             conn.execute("INSERT INTO schema_version (version) VALUES (10)")
+            current = 10
+        if current < 11:
+            self._migrate_v11()
+            conn.execute("INSERT INTO schema_version (version) VALUES (11)")
         conn.commit()
 
     def _migrate_v10(self) -> None:
@@ -206,6 +225,94 @@ class EdgeStore:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )"""
+        )
+
+    def _migrate_v11(self) -> None:
+        """Add an exclusive, reboot-safe STM32 firmware update journal."""
+
+        self._conn.execute(
+            """CREATE TABLE IF NOT EXISTS maintenance_lock (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                lock_type TEXT NOT NULL CHECK (
+                    lock_type = 'MCU_FIRMWARE_UPDATE'
+                ),
+                owner_uid TEXT NOT NULL,
+                detail_json TEXT,
+                acquired_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+        self._conn.execute(
+            """CREATE TABLE IF NOT EXISTS mcu_firmware_update (
+                update_uid TEXT PRIMARY KEY,
+                deployment_uid TEXT NOT NULL UNIQUE,
+                command_uid TEXT UNIQUE,
+                source TEXT NOT NULL CHECK (source IN ('CLOUD', 'LOCAL')),
+                package_path TEXT NOT NULL,
+                package_sha256 TEXT NOT NULL,
+                manifest_json TEXT NOT NULL,
+                state TEXT NOT NULL CHECK (state IN (
+                    'QUEUED', 'PREFLIGHT', 'PREPARED',
+                    'FLASHING_TARGET', 'VERIFYING_TARGET',
+                    'ROLLING_BACK', 'VERIFYING_ROLLBACK',
+                    'SUCCEEDED', 'ROLLED_BACK', 'FAILED_LOCKED',
+                    'REJECTED'
+                )),
+                legacy_preflight INTEGER NOT NULL DEFAULT 0
+                    CHECK (legacy_preflight IN (0, 1)),
+                allow_downgrade INTEGER NOT NULL DEFAULT 0
+                    CHECK (allow_downgrade IN (0, 1)),
+                requested_reason TEXT,
+                target_attempt_count INTEGER NOT NULL DEFAULT 0,
+                rollback_attempt_count INTEGER NOT NULL DEFAULT 0,
+                previous_package_path TEXT,
+                previous_package_sha256 TEXT,
+                previous_manifest_json TEXT,
+                last_error_code TEXT,
+                last_error_message TEXT,
+                requested_at TEXT NOT NULL,
+                started_at TEXT,
+                updated_at TEXT NOT NULL,
+                completed_at TEXT
+            )"""
+        )
+        self._conn.execute(
+            """CREATE INDEX IF NOT EXISTS idx_mcu_update_state
+               ON mcu_firmware_update(state, requested_at)"""
+        )
+        self._conn.execute(
+            """CREATE TABLE IF NOT EXISTS mcu_firmware_progress (
+                update_uid TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                target_attempt_count INTEGER NOT NULL,
+                rollback_attempt_count INTEGER NOT NULL,
+                event_uid TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (
+                    update_uid, stage,
+                    target_attempt_count, rollback_attempt_count
+                )
+            )"""
+        )
+        self._conn.execute(
+            """CREATE TABLE IF NOT EXISTS mcu_firmware_state (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                current_package_path TEXT,
+                current_package_sha256 TEXT,
+                current_manifest_json TEXT,
+                current_installed_at TEXT,
+                previous_package_path TEXT,
+                previous_package_sha256 TEXT,
+                previous_manifest_json TEXT,
+                previous_installed_at TEXT,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+        now = self._now()
+        self._conn.execute(
+            """INSERT OR IGNORE INTO mcu_firmware_state
+               (singleton_id, updated_at) VALUES (1, ?)""",
+            (now,),
         )
 
     def _create_tables(self) -> None:
@@ -888,6 +995,11 @@ class EdgeStore:
 
     def claim_next_command(self) -> Optional[dict]:
         with self.transaction():
+            maintenance = self._conn.execute(
+                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            if maintenance:
+                return None
             row = self._conn.execute(
                 """SELECT * FROM command_inbox
                    WHERE state='PENDING' ORDER BY rowid LIMIT 1"""
@@ -1781,6 +1893,548 @@ class EdgeStore:
 
     # ── 工单槽操作 ──
 
+    def begin_mcu_firmware_update(
+        self,
+        *,
+        update_uid: str,
+        deployment_uid: str,
+        source: str,
+        package_path: str,
+        package_sha256: str,
+        manifest: dict,
+        command_uid: Optional[str] = None,
+        legacy_preflight: bool = False,
+        allow_downgrade: bool = False,
+        requested_reason: Optional[str] = None,
+    ) -> str:
+        """Journal an update and atomically exclude physical business work."""
+        _require_uuid4_local(update_uid, "update_uid")
+        _require_uuid4_local(deployment_uid, "deployment_uid")
+        if command_uid is not None:
+            _require_uuid4_local(command_uid, "command_uid")
+        if source not in {"CLOUD", "LOCAL"}:
+            raise ValueError("MCU update source must be CLOUD or LOCAL")
+        if not os.path.isabs(package_path):
+            raise ValueError("MCU package path must be absolute")
+        if (
+            not isinstance(package_sha256, str)
+            or len(package_sha256) != 64
+            or any(c not in "0123456789abcdef" for c in package_sha256)
+        ):
+            raise ValueError("MCU package SHA-256 is invalid")
+        if not isinstance(manifest, dict):
+            raise ValueError("MCU package manifest must be an object")
+        if not isinstance(legacy_preflight, bool):
+            raise ValueError("legacy_preflight must be boolean")
+        if not isinstance(allow_downgrade, bool):
+            raise ValueError("allow_downgrade must be boolean")
+
+        manifest_json = _json.dumps(
+            manifest,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        now = self._now()
+        with self.transaction():
+            existing = self._conn.execute(
+                """SELECT update_uid, package_sha256, manifest_json,
+                          legacy_preflight, allow_downgrade
+                   FROM mcu_firmware_update WHERE deployment_uid=?""",
+                (deployment_uid,),
+            ).fetchone()
+            if existing:
+                same = (
+                    existing["package_sha256"] == package_sha256
+                    and existing["manifest_json"] == manifest_json
+                    and bool(existing["legacy_preflight"])
+                    == legacy_preflight
+                    and bool(existing["allow_downgrade"])
+                    == allow_downgrade
+                )
+                return "DUPLICATE" if same else "CONFLICT"
+
+            maintenance = self._conn.execute(
+                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            if maintenance:
+                return "MAINTENANCE_BUSY"
+            slot = self._conn.execute(
+                "SELECT work_type FROM work_slot WHERE slot_id=1"
+            ).fetchone()
+            if slot and slot["work_type"] != WORK_TYPE_NONE:
+                return "WORK_BUSY"
+            if command_uid is None:
+                blocking_command = self._conn.execute(
+                    """SELECT command_uid FROM command_inbox
+                       WHERE state IN (
+                         'PROCESSING', 'WAITING_MCU_RESULT',
+                         'RECOVERY_REQUIRED'
+                       ) LIMIT 1"""
+                ).fetchone()
+            else:
+                blocking_command = self._conn.execute(
+                    """SELECT command_uid FROM command_inbox
+                       WHERE state IN (
+                         'PROCESSING', 'WAITING_MCU_RESULT',
+                         'RECOVERY_REQUIRED'
+                       ) AND command_uid<>? LIMIT 1""",
+                    (command_uid,),
+                ).fetchone()
+            if blocking_command:
+                return "COMMAND_BUSY"
+
+            stable = self._conn.execute(
+                "SELECT * FROM mcu_firmware_state WHERE singleton_id=1"
+            ).fetchone()
+            self._conn.execute(
+                """INSERT INTO mcu_firmware_update (
+                     update_uid, deployment_uid, command_uid, source,
+                     package_path, package_sha256, manifest_json, state,
+                     legacy_preflight, allow_downgrade, requested_reason,
+                     previous_package_path, previous_package_sha256,
+                     previous_manifest_json, requested_at, updated_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    update_uid,
+                    deployment_uid,
+                    command_uid,
+                    source,
+                    package_path,
+                    package_sha256,
+                    manifest_json,
+                    int(legacy_preflight),
+                    int(allow_downgrade),
+                    requested_reason,
+                    stable["current_package_path"] if stable else None,
+                    stable["current_package_sha256"] if stable else None,
+                    stable["current_manifest_json"] if stable else None,
+                    now,
+                    now,
+                ),
+            )
+            self._conn.execute(
+                """INSERT INTO maintenance_lock (
+                     singleton_id, lock_type, owner_uid, detail_json,
+                     acquired_at, updated_at
+                   ) VALUES (1, 'MCU_FIRMWARE_UPDATE', ?, ?, ?, ?)""",
+                (
+                    update_uid,
+                    _json.dumps(
+                        {"deploymentUid": deployment_uid},
+                        ensure_ascii=False,
+                    ),
+                    now,
+                    now,
+                ),
+            )
+            return "ACCEPTED"
+
+    @staticmethod
+    def _decode_mcu_update_row(row) -> Optional[dict]:
+        if row is None:
+            return None
+        result = dict(row)
+        result["manifest"] = _json.loads(result.pop("manifest_json"))
+        previous = result.pop("previous_manifest_json")
+        result["previous_manifest"] = (
+            _json.loads(previous) if previous else None
+        )
+        result["legacy_preflight"] = bool(result["legacy_preflight"])
+        result["allow_downgrade"] = bool(result["allow_downgrade"])
+        return result
+
+    def get_mcu_firmware_update(self, update_uid: str) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM mcu_firmware_update WHERE update_uid=?",
+                (update_uid,),
+            ).fetchone()
+        return self._decode_mcu_update_row(row)
+
+    def get_mcu_firmware_update_by_deployment(
+        self,
+        deployment_uid: str,
+    ) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM mcu_firmware_update WHERE deployment_uid=?",
+                (deployment_uid,),
+            ).fetchone()
+        return self._decode_mcu_update_row(row)
+
+    def get_active_mcu_firmware_update(self) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT u.* FROM maintenance_lock l
+                   JOIN mcu_firmware_update u ON u.update_uid=l.owner_uid
+                   WHERE l.singleton_id=1
+                     AND l.lock_type='MCU_FIRMWARE_UPDATE'"""
+            ).fetchone()
+        return self._decode_mcu_update_row(row)
+
+    def get_maintenance_lock(self) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        detail_json = result.pop("detail_json")
+        result["detail"] = _json.loads(detail_json) if detail_json else None
+        return result
+
+    def get_mcu_firmware_state(self) -> dict:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM mcu_firmware_state WHERE singleton_id=1"
+            ).fetchone()
+        result = dict(row) if row else {"singleton_id": 1}
+        for prefix in ("current", "previous"):
+            raw = result.pop(f"{prefix}_manifest_json", None)
+            result[f"{prefix}_manifest"] = _json.loads(raw) if raw else None
+        return result
+
+    def transition_mcu_firmware_update(
+        self,
+        update_uid: str,
+        state: str,
+        *,
+        error_code: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> bool:
+        allowed = MCU_UPDATE_ACTIVE_STATES | MCU_UPDATE_TERMINAL_STATES
+        if state not in allowed:
+            raise ValueError("invalid MCU firmware update state")
+        now = self._now()
+        completed_at = now if state in MCU_UPDATE_TERMINAL_STATES else None
+        with self.transaction():
+            owner = self._conn.execute(
+                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            if not owner or owner["owner_uid"] != update_uid:
+                return False
+            updated = self._conn.execute(
+                """UPDATE mcu_firmware_update
+                   SET state=?, started_at=COALESCE(started_at, ?),
+                       updated_at=?, completed_at=?, last_error_code=?,
+                       last_error_message=?
+                   WHERE update_uid=?""",
+                (
+                    state,
+                    now,
+                    now,
+                    completed_at,
+                    error_code,
+                    error_message,
+                    update_uid,
+                ),
+            )
+            self._conn.execute(
+                "UPDATE maintenance_lock SET updated_at=? WHERE owner_uid=?",
+                (now, update_uid),
+            )
+            return updated.rowcount == 1
+
+    def record_mcu_firmware_attempt(
+        self,
+        update_uid: str,
+        *,
+        rollback: bool,
+    ) -> int:
+        state = "ROLLING_BACK" if rollback else "FLASHING_TARGET"
+        column = (
+            "rollback_attempt_count" if rollback else "target_attempt_count"
+        )
+        now = self._now()
+        with self.transaction():
+            owner = self._conn.execute(
+                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            if not owner or owner["owner_uid"] != update_uid:
+                raise ValueError("MCU update does not own the maintenance lock")
+            self._conn.execute(
+                f"""UPDATE mcu_firmware_update
+                    SET {column}={column}+1, state=?,
+                        started_at=COALESCE(started_at, ?), updated_at=?,
+                        last_error_code=NULL, last_error_message=NULL
+                    WHERE update_uid=?""",
+                (state, now, now, update_uid),
+            )
+            row = self._conn.execute(
+                f"SELECT {column} AS count FROM mcu_firmware_update WHERE update_uid=?",
+                (update_uid,),
+            ).fetchone()
+            return int(row["count"])
+
+    def complete_mcu_firmware_update(self, update_uid: str) -> bool:
+        """Promote the verified target, retain one prior stable package, unlock."""
+        now = self._now()
+        with self.transaction():
+            owner = self._conn.execute(
+                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            update = self._conn.execute(
+                "SELECT * FROM mcu_firmware_update WHERE update_uid=?",
+                (update_uid,),
+            ).fetchone()
+            if not owner or owner["owner_uid"] != update_uid or not update:
+                return False
+            stable = self._conn.execute(
+                "SELECT * FROM mcu_firmware_state WHERE singleton_id=1"
+            ).fetchone()
+            self._conn.execute(
+                """UPDATE mcu_firmware_state SET
+                     previous_package_path=?, previous_package_sha256=?,
+                     previous_manifest_json=?, previous_installed_at=?,
+                     current_package_path=?, current_package_sha256=?,
+                     current_manifest_json=?, current_installed_at=?,
+                     updated_at=? WHERE singleton_id=1""",
+                (
+                    stable["current_package_path"],
+                    stable["current_package_sha256"],
+                    stable["current_manifest_json"],
+                    stable["current_installed_at"],
+                    update["package_path"],
+                    update["package_sha256"],
+                    update["manifest_json"],
+                    now,
+                    now,
+                ),
+            )
+            self._conn.execute(
+                """UPDATE mcu_firmware_update SET state='SUCCEEDED',
+                     updated_at=?, completed_at=?, last_error_code=NULL,
+                     last_error_message=NULL WHERE update_uid=?""",
+                (now, now, update_uid),
+            )
+            self._conn.execute(
+                "DELETE FROM maintenance_lock WHERE owner_uid=?",
+                (update_uid,),
+            )
+            return True
+
+    def complete_mcu_firmware_rollback(self, update_uid: str) -> bool:
+        """Record successful restoration of the unchanged prior stable image."""
+        now = self._now()
+        with self.transaction():
+            owner = self._conn.execute(
+                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            if not owner or owner["owner_uid"] != update_uid:
+                return False
+            updated = self._conn.execute(
+                """UPDATE mcu_firmware_update SET state='ROLLED_BACK',
+                     updated_at=?, completed_at=? WHERE update_uid=?""",
+                (now, now, update_uid),
+            )
+            self._conn.execute(
+                "DELETE FROM maintenance_lock WHERE owner_uid=?",
+                (update_uid,),
+            )
+            return updated.rowcount == 1
+
+    def fail_mcu_firmware_update_locked(
+        self,
+        update_uid: str,
+        error_code: str,
+        error_message: str,
+    ) -> bool:
+        """Keep maintenance locked when neither target nor rollback is safe."""
+        return self.transition_mcu_firmware_update(
+            update_uid,
+            "FAILED_LOCKED",
+            error_code=error_code,
+            error_message=error_message,
+        )
+
+    def reject_mcu_firmware_update(
+        self,
+        update_uid: str,
+        error_code: str,
+        error_message: str,
+    ) -> bool:
+        """Reject before touching flash and release the maintenance lock."""
+        now = self._now()
+        with self.transaction():
+            owner = self._conn.execute(
+                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            if not owner or owner["owner_uid"] != update_uid:
+                return False
+            updated = self._conn.execute(
+                """UPDATE mcu_firmware_update SET state='REJECTED',
+                     updated_at=?, completed_at=?, last_error_code=?,
+                     last_error_message=? WHERE update_uid=?""",
+                (now, now, error_code, error_message, update_uid),
+            )
+            self._conn.execute(
+                "DELETE FROM maintenance_lock WHERE owner_uid=?",
+                (update_uid,),
+            )
+            return updated.rowcount == 1
+
+    def retry_failed_mcu_firmware_update(
+        self,
+        update_uid: str,
+        *,
+        rollback_only: bool,
+        reason: str,
+    ) -> bool:
+        """Re-arm a failed locked journal through an explicit local action."""
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("manual MCU update retry reason is required")
+        now = self._now()
+        with self.transaction():
+            owner = self._conn.execute(
+                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            update = self._conn.execute(
+                "SELECT * FROM mcu_firmware_update WHERE update_uid=?",
+                (update_uid,),
+            ).fetchone()
+            if (
+                not owner
+                or owner["owner_uid"] != update_uid
+                or not update
+                or update["state"] != "FAILED_LOCKED"
+            ):
+                return False
+            if rollback_only and (
+                not update["previous_package_path"]
+                or not update["previous_package_sha256"]
+                or not update["previous_manifest_json"]
+            ):
+                raise ValueError("no stable rollback package is available")
+            state = "ROLLING_BACK" if rollback_only else "QUEUED"
+            self._conn.execute(
+                """UPDATE mcu_firmware_update SET state=?,
+                     target_attempt_count=0, rollback_attempt_count=0,
+                     requested_reason=?, last_error_code=NULL,
+                     last_error_message=NULL, completed_at=NULL,
+                     updated_at=? WHERE update_uid=?""",
+                (state, reason.strip()[:512], now, update_uid),
+            )
+            self._conn.execute(
+                "UPDATE maintenance_lock SET updated_at=? WHERE owner_uid=?",
+                (now, update_uid),
+            )
+            return True
+
+    def create_mcu_firmware_progress_event(
+        self,
+        *,
+        device_name: str,
+        update_uid: str,
+        stage: str,
+        error_code: Optional[str] = None,
+    ) -> str:
+        """Persist one idempotent reliable progress fact for OneNet upload."""
+        if not device_name:
+            raise ValueError("device name is required for MCU progress")
+        with self.transaction():
+            update = self._conn.execute(
+                "SELECT * FROM mcu_firmware_update WHERE update_uid=?",
+                (update_uid,),
+            ).fetchone()
+            if update is None or update["state"] != stage:
+                raise ValueError("MCU progress stage differs from journal")
+            key = (
+                update_uid,
+                stage,
+                update["target_attempt_count"],
+                update["rollback_attempt_count"],
+            )
+            existing = self._conn.execute(
+                """SELECT event_uid FROM mcu_firmware_progress
+                   WHERE update_uid=? AND stage=?
+                     AND target_attempt_count=?
+                     AND rollback_attempt_count=?""",
+                key,
+            ).fetchone()
+            if existing:
+                return "DUPLICATE"
+
+            manifest = _json.loads(update["manifest_json"])
+            installed_manifest = None
+            if stage == "SUCCEEDED":
+                installed_manifest = manifest
+            elif stage == "ROLLED_BACK" and update["previous_manifest_json"]:
+                installed_manifest = _json.loads(
+                    update["previous_manifest_json"]
+                )
+            elif stage in {"QUEUED", "PREFLIGHT", "PREPARED", "REJECTED"}:
+                stable = self._conn.execute(
+                    """SELECT current_manifest_json
+                       FROM mcu_firmware_state WHERE singleton_id=1"""
+                ).fetchone()
+                if stable and stable["current_manifest_json"]:
+                    installed_manifest = _json.loads(
+                        stable["current_manifest_json"]
+                    )
+            if stage in {"FAILED_LOCKED", "REJECTED"}:
+                stable_error = error_code or update["last_error_code"]
+                if not stable_error:
+                    raise ValueError("terminal MCU progress requires an error code")
+                progress_error = stable_error
+            else:
+                progress_error = None
+            payload = {
+                "deploymentUid": update["deployment_uid"],
+                "updateUid": update_uid,
+                "releaseUid": manifest["releaseUid"],
+                "source": update["source"],
+                "stage": stage,
+                "firmwareVersion": manifest["firmwareVersion"],
+                "firmwareVersionCode": manifest["firmwareVersionCode"],
+                "firmwareIdentityHex": manifest["firmwareIdentityHex"],
+                "fixedFrameRevision": manifest["fixedFrameRevision"],
+                "targetAttemptCount": update["target_attempt_count"],
+                "rollbackAttemptCount": update["rollback_attempt_count"],
+                "legacyPreflight": bool(update["legacy_preflight"]),
+                "downgradeAuthorized": bool(update["allow_downgrade"]),
+                "installedFirmwareVersion": (
+                    installed_manifest["firmwareVersion"]
+                    if installed_manifest else None
+                ),
+                "installedFirmwareVersionCode": (
+                    installed_manifest["firmwareVersionCode"]
+                    if installed_manifest else None
+                ),
+                "installedFirmwareIdentityHex": (
+                    installed_manifest["firmwareIdentityHex"]
+                    if installed_manifest else None
+                ),
+                "errorCode": progress_error,
+            }
+            event_uid = self._new_uid()
+            sequence = self._next_seq(self._conn)
+            event = build_event_envelope(
+                event_uid=event_uid,
+                device_name=device_name,
+                edge_event_sequence=sequence,
+                event_type="MCU_FIRMWARE_UPDATE_PROGRESS",
+                target_type="MCU_FIRMWARE_DEPLOYMENT",
+                target_uid=update["deployment_uid"],
+                command_uid=update["command_uid"],
+                delivery_class="RELIABLE_FACT",
+                payload=payload,
+            )
+            self._insert_event(
+                self._conn,
+                event,
+                "MCU_FIRMWARE_UPDATE_PROGRESS",
+            )
+            self._conn.execute(
+                """INSERT INTO mcu_firmware_progress
+                   (update_uid, stage, target_attempt_count,
+                    rollback_attempt_count, event_uid, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (*key, event_uid, self._now()),
+            )
+            return "ACCEPTED"
+
     def acquire_work_slot(
         self,
         work_type: str,
@@ -1792,6 +2446,11 @@ class EdgeStore:
     ) -> bool:
         with self.transaction():
             conn = self._conn
+            maintenance = conn.execute(
+                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            if maintenance:
+                return False
             slot = conn.execute("SELECT work_type FROM work_slot WHERE slot_id=1").fetchone()
             if not slot or slot["work_type"] != WORK_TYPE_NONE:
                 return False

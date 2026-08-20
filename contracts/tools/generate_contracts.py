@@ -3325,6 +3325,64 @@ def build_onenet_examples() -> dict[str, Any]:
             "deviceEntryUrlSha256": device_entry_url_sha256,
         },
     )
+    firmware_release_uid = "8c000000-0000-4000-8000-000000000001"
+    firmware_deployment_uid = "8c000000-0000-4000-8000-000000000002"
+    firmware_command_uid = "8c000000-0000-4000-8000-000000000003"
+    firmware_update_uid = "8c000000-0000-4000-8000-000000000004"
+    firmware_package_sha256 = "c" * 64
+    start_mcu_firmware_update_command = _command(
+        firmware_command_uid,
+        "START_MCU_FIRMWARE_UPDATE",
+        "MCU_FIRMWARE_DEPLOYMENT",
+        firmware_deployment_uid,
+        {
+            "deploymentUid": firmware_deployment_uid,
+            "releaseUid": firmware_release_uid,
+            "firmwareVersion": "2.1.0",
+            "firmwareVersionCode": 20100,
+            "firmwareIdentityHex": "0123456789abcdef",
+            "objectKey": (
+                f"ecobin/mcu-firmware/{firmware_release_uid}/"
+                f"{firmware_package_sha256}.efw"
+            ),
+            "packageSha256": firmware_package_sha256,
+            "packageSize": 65536,
+            "reason": "single-device validation",
+        },
+        cos_grant=_fake_cos_grant(
+            tag="7",
+            work_type="MCU_FIRMWARE_RELEASE",
+            work_uid=firmware_release_uid,
+        ),
+    )
+    mcu_firmware_progress_event = _event(
+        "8c000000-0000-4000-8000-000000000005",
+        1057,
+        "MCU_FIRMWARE_UPDATE_PROGRESS",
+        "RELIABLE_FACT",
+        "MCU_FIRMWARE_DEPLOYMENT",
+        firmware_deployment_uid,
+        {
+            "deploymentUid": firmware_deployment_uid,
+            "updateUid": firmware_update_uid,
+            "releaseUid": firmware_release_uid,
+            "source": "CLOUD",
+            "stage": "SUCCEEDED",
+            "firmwareVersion": "2.1.0",
+            "firmwareVersionCode": 20100,
+            "firmwareIdentityHex": "0123456789abcdef",
+            "fixedFrameRevision": 2,
+            "targetAttemptCount": 1,
+            "rollbackAttemptCount": 0,
+            "legacyPreflight": False,
+            "downgradeAuthorized": False,
+            "installedFirmwareVersion": "2.1.0",
+            "installedFirmwareVersionCode": 20100,
+            "installedFirmwareIdentityHex": "0123456789abcdef",
+            "errorCode": None,
+        },
+        command_uid=firmware_command_uid,
+    )
     remote_support_session_uid = (
         "8b000000-0000-4000-8000-000000000001"
     )
@@ -3434,6 +3492,10 @@ def build_onenet_examples() -> dict[str, Any]:
             sync_device_entry_url_command,
             "../../onenet/commands/commands.schema.json",
         ),
+        "start-mcu-firmware-update.command.json": (
+            start_mcu_firmware_update_command,
+            "../../onenet/commands/commands.schema.json",
+        ),
         "open-remote-support-tunnel.command.json": (
             open_remote_support_command,
             "../../onenet/commands/commands.schema.json",
@@ -3484,6 +3546,10 @@ def build_onenet_examples() -> dict[str, Any]:
         ),
         "remote-support-tunnel-status.event.json": (
             remote_support_status_event,
+            "../../onenet/events/events.schema.json",
+        ),
+        "mcu-firmware-update-progress.event.json": (
+            mcu_firmware_progress_event,
             "../../onenet/events/events.schema.json",
         ),
     }
@@ -3539,6 +3605,7 @@ def _fake_cos_grant(
         "DELIVERY_SESSION": "delivery-session",
         "CLEAN_OPERATION": "clean-operation",
         "DEVICE_ACCEPTANCE": "device-acceptance",
+        "MCU_FIRMWARE_RELEASE": "mcu-firmware",
     }[work_type]
     return {
         "grantUid": f"71000000-0000-4000-8000-00000000000{tag}",

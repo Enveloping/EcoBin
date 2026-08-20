@@ -18,7 +18,8 @@
     { "$ref": "#/$defs/businessConfirmationReceiptEvent" },
     { "$ref": "#/$defs/deviceRuntimeSnapshotEvent" },
     { "$ref": "#/$defs/deviceAcceptanceEvidenceEvent" },
-    { "$ref": "#/$defs/remoteSupportTunnelStatusEvent" }
+    { "$ref": "#/$defs/remoteSupportTunnelStatusEvent" },
+    { "$ref": "#/$defs/mcuFirmwareUpdateProgressEvent" }
   ],
   "$defs": {
     "configSnapshot": {
@@ -1020,6 +1021,120 @@
         }
       ]
     },
+    "mcuFirmwareUpdateProgressPayload": {
+      "type": "object",
+      "required": [
+        "deploymentUid",
+        "updateUid",
+        "releaseUid",
+        "source",
+        "stage",
+        "firmwareVersion",
+        "firmwareVersionCode",
+        "firmwareIdentityHex",
+        "fixedFrameRevision",
+        "targetAttemptCount",
+        "rollbackAttemptCount",
+        "legacyPreflight",
+        "downgradeAuthorized",
+        "installedFirmwareVersion",
+        "installedFirmwareVersionCode",
+        "installedFirmwareIdentityHex",
+        "errorCode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "deploymentUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "updateUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "releaseUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "source": {
+          "enum": ["CLOUD", "LOCAL"]
+        },
+        "stage": {
+          "enum": [
+            "QUEUED",
+            "PREFLIGHT",
+            "PREPARED",
+            "FLASHING_TARGET",
+            "VERIFYING_TARGET",
+            "ROLLING_BACK",
+            "VERIFYING_ROLLBACK",
+            "SUCCEEDED",
+            "ROLLED_BACK",
+            "FAILED_LOCKED",
+            "REJECTED"
+          ]
+        },
+        "firmwareVersion": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 32
+        },
+        "firmwareVersionCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "firmwareIdentityHex": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "fixedFrameRevision": {
+          "const": 2
+        },
+        "targetAttemptCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "rollbackAttemptCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "legacyPreflight": { "type": "boolean" },
+        "downgradeAuthorized": { "type": "boolean" },
+        "installedFirmwareVersion": {
+          "type": ["string", "null"],
+          "minLength": 5,
+          "maxLength": 32
+        },
+        "installedFirmwareVersionCode": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "installedFirmwareIdentityHex": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "errorCode": {
+          "$ref": "../common.schema.json#/$defs/errorCode"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage": { "enum": ["FAILED_LOCKED", "REJECTED"] }
+            },
+            "required": ["stage"]
+          },
+          "then": {
+            "properties": { "errorCode": { "type": "string" } }
+          },
+          "else": {
+            "properties": { "errorCode": { "type": "null" } }
+          }
+        }
+      ]
+    },
     "runtimePort": {
       "type": "object",
       "required": [
@@ -1700,6 +1815,36 @@
             },
             "payload": {
               "$ref": "#/$defs/remoteSupportTunnelStatusPayload"
+            }
+          }
+        }
+      ]
+    },
+    "mcuFirmwareUpdateProgressEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "MCU_FIRMWARE_UPDATE_PROGRESS" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "MCU_FIRMWARE_DEPLOYMENT" }
+                  }
+                }
+              ]
+            },
+            "commandUid": {
+              "oneOf": [
+                { "$ref": "../common.schema.json#/$defs/uuid" },
+                { "type": "null" }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/mcuFirmwareUpdateProgressPayload"
             }
           }
         }

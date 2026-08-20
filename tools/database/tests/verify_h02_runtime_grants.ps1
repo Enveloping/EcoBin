@@ -9,18 +9,22 @@ $catalog = Import-PowerShellDataFile -LiteralPath $catalogPath
 $provisionPath = Join-Path $PSScriptRoot "../provision-h02-target.ps1"
 $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 
+if ($catalog.CatalogVersion -ne 28) {
+    throw "H-02 runtime grant catalog must be V28 for MCU firmware rollout"
+}
+
 if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
         $provisionSource -notmatch 'migrationManifestSha256' -or
         $provisionSource -notmatch 'migrationSourceCommit') {
     throw "H-02 provisioning must reject dirty migrations and record provenance"
 }
 
-if ($provisionSource -notmatch '\$tables\.Count -ne 113' -or
-        $provisionSource -notmatch 'Expected 113 domain tables') {
-    throw "H-02 provisioning must enforce the V54 113-table shape"
+if ($provisionSource -notmatch '\$tables\.Count -ne 118' -or
+        $provisionSource -notmatch 'Expected 118 domain tables') {
+    throw "H-02 provisioning must enforce the V55 118-table shape"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 54') {
-    throw "H-02 provisioning must migrate through V54"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 55') {
+    throw "H-02 provisioning must migrate through V55"
 }
 if ($provisionSource -notmatch
         'sha256:9cffaceb9b62d4280247acdb2324b380d2b36208ae34dfe9f0afb62eeaf70f08' -or
@@ -52,6 +56,59 @@ foreach ($entry in $catalog.UpdateColumns.GetEnumerator()) {
     }
     if (@($columns | Sort-Object -Unique).Count -ne $columns.Count) {
         throw "Runtime update grant list contains duplicates for $($entry.Key)"
+    }
+}
+
+$firmwareGrantShape = @{
+    dev_mcu_firmware_release = @(
+        "release_status"
+        "promoted_by_platform_admin_id"
+        "promoted_at"
+        "updated_at"
+    )
+    dev_mcu_firmware_rollout = @(
+        "rollout_status"
+        "current_wave_no"
+        "promoted_by_platform_admin_id"
+        "promoted_at"
+        "stopped_by_platform_admin_id"
+        "stopped_at"
+        "stop_reason"
+        "lock_version"
+        "updated_at"
+    )
+    dev_mcu_firmware_deployment = @(
+        "deployment_status"
+        "command_uid"
+        "reliable_task_uid"
+        "edge_update_uid"
+        "target_attempt_count"
+        "rollback_attempt_count"
+        "installed_firmware_version"
+        "installed_firmware_version_code"
+        "installed_firmware_identity_hex"
+        "error_code"
+        "last_event_uid"
+        "queued_at"
+        "completed_at"
+        "lock_version"
+        "updated_at"
+    )
+}
+foreach ($entry in $firmwareGrantShape.GetEnumerator()) {
+    $actual = @($catalog.UpdateColumns[$entry.Key])
+    if (@(Compare-Object @($entry.Value) $actual).Count -ne 0) {
+        throw "MCU firmware update grants differ for $($entry.Key)"
+    }
+}
+$assetFirmwareColumns = @(
+    "mcu_firmware_version_code"
+    "mcu_firmware_identity_hex"
+    "mcu_fixed_frame_revision"
+)
+foreach ($column in $assetFirmwareColumns) {
+    if (@($catalog.UpdateColumns.dev_device_asset) -notcontains $column) {
+        throw "MCU firmware asset update grant is missing $column"
     }
 }
 
@@ -241,6 +298,9 @@ $assetRequiredColumns = @(
     "registration_source"
     "factory_bag_revision"
     "factory_bag_set_sha256"
+    "mcu_firmware_version_code"
+    "mcu_firmware_identity_hex"
+    "mcu_fixed_frame_revision"
     "installation_display_name"
     "installation_address"
     "installation_latitude"
@@ -267,7 +327,7 @@ $assetRequiredColumns = @(
 )
 $assetColumns = @($catalog.UpdateColumns.dev_device_asset)
 if (@(Compare-Object $assetRequiredColumns $assetColumns).Count -ne 0) {
-    throw "dev_device_asset runtime UPDATE grants do not match V52"
+    throw "dev_device_asset runtime UPDATE grants do not match V55"
 }
 $rolloutRequiredColumns = @(
     "rollout_uid"

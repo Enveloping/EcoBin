@@ -28,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -174,6 +175,83 @@ class OneNetClientReliableSubmissionTest {
                         .digest(objectMapper.writeValueAsBytes(
                                 request.getValue().getBody())),
                 result.requestSha256());
+    }
+
+    @Test
+    void attachesFreshReadOnlyFirmwareGrantAndProjectsTypedService()
+            throws Exception {
+        ObjectNode frozen = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "start-mcu-firmware-update.command.json")));
+        frozen.putNull("cosGrant");
+        String envelope = objectMapper.writeValueAsString(frozen);
+        UUID commandUid = UUID.fromString(
+                "8c000000-0000-4000-8000-000000000003");
+        Instant grantExpiry = Instant.now().plusSeconds(1800);
+        when(cosUploadCredentialPort.issue(
+                eq(HARDWARE_SN),
+                isNull(),
+                eq("ecobin/mcu-firmware/"
+                        + "8c000000-0000-4000-8000-000000000001/")))
+                .thenReturn(new CosUploadCredential(
+                        "TMP_FIRMWARE_ID",
+                        "TMP_FIRMWARE_KEY",
+                        "FIRMWARE_SESSION_TOKEN",
+                        Instant.now().getEpochSecond(),
+                        grantExpiry.getEpochSecond(),
+                        "ecobin-contract-1250000000",
+                        "ap-guangzhou",
+                        "https://ecobin-contract-1250000000"
+                                + ".cos.ap-guangzhou.myqcloud.com"));
+        when(restTemplate.postForEntity(
+                anyString(), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"code\":0}"));
+
+        DeviceCommandSubmissionResult result = client.submit(submission(
+                envelope,
+                commandUid,
+                "START_MCU_FIRMWARE_UPDATE"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
+                result.outcome());
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<HttpEntity> request =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForEntity(
+                anyString(), request.capture(), eq(String.class));
+        JsonNode actual = objectMapper.valueToTree(
+                request.getValue().getBody());
+        assertEquals(
+                "startMcuFirmwareUpdate",
+                actual.path("identifier").asText());
+        JsonNode params = actual.path("params");
+        JsonNode first = params.path("scalarFields1");
+        JsonNode second = params.path("scalarFields2");
+        assertEquals(
+                "8c000000-0000-4000-8000-000000000002",
+                first.path("deploymentUid").asText());
+        assertEquals("2.1.0", first.path("firmwareVersion").asText());
+        assertEquals(20100, first.path("firmwareVersionCode").asLong());
+        assertEquals("TMP_FIRMWARE_ID",
+                first.path("cosGrantTmpSecretId").asText());
+        assertEquals("TMP_FIRMWARE_KEY",
+                second.path("cosGrantTmpSecretKey").asText());
+        assertEquals(
+                "ecobin/mcu-firmware/"
+                        + "8c000000-0000-4000-8000-000000000001/",
+                second.path("cosGrantKeyPrefix").asText());
+        assertEquals(
+                "FIRMWARE_SESSION_TOKEN",
+                params.path("cosGrantSessionTokenParts").get(0).asText());
+        Instant issuedAt = Instant.parse(first.path("issuedAt").asText());
+        Instant expiresAt = Instant.parse(first.path("expiresAt").asText());
+        Instant projectedGrantExpiry = Instant.parse(
+                second.path("cosGrantExpiresAt").asText());
+        assertTrue(expiresAt.isAfter(issuedAt));
+        assertTrue(!expiresAt.isAfter(issuedAt.plusSeconds(900)));
+        assertTrue(!projectedGrantExpiry.isBefore(expiresAt));
     }
 
     @Test

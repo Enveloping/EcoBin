@@ -37,6 +37,25 @@ def make_store() -> EdgeStore:
     return store
 
 
+def firmware_manifest(version_code: int = 10000) -> dict:
+    return {
+        "schemaVersion": 1,
+        "releaseUid": str(uuid.uuid4()),
+        "mcuPartNumber": "STM32F103C8T6",
+        "hardwareCompatibility": ["ecobin-controller-v1"],
+        "firmwareVersion": "1.0.0",
+        "firmwareVersionCode": version_code,
+        "fixedFrameRevision": 2,
+        "flashBase": "0x08000000",
+        "imageSize": 1024,
+        "imageSha256": "a" * 64,
+        "firmwareIdentityHex": "0102030405060708",
+        "buildCommit": "b" * 40,
+        "builtAt": "2026-08-19T00:00:00Z",
+        "signingKeyId": "release-2026",
+    }
+
+
 class TestEdgeStoreInit:
     """初始化与 Schema 创建。"""
 
@@ -47,6 +66,8 @@ class TestEdgeStoreInit:
             "event_outbox", "photo_outbox", "confirmation_inbox",
             "device_state", "faults", "tombstones",
             "port_fullness_state",
+            "maintenance_lock", "mcu_firmware_update",
+            "mcu_firmware_state", "mcu_firmware_progress",
         ]
         for name in tables:
             row = store._conn.execute(
@@ -229,6 +250,226 @@ class TestEdgeStoreInit:
         ):
             incompatible.initialize()
         incompatible.close()
+
+
+class TestMcuFirmwareUpdateJournal:
+    def test_update_lock_blocks_new_work_and_command_claims(self, tmp_path):
+        store = EdgeStore(str(tmp_path / "edge.db"))
+        store.initialize()
+        store.receive_command("cmd-pending", "TEST", {})
+        update_uid = str(uuid.uuid4())
+        deployment_uid = str(uuid.uuid4())
+
+        result = store.begin_mcu_firmware_update(
+            update_uid=update_uid,
+            deployment_uid=deployment_uid,
+            source="LOCAL",
+            package_path=str((tmp_path / "release.efw").resolve()),
+            package_sha256="1" * 64,
+            manifest=firmware_manifest(),
+            legacy_preflight=True,
+            requested_reason="bench rollout",
+        )
+
+        assert result == "ACCEPTED"
+        assert store.get_maintenance_lock()["owner_uid"] == update_uid
+        assert store.acquire_work_slot(
+            WORK_TYPE_DELIVERY,
+            "blocked-work",
+            1,
+            {},
+        ) is False
+        assert store.claim_next_command() is None
+        store.close()
+
+    def test_current_and_previous_stable_packages_are_shifted_atomically(
+        self,
+        tmp_path,
+    ):
+        store = EdgeStore(str(tmp_path / "edge.db"))
+        store.initialize()
+        first_uid = str(uuid.uuid4())
+        first_manifest = firmware_manifest(10000)
+        first_path = str((tmp_path / "first.efw").resolve())
+        assert store.begin_mcu_firmware_update(
+            update_uid=first_uid,
+            deployment_uid=str(uuid.uuid4()),
+            source="LOCAL",
+            package_path=first_path,
+            package_sha256="1" * 64,
+            manifest=first_manifest,
+            legacy_preflight=True,
+        ) == "ACCEPTED"
+        assert store.record_mcu_firmware_attempt(
+            first_uid,
+            rollback=False,
+        ) == 1
+        assert store.complete_mcu_firmware_update(first_uid)
+
+        second_uid = str(uuid.uuid4())
+        second_manifest = firmware_manifest(20000)
+        second_path = str((tmp_path / "second.efw").resolve())
+        assert store.begin_mcu_firmware_update(
+            update_uid=second_uid,
+            deployment_uid=str(uuid.uuid4()),
+            source="CLOUD",
+            package_path=second_path,
+            package_sha256="2" * 64,
+            manifest=second_manifest,
+        ) == "ACCEPTED"
+        pending = store.get_mcu_firmware_update(second_uid)
+        assert pending["previous_package_path"] == first_path
+        assert pending["previous_manifest"] == first_manifest
+        assert store.complete_mcu_firmware_update(second_uid)
+
+        stable = store.get_mcu_firmware_state()
+        assert stable["current_package_path"] == second_path
+        assert stable["current_manifest"] == second_manifest
+        assert stable["previous_package_path"] == first_path
+        assert stable["previous_manifest"] == first_manifest
+        assert store.get_maintenance_lock() is None
+        store.close()
+
+    def test_successful_rollback_keeps_stable_identity_and_unlocks(self, tmp_path):
+        store = EdgeStore(str(tmp_path / "edge.db"))
+        store.initialize()
+        stable_uid = str(uuid.uuid4())
+        stable_manifest = firmware_manifest(10000)
+        assert store.begin_mcu_firmware_update(
+            update_uid=stable_uid,
+            deployment_uid=str(uuid.uuid4()),
+            source="LOCAL",
+            package_path=str((tmp_path / "stable.efw").resolve()),
+            package_sha256="1" * 64,
+            manifest=stable_manifest,
+            legacy_preflight=True,
+        ) == "ACCEPTED"
+        assert store.complete_mcu_firmware_update(stable_uid)
+
+        failed_uid = str(uuid.uuid4())
+        assert store.begin_mcu_firmware_update(
+            update_uid=failed_uid,
+            deployment_uid=str(uuid.uuid4()),
+            source="CLOUD",
+            package_path=str((tmp_path / "bad.efw").resolve()),
+            package_sha256="2" * 64,
+            manifest=firmware_manifest(20000),
+        ) == "ACCEPTED"
+        assert store.record_mcu_firmware_attempt(
+            failed_uid,
+            rollback=True,
+        ) == 1
+        assert store.complete_mcu_firmware_rollback(failed_uid)
+
+        assert store.get_mcu_firmware_update(failed_uid)["state"] == "ROLLED_BACK"
+        assert store.get_mcu_firmware_state()["current_manifest"] == stable_manifest
+        assert store.get_maintenance_lock() is None
+        assert store.create_mcu_firmware_progress_event(
+            device_name="SN-TEST-1",
+            update_uid=failed_uid,
+            stage="ROLLED_BACK",
+        ) == "ACCEPTED"
+        envelope = json.loads(store.list_pending_events()[0]["payload_json"])
+        assert envelope["payload"]["firmwareVersionCode"] == 20000
+        assert (
+            envelope["payload"]["installedFirmwareVersion"]
+            == stable_manifest["firmwareVersion"]
+        )
+        assert (
+            envelope["payload"]["installedFirmwareVersionCode"]
+            == stable_manifest["firmwareVersionCode"]
+        )
+        assert (
+            envelope["payload"]["installedFirmwareIdentityHex"]
+            == stable_manifest["firmwareIdentityHex"]
+        )
+        store.close()
+
+    def test_failed_update_lock_survives_process_reopen(self, tmp_path):
+        path = tmp_path / "edge.db"
+        store = EdgeStore(str(path))
+        store.initialize()
+        update_uid = str(uuid.uuid4())
+        assert store.begin_mcu_firmware_update(
+            update_uid=update_uid,
+            deployment_uid=str(uuid.uuid4()),
+            source="LOCAL",
+            package_path=str((tmp_path / "bad.efw").resolve()),
+            package_sha256="3" * 64,
+            manifest=firmware_manifest(),
+            legacy_preflight=True,
+        ) == "ACCEPTED"
+        assert store.fail_mcu_firmware_update_locked(
+            update_uid,
+            "ROLLBACK_FAILED",
+            "target and rollback verification failed",
+        )
+        store.close()
+
+        reopened = EdgeStore(str(path))
+        reopened.initialize()
+        update = reopened.get_active_mcu_firmware_update()
+        assert update["update_uid"] == update_uid
+        assert update["state"] == "FAILED_LOCKED"
+        assert update["last_error_code"] == "ROLLBACK_FAILED"
+        reopened.close()
+
+    def test_cloud_update_may_exclude_its_own_processing_command(self, tmp_path):
+        store = EdgeStore(str(tmp_path / "edge.db"))
+        store.initialize()
+        command_uid = str(uuid.uuid4())
+        store.receive_command(command_uid, "START_MCU_FIRMWARE_UPDATE", {})
+        assert store.claim_next_command()["command_uid"] == command_uid
+
+        assert store.begin_mcu_firmware_update(
+            update_uid=str(uuid.uuid4()),
+            deployment_uid=str(uuid.uuid4()),
+            command_uid=command_uid,
+            source="CLOUD",
+            package_path=str((tmp_path / "release.efw").resolve()),
+            package_sha256="4" * 64,
+            manifest=firmware_manifest(),
+        ) == "ACCEPTED"
+        store.close()
+
+    def test_update_progress_event_is_reliable_and_attempt_idempotent(self, tmp_path):
+        store = EdgeStore(str(tmp_path / "edge.db"))
+        store.initialize()
+        update_uid = str(uuid.uuid4())
+        deployment_uid = str(uuid.uuid4())
+        manifest = firmware_manifest()
+        assert store.begin_mcu_firmware_update(
+            update_uid=update_uid,
+            deployment_uid=deployment_uid,
+            source="LOCAL",
+            package_path=str((tmp_path / "release.efw").resolve()),
+            package_sha256="5" * 64,
+            manifest=manifest,
+            legacy_preflight=True,
+        ) == "ACCEPTED"
+
+        assert store.create_mcu_firmware_progress_event(
+            device_name="SN-TEST-1",
+            update_uid=update_uid,
+            stage="QUEUED",
+        ) == "ACCEPTED"
+        assert store.create_mcu_firmware_progress_event(
+            device_name="SN-TEST-1",
+            update_uid=update_uid,
+            stage="QUEUED",
+        ) == "DUPLICATE"
+        events = store.list_pending_events()
+        envelope = json.loads(events[0]["payload_json"])
+        assert envelope["eventType"] == "MCU_FIRMWARE_UPDATE_PROGRESS"
+        assert envelope["deliveryClass"] == "RELIABLE_FACT"
+        assert envelope["target"] == {
+            "type": "MCU_FIRMWARE_DEPLOYMENT",
+            "uid": deployment_uid,
+        }
+        assert envelope["payload"]["stage"] == "QUEUED"
+        assert envelope["payload"]["releaseUid"] == manifest["releaseUid"]
+        assert envelope["payload"]["installedFirmwareVersion"] is None
+        store.close()
 
 
 class TestAtomicReceiveCommand:

@@ -2,6 +2,7 @@ import { lazy, type ReactNode } from 'react';
 import {
   ApartmentOutlined,
   BankOutlined,
+  CloudSyncOutlined,
   CloudServerOutlined,
   DollarOutlined,
   IdcardOutlined,
@@ -36,6 +37,7 @@ const AccountSettingsPage = lazy(() => import('@/pages/account'));
 const DeviceManagementPage = lazy(
   () => import('@/pages/device-management'),
 );
+const McuFirmwarePage = lazy(() => import('@/pages/mcu-firmware'));
 const BagLabelsPage = lazy(() => import('@/pages/bag-labels'));
 const DeliveryOrdersPage = lazy(
   () => import('@/pages/delivery-orders'),
@@ -175,6 +177,14 @@ export const appRoutes: AppRoute[] = [
     icon: <CloudServerOutlined />,
     element: <DeviceManagementPage />,
     allOf: ['device.read'],
+  },
+  {
+    path: '/mcu-firmware',
+    name: 'MCU 固件灰度',
+    icon: <CloudSyncOutlined />,
+    element: <McuFirmwarePage />,
+    allOf: ['device.manage'],
+    accountTypes: PLATFORM,
   },
   {
     path: '/bag-labels',
@@ -355,7 +365,12 @@ export function menuRoutesFor(
   const walletEntries = visibleRoute(session, '/wallet-entries');
   if (walletEntries) menu.push(leaf(walletEntries));
 
-  for (const path of ['/staff', '/devices', '/bag-labels'] as const) {
+  for (const path of [
+    '/staff',
+    '/devices',
+    '/mcu-firmware',
+    '/bag-labels',
+  ] as const) {
     const route = visibleRoute(session, path);
     if (route) menu.push(leaf(route));
   }

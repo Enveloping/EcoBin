@@ -135,7 +135,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             new EventContract(
                     "REMOTE_SUPPORT_TUNNEL_STATUS",
                     "RELIABLE_FACT",
-                    "DEVICE_ASSET")));
+                    "DEVICE_ASSET")),
+            Map.entry("mcuFirmwareUpdateProgress",
+            new EventContract(
+                    "MCU_FIRMWARE_UPDATE_PROGRESS",
+                    "RELIABLE_FACT",
+                    "MCU_FIRMWARE_DEPLOYMENT")));
 
     private static final Map<Long, String> CLOCK_QUALITY = Map.of(
             1L, "SYNCED",
@@ -234,7 +239,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             "DEVICE_FAULT_OBSERVED",
             "DEVICE_FAULT_RECOVERED",
             "SAFETY_SENSOR_STATE_CHANGED",
-            "REMOTE_SUPPORT_TUNNEL_STATUS");
+            "REMOTE_SUPPORT_TUNNEL_STATUS",
+            "MCU_FIRMWARE_UPDATE_PROGRESS");
 
     private final TrustedInboxPort trustedInboxPort;
     private final TrustedDeviceSourceScopePort sourceScopePort;
@@ -558,6 +564,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         if ("DEVICE_ACCEPTANCE_EVIDENCE".equals(
                 contract.messageKind())
                 || "REMOTE_SUPPORT_TUNNEL_STATUS".equals(
+                        contract.messageKind())
+                || "MCU_FIRMWARE_UPDATE_PROGRESS".equals(
                         contract.messageKind())) {
             return sourceScopePort.resolverForPlatformAsset(hardwareSn);
         }
@@ -579,9 +587,13 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     private static String sourceNamespace(EventContract contract) {
         // 远程维护状态属于平台控制事实。独立的稳定来源身份既隔离权限边界，也允许
         // 已按旧规则错误落入机构作用域的不可变收件记录通过重传安全收敛。
-        return "REMOTE_SUPPORT_TUNNEL_STATUS".equals(contract.messageKind())
-                ? "onenet.remote-support-status"
-                : "onenet.device-event";
+        return switch (contract.messageKind()) {
+            case "REMOTE_SUPPORT_TUNNEL_STATUS" ->
+                    "onenet.remote-support-status";
+            case "MCU_FIRMWARE_UPDATE_PROGRESS" ->
+                    "onenet.mcu-firmware-progress";
+            default -> "onenet.device-event";
+        };
     }
 
     private void quarantine(
@@ -680,7 +692,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                  "CLEAN_OPERATION",
                  "FULLNESS_DETECTION",
                  "BASELINE_MEASUREMENT",
-                 "PORT_FULLNESS_STATE" ->
+                 "PORT_FULLNESS_STATE",
+                 "MCU_FIRMWARE_DEPLOYMENT" ->
                     pattern(target, "uid", UUID_V4);
             default -> throw permanent(
                     "unsupported trusted event target");
@@ -775,6 +788,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     confirmationReceiptPayload(wire);
             case "REMOTE_SUPPORT_TUNNEL_STATUS" ->
                     remoteSupportStatusPayload(wire);
+            case "MCU_FIRMWARE_UPDATE_PROGRESS" ->
+                    mcuFirmwareProgressPayload(wire);
             default -> throw permanent(
                     "unsupported trusted event payload");
         };
@@ -2625,6 +2640,117 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         return payload;
     }
 
+    private static Map<String, Object> mcuFirmwareProgressPayload(
+            JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(
+                "deploymentUid",
+                pattern(wire, "deploymentUid", UUID_V4));
+        payload.put("updateUid", pattern(wire, "updateUid", UUID_V4));
+        payload.put("releaseUid", pattern(wire, "releaseUid", UUID_V4));
+        payload.put(
+                "source",
+                enumText(
+                        integer(wire, "source"),
+                        Map.of(1L, "CLOUD", 2L, "LOCAL"),
+                        "source"));
+        String stage = enumText(
+                integer(wire, "stage"),
+                Map.ofEntries(
+                        Map.entry(1L, "QUEUED"),
+                        Map.entry(2L, "PREFLIGHT"),
+                        Map.entry(3L, "PREPARED"),
+                        Map.entry(4L, "FLASHING_TARGET"),
+                        Map.entry(5L, "VERIFYING_TARGET"),
+                        Map.entry(6L, "ROLLING_BACK"),
+                        Map.entry(7L, "VERIFYING_ROLLBACK"),
+                        Map.entry(8L, "SUCCEEDED"),
+                        Map.entry(9L, "ROLLED_BACK"),
+                        Map.entry(10L, "FAILED_LOCKED"),
+                        Map.entry(11L, "REJECTED")),
+                "stage");
+        payload.put("stage", stage);
+        payload.put(
+                "firmwareVersion",
+                text(wire, "firmwareVersion", 32));
+        payload.put(
+                "firmwareVersionCode",
+                requiredIntegerInRange(
+                        wire, "firmwareVersionCode", 1, 4_294_967_295L));
+        payload.put(
+                "firmwareIdentityHex",
+                pattern(
+                        wire,
+                        "firmwareIdentityHex",
+                        "^[0-9a-f]{16}$"));
+        payload.put(
+                "fixedFrameRevision",
+                exactEnum(wire, "fixedFrameRevision", 1, 2L));
+        payload.put(
+                "targetAttemptCount",
+                requiredIntegerInRange(
+                        wire, "targetAttemptCount", 0, 3));
+        payload.put(
+                "rollbackAttemptCount",
+                requiredIntegerInRange(
+                        wire, "rollbackAttemptCount", 0, 3));
+        payload.put("legacyPreflight", bool(wire, "legacyPreflight"));
+        payload.put(
+                "downgradeAuthorized",
+                bool(wire, "downgradeAuthorized"));
+        String installedVersion = nullablePresenceText(
+                wire,
+                "installedFirmwareVersionPresent",
+                "installedFirmwareVersion",
+                "^.{5,32}$",
+                32);
+        Long installedVersionCode = nullablePresenceInteger(
+                wire,
+                "installedFirmwareVersionCPresent",
+                "installedFirmwareVersionC",
+                true);
+        if (installedVersionCode != null
+                && installedVersionCode > 4_294_967_295L) {
+            throw permanent(
+                    "installed firmware version code is outside range");
+        }
+        String installedIdentity = nullablePresenceText(
+                wire,
+                "installedFirmwareIdentityPresent",
+                "installedFirmwareIdentity",
+                "^[0-9a-f]{16}$",
+                16);
+        boolean installedAllNull = installedVersion == null
+                && installedVersionCode == null
+                && installedIdentity == null;
+        boolean installedAllPresent = installedVersion != null
+                && installedVersionCode != null
+                && installedIdentity != null;
+        if (!installedAllNull && !installedAllPresent) {
+            throw permanent(
+                    "installed firmware identity presence flags differ");
+        }
+        payload.put("installedFirmwareVersion", installedVersion);
+        payload.put(
+                "installedFirmwareVersionCode", installedVersionCode);
+        payload.put(
+                "installedFirmwareIdentityHex", installedIdentity);
+        String errorCode = nullablePresenceText(
+                wire,
+                "errorCodePresent",
+                "errorCode",
+                "^[A-Z][A-Z0-9_]{0,63}$",
+                64);
+        boolean failure = "FAILED_LOCKED".equals(stage)
+                || "REJECTED".equals(stage);
+        if (failure != (errorCode != null)) {
+            throw permanent(
+                    "firmware failure stage and error code presence differ");
+        }
+        payload.put("errorCode", errorCode);
+        return payload;
+    }
+
     private static void validateSemanticShape(
             EventContract contract,
             Map<String, Object> event,
@@ -2703,6 +2829,14 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 && event.get("commandUid") == null) {
             throw permanent(
                     "remote support status lacks its command or device target");
+        }
+        if ("MCU_FIRMWARE_UPDATE_PROGRESS".equals(
+                contract.messageKind())
+                && (!payload.get("deploymentUid").equals(targetUid)
+                || ("CLOUD".equals(payload.get("source"))
+                && event.get("commandUid") == null))) {
+            throw permanent(
+                    "MCU firmware progress differs from its deployment target");
         }
     }
 

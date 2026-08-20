@@ -247,6 +247,91 @@ def valid_compat_service_command(example_name):
     return command
 
 
+class FakeMcuFirmwareUpdater:
+    def __init__(self):
+        self.calls = []
+
+    def queue_cloud(self, **kwargs):
+        self.calls.append(kwargs)
+        return {
+            "disposition": "QUEUED",
+            "updateUid": "8c000000-0000-4000-8000-000000000004",
+            "deploymentUid": kwargs["deployment_uid"],
+            "state": "QUEUED",
+            "manifest": {
+                "firmwareVersion": kwargs["firmware_version"],
+                "firmwareVersionCode": kwargs["firmware_version_code"],
+                "firmwareIdentityHex": kwargs["firmware_identity_hex"],
+            },
+        }
+
+
+def test_mcu_firmware_command_uses_volatile_grant_and_queues_updater(tmp_path):
+    store = make_store(tmp_path)
+    uart = FakeUart()
+    updater = FakeMcuFirmwareUpdater()
+    command = valid_service_command(
+        "start-mcu-firmware-update.service-wire.json"
+    )
+    command["cosGrant"]["expiresAt"] = (
+        datetime.now(timezone.utc) + timedelta(minutes=10)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    trusted = {
+        field: command["cosGrant"][field]
+        for field in ("bucket", "region", "baseUrl")
+    }
+    grant = command["cosGrant"]
+    assert store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    ) == "ACCEPTED"
+    processor = CommandProcessor(
+        store,
+        uart,
+        trusted_cos_environment=trusted,
+        mcu_firmware_updater=updater,
+    )
+    assert processor.offer_cos_grant(command["commandUid"], grant)
+
+    assert processor.process_next()
+
+    row = store.get_command(command["commandUid"])
+    assert row["state"] == "COMPLETED"
+    assert row["payload"]["cosGrant"] is None
+    assert row["result"]["state"] == "QUEUED"
+    assert updater.calls[0]["deployment_uid"] == command["payload"][
+        "deploymentUid"
+    ]
+    assert updater.calls[0]["release_uid"] == command["payload"]["releaseUid"]
+    assert updater.calls[0]["cos_grant"] == grant
+    store.close()
+
+
+def test_mcu_firmware_command_without_volatile_grant_fails_closed(tmp_path):
+    store = make_store(tmp_path)
+    command = valid_service_command(
+        "start-mcu-firmware-update.service-wire.json"
+    )
+    assert store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    ) == "ACCEPTED"
+    processor = CommandProcessor(
+        store,
+        FakeUart(),
+        mcu_firmware_updater=FakeMcuFirmwareUpdater(),
+    )
+
+    assert processor.process_next()
+
+    row = store.get_command(command["commandUid"])
+    assert row["state"] == "FAILED"
+    assert row["last_error"] == "FIRMWARE_GRANT_NOT_AVAILABLE"
+    store.close()
+
+
 def test_apply_configuration_consumes_inbox_and_waits_for_mcu_result(tmp_path):
     store = make_store(tmp_path)
     uart = FakeUart()

@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 27
+    CatalogVersion = 28
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -154,6 +154,9 @@
             "registration_source"
             "factory_bag_revision"
             "factory_bag_set_sha256"
+            "mcu_firmware_version_code"
+            "mcu_firmware_identity_hex"
+            "mcu_fixed_frame_revision"
             "installation_display_name"
             "installation_address"
             "installation_latitude"
@@ -176,6 +179,40 @@
             "retired_at"
             "retirement_reason"
             "control_version"
+            "updated_at"
+        )
+        dev_mcu_firmware_release = @(
+            "release_status"
+            "promoted_by_platform_admin_id"
+            "promoted_at"
+            "updated_at"
+        )
+        dev_mcu_firmware_rollout = @(
+            "rollout_status"
+            "current_wave_no"
+            "promoted_by_platform_admin_id"
+            "promoted_at"
+            "stopped_by_platform_admin_id"
+            "stopped_at"
+            "stop_reason"
+            "lock_version"
+            "updated_at"
+        )
+        dev_mcu_firmware_deployment = @(
+            "deployment_status"
+            "command_uid"
+            "reliable_task_uid"
+            "edge_update_uid"
+            "target_attempt_count"
+            "rollback_attempt_count"
+            "installed_firmware_version"
+            "installed_firmware_version_code"
+            "installed_firmware_identity_hex"
+            "error_code"
+            "last_event_uid"
+            "queued_at"
+            "completed_at"
+            "lock_version"
             "updated_at"
         )
         # The factory mini-program may correct a mis-scanned label before

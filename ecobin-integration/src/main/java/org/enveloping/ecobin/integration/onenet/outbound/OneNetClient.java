@@ -109,6 +109,12 @@ public class OneNetClient
                 envelope = attachDeviceAcceptanceGrant(
                         envelope,
                         submission);
+            } else if ("START_MCU_FIRMWARE_UPDATE".equals(
+                    submission.commandType())) {
+                validateMcuFirmwareUpdate(envelope, submission);
+                envelope = attachMcuFirmwareReadGrant(
+                        envelope,
+                        submission);
             }
             String identifier;
             Map<String, Object> params;
@@ -164,6 +170,10 @@ public class OneNetClient
                     submission.commandType())) {
                 identifier = "closeRemoteSupportTunnel";
                 params = projectRemoteSupport(envelope, false);
+            } else if ("START_MCU_FIRMWARE_UPDATE".equals(
+                    submission.commandType())) {
+                identifier = "startMcuFirmwareUpdate";
+                params = projectMcuFirmwareUpdate(envelope);
             } else {
                 return permanent(
                         "COMMAND_TYPE_UNSUPPORTED",
@@ -398,6 +408,101 @@ public class OneNetClient
                 Instant.ofEpochSecond(
                         credential.expiredTime()).toString());
         envelope.set("cosGrant", grant);
+        return envelope;
+    }
+
+    private void validateMcuFirmwareUpdate(
+            JsonNode envelope,
+            DeviceCommandSubmission submission) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        String deploymentUid = requiredUuid(payload, "deploymentUid");
+        String releaseUid = requiredUuid(payload, "releaseUid");
+        String targetDeviceName = requiredBoundedText(
+                envelope, "targetDeviceName", 64);
+        if (!submission.hardwareSn().equals(targetDeviceName)
+                || !"MCU_FIRMWARE_DEPLOYMENT".equals(
+                requiredText(target, "type"))
+                || !deploymentUid.equals(requiredUuid(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "MCU firmware target differs from its frozen deployment");
+        }
+        requiredMatchingText(
+                payload,
+                "firmwareVersion",
+                "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$",
+                32);
+        requiredInteger(
+                payload, "firmwareVersionCode", 1, 4_294_967_295L);
+        requiredMatchingText(
+                payload,
+                "firmwareIdentityHex",
+                "^[0-9a-f]{16}$",
+                16);
+        String packageSha256 = requiredMatchingText(
+                payload, "packageSha256", "^[0-9a-f]{64}$", 64);
+        requiredInteger(payload, "packageSize", 1, 131_072);
+        String expectedObjectKey = "ecobin/mcu-firmware/"
+                + releaseUid
+                + "/"
+                + packageSha256
+                + ".efw";
+        if (!expectedObjectKey.equals(
+                requiredBoundedText(payload, "objectKey", 512))) {
+            throw new IllegalArgumentException(
+                    "MCU firmware object key differs from release digest");
+        }
+        JsonNode reason = payload.get("reason");
+        if (reason == null
+                || (!reason.isNull()
+                && (!reason.isTextual()
+                || reason.asText().isBlank()
+                || reason.asText().length() > 500))) {
+            throw new IllegalArgumentException(
+                    "MCU firmware reason must be explicit null or bounded text");
+        }
+        JsonNode frozenGrant = envelope.get("cosGrant");
+        if (frozenGrant == null || !frozenGrant.isNull()) {
+            throw new IllegalArgumentException(
+                    "frozen MCU firmware command must not persist COS secrets");
+        }
+    }
+
+    private JsonNode attachMcuFirmwareReadGrant(
+            JsonNode frozenEnvelope,
+            DeviceCommandSubmission submission) {
+        ObjectNode envelope = (ObjectNode) frozenEnvelope.deepCopy();
+        JsonNode payload = requiredObject(envelope, "payload");
+        String releaseUid = requiredUuid(payload, "releaseUid");
+        String keyPrefix = "ecobin/mcu-firmware/" + releaseUid + "/";
+        CosUploadCredential credential = cosUploadCredentialPort.issue(
+                submission.hardwareSn(), null, keyPrefix);
+        Instant issuedAt = Instant.now();
+        Instant grantExpiresAt = Instant.ofEpochSecond(
+                credential.expiredTime());
+        if (!grantExpiresAt.isAfter(issuedAt.plusSeconds(60))) {
+            throw new IllegalArgumentException(
+                    "MCU firmware COS read grant expires too soon");
+        }
+        Instant commandExpiresAt = issuedAt.plusSeconds(900);
+        if (!grantExpiresAt.isAfter(commandExpiresAt)) {
+            commandExpiresAt = grantExpiresAt.minusSeconds(1);
+        }
+
+        ObjectNode grant = objectMapper.createObjectNode();
+        grant.put("grantUid", UUID.randomUUID().toString());
+        grant.put("tmpSecretId", credential.tmpSecretId());
+        grant.put("tmpSecretKey", credential.tmpSecretKey());
+        ArrayNode tokenParts = grant.putArray("sessionTokenParts");
+        splitSessionToken(credential.sessionToken()).forEach(tokenParts::add);
+        grant.put("bucket", credential.bucket());
+        grant.put("region", credential.region());
+        grant.put("baseUrl", credential.baseUrl());
+        grant.put("keyPrefix", keyPrefix);
+        grant.put("expiresAt", grantExpiresAt.toString());
+        envelope.set("cosGrant", grant);
+        envelope.put("issuedAt", issuedAt.toString());
+        envelope.put("expiresAt", commandExpiresAt.toString());
         return envelope;
     }
 
@@ -1372,7 +1477,7 @@ public class OneNetClient
                         grant,
                         "keyPrefix",
                         "^ecobin/(delivery-session|clean-operation|"
-                                + "device-acceptance)/"
+                                + "device-acceptance|mcu-firmware)/"
                                 + "[0-9a-f-]{36}/$",
                         256));
         scalarFields2.put(
@@ -1896,6 +2001,128 @@ public class OneNetClient
             params.put("payloadExpiresAt", payloadExpiresAt);
         }
         params.put("cosGrantPresent", false);
+        return params;
+    }
+
+    private Map<String, Object> projectMcuFirmwareUpdate(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        String deploymentUid = requiredUuid(payload, "deploymentUid");
+        String releaseUid = requiredUuid(payload, "releaseUid");
+        if (!"MCU_FIRMWARE_DEPLOYMENT".equals(
+                requiredText(target, "type"))
+                || !deploymentUid.equals(requiredUuid(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "MCU firmware target differs from deployment");
+        }
+        String issuedAtText = requiredInstant(envelope, "issuedAt");
+        String expiresAtText = requiredInstant(envelope, "expiresAt");
+        Instant issuedAt = Instant.parse(issuedAtText);
+        Instant expiresAt = Instant.parse(expiresAtText);
+        if (!expiresAt.isAfter(issuedAt)
+                || expiresAt.isAfter(issuedAt.plusSeconds(900))) {
+            throw new IllegalArgumentException(
+                    "MCU firmware command lifetime must not exceed 15 minutes");
+        }
+        String payloadSha256 = requiredMatchingText(
+                envelope, "payloadSha256", "^[0-9a-f]{64}$", 64);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> semanticPayload = objectMapper.convertValue(
+                payload, Map.class);
+        if (!payloadSha256.equals(
+                OneNetCanonicalJson.payloadSha256(semanticPayload))) {
+            throw new IllegalArgumentException(
+                    "MCU firmware payload digest differs");
+        }
+
+        Map<String, Object> scalarFields1 = new LinkedHashMap<>();
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        scalarFields1.put("schemaVersion", 1);
+        scalarFields1.put(
+                "commandUid", requiredUuid(envelope, "commandUid"));
+        scalarFields1.put("commandType", 1);
+        scalarFields1.put(
+                "targetDeviceName",
+                requiredBoundedText(envelope, "targetDeviceName", 64));
+        scalarFields1.put("issuedAt", issuedAtText);
+        scalarFields1.put("expiresAt", expiresAtText);
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        scalarFields1.put("payloadSchemaVersion", 1);
+        scalarFields1.put("payloadSha256", payloadSha256);
+        scalarFields1.put("deploymentUid", deploymentUid);
+        scalarFields1.put("releaseUid", releaseUid);
+        scalarFields1.put(
+                "firmwareVersion",
+                requiredMatchingText(
+                        payload,
+                        "firmwareVersion",
+                        "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$",
+                        32));
+        scalarFields1.put(
+                "firmwareVersionCode",
+                requiredInteger(
+                        payload,
+                        "firmwareVersionCode",
+                        1,
+                        4_294_967_295L));
+        scalarFields1.put(
+                "firmwareIdentityHex",
+                requiredMatchingText(
+                        payload,
+                        "firmwareIdentityHex",
+                        "^[0-9a-f]{16}$",
+                        16));
+        scalarFields1.put(
+                "objectKey",
+                requiredBoundedText(payload, "objectKey", 512));
+        scalarFields1.put(
+                "packageSha256",
+                requiredMatchingText(
+                        payload, "packageSha256", "^[0-9a-f]{64}$", 64));
+        scalarFields1.put(
+                "packageSize",
+                requiredInteger(payload, "packageSize", 1, 131_072));
+        JsonNode reason = payload.get("reason");
+        boolean reasonPresent = reason != null && !reason.isNull();
+        scalarFields1.put("reasonPresent", reasonPresent);
+        scalarFields1.put(
+                "reason",
+                reasonPresent
+                        ? requiredBoundedText(payload, "reason", 500)
+                        : "");
+
+        Map<String, Object> grantFirst = new LinkedHashMap<>();
+        Map<String, Object> scalarFields2 = new LinkedHashMap<>();
+        List<String> sessionTokenParts = new ArrayList<>();
+        projectCosGrant(
+                envelope,
+                grantFirst,
+                scalarFields2,
+                sessionTokenParts);
+        if (!Boolean.TRUE.equals(grantFirst.remove("cosGrantPresent"))) {
+            throw new IllegalArgumentException(
+                    "MCU firmware command requires a COS read grant");
+        }
+        scalarFields2.put(
+                "cosGrantTmpSecretKey",
+                grantFirst.remove("cosGrantTmpSecretKey"));
+        scalarFields2.put(
+                "cosGrantBucket",
+                grantFirst.remove("cosGrantBucket"));
+        scalarFields1.putAll(grantFirst);
+        Instant grantExpiry = Instant.parse(
+                (String) scalarFields2.get("cosGrantExpiresAt"));
+        if (grantExpiry.isBefore(expiresAt)) {
+            throw new IllegalArgumentException(
+                    "MCU firmware COS grant expires before the command");
+        }
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("scalarFields1", scalarFields1);
+        params.put("scalarFields2", scalarFields2);
+        params.put("target", Map.of("type", 1, "uid", deploymentUid));
+        params.put("cosGrantSessionTokenParts", sessionTokenParts);
         return params;
     }
 

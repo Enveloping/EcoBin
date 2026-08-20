@@ -14,6 +14,7 @@
     { "$ref": "#/$defs/providePhotoUploadGrantCommand" },
     { "$ref": "#/$defs/requestDeviceAcceptanceCommand" },
     { "$ref": "#/$defs/syncDeviceEntryUrlCommand" },
+    { "$ref": "#/$defs/startMcuFirmwareUpdateCommand" },
     { "$ref": "#/$defs/openRemoteSupportTunnelCommand" },
     { "$ref": "#/$defs/closeRemoteSupportTunnelCommand" }
   ],
@@ -685,6 +686,68 @@
         }
       }
     },
+    "startMcuFirmwareUpdatePayload": {
+      "type": "object",
+      "required": [
+        "deploymentUid",
+        "releaseUid",
+        "firmwareVersion",
+        "firmwareVersionCode",
+        "firmwareIdentityHex",
+        "objectKey",
+        "packageSha256",
+        "packageSize",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "deploymentUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "releaseUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "firmwareVersion": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 32,
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+        },
+        "firmwareVersionCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "firmwareIdentityHex": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "objectKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^ecobin/mcu-firmware/[0-9a-f-]{36}/[0-9a-f]{64}\\.efw$"
+        },
+        "packageSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "packageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 131072
+        },
+        "reason": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
     "openRemoteSupportTunnelPayload": {
       "type": "object",
       "required": ["sessionUid", "remotePort", "expiresAt"],
@@ -974,6 +1037,32 @@
               "$ref": "#/$defs/syncDeviceEntryUrlPayload"
             },
             "cosGrant": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "startMcuFirmwareUpdateCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "START_MCU_FIRMWARE_UPDATE" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "MCU_FIRMWARE_DEPLOYMENT" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/startMcuFirmwareUpdatePayload"
+            },
+            "cosGrant": {
+              "$ref": "../common.schema.json#/$defs/cosGrant"
+            }
           }
         }
       ]

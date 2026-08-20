@@ -53,22 +53,28 @@ public class CosTokenClient implements CosUploadCredentialPort {
             throw new IllegalStateException(
                     "REAL mode requires complete COS configuration");
         }
-        if (keyPrefix == null || !keyPrefix.matches(
+        boolean firmwareRead = keyPrefix != null && keyPrefix.matches(
+                "^ecobin/mcu-firmware/"
+                        + "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
+                        + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}/$");
+        boolean workUpload = keyPrefix != null && keyPrefix.matches(
                 "^ecobin/(delivery-session|clean-operation|device-acceptance)/"
                         + "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
-                        + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}/$")) {
+                        + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}/$");
+        if (!firmwareRead && !workUpload) {
             throw new IllegalArgumentException(
                     "COS work prefix is outside the target contract");
         }
 
-        return getRealTempCredentials(keyPrefix);
+        return getRealTempCredentials(keyPrefix, firmwareRead);
     }
 
     /**
      * 真实 STS 调用（凭证齐全时）。
      */
     private CosUploadCredential getRealTempCredentials(
-            String keyPrefix) {
+            String keyPrefix,
+            boolean firmwareRead) {
         TreeMap<String, Object> config = new TreeMap<>();
         config.put("secretId", properties.getSecretId());
         config.put("secretKey", properties.getSecretKey());
@@ -82,16 +88,19 @@ public class CosTokenClient implements CosUploadCredentialPort {
         Policy policy = new Policy();
         Statement statement = new Statement();
         statement.setEffect("allow");
-        java.util.ArrayList<String> actions = new java.util.ArrayList<>(
-                java.util.List.of(
-                "name/cos:PutObject",
-                "name/cos:PostObject",
-                "cos:InitiateMultipartUpload",
-                "cos:ListMultipartUploads",
-                "cos:ListParts",
-                "cos:UploadPart",
-                "cos:CompleteMultipartUpload"));
-        if (keyPrefix.startsWith("ecobin/device-acceptance/")) {
+        java.util.ArrayList<String> actions = firmwareRead
+                ? new java.util.ArrayList<>(java.util.List.of(
+                        "name/cos:GetObject"))
+                : new java.util.ArrayList<>(java.util.List.of(
+                        "name/cos:PutObject",
+                        "name/cos:PostObject",
+                        "cos:InitiateMultipartUpload",
+                        "cos:ListMultipartUploads",
+                        "cos:ListParts",
+                        "cos:UploadPart",
+                        "cos:CompleteMultipartUpload"));
+        if (!firmwareRead
+                && keyPrefix.startsWith("ecobin/device-acceptance/")) {
             // Machine acceptance proves that COS can return the exact bytes
             // just uploaded. Business-photo grants remain upload-only.
             actions.add("name/cos:GetObject");
