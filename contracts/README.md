@@ -12,10 +12,9 @@
   Python 3.11、Java 和生成 C 黄金样本的软件校验；投递门已改为 OPEN/CLOSE 方向
   电平持续锁存，旧脉冲版两端不得混用。它是规范模型和 `uart-v1` 可选实现的机器来源；
   现有固定帧单片机由 F-11 显式适配，不要求运行本生成 C 程序。
-- 现有 MCU 固定帧：[`ecobin-mcu-fixed-frame-v1`](mcu-fixed-frame-v1.md) `1.0.0`
-  冻结五类帧、字段和恢复限制，作为 F-11 适配与 H-03 真机验收的逐字节来源。
-- MCU 固件升级扩展：[`ecobin-mcu-fixed-frame-v2`](mcu-fixed-frame-v2.md) `2.0.0`
-  只增加 F2/F3 固件身份和升级准备快照；原业务帧保持不变，仍不增加通用 ACK 或 CRC。
+- 现有 MCU 固定帧：[`ecobin-mcu-fixed-frame-v2` 完整单文件协议](../hardware/docs/单片机-香橙派适配通信协议详细内容.md)
+  `2.0.0` 在同一正文中逐字节定义全部 11 类业务、传感器、URL 和升级帧，以及解析、
+  恢复和 revision 1 首次迁移边界；不再拆分 v1 基础帧与 F2/F3 扩展。
 - HTTP：属于 F-09，不在 F-10 中创建。
 
 F-10 完成不是生产切换授权。当前固定帧协议只允许在 F-11 的显式 `fixed-frame` 模式
@@ -25,7 +24,6 @@ F-10 完成不是生产切换授权。当前固定帧协议只允许在 F-11 的
 
 ```text
 contracts/
-├─ mcu-fixed-frame-v1.md
 ├─ onenet/
 │  ├─ common.schema.json
 │  ├─ event-envelope.schema.json

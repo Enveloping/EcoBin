@@ -39,8 +39,8 @@ MCU 屏幕状态机、称重、投递门机构和清运电磁阀在真实香橙�
 
 ## 验收与证据
 
-- [ ] 真实串口参数和五类固定帧与
-  [`ecobin-mcu-fixed-frame-v1` 1.0.0](../../../../contracts/mcu-fixed-frame-v1.md)
+- [ ] 真实串口参数和全部 11 类固定帧与
+  [`ecobin-mcu-fixed-frame-v2` 完整单文件协议](../../../../hardware/docs/单片机-香橙派适配通信协议详细内容.md)
   逐字节一致。
 - [ ] DD/EF 的前后重量、满溢原始观测和对应活动工作绑定正确。
 - [ ] 投递继续轮次不上云；最终只形成一个 `DELIVERY_COMPLETE`。
@@ -69,7 +69,7 @@ MCU 屏幕状态机、称重、投递门机构和清运电磁阀在真实香橙�
 
 ## 权威来源
 
-- [`ecobin-mcu-fixed-frame-v1` 1.0.0](../../../../contracts/mcu-fixed-frame-v1.md)
+- [`ecobin-mcu-fixed-frame-v2` 完整单文件协议](../../../../hardware/docs/单片机-香橙派适配通信协议详细内容.md)
 - [F-10 机器契约](f-10-onenet-schema-uart-registry.md)
 - [F-11 香橙派适配任务](f-11-edge-sqlite-onenet-cos-uart.md)
 - [第 03 章：可靠边缘契约](../../detailed-design/03-reliable-edge-contracts.md)

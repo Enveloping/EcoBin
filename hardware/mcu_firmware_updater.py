@@ -1060,6 +1060,11 @@ class McuFirmwareUpdater:
             try:
                 self._preflight(update, target.verified.manifest)
             except McuUpdateError as error:
+                current = self.store.get_mcu_firmware_update(
+                    update["update_uid"]
+                )
+                if current is not None and current["state"] == "FAILED_LOCKED":
+                    return
                 self._reject(update, error)
                 return
             update = self.store.get_mcu_firmware_update(update["update_uid"])
@@ -1114,24 +1119,95 @@ class McuFirmwareUpdater:
                 target_manifest,
                 identity.get("firmwareVersionCode"),
             )
-            prepared = self.uart.prepare_firmware_update()
-            if not prepared.get("prepared"):
-                status = prepared.get("status") or prepared.get("queryStatus")
-                code = {
-                    "BUSY": "MCU_BUSY",
-                    "UNSAFE": "MCU_UNSAFE",
-                    "INTERNAL_ERROR": "MCU_PREPARE_ERROR",
-                }.get(status, "MCU_PREPARE_UNAVAILABLE")
-                raise McuUpdateError(
-                    code,
-                    f"MCU rejected safe update preparation: {status}",
+            try:
+                execution = self.uart.execute_firmware_update_prepare()
+            except Exception as cause:
+                error = McuUpdateError(
+                    "MCU_PREPARE_EXECUTION_UNCONFIRMED",
+                    "MCU update preparation execution raised an internal error",
                 )
+                self._recover_after_prepare_failure(update, identity, error)
+                raise error from cause
+            if not execution.get("executed"):
+                confirmed_response = (
+                    execution.get("queryStatus") == "OK"
+                    and execution.get("statusCode") is not None
+                )
+                error = McuUpdateError(
+                    (
+                        "MCU_PREPARE_EXECUTION_FAILED"
+                        if confirmed_response
+                        else "MCU_PREPARE_EXECUTION_UNCONFIRMED"
+                    ),
+                    "MCU did not confirm update preparation execution",
+                )
+                self._recover_after_prepare_failure(update, identity, error)
+                raise error
 
         self.store.transition_mcu_firmware_update(
             update["update_uid"],
             "PREPARED",
             device_name=self.device_name,
         )
+
+    def _recover_after_prepare_failure(
+        self,
+        update: dict,
+        expected_identity: dict,
+        execution_error: McuUpdateError,
+    ) -> None:
+        """Clear a possibly latched MCU before releasing Edge maintenance.
+
+        An F2 execution response can be lost after the MCU has already stopped
+        its outputs and latched maintenance mode.  The Edge must therefore
+        reset and re-prove the unchanged application before a pre-flash
+        rejection is allowed to release the local maintenance lock.
+        """
+        try:
+            self.uart.close()
+            self.boot.boot_application()
+            if not self.uart.open():
+                raise McuUpdateError(
+                    "MCU_PREPARE_RECOVERY_FAILED",
+                    "MCU application UART did not reopen after prepare failure",
+                )
+            recovered = self.uart.query_firmware_identity()
+            expected = {
+                key: expected_identity.get(key)
+                for key in (
+                    "protocolRevision",
+                    "firmwareVersionCode",
+                    "firmwareVersion",
+                    "firmwareIdentityHex",
+                )
+            }
+            actual = {key: recovered.get(key) for key in expected}
+            if not self._identity_response_ok(recovered) or actual != expected:
+                raise McuUpdateError(
+                    "MCU_PREPARE_RECOVERY_FAILED",
+                    "MCU application identity did not recover after prepare failure",
+                )
+            if not self._self_test_response_ok(self.uart.query_self_test()):
+                raise McuUpdateError(
+                    "MCU_PREPARE_RECOVERY_FAILED",
+                    "MCU self-test did not recover after prepare failure",
+                )
+            self.boot.force_application_selection()
+        except Exception as recovery_cause:
+            recovery_error = (
+                recovery_cause
+                if isinstance(recovery_cause, McuUpdateError)
+                else McuUpdateError(
+                    "MCU_PREPARE_RECOVERY_FAILED",
+                    "unexpected MCU application recovery failure",
+                )
+            )
+            combined = McuUpdateError(
+                "MCU_PREPARE_RECOVERY_FAILED",
+                f"{execution_error.code}; {recovery_error.code}",
+            )
+            self._lock_failure(update, combined)
+            raise combined from recovery_cause
 
     @staticmethod
     def _enforce_version_policy(
@@ -1323,14 +1399,7 @@ class McuFirmwareUpdater:
                 "flashed MCU identity differs from the signed manifest",
             )
         self_test = self.uart.query_self_test()
-        if (
-            self_test.get("queryStatus") != "OK"
-            or self_test.get("communicationHealthy") is not True
-            or self_test.get("validFlags") != 0x03
-            or self_test.get("weightValid") is not True
-            or self_test.get("infraredValid") is not True
-            or self_test.get("smokeSensorHealth") != "OK"
-        ):
+        if not self._self_test_response_ok(self_test):
             raise McuUpdateError(
                 "APPLICATION_SELF_TEST_FAILED",
                 "flashed MCU application failed the F1 sensor self-test",
@@ -1418,6 +1487,17 @@ class McuFirmwareUpdater:
         return (
             identity.get("queryStatus") == "OK"
             and identity.get("statusCode") == 0
+        )
+
+    @staticmethod
+    def _self_test_response_ok(self_test: dict) -> bool:
+        return (
+            self_test.get("queryStatus") == "OK"
+            and self_test.get("communicationHealthy") is True
+            and self_test.get("validFlags") == 0x03
+            and self_test.get("weightValid") is True
+            and self_test.get("infraredValid") is True
+            and self_test.get("smokeSensorHealth") == "OK"
         )
 
     def _require_enabled(self) -> None:

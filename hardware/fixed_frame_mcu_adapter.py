@@ -51,7 +51,7 @@ SELF_TEST_TIMEOUT_MS = 3_000
 FIRMWARE_QUERY_TIMEOUT_MS = 3_000
 FIRMWARE_PROTOCOL_REVISION = 2
 FIRMWARE_QUERY_IDENTITY_MODE = 1
-FIRMWARE_PREPARE_UPDATE_MODE = 2
+FIRMWARE_EXECUTE_UPDATE_PREPARE_MODE = 2
 FIRMWARE_REQUIRED_SAFE_FLAGS = 0x1F
 DEVICE_ENTRY_URL_FIELD_LENGTH = 192
 DEVICE_ENTRY_URL_FRAME_LENGTH = 195
@@ -68,9 +68,13 @@ FRAME_LENGTHS = {
 }
 
 FIRMWARE_STATUS_NAMES = {
-    0: "READY",
-    1: "BUSY",
-    2: "UNSAFE",
+    0: "OK",
+    # Revision 2 was corrected before production rollout: the Edge owns the
+    # business admission decision.  Values 1 and 2 are retained only so an
+    # accidentally flashed pre-correction image fails closed as a legacy
+    # execution response; they are never treated as an MCU admission policy.
+    1: "LEGACY_BUSY",
+    2: "LEGACY_UNSAFE",
     3: "INTERNAL_ERROR",
 }
 
@@ -240,7 +244,7 @@ class FixedFrameParser:
             if (
                 mode not in {
                     FIRMWARE_QUERY_IDENTITY_MODE,
-                    FIRMWARE_PREPARE_UPDATE_MODE,
+                    FIRMWARE_EXECUTE_UPDATE_PREPARE_MODE,
                 }
                 or status_code not in FIRMWARE_STATUS_NAMES
                 or protocol_revision != FIRMWARE_PROTOCOL_REVISION
@@ -438,16 +442,21 @@ class FixedFrameMcuAdapter:
             timeout_ms=timeout_ms,
         )
 
-    def prepare_firmware_update(
+    def execute_firmware_update_prepare(
         self,
         timeout_ms: int = FIRMWARE_QUERY_TIMEOUT_MS,
     ) -> dict:
-        """Ask the MCU to enter its latched, mechanically safe update state."""
+        """Command the MCU to stop outputs and latch update execution mode.
+
+        The Edge has already made the business admission decision and owns the
+        maintenance state machine.  This response proves only whether the MCU
+        executed the requested stop-and-latch action.
+        """
         result = self.query_firmware_status(
-            FIRMWARE_PREPARE_UPDATE_MODE,
+            FIRMWARE_EXECUTE_UPDATE_PREPARE_MODE,
             timeout_ms=timeout_ms,
         )
-        result["prepared"] = bool(
+        result["executed"] = bool(
             result.get("queryStatus") == "OK"
             and result.get("statusCode") == 0
             and (result.get("safeFlags") or 0) & FIRMWARE_REQUIRED_SAFE_FLAGS
@@ -463,7 +472,7 @@ class FixedFrameMcuAdapter:
         """Send one F2 challenge and return the matching fresh F3 snapshot."""
         if mode not in {
             FIRMWARE_QUERY_IDENTITY_MODE,
-            FIRMWARE_PREPARE_UPDATE_MODE,
+            FIRMWARE_EXECUTE_UPDATE_PREPARE_MODE,
         }:
             raise ValueError("firmware query mode must be 1 or 2")
         if (

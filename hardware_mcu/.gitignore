@@ -1,0 +1,39 @@
+# Local agent configuration and historical copies are not source inputs.
+.claude/
+BACKUP_origin_version/
+
+# The canonical MCU <-> Orange Pi protocol lives under hardware/docs/.  Keep
+# local design copies and the board schematic outside the buildable source set.
+docs/
+
+# Keil build outputs and listings.
+Output/
+Listing/
+*.o
+*.d
+*.crf
+*.axf
+*.hex
+*.bin
+*.map
+*.lst
+*.lnp
+*.plg
+*.tra
+*.dep
+
+# Keil/J-Link machine- and user-specific files.
+USER/DebugConfig/
+USER/RTE/
+USER/*.uvopt
+USER/*.uvoptx
+USER/*.uvguix.*
+USER/*_uvopt.bak
+USER/*_uvproj.bak
+USER/JLinkLog.txt
+USER/JLinkSettings.ini
+USER/JLink Regs CM3.txt
+
+# Generated for one signed release.  Generate it before every release build;
+# firmware_identity.example.h documents the required shape.
+USER/firmware_identity.h

@@ -13,7 +13,8 @@
 > 硬件边界以单一显式 `fixed-frame` 模式适配已确定的 `AA/BB/EE` 下行和 `DD/EF`
 > 上行；它必须映射为本章规范业务事实，并将无法表达的能力标为未知/不支持。旧 D1、
 > 自动探测、双解析和按消息失败回退仍禁止。固定帧逐字节定义以
-> [`ecobin-mcu-fixed-frame-v1`](../../../contracts/mcu-fixed-frame-v1.md) 为准。
+> [`ecobin-mcu-fixed-frame-v2` 完整单文件协议](../../../hardware/docs/单片机-香橙派适配通信协议详细内容.md)
+> 为准。
 
 ## 本章统一边界
 
@@ -502,11 +503,11 @@ estimatedFen = roundHalfUp(businessWeightCentiKg × unitPriceTenThousandths / 10
 1. 禁用旧 D1 文本解析/发送及旧清运 gross/tare 路径；
 2. 配置且只启用 `uart-v1` 或 `fixed-frame` 一个解析器；前者使用本章 Registry，
    后者只使用
-   [`ecobin-mcu-fixed-frame-v1`](../../../contracts/mcu-fixed-frame-v1.md)
+   [`ecobin-mcu-fixed-frame-v2` 完整单文件协议](../../../hardware/docs/单片机-香橙派适配通信协议详细内容.md)
    并显式拒绝缺失能力；
 3. 更新 OneNet 物模型、后端事件/命令适配和香橙派/MCU 模式兼容矩阵；
 4. `uart-v1` 对每台真机完成 HELLO、配置摘要、状态、称重、门控和重启验收；
-   `fixed-frame` 按 H-03 完成五类帧、活动作业绑定、屏幕流程、称重、电磁阀和重启验收；
+   `fixed-frame` 按 H-03 完成全部 11 类帧、活动作业绑定、屏幕流程、称重、电磁阀和重启验收；
 5. 只有所选模式的协议/适配、全部可观察门锁安全事实和未收敛作业均通过对应门槛时，
    部署才可激活；固定帧缺失状态不能用成功占位。
 

@@ -56,7 +56,7 @@ implementation_authorized: true
 - 实现五个不可拆本地事务：收命令、收 MCU 事件、建边缘事件、收业务确认和登记照片。
 - 实现持久 MQTT 会话、QoS 1、SQLite 驱动重发和稳定规范 JSON。
 - 以显式协议模式实现 MCU 适配：当前部署使用 `fixed-frame` 和
-  [`ecobin-mcu-fixed-frame-v1`](../../../../contracts/mcu-fixed-frame-v1.md)
+  [`ecobin-mcu-fixed-frame-v2` 完整单文件协议](../../../../hardware/docs/单片机-香橙派适配通信协议详细内容.md)
   并对缺失能力明确拒绝或上报未知，不自动探测或失败回退。`uart-v1` 只保留为未来
   明确选择的可选实现，不是当前 F-11 完成门。
 - 实现持久照片文件、原子登记、COS 临时授权上传、补授权、永久缺失和确认后清理。

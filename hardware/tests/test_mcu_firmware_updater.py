@@ -113,13 +113,14 @@ class FakeUart:
             "firmwareIdentityHex": manifest["firmwareIdentityHex"],
         }
 
-    def prepare_firmware_update(self):
+    def execute_firmware_update_prepare(self):
         self.prepare_count += 1
         return {
             "queryStatus": "OK",
-            "status": "READY",
+            "statusCode": 0,
+            "status": "OK",
             "safeFlags": 0x1F,
-            "prepared": True,
+            "executed": True,
         }
 
     def query_self_test(self):
@@ -692,7 +693,7 @@ def test_busy_physical_work_is_reported_as_terminal_rejection(tmp_path):
         private_path,
         store,
         _,
-        _,
+        uart,
         _,
         _,
         _,
@@ -747,6 +748,7 @@ def test_busy_physical_work_is_reported_as_terminal_rejection(tmp_path):
     assert update["last_error_code"] == "PHYSICAL_WORK_BUSY"
     assert store.get_maintenance_lock() is None
     assert store.get_work_slot()["work_type"] == "DELIVERY"
+    assert uart.prepare_count == 0
     assert [
         json.loads(row["payload_json"])["payload"]["stage"]
         for row in store.list_pending_events()
@@ -868,13 +870,15 @@ def test_target_and_rollback_failure_leave_persistent_business_lock(tmp_path):
     assert uart.is_open is False
 
 
-def test_unexpected_preflash_failure_is_rejected_and_unlocks(tmp_path):
+def test_unconfirmed_prepare_execution_recovers_application_then_rejects(
+    tmp_path,
+):
     (
         private_path,
         store,
         _,
         uart,
-        _,
+        boot,
         _,
         manifests,
         updater,
@@ -899,15 +903,107 @@ def test_unexpected_preflash_failure_is_rejected_and_unlocks(tmp_path):
     def fail_prepare():
         raise RuntimeError("injected unexpected preflight failure")
 
-    uart.prepare_firmware_update = fail_prepare
+    uart.execute_firmware_update_prepare = fail_prepare
     queued = updater.queue_local(target_path)
 
     assert updater.process_active()
     update = store.get_mcu_firmware_update(queued["updateUid"])
     assert update["state"] == "REJECTED"
-    assert update["last_error_code"] == "MCU_UPDATE_INTERNAL_ERROR"
+    assert update["last_error_code"] == "MCU_PREPARE_EXECUTION_UNCONFIRMED"
     assert update["target_attempt_count"] == 0
     assert store.get_maintenance_lock() is None
+    assert boot.operations[-2:] == ["APPLICATION", "APPLICATION_SELECTED"]
+
+
+def test_prepare_execution_recovery_failure_keeps_business_locked(tmp_path):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        boot,
+        _,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    install_first_stable(
+        tmp_path,
+        private_path,
+        store,
+        uart,
+        manifests,
+        updater,
+    )
+    target_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    register_manifest(manifests, target)
+
+    uart.execute_firmware_update_prepare = lambda: {
+        "queryStatus": "OK",
+        "statusCode": 3,
+        "status": "INTERNAL_ERROR",
+        "safeFlags": 0x0F,
+        "executed": False,
+    }
+    uart.open = lambda: False
+    queued = updater.queue_local(target_path)
+
+    assert updater.process_active()
+    update = store.get_mcu_firmware_update(queued["updateUid"])
+    assert update["state"] == "FAILED_LOCKED"
+    assert update["last_error_code"] == "MCU_PREPARE_RECOVERY_FAILED"
+    assert store.get_maintenance_lock()["owner_uid"] == queued["updateUid"]
+    assert "APPLICATION" in boot.operations
+
+
+def test_confirmed_prepare_execution_failure_recovers_then_rejects(tmp_path):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        boot,
+        _,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    install_first_stable(
+        tmp_path,
+        private_path,
+        store,
+        uart,
+        manifests,
+        updater,
+    )
+    target_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    register_manifest(manifests, target)
+
+    uart.execute_firmware_update_prepare = lambda: {
+        "queryStatus": "OK",
+        "statusCode": 3,
+        "status": "INTERNAL_ERROR",
+        "safeFlags": 0x0F,
+        "executed": False,
+    }
+    queued = updater.queue_local(target_path)
+
+    assert updater.process_active()
+    update = store.get_mcu_firmware_update(queued["updateUid"])
+    assert update["state"] == "REJECTED"
+    assert update["last_error_code"] == "MCU_PREPARE_EXECUTION_FAILED"
+    assert store.get_maintenance_lock() is None
+    assert boot.operations[-2:] == ["APPLICATION", "APPLICATION_SELECTED"]
 
 
 def test_unexpected_postflash_failure_automatically_rolls_back(tmp_path):

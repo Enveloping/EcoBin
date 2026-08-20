@@ -455,7 +455,7 @@ def test_parser_decodes_revision_two_firmware_status():
             "frame_type": "FIRMWARE_STATUS",
             "mode": 1,
             "status_code": 0,
-            "status": "READY",
+            "status": "OK",
             "protocol_revision": 2,
             "firmware_version_code": 10203,
             "firmware_version": "1.2.3",
@@ -502,7 +502,7 @@ def test_firmware_identity_query_updates_handshake_identity():
         "queryStatus": "OK",
         "mode": 1,
         "statusCode": 0,
-        "status": "READY",
+        "status": "OK",
         "protocolRevision": 2,
         "firmwareVersionCode": 10203,
         "firmwareVersion": "1.2.3",
@@ -540,7 +540,7 @@ def test_short_firmware_version_is_not_exposed_as_registration_fact():
     assert adapter.verified_firmware_identity is None
 
 
-def test_prepare_firmware_update_requires_success_and_all_safe_flags():
+def test_execute_firmware_update_prepare_requires_execution_confirmation():
     ready = firmware_status_frame(mode=2, safe_flags=0x1F)
     fake = FirmwareRespondingSerial({2: ready})
     adapter = FixedFrameMcuAdapter(
@@ -550,13 +550,13 @@ def test_prepare_firmware_update_requires_success_and_all_safe_flags():
     )
     assert adapter.open()
 
-    result = adapter.prepare_firmware_update(timeout_ms=20)
+    result = adapter.execute_firmware_update_prepare(timeout_ms=20)
 
     assert fake.writes == [bytes.fromhex("F2 02 F2")]
-    assert result["prepared"] is True
+    assert result["executed"] is True
 
 
-def test_prepare_firmware_update_rejects_busy_or_incomplete_safe_state():
+def test_legacy_mcu_policy_status_is_only_an_execution_failure():
     busy = firmware_status_frame(mode=2, status=1, safe_flags=0x0F)
     fake = FirmwareRespondingSerial({2: busy})
     adapter = FixedFrameMcuAdapter(
@@ -566,12 +566,28 @@ def test_prepare_firmware_update_rejects_busy_or_incomplete_safe_state():
     )
     assert adapter.open()
 
-    result = adapter.prepare_firmware_update(timeout_ms=20)
+    result = adapter.execute_firmware_update_prepare(timeout_ms=20)
 
     assert result["queryStatus"] == "OK"
-    assert result["status"] == "BUSY"
-    assert result["prepared"] is False
+    assert result["status"] == "LEGACY_BUSY"
+    assert result["executed"] is False
     assert adapter.verified_firmware_identity is None
+
+
+def test_execute_firmware_update_prepare_requires_all_result_flags():
+    incomplete = firmware_status_frame(mode=2, status=0, safe_flags=0x0F)
+    fake = FirmwareRespondingSerial({2: incomplete})
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    result = adapter.execute_firmware_update_prepare(timeout_ms=20)
+
+    assert result["status"] == "OK"
+    assert result["executed"] is False
 
 
 def test_unsolicited_firmware_status_is_not_projected_as_business_event():
