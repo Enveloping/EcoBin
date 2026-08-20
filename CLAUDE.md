@@ -178,7 +178,7 @@
   Python 3.11 硬件套件本轮在 Windows 为
   `396 passed, 13 skipped, 5 subtests passed`；Linux 上次实测仍为
   `353 passed, 4 skipped, 5 subtests passed`，本轮 MCU 远程升级改动尚未在 Linux
-  重跑；契约单元套件为 `59 passed`，生成/跨语言校验为 `23 passed, 1 note`。
+  重跑；契约单元套件为 `59 passed`，生成/跨语言校验为 `24 passed, 0 notes`。
   香橙派当时的默认路由/DNS 波动按负责人决定暂不继续处理，不阻塞当前验收。F-11
   已按负责人接受的当前范围转为 `done`；后续验证发现范围内问题时重开，固定帧真机
   验收属于已就绪但尚未授权的 H-03；

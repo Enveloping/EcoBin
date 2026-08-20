@@ -410,6 +410,6 @@ P0-FOLLOWUP-01；H-03 的 F-11 依赖已经解除并转为 `ready`，V-09 的 V-
 硬件套件当前在 Python 3.11/Linux 为
 `353 passed, 4 skipped, 5 subtests passed`，在 Python 3.11/Windows 为
 `396 passed, 13 skipped, 5 subtests passed`；契约单元套件为 `59 passed`，生成/跨语言
-校验为 `23 passed, 1 note`。香橙派当时的默认路由/DNS 波动按
+校验为 `24 passed, 0 notes`。香橙派当时的默认路由/DNS 波动按
 项目负责人决定暂不处理且不阻塞 F-11；微信支付/商家转账仍不可联调。真实条件或
 软件链路缺失时只能标记相应软件阶段，不能宣称 M0。
