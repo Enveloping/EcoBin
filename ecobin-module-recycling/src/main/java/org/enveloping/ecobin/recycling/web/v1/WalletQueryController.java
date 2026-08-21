@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.enveloping.ecobin.framework.web.v1.TargetApiEnvelope;
 import org.enveloping.ecobin.framework.web.v1.TargetRequestIds;
 import org.enveloping.ecobin.recycling.application.walletquery.WalletReadApplicationService;
+import org.enveloping.ecobin.recycling.web.v1.WalletModels.MiniappWalletEntry;
 import org.enveloping.ecobin.recycling.web.v1.WalletModels.OrganizationWalletEntry;
 import org.enveloping.ecobin.recycling.web.v1.WalletModels.PersonalWalletEntry;
 import org.enveloping.ecobin.recycling.web.v1.WalletModels.WalletEntryPage;
@@ -37,7 +38,7 @@ public class WalletQueryController {
 
     @GetMapping("/api/v1/miniapp/me/wallet/entries")
     public ResponseEntity<TargetApiEnvelope<
-            WalletEntryPage<PersonalWalletEntry>>>
+            WalletEntryPage<MiniappWalletEntry>>>
     miniappEntries(
             @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit,

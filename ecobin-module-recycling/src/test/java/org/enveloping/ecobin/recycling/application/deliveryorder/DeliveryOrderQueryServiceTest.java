@@ -23,6 +23,8 @@ import org.enveloping.ecobin.identity.api.value.IdentityPrincipalKind;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.CursorPage;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.MiniappDeliveryOrderDetail;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.MiniappDeliveryOrderItem;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.MiniappDeliveryReviewProjection;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.MiniappDeliverySource;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.WebDeliveryOrderItem;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -185,17 +187,51 @@ class DeliveryOrderQueryServiceTest {
                         ORGANIZATION_ID,
                         ORGANIZATION_USER_ID));
         assertThat(page.items()).hasSize(1);
-        assertThat(page.items().getFirst().deviceCode())
-                .isEqualTo("Dv_0123456789abcdefghijklmn");
+        assertThat(page.items().getFirst().portNo()).isEqualTo(2);
         assertThat(recordComponentNames(
                 MiniappDeliveryOrderItem.class))
                 .doesNotContain(
+                        "deviceCode",
+                        "currentRevisionNo",
+                        "photoCompleteness",
                         "ownership",
                         "organizationUserUid");
         assertThat(recordComponentNames(
                 MiniappDeliveryOrderDetail.class))
                 .doesNotContain("ownership");
         verifyNoInteractions(identityFacts);
+    }
+
+    @Test
+    void miniappDetailDoesNotLoadOrExposeDevicePhotosAndInternals() {
+        answerMiniappIdentityScope();
+        answerResolvedDeviceFacts();
+        DeliveryOrderRootRow root = approvedRoot(
+                101L,
+                "DO2026072900101");
+        when(repository.findDetail(
+                new DeliveryOrderScope(
+                        TENANT_ID,
+                        ORGANIZATION_ID,
+                        ORGANIZATION_USER_ID),
+                root.deliveryOrderNo()))
+                .thenReturn(Optional.of(root));
+        when(repository.findAnomalies(root.id()))
+                .thenReturn(List.of());
+
+        var detail = service.miniappOrder(root.deliveryOrderNo());
+
+        assertThat(detail.source().portNo()).isEqualTo(2);
+        assertThat(recordComponentNames(
+                MiniappDeliveryOrderDetail.class))
+                .doesNotContain("photos");
+        assertThat(recordComponentNames(
+                MiniappDeliverySource.class))
+                .doesNotContain("deviceCode");
+        assertThat(recordComponentNames(
+                MiniappDeliveryReviewProjection.class))
+                .doesNotContain("currentRevisionNo");
+        verify(repository, never()).findPhotos(anyLong());
     }
 
     @Test

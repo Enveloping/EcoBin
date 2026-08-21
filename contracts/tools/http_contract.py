@@ -432,7 +432,7 @@ def _validate_wallet_read_contract(document: Mapping[str, Any]) -> str:
             "pathParameters": set(),
             "queryParameters": {"WalletCursor", "WalletEntryLimit"},
             "responses": {"200", "400", "401", "500"},
-            "okResponse": "PersonalWalletEntriesOk",
+            "okResponse": "MiniappWalletEntriesOk",
         },
         (
             "/api/v1/web/organizations/{organizationCode}"
@@ -570,15 +570,19 @@ def _validate_wallet_read_contract(document: Mapping[str, Any]) -> str:
     required_schemas = {
         "WalletEntryCursor",
         "WalletEntryType",
+        "MiniappWalletEntryType",
         "WalletEntrySourceType",
         "WalletEntrySequenceNo",
         "WalletEntrySourceNo",
         "WalletSummary",
         "WalletSummaryEnvelope",
+        "MiniappWalletEntry",
         "PersonalWalletEntry",
         "OrganizationWalletEntry",
+        "MiniappWalletEntryCursorPage",
         "PersonalWalletEntryCursorPage",
         "OrganizationWalletEntryCursorPage",
+        "MiniappWalletEntryPageEnvelope",
         "PersonalWalletEntryPageEnvelope",
         "OrganizationWalletEntryPageEnvelope",
     }
@@ -597,6 +601,40 @@ def _validate_wallet_read_contract(document: Mapping[str, Any]) -> str:
     }
     if set(schemas["WalletEntryType"].get("enum", [])) != expected_entry_types:
         raise ContractError("wallet entry types differ from funds")
+    expected_miniapp_entry_types = expected_entry_types - {
+        "WITHDRAWAL_FREEZE"
+    }
+    if (
+        set(schemas["MiniappWalletEntryType"].get("enum", []))
+        != expected_miniapp_entry_types
+    ):
+        raise ContractError(
+            "miniapp wallet entry types must hide withdrawal freeze"
+        )
+    expected_entry_type_refs = {
+        "MiniappWalletEntry": (
+            "#/components/schemas/MiniappWalletEntryType"
+        ),
+        "PersonalWalletEntry": "#/components/schemas/WalletEntryType",
+        "OrganizationWalletEntry": "#/components/schemas/WalletEntryType",
+    }
+    for entry_name, expected_ref in expected_entry_type_refs.items():
+        actual_ref = schemas[entry_name]["properties"]["entryType"].get(
+            "$ref"
+        )
+        if actual_ref != expected_ref:
+            raise ContractError(
+                f"wallet entry type visibility differs for {entry_name}"
+            )
+    if (
+        set(schemas["MiniappWalletEntry"].get("required", []))
+        != set(schemas["PersonalWalletEntry"].get("required", []))
+        or set(schemas["MiniappWalletEntry"].get("properties", {}))
+        != set(schemas["PersonalWalletEntry"].get("properties", {}))
+    ):
+        raise ContractError(
+            "miniapp and audit personal wallet entry fields differ"
+        )
     expected_source_types = {
         "DELIVERY_ORDER",
         "WITHDRAWAL_ORDER",
@@ -608,6 +646,7 @@ def _validate_wallet_read_contract(document: Mapping[str, Any]) -> str:
     ):
         raise ContractError("wallet source types differ from funds")
     for page_name in (
+        "MiniappWalletEntryCursorPage",
         "PersonalWalletEntryCursorPage",
         "OrganizationWalletEntryCursorPage",
     ):
@@ -637,6 +676,30 @@ def _validate_wallet_read_contract(document: Mapping[str, Any]) -> str:
         raise ContractError("wallet time-range ordering rule is missing")
 
     responses = document["components"]["responses"]
+    expected_response_schemas = {
+        "MiniappWalletEntriesOk": (
+            "#/components/schemas/MiniappWalletEntryPageEnvelope"
+        ),
+        "PersonalWalletEntriesOk": (
+            "#/components/schemas/PersonalWalletEntryPageEnvelope"
+        ),
+        "OrganizationWalletEntriesOk": (
+            "#/components/schemas/OrganizationWalletEntryPageEnvelope"
+        ),
+    }
+    for response_name, expected_ref in expected_response_schemas.items():
+        response = responses.get(response_name)
+        if not isinstance(response, Mapping):
+            raise ContractError(
+                f"wallet response component is missing: {response_name}"
+            )
+        actual_ref = response.get("content", {}).get(
+            "application/json", {}
+        ).get("schema", {}).get("$ref")
+        if actual_ref != expected_ref:
+            raise ContractError(
+                f"wallet response schema differs for {response_name}"
+            )
     for response_name in ("WalletQueryInvalidRequest", "WalletInternalProblem"):
         media = responses[response_name].get("content", {})
         if "application/problem+json" not in media:

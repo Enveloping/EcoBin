@@ -68,11 +68,15 @@ class HttpContractTests(unittest.TestCase):
             "WalletSummary",
             "WalletSummaryEnvelope",
             "WalletEntryType",
+            "MiniappWalletEntryType",
             "WalletEntrySourceType",
+            "MiniappWalletEntry",
             "PersonalWalletEntry",
             "OrganizationWalletEntry",
+            "MiniappWalletEntryCursorPage",
             "PersonalWalletEntryCursorPage",
             "OrganizationWalletEntryCursorPage",
+            "MiniappWalletEntryPageEnvelope",
             "PersonalWalletEntryPageEnvelope",
             "OrganizationWalletEntryPageEnvelope",
         }
@@ -84,6 +88,64 @@ class HttpContractTests(unittest.TestCase):
             missing_schemas,
             f"wallet schemas missing from OpenAPI: {sorted(missing_schemas)}",
         )
+
+    def test_miniapp_wallet_hides_only_withdrawal_freeze(self) -> None:
+        document = load_openapi()
+        schemas = document["components"]["schemas"]
+        full_entry_types = set(schemas["WalletEntryType"]["enum"])
+        miniapp_entry_types = set(
+            schemas["MiniappWalletEntryType"]["enum"]
+        )
+        self.assertIn("WITHDRAWAL_FREEZE", full_entry_types)
+        self.assertNotIn("WITHDRAWAL_FREEZE", miniapp_entry_types)
+        self.assertEqual(
+            full_entry_types - {"WITHDRAWAL_FREEZE"},
+            miniapp_entry_types,
+        )
+        self.assertEqual(
+            "#/components/schemas/MiniappWalletEntryType",
+            schemas["MiniappWalletEntry"]["properties"]["entryType"][
+                "$ref"
+            ],
+        )
+        self.assertEqual(
+            "#/components/schemas/WalletEntryType",
+            schemas["PersonalWalletEntry"]["properties"]["entryType"][
+                "$ref"
+            ],
+        )
+
+        paths = document["paths"]
+        self.assertEqual(
+            "#/components/responses/MiniappWalletEntriesOk",
+            paths["/api/v1/miniapp/me/wallet/entries"]["get"]
+            ["responses"]["200"]["$ref"],
+        )
+        for path in (
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/organization-users/{organizationUserUid}/wallet/entries"
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}"
+                "/organization-users/{organizationUserUid}/wallet/entries"
+            ),
+        ):
+            self.assertEqual(
+                "#/components/responses/PersonalWalletEntriesOk",
+                paths[path]["get"]["responses"]["200"]["$ref"],
+            )
+
+        changed = copy.deepcopy(document)
+        changed["components"]["schemas"]["MiniappWalletEntryType"][
+            "enum"
+        ].append("WITHDRAWAL_FREEZE")
+        with self.assertRaisesRegex(
+            ContractError,
+            "miniapp wallet entry types must hide withdrawal freeze",
+        ):
+            validate_openapi_document(changed)
 
     def test_wallet_filter_and_cursor_contract_cannot_drift(self) -> None:
         document = load_openapi()
@@ -954,13 +1016,45 @@ class HttpContractTests(unittest.TestCase):
         detail_properties = schemas[
             "MiniappDeliveryOrderDetail"
         ]["properties"]
+        source_properties = schemas[
+            "MiniappDeliverySource"
+        ]["properties"]
+        review_properties = schemas[
+            "MiniappDeliveryReviewProjection"
+        ]["properties"]
         anomaly_properties = schemas[
             "MiniappDeliveryAnomaly"
         ]["properties"]
-        self.assertNotIn("organizationUserUid", item_properties)
-        self.assertNotIn("ownership", detail_properties)
-        self.assertNotIn("revisions", detail_properties)
+        for private_field in (
+            "organizationUserUid",
+            "deviceCode",
+            "currentRevisionNo",
+            "photoCompleteness",
+        ):
+            self.assertNotIn(private_field, item_properties)
+        for private_field in ("ownership", "revisions", "photos"):
+            self.assertNotIn(private_field, detail_properties)
+        self.assertNotIn("deviceCode", source_properties)
+        self.assertNotIn("currentRevisionNo", review_properties)
         self.assertNotIn("diagnosticDetails", anomaly_properties)
+        self.assertEqual(
+            detail_properties["source"]["$ref"],
+            "#/components/schemas/MiniappDeliverySource",
+        )
+        self.assertEqual(
+            detail_properties["review"]["$ref"],
+            "#/components/schemas/MiniappDeliveryReviewProjection",
+        )
+
+        web_item_properties = schemas["WebDeliveryOrderItem"]["properties"]
+        web_detail_properties = schemas["WebDeliveryOrderDetail"]["properties"]
+        for operational_field in (
+            "deviceCode",
+            "currentRevisionNo",
+            "photoCompleteness",
+        ):
+            self.assertIn(operational_field, web_item_properties)
+        self.assertIn("photos", web_detail_properties)
 
     def test_miniapp_cleaning_normal_path_contract_is_complete(self) -> None:
         document = load_openapi()

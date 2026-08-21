@@ -3189,14 +3189,14 @@
         "operationId": "listMiniappWalletEntries",
         "tags": ["Wallet"],
         "summary": "List the current ordinary user's wallet entries",
-        "description": "The opaque cursor is bound to the current user and the first page snapshot. Clients must reuse it unchanged and must not construct or decode it.",
+        "description": "The opaque cursor is bound to the current user, the ordinary-user visibility view and the first page snapshot. WITHDRAWAL_FREEZE is an internal transfer into withdrawal processing and is excluded before database pagination; withdrawal success and release entries remain visible. Clients must reuse the cursor unchanged and must not construct or decode it.",
         "security": [{"miniappBearer": []}],
         "parameters": [
           {"$ref": "#/components/parameters/WalletCursor"},
           {"$ref": "#/components/parameters/WalletEntryLimit"}
         ],
         "responses": {
-          "200": {"$ref": "#/components/responses/PersonalWalletEntriesOk"},
+          "200": {"$ref": "#/components/responses/MiniappWalletEntriesOk"},
           "400": {"$ref": "#/components/responses/WalletQueryInvalidRequest"},
           "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
           "500": {"$ref": "#/components/responses/WalletInternalProblem"}
@@ -7362,6 +7362,18 @@
           }
         }
       },
+      "MiniappWalletEntriesOk": {
+        "description": "A stable ordinary-user cursor page that excludes the internal withdrawal-freeze transfer",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/MiniappWalletEntryPageEnvelope"}
+          }
+        }
+      },
       "OrganizationWalletEntriesOk": {
         "description": "A stable high-watermark cursor page across one visible organization",
         "headers": {
@@ -10548,7 +10560,6 @@
         "additionalProperties": false,
         "required": [
           "deliveryOrderNo",
-          "deviceCode",
           "portNo",
           "deviceOccurredAt",
           "receivedAt",
@@ -10557,18 +10568,13 @@
           "rawWeightReliability",
           "rawAmountReliability",
           "reviewStatus",
-          "currentRevisionNo",
           "finalWeightKg",
           "finalAmountYuan",
-          "anomalyCodes",
-          "photoCompleteness"
+          "anomalyCodes"
         ],
         "properties": {
           "deliveryOrderNo": {
             "$ref": "#/components/schemas/DeliveryOrderNo"
-          },
-          "deviceCode": {
-            "$ref": "#/components/schemas/DeviceCode"
           },
           "portNo": {
             "type": "integer",
@@ -10599,11 +10605,6 @@
           "reviewStatus": {
             "$ref": "#/components/schemas/DeliveryReviewStatus"
           },
-          "currentRevisionNo": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
           "finalWeightKg": {
             "type": ["string", "null"],
             "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
@@ -10620,9 +10621,6 @@
               "minLength": 1,
               "maxLength": 64
             }
-          },
-          "photoCompleteness": {
-            "$ref": "#/components/schemas/DeliveryPhotoCompleteness"
           }
         }
       },
@@ -10883,6 +10881,33 @@
           }
         }
       },
+      "MiniappDeliverySource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "eventUid",
+          "sessionUid",
+          "portNo",
+          "deviceOccurredAt",
+          "receivedAt"
+        ],
+        "properties": {
+          "eventUid": {"$ref": "#/components/schemas/UuidV4"},
+          "sessionUid": {"$ref": "#/components/schemas/UuidV4"},
+          "portNo": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          },
+          "deviceOccurredAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "receivedAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          }
+        }
+      },
       "DeliverySource": {
         "type": "object",
         "additionalProperties": false,
@@ -10994,6 +11019,43 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "maxReviewAbsoluteWeightKg": {
+            "$ref": "#/components/schemas/BusinessWeightKg"
+          },
+          "finalWeightKg": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "finalAmountYuan": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "firstApprovedAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "reason": {
+            "type": ["string", "null"],
+            "maxLength": 500,
+            "description": "当前审核或纠正说明；会向订单所属用户展示。"
+          }
+        }
+      },
+      "MiniappDeliveryReviewProjection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "maxReviewAbsoluteWeightKg",
+          "finalWeightKg",
+          "finalAmountYuan",
+          "firstApprovedAt",
+          "reason"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/DeliveryReviewStatus"
           },
           "maxReviewAbsoluteWeightKg": {
             "$ref": "#/components/schemas/BusinessWeightKg"
@@ -11207,34 +11269,25 @@
           "source",
           "raw",
           "review",
-          "anomalies",
-          "photos"
+          "anomalies"
         ],
         "properties": {
           "deliveryOrderNo": {
             "$ref": "#/components/schemas/DeliveryOrderNo"
           },
           "source": {
-            "$ref": "#/components/schemas/DeliverySource"
+            "$ref": "#/components/schemas/MiniappDeliverySource"
           },
           "raw": {
             "$ref": "#/components/schemas/DeliveryRawFacts"
           },
           "review": {
-            "$ref": "#/components/schemas/DeliveryReviewProjection"
+            "$ref": "#/components/schemas/MiniappDeliveryReviewProjection"
           },
           "anomalies": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/MiniappDeliveryAnomaly"
-            }
-          },
-          "photos": {
-            "type": "array",
-            "minItems": 4,
-            "maxItems": 4,
-            "items": {
-              "$ref": "#/components/schemas/DeliveryPhoto"
             }
           }
         }
@@ -11944,6 +11997,17 @@
         ],
         "description": "Immutable reason that changed the user wallet ledger."
       },
+      "MiniappWalletEntryType": {
+        "type": "string",
+        "enum": [
+          "DELIVERY_INITIAL_REVIEW",
+          "DELIVERY_CORRECTION",
+          "WITHDRAWAL_SUCCEEDED",
+          "WITHDRAWAL_RELEASED",
+          "MANUAL_ADJUSTMENT"
+        ],
+        "description": "Immutable wallet-entry reasons visible to an ordinary miniapp user. The internal WITHDRAWAL_FREEZE transfer is intentionally omitted."
+      },
       "WalletEntrySourceType": {
         "type": "string",
         "enum": [
@@ -12102,6 +12166,54 @@
           }
         }
       },
+      "MiniappWalletEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entryUid",
+          "entrySequenceNo",
+          "entryType",
+          "availableDeltaYuan",
+          "processingDeltaYuan",
+          "availableBalanceAfterYuan",
+          "withdrawalProcessingAfterYuan",
+          "sourceType",
+          "sourceNo",
+          "occurredAt"
+        ],
+        "properties": {
+          "entryUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
+          "entrySequenceNo": {
+            "$ref": "#/components/schemas/WalletEntrySequenceNo"
+          },
+          "entryType": {
+            "$ref": "#/components/schemas/MiniappWalletEntryType"
+          },
+          "availableDeltaYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "processingDeltaYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "availableBalanceAfterYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "withdrawalProcessingAfterYuan": {
+            "$ref": "#/components/schemas/PositiveMoneyCny"
+          },
+          "sourceType": {
+            "$ref": "#/components/schemas/WalletEntrySourceType"
+          },
+          "sourceNo": {
+            "$ref": "#/components/schemas/WalletEntrySourceNo"
+          },
+          "occurredAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          }
+        }
+      },
       "OrganizationWalletEntry": {
         "type": "object",
         "additionalProperties": false,
@@ -12178,6 +12290,30 @@
           }
         }
       },
+      "MiniappWalletEntryCursorPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "asOf", "nextCursor"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/MiniappWalletEntry"
+            }
+          },
+          "asOf": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "nextCursor": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/WalletEntryCursor"},
+              {"type": "null"}
+            ],
+            "description": "Opaque ordinary-user-view cursor for the next page, or null when the snapshot is exhausted."
+          }
+        }
+      },
       "OrganizationWalletEntryCursorPage": {
         "type": "object",
         "additionalProperties": false,
@@ -12232,6 +12368,25 @@
           },
           "data": {
             "$ref": "#/components/schemas/PersonalWalletEntryCursorPage"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "MiniappWalletEntryPageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MiniappWalletEntryCursorPage"
           },
           "requestId": {
             "type": "string",

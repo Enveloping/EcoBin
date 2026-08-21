@@ -5,33 +5,10 @@ import {
 } from '../../utils/decimal'
 import { formatLocalDateTime } from '../../utils/local-time'
 import { MiniappApiProblem } from '../../utils/request'
-import type {
-  DeliveryPhotoPosition,
-  DeliveryPhotoStatus,
-  MiniappDeliveryAnomaly,
-  MiniappDeliveryPhoto,
-} from '../../types/api'
-
-interface PhotoView extends MiniappDeliveryPhoto {
-  positionText: string
-  statusText: string
-}
+import type { MiniappDeliveryAnomaly } from '../../types/api'
 
 interface AnomalyView extends MiniappDeliveryAnomaly {
   timeText: string
-}
-
-const PHOTO_POSITION_TEXT: Record<DeliveryPhotoPosition, string> = {
-  BEFORE_INNER: '投递前 · 内部',
-  BEFORE_OUTER: '投递前 · 外部',
-  AFTER_INNER: '投递后 · 内部',
-  AFTER_OUTER: '投递后 · 外部',
-}
-
-const PHOTO_STATUS_TEXT: Record<DeliveryPhotoStatus, string> = {
-  UPLOAD_PENDING: '上传中',
-  AVAILABLE: '已上传',
-  PERMANENTLY_MISSING: '未取得',
 }
 
 function decodeOrderNo(value: string | undefined): string {
@@ -75,19 +52,16 @@ Page({
     statusText: '',
     statusTone: 'pending',
     portText: '',
-    deviceCode: '',
     occurredAtText: '',
-    receivedAtText: '',
+    deliveryAtText: '',
     weightText: '',
     weightCaption: '',
     amountText: '',
     amountCaption: '',
     unitPriceText: '',
-    revisionText: '',
     approvedAtText: '',
     reason: '',
     anomalies: [] as AnomalyView[],
-    photos: [] as PhotoView[],
   },
 
   onLoad(options: Record<string, string | undefined>) {
@@ -139,11 +113,12 @@ Page({
         statusText: approved ? '已审核' : '待审核',
         statusTone: approved ? 'approved' : 'pending',
         portText: `${detail.source.portNo} 号投口`,
-        deviceCode: detail.source.deviceCode,
         occurredAtText: formatLocalDateTime(
           detail.source.deviceOccurredAt ?? detail.source.receivedAt,
         ),
-        receivedAtText: formatLocalDateTime(detail.source.receivedAt),
+        deliveryAtText: formatLocalDateTime(
+          detail.source.deviceOccurredAt ?? detail.source.receivedAt,
+        ),
         weightText: formatWeight(weight),
         weightCaption: approved
           ? '审核确认重量'
@@ -159,19 +134,11 @@ Page({
         unitPriceText: detail.raw.unitPriceYuanPerKg
           ? formatUnitPrice(detail.raw.unitPriceYuanPerKg)
           : '—',
-        revisionText: detail.review.currentRevisionNo > 0
-          ? `第 ${detail.review.currentRevisionNo} 版`
-          : '尚未审核',
         approvedAtText: formatLocalDateTime(detail.review.firstApprovedAt),
         reason: detail.review.reason ?? '',
         anomalies: detail.anomalies.map((item) => ({
           ...item,
           timeText: formatLocalDateTime(item.detectedAt),
-        })),
-        photos: detail.photos.map((item) => ({
-          ...item,
-          positionText: PHOTO_POSITION_TEXT[item.position],
-          statusText: PHOTO_STATUS_TEXT[item.status],
         })),
       })
     } catch (error) {
@@ -193,14 +160,5 @@ Page({
 
   onRetry() {
     void this.loadDetail()
-  },
-
-  onPreviewPhoto(event: WechatMiniprogram.TouchEvent) {
-    const current = String(event.currentTarget.dataset.url || '')
-    if (!current) return
-    const urls = this.data.photos
-      .filter((item) => item.status === 'AVAILABLE' && !!item.url)
-      .map((item) => item.url as string)
-    if (urls.length) wx.previewImage({ current, urls })
   },
 })

@@ -1,8 +1,8 @@
 import { http } from '../utils/request'
 import type {
   CursorPage,
+  MiniappWalletEntry,
   MiniappWalletView,
-  PersonalWalletEntry,
 } from '../types/api'
 
 /** 我的钱包余额 */
@@ -19,7 +19,7 @@ export interface MyWalletEntriesQuery {
   limit?: number
 }
 
-/** 当前用户的不可变钱包流水；游标由后端签名，客户端不得解析或重建。 */
+/** 当前用户可见的钱包流水；提现冻结内部转移由后端在分页前排除。 */
 export function myWalletEntries(
   query: MyWalletEntriesQuery = {},
   toast = true,
@@ -27,7 +27,7 @@ export function myWalletEntries(
   const data: Record<string, unknown> = {}
   if (query.cursor) data.cursor = query.cursor
   if (query.limit !== undefined) data.limit = query.limit
-  return http.get<CursorPage<PersonalWalletEntry>>(
+  return http.get<CursorPage<MiniappWalletEntry>>(
     '/api/v1/miniapp/me/wallet/entries',
     data,
     { toast, noStore: true },

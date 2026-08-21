@@ -54,6 +54,19 @@ public final class WalletModels {
             Instant occurredAt) {
     }
 
+    public record MiniappWalletEntry(
+            UUID entryUid,
+            long entrySequenceNo,
+            String entryType,
+            String availableDeltaYuan,
+            String processingDeltaYuan,
+            String availableBalanceAfterYuan,
+            String withdrawalProcessingAfterYuan,
+            String sourceType,
+            String sourceNo,
+            Instant occurredAt) {
+    }
+
     public record AdjustWalletRequest(
             String deltaYuan,
             Long expectedWalletVersion,

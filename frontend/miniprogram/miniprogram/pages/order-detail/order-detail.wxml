@@ -49,20 +49,12 @@
     <view class="info-card">
       <view class="section-title">订单信息</view>
       <view class="info-row">
-        <text>设备公开码</text>
-        <text class="info-value">{{deviceCode}}</text>
-      </view>
-      <view class="info-row">
-        <text>设备接收时间</text>
-        <text class="info-value">{{receivedAtText}}</text>
+        <text>投递时间</text>
+        <text class="info-value">{{deliveryAtText}}</text>
       </view>
       <view class="info-row">
         <text>设备单价</text>
         <text class="info-value">{{unitPriceText}}</text>
-      </view>
-      <view class="info-row">
-        <text>审核版本</text>
-        <text class="info-value">{{revisionText}}</text>
       </view>
       <view wx:if="{{approvedAtText !== '—'}}" class="info-row">
         <text>首次审核时间</text>
@@ -83,28 +75,6 @@
           <text class="anomaly-meta">{{item.code}} · {{item.timeText}}</text>
         </view>
       </view>
-    </view>
-
-    <view class="info-card">
-      <view class="section-title">设备照片</view>
-      <view wx:if="{{photos.length}}" class="photo-grid">
-        <view class="photo-item" wx:for="{{photos}}" wx:key="position">
-          <image
-            wx:if="{{item.status === 'AVAILABLE' && item.url}}"
-            class="photo"
-            src="{{item.url}}"
-            mode="aspectFill"
-            data-url="{{item.url}}"
-            bindtap="onPreviewPhoto"
-          />
-          <view wx:else class="photo photo--empty">
-            <t-icon name="image" size="42rpx" color="#aeb6af" />
-            <text>{{item.statusText}}</text>
-          </view>
-          <text class="photo-label">{{item.positionText}}</text>
-        </view>
-      </view>
-      <view wx:else class="photo-empty">暂无照片信息</view>
     </view>
   </block>
 </view>

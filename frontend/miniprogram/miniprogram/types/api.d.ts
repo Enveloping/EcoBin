@@ -250,10 +250,9 @@ export interface MerchantTransferAuthorizationAcceptedView {
   recommendedPollAfterMs: number
 }
 
-export type WalletEntryType =
+export type MiniappWalletEntryType =
   | 'DELIVERY_INITIAL_REVIEW'
   | 'DELIVERY_CORRECTION'
-  | 'WITHDRAWAL_FREEZE'
   | 'WITHDRAWAL_SUCCEEDED'
   | 'WITHDRAWAL_RELEASED'
   | 'MANUAL_ADJUSTMENT'
@@ -263,11 +262,11 @@ export type WalletEntrySourceType =
   | 'WITHDRAWAL_ORDER'
   | 'MANUAL_ADJUSTMENT'
 
-/** 当前用户的一条不可变钱包流水。 */
-export interface PersonalWalletEntry {
+/** 当前用户可见的一条不可变钱包流水；不包含提现冻结内部转移。 */
+export interface MiniappWalletEntry {
   entryUid: string
   entrySequenceNo: number
-  entryType: WalletEntryType
+  entryType: MiniappWalletEntryType
   availableDeltaYuan: string
   processingDeltaYuan: string
   availableBalanceAfterYuan: string
@@ -302,7 +301,6 @@ export type DeliveryRawAmountReliability =
 
 export interface MiniappDeliveryOrderItem {
   deliveryOrderNo: string
-  deviceCode: string
   portNo: number
   deviceOccurredAt: string | null
   receivedAt: string
@@ -311,17 +309,14 @@ export interface MiniappDeliveryOrderItem {
   rawWeightReliability: DeliveryRawWeightReliability
   rawAmountReliability: DeliveryRawAmountReliability
   reviewStatus: DeliveryReviewStatus
-  currentRevisionNo: number
   finalWeightKg: string | null
   finalAmountYuan: string | null
   anomalyCodes: string[]
-  photoCompleteness: string
 }
 
 export interface MiniappDeliverySource {
   eventUid: string
   sessionUid: string
-  deviceCode: string
   portNo: number
   deviceOccurredAt: string | null
   receivedAt: string
@@ -341,7 +336,6 @@ export interface MiniappDeliveryRawFacts {
 
 export interface MiniappDeliveryReviewProjection {
   status: DeliveryReviewStatus
-  currentRevisionNo: number
   maxReviewAbsoluteWeightKg: string
   finalWeightKg: string | null
   finalAmountYuan: string | null
@@ -437,7 +431,6 @@ export interface MiniappDeliveryOrderDetail {
   raw: MiniappDeliveryRawFacts
   review: MiniappDeliveryReviewProjection
   anomalies: MiniappDeliveryAnomaly[]
-  photos: MiniappDeliveryPhoto[]
 }
 
 export type CleanFullnessStatus =

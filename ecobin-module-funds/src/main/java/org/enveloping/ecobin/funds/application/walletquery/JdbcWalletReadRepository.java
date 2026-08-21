@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.funds.application.walletquery;
 
+import org.enveloping.ecobin.funds.api.query.PersonalWalletEntryAudience;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -8,11 +9,15 @@ import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
 @Repository
 class JdbcWalletReadRepository implements WalletReadRepository {
+
+    private static final String WITHDRAWAL_FREEZE =
+            "WITHDRAWAL_FREEZE";
 
     private static final String ENTRY_COLUMNS = """
             SELECT entry_uid,
@@ -65,8 +70,17 @@ class JdbcWalletReadRepository implements WalletReadRepository {
             long tenantId,
             long organizationId,
             long walletId,
+            PersonalWalletEntryAudience audience,
             Long beforeEntrySequenceNo,
             int fetchLimit) {
+        boolean hideWithdrawalFreeze = switch (
+                Objects.requireNonNull(audience, "audience")) {
+            case ORDINARY_USER -> true;
+            case AUDIT -> false;
+        };
+        String visibility = hideWithdrawalFreeze
+                ? "AND event_type <> ?\n"
+                : "";
         String anchor = beforeEntrySequenceNo == null
                 ? ""
                 : "AND entry_sequence_no < ?\n";
@@ -74,6 +88,9 @@ class JdbcWalletReadRepository implements WalletReadRepository {
         arguments.add(tenantId);
         arguments.add(organizationId);
         arguments.add(walletId);
+        if (hideWithdrawalFreeze) {
+            arguments.add(WITHDRAWAL_FREEZE);
+        }
         if (beforeEntrySequenceNo != null) {
             arguments.add(beforeEntrySequenceNo);
         }
@@ -83,7 +100,7 @@ class JdbcWalletReadRepository implements WalletReadRepository {
                         WHERE tenant_id = ?
                           AND organization_id = ?
                           AND wallet_id = ?
-                        """ + anchor + """
+                        """ + visibility + anchor + """
                         ORDER BY entry_sequence_no DESC
                         LIMIT ?
                         """,

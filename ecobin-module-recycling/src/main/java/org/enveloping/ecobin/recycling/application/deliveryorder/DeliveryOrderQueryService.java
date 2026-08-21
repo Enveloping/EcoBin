@@ -28,6 +28,8 @@ import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliverySource
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.MiniappDeliveryAnomaly;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.MiniappDeliveryOrderDetail;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.MiniappDeliveryOrderItem;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.MiniappDeliveryReviewProjection;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.MiniappDeliverySource;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.WebDeliveryAnomaly;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.WebDeliveryOrderDetail;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.WebDeliveryOrderItem;
@@ -212,22 +214,14 @@ public class DeliveryOrderQueryService {
                                     resolveDeviceFact(scope, root);
                             List<DeliveryAnomalyRow> anomalies =
                                     repository.findAnomalies(root.id());
-                            List<DeliveryPhotoRow> photos =
-                                    repository.findPhotos(root.id());
-                            requireFourPhotos(photos);
                             return new MiniappDeliveryOrderDetail(
                                     root.deliveryOrderNo(),
-                                    source(root, device),
+                                    miniappSource(root, device),
                                     raw(root),
-                                    review(root),
+                                    miniappReview(root),
                                     anomalies.stream()
                                             .map(DeliveryOrderQueryService
                                                     ::miniappAnomaly)
-                                            .toList(),
-                                    photos.stream()
-                                            .map(photo -> photo(
-                                                    photo,
-                                                    false))
                                             .toList());
                         });
     }
@@ -476,7 +470,7 @@ public class DeliveryOrderQueryService {
                                                     .CORRECTION_SAFE))
                                     .toList(),
                             photos.stream()
-                                    .map(photo -> photo(photo, true))
+                                    .map(DeliveryOrderQueryService::webPhoto)
                                     .toList(),
                             revisions.stream()
                                     .map(revision -> revision(
@@ -820,7 +814,6 @@ public class DeliveryOrderQueryService {
                 row.netWeightInconsistent());
         return new MiniappDeliveryOrderItem(
                 row.deliveryOrderNo(),
-                device.deviceCode(),
                 device.portNo(),
                 instant(row.deviceOccurredAt()),
                 instant(row.receivedAt()),
@@ -833,11 +826,9 @@ public class DeliveryOrderQueryService {
                 reliability.weight(),
                 reliability.amount(),
                 row.reviewStatus(),
-                row.currentRevisionNo(),
                 decimal(row.finalWeightKg()),
                 money(row.finalAmountCent()),
-                row.anomalyCodes(),
-                row.photoCompleteness());
+                row.anomalyCodes());
     }
 
     private static WebDeliveryOrderItem webItem(
@@ -877,6 +868,17 @@ public class DeliveryOrderQueryService {
                 device.eventUid(),
                 device.sessionUid(),
                 device.deviceCode(),
+                device.portNo(),
+                instant(root.deviceOccurredAt()),
+                instant(root.receivedAt()));
+    }
+
+    private static MiniappDeliverySource miniappSource(
+            DeliveryOrderRootRow root,
+            DeliveryOrderDeviceFacts device) {
+        return new MiniappDeliverySource(
+                device.eventUid(),
+                device.sessionUid(),
                 device.portNo(),
                 instant(root.deviceOccurredAt()),
                 instant(root.receivedAt()));
@@ -922,6 +924,21 @@ public class DeliveryOrderQueryService {
                 instant(root.firstApprovedAt()));
     }
 
+    private static MiniappDeliveryReviewProjection miniappReview(
+            DeliveryOrderRootRow root) {
+        return new MiniappDeliveryReviewProjection(
+                root.reviewStatus(),
+                BigDecimal.valueOf(
+                                root.maxReviewAbsWeightGram(),
+                                3)
+                        .setScale(2, RoundingMode.DOWN)
+                        .toPlainString(),
+                decimal(root.finalWeightKg()),
+                money(root.finalAmountCent()),
+                instant(root.firstApprovedAt()),
+                null);
+    }
+
     private static MiniappDeliveryAnomaly miniappAnomaly(
             DeliveryAnomalyRow anomaly) {
         return new MiniappDeliveryAnomaly(
@@ -944,9 +961,8 @@ public class DeliveryOrderQueryService {
                         : null);
     }
 
-    private static DeliveryPhoto photo(
-            DeliveryPhotoRow photo,
-            boolean web) {
+    private static DeliveryPhoto webPhoto(
+            DeliveryPhotoRow photo) {
         return new DeliveryPhoto(
                 photo.position(),
                 photo.status(),
@@ -955,10 +971,7 @@ public class DeliveryOrderQueryService {
                         : null,
                 instant(photo.capturedAt()),
                 "PERMANENTLY_MISSING".equals(photo.status())
-                        ? web
-                        ? safeWebMissingReason(
-                                photo.missingReason())
-                        : "PHOTO_UNAVAILABLE"
+                        ? safeWebMissingReason(photo.missingReason())
                         : null);
     }
 

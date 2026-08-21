@@ -2412,7 +2412,7 @@ export interface paths {
         };
         /**
          * List the current ordinary user's wallet entries
-         * @description The opaque cursor is bound to the current user and the first page snapshot. Clients must reuse it unchanged and must not construct or decode it.
+         * @description The opaque cursor is bound to the current user, the ordinary-user visibility view and the first page snapshot. WITHDRAWAL_FREEZE is an internal transfer into withdrawal processing and is excluded before database pagination; withdrawal success and release entries remain visible. Clients must reuse the cursor unchanged and must not construct or decode it.
          */
         get: operations["listMiniappWalletEntries"];
         put?: never;
@@ -6411,7 +6411,6 @@ export interface components {
         DeliveryWalletEffect: "APPLIED" | "NO_CHANGE";
         MiniappDeliveryOrderItem: {
             deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
-            deviceCode: components["schemas"]["DeviceCode"];
             portNo: number;
             /** Format: date-time */
             deviceOccurredAt: string | null;
@@ -6421,12 +6420,9 @@ export interface components {
             rawWeightReliability: components["schemas"]["DeliveryWeightReliability"];
             rawAmountReliability: components["schemas"]["DeliveryAmountReliability"];
             reviewStatus: components["schemas"]["DeliveryReviewStatus"];
-            /** Format: int64 */
-            currentRevisionNo: number;
             finalWeightKg: string | null;
             finalAmountYuan: string | null;
             anomalyCodes: string[];
-            photoCompleteness: components["schemas"]["DeliveryPhotoCompleteness"];
         };
         WebDeliveryOrderItem: {
             deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
@@ -6501,6 +6497,14 @@ export interface components {
             asOf: components["schemas"]["UtcTimestamp"];
             nextCursor: string | null;
         };
+        MiniappDeliverySource: {
+            eventUid: components["schemas"]["UuidV4"];
+            sessionUid: components["schemas"]["UuidV4"];
+            portNo: number;
+            /** Format: date-time */
+            deviceOccurredAt: string | null;
+            receivedAt: components["schemas"]["UtcTimestamp"];
+        };
         DeliverySource: {
             eventUid: components["schemas"]["UuidV4"];
             sessionUid: components["schemas"]["UuidV4"];
@@ -6531,6 +6535,16 @@ export interface components {
             status: components["schemas"]["DeliveryReviewStatus"];
             /** Format: int64 */
             currentRevisionNo: number;
+            maxReviewAbsoluteWeightKg: components["schemas"]["BusinessWeightKg"];
+            finalWeightKg: string | null;
+            finalAmountYuan: string | null;
+            /** Format: date-time */
+            firstApprovedAt: string | null;
+            /** @description 当前审核或纠正说明；会向订单所属用户展示。 */
+            reason: string | null;
+        };
+        MiniappDeliveryReviewProjection: {
+            status: components["schemas"]["DeliveryReviewStatus"];
             maxReviewAbsoluteWeightKg: components["schemas"]["BusinessWeightKg"];
             finalWeightKg: string | null;
             finalAmountYuan: string | null;
@@ -6586,11 +6600,10 @@ export interface components {
         };
         MiniappDeliveryOrderDetail: {
             deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
-            source: components["schemas"]["DeliverySource"];
+            source: components["schemas"]["MiniappDeliverySource"];
             raw: components["schemas"]["DeliveryRawFacts"];
-            review: components["schemas"]["DeliveryReviewProjection"];
+            review: components["schemas"]["MiniappDeliveryReviewProjection"];
             anomalies: components["schemas"]["MiniappDeliveryAnomaly"][];
-            photos: components["schemas"]["DeliveryPhoto"][];
         };
         WebDeliveryOrderDetail: {
             deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
@@ -6775,6 +6788,11 @@ export interface components {
          */
         WalletEntryType: "DELIVERY_INITIAL_REVIEW" | "DELIVERY_CORRECTION" | "WITHDRAWAL_FREEZE" | "WITHDRAWAL_SUCCEEDED" | "WITHDRAWAL_RELEASED" | "MANUAL_ADJUSTMENT";
         /**
+         * @description Immutable wallet-entry reasons visible to an ordinary miniapp user. The internal WITHDRAWAL_FREEZE transfer is intentionally omitted.
+         * @enum {string}
+         */
+        MiniappWalletEntryType: "DELIVERY_INITIAL_REVIEW" | "DELIVERY_CORRECTION" | "WITHDRAWAL_SUCCEEDED" | "WITHDRAWAL_RELEASED" | "MANUAL_ADJUSTMENT";
+        /**
          * @description Owning business fact whose stable number is copied into the wallet entry.
          * @enum {string}
          */
@@ -6828,6 +6846,18 @@ export interface components {
             sourceNo: components["schemas"]["WalletEntrySourceNo"];
             occurredAt: components["schemas"]["UtcTimestamp"];
         };
+        MiniappWalletEntry: {
+            entryUid: components["schemas"]["PublicUid"];
+            entrySequenceNo: components["schemas"]["WalletEntrySequenceNo"];
+            entryType: components["schemas"]["MiniappWalletEntryType"];
+            availableDeltaYuan: components["schemas"]["MoneyCny"];
+            processingDeltaYuan: components["schemas"]["MoneyCny"];
+            availableBalanceAfterYuan: components["schemas"]["MoneyCny"];
+            withdrawalProcessingAfterYuan: components["schemas"]["PositiveMoneyCny"];
+            sourceType: components["schemas"]["WalletEntrySourceType"];
+            sourceNo: components["schemas"]["WalletEntrySourceNo"];
+            occurredAt: components["schemas"]["UtcTimestamp"];
+        };
         OrganizationWalletEntry: {
             entryUid: components["schemas"]["PublicUid"];
             organizationUserUid: components["schemas"]["PublicUid"];
@@ -6847,6 +6877,12 @@ export interface components {
             /** @description Opaque cursor for the next page, or null when the snapshot is exhausted. */
             nextCursor: components["schemas"]["WalletEntryCursor"] | null;
         };
+        MiniappWalletEntryCursorPage: {
+            items: components["schemas"]["MiniappWalletEntry"][];
+            asOf: components["schemas"]["UtcTimestamp"];
+            /** @description Opaque ordinary-user-view cursor for the next page, or null when the snapshot is exhausted. */
+            nextCursor: components["schemas"]["WalletEntryCursor"] | null;
+        };
         OrganizationWalletEntryCursorPage: {
             items: components["schemas"]["OrganizationWalletEntry"][];
             asOf: components["schemas"]["UtcTimestamp"];
@@ -6863,6 +6899,12 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["PersonalWalletEntryCursorPage"];
+            requestId: string;
+        };
+        MiniappWalletEntryPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["MiniappWalletEntryCursorPage"];
             requestId: string;
         };
         OrganizationWalletEntryPageEnvelope: {
@@ -9497,6 +9539,17 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["PersonalWalletEntryPageEnvelope"];
+            };
+        };
+        /** @description A stable ordinary-user cursor page that excludes the internal withdrawal-freeze transfer */
+        MiniappWalletEntriesOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["MiniappWalletEntryPageEnvelope"];
             };
         };
         /** @description A stable high-watermark cursor page across one visible organization */
@@ -12761,7 +12814,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            200: components["responses"]["PersonalWalletEntriesOk"];
+            200: components["responses"]["MiniappWalletEntriesOk"];
             400: components["responses"]["WalletQueryInvalidRequest"];
             401: components["responses"]["UnauthorizedProblem"];
             500: components["responses"]["WalletInternalProblem"];

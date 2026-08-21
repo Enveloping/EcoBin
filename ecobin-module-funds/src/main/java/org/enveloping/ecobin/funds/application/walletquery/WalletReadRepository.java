@@ -1,5 +1,7 @@
 package org.enveloping.ecobin.funds.application.walletquery;
 
+import org.enveloping.ecobin.funds.api.query.PersonalWalletEntryAudience;
+
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -16,6 +18,7 @@ interface WalletReadRepository {
             long tenantId,
             long organizationId,
             long walletId,
+            PersonalWalletEntryAudience audience,
             Long beforeEntrySequenceNo,
             int fetchLimit);
 

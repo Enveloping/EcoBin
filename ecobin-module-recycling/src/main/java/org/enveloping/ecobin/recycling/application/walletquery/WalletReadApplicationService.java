@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.recycling.application.walletquery;
 
 import org.enveloping.ecobin.funds.api.port.WalletQueryPort;
+import org.enveloping.ecobin.funds.api.query.PersonalWalletEntryAudience;
 import org.enveloping.ecobin.funds.api.query.WalletEntryFilter;
 import org.enveloping.ecobin.funds.api.result.WalletBalanceSnapshot;
 import org.enveloping.ecobin.funds.api.result.WalletEntryItem;
@@ -11,6 +12,7 @@ import org.enveloping.ecobin.identity.api.query.WalletScopeAuthorizationQuery;
 import org.enveloping.ecobin.identity.api.result.AuthorizedWalletScope;
 import org.enveloping.ecobin.identity.api.result.CurrentMiniappWalletIdentity;
 import org.enveloping.ecobin.recycling.web.v1.WalletModels;
+import org.enveloping.ecobin.recycling.web.v1.WalletModels.MiniappWalletEntry;
 import org.enveloping.ecobin.recycling.web.v1.WalletModels.OrganizationWalletEntry;
 import org.enveloping.ecobin.recycling.web.v1.WalletModels.PersonalWalletEntry;
 import org.enveloping.ecobin.recycling.web.v1.WalletModels.WalletSummary;
@@ -99,15 +101,22 @@ public class WalletReadApplicationService {
     @Transactional(
             readOnly = true,
             isolation = Isolation.REPEATABLE_READ)
-    public WalletModels.WalletEntryPage<PersonalWalletEntry> miniappEntries(
+    public WalletModels.WalletEntryPage<MiniappWalletEntry> miniappEntries(
             String cursor,
             Integer limit) {
         CurrentMiniappWalletIdentity identity =
                 miniappIdentity.current();
-        return personalPage(funds.personalEntries(
+        WalletEntryPage page = funds.personalEntries(
                 identity.walletOwnerRef(),
+                PersonalWalletEntryAudience.ORDINARY_USER,
                 cursor,
-                limit));
+                limit);
+        return new WalletModels.WalletEntryPage<>(
+                page.items().stream()
+                        .map(WalletReadApplicationService::miniappEntry)
+                        .toList(),
+                page.asOf(),
+                page.nextCursor());
     }
 
     @Transactional(
@@ -129,6 +138,7 @@ public class WalletReadApplicationService {
                         organizationUserUid));
         return personalPage(funds.personalEntries(
                 authorized.walletOwnerRef(),
+                PersonalWalletEntryAudience.AUDIT,
                 cursor,
                 limit));
     }
@@ -197,6 +207,21 @@ public class WalletReadApplicationService {
     private static PersonalWalletEntry personalEntry(
             WalletEntryItem item) {
         return new PersonalWalletEntry(
+                item.entryUid(),
+                item.entrySequenceNo(),
+                item.entryType(),
+                money(item.availableDeltaCent()),
+                money(item.processingDeltaCent()),
+                money(item.availableBalanceAfterCent()),
+                money(item.withdrawalProcessingAfterCent()),
+                item.sourceType(),
+                item.sourceNo(),
+                item.occurredAt());
+    }
+
+    private static MiniappWalletEntry miniappEntry(
+            WalletEntryItem item) {
+        return new MiniappWalletEntry(
                 item.entryUid(),
                 item.entrySequenceNo(),
                 item.entryType(),

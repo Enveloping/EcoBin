@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.funds.api.port;
 
+import org.enveloping.ecobin.funds.api.query.PersonalWalletEntryAudience;
 import org.enveloping.ecobin.funds.api.query.WalletEntryFilter;
 import org.enveloping.ecobin.funds.api.result.WalletBalanceSnapshot;
 import org.enveloping.ecobin.funds.api.result.WalletEntryPage;
@@ -13,6 +14,7 @@ public interface WalletQueryPort {
 
     WalletEntryPage personalEntries(
             DeliveryWalletQueryOwnerRef ownerRef,
+            PersonalWalletEntryAudience audience,
             String cursor,
             Integer limit);
 

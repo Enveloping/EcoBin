@@ -2,6 +2,7 @@ package org.enveloping.ecobin.funds.application.walletquery;
 
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.funds.api.port.WalletQueryPort;
+import org.enveloping.ecobin.funds.api.query.PersonalWalletEntryAudience;
 import org.enveloping.ecobin.funds.api.query.WalletEntryFilter;
 import org.enveloping.ecobin.funds.api.result.WalletBalanceSnapshot;
 import org.enveloping.ecobin.funds.api.result.WalletEntryItem;
@@ -95,9 +96,11 @@ public class WalletQueryService implements WalletQueryPort {
             readOnly = true)
     public WalletEntryPage personalEntries(
             DeliveryWalletQueryOwnerRef ownerRef,
+            PersonalWalletEntryAudience audience,
             String cursor,
             Integer limit) {
         Objects.requireNonNull(ownerRef, "ownerRef");
+        Objects.requireNonNull(audience, "audience");
         int pageSize = normalizeLimit(limit);
         return ownerRef.withWalletOwnerOnce(
                 (tenantId, organizationId, userId, userUid) -> {
@@ -108,6 +111,7 @@ public class WalletQueryService implements WalletQueryPort {
                                     userId);
                     String fingerprint = fingerprint(Map.of(
                             "mode", "PERSONAL",
+                            "audience", audience.name(),
                             "tenant", tenantId,
                             "organization", organizationId,
                             "userUid", userUid.toString()));
@@ -125,6 +129,7 @@ public class WalletQueryService implements WalletQueryPort {
                                     tenantId,
                                     organizationId,
                                     wallet.id(),
+                                    audience,
                                     decoded == null
                                             ? null
                                             : decoded.lastSequence(),

@@ -9,12 +9,12 @@ import { formatLocalDateTime } from '../../utils/local-time'
 import { MiniappApiProblem } from '../../utils/request'
 import { toWalletDisplay } from '../../utils/user-view'
 import type {
-  PersonalWalletEntry,
+  MiniappWalletEntry,
+  MiniappWalletEntryType,
   WalletEntrySourceType,
-  WalletEntryType,
 } from '../../types/api'
 
-interface WalletEntryListItem extends PersonalWalletEntry {
+interface WalletEntryListItem extends MiniappWalletEntry {
   title: string
   sourceText: string
   timeText: string
@@ -30,10 +30,9 @@ interface WalletEntryListItem extends PersonalWalletEntry {
 
 const PAGE_SIZE = 20
 
-const ENTRY_TYPE_TEXT: Record<WalletEntryType, string> = {
+const ENTRY_TYPE_TEXT: Record<MiniappWalletEntryType, string> = {
   DELIVERY_INITIAL_REVIEW: '投递返现入账',
   DELIVERY_CORRECTION: '投递返现调整',
-  WITHDRAWAL_FREEZE: '提现申请冻结',
   WITHDRAWAL_SUCCEEDED: '提现完成',
   WITHDRAWAL_RELEASED: '提现资金退回',
   MANUAL_ADJUSTMENT: '账户人工调整',
@@ -70,7 +69,7 @@ function amountTone(value: string): string {
   return value.startsWith('-') ? 'amount-debit' : 'amount-credit'
 }
 
-function walletEntry(item: PersonalWalletEntry): WalletEntryListItem {
+function walletEntry(item: MiniappWalletEntry): WalletEntryListItem {
   return {
     ...item,
     title: ENTRY_TYPE_TEXT[item.entryType],

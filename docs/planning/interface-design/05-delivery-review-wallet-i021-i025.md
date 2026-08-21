@@ -302,6 +302,8 @@ RECOVERY_REQUIRED
 
 **已确认：普通用户可查看自己的原始订单和当前认定；后台用统一审核能力完成首次认定，用独立纠错能力追加后续版本，并在同一事务按系统计算金额改变钱包。**
 
+> 可见性补充：普通小程序订单不返回设备公开码、审核版本、照片完整度或任何设备照片；这些运维证据只保留在有权的管理端或清运追溯查询中。普通用户界面统一展示“投递时间”，取可信 `deviceOccurredAt`，缺失时才回退 `receivedAt`，不得把后端接收时间单独标成设备接收时间。
+
 ### 1. 普通用户和 Web 查询端点
 
 普通用户：
@@ -326,7 +328,7 @@ GET /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/d
 ```
 
 - 时间线展示顺序按 `deviceOccurredAt + deliveryOrderNo` 稳定倒序，但首屏还会冻结当前机构订单提交可见序号作为 `snapshotHighWatermark`。该水位只冻结“哪些订单已经创建”的候选全集：后续页只读取不超过该上限的订单，翻页期间新建的旧发生时…42 tokens truncated…rredAt + deliveryOrderNo`；响应返回可空 `nextCursor`。订单列表的 `limit` 默认 20、最高 100；改变筛选必须从首屏重新查询。游标签名、版本或筛选不匹配，以及超过服务端保留期时返回 `400 COMMON.INVALID_CURSOR`，不得降级猜测分页位置或使用无索引大偏移。
-- 小程序列表固定当前用户和机构，只接受 `cursor`、`limit` 及可选 `reviewStatus`。Web 列表允许 `reviewStatus`、`occurredFrom`、`occurredTo`、`organizationUserUid`、`deploymentCode`、`portNo`、`anomalyCode`、`photoCompleteness=COMPLETE/INCOMPLETE`、`cursor` 和 `limit`；`occurredFrom` 包含边界，`occurredTo` 不包含边界，时间格式遵守 I-002。所有筛选都与实时授权机构求交。
+- 小程序列表固定当前用户和机构，只接受 `cursor`、`limit` 及可选 `reviewStatus`。Web 列表允许 `reviewStatus`、`occurredFrom`、`occurredTo`、`organizationUserUid`、`deviceCode`、`portNo`、`anomalyCode`、`photoCompleteness=COMPLETE/INCOMPLETE`、`cursor` 和 `limit`；`occurredFrom` 包含边界，`occurredTo` 不包含边界，时间格式遵守 I-002。所有筛选都与实时授权机构求交。
 - `reviewStatus` 和 `photoCompleteness` 是可变投影，必须在每一页读取时按当前值重新判断，不属于跨请求的历史 as-of 快照。因此并发审核或照片补传可以让尚未翻到的既有订单进入或退出后续页；稳定排序键保证已经返回的订单不会在同一游标链中重复，客户端需要完整当前工作队列时必须刷新首屏。响应 `asOf` 是本页服务端观察时间，不声称整条游标链共享同一状态时点。其余基于订单不可变创建事实的筛选继续受创建水位稳定约束。
 - Web 列表允许 `delivery.read` 或 `review.execute`：前者用于普通订单查询，后者必须能形成待审核工作队列。订单详情允许 `delivery.read`、`review.execute`，或仅为完成纠错而对直接目标持有 `delivery.correct`；`delivery.correct` 单独不开放订单列表。平台镜像要求活跃平台管理员。
 - 只有 `review.execute` 而没有 `delivery.read` 时，列表固定为当前可审核的 `PENDING` 订单，详情也只开放仍可审核的直接目标；不能借审核能力浏览全部已通过历史。`delivery.correct` 的直接目标读取同样只返回执行纠错所需的安全详情和当前修订版本。
@@ -334,7 +336,7 @@ GET /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/d
 
 ### 2. 订单列表 DTO
 
-列表响应 `data` 固定为：
+以下示例是 Web 列表的完整 `data`；普通小程序使用同一订单事实的收窄 DTO，并按下方规则省略运维字段：
 
 ```json
 {
@@ -342,7 +344,7 @@ GET /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/d
     {
       "deliveryOrderNo": "DO20260723...",
       "organizationUserUid": "54f9c3f5-...",
-      "deploymentCode": "dpl_4s8V...",
+      "deviceCode": "Dv_0123456789abcdefghijklmn",
       "portNo": 1,
       "deviceOccurredAt": "2026-07-23T08:31:06.123Z",
       "receivedAt": "2026-07-23T08:31:08.123Z",
@@ -365,14 +367,14 @@ GET /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/d
 
 字段规则：
 
-- `organizationUserUid` 在 Web 中必填且来自原 session；普通小程序 DTO 不含该字段。无法验证原 session 和用户归属的完成结果只进入技术隔离，不出现在订单列表。
+- `organizationUserUid` 在 Web 中必填且来自原 session；普通小程序 DTO 不含该字段，也不含 `deviceCode/currentRevisionNo/photoCompleteness`。无法验证原 session 和用户归属的完成结果只进入技术隔离，不出现在订单列表。
 - `rawWeightKg/rawAmountYuan` 在对应原始计算不可靠时为 `null`。`rawWeightReliability` 固定为 `RELIABLE/MISSING/INVALID/INCONSISTENT`；`rawAmountReliability` 固定为 `RELIABLE/WEIGHT_UNRELIABLE/PRICE_UNAVAILABLE`，重量不可靠优先归为 `WEIGHT_UNRELIABLE`。
-- `reviewStatus` 固定为 `PENDING/APPROVED`。待审核时 `currentRevisionNo=0` 且最终值均为 `null`；通过后修订号至少为 1 且最终值非空。
-- `anomalyCodes` 只返回稳定安全代码，不返回诊断 JSON。`photoCompleteness` 固定为 `COMPLETE/INCOMPLETE`。
+- `reviewStatus` 固定为 `PENDING/APPROVED`。Web DTO 待审核时 `currentRevisionNo=0` 且最终值均为 `null`；通过后修订号至少为 1 且最终值非空；普通小程序不接收修订号。
+- `anomalyCodes` 只返回稳定安全代码，不返回诊断 JSON。Web DTO 的 `photoCompleteness` 固定为 `COMPLETE/INCOMPLETE`，普通小程序不接收照片完整度。
 
 ### 3. 订单详情 DTO
 
-详情 `data` 使用以下稳定结构；字段均出现，只有标明 Web-only 的字段在普通小程序响应中整体省略：
+以下示例是 Web 详情的完整稳定结构。普通小程序使用独立收窄模型，整体省略 `source.deviceCode`、`review.currentRevisionNo`、`ownership`、`photos`、`revisions` 和异常诊断详情：
 
 ```json
 {
@@ -380,7 +382,7 @@ GET /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/d
   "source": {
     "eventUid": "2c496616-...",
     "sessionUid": "8d476b7d-...",
-    "deploymentCode": "dpl_4s8V...",
+    "deviceCode": "Dv_0123456789abcdefghijklmn",
     "portNo": 1,
     "deviceOccurredAt": "2026-07-23T08:31:06.123Z",
     "receivedAt": "2026-07-23T08:31:08.123Z"
@@ -453,9 +455,9 @@ GET /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/d
 - 首次开门前和最终关门后克值分别可空；缺失时不能用 0 或中间重量代替。`raw.weightKg/amountYuan` 及两种可靠性与列表口径一致。
 - `source.eventUid` 和 `source.sessionUid` 始终非空，且一个会话只能关联一单。无法恢复原会话、用户或冻结摘要的数据进入技术隔离，不能伪造会话或借用后来用户身份。
 - `raw.negativeWeightAnomaly` 来自最终 `DELIVERY_COMPLETE` 的锁存布尔值，可以在整场最终净重量为正、零或负时出现。后端不保存也不展示触发轮次、具体减少克数或中间重量；该标志只要求人工关注，不自行改变订单重量或钱包。
-- `ownership.organizationUserUid` 只在 Web 中出现且必填。普通用户不接收后台操作者身份、`diagnosticDetails` 或完整 `revisions`，只接收 `review` 当前认定。
+- `ownership.organizationUserUid` 只在 Web 中出现且必填。普通用户不接收设备公开码、审核版本、后台操作者身份、`diagnosticDetails` 或完整 `revisions`，只接收不含版本号的 `review` 当前认定。
 - `anomalies.category` 固定为 `USER/SYSTEM`。普通用户只看安全化 `code/message`；Web 的 `diagnosticDetails` 可以是可空结构化对象，但不得包含密钥、COS 对象凭据、协议原文或其他主体信息。
-- `photos` 固定包含 `BEFORE_INNER/BEFORE_OUTER/AFTER_INNER/AFTER_OUTER` 四项。状态固定为 `UPLOAD_PENDING/AVAILABLE/PERMANENTLY_MISSING`；只有 `AVAILABLE` 时 `url` 非空，永久缺失时 `missingReason` 非空。Web 返回设备安全化缺失原因；普通用户使用面向用户的通用原因，不能暴露内部网络和设备诊断。
+- Web 的 `photos` 固定包含 `BEFORE_INNER/BEFORE_OUTER/AFTER_INNER/AFTER_OUTER` 四项。状态固定为 `UPLOAD_PENDING/AVAILABLE/PERMANENTLY_MISSING`；只有 `AVAILABLE` 时 `url` 非空，永久缺失时 `missingReason` 非空。普通小程序响应整体省略 `photos`，既不返回 URL，也不返回照片状态或缺失原因。
 - `revisions.revisionType` 固定为 `INITIAL_REVIEW/CORRECTION`，决定固定为 `ORIGINAL_APPROVED/MODIFIED_APPROVED`。`operator.actorKind` 使用平台管理员/租户主体/工作人员等已经冻结的分型值，不返回数据库主键。
 - 待审核的整场负净重量和负金额可以在原用户自己的订单详情中按原始事实显示，并明确标记“待人工审核”；它们在审核前仍不进入钱包。`negativeWeightAnomaly=true` 与整场净重量的正负正交。
 - 后续机器可读 Schema 与契约测试必须覆盖 Web 必填用户归属和小程序整体省略该字段的两种形状；会话归属缺失样例必须验证其进入技术隔离而非订单接口。
@@ -586,6 +588,7 @@ GET /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/w
 ```
 
 - 普通用户读取自己的钱包不需要 `wallet.read`；未绑定手机号仍可查看，但不能投递或提现。
+- 普通用户小程序的明细视图不返回 `WITHDRAWAL_FREEZE`。该类型只表示“可提现余额转入提现处理中”的内部冻结转移，总资产尚未减少；后端必须在数据库排序和 `LIMIT` 分页前排除它，不能取页后再由服务端或客户端过滤。`WITHDRAWAL_SUCCEEDED` 和 `WITHDRAWAL_RELEASED` 分别表示真实出款完成和资金退回，仍向用户展示。
 - Web 端点要求 `wallet.read`，`user.read` 或 `delivery.read` 不自动授予钱包读取能力。
 - 目标用户不在当前可见机构时统一返回 `404 RESOURCE.NOT_FOUND`。
 - 机构级 `wallet-entries` 是 P0 后台筛选机构真实钱包流水的入口；筛选的用户、类型、左闭右开时间范围和来源单号都与当前机构作用域求交。每项额外返回 `organizationUserUid`，不得返回手机号、OpenID、钱包内部主键或其他机构数据。
@@ -616,6 +619,8 @@ GET /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/w
 
 `GET .../organization-users/{organizationUserUid}/wallet/entries` 只返回已经实际改变该钱包可用或冻结投影的追加明细。每次在钱包锁内形成真实明细时分配从 1 开始、严格递增且不可回退的 `entrySequenceNo`；个人流水按该序号倒序形成不透明排他游标，并返回 `items` 和可空 `nextCursor`。随机 `entryUid` 只承担公开幂等身份，不能决定账本顺序。
 
+普通用户视图和 Web 审计视图使用不同的游标指纹，游标不能跨视图复用。由于普通用户视图只隐藏冻结内部转移，返回的真实 `entrySequenceNo` 允许出现间隔；游标仍以最后一条可见明细的真实序号排他翻页。Web 单用户抽屉、机构级流水及其类型筛选继续读取完整不可变账本，能够查看 `WITHDRAWAL_FREEZE`，底层记录不删除、不改写。
+
 机构级 `wallet-entries` 首屏在一致读取中冻结机构钱包明细提交可见序号作为 `snapshotHighWatermark`，后续页只读取不超过该水位的明细，再按 `occurredAt + organizationUserUid + entrySequenceNo` 稳定倒序。新事务无论携带何种业务发生时间，只要在首屏之后提交就取得更高水位，不会穿入后续页。水位、首屏 `asOf`、末项排序键和全部筛选摘要都封入防篡改游标；`limit` 默认 20、最高 100，改变筛选必须重新从首屏查询。
 
 每项至少包含：
@@ -635,7 +640,7 @@ GET /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/w
 }
 ```
 
-- P0 明细类型至少固定为 `DELIVERY_INITIAL_REVIEW`、`DELIVERY_CORRECTION`、`WITHDRAWAL_FREEZE`、`WITHDRAWAL_SUCCEEDED`、`WITHDRAWAL_RELEASED` 和 `MANUAL_ADJUSTMENT`；客户端显示文案不能依赖数据库内部数字值。
+- P0 完整账本明细类型至少固定为 `DELIVERY_INITIAL_REVIEW`、`DELIVERY_CORRECTION`、`WITHDRAWAL_FREEZE`、`WITHDRAWAL_SUCCEEDED`、`WITHDRAWAL_RELEASED` 和 `MANUAL_ADJUSTMENT`；普通用户小程序可见类型是其中除 `WITHDRAWAL_FREEZE` 外的五种。客户端显示文案不能依赖数据库内部数字值。
 - `sourceType` 固定为 `DELIVERY_ORDER/WITHDRAWAL_ORDER/MANUAL_ADJUSTMENT`，并与 `entryType` 的合法来源组合校验。
 - `availableDeltaYuan` 和 `processingDeltaYuan` 都是有符号金额。每项的变动后值必须与资金账本连续一致。
 - 待审核返现没有钱包明细；用户通过 I-024 的订单列表查看其组成。不得为了让流水页面展示“待入账”而提前写一条可撤销的伪资金记录。

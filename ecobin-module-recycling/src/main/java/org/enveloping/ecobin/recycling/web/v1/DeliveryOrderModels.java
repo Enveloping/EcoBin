@@ -27,7 +27,6 @@ public final class DeliveryOrderModels {
 
     public record MiniappDeliveryOrderItem(
             String deliveryOrderNo,
-            String deviceCode,
             int portNo,
             Instant deviceOccurredAt,
             Instant receivedAt,
@@ -36,11 +35,9 @@ public final class DeliveryOrderModels {
             String rawWeightReliability,
             String rawAmountReliability,
             String reviewStatus,
-            long currentRevisionNo,
             String finalWeightKg,
             String finalAmountYuan,
-            List<String> anomalyCodes,
-            String photoCompleteness) {
+            List<String> anomalyCodes) {
 
         public MiniappDeliveryOrderItem {
             anomalyCodes = List.copyOf(anomalyCodes);
@@ -79,6 +76,14 @@ public final class DeliveryOrderModels {
             Instant receivedAt) {
     }
 
+    public record MiniappDeliverySource(
+            UUID eventUid,
+            UUID sessionUid,
+            int portNo,
+            Instant deviceOccurredAt,
+            Instant receivedAt) {
+    }
+
     public record DeliveryOwnership(UUID organizationUserUid) {
     }
 
@@ -101,6 +106,15 @@ public final class DeliveryOrderModels {
             String finalWeightKg,
             String finalAmountYuan,
             Instant firstApprovedAt) {
+    }
+
+    public record MiniappDeliveryReviewProjection(
+            String status,
+            String maxReviewAbsoluteWeightKg,
+            String finalWeightKg,
+            String finalAmountYuan,
+            Instant firstApprovedAt,
+            String reason) {
     }
 
     public record MiniappDeliveryAnomaly(
@@ -149,15 +163,13 @@ public final class DeliveryOrderModels {
 
     public record MiniappDeliveryOrderDetail(
             String deliveryOrderNo,
-            DeliverySource source,
+            MiniappDeliverySource source,
             DeliveryRawFacts raw,
-            DeliveryReviewProjection review,
-            List<MiniappDeliveryAnomaly> anomalies,
-            List<DeliveryPhoto> photos) {
+            MiniappDeliveryReviewProjection review,
+            List<MiniappDeliveryAnomaly> anomalies) {
 
         public MiniappDeliveryOrderDetail {
             anomalies = List.copyOf(anomalies);
-            photos = List.copyOf(photos);
         }
     }
 

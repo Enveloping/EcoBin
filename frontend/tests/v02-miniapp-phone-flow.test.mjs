@@ -230,6 +230,12 @@ test('miniapp orders and wallet use the target read contracts', () => {
   const detailSource = source(
     '../miniprogram/miniprogram/pages/order-detail/order-detail.ts',
   );
+  const detailMarkup = source(
+    '../miniprogram/miniprogram/pages/order-detail/order-detail.wxml',
+  );
+  const miniappApiTypes = source(
+    '../miniprogram/miniprogram/types/api.d.ts',
+  );
   const deliveryEntrySource = source(
     '../miniprogram/miniprogram/pages/delivery-entry/delivery-entry.ts',
   );
@@ -271,6 +277,26 @@ test('miniapp orders and wallet use the target read contracts', () => {
   );
   assert.match(ordersSource, /COMMON\.INVALID_CURSOR/);
   assert.match(detailSource, /deliveryDetail\(this\.deliveryOrderNo,\s*false\)/);
+  assert.match(detailMarkup, /<text>投递时间<\/text>/);
+  assert.doesNotMatch(
+    detailMarkup,
+    /设备公开码|审核版本|设备照片|onPreviewPhoto/,
+  );
+  assert.doesNotMatch(
+    detailSource,
+    /detail\.photos|source\.deviceCode|currentRevisionNo|onPreviewPhoto/,
+  );
+  const miniappOrderItemType = miniappApiTypes.match(
+    /export interface MiniappDeliveryOrderItem \{([\s\S]*?)\n\}/,
+  )?.[1] ?? '';
+  const miniappOrderDetailType = miniappApiTypes.match(
+    /export interface MiniappDeliveryOrderDetail \{([\s\S]*?)\n\}/,
+  )?.[1] ?? '';
+  assert.doesNotMatch(
+    miniappOrderItemType,
+    /deviceCode|currentRevisionNo|photoCompleteness/,
+  );
+  assert.doesNotMatch(miniappOrderDetailType, /photos/);
   assert.match(
     deliveryEntrySource,
     /\/pages\/order-detail\/order-detail\?deliveryOrderNo=/,
@@ -314,6 +340,15 @@ test('miniapp orders and wallet use the target read contracts', () => {
   assert.match(walletPageSource, /myWalletEntries/);
   assert.match(walletPageSource, /nextCursor/);
   assert.match(walletPageSource, /COMMON\.INVALID_CURSOR/);
+  assert.doesNotMatch(
+    walletPageSource,
+    /WITHDRAWAL_FREEZE|提现申请冻结/,
+  );
+  const miniappWalletEntryType = miniappApiTypes.match(
+    /export type MiniappWalletEntryType\s*=([\s\S]*?)\n\n/,
+  )?.[1] ?? '';
+  assert.doesNotMatch(miniappWalletEntryType, /WITHDRAWAL_FREEZE/);
+  assert.match(walletApiSource, /CursorPage<MiniappWalletEntry>/);
   assert.match(walletMarkup, /<text>待审核<\/text>/);
   assert.match(walletMarkup, /class="withdrawal-button"/);
   assert.match(walletMarkup, /bindtap="onWithdrawals"/);
