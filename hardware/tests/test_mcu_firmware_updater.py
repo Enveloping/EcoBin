@@ -1006,6 +1006,191 @@ def test_confirmed_prepare_execution_failure_recovers_then_rejects(tmp_path):
     assert boot.operations[-2:] == ["APPLICATION", "APPLICATION_SELECTED"]
 
 
+@pytest.mark.parametrize("commit_before_error", [False, True])
+def test_prepared_journal_failure_recovers_application_before_unlocking(
+    tmp_path,
+    monkeypatch,
+    commit_before_error,
+):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        boot,
+        _,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    install_first_stable(
+        tmp_path,
+        private_path,
+        store,
+        uart,
+        manifests,
+        updater,
+    )
+    target_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    register_manifest(manifests, target)
+    operations_before = len(boot.operations)
+    original_transition = store.transition_mcu_firmware_update
+
+    def fail_prepared_transition(update_uid, state, **kwargs):
+        if state == "PREPARED":
+            if commit_before_error:
+                assert original_transition(update_uid, state, **kwargs)
+            raise OSError("injected PREPARED journal failure")
+        return original_transition(update_uid, state, **kwargs)
+
+    monkeypatch.setattr(
+        store,
+        "transition_mcu_firmware_update",
+        fail_prepared_transition,
+    )
+    queued = updater.queue_local(target_path)
+
+    assert updater.process_active()
+    update = store.get_mcu_firmware_update(queued["updateUid"])
+    assert uart.prepare_count == 1
+    assert boot.operations[operations_before:] == [
+        "APPLICATION",
+        "APPLICATION_SELECTED",
+    ]
+    assert update["state"] == "REJECTED"
+    assert update["last_error_code"] == "MCU_PREPARED_JOURNAL_FAILED"
+    assert store.get_maintenance_lock() is None
+
+
+def test_prepared_journal_failure_locks_when_application_recovery_fails(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        boot,
+        _,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    install_first_stable(
+        tmp_path,
+        private_path,
+        store,
+        uart,
+        manifests,
+        updater,
+    )
+    target_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    register_manifest(manifests, target)
+    operations_before = len(boot.operations)
+    original_transition = store.transition_mcu_firmware_update
+
+    def fail_prepared_transition(update_uid, state, **kwargs):
+        if state == "PREPARED":
+            raise OSError("injected PREPARED journal failure")
+        return original_transition(update_uid, state, **kwargs)
+
+    monkeypatch.setattr(
+        store,
+        "transition_mcu_firmware_update",
+        fail_prepared_transition,
+    )
+    uart.open = lambda: False
+    queued = updater.queue_local(target_path)
+
+    assert updater.process_active()
+    update = store.get_mcu_firmware_update(queued["updateUid"])
+    assert uart.prepare_count == 1
+    assert boot.operations[operations_before:] == [
+        "APPLICATION",
+        "APPLICATION_SELECTED",
+    ]
+    assert update["state"] == "FAILED_LOCKED"
+    assert update["last_error_code"] == "MCU_PREPARE_RECOVERY_FAILED"
+    assert store.get_maintenance_lock()["owner_uid"] == queued["updateUid"]
+
+
+def test_restart_with_prepare_marker_recovers_before_rejecting(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        boot,
+        _,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    install_first_stable(
+        tmp_path,
+        private_path,
+        store,
+        uart,
+        manifests,
+        updater,
+    )
+    target_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    register_manifest(manifests, target)
+    queued = updater.queue_local(target_path)
+    update_uid = queued["updateUid"]
+    assert store.transition_mcu_firmware_update(update_uid, "PREFLIGHT")
+    expected_identity = uart.query_firmware_identity()
+    assert store.arm_mcu_firmware_prepare_recovery(
+        update_uid,
+        expected_identity,
+    )
+    operations_before = len(boot.operations)
+    original_query = uart.query_firmware_identity
+    query_count = 0
+
+    def fail_first_query_after_restart():
+        nonlocal query_count
+        query_count += 1
+        if query_count == 1:
+            return {"queryStatus": "TIMEOUT"}
+        return original_query()
+
+    monkeypatch.setattr(
+        uart,
+        "query_firmware_identity",
+        fail_first_query_after_restart,
+    )
+
+    assert updater.process_active()
+    update = store.get_mcu_firmware_update(update_uid)
+    assert boot.operations[operations_before:] == [
+        "APPLICATION",
+        "APPLICATION_SELECTED",
+    ]
+    assert update["state"] == "REJECTED"
+    assert update["last_error_code"] == "FIRMWARE_IDENTITY_UNAVAILABLE"
+    assert store.get_maintenance_lock() is None
+
+
 def test_unexpected_postflash_failure_automatically_rolls_back(tmp_path):
     (
         private_path,

@@ -8,8 +8,8 @@
 extern unsigned char RS485_RxBuf[RS485_RX_BUF_SIZE];
 extern volatile unsigned char RS485_RxLen;
 
-/* USART1 视觉模块接收缓冲区 (需容纳 A0帧=195字节) */
-#define VISION_RX_BUF_SIZE  256
+/* USART1 视觉模块接收缓冲区：A0=195字节，8位长度计数器上限为255。 */
+#define VISION_RX_BUF_SIZE  255
 extern unsigned char Vision_RxBuf[VISION_RX_BUF_SIZE];
 extern volatile unsigned char Vision_RxLen;
 

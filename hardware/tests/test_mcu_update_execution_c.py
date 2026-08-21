@@ -15,6 +15,7 @@ MCU_TEST_SOURCE = (
     / "tests"
     / "test_mcu_update_execution.c"
 )
+MCU_INTERRUPT_SOURCE = MCU_USER_ROOT / "stm32f10x_it.c"
 
 
 def _clang_executable() -> str:
@@ -57,3 +58,30 @@ def test_mcu_update_execution_transition_with_clang(tmp_path: Path) -> None:
         text=True,
     )
     assert run_result.returncode == 0, run_result.stderr
+
+
+def test_usart1_receive_length_can_represent_the_buffer_capacity() -> None:
+    compile_result = subprocess.run(
+        [
+            _clang_executable(),
+            "--target=arm-none-eabi",
+            "-mcpu=cortex-m3",
+            "-mthumb",
+            "-std=gnu89",
+            "-Werror=tautological-constant-out-of-range-compare",
+            "-DUSE_STDPERIPH_DRIVER",
+            "-DSTM32F10X_MD",
+            "-I",
+            str(REPOSITORY_ROOT / "hardware_mcu" / "CMSIS"),
+            "-I",
+            str(REPOSITORY_ROOT / "hardware_mcu" / "FWlib" / "inc"),
+            "-I",
+            str(MCU_USER_ROOT),
+            "-fsyntax-only",
+            str(MCU_INTERRUPT_SOURCE),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert compile_result.returncode == 0, compile_result.stderr

@@ -122,6 +122,69 @@ class TestEdgeStoreInit:
         assert "idx_mcu_update_state" in indexes
         migrated.close()
 
+    def test_v13_to_v14_migration_adds_prepare_recovery_journal(
+        self,
+        tmp_path,
+    ):
+        path = str(tmp_path / "v13-firmware.db")
+        store = EdgeStore(path)
+        store.initialize()
+        stable_uid = str(uuid.uuid4())
+        stable_manifest = firmware_manifest(10000)
+        assert store.begin_mcu_firmware_update(
+            update_uid=stable_uid,
+            deployment_uid=str(uuid.uuid4()),
+            source="LOCAL",
+            package_path=str((tmp_path / "stable.efw").resolve()),
+            package_sha256="1" * 64,
+            manifest=stable_manifest,
+            legacy_preflight=True,
+        ) == "ACCEPTED"
+        assert store.complete_mcu_firmware_update(stable_uid)
+        active_uid = str(uuid.uuid4())
+        assert store.begin_mcu_firmware_update(
+            update_uid=active_uid,
+            deployment_uid=str(uuid.uuid4()),
+            source="CLOUD",
+            package_path=str((tmp_path / "target.efw").resolve()),
+            package_sha256="2" * 64,
+            manifest=firmware_manifest(20000),
+        ) == "ACCEPTED"
+        assert store.transition_mcu_firmware_update(active_uid, "PREFLIGHT")
+        store._conn.execute(
+            "ALTER TABLE mcu_firmware_update DROP COLUMN prepare_identity_json"
+        )
+        store._conn.execute(
+            "ALTER TABLE mcu_firmware_update DROP COLUMN prepare_recovery_required"
+        )
+        store._conn.execute("DELETE FROM schema_version WHERE version >= 14")
+        store._conn.commit()
+        store.close()
+
+        migrated = EdgeStore(path)
+        migrated.initialize()
+
+        columns = {
+            row["name"]
+            for row in migrated._conn.execute(
+                "PRAGMA table_info('mcu_firmware_update')"
+            ).fetchall()
+        }
+        assert "prepare_recovery_required" in columns
+        assert "prepare_identity_json" in columns
+        assert migrated._conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0] == CURRENT_SCHEMA_VERSION
+        active = migrated.get_mcu_firmware_update(active_uid)
+        assert active["prepare_recovery_required"] is True
+        assert active["prepare_identity"] == {
+            "protocolRevision": 2,
+            "firmwareVersionCode": stable_manifest["firmwareVersionCode"],
+            "firmwareVersion": stable_manifest["firmwareVersion"],
+            "firmwareIdentityHex": stable_manifest["firmwareIdentityHex"],
+        }
+        migrated.close()
+
     def test_v9_rejects_a_v5_database_instead_of_migrating_it(self):
         path = os.path.join(tempfile.mkdtemp(), "v5-photo-url.db")
         store = EdgeStore(path)
@@ -278,6 +341,38 @@ class TestEdgeStoreInit:
 
 
 class TestMcuFirmwareUpdateJournal:
+    def test_prepare_recovery_identity_is_durable_before_f2(self, tmp_path):
+        path = str(tmp_path / "edge.db")
+        store = EdgeStore(path)
+        store.initialize()
+        update_uid = str(uuid.uuid4())
+        identity = {
+            "protocolRevision": 2,
+            "firmwareVersionCode": 10000,
+            "firmwareVersion": "1.0.0",
+            "firmwareIdentityHex": "0102030405060708",
+        }
+        assert store.begin_mcu_firmware_update(
+            update_uid=update_uid,
+            deployment_uid=str(uuid.uuid4()),
+            source="CLOUD",
+            package_path=str((tmp_path / "release.efw").resolve()),
+            package_sha256="1" * 64,
+            manifest=firmware_manifest(20000),
+        ) == "ACCEPTED"
+        assert store.transition_mcu_firmware_update(update_uid, "PREFLIGHT")
+
+        assert store.arm_mcu_firmware_prepare_recovery(update_uid, identity)
+        store.close()
+
+        reopened = EdgeStore(path)
+        reopened.initialize()
+        update = reopened.get_mcu_firmware_update(update_uid)
+        assert update["prepare_recovery_required"] is True
+        assert update["prepare_identity"] == identity
+        assert reopened.get_maintenance_lock()["owner_uid"] == update_uid
+        reopened.close()
+
     def test_update_lock_blocks_new_work_and_command_claims(self, tmp_path):
         store = EdgeStore(str(tmp_path / "edge.db"))
         store.initialize()

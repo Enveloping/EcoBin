@@ -26,7 +26,7 @@ MCU 与香橙派之间的完整通信协议只维护在
 发布，不能拆开复用。
 
 ```powershell
-uv run --python 3.11 python hardware/mcu_firmware_package.py identity `
+uv run --project hardware --python 3.11 python hardware/mcu_firmware_package.py identity `
   --version 1.0.0 `
   --version-code 10000 `
   --header hardware_mcu/USER/firmware_identity.h `

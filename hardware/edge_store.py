@@ -26,7 +26,7 @@ from onenet_wire import (
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 13
+CURRENT_SCHEMA_VERSION = 14
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -71,6 +71,46 @@ MCU_UPDATE_TERMINAL_STATES = frozenset({
     "ROLLED_BACK",
     "REJECTED",
 })
+
+
+def _canonical_mcu_prepare_identity(identity: dict) -> str:
+    """Validate and canonically encode the application identity before F2."""
+
+    if not isinstance(identity, dict):
+        raise ValueError("MCU prepare identity must be an object")
+    snapshot = {
+        field: identity.get(field)
+        for field in (
+            "protocolRevision",
+            "firmwareVersionCode",
+            "firmwareVersion",
+            "firmwareIdentityHex",
+        )
+    }
+    if (
+        not isinstance(snapshot["protocolRevision"], int)
+        or isinstance(snapshot["protocolRevision"], bool)
+        or snapshot["protocolRevision"] != 2
+        or not isinstance(snapshot["firmwareVersionCode"], int)
+        or isinstance(snapshot["firmwareVersionCode"], bool)
+        or snapshot["firmwareVersionCode"] <= 0
+        or not isinstance(snapshot["firmwareVersion"], str)
+        or not snapshot["firmwareVersion"]
+        or not isinstance(snapshot["firmwareIdentityHex"], str)
+        or len(snapshot["firmwareIdentityHex"]) != 16
+        or any(
+            character not in "0123456789abcdef"
+            for character in snapshot["firmwareIdentityHex"]
+        )
+    ):
+        raise ValueError("MCU prepare identity is invalid")
+    encoded = _json.dumps(
+        snapshot,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return encoded
 
 
 def _parse_utc_instant(value: str, field: str) -> datetime:
@@ -155,7 +195,7 @@ class EdgeStore:
         current = row[0] or 0
         if current == CURRENT_SCHEMA_VERSION:
             return
-        if current not in {0, 9, 10, 11, 12}:
+        if current not in {0, 9, 10, 11, 12, 13}:
             raise RuntimeError(
                 "EdgeStore 数据库时代不兼容；永久资产 v9 不读取旧设备数据库"
             )
@@ -210,6 +250,10 @@ class EdgeStore:
         if current < 13:
             self._migrate_v13()
             conn.execute("INSERT INTO schema_version (version) VALUES (13)")
+            current = 13
+        if current < 14:
+            self._migrate_v14()
+            conn.execute("INSERT INTO schema_version (version) VALUES (14)")
         conn.commit()
 
     def _migrate_v10(self) -> None:
@@ -403,6 +447,57 @@ class EdgeStore:
                    NOT NULL DEFAULT 0
                    CHECK (package_acquisition_attempt_count >= 0)"""
         )
+
+    def _migrate_v14(self) -> None:
+        """Persist the point after which an F2 stop command may have run."""
+
+        self._conn.execute(
+            """ALTER TABLE mcu_firmware_update
+               ADD COLUMN prepare_recovery_required INTEGER
+                   NOT NULL DEFAULT 0
+                   CHECK (prepare_recovery_required IN (0, 1))"""
+        )
+        self._conn.execute(
+            """ALTER TABLE mcu_firmware_update
+               ADD COLUMN prepare_identity_json TEXT"""
+        )
+        uncertain_updates = self._conn.execute(
+            """SELECT update_uid, previous_manifest_json
+               FROM mcu_firmware_update
+               WHERE legacy_preflight=0
+                 AND state IN ('PREFLIGHT', 'PREPARED')
+                 AND target_attempt_count=0
+                 AND rollback_attempt_count=0"""
+        ).fetchall()
+        for update in uncertain_updates:
+            identity_json = None
+            try:
+                manifest = _json.loads(update["previous_manifest_json"])
+                identity_json = _canonical_mcu_prepare_identity(
+                    {
+                        "protocolRevision": manifest.get(
+                            "fixedFrameRevision"
+                        ),
+                        "firmwareVersionCode": manifest.get(
+                            "firmwareVersionCode"
+                        ),
+                        "firmwareVersion": manifest.get("firmwareVersion"),
+                        "firmwareIdentityHex": manifest.get(
+                            "firmwareIdentityHex"
+                        ),
+                    }
+                )
+            except (AttributeError, TypeError, ValueError):
+                # v13 did not persist the exact pre-F2 F3 snapshot.  Missing
+                # or corrupt stable identity must migrate fail-closed.
+                pass
+            self._conn.execute(
+                """UPDATE mcu_firmware_update
+                   SET prepare_recovery_required=1,
+                       prepare_identity_json=?
+                   WHERE update_uid=?""",
+                (identity_json, update["update_uid"]),
+            )
 
     def _create_tables(self) -> None:
         conn = self._conn
@@ -2207,6 +2302,13 @@ class EdgeStore:
         result["previous_manifest"] = (
             _json.loads(previous) if previous else None
         )
+        prepare_identity = result.pop("prepare_identity_json")
+        result["prepare_identity"] = (
+            _json.loads(prepare_identity) if prepare_identity else None
+        )
+        result["prepare_recovery_required"] = bool(
+            result["prepare_recovery_required"]
+        )
         result["legacy_preflight"] = bool(result["legacy_preflight"])
         result["allow_downgrade"] = bool(result["allow_downgrade"])
         result["package_ready"] = bool(result["package_ready"])
@@ -2634,6 +2736,39 @@ class EdgeStore:
                     error_code=error_code,
                 )
             return updated.rowcount == 1
+
+    def arm_mcu_firmware_prepare_recovery(
+        self,
+        update_uid: str,
+        identity: dict,
+    ) -> bool:
+        """Persist the recovery identity before F2 can reach the MCU."""
+
+        identity_json = _canonical_mcu_prepare_identity(identity)
+        now = self._now()
+        with self.transaction():
+            owner = self._conn.execute(
+                "SELECT owner_uid FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            if not owner or owner["owner_uid"] != update_uid:
+                return False
+            updated = self._conn.execute(
+                """UPDATE mcu_firmware_update
+                   SET prepare_recovery_required=1, prepare_identity_json=?,
+                       updated_at=?
+                   WHERE update_uid=? AND state='PREFLIGHT'
+                     AND legacy_preflight=0
+                     AND target_attempt_count=0
+                     AND rollback_attempt_count=0""",
+                (identity_json, now, update_uid),
+            )
+            if updated.rowcount != 1:
+                return False
+            self._conn.execute(
+                "UPDATE maintenance_lock SET updated_at=? WHERE owner_uid=?",
+                (now, update_uid),
+            )
+            return True
 
     def record_mcu_firmware_attempt(
         self,

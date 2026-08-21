@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import uuid
 import zipfile
 from pathlib import Path
@@ -73,6 +75,52 @@ def test_signed_package_round_trip_and_generated_identity(tmp_path: Path):
         tmp_path / "firmware_identity.h"
     ).read_text(encoding="ascii").replace("0x", "").replace(",", "").replace(" ", "").lower()
     assert verified.image.startswith(b"\x00\x20\x00\x08")
+
+
+def test_mcu_readme_identity_command_selects_hardware_uv_project(
+    tmp_path: Path,
+):
+    repository_root = Path(__file__).resolve().parents[2]
+    readme = (
+        repository_root / "hardware_mcu" / "README.md"
+    ).read_text(encoding="utf-8")
+    assert "uv run --project hardware --python 3.11" in readme
+
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("uv is required to verify the documented build command")
+    header = tmp_path / "firmware_identity.h"
+    metadata = tmp_path / "firmware_identity.json"
+    result = subprocess.run(
+        [
+            uv,
+            "run",
+            "--project",
+            "hardware",
+            "--python",
+            "3.11",
+            "python",
+            "hardware/mcu_firmware_package.py",
+            "identity",
+            "--version",
+            "1.0.0",
+            "--version-code",
+            "10000",
+            "--header",
+            str(header),
+            "--metadata",
+            str(metadata),
+        ],
+        cwd=repository_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert header.is_file()
+    assert json.loads(metadata.read_text(encoding="utf-8"))[
+        "firmwareVersionCode"
+    ] == 10000
 
 
 def test_rejects_wrong_board_and_unknown_key(tmp_path: Path):

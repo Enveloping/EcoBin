@@ -980,7 +980,7 @@ class McuFirmwareUpdater:
                 and current["rollback_attempt_count"] == 0
             )
             if state in {"QUEUED", "PREFLIGHT", "PREPARED"} and no_flash_attempt:
-                self._reject(current, error)
+                self._reject_preflight_failure_safely(current, error)
                 return
             if state in {"ROLLING_BACK", "VERIFYING_ROLLBACK"}:
                 self._lock_failure(current, error)
@@ -1032,7 +1032,7 @@ class McuFirmwareUpdater:
             )
         except McuUpdateError as error:
             if state in {"QUEUED", "PREFLIGHT", "PREPARED"}:
-                self._reject(update, error)
+                self._reject_preflight_failure_safely(update, error)
             else:
                 self._rollback_or_lock(update, error)
             return
@@ -1065,7 +1065,10 @@ class McuFirmwareUpdater:
                 )
                 if current is not None and current["state"] == "FAILED_LOCKED":
                     return
-                self._reject(update, error)
+                self._reject_preflight_failure_safely(
+                    current or update,
+                    error,
+                )
                 return
             update = self.store.get_mcu_firmware_update(update["update_uid"])
 
@@ -1120,14 +1123,27 @@ class McuFirmwareUpdater:
                 identity.get("firmwareVersionCode"),
             )
             try:
+                recovery_armed = self.store.arm_mcu_firmware_prepare_recovery(
+                    update["update_uid"],
+                    identity,
+                )
+            except Exception as cause:
+                raise McuUpdateError(
+                    "MCU_PREPARE_JOURNAL_FAILED",
+                    "could not persist the MCU prepare recovery identity",
+                ) from cause
+            if not recovery_armed:
+                raise McuUpdateError(
+                    "MCU_PREPARE_JOURNAL_FAILED",
+                    "could not persist the MCU prepare recovery identity",
+                )
+            try:
                 execution = self.uart.execute_firmware_update_prepare()
             except Exception as cause:
-                error = McuUpdateError(
+                raise McuUpdateError(
                     "MCU_PREPARE_EXECUTION_UNCONFIRMED",
                     "MCU update preparation execution raised an internal error",
-                )
-                self._recover_after_prepare_failure(update, identity, error)
-                raise error from cause
+                ) from cause
             if not execution.get("executed"):
                 confirmed_response = (
                     execution.get("queryStatus") == "OK"
@@ -1141,14 +1157,26 @@ class McuFirmwareUpdater:
                     ),
                     "MCU did not confirm update preparation execution",
                 )
-                self._recover_after_prepare_failure(update, identity, error)
                 raise error
-
-        self.store.transition_mcu_firmware_update(
-            update["update_uid"],
-            "PREPARED",
-            device_name=self.device_name,
-        )
+            try:
+                prepared = self.store.transition_mcu_firmware_update(
+                    update["update_uid"],
+                    "PREPARED",
+                    device_name=self.device_name,
+                )
+                if not prepared:
+                    raise RuntimeError("PREPARED journal transition was lost")
+            except Exception as cause:
+                raise McuUpdateError(
+                    "MCU_PREPARED_JOURNAL_FAILED",
+                    "MCU stopped outputs but PREPARED could not be journaled",
+                ) from cause
+        if update["legacy_preflight"]:
+            self.store.transition_mcu_firmware_update(
+                update["update_uid"],
+                "PREPARED",
+                device_name=self.device_name,
+            )
 
     def _recover_after_prepare_failure(
         self,
@@ -1208,6 +1236,35 @@ class McuFirmwareUpdater:
             )
             self._lock_failure(update, combined)
             raise combined from recovery_cause
+
+    def _reject_preflight_failure_safely(
+        self,
+        update: dict,
+        error: McuUpdateError,
+    ) -> None:
+        """Recover a possibly F2-latched application before unlocking."""
+
+        if update.get("prepare_recovery_required"):
+            expected_identity = update.get("prepare_identity")
+            if not isinstance(expected_identity, dict):
+                self._lock_failure(
+                    update,
+                    McuUpdateError(
+                        "MCU_PREPARE_RECOVERY_FAILED",
+                        "persisted MCU prepare identity is unavailable",
+                    ),
+                )
+                return
+            try:
+                self._recover_after_prepare_failure(
+                    update,
+                    expected_identity,
+                    error,
+                )
+            except McuUpdateError:
+                # Recovery already persisted FAILED_LOCKED.
+                return
+        self._reject(update, error)
 
     @staticmethod
     def _enforce_version_policy(
