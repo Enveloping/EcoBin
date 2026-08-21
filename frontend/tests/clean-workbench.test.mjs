@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 function source(relativePath) {
@@ -128,7 +128,8 @@ test('custom tab bar projects user and cleaning roots and scan actions', () => {
     '../miniprogram/miniprogram/custom-tab-bar/index.ts',
   );
 
-  assert.match(tabSource, /getDisplayedEntryMode/);
+  assert.match(tabSource, /getEntryMode/);
+  assert.doesNotMatch(tabSource, /getDisplayedEntryMode|test-entry-preview/);
   assert.match(tabSource, /['"]USER['"]/);
   assert.match(tabSource, /['"]CLEANING['"]/);
   assert.match(tabSource, /\/pages\/home\/home/);
@@ -139,39 +140,54 @@ test('custom tab bar projects user and cleaning roots and scan actions', () => {
   assert.match(tabSource, /\bstartCleaningEntry\(\)/);
 });
 
-test('test entry preview remains an in-memory UI projection', () => {
-  const previewSource = source(
+test('user and cleaning entry preview switching is completely removed', () => {
+  const previewPath = new URL(
     '../miniprogram/miniprogram/utils/test-entry-preview.ts',
+    import.meta.url,
+  );
+  const appSource = source('../miniprogram/miniprogram/app.ts');
+  const configSource = source('../miniprogram/miniprogram/config/index.ts');
+  const typingsSource = source('../miniprogram/typings/index.d.ts');
+  const userProfileSource = source(
+    '../miniprogram/miniprogram/pages/profile/profile.ts',
+  );
+  const userProfileMarkup = source(
+    '../miniprogram/miniprogram/pages/profile/profile.wxml',
+  );
+  const cleanProfileSource = source(
+    '../miniprogram/miniprogram/pages/clean-profile/clean-profile.ts',
+  );
+  const cleanProfileMarkup = source(
+    '../miniprogram/miniprogram/pages/clean-profile/clean-profile.wxml',
   );
 
-  assert.match(
-    previewSource,
-    /\.globalData\.testViewMode\s*=\s*(?:mode|entryMode|undefined)/,
-  );
-  assert.doesNotMatch(previewSource, /wx\.setStorage(?:Sync)?\s*\(/);
-  assert.doesNotMatch(
-    previewSource,
-    /\b(?:setSession|persistSession|STORAGE_KEYS|accessToken|refreshToken)\b/,
-  );
-  assert.doesNotMatch(
-    previewSource,
-    /\.(?:session|token|capabilities)\s*=/,
-  );
+  assert.equal(existsSync(previewPath), false);
+  for (const currentSource of [
+    appSource,
+    configSource,
+    typingsSource,
+    userProfileSource,
+    userProfileMarkup,
+    cleanProfileSource,
+    cleanProfileMarkup,
+  ]) {
+    assert.doesNotMatch(
+      currentSource,
+      /testViewMode|entryPreview|test-entry-preview|切换端|测试界面预览/,
+    );
+  }
 });
 
-test('entry guard authorizes pages against the displayed mode', () => {
+test('entry guard authorizes pages only against the signed session mode', () => {
   const guardSource = source(
     '../miniprogram/miniprogram/utils/guard.ts',
   );
 
-  assert.match(guardSource, /getDisplayedEntryMode/);
-  assert.match(
-    guardSource,
-    /getDisplayedEntryMode\(\s*getEntryMode\(\)\s*\)/,
-  );
+  assert.match(guardSource, /const entryMode = getEntryMode\(\)/);
+  assert.doesNotMatch(guardSource, /getDisplayedEntryMode|test-entry-preview/);
 });
 
-test('cleaning scan blocks cross-identity previews before opening the scanner', () => {
+test('cleaning scan rejects non-cleaning sessions before opening the scanner', () => {
   const cleaningEntrySource = source(
     '../miniprogram/miniprogram/utils/cleaning-entry.ts',
   );
@@ -179,6 +195,8 @@ test('cleaning scan blocks cross-identity previews before opening the scanner', 
     /if\s*\(\s*(?:getEntryMode\(\)|getSession\(\)\?\.entryMode)\s*!==\s*['"]CLEANING['"]\s*\)\s*\{[\s\S]*?wx\.showToast\([\s\S]*?\breturn\b[\s\S]*?\}/;
 
   assert.match(cleaningEntrySource, crossIdentityGuard);
+  assert.match(cleaningEntrySource, /当前账号没有清运权限/);
+  assert.doesNotMatch(cleaningEntrySource, /预览|切换端/);
 
   const guardIndex = cleaningEntrySource.search(crossIdentityGuard);
   const scanIndex = cleaningEntrySource.indexOf('wx.scanCode');

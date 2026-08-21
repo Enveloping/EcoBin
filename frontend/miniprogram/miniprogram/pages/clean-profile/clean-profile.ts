@@ -1,19 +1,10 @@
 import { getSession, logout } from '../../utils/auth'
 import { requireEntryMode } from '../../utils/guard'
-import {
-  ENTRY_PREVIEW_NOTICE,
-  isCrossIdentityPreview,
-  isEntryPreviewEnabled,
-  showEntryPreviewSwitcher,
-} from '../../utils/test-entry-preview'
 
 Page({
   data: {
     displayName: '清运人员',
     organizationName: '当前机构',
-    entryPreviewEnabled: false,
-    previewOnly: false,
-    previewNotice: ENTRY_PREVIEW_NOTICE,
   },
 
   onLoad() {
@@ -28,13 +19,7 @@ Page({
     this.setData({
       displayName: session?.displayName || '清运人员',
       organizationName: session?.organization.displayName || '当前机构',
-      entryPreviewEnabled: isEntryPreviewEnabled(),
-      previewOnly: isCrossIdentityPreview(),
     })
-  },
-
-  onEntryPreview() {
-    showEntryPreviewSwitcher()
   },
 
   onSwitchOrganization() {

@@ -8,7 +8,7 @@
     <view class="identity-copy">
       <view class="identity-name">{{displayName}}</view>
       <view class="identity-organization">{{organizationName}}</view>
-      <view class="identity-role">{{previewOnly ? '清运端界面预览' : '清运人员'}}</view>
+      <view class="identity-role">清运人员</view>
     </view>
   </view>
 
@@ -22,14 +22,6 @@
       <view class="account-switch-copy">订单、钱包和手机号仍按机构独立保存</view>
     </view>
     <t-icon name="chevron-right" size="34rpx" color="#8c968e" />
-  </view>
-
-  <view wx:if="{{entryPreviewEnabled}}" class="preview-card">
-    <view class="preview-copy">
-      <view class="preview-title">测试界面预览</view>
-      <view class="preview-description">{{previewNotice}}</view>
-    </view>
-    <button class="preview-button" bindtap="onEntryPreview">切换端</button>
   </view>
 
   <view class="menu-card" bindtap="onCleanRecords" hover-class="menu-card--pressed">

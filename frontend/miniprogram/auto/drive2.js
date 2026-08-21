@@ -23,7 +23,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
       wx.removeStorageSync('ecobin_miniapp_session')
       wx.removeStorageSync('ecobin_silent_login_suppressed')
       const app = getApp()
-      if (app && app.globalData) { app.globalData.session = undefined; app.globalData.testViewMode = undefined }
+      if (app && app.globalData) app.globalData.session = undefined
     })
     console.log('cleared login state.')
 

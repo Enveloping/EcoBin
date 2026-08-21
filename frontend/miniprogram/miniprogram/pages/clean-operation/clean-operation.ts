@@ -11,7 +11,7 @@ import type {
   CleanPortOption,
   DeviceInstallationProfile,
 } from '../../types/api'
-import { getEntryMode, getSession, markPhoneBound } from '../../utils/auth'
+import { getSession, markPhoneBound } from '../../utils/auth'
 import {
   acceptCleanOperationIntent,
   forgetCleanOperationIntent,
@@ -142,7 +142,6 @@ Page({
 
   data: {
     deviceCode: '',
-    previewOnly: false,
     serviceUnavailable: !FEATURES.targetCleaningDataApi,
     stage: 'loading',
     loading: true,
@@ -167,16 +166,7 @@ Page({
   onLoad(options: Record<string, string | undefined>) {
     if (!requireEntryMode(['CLEANING'])) return
     const deviceCode = decodeDeviceCode(options.deviceCode)
-    const previewOnly = getEntryMode() !== 'CLEANING'
-    this.setData({ deviceCode, previewOnly })
-    if (previewOnly) {
-      this.setData({
-        loading: false,
-        stage: 'preview',
-        errorMessage: '当前仅预览清运端，登录账号权限未改变，因此不会请求清运接口。',
-      })
-      return
-    }
+    this.setData({ deviceCode })
     if (!FEATURES.targetCleaningDataApi) {
       this.setData({ loading: false, stage: 'unavailable' })
       return
@@ -297,7 +287,7 @@ Page({
   },
 
   async loadOptions() {
-    if (!this.data.deviceCode || this.data.previewOnly) return
+    if (!this.data.deviceCode) return
     this.setData({ loading: true, stage: 'loading', errorMessage: '' })
     try {
       const request = cleanOptions(this.data.deviceCode, false)
@@ -379,10 +369,8 @@ Page({
   },
 
   onScanBag() {
-    if (!this.data.selectedPortNo || this.data.previewOnly) {
-      if (!this.data.selectedPortNo) {
-        wx.showToast({ title: '请先选择可清运投口', icon: 'none' })
-      }
+    if (!this.data.selectedPortNo) {
+      wx.showToast({ title: '请先选择可清运投口', icon: 'none' })
       return
     }
     const session = getSession()

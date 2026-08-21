@@ -5,7 +5,6 @@ import type {
   DeliveryPhotoStatus,
   MiniappCleanAnomaly,
 } from '../../types/api'
-import { getEntryMode } from '../../utils/auth'
 import { requireEntryMode } from '../../utils/guard'
 import { formatLocalDateTime } from '../../utils/local-time'
 import { MiniappApiProblem } from '../../utils/request'
@@ -64,7 +63,6 @@ Page({
   requestGeneration: 0,
 
   data: {
-    previewOnly: false,
     loading: true,
     errorMessage: '',
     recordNo: '',
@@ -100,16 +98,8 @@ Page({
 
   onLoad(options: Record<string, string | undefined>) {
     if (!requireEntryMode(['CLEANING'])) return
-    const previewOnly = getEntryMode() !== 'CLEANING'
     this.cleanRecordNo = decodeRecordNo(options.cleanRecordNo)
-    this.setData({ previewOnly, recordNo: this.cleanRecordNo })
-    if (previewOnly) {
-      this.setData({
-        loading: false,
-        errorMessage: '当前仅预览清运端，登录账号权限未改变，因此不会请求记录详情。',
-      })
-      return
-    }
+    this.setData({ recordNo: this.cleanRecordNo })
     if (!this.cleanRecordNo) {
       this.setData({ loading: false, errorMessage: '清运记录编号无效' })
       return
@@ -126,7 +116,7 @@ Page({
   },
 
   async loadDetail(done?: () => void) {
-    if (!this.cleanRecordNo || this.data.previewOnly) {
+    if (!this.cleanRecordNo) {
       done?.()
       return
     }

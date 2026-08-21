@@ -9,7 +9,6 @@ import { requireEntryMode } from '../../utils/guard'
 import { startCleaningEntry } from '../../utils/cleaning-entry'
 import { formatLocalDateTime } from '../../utils/local-time'
 import { MiniappApiProblem } from '../../utils/request'
-import { isCrossIdentityPreview } from '../../utils/test-entry-preview'
 
 interface CleanDeviceView extends CleanDeviceItem {
   nameText: string
@@ -66,7 +65,6 @@ Page({
   data: {
     title: '设备列表',
     filter: 'ALL' as CleanDeviceFilter,
-    previewOnly: false,
     serviceUnavailable: !FEATURES.targetCleaningDataApi,
     devices: [] as CleanDeviceView[],
     nextCursor: null as string | null,
@@ -84,20 +82,18 @@ Page({
       return
     }
     const title = this.decodeTitle(options.title)
-    const previewOnly = isCrossIdentityPreview()
     this.setData({
       filter: requestedFilter,
       title,
-      previewOnly,
-      initialLoading: !previewOnly && FEATURES.targetCleaningDataApi,
-      finished: previewOnly || !FEATURES.targetCleaningDataApi,
+      initialLoading: FEATURES.targetCleaningDataApi,
+      finished: !FEATURES.targetCleaningDataApi,
     })
     wx.setNavigationBarTitle({ title })
-    if (!previewOnly && FEATURES.targetCleaningDataApi) void this.reload()
+    if (FEATURES.targetCleaningDataApi) void this.reload()
   },
 
   onPullDownRefresh() {
-    if (this.data.previewOnly || !FEATURES.targetCleaningDataApi) {
+    if (!FEATURES.targetCleaningDataApi) {
       wx.stopPullDownRefresh()
       return
     }
@@ -105,7 +101,7 @@ Page({
   },
 
   onReachBottom() {
-    if (this.data.previewOnly || !FEATURES.targetCleaningDataApi) return
+    if (!FEATURES.targetCleaningDataApi) return
     void this.loadMore()
   },
 

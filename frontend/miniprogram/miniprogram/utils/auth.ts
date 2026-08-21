@@ -100,7 +100,6 @@ export function clearSession(): void {
   const app = getApp<IAppOption>()
   if (app) {
     app.globalData.session = undefined
-    app.globalData.testViewMode = undefined
   }
 }
 

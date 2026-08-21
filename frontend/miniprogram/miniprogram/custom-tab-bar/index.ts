@@ -1,7 +1,6 @@
 import { startDoorEntry } from '../utils/door-entry'
 import { startCleaningEntry } from '../utils/cleaning-entry'
 import { getEntryMode } from '../utils/auth'
-import { getDisplayedEntryMode } from '../utils/test-entry-preview'
 import type { EntryMode } from '../types/api'
 
 interface VisualTab {
@@ -70,13 +69,13 @@ Component<TabBarData, {}, TabBarMethods>({
       const pages = getCurrentPages()
       const current = pages[pages.length - 1]
       const route = current ? `/${current.route}` : ''
-      const displayedMode = getDisplayedEntryMode(getEntryMode())
+      const entryMode = getEntryMode()
       const isProfile =
         route === '/pages/profile/profile'
         || route === '/pages/clean-profile/clean-profile'
       this.setData({
         selected: isProfile ? 2 : 0,
-        tabs: tabsFor(displayedMode),
+        tabs: tabsFor(entryMode),
       })
     },
 
@@ -85,18 +84,10 @@ Component<TabBarData, {}, TabBarMethods>({
       const item = this.data.tabs[index]
       if (!item) return
       if (item.action === 'scan') {
-        const actualMode = getEntryMode()
-        const displayedMode = getDisplayedEntryMode(actualMode)
-        if (actualMode !== displayedMode) {
-          wx.showToast({
-            title: '当前仅切换界面，账号权限未改变',
-            icon: 'none',
-          })
-          return
-        }
-        if (displayedMode === 'CLEANING') {
+        const entryMode = getEntryMode()
+        if (entryMode === 'CLEANING') {
           startCleaningEntry()
-        } else if (displayedMode === 'USER' || !displayedMode) {
+        } else if (entryMode === 'USER' || !entryMode) {
           // 游客也必须能扫描设备公开码，这是首次创建机构账号的唯一入口。
           startDoorEntry()
         }

@@ -1,7 +1,6 @@
 import { myCleanRecords } from '../../api/clean'
 import { FEATURES } from '../../config/index'
 import type { CleanRecordItem } from '../../types/api'
-import { getEntryMode } from '../../utils/auth'
 import { formatLocalDateTime } from '../../utils/local-time'
 import { requireEntryMode } from '../../utils/guard'
 import { MiniappApiProblem } from '../../utils/request'
@@ -38,7 +37,6 @@ Page({
   cursorRecoveryUsed: false,
 
   data: {
-    previewOnly: false,
     serviceUnavailable: !FEATURES.targetCleaningDataApi,
     records: [] as CleanRecordView[],
     nextCursor: null as string | null,
@@ -50,9 +48,7 @@ Page({
 
   onLoad() {
     if (!requireEntryMode(['CLEANING'])) return
-    const previewOnly = getEntryMode() !== 'CLEANING'
-    this.setData({ previewOnly })
-    if (previewOnly || !FEATURES.targetCleaningDataApi) {
+    if (!FEATURES.targetCleaningDataApi) {
       this.setData({ initialLoading: false, finished: true })
       return
     }
@@ -60,7 +56,7 @@ Page({
   },
 
   onPullDownRefresh() {
-    if (this.data.previewOnly || !FEATURES.targetCleaningDataApi) {
+    if (!FEATURES.targetCleaningDataApi) {
       wx.stopPullDownRefresh()
       return
     }
@@ -68,7 +64,7 @@ Page({
   },
 
   onReachBottom() {
-    if (this.data.previewOnly || !FEATURES.targetCleaningDataApi) return
+    if (!FEATURES.targetCleaningDataApi) return
     void this.loadMore()
   },
 
@@ -77,7 +73,7 @@ Page({
   },
 
   async reload(done?: () => void, preserveCursorRecovery = false) {
-    if (this.data.previewOnly || !FEATURES.targetCleaningDataApi) {
+    if (!FEATURES.targetCleaningDataApi) {
       done?.()
       return
     }

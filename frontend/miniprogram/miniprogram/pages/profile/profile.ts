@@ -28,11 +28,6 @@ import {
   reportWechatPhoneGrantError,
   type WechatPhoneGrantDetail,
 } from '../../utils/phone-grant'
-import {
-  ENTRY_PREVIEW_NOTICE,
-  isEntryPreviewEnabled,
-  showEntryPreviewSwitcher,
-} from '../../utils/test-entry-preview'
 import { toWalletDisplay } from '../../utils/user-view'
 import type { OrganizationAccountSummary } from '../../types/api'
 
@@ -66,8 +61,6 @@ Page({
     hasWithdrawalProcessing: false,
     withdrawalProcessingKnown: false,
     canWithdraw: false,
-    entryPreviewEnabled: false,
-    entryPreviewNotice: ENTRY_PREVIEW_NOTICE,
     showAccountSwitcher: false,
     accountLoading: false,
     accountSwitchingUid: '',
@@ -97,7 +90,6 @@ Page({
         nickname: session.displayName,
         organizationName: session.organization.displayName,
         phoneBound: session.phoneBound,
-        entryPreviewEnabled: isEntryPreviewEnabled(),
         ...(shouldAutoLoad ? {
           availableBalanceText: '—',
           pendingRewardText: '—',
@@ -134,7 +126,6 @@ Page({
       hasWithdrawalProcessing: false,
       withdrawalProcessingKnown: false,
       canWithdraw: false,
-      entryPreviewEnabled: isEntryPreviewEnabled(),
     })
     this.setPhoneGrantTabBarHidden(false)
   },
@@ -305,10 +296,6 @@ Page({
     } finally {
       this.setData({ accountSwitchingUid: '' })
     }
-  },
-
-  onEntryPreview() {
-    showEntryPreviewSwitcher()
   },
 
   onWithdraw() {

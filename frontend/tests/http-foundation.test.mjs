@@ -302,14 +302,13 @@ test('miniapp management page is retired while cleaning keeps account switching'
     authUtilitySource,
     /case 'MANAGEMENT':[\s\S]*?pages\/account-switcher\/account-switcher/,
   );
-  const previewSource = readFileSync(
-    new URL(
+  assert.equal(
+    existsSync(new URL(
       '../miniprogram/miniprogram/utils/test-entry-preview.ts',
       import.meta.url,
-    ),
-    'utf8',
+    )),
+    false,
   );
-  assert.doesNotMatch(previewSource, /mode:\s*'MANAGEMENT'/);
   const apiSource = readFileSync(
     new URL('../miniprogram/miniprogram/api/auth.ts', import.meta.url),
     'utf8',

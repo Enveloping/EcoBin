@@ -16,7 +16,6 @@
 
 .identity-card,
 .account-switch,
-.preview-card,
 .menu-card {
   margin-top: 30rpx;
   background: #fff;
@@ -92,45 +91,6 @@
   background: #edf8ef;
   border-radius: 999rpx;
 }
-
-.preview-card {
-  display: flex;
-  padding: 28rpx;
-  align-items: center;
-  gap: 24rpx;
-}
-
-.preview-copy {
-  min-width: 0;
-  flex: 1;
-}
-
-.preview-title {
-  color: #273129;
-  font-size: 27rpx;
-  font-weight: 650;
-}
-
-.preview-description {
-  margin-top: 8rpx;
-  color: #89918a;
-  font-size: 21rpx;
-  line-height: 1.5;
-}
-
-.preview-button {
-  width: auto;
-  margin: 0;
-  padding: 0 25rpx;
-  color: #11812a;
-  font-size: 23rpx;
-  font-weight: 650;
-  line-height: 68rpx;
-  background: #edf8ef;
-  border-radius: 18rpx;
-}
-
-.preview-button::after { border: 0; }
 
 .menu-card {
   display: flex;

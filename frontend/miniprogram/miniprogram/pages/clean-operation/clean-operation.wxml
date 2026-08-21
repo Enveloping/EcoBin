@@ -11,7 +11,7 @@
     <view class="state-copy">当前版本不会发起清运请求</view>
   </view>
 
-  <view wx:elif="{{stage === 'preview' || stage === 'blocked'}}" class="state-card">
+  <view wx:elif="{{stage === 'blocked'}}" class="state-card">
     <view class="state-icon state-icon--warning"><t-icon name="info-circle" size="56rpx" color="#c27a1a" /></view>
     <view class="state-title">当前不能开始清运</view>
     <view class="state-copy">{{errorMessage}}</view>

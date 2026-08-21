@@ -7,7 +7,7 @@
   <view wx:elif="{{errorMessage}}" class="state-card">
     <view class="state-icon"><t-icon name="info-circle" size="56rpx" color="#c27a1a" /></view>
     <view class="state-title">{{errorMessage}}</view>
-    <view wx:if="{{!previewOnly}}" class="state-action" bindtap="onRetry">重新加载</view>
+    <view class="state-action" bindtap="onRetry">重新加载</view>
   </view>
 
   <block wx:else>

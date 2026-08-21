@@ -4,7 +4,7 @@ import { parseCleaningDeviceCode } from './clean-operation-intent'
 export function startCleaningEntry(): void {
   if (getEntryMode() !== 'CLEANING') {
     wx.showToast({
-      title: '当前仅预览清运端，账号权限未改变',
+      title: '当前账号没有清运权限',
       icon: 'none',
     })
     return

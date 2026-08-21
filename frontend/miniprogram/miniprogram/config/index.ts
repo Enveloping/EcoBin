@@ -10,13 +10,11 @@ export const FEATURES: Readonly<{
   targetWalletApi: boolean
   targetWithdrawalApi: boolean
   targetCleaningDataApi: boolean
-  entryPreview: boolean
 }> = {
   targetDeliveryOrderApi: true,
   targetWalletApi: true,
   targetWithdrawalApi: true,
   targetCleaningDataApi: true,
-  entryPreview: true,
 }
 
 /** 请求超时（ms） */

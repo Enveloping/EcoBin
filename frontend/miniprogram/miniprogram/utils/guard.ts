@@ -1,5 +1,4 @@
 import { getEntryMode, hasCapability, routeToEntry } from './auth'
-import { getDisplayedEntryMode } from './test-entry-preview'
 import type { EntryMode } from '../types/api'
 
 function deny(): false {
@@ -10,7 +9,7 @@ function deny(): false {
 
 /** 页面能力来自服务端会话，不再根据客户端数字角色推导。 */
 export function requireEntryMode(allowed: EntryMode[]): boolean {
-  const entryMode = getDisplayedEntryMode(getEntryMode())
+  const entryMode = getEntryMode()
   return entryMode && allowed.includes(entryMode) ? true : deny()
 }
 

@@ -147,7 +147,6 @@ function startIdentityBootstrap(): void {
 App<IAppOption>({
   globalData: {
     session: undefined,
-    testViewMode: undefined,
   },
   onLaunch() {
     migrateLegacyMiniappCredentials(wx)

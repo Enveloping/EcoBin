@@ -103,14 +103,6 @@
     </view>
   </view>
 
-  <view wx:if="{{entryPreviewEnabled}}" class="entry-preview-card profile-card">
-    <view class="entry-preview-copy">
-      <text class="entry-preview-title">测试界面预览</text>
-      <text class="entry-preview-description">{{entryPreviewNotice}}</text>
-    </view>
-    <button class="entry-preview-button" bindtap="onEntryPreview">切换端</button>
-  </view>
-
   <view wx:if="{{loggedIn}}" class="logout" bindtap="onLogout" hover-class="logout--pressed">退出登录</view>
 
   <view

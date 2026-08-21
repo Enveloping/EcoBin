@@ -1,8 +1,8 @@
 <view class="device-page">
-  <view wx:if="{{previewOnly || serviceUnavailable}}" class="state-card">
+  <view wx:if="{{serviceUnavailable}}" class="state-card">
     <view class="state-icon"><t-icon name="root-list" size="56rpx" color="#7e9a84" /></view>
     <view class="state-title">暂无可展示的设备</view>
-    <view class="state-copy">{{previewOnly ? '当前仅预览清运端，登录账号权限未改变，因此不会请求设备数据。' : '清运设备服务暂未启用。'}}</view>
+    <view class="state-copy">清运设备服务暂未启用。</view>
   </view>
 
   <block wx:elif="{{initialLoading}}">
@@ -60,7 +60,7 @@
     <view wx:elif="{{finished && devices.length > 0}}" class="list-foot">没有更多了</view>
   </block>
 
-  <view wx:if="{{!previewOnly && !serviceUnavailable}}" class="scan-bar">
+  <view wx:if="{{!serviceUnavailable}}" class="scan-bar">
     <view class="scan-button" bindtap="onScanStart" hover-class="scan-button--pressed">
       <t-icon name="scan" size="35rpx" color="#ffffff" />
       <text>扫码开始清运</text>
