@@ -185,6 +185,125 @@ class TestEdgeStoreInit:
         }
         migrated.close()
 
+    @pytest.mark.parametrize("persisted_column_count", (1, 2))
+    def test_v14_migration_resumes_after_ddl_was_persisted_before_version(
+        self,
+        tmp_path,
+        persisted_column_count,
+    ):
+        path = str(
+            tmp_path / f"v14-interrupted-{persisted_column_count}.db"
+        )
+        store = EdgeStore(path)
+        store.initialize()
+        store._conn.execute(
+            "ALTER TABLE mcu_firmware_update DROP COLUMN prepare_identity_json"
+        )
+        store._conn.execute(
+            "ALTER TABLE mcu_firmware_update "
+            "DROP COLUMN prepare_recovery_required"
+        )
+        store._conn.execute("DELETE FROM schema_version WHERE version >= 14")
+        store._conn.commit()
+        store.close()
+
+        interrupted = sqlite3.connect(path)
+        interrupted.execute(
+            """ALTER TABLE mcu_firmware_update
+               ADD COLUMN prepare_recovery_required INTEGER
+                   NOT NULL DEFAULT 0
+                   CHECK (prepare_recovery_required IN (0, 1))"""
+        )
+        if persisted_column_count == 2:
+            interrupted.execute(
+                """ALTER TABLE mcu_firmware_update
+                   ADD COLUMN prepare_identity_json TEXT"""
+            )
+        interrupted.commit()
+        interrupted.close()
+
+        resumed = EdgeStore(path)
+        resumed.initialize()
+
+        columns = {
+            row["name"]
+            for row in resumed._conn.execute(
+                "PRAGMA table_info('mcu_firmware_update')"
+            ).fetchall()
+        }
+        assert {
+            "prepare_recovery_required",
+            "prepare_identity_json",
+        }.issubset(columns)
+        assert resumed._conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0] == CURRENT_SCHEMA_VERSION
+        resumed.close()
+
+    def test_migration_rolls_back_schema_changes_when_a_step_fails(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        path = str(tmp_path / "v14-transaction-rollback.db")
+        store = EdgeStore(path)
+        store.initialize()
+        store._conn.execute(
+            "ALTER TABLE mcu_firmware_update DROP COLUMN prepare_identity_json"
+        )
+        store._conn.execute(
+            "ALTER TABLE mcu_firmware_update "
+            "DROP COLUMN prepare_recovery_required"
+        )
+        store._conn.execute("DELETE FROM schema_version WHERE version >= 14")
+        store._conn.commit()
+        store.close()
+
+        def interrupt_after_first_ddl(interrupted_store):
+            interrupted_store._conn.execute(
+                """ALTER TABLE mcu_firmware_update
+                   ADD COLUMN prepare_recovery_required INTEGER
+                       NOT NULL DEFAULT 0
+                       CHECK (prepare_recovery_required IN (0, 1))"""
+            )
+            raise RuntimeError("injected migration interruption")
+
+        with monkeypatch.context() as migration_patch:
+            migration_patch.setattr(
+                EdgeStore,
+                "_migrate_v14",
+                interrupt_after_first_ddl,
+            )
+            interrupted = EdgeStore(path)
+            with pytest.raises(
+                RuntimeError,
+                match="injected migration interruption",
+            ):
+                interrupted.initialize()
+            interrupted.close()
+
+        inspection = sqlite3.connect(path)
+        columns = {
+            row[1]
+            for row in inspection.execute(
+                "PRAGMA table_info('mcu_firmware_update')"
+            ).fetchall()
+        }
+        version = inspection.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0]
+        inspection.close()
+
+        assert "prepare_recovery_required" not in columns
+        assert version == 13
+
+        recovered = EdgeStore(path)
+        recovered.initialize()
+        assert recovered._conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0] == CURRENT_SCHEMA_VERSION
+        recovered.close()
+
     def test_v9_rejects_a_v5_database_instead_of_migrating_it(self):
         path = os.path.join(tempfile.mkdtemp(), "v5-photo-url.db")
         store = EdgeStore(path)

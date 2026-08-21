@@ -185,6 +185,18 @@ class EdgeStore:
 
     def _migrate(self) -> None:
         conn = self._conn
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._apply_migrations(conn)
+        except Exception:
+            conn.rollback()
+            raise
+        else:
+            conn.commit()
+
+    def _apply_migrations(self, conn: sqlite3.Connection) -> None:
+        """Apply every pending schema step inside one explicit transaction."""
+
         conn.execute(
             """CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER NOT NULL,
@@ -254,7 +266,6 @@ class EdgeStore:
         if current < 14:
             self._migrate_v14()
             conn.execute("INSERT INTO schema_version (version) VALUES (14)")
-        conn.commit()
 
     def _migrate_v10(self) -> None:
         """Add the independent, reboot-safe remote-support control slot."""
@@ -451,16 +462,28 @@ class EdgeStore:
     def _migrate_v14(self) -> None:
         """Persist the point after which an F2 stop command may have run."""
 
-        self._conn.execute(
-            """ALTER TABLE mcu_firmware_update
-               ADD COLUMN prepare_recovery_required INTEGER
-                   NOT NULL DEFAULT 0
-                   CHECK (prepare_recovery_required IN (0, 1))"""
-        )
-        self._conn.execute(
-            """ALTER TABLE mcu_firmware_update
-               ADD COLUMN prepare_identity_json TEXT"""
-        )
+        # V14 was first released before migrations used an explicit
+        # transaction. A power loss may therefore leave either column on a
+        # database whose recorded version is still 13. Resume from the actual
+        # table shape instead of replaying already-persisted DDL.
+        columns = {
+            row["name"]
+            for row in self._conn.execute(
+                "PRAGMA table_info('mcu_firmware_update')"
+            ).fetchall()
+        }
+        if "prepare_recovery_required" not in columns:
+            self._conn.execute(
+                """ALTER TABLE mcu_firmware_update
+                   ADD COLUMN prepare_recovery_required INTEGER
+                       NOT NULL DEFAULT 0
+                       CHECK (prepare_recovery_required IN (0, 1))"""
+            )
+        if "prepare_identity_json" not in columns:
+            self._conn.execute(
+                """ALTER TABLE mcu_firmware_update
+                   ADD COLUMN prepare_identity_json TEXT"""
+            )
         uncertain_updates = self._conn.execute(
             """SELECT update_uid, previous_manifest_json
                FROM mcu_firmware_update
