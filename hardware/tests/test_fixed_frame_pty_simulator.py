@@ -16,6 +16,7 @@ from tools.fixed_frame_pty_simulator import (
     LinuxPtyFixedFrameSimulator,
     SimulatorConfig,
     VirtualFixedFrameMcu,
+    VirtualFixedFrameSerialFactory,
     encode_result_frame,
     encode_self_test_frame,
     encode_smoke_frame,
@@ -123,6 +124,209 @@ def test_virtual_mcu_returns_self_test_and_reports_smoke_changes():
     assert model.change_smoke_state(0) == bytes.fromhex("CC 00 CC")
 
 
+def test_virtual_mcu_reports_revision2_firmware_identity():
+    model = VirtualFixedFrameMcu(
+        SimulatorConfig(
+            firmware_version="1.2.3",
+            firmware_version_code=10_203,
+            firmware_identity_hex="0102030405060708",
+        )
+    )
+
+    name, response = model.handle_frame(bytes.fromhex("F2 01 F2"))
+
+    assert name == "FIRMWARE_IDENTITY"
+    assert response is not None
+    assert len(response) == 51
+    assert response[:9] == bytes.fromhex(
+        "F3 01 00 02 00 00 27 DB 05"
+    )
+    assert response[9:14] == b"1.2.3"
+    assert response[14:41] == bytes(27)
+    assert response[41:49] == bytes.fromhex("0102030405060708")
+    assert response[49:] == bytes.fromhex("0F F3")
+
+
+def test_virtual_mcu_can_report_firmware_identity_internal_error():
+    model = VirtualFixedFrameMcu(
+        SimulatorConfig(firmware_identity_status=3)
+    )
+
+    name, response = model.handle_frame(bytes.fromhex("F2 01 F2"))
+
+    assert name == "FIRMWARE_IDENTITY"
+    assert response is not None
+    assert response[1:4] == bytes.fromhex("01 03 02")
+    assert model.update_prepared is False
+
+
+def test_virtual_mcu_can_drop_firmware_identity_response():
+    model = VirtualFixedFrameMcu(
+        SimulatorConfig(firmware_identity_dropped_responses=1)
+    )
+
+    first_name, first_response = model.handle_frame(
+        bytes.fromhex("F2 01 F2")
+    )
+    second_name, second_response = model.handle_frame(
+        bytes.fromhex("F2 01 F2")
+    )
+
+    assert first_name == "FIRMWARE_IDENTITY_RESPONSE_DROPPED"
+    assert first_response is None
+    assert second_name == "FIRMWARE_IDENTITY"
+    assert second_response is not None
+    assert second_response[1:3] == bytes.fromhex("01 00")
+
+
+def test_virtual_mcu_prepare_latches_update_mode_and_blocks_business_starts():
+    model = VirtualFixedFrameMcu(SimulatorConfig())
+
+    name, response = model.handle_frame(bytes.fromhex("F2 02 F2"))
+    blocked_name, blocked_response = model.handle_frame(
+        bytes.fromhex("AA 01 AA")
+    )
+
+    assert name == "FIRMWARE_PREPARE"
+    assert response is not None
+    assert response[1:4] == bytes.fromhex("02 00 02")
+    assert response[49] == 0x1F
+    assert model.update_prepared is True
+    assert model.firmware_prepare_count == 1
+    assert blocked_name == "DELIVERY_IGNORED_UPDATE_PREPARED"
+    assert blocked_response is None
+    assert model.delivery_start_count == 0
+
+
+def test_virtual_mcu_can_report_prepare_internal_error_after_latching():
+    model = VirtualFixedFrameMcu(
+        SimulatorConfig(
+            firmware_prepare_status=3,
+            firmware_prepare_safe_flags=0x0F,
+        )
+    )
+
+    name, response = model.handle_frame(bytes.fromhex("F2 02 F2"))
+
+    assert name == "FIRMWARE_PREPARE"
+    assert response is not None
+    assert response[1:4] == bytes.fromhex("02 03 02")
+    assert response[49] == 0x0F
+    assert model.update_prepared is True
+
+
+def test_virtual_mcu_can_drop_prepare_response_after_execution():
+    model = VirtualFixedFrameMcu(
+        SimulatorConfig(firmware_prepare_dropped_responses=1)
+    )
+
+    first_name, first_response = model.handle_frame(
+        bytes.fromhex("F2 02 F2")
+    )
+    second_name, second_response = model.handle_frame(
+        bytes.fromhex("F2 02 F2")
+    )
+
+    assert first_name == "FIRMWARE_PREPARE_RESPONSE_DROPPED"
+    assert first_response is None
+    assert model.update_prepared is True
+    assert second_name == "FIRMWARE_PREPARE"
+    assert second_response is not None
+    assert second_response[1:3] == bytes.fromhex("02 00")
+
+
+def test_real_adapter_queries_and_prepares_virtual_mcu_in_memory():
+    model = VirtualFixedFrameMcu(
+        SimulatorConfig(
+            firmware_version="1.2.3",
+            firmware_version_code=10_203,
+            firmware_identity_hex="0102030405060708",
+        )
+    )
+    adapter = FixedFrameMcuAdapter(
+        "simulated://fixed-frame-mcu",
+        edge_boot_id=77,
+        timeout_s=0.01,
+        serial_factory=VirtualFixedFrameSerialFactory(model),
+        is_simulated=True,
+    )
+    try:
+        assert adapter.open()
+
+        identity = adapter.query_firmware_identity(timeout_ms=100)
+        prepared = adapter.execute_firmware_update_prepare(timeout_ms=100)
+
+        assert identity == {
+            "queryStatus": "OK",
+            "mode": 1,
+            "statusCode": 0,
+            "status": "OK",
+            "protocolRevision": 2,
+            "firmwareVersionCode": 10_203,
+            "firmwareVersion": "1.2.3",
+            "firmwareIdentityHex": "0102030405060708",
+            "safeFlags": 0x0F,
+            "rawFrameHex": identity["rawFrameHex"],
+        }
+        assert prepared["queryStatus"] == "OK"
+        assert prepared["statusCode"] == 0
+        assert prepared["safeFlags"] == 0x1F
+        assert prepared["executed"] is True
+        assert model.update_prepared is True
+    finally:
+        adapter.close()
+
+
+def test_real_adapter_observes_latched_prepare_when_response_is_dropped():
+    model = VirtualFixedFrameMcu(
+        SimulatorConfig(firmware_prepare_dropped_responses=1)
+    )
+    adapter = FixedFrameMcuAdapter(
+        "simulated://fixed-frame-mcu",
+        edge_boot_id=77,
+        timeout_s=0.005,
+        serial_factory=VirtualFixedFrameSerialFactory(model),
+        is_simulated=True,
+    )
+    try:
+        assert adapter.open()
+
+        prepared = adapter.execute_firmware_update_prepare(timeout_ms=30)
+
+        assert prepared["queryStatus"] == "TIMEOUT"
+        assert prepared["executed"] is False
+        assert model.update_prepared is True
+        assert model.firmware_prepare_count == 1
+    finally:
+        adapter.close()
+
+
+def test_virtual_mcu_exposes_installed_firmware_after_application_reset():
+    model = VirtualFixedFrameMcu(SimulatorConfig())
+    model.handle_frame(bytes.fromhex("F2 02 F2"))
+
+    model.enter_system_bootloader()
+    model.install_firmware(
+        {
+            "fixedFrameRevision": 2,
+            "firmwareVersion": "2.0.0",
+            "firmwareVersionCode": 20_000,
+            "firmwareIdentityHex": "1112131415161718",
+        }
+    )
+    model.boot_application()
+    name, response = model.handle_frame(bytes.fromhex("F2 01 F2"))
+
+    assert name == "FIRMWARE_IDENTITY"
+    assert response is not None
+    assert int.from_bytes(response[4:8], "big") == 20_000
+    assert response[9:14] == b"2.0.0"
+    assert response[41:49] == bytes.fromhex("1112131415161718")
+    assert response[49] == 0x0F
+    assert model.update_prepared is False
+    assert model.runtime_mode == "APPLICATION"
+
+
 def test_self_test_and_smoke_encoders_reject_invalid_values():
     assert encode_self_test_frame(3, 1000, 0, 1)[0] == (
         SELF_TEST_RESPONSE_HEADER
@@ -169,6 +373,44 @@ def test_command_line_defaults_expose_a_stable_linux_serial_link():
     assert args.self_test_weight_valid == 1
     assert args.self_test_full_valid == 1
     assert args.smoke_state == 0
+    assert args.firmware_version == "1.0.0"
+    assert args.firmware_version_code == 10_000
+    assert args.firmware_identity_hex == "0102030405060708"
+    assert args.firmware_identity_status == 0
+    assert args.firmware_identity_drop_responses == 0
+    assert args.firmware_prepare_status == 0
+    assert args.firmware_prepare_safe_flags == 0x1F
+    assert args.firmware_prepare_drop_responses == 0
+
+
+def test_command_line_accepts_firmware_identity_and_fault_controls():
+    args = parse_args([
+        "--firmware-version",
+        "2.3.4-rc1",
+        "--firmware-version-code",
+        "20",
+        "--firmware-identity-hex",
+        "1112131415161718",
+        "--firmware-identity-status",
+        "3",
+        "--firmware-identity-drop-responses",
+        "2",
+        "--firmware-prepare-status",
+        "1",
+        "--firmware-prepare-safe-flags",
+        "0x0f",
+        "--firmware-prepare-drop-responses",
+        "4",
+    ])
+
+    assert args.firmware_version == "2.3.4-rc1"
+    assert args.firmware_version_code == 20
+    assert args.firmware_identity_hex == "1112131415161718"
+    assert args.firmware_identity_status == 3
+    assert args.firmware_identity_drop_responses == 2
+    assert args.firmware_prepare_status == 1
+    assert args.firmware_prepare_safe_flags == 0x0F
+    assert args.firmware_prepare_drop_responses == 4
 
 
 def test_business_result_delays_are_independent_from_self_test_delay():

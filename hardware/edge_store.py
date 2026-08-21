@@ -2765,7 +2765,7 @@ class EdgeStore:
         update_uid: str,
         identity: dict,
     ) -> bool:
-        """Persist the recovery identity before F2 can reach the MCU."""
+        """Persist the current application identity before any F2 execution."""
 
         identity_json = _canonical_mcu_prepare_identity(identity)
         now = self._now()
@@ -2778,11 +2778,13 @@ class EdgeStore:
             updated = self._conn.execute(
                 """UPDATE mcu_firmware_update
                    SET prepare_recovery_required=1, prepare_identity_json=?,
-                       updated_at=?
-                   WHERE update_uid=? AND state='PREFLIGHT'
-                     AND legacy_preflight=0
-                     AND target_attempt_count=0
-                     AND rollback_attempt_count=0""",
+                        updated_at=?
+                   WHERE update_uid=?
+                     AND state IN (
+                       'PREFLIGHT', 'PREPARED', 'FLASHING_TARGET',
+                       'VERIFYING_TARGET', 'ROLLING_BACK',
+                       'VERIFYING_ROLLBACK'
+                     )""",
                 (identity_json, now, update_uid),
             )
             if updated.rowcount != 1:

@@ -278,11 +278,19 @@ $sys/{product_id}/{device_name}/thing/service/{id}/invoke → 服务调用（下
 正式 `main.py` 没有全局模拟开关，也不会按运行模式替换串口或摄像头实现：
 
 - MCU 模拟器通过 Linux PTY 暴露串口路径，由 `ECOBIN_SERIAL_PORT` 选择；
+- PTY 虚拟 MCU 实现 AA～F3 的应用串口行为，包括 F2/F3 固件身份、升级准备锁存、
+  明确错误和应答丢失；
 - 摄像头模拟器通过两个不同的 `simulated://` 显式源接入；
 - MQTT、SQLite、COS、命令处理和事件投影始终运行真实代码路径；
+- 自动化升级测试用同一虚拟 MCU 注入串口、BOOT0/NRST 和擦写边界，运行真实
+  `McuFirmwareUpdater`，覆盖成功、拒绝、回滚和 `FAILED_LOCKED`；
+- 虚拟 BOOT0 边界拒绝没有当前 F2 锁存的应用态到 ROM 切换；目标验证已经启动应用后，
+  目标重试和回滚都必须重新完成 F2，只有已证明仍在 ROM 的擦写失败可以直接重试；
 - 自动化单元测试仍可直接注入 `MockUartLink`、模拟拍照函数等局部测试替身。
 
 这样端到端测试与真机只更换设备路径，不更换应用组装逻辑。
+生产入口仍禁止 `ECOBIN_MCU_SIMULATED=true` 与 `ECOBIN_MCU_UPDATE_ENABLED=true` 同时
+启用；完整升级模拟只存在于测试依赖注入边界，防止虚拟擦写器被误用于真机。
 
 ---
 

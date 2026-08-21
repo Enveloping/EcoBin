@@ -59,6 +59,16 @@ RETRYABLE_PACKAGE_ACQUISITION_ERRORS = frozenset({
     "COS_GRANT_MISSING",
     "COS_RESPONSE_INVALID",
 })
+MCU_RUNTIME_UNKNOWN = "UNKNOWN"
+MCU_RUNTIME_APPLICATION = "APPLICATION"
+MCU_RUNTIME_APPLICATION_PREPARED = "APPLICATION_PREPARED"
+MCU_RUNTIME_SYSTEM_BOOTLOADER = "SYSTEM_BOOTLOADER"
+MCU_RUNTIME_LEGACY_ENTRY_AUTHORIZED = "LEGACY_ENTRY_AUTHORIZED"
+MCU_FLASH_ENTRY_AUTHORIZED_MODES = frozenset({
+    MCU_RUNTIME_APPLICATION_PREPARED,
+    MCU_RUNTIME_SYSTEM_BOOTLOADER,
+    MCU_RUNTIME_LEGACY_ENTRY_AUTHORIZED,
+})
 
 
 class McuUpdateError(RuntimeError):
@@ -499,7 +509,14 @@ class Stm32FlashRunner:
         self._run_command = command_runner
         self.timeout_seconds = timeout_seconds
 
-    def flash(self, image_path: Path, image_size: int) -> dict:
+    def flash(
+        self,
+        image_path: Path,
+        image_size: int,
+        *,
+        manifest: Optional[dict] = None,
+    ) -> dict:
+        del manifest
         image_path = image_path.resolve(strict=True)
         if image_path.stat().st_size != image_size or image_size <= 0:
             raise McuUpdateError(
@@ -589,6 +606,10 @@ class McuFirmwareUpdater:
         self.enabled = bool(enabled)
         self.device_name = device_name
         self._execution_lock = threading.Lock()
+        # This is evidence established by GPIO/UART operations in the current
+        # process, not a guess derived from a journal state. Restarts begin
+        # UNKNOWN and must reset/verify the application before another flash.
+        self._mcu_runtime_mode = MCU_RUNTIME_UNKNOWN
 
     def queue_local(
         self,
@@ -1117,6 +1138,7 @@ class McuFirmwareUpdater:
                     "FIRMWARE_IDENTITY_UNAVAILABLE",
                     "MCU did not return a valid revision-2 identity snapshot",
                 )
+            self._mcu_runtime_mode = MCU_RUNTIME_APPLICATION
             self._enforce_version_policy(
                 update,
                 target_manifest,
@@ -1137,6 +1159,7 @@ class McuFirmwareUpdater:
                     "MCU_PREPARE_JOURNAL_FAILED",
                     "could not persist the MCU prepare recovery identity",
                 )
+            self._mcu_runtime_mode = MCU_RUNTIME_UNKNOWN
             try:
                 execution = self.uart.execute_firmware_update_prepare()
             except Exception as cause:
@@ -1158,6 +1181,7 @@ class McuFirmwareUpdater:
                     "MCU did not confirm update preparation execution",
                 )
                 raise error
+            self._mcu_runtime_mode = MCU_RUNTIME_APPLICATION_PREPARED
             try:
                 prepared = self.store.transition_mcu_firmware_update(
                     update["update_uid"],
@@ -1172,6 +1196,7 @@ class McuFirmwareUpdater:
                     "MCU stopped outputs but PREPARED could not be journaled",
                 ) from cause
         if update["legacy_preflight"]:
+            self._mcu_runtime_mode = MCU_RUNTIME_LEGACY_ENTRY_AUTHORIZED
             self.store.transition_mcu_firmware_update(
                 update["update_uid"],
                 "PREPARED",
@@ -1193,7 +1218,9 @@ class McuFirmwareUpdater:
         """
         try:
             self.uart.close()
+            self._mcu_runtime_mode = MCU_RUNTIME_UNKNOWN
             self.boot.boot_application()
+            self._mcu_runtime_mode = MCU_RUNTIME_APPLICATION
             if not self.uart.open():
                 raise McuUpdateError(
                     "MCU_PREPARE_RECOVERY_FAILED",
@@ -1285,6 +1312,97 @@ class McuFirmwareUpdater:
             f"MCU firmware downgrade is blocked: current={current} target={target}",
         )
 
+    def _ensure_flash_entry_authorized(self, update: dict) -> None:
+        """Prove that an application-to-ROM transition is currently safe.
+
+        A successful application reset clears the MCU's F2 latch. Therefore a
+        target retry or rollback after F3/F1 verification must persist the
+        identity of the application that is now running and execute F2 again.
+        A failed stm32flash call, on the other hand, leaves the MCU in the ROM
+        bootloader and can be retried without sending an impossible app frame.
+        """
+
+        if self._mcu_runtime_mode in MCU_FLASH_ENTRY_AUTHORIZED_MODES:
+            return
+        if self._mcu_runtime_mode != MCU_RUNTIME_APPLICATION:
+            raise McuUpdateError(
+                "MCU_RUNTIME_MODE_UNCERTAIN",
+                "MCU runtime mode is not proven safe for a ROM bootloader reset",
+            )
+        self._prepare_running_application_for_flash(update)
+
+    def _prepare_running_application_for_flash(self, update: dict) -> None:
+        """Persist and execute a fresh F2 for the currently running app."""
+
+        if not self.uart.is_open and not self.uart.open():
+            raise McuUpdateError(
+                "MCU_REPREPARE_UART_OPEN_FAILED",
+                "MCU application UART could not open before another flash",
+            )
+        identity = self.uart.query_firmware_identity()
+        if not self._identity_snapshot_available(identity):
+            raise McuUpdateError(
+                "MCU_REPREPARE_IDENTITY_UNAVAILABLE",
+                "MCU application identity is unavailable before another flash",
+            )
+        try:
+            recovery_armed = self.store.arm_mcu_firmware_prepare_recovery(
+                update["update_uid"],
+                identity,
+            )
+        except Exception as cause:
+            raise McuUpdateError(
+                "MCU_PREPARE_JOURNAL_FAILED",
+                "could not persist the repeated MCU prepare recovery identity",
+            ) from cause
+        if not recovery_armed:
+            raise McuUpdateError(
+                "MCU_PREPARE_JOURNAL_FAILED",
+                "could not persist the repeated MCU prepare recovery identity",
+            )
+
+        self._mcu_runtime_mode = MCU_RUNTIME_UNKNOWN
+        try:
+            execution = self.uart.execute_firmware_update_prepare()
+        except Exception as cause:
+            error = McuUpdateError(
+                "MCU_PREPARE_EXECUTION_UNCONFIRMED",
+                "repeated MCU update preparation raised an internal error",
+            )
+            try:
+                self._recover_after_prepare_failure(update, identity, error)
+            except McuUpdateError:
+                raise
+            raise error from cause
+        if not execution.get("executed"):
+            confirmed_response = (
+                execution.get("queryStatus") == "OK"
+                and execution.get("statusCode") is not None
+            )
+            error = McuUpdateError(
+                (
+                    "MCU_PREPARE_EXECUTION_FAILED"
+                    if confirmed_response
+                    else "MCU_PREPARE_EXECUTION_UNCONFIRMED"
+                ),
+                "MCU did not confirm repeated update preparation execution",
+            )
+            try:
+                self._recover_after_prepare_failure(update, identity, error)
+            except McuUpdateError:
+                raise
+            raise error
+        self._mcu_runtime_mode = MCU_RUNTIME_APPLICATION_PREPARED
+
+    def _lock_unsafe_flash_entry(
+        self,
+        update: dict,
+        error: McuUpdateError,
+    ) -> None:
+        current = self.store.get_mcu_firmware_update(update["update_uid"])
+        if current is not None and current["state"] != "FAILED_LOCKED":
+            self._lock_failure(current, error)
+
     def _attempt_target(
         self,
         update: dict,
@@ -1295,6 +1413,11 @@ class McuFirmwareUpdater:
             "target firmware attempts were exhausted",
         )
         while update["target_attempt_count"] < TARGET_ATTEMPT_LIMIT:
+            try:
+                self._ensure_flash_entry_authorized(update)
+            except McuUpdateError as error:
+                self._lock_unsafe_flash_entry(update, error)
+                return
             attempt = self.store.record_mcu_firmware_attempt(
                 update["update_uid"],
                 rollback=False,
@@ -1382,6 +1505,11 @@ class McuFirmwareUpdater:
             "rollback attempts were exhausted",
         )
         while update["rollback_attempt_count"] < ROLLBACK_ATTEMPT_LIMIT:
+            try:
+                self._ensure_flash_entry_authorized(update)
+            except McuUpdateError as error:
+                self._lock_unsafe_flash_entry(update, error)
+                return
             attempt = self.store.record_mcu_firmware_attempt(
                 update["update_uid"],
                 rollback=True,
@@ -1416,6 +1544,11 @@ class McuFirmwareUpdater:
         self._lock_failure(update, last_error)
 
     def _flash(self, package: StagedFirmwarePackage) -> None:
+        if self._mcu_runtime_mode not in MCU_FLASH_ENTRY_AUTHORIZED_MODES:
+            raise McuUpdateError(
+                "MCU_FLASH_ENTRY_UNSAFE",
+                "MCU ROM entry was attempted without current safety evidence",
+            )
         manifest = package.verified.manifest
         if _file_sha256(package.image_path) != manifest["imageSha256"]:
             raise McuUpdateError(
@@ -1423,15 +1556,20 @@ class McuFirmwareUpdater:
                 "cached MCU image failed verification immediately before flash",
             )
         self.uart.close()
+        self._mcu_runtime_mode = MCU_RUNTIME_UNKNOWN
         self.boot.enter_system_bootloader()
+        self._mcu_runtime_mode = MCU_RUNTIME_SYSTEM_BOOTLOADER
         self.flash_runner.flash(
             package.image_path,
             int(manifest["imageSize"]),
+            manifest=manifest,
         )
 
     def _verify_application(self, manifest: dict) -> None:
         self.uart.close()
+        self._mcu_runtime_mode = MCU_RUNTIME_UNKNOWN
         self.boot.boot_application()
+        self._mcu_runtime_mode = MCU_RUNTIME_APPLICATION
         if not self.uart.open():
             raise McuUpdateError(
                 "APPLICATION_UART_OPEN_FAILED",
@@ -1544,6 +1682,40 @@ class McuFirmwareUpdater:
         return (
             identity.get("queryStatus") == "OK"
             and identity.get("statusCode") == 0
+        )
+
+    @staticmethod
+    def _identity_snapshot_available(identity: dict) -> bool:
+        """Accept a complete revision-2 snapshot even when STATUS is nonzero.
+
+        A nonzero F3 status can never verify a target, but the exact identity
+        fields are still useful to journal recovery before a fresh F2. If F2
+        then fails, recovery still requires STATUS=00 through
+        ``_identity_response_ok`` and therefore remains fail-closed.
+        """
+
+        revision = identity.get("protocolRevision")
+        status_code = identity.get("statusCode")
+        version_code = identity.get("firmwareVersionCode")
+        version = identity.get("firmwareVersion")
+        identity_hex = identity.get("firmwareIdentityHex")
+        return (
+            identity.get("queryStatus") == "OK"
+            and revision == 2
+            and isinstance(status_code, int)
+            and not isinstance(status_code, bool)
+            and status_code in {0, 1, 2, 3}
+            and isinstance(version_code, int)
+            and not isinstance(version_code, bool)
+            and version_code > 0
+            and isinstance(version, str)
+            and bool(version)
+            and isinstance(identity_hex, str)
+            and len(identity_hex) == 16
+            and all(
+                character in "0123456789abcdef"
+                for character in identity_hex
+            )
         )
 
     @staticmethod

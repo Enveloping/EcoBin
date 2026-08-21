@@ -161,7 +161,8 @@ class InstallingFlashRunner:
         self.failures_remaining = 0
         self.unexpected_failures_remaining = 0
 
-    def flash(self, image_path: Path, image_size: int):
+    def flash(self, image_path: Path, image_size: int, *, manifest=None):
+        del manifest
         self.calls.append((image_path, image_size))
         if self.unexpected_failures_remaining:
             self.unexpected_failures_remaining -= 1
@@ -373,6 +374,7 @@ def test_three_target_failures_automatically_restore_previous_stable(tmp_path):
     assert uart.current_manifest == stable.manifest
     assert store.get_mcu_firmware_state()["current_manifest"] == stable.manifest
     assert len(flasher.calls) - calls_before == 4
+    assert uart.prepare_count == 4
     assert store.get_maintenance_lock() is None
 
 
@@ -417,6 +419,7 @@ def test_f3_internal_error_can_never_promote_target_firmware(tmp_path):
         stable.manifest
     )
     assert uart.current_manifest == stable.manifest
+    assert uart.prepare_count == 3
 
 
 def test_cloud_download_failure_is_journaled_reported_and_retryable(
@@ -868,6 +871,7 @@ def test_target_and_rollback_failure_leave_persistent_business_lock(tmp_path):
     assert update["rollback_attempt_count"] == 3
     assert store.get_maintenance_lock()["owner_uid"] == queued["updateUid"]
     assert uart.is_open is False
+    assert uart.prepare_count == 6
 
 
 def test_unconfirmed_prepare_execution_recovers_application_then_rejects(
