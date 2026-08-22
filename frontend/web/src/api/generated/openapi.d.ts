@@ -2412,7 +2412,7 @@ export interface paths {
         };
         /**
          * List the current ordinary user's wallet entries
-         * @description The opaque cursor is bound to the current user, the ordinary-user visibility view and the first page snapshot. WITHDRAWAL_FREEZE is an internal transfer into withdrawal processing and is excluded before database pagination; withdrawal success and release entries remain visible. Clients must reuse the cursor unchanged and must not construct or decode it.
+         * @description The opaque cursor is bound to the current user, the ordinary-user visibility view and the first page snapshot. WITHDRAWAL_FREEZE and WITHDRAWAL_RELEASED are internal wallet transfers and are excluded before database pagination; withdrawal success remains visible. Clients must reuse the cursor unchanged and must not construct or decode it.
          */
         get: operations["listMiniappWalletEntries"];
         put?: never;
@@ -6788,10 +6788,10 @@ export interface components {
          */
         WalletEntryType: "DELIVERY_INITIAL_REVIEW" | "DELIVERY_CORRECTION" | "WITHDRAWAL_FREEZE" | "WITHDRAWAL_SUCCEEDED" | "WITHDRAWAL_RELEASED" | "MANUAL_ADJUSTMENT";
         /**
-         * @description Immutable wallet-entry reasons visible to an ordinary miniapp user. The internal WITHDRAWAL_FREEZE transfer is intentionally omitted.
+         * @description Immutable wallet-entry reasons visible to an ordinary miniapp user. Internal withdrawal freeze and release transfers are intentionally omitted.
          * @enum {string}
          */
-        MiniappWalletEntryType: "DELIVERY_INITIAL_REVIEW" | "DELIVERY_CORRECTION" | "WITHDRAWAL_SUCCEEDED" | "WITHDRAWAL_RELEASED" | "MANUAL_ADJUSTMENT";
+        MiniappWalletEntryType: "DELIVERY_INITIAL_REVIEW" | "DELIVERY_CORRECTION" | "WITHDRAWAL_SUCCEEDED" | "MANUAL_ADJUSTMENT";
         /**
          * @description Owning business fact whose stable number is copied into the wallet entry.
          * @enum {string}
@@ -9541,7 +9541,7 @@ export interface components {
                 "application/json": components["schemas"]["PersonalWalletEntryPageEnvelope"];
             };
         };
-        /** @description A stable ordinary-user cursor page that excludes the internal withdrawal-freeze transfer */
+        /** @description A stable ordinary-user cursor page that excludes internal withdrawal-freeze and withdrawal-release transfers */
         MiniappWalletEntriesOk: {
             headers: {
                 "Cache-Control": components["headers"]["NoStore"];

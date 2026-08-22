@@ -89,7 +89,7 @@ class HttpContractTests(unittest.TestCase):
             f"wallet schemas missing from OpenAPI: {sorted(missing_schemas)}",
         )
 
-    def test_miniapp_wallet_hides_only_withdrawal_freeze(self) -> None:
+    def test_miniapp_wallet_hides_withdrawal_transfers(self) -> None:
         document = load_openapi()
         schemas = document["components"]["schemas"]
         full_entry_types = set(schemas["WalletEntryType"]["enum"])
@@ -97,9 +97,12 @@ class HttpContractTests(unittest.TestCase):
             schemas["MiniappWalletEntryType"]["enum"]
         )
         self.assertIn("WITHDRAWAL_FREEZE", full_entry_types)
+        self.assertIn("WITHDRAWAL_RELEASED", full_entry_types)
         self.assertNotIn("WITHDRAWAL_FREEZE", miniapp_entry_types)
+        self.assertNotIn("WITHDRAWAL_RELEASED", miniapp_entry_types)
         self.assertEqual(
-            full_entry_types - {"WITHDRAWAL_FREEZE"},
+            full_entry_types
+            - {"WITHDRAWAL_FREEZE", "WITHDRAWAL_RELEASED"},
             miniapp_entry_types,
         )
         self.assertEqual(
@@ -116,10 +119,20 @@ class HttpContractTests(unittest.TestCase):
         )
 
         paths = document["paths"]
+        miniapp_operation = paths[
+            "/api/v1/miniapp/me/wallet/entries"
+        ]["get"]
+        self.assertIn(
+            "WITHDRAWAL_FREEZE and WITHDRAWAL_RELEASED",
+            miniapp_operation["description"],
+        )
+        self.assertNotIn(
+            "release entries remain visible",
+            miniapp_operation["description"],
+        )
         self.assertEqual(
             "#/components/responses/MiniappWalletEntriesOk",
-            paths["/api/v1/miniapp/me/wallet/entries"]["get"]
-            ["responses"]["200"]["$ref"],
+            miniapp_operation["responses"]["200"]["$ref"],
         )
         for path in (
             (
@@ -143,7 +156,7 @@ class HttpContractTests(unittest.TestCase):
         ].append("WITHDRAWAL_FREEZE")
         with self.assertRaisesRegex(
             ContractError,
-            "miniapp wallet entry types must hide withdrawal freeze",
+            "miniapp wallet entry types must hide withdrawal transfers",
         ):
             validate_openapi_document(changed)
 

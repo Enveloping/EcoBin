@@ -338,21 +338,37 @@ test('miniapp orders and wallet use the target read contracts', () => {
   );
   assert.match(appJsonSource, /pages\/wallet\/wallet/);
   assert.match(walletPageSource, /myWalletEntries/);
+  assert.match(walletPageSource, /loadVisibleWalletEntryPage/);
   assert.match(walletPageSource, /nextCursor/);
   assert.match(walletPageSource, /COMMON\.INVALID_CURSOR/);
   assert.doesNotMatch(
     walletPageSource,
-    /WITHDRAWAL_FREEZE|提现申请冻结/,
+    /WITHDRAWAL_FREEZE|WITHDRAWAL_RELEASED|提现申请冻结|提现资金退回/,
   );
   const miniappWalletEntryType = miniappApiTypes.match(
     /export type MiniappWalletEntryType\s*=([\s\S]*?)\n\n/,
   )?.[1] ?? '';
-  assert.doesNotMatch(miniappWalletEntryType, /WITHDRAWAL_FREEZE/);
+  assert.doesNotMatch(
+    miniappWalletEntryType,
+    /WITHDRAWAL_FREEZE|WITHDRAWAL_RELEASED/,
+  );
   assert.match(walletApiSource, /CursorPage<MiniappWalletEntry>/);
   assert.match(walletMarkup, /<text>待审核<\/text>/);
   assert.match(walletMarkup, /class="withdrawal-button"/);
   assert.match(walletMarkup, /bindtap="onWithdrawals"/);
   assert.match(walletMarkup, /<text>提现<\/text>/);
+  assert.match(
+    walletPageSource,
+    /processingDeltaPrefixText:\s*item\.entryType === 'WITHDRAWAL_SUCCEEDED'\s*\? ''\s*:\s*'处理中 '/,
+  );
+  assert.match(
+    walletMarkup,
+    /\{\{item\.processingDeltaPrefixText\}\}\{\{item\.processingDeltaText\}\}/,
+  );
+  assert.doesNotMatch(
+    walletMarkup,
+    />处理中 \{\{item\.processingDeltaText\}\}/,
+  );
   assert.match(
     walletPageSource,
     /onWithdrawals\(\)\s*\{\s*wx\.navigateTo\(\{ url: '\/pages\/withdrawals\/withdrawals' \}\)/,

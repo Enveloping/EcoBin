@@ -8,6 +8,7 @@ import {
 import { formatLocalDateTime } from '../../utils/local-time'
 import { MiniappApiProblem } from '../../utils/request'
 import { toWalletDisplay } from '../../utils/user-view'
+import { loadVisibleWalletEntryPage } from '../../utils/wallet-entry-visibility'
 import type {
   MiniappWalletEntry,
   MiniappWalletEntryType,
@@ -21,6 +22,8 @@ interface WalletEntryListItem extends MiniappWalletEntry {
   availableDeltaText: string
   availableTone: string
   processingDeltaText: string
+  processingDeltaPrefixText: string
+  processingDeltaClass: string
   processingTone: string
   showAvailableDelta: boolean
   showProcessingDelta: boolean
@@ -34,7 +37,6 @@ const ENTRY_TYPE_TEXT: Record<MiniappWalletEntryType, string> = {
   DELIVERY_INITIAL_REVIEW: '投递返现入账',
   DELIVERY_CORRECTION: '投递返现调整',
   WITHDRAWAL_SUCCEEDED: '提现完成',
-  WITHDRAWAL_RELEASED: '提现资金退回',
   MANUAL_ADJUSTMENT: '账户人工调整',
 }
 
@@ -78,6 +80,12 @@ function walletEntry(item: MiniappWalletEntry): WalletEntryListItem {
     availableDeltaText: signedMoney(item.availableDeltaYuan),
     availableTone: amountTone(item.availableDeltaYuan),
     processingDeltaText: signedMoney(item.processingDeltaYuan),
+    processingDeltaPrefixText: item.entryType === 'WITHDRAWAL_SUCCEEDED'
+      ? ''
+      : '处理中 ',
+    processingDeltaClass: item.entryType === 'WITHDRAWAL_SUCCEEDED'
+      ? 'entry-amount'
+      : 'entry-processing',
     processingTone: amountTone(item.processingDeltaYuan),
     showAvailableDelta: !isZeroMoney(item.availableDeltaYuan),
     showProcessingDelta: !isZeroMoney(item.processingDeltaYuan),
@@ -185,10 +193,14 @@ Page({
     this.setData({ entriesLoading: true, entriesError: '' })
     let recoverInvalidCursor = false
     try {
-      const result = await myWalletEntries({
+      const result = await loadVisibleWalletEntryPage(
+        pageCursor => myWalletEntries({
+          cursor: pageCursor,
+          limit: PAGE_SIZE,
+        }, false),
         cursor,
-        limit: PAGE_SIZE,
-      }, false)
+        () => activeGeneration === this.requestGeneration,
+      )
       if (activeGeneration !== this.requestGeneration) return
       const rows = result.items.map(walletEntry)
       this.setData({
@@ -199,8 +211,7 @@ Page({
     } catch (error) {
       if (activeGeneration !== this.requestGeneration) return
       if (
-        cursor
-        && !this.cursorRecoveryUsed
+        !this.cursorRecoveryUsed
         && error instanceof MiniappApiProblem
         && error.code === 'COMMON.INVALID_CURSOR'
       ) {

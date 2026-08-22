@@ -36,7 +36,7 @@ class JdbcWalletReadRepositoryTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void ordinaryUserExcludesWithdrawalFreezeBeforePaging() {
+    void ordinaryUserExcludesWithdrawalTransfersBeforePaging() {
         ArgumentCaptor<String> sql =
                 ArgumentCaptor.forClass(String.class);
         when(jdbc.query(
@@ -46,6 +46,7 @@ class JdbcWalletReadRepositoryTest {
                 eq(ORGANIZATION_ID),
                 eq(WALLET_ID),
                 eq("WITHDRAWAL_FREEZE"),
+                eq("WITHDRAWAL_RELEASED"),
                 eq(21)))
                 .thenReturn(List.of());
 
@@ -58,9 +59,10 @@ class JdbcWalletReadRepositoryTest {
                 21);
 
         assertThat(sql.getValue())
-                .contains("AND event_type <> ?")
+                .contains("AND event_type NOT IN (?, ?)")
                 .contains("ORDER BY entry_sequence_no DESC");
-        assertThat(sql.getValue().indexOf("AND event_type <> ?"))
+        assertThat(sql.getValue().indexOf(
+                "AND event_type NOT IN (?, ?)"))
                 .isLessThan(sql.getValue().indexOf("ORDER BY"));
     }
 
@@ -87,7 +89,7 @@ class JdbcWalletReadRepositoryTest {
                 21);
 
         assertThat(sql.getValue())
-                .doesNotContain("event_type <>")
+                .doesNotContain("event_type NOT IN")
                 .contains("ORDER BY entry_sequence_no DESC");
     }
 }

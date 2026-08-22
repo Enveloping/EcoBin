@@ -18,6 +18,8 @@ class JdbcWalletReadRepository implements WalletReadRepository {
 
     private static final String WITHDRAWAL_FREEZE =
             "WITHDRAWAL_FREEZE";
+    private static final String WITHDRAWAL_RELEASED =
+            "WITHDRAWAL_RELEASED";
 
     private static final String ENTRY_COLUMNS = """
             SELECT entry_uid,
@@ -73,13 +75,13 @@ class JdbcWalletReadRepository implements WalletReadRepository {
             PersonalWalletEntryAudience audience,
             Long beforeEntrySequenceNo,
             int fetchLimit) {
-        boolean hideWithdrawalFreeze = switch (
+        boolean hideWithdrawalTransfers = switch (
                 Objects.requireNonNull(audience, "audience")) {
             case ORDINARY_USER -> true;
             case AUDIT -> false;
         };
-        String visibility = hideWithdrawalFreeze
-                ? "AND event_type <> ?\n"
+        String visibility = hideWithdrawalTransfers
+                ? "AND event_type NOT IN (?, ?)\n"
                 : "";
         String anchor = beforeEntrySequenceNo == null
                 ? ""
@@ -88,8 +90,9 @@ class JdbcWalletReadRepository implements WalletReadRepository {
         arguments.add(tenantId);
         arguments.add(organizationId);
         arguments.add(walletId);
-        if (hideWithdrawalFreeze) {
+        if (hideWithdrawalTransfers) {
             arguments.add(WITHDRAWAL_FREEZE);
+            arguments.add(WITHDRAWAL_RELEASED);
         }
         if (beforeEntrySequenceNo != null) {
             arguments.add(beforeEntrySequenceNo);

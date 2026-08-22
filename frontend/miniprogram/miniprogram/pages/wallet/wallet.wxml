@@ -82,8 +82,8 @@
         >{{item.availableDeltaText}}</text>
         <text
           wx:if="{{item.showProcessingDelta}}"
-          class="entry-processing {{item.processingTone}}"
-        >处理中 {{item.processingDeltaText}}</text>
+          class="{{item.processingDeltaClass}} {{item.processingTone}}"
+        >{{item.processingDeltaPrefixText}}{{item.processingDeltaText}}</text>
       </view>
     </view>
     <view class="entry-source">{{item.sourceText}}</view>

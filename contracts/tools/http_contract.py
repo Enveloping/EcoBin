@@ -602,14 +602,15 @@ def _validate_wallet_read_contract(document: Mapping[str, Any]) -> str:
     if set(schemas["WalletEntryType"].get("enum", [])) != expected_entry_types:
         raise ContractError("wallet entry types differ from funds")
     expected_miniapp_entry_types = expected_entry_types - {
-        "WITHDRAWAL_FREEZE"
+        "WITHDRAWAL_FREEZE",
+        "WITHDRAWAL_RELEASED",
     }
     if (
         set(schemas["MiniappWalletEntryType"].get("enum", []))
         != expected_miniapp_entry_types
     ):
         raise ContractError(
-            "miniapp wallet entry types must hide withdrawal freeze"
+            "miniapp wallet entry types must hide withdrawal transfers"
         )
     expected_entry_type_refs = {
         "MiniappWalletEntry": (

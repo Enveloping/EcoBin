@@ -588,7 +588,8 @@ GET /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/w
 ```
 
 - 普通用户读取自己的钱包不需要 `wallet.read`；未绑定手机号仍可查看，但不能投递或提现。
-- 普通用户小程序的明细视图不返回 `WITHDRAWAL_FREEZE`。该类型只表示“可提现余额转入提现处理中”的内部冻结转移，总资产尚未减少；后端必须在数据库排序和 `LIMIT` 分页前排除它，不能取页后再由服务端或客户端过滤。`WITHDRAWAL_SUCCEEDED` 和 `WITHDRAWAL_RELEASED` 分别表示真实出款完成和资金退回，仍向用户展示。
+- 普通用户小程序的明细视图不返回 `WITHDRAWAL_FREEZE` 和 `WITHDRAWAL_RELEASED`。前者表示“可提现余额转入提现处理中”，后者表示失败或取消后把处理中资金退回可提现余额；两者都是用户已有资金在钱包内部的转移，不是新增收入或真实出款。后端必须在数据库排序和 `LIMIT` 分页前排除它们，不能取页后再由服务端或客户端过滤。`WITHDRAWAL_SUCCEEDED` 表示真实出款完成，仍向用户展示。
+- 为避免后端与小程序分批发布期间把超出普通用户契约的类型渲染为空白卡片，小程序还要按普通用户四种明细类型做运行时白名单校验；若一整页都被隐藏但仍有 `nextCursor`，必须继续读取后续页，直到取得可见明细或游标耗尽。该客户端防线不替代上一条数据库分页前过滤。
 - Web 端点要求 `wallet.read`，`user.read` 或 `delivery.read` 不自动授予钱包读取能力。
 - 目标用户不在当前可见机构时统一返回 `404 RESOURCE.NOT_FOUND`。
 - 机构级 `wallet-entries` 是 P0 后台筛选机构真实钱包流水的入口；筛选的用户、类型、左闭右开时间范围和来源单号都与当前机构作用域求交。每项额外返回 `organizationUserUid`，不得返回手机号、OpenID、钱包内部主键或其他机构数据。
@@ -619,7 +620,7 @@ GET /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/w
 
 `GET .../organization-users/{organizationUserUid}/wallet/entries` 只返回已经实际改变该钱包可用或冻结投影的追加明细。每次在钱包锁内形成真实明细时分配从 1 开始、严格递增且不可回退的 `entrySequenceNo`；个人流水按该序号倒序形成不透明排他游标，并返回 `items` 和可空 `nextCursor`。随机 `entryUid` 只承担公开幂等身份，不能决定账本顺序。
 
-普通用户视图和 Web 审计视图使用不同的游标指纹，游标不能跨视图复用。由于普通用户视图只隐藏冻结内部转移，返回的真实 `entrySequenceNo` 允许出现间隔；游标仍以最后一条可见明细的真实序号排他翻页。Web 单用户抽屉、机构级流水及其类型筛选继续读取完整不可变账本，能够查看 `WITHDRAWAL_FREEZE`，底层记录不删除、不改写。
+普通用户视图和 Web 审计视图使用不同的游标指纹，游标不能跨视图复用。由于普通用户视图隐藏提现冻结和退回两种内部转移，返回的真实 `entrySequenceNo` 允许出现间隔；游标仍以最后一条可见明细的真实序号排他翻页。Web 单用户抽屉、机构级流水及其类型筛选继续读取完整不可变账本，能够查看 `WITHDRAWAL_FREEZE` 和 `WITHDRAWAL_RELEASED`，底层记录不删除、不改写。
 
 机构级 `wallet-entries` 首屏在一致读取中冻结机构钱包明细提交可见序号作为 `snapshotHighWatermark`，后续页只读取不超过该水位的明细，再按 `occurredAt + organizationUserUid + entrySequenceNo` 稳定倒序。新事务无论携带何种业务发生时间，只要在首屏之后提交就取得更高水位，不会穿入后续页。水位、首屏 `asOf`、末项排序键和全部筛选摘要都封入防篡改游标；`limit` 默认 20、最高 100，改变筛选必须重新从首屏查询。
 
@@ -640,7 +641,7 @@ GET /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/w
 }
 ```
 
-- P0 完整账本明细类型至少固定为 `DELIVERY_INITIAL_REVIEW`、`DELIVERY_CORRECTION`、`WITHDRAWAL_FREEZE`、`WITHDRAWAL_SUCCEEDED`、`WITHDRAWAL_RELEASED` 和 `MANUAL_ADJUSTMENT`；普通用户小程序可见类型是其中除 `WITHDRAWAL_FREEZE` 外的五种。客户端显示文案不能依赖数据库内部数字值。
+- P0 完整账本明细类型至少固定为 `DELIVERY_INITIAL_REVIEW`、`DELIVERY_CORRECTION`、`WITHDRAWAL_FREEZE`、`WITHDRAWAL_SUCCEEDED`、`WITHDRAWAL_RELEASED` 和 `MANUAL_ADJUSTMENT`；普通用户小程序可见类型是其中除 `WITHDRAWAL_FREEZE` 和 `WITHDRAWAL_RELEASED` 外的四种。客户端显示文案不能依赖数据库内部数字值。
 - `sourceType` 固定为 `DELIVERY_ORDER/WITHDRAWAL_ORDER/MANUAL_ADJUSTMENT`，并与 `entryType` 的合法来源组合校验。
 - `availableDeltaYuan` 和 `processingDeltaYuan` 都是有符号金额。每项的变动后值必须与资金账本连续一致。
 - 待审核返现没有钱包明细；用户通过 I-024 的订单列表查看其组成。不得为了让流水页面展示“待入账”而提前写一条可撤销的伪资金记录。

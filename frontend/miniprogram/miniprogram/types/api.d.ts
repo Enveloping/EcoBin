@@ -254,7 +254,6 @@ export type MiniappWalletEntryType =
   | 'DELIVERY_INITIAL_REVIEW'
   | 'DELIVERY_CORRECTION'
   | 'WITHDRAWAL_SUCCEEDED'
-  | 'WITHDRAWAL_RELEASED'
   | 'MANUAL_ADJUSTMENT'
 
 export type WalletEntrySourceType =
@@ -262,7 +261,7 @@ export type WalletEntrySourceType =
   | 'WITHDRAWAL_ORDER'
   | 'MANUAL_ADJUSTMENT'
 
-/** 当前用户可见的一条不可变钱包流水；不包含提现冻结内部转移。 */
+/** 当前用户可见的一条不可变钱包流水；不包含提现冻结和退回转移。 */
 export interface MiniappWalletEntry {
   entryUid: string
   entrySequenceNo: number
