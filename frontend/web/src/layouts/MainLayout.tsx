@@ -9,6 +9,7 @@ import { menuTargetPath } from '@/router/directoryQuery';
 import { logout } from '@/api/auth';
 import { palette, alpha } from '@/theme';
 import EcoBinLogo from '@/components/Logo';
+import ComplianceFooter from '@/components/ComplianceFooter';
 
 function toMenuData(route: AppMenuRoute): AppMenuRoute {
   return {
@@ -170,10 +171,11 @@ export default function MainLayout() {
       }}
       // 内容区域样式
       contentStyle={{
-        minHeight: 'calc(100dvh - 56px)',
+        minHeight: 'calc(100dvh - 56px - 49px)',
         padding: 22,
         background: palette.bgLayout,
       }}
+      footerRender={() => <ComplianceFooter />}
     >
         <main id="main-content" className="workspace-main" tabIndex={-1}>
           <Outlet />

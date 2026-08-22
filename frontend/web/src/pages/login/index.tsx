@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { defaultPathFor } from '@/router/routes';
 import { palette } from '@/theme';
 import EcoBinLogo from '@/components/Logo';
+import ComplianceFooter from '@/components/ComplianceFooter';
 import type { WebLoginDomain } from '@/types';
 import {
   parseWebLoginDomain,
@@ -71,10 +72,10 @@ export default function Login() {
       className="login-page"
       style={{
         minHeight: '100dvh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '96px 16px 32px',
+        display: 'grid',
+        gridTemplateRows: 'minmax(0, 1fr) auto',
+        justifyItems: 'center',
+        padding: '72px 16px 0',
         boxSizing: 'border-box',
         background: palette.bgLayout,
         position: 'relative',
@@ -95,6 +96,7 @@ export default function Login() {
         style={{
           width: '100%',
           maxWidth: 400,
+          alignSelf: 'center',
           border: `1px solid ${palette.border}`,
           boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)',
           borderRadius: 12,
@@ -153,6 +155,7 @@ export default function Login() {
           </Form.Item>
         </Form>
       </Card>
+      <ComplianceFooter />
     </div>
   );
 }

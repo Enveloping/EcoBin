@@ -64,6 +64,33 @@ textarea {
   outline: none;
 }
 
+.compliance-footer {
+  display: flex;
+  width: 100%;
+  min-height: 49px;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 24px 16px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  background: #f8fafc;
+}
+
+.compliance-footer__link {
+  color: inherit;
+  text-decoration: none;
+  text-underline-offset: 3px;
+  transition: color 160ms ease;
+}
+
+.compliance-footer__link:hover,
+.compliance-footer__link:focus-visible {
+  color: #0f766e;
+  text-decoration: underline;
+}
+
 .route-loading {
   width: min(calc(100% - 48px), 960px);
   min-height: 100dvh;

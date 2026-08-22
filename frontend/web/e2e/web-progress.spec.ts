@@ -188,6 +188,9 @@ test('login is neutral, uses the native cursor and fits a 375px viewport', async
 
   await page.locator('.login-page').waitFor({ state: 'visible', timeout: 15_000 });
   await expect(page.getByRole('heading', { name: '管理后台登录' })).toBeVisible();
+  const icpLink = page.getByRole('link', { name: '晋ICP备2026005159号-4' });
+  await expect(icpLink).toBeVisible();
+  await expect(icpLink).toHaveAttribute('href', 'https://beian.miit.gov.cn/');
   await expect(page.locator('canvas')).toHaveCount(0);
   await expect(page.locator('[class*="cursor"], .custom-cursor')).toHaveCount(0);
   const visual = await page.locator('.login-page').evaluate((element) => ({
