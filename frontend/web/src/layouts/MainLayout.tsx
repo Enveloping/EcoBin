@@ -42,6 +42,7 @@ function activeMenuParent(pathname: string): string | undefined {
     '/clean-records': '/menu/cleaning',
     '/funds': '/menu/funds',
     '/withdrawals': '/menu/funds',
+    '/operations/reliable-tasks': '/menu/operations',
   };
   return parentByPath[pathname];
 }

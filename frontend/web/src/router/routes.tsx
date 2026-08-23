@@ -1,6 +1,7 @@
 import { lazy, type ReactNode } from 'react';
 import {
   ApartmentOutlined,
+  AuditOutlined,
   BankOutlined,
   CloudSyncOutlined,
   CloudServerOutlined,
@@ -38,6 +39,9 @@ const DeviceManagementPage = lazy(
   () => import('@/pages/device-management'),
 );
 const McuFirmwarePage = lazy(() => import('@/pages/mcu-firmware'));
+const OperationalGovernancePage = lazy(
+  () => import('@/pages/operational-governance'),
+);
 const BagLabelsPage = lazy(() => import('@/pages/bag-labels'));
 const DeliveryOrdersPage = lazy(
   () => import('@/pages/delivery-orders'),
@@ -184,6 +188,14 @@ export const appRoutes: AppRoute[] = [
     icon: <CloudSyncOutlined />,
     element: <McuFirmwarePage />,
     allOf: ['device.manage'],
+    accountTypes: PLATFORM,
+  },
+  {
+    path: '/operations/reliable-tasks',
+    name: '可靠任务',
+    icon: <AuditOutlined />,
+    element: <OperationalGovernancePage />,
+    allOf: ['platform-admin.manage'],
     accountTypes: PLATFORM,
   },
   {
@@ -373,6 +385,24 @@ export function menuRoutesFor(
   ] as const) {
     const route = visibleRoute(session, path);
     if (route) menu.push(leaf(route));
+  }
+
+  const reliableTasks = visibleRoute(
+    session,
+    '/operations/reliable-tasks',
+  );
+  if (reliableTasks) {
+    menu.push({
+      path: '/menu/operations',
+      name: '运营治理',
+      icon: reliableTasks.icon,
+      routes: [leaf(
+        reliableTasks,
+        reliableTasks.path,
+        reliableTasks.name ?? '',
+        false,
+      )],
+    });
   }
 
   const delivery = visibleRoute(session, '/deliveries');

@@ -2125,7 +2125,7 @@ test('platform binds a factory operator to an existing organization user without
   );
 });
 
-test('organization edit publishes an immutable delivery rule version', async ({
+test('delivery configuration saves an immutable rule version', async ({
   page,
 }) => {
   const organizationCode = 'org-delivery-rule';
@@ -2150,6 +2150,7 @@ test('organization edit publishes an immutable delivery rule version', async ({
     versionNo: 1,
     contentSha256: 'a'.repeat(64),
     reviewMode: 'ALL_MANUAL',
+    automaticReviewMaxAmountYuan: null as string | null,
     openBalanceFloorYuan: '-10.00',
     maxReviewAbsoluteWeightKg: '100.000',
     publicationSource: 'SYSTEM',
@@ -2257,31 +2258,27 @@ test('organization edit publishes an immutable delivery rule version', async ({
     await route.fulfill(problem(404));
   });
 
-  await page.goto('/organizations');
-  await expect(page.getByText('城北回收中心', { exact: true })).toBeVisible();
-  await page.getByText('编辑', { exact: true }).click();
-  expect(configurationReads).toBe(0);
-
-  await page.getByText('投递规则', { exact: true }).click();
-  await expect(page.getByText('投递规则按版本发布')).toBeVisible();
-  await expect(page.getByText('v1', { exact: true }).first()).toBeVisible();
+  await page.goto('/configurations/delivery');
   await expect(
-    page.getByRole('button', { name: '保存机构资料' }),
-  ).toHaveCount(0);
+    page.getByText('投递审核规则', { exact: true }).first(),
+  ).toBeVisible();
+  await expect(page.getByText('页面中的规则可直接修改')).toBeVisible();
+  await expect.poll(() => configurationReads).toBeGreaterThan(0);
 
-  await page.getByRole('button', { name: '发布新版本' }).click();
   await page.getByLabel('负余额停投下限（元）').fill('-20.00');
   await page
     .getByLabel('人工认定重量绝对值上限（kg）')
     .fill('200.000');
-  await page.getByLabel('发布原因').fill('扩大人工审核重量范围');
-  await page.getByRole('button', { name: '确认发布' }).click();
+  await page.getByLabel('修改说明（可选）').fill('扩大人工审核重量范围');
+  await page.getByRole('button', { name: '保存投递配置' }).click();
 
-  await expect(page.getByText('v2', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('投递审核规则已保存')).toBeVisible();
+  await expect(page.getByText('¥ -20.00', { exact: true })).toBeVisible();
   expect(releases).toHaveLength(1);
   expect(releases[0].body).toEqual({
     expectedLatestVersion: 1,
     reviewMode: 'ALL_MANUAL',
+    automaticReviewMaxAmountYuan: null,
     openBalanceFloorYuan: '-20.00',
     maxReviewAbsoluteWeightKg: '200.000',
     reason: '扩大人工审核重量范围',
@@ -2487,10 +2484,16 @@ test('staff table hides security versions and keeps access actions inside edit',
 });
 
 function permanentDeviceAsset(overrides: Record<string, unknown> = {}) {
+  const deviceCode = typeof overrides.deviceCode === 'string'
+    ? overrides.deviceCode
+    : 'Dv_0123456789abcdefghijklmn';
+  const hardwareSn = typeof overrides.hardwareSn === 'string'
+    ? overrides.hardwareSn
+    : 'SN-PERMANENT-01';
   return {
     assetUid: '51000000-0000-4000-8000-000000000001',
-    deviceCode: 'Dv_0123456789abcdefghijklmn',
-    hardwareSn: 'SN-PERMANENT-01',
+    deviceCode,
+    hardwareSn,
     modelCode: 'ECOBIN-V1',
     productionBatch: '2026-08',
     expectedPortCount: 1,
@@ -2507,9 +2510,20 @@ function permanentDeviceAsset(overrides: Record<string, unknown> = {}) {
     retiredAt: null,
     createdAt: '2026-08-07T01:00:00.123Z',
     updatedAt: '2026-08-07T01:00:00.123Z',
+    installationProfile: {
+      deviceCode,
+      version: 0,
+      complete: false,
+      displayName: `回收箱 ${hardwareSn}`,
+      address: null,
+      longitude: null,
+      latitude: null,
+      coordinateSystem: 'GCJ02',
+      updatedAt: '2026-08-07T01:00:00.123Z',
+    },
     oneNetMapping: {
       productId: 'onenet-product',
-      deviceName: 'SN-PERMANENT-01',
+      deviceName: hardwareSn,
       currentComputedValue: true,
     },
     ...overrides,
@@ -2622,12 +2636,12 @@ test('failed acceptance reevaluation refreshes CSRF and reports once', async ({
 
   await reevaluate.click();
   await expect.poll(() => reevaluationCount).toBe(1);
-  await expect(
-    page.getByText(/服务端数据库结构或查询不兼容/),
-  ).toHaveCount(1);
-  await expect(
-    page.getByText(/请求 ID：req-e2e/),
-  ).toBeVisible();
+  const reevaluationError = page.getByText(
+    '服务端数据库结构或查询不兼容（请求 ID：req-e2e）',
+    { exact: true },
+  );
+  await expect(reevaluationError).toHaveCount(1);
+  await expect(reevaluationError).toBeVisible();
   await expect(reevaluate).not.toHaveClass(/ant-btn-loading/);
 
   await reevaluate.click();
@@ -2759,12 +2773,10 @@ test('device technical issue failures never masquerade as a healthy device', asy
   ).toHaveCount(0);
 });
 
-test('platform creates a real asset and writes its only tenant ownership', async ({
+test('platform registers an asset without factory bags and writes tenant ownership', async ({
   page,
 }) => {
   const hardwareSn = 'SN-PERMANENT-01';
-  const factoryBagCode =
-    'EB1_K1_000G40R40M30E209185GR38E1W_GRQ320Z8YDWC8V49M7W0';
   const tenantCode = 'tenant-device';
   const session = {
     ...platformSession,
@@ -2899,10 +2911,10 @@ test('platform creates a real asset and writes its only tenant ownership', async
     .filter({ hasText: '生产批次' })
     .locator('input')
     .fill('2026-08');
-  await createDialog.locator('.ant-form-item')
-    .filter({ hasText: '1 号投口厂家初始袋码' })
-    .locator('input')
-    .fill(factoryBagCode);
+  await expect(
+    createDialog.getByText('这里只登记设备资产，不登记厂家初始袋'),
+  ).toBeVisible();
+  await expect(createDialog.getByText(/厂家初始袋码/)).toHaveCount(0);
   await createDialog.getByRole('button', { name: '创建资产' }).click();
 
   await expect.poll(() => createRequest).toEqual({
@@ -2911,7 +2923,6 @@ test('platform creates a real asset and writes its only tenant ownership', async
       modelCode: 'ECOBIN-V1',
       productionBatch: '2026-08',
       expectedPortCount: 1,
-      factoryBags: [{ portNo: 1, bagCode: factoryBagCode }],
     },
     key: expect.any(String),
   });

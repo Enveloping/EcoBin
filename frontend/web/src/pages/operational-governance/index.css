@@ -1,0 +1,149 @@
+.operations-governance-page .operations-control-brief {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 18px 20px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #0f766e;
+  border-radius: 10px;
+}
+
+.operations-governance-page .operations-control-brief h4 {
+  margin: 3px 0 4px;
+  color: #0f172a;
+}
+
+.operations-governance-page .operations-control-brief p {
+  max-width: 760px;
+  margin: 0;
+}
+
+.operations-eyebrow {
+  color: #0f766e;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.operations-legend {
+  display: grid;
+  gap: 8px;
+  min-width: 116px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.operations-legend span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.operations-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.operations-dot-blocked {
+  background: #b91c1c;
+}
+
+.operations-dot-safe {
+  background: #0f766e;
+}
+
+.operations-dot-readonly {
+  background: #94a3b8;
+}
+
+.operations-boundary-alert,
+.operations-blocker,
+.operations-resume-warning {
+  margin-bottom: 14px;
+}
+
+.operations-recovery-panel {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+}
+
+.operations-recovery-panel-title {
+  display: flex;
+  gap: 8px 16px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.operations-recovery-trackers {
+  display: grid;
+  gap: 8px;
+}
+
+.operations-recovery-tracker {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) auto minmax(220px, 1.5fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.operations-recovery-progress {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.operations-task-code,
+.operations-target-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.operations-target-key {
+  display: inline-block;
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operations-detail-loading {
+  display: grid;
+  min-height: 260px;
+  place-items: center;
+}
+
+.operations-load-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 14px;
+}
+
+@media (max-width: 760px) {
+  .operations-governance-page .operations-control-brief {
+    grid-template-columns: 1fr;
+  }
+
+  .operations-legend {
+    grid-template-columns: repeat(3, max-content);
+  }
+
+  .operations-recovery-panel-title,
+  .operations-recovery-tracker {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}
