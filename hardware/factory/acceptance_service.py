@@ -48,6 +48,11 @@ CLIENT_SOCKET_TIMEOUT_SECONDS = 2.0
 MAXIMUM_CONCURRENT_CLIENTS = 4
 _RELEASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 _NONCE = re.compile(r"^[0-9a-f]{32}$")
+_PHYSICAL_FAILED_SAFE_CODES = {
+    "upgradeLine": "UPGRADE_LINE_FAILED_BUT_APPLICATION_RECOVERED",
+    "delivery": "DELIVERY_FAILED_BUT_APPLICATION_RECOVERED",
+    "clean": "CLEAN_FAILED_BUT_APPLICATION_RECOVERED",
+}
 
 
 class AcceptanceCommandError(RuntimeError):
@@ -73,6 +78,34 @@ def _require_true(parameters: Mapping[str, Any], name: str, code: str) -> None:
         raise AcceptanceCommandError(code, HTTPStatus.UNPROCESSABLE_ENTITY)
 
 
+def _is_terminal_physical_failure(name: str, value: object) -> bool:
+    basic_match = bool(
+        isinstance(value, dict)
+        and value.get("status") == "FAILED_SAFE"
+        and value.get("resultCode") == _PHYSICAL_FAILED_SAFE_CODES[name]
+        and isinstance(value.get("sendAttempts"), int)
+        and not isinstance(value.get("sendAttempts"), bool)
+        and value["sendAttempts"] > 0
+    )
+    if not basic_match or not isinstance(value, dict):
+        return False
+    if name == "delivery":
+        return value.get("operatorAreaSafeConfirmed") is True
+    if name == "clean":
+        return value.get("cleanDoorConfirmed") is True
+    return True
+
+
+def _is_safely_passed(name: str, value: object) -> bool:
+    if not isinstance(value, dict) or value.get("status") != "PASSED":
+        return False
+    if name == "delivery":
+        return value.get("operatorAreaSafeConfirmed") is True
+    if name == "clean":
+        return value.get("cleanDoorConfirmed") is True
+    return True
+
+
 def _check_summary(value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {"status": "NOT_RUN", "resultCode": "NOT_RUN"}
@@ -91,6 +124,7 @@ def _check_summary(value: object) -> dict[str, Any]:
         "romWritePerformed",
         "romDeviceId",
         "cleanDoorConfirmed",
+        "operatorAreaSafeConfirmed",
     ):
         if name in value:
             result[name] = value[name]
@@ -195,6 +229,9 @@ class AcceptanceCommandController:
                     "awaitingDoorConfirmation": (
                         recovery.get("awaitingDoorConfirmation") is True
                     ),
+                    "awaitingAreaSafetyConfirmation": (
+                        recovery.get("awaitingAreaSafetyConfirmation") is True
+                    ),
                 }
                 if isinstance(recovery, dict)
                 else None
@@ -223,12 +260,26 @@ class AcceptanceCommandController:
         if status == "RECOVERY_REQUIRED":
             if (
                 isinstance(recovery, dict)
+                and recovery.get("awaitingAreaSafetyConfirmation") is True
+            ):
+                return ["CONFIRM_DELIVERY_AREA_SAFE"]
+            if (
+                isinstance(recovery, dict)
                 and recovery.get("awaitingDoorConfirmation") is True
             ):
                 return ["CONFIRM_CLEAN_DOOR"]
             return ["RECOVER"]
         if status != "RUNNING":
             return []
+        if projection.get("phase") == "FINALIZING_REPORT":
+            return ["FINALIZE"]
+        if projection.get("phase") == "LEGACY_ACTION_SAFETY_FAILURE_READY":
+            return ["FINALIZE"]
+        if any(
+            _is_terminal_physical_failure(name, checks.get(name))
+            for name in _PHYSICAL_FAILED_SAFE_CODES
+        ):
+            return ["FINALIZE"]
         if checks.get("mcu", {}).get("status") != "PASSED":
             return ["CHECK_MCU"]
         weight = checks.get("weight", {})
@@ -243,12 +294,25 @@ class AcceptanceCommandController:
             return ["CONFIRM_CAMERAS"]
         if cameras.get("status") != "PASSED":
             return ["CAPTURE_CAMERAS"]
-        if checks.get("upgradeLine", {}).get("status") != "PASSED":
+        upgrade = checks.get("upgradeLine", {})
+        if upgrade.get("status") == "FAILED_SAFE":
+            return []
+        if upgrade.get("status") != "PASSED":
             return ["CHECK_UPGRADE_LINE"]
-        if checks.get("delivery", {}).get("status") != "PASSED":
+        delivery = checks.get("delivery", {})
+        if delivery.get("status") == "FAILED_SAFE":
+            return []
+        if delivery.get("status") != "PASSED":
             return ["RUN_DELIVERY"]
-        if checks.get("clean", {}).get("status") != "PASSED":
+        if not _is_safely_passed("delivery", delivery):
+            return []
+        clean = checks.get("clean", {})
+        if clean.get("status") == "FAILED_SAFE":
+            return []
+        if clean.get("status") != "PASSED":
             return ["RUN_CLEAN"]
+        if not _is_safely_passed("clean", clean):
+            return []
         return ["FINALIZE"]
 
     def _is_achieved(self, operation: str, state: Mapping[str, Any]) -> bool:
@@ -278,7 +342,10 @@ class AcceptanceCommandController:
         if operation == "CHECK_UPGRADE_LINE":
             return checks.get("upgradeLine", {}).get("status") == "PASSED"
         if operation == "RUN_DELIVERY":
-            return checks.get("delivery", {}).get("status") == "PASSED"
+            return checks.get("delivery", {}).get("status") in {
+                "RECOVERY_REQUIRED",
+                "PASSED",
+            }
         if operation == "RUN_CLEAN":
             return checks.get("clean", {}).get("status") in {
                 "RECOVERY_REQUIRED",
@@ -286,10 +353,26 @@ class AcceptanceCommandController:
             }
         if operation == "CONFIRM_CLEAN_DOOR":
             return checks.get("clean", {}).get("status") == "PASSED"
+        if operation == "CONFIRM_DELIVERY_AREA_SAFE":
+            return (
+                checks.get("delivery", {}).get(
+                    "operatorAreaSafeConfirmed"
+                )
+                is True
+            )
         if operation == "RECOVER":
-            return status != "RECOVERY_REQUIRED"
+            recovery = state.get("recovery")
+            return status != "RECOVERY_REQUIRED" or (
+                isinstance(recovery, dict)
+                and recovery.get("awaitingAreaSafetyConfirmation") is True
+                and recovery.get("deliveryConfirmationDisposition")
+                == "FAILED_SAFE_AFTER_CONFIRMATION"
+            )
         if operation == "FINALIZE":
-            return status in {"PASSED", "FAILED"}
+            return (
+                status in {"PASSED", "FAILED"}
+                and state.get("phase") == "COMPLETE"
+            )
         return False
 
     def execute(self, request: object) -> dict[str, Any]:
@@ -315,6 +398,7 @@ class AcceptanceCommandController:
             "CHECK_UPGRADE_LINE",
             "RUN_DELIVERY",
             "RUN_CLEAN",
+            "CONFIRM_DELIVERY_AREA_SAFE",
             "CONFIRM_CLEAN_DOOR",
             "RECOVER",
             "FINALIZE",
@@ -341,6 +425,13 @@ class AcceptanceCommandController:
                     return self.projection(idempotent=True)
                 raise AcceptanceCommandError(
                     "ACCEPTANCE_REVISION_CONFLICT", HTTPStatus.CONFLICT
+                )
+            if self._is_achieved(operation, state):
+                return self.projection(idempotent=True)
+            if operation not in self._allowed_actions(state):
+                raise AcceptanceCommandError(
+                    "ACTION_NOT_ALLOWED_IN_CURRENT_STATE",
+                    HTTPStatus.CONFLICT,
                 )
             parameters = request["parameters"]
             self._perform(operation, parameters, state)
@@ -502,6 +593,19 @@ class AcceptanceCommandController:
             )
             self._executor.confirm_clean_door_closed(operator_confirmed=True)
             return
+        if operation == "CONFIRM_DELIVERY_AREA_SAFE":
+            parameters = _exact_parameters(
+                parameters_value, frozenset({"operatorAreaSafeConfirmed"})
+            )
+            _require_true(
+                parameters,
+                "operatorAreaSafeConfirmed",
+                "DELIVERY_AREA_SAFETY_CONFIRMATION_REQUIRED",
+            )
+            self._executor.confirm_delivery_area_safe(
+                operator_confirmed=True
+            )
+            return
         if operation == "RECOVER":
             parameters = _exact_parameters(
                 parameters_value,
@@ -529,7 +633,39 @@ class AcceptanceCommandController:
             )
             checks = state.get("checks") or {}
             required = ("mcu", "weight", "upgradeLine", "cameras", "delivery", "clean")
-            if not all(checks.get(name, {}).get("status") == "PASSED" for name in required):
+            all_passed = all(
+                _is_safely_passed(name, checks.get(name))
+                for name in required
+            )
+            failed_safe_terminal = (
+                state.get("status") == "RUNNING"
+                and state.get("recovery") is None
+                and state.get("activeAction") is None
+                and any(
+                    _is_terminal_physical_failure(name, checks.get(name))
+                    for name in _PHYSICAL_FAILED_SAFE_CODES
+                )
+            )
+            legacy_safety_failure = (
+                state.get("status") == "RUNNING"
+                and state.get("phase")
+                == "LEGACY_ACTION_SAFETY_FAILURE_READY"
+                and state.get("recovery") is None
+                and state.get("activeAction") is None
+            )
+            report_finalization_pending = (
+                state.get("status") == "RUNNING"
+                and state.get("phase") == "FINALIZING_REPORT"
+                and state.get("pendingFinalStatus") in {"PASSED", "FAILED"}
+                and state.get("recovery") is None
+                and state.get("activeAction") is None
+            )
+            if (
+                not all_passed
+                and not failed_safe_terminal
+                and not legacy_safety_failure
+                and not report_finalization_pending
+            ):
                 raise AcceptanceCommandError(
                     "ALL_ACCEPTANCE_CHECKS_REQUIRED",
                     HTTPStatus.UNPROCESSABLE_ENTITY,

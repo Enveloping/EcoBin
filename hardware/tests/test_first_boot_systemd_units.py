@@ -63,6 +63,22 @@ def test_every_phase_unit_is_static_and_rechecks_a_fact_gate() -> None:
     assert "[Install]" not in _read("ecobin-runtime.target")
 
 
+def test_cellular_uplink_can_update_the_seal_aware_firewall_lock() -> None:
+    unit_lines = _read("ecobin-cellular-uplink.service").splitlines()
+
+    assert "ReadWritePaths=/run/lock/ecobin" in unit_lines
+
+
+def test_first_boot_can_finish_all_seal_firewall_and_artifact_cleanup() -> None:
+    unit_lines = _read("ecobin-first-boot.service").splitlines()
+
+    assert "ReadWritePaths=/run/lock/ecobin" in unit_lines
+    assert "ReadWritePaths=/etc/ecobin" in unit_lines
+    assert "ReadWritePaths=/var/lib/ecobin" in unit_lines
+    assert "ReadWritePaths=/opt/ecobin/enrollment" in unit_lines
+    assert "ReadWritePaths=-/etc/ecobin/setup-ap.key" not in unit_lines
+
+
 def test_factory_and_runtime_owners_are_mutually_exclusive() -> None:
     factory_test = _read("ecobin-factory-test.service")
     runtime = _read("ecobin-runtime.target")

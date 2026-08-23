@@ -59,6 +59,11 @@ except ImportError:  # pragma: no cover - direct execution in the ARM64 builder
 WHEEL_PATTERN = re.compile(
     r"^(?P<name>[^-]+)-(?P<version>[^-]+)-.+\.whl$"
 )
+RUNTIME_RELEASE_BUILD_FILES = (
+    "install/build_runtime_release.py",
+    "install/runtime_payload_manifest.py",
+    "install/runtime_release.py",
+)
 
 
 def _run(
@@ -103,7 +108,11 @@ def _git_metadata(source_root: Path) -> tuple[str, int]:
     ]
     scoped.extend(
         str((source_root / name).relative_to(repository))
-        for name in ("pyproject.toml", "uv.lock")
+        for name in (
+            *RUNTIME_RELEASE_BUILD_FILES,
+            "pyproject.toml",
+            "uv.lock",
+        )
     )
     dirty = _run(
         ["git", "-C", str(repository), "status", "--porcelain", "--", *scoped]
@@ -225,15 +234,22 @@ def _verify_offline_environment(release_root: Path, work_root: Path) -> None:
     _run(
         [
             str(python),
+            "-I",
             "-c",
             (
-                "import importlib; "
+                "import importlib,sys; "
+                "sys.dont_write_bytecode=True; "
+                "sys.path.insert(0,sys.argv[1]); "
                 "[importlib.import_module(name) for name in "
                 "('cryptography','cv2','paho.mqtt.client','serial',"
-                "'qcloud_cos','main')]"
+                "'qcloud_cos','main','mqtt_client','command_processor',"
+                "'factory_seal.admission','onenet_wire',"
+                "'fixed_frame_mcu_adapter','simulated_camera',"
+                "'system.mcu_safe_gpio','device_credentials')]"
             ),
+            str(release_root / "app"),
         ],
-        cwd=release_root / "app",
+        cwd=work_root,
         environment=environment,
     )
 

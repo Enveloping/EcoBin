@@ -4,13 +4,18 @@ import base64
 import hashlib
 import os
 import runpy
+import stat
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
+from install.runtime_release import RUNTIME_APP_FILES as SIGNED_RUNTIME_APP_FILES
 from system import image_software_installer as image_installer
 from system.image_software_installer import (
+    FACTORY_APP_RUNTIME_FILES,
     RUNTIME_APP_FILES,
     ImageSoftwareError,
     audit_image_software,
@@ -25,6 +30,99 @@ PAYLOAD_LOCK_GENERATOR = (
     REPOSITORY_ROOT
     / "tools/orangepi-image/lib/generate_software_payload_lock.py"
 )
+IMAGE_SOFTWARE_INSTALLER = HARDWARE_ROOT / "system/image_software_installer.py"
+
+
+def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
+    assert RUNTIME_APP_FILES is SIGNED_RUNTIME_APP_FILES
+    assert "factory_seal/admission.py" in RUNTIME_APP_FILES
+    assert set(FACTORY_APP_RUNTIME_FILES) < set(RUNTIME_APP_FILES)
+
+
+def test_image_installer_direct_file_help_loads_shared_manifest(
+    tmp_path: Path,
+) -> None:
+    completed = subprocess.run(
+        [sys.executable, "-I", str(IMAGE_SOFTWARE_INSTALLER), "--help"],
+        cwd=tmp_path,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "validate-payload" in completed.stdout
+
+
+def _assert_isolated_app_imports(app: Path, *module_names: str) -> None:
+    program = r"""
+import importlib
+import os
+from pathlib import Path
+import sys
+
+app = Path(sys.argv[1]).resolve()
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(app))
+os.chdir(app.parent)
+for name in sys.argv[2:]:
+    importlib.import_module(name)
+"""
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", program, str(app), *module_names],
+        cwd=app.parent,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_factory_app_staging_has_an_isolated_exact_import_closure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if os.name == "posix":
+        monkeypatch.setattr(image_installer.os, "chown", lambda *_args: None)
+    app = tmp_path / "staged-factory-app"
+
+    image_installer._stage_factory_app(HARDWARE_ROOT, app)
+
+    _assert_isolated_app_imports(
+        app,
+        "first_boot.orchestrator",
+        "factory.acceptance_service",
+        "device_credentials",
+    )
+    def assert_same_without_root_owner(
+        installed: Path,
+        source: Path,
+        mode: int | None = None,
+    ) -> None:
+        details = installed.lstat()
+        assert stat.S_ISREG(details.st_mode)
+        assert not installed.is_symlink()
+        assert installed.read_bytes() == source.read_bytes()
+        if os.name == "posix" and mode is not None:
+            assert stat.S_IMODE(details.st_mode) == mode
+
+    with monkeypatch.context() as unprivileged_audit:
+        unprivileged_audit.setattr(
+            image_installer,
+            "_assert_same_file",
+            assert_same_without_root_owner,
+        )
+        image_installer._audit_factory_app(app, HARDWARE_ROOT)
+        (app / "unexpected.py").write_text(
+            "# not allowlisted\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ImageSoftwareError, match="allowlist is not exact"):
+            image_installer._audit_factory_app(app, HARDWARE_ROOT)
 
 
 def _sha256(path: Path) -> str:
@@ -356,6 +454,16 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
         git_commit=git_commit,
     )
 
+    factory_app = (
+        rootfs / "opt/ecobin/factory-test/releases/factory-001/app"
+    )
+    _assert_isolated_app_imports(
+        factory_app,
+        "first_boot.orchestrator",
+        "factory.acceptance_service",
+        "device_credentials",
+    )
+
     assert metadata["components"]["firstBoot"]["releaseId"] == "first-boot-001"
     assert (systemd / "network-pre.target.requires/ecobin-first-boot.service").is_symlink()
     assert (systemd / "sysinit.target.wants/ecobin-factory-egress-lock.service").is_symlink()
@@ -372,6 +480,36 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
         expected_version="1.0.0",
         expected_git_commit=git_commit,
     )
+    direct_audit = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(IMAGE_SOFTWARE_INSTALLER),
+            "audit",
+            "--rootfs",
+            str(rootfs),
+            "--repository-root",
+            str(REPOSITORY_ROOT),
+            "--payload",
+            str(payload),
+            "--payload-sha256",
+            digest,
+            "--release-id",
+            "image-001",
+            "--version",
+            "1.0.0",
+            "--git-commit",
+            git_commit,
+        ],
+        cwd=tmp_path,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=60,
+    )
+    assert direct_audit.returncode == 0, direct_audit.stderr
+    assert "image-software-audit=PASS" in direct_audit.stdout
     with monkeypatch.context() as contract_patch:
         contract_patch.setattr(
             image_installer,

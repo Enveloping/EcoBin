@@ -31,7 +31,9 @@ from factory.acceptance_storage import (
 )
 
 
-STATE_SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 2
+LEGACY_STATE_SCHEMA_VERSION = 1
+LEGACY_SAFETY_FAILURE_PHASE = "LEGACY_ACTION_SAFETY_FAILURE_READY"
 REPORT_SCHEMA_VERSION = 1
 REPORT_STATUSES = {
     "NOT_RUN",
@@ -82,7 +84,14 @@ def _stable_code(value: object, fallback: str) -> str:
 
 
 def _check_passed(state: dict, name: str) -> bool:
-    return (state.get("checks") or {}).get(name, {}).get("status") == "PASSED"
+    check = (state.get("checks") or {}).get(name, {})
+    if check.get("status") != "PASSED":
+        return False
+    if name == "delivery":
+        return check.get("operatorAreaSafeConfirmed") is True
+    if name == "clean":
+        return check.get("cleanDoorConfirmed") is True
+    return True
 
 
 def _validate_release_id(value: str) -> str:
@@ -250,13 +259,108 @@ class FactoryAcceptanceExecutor:
                 "recovery": None,
                 "activeAction": None,
             }
-        if value.get("schemaVersion") != STATE_SCHEMA_VERSION:
+        if value.get("schemaVersion") == LEGACY_STATE_SCHEMA_VERSION:
+            if value.get("status") not in REPORT_STATUSES:
+                raise AcceptanceError("ACCEPTANCE_STATE_STATUS_INVALID")
+            if not isinstance(value.get("revision"), int) or isinstance(
+                value.get("revision"), bool
+            ):
+                raise AcceptanceError("ACCEPTANCE_STATE_REVISION_INVALID")
+            value = self._migrate_legacy_state(value)
+        elif value.get("schemaVersion") != STATE_SCHEMA_VERSION:
             raise AcceptanceError("ACCEPTANCE_STATE_SCHEMA_UNSUPPORTED")
         if value.get("status") not in REPORT_STATUSES:
             raise AcceptanceError("ACCEPTANCE_STATE_STATUS_INVALID")
         if not isinstance(value.get("revision"), int):
             raise AcceptanceError("ACCEPTANCE_STATE_REVISION_INVALID")
         return value
+
+    def _migrate_legacy_state(self, legacy: dict) -> dict:
+        """Upgrade schema 1 without trusting its pre-action safety booleans.
+
+        Schema 1 could mark AA/EE complete without binding a separate
+        post-action physical observation.  An unfinished recovery remains
+        locked so the new recovery path can reset and re-prove the MCU.  A
+        completed or failed-safe legacy action without the new proof is made
+        terminal FAILED and can only be repeated in a fresh acceptance run.
+        """
+
+        state = copy.deepcopy(legacy)
+        checks = state.get("checks")
+        if not isinstance(checks, dict):
+            checks = {}
+            state["checks"] = checks
+        unsafe_actions: list[str] = []
+        for name, confirmation in (
+            ("delivery", "operatorAreaSafeConfirmed"),
+            ("clean", "cleanDoorConfirmed"),
+        ):
+            check = checks.get(name)
+            if (
+                isinstance(check, dict)
+                and check.get("status") in {"PASSED", "FAILED_SAFE"}
+                and check.get(confirmation) is not True
+            ):
+                unsafe_actions.append(name)
+        recovery_pending = (
+            state.get("status") == "RECOVERY_REQUIRED"
+            or isinstance(state.get("recovery"), dict)
+            or isinstance(state.get("activeAction"), dict)
+        )
+        if unsafe_actions and not recovery_pending:
+            for name in unsafe_actions:
+                check = checks[name]
+                check["status"] = "FAILED"
+                check["resultCode"] = (
+                    "LEGACY_ACTION_REQUIRES_NEW_ACCEPTANCE_RUN"
+                )
+            state["status"] = "FAILED"
+            state["phase"] = "LEGACY_ACTION_SAFETY_CONFIRMATION_REQUIRED"
+            state["recovery"] = None
+            state["activeAction"] = None
+        elif unsafe_actions:
+            # Preserve the current hardware recovery lock, but remember that
+            # this run can never pass.  Once the in-flight action is made
+            # physically safe, the recovery/confirmation path converts the
+            # run to a durable FAILED report instead of exposing a dead-end
+            # RUNNING state.
+            state["legacySafetyFailuresPending"] = unsafe_actions
+        state["schemaVersion"] = STATE_SCHEMA_VERSION
+        state["revision"] = int(state["revision"]) + 1
+        self._state_file.write(state)
+        return copy.deepcopy(state)
+
+    @staticmethod
+    def _prepare_legacy_safety_failure(state: dict) -> bool:
+        pending = state.get("legacySafetyFailuresPending")
+        if pending is None:
+            return False
+        if (
+            not isinstance(pending, list)
+            or not pending
+            or any(name not in {"delivery", "clean"} for name in pending)
+        ):
+            raise AcceptanceError("ACCEPTANCE_LEGACY_SAFETY_STATE_INVALID")
+        if (
+            state.get("status") == "RECOVERY_REQUIRED"
+            or state.get("recovery") is not None
+            or state.get("activeAction") is not None
+        ):
+            return False
+        checks = state.setdefault("checks", {})
+        for name in pending:
+            check = checks.get(name)
+            if not isinstance(check, dict):
+                check = {}
+                checks[name] = check
+            check["status"] = "FAILED"
+            check["resultCode"] = (
+                "LEGACY_ACTION_REQUIRES_NEW_ACCEPTANCE_RUN"
+            )
+        state.pop("legacySafetyFailuresPending", None)
+        state["status"] = "RUNNING"
+        state["phase"] = LEGACY_SAFETY_FAILURE_PHASE
+        return True
 
     def _save_state(self, state: dict) -> dict:
         value = copy.deepcopy(state)
@@ -349,6 +453,8 @@ class FactoryAcceptanceExecutor:
             )
         if state.get("status") != "RUNNING":
             raise AcceptanceError("ACCEPTANCE_RUN_NOT_RUNNING")
+        if state.get("phase") == "FINALIZING_REPORT":
+            raise AcceptanceError("ACCEPTANCE_REPORT_FINALIZATION_PENDING")
 
     def _query_identity(self) -> dict:
         with deny_network_access():
@@ -357,6 +463,23 @@ class FactoryAcceptanceExecutor:
     def _query_self_test(self) -> dict:
         with deny_network_access():
             return sanitize_self_test(self.mcu.query_self_test())
+
+    def _query_run_bound_mcu(self, state: dict) -> tuple[dict, dict]:
+        """Re-prove the immutable F3 identity before a physical mutation."""
+
+        expected = state.get("mcuIdentity")
+        if not isinstance(expected, dict):
+            raise AcceptanceError("ACCEPTANCE_MCU_IDENTITY_BINDING_INVALID")
+        try:
+            current = self._query_identity()
+            if not identities_equal(expected, current):
+                raise AcceptanceError(
+                    "MCU_IDENTITY_CHANGED_SINCE_INITIAL_CHECK"
+                )
+            self_test = self._query_self_test()
+        except AcceptanceHardwareError as error:
+            raise AcceptanceError(error.code) from error
+        return current, self_test
 
     def _stable_weight(self) -> tuple[int, list[int]]:
         """Return the median of one bounded stable window of F1 samples."""
@@ -642,8 +765,12 @@ class FactoryAcceptanceExecutor:
         self._require_running(state)
         if not _check_passed(state, "mcu"):
             raise AcceptanceError("MCU_CHECK_REQUIRED")
-        identity = self._query_identity()
-        self._query_self_test()
+        prior_upgrade = state.get("checks", {}).get("upgradeLine")
+        if isinstance(prior_upgrade, dict):
+            raise AcceptanceError(
+                "UPGRADE_LINE_ALREADY_ATTEMPTED_IN_CURRENT_RUN"
+            )
+        identity, _self_test = self._query_run_bound_mcu(state)
         self._arm_recovery(
             state,
             context="UPGRADE_LINE",
@@ -701,9 +828,14 @@ class FactoryAcceptanceExecutor:
             self.mcu.clear_input_for_recovery()
             invalid_marker = self.mcu.business_input_marker()
             recovered_identity = self._query_identity()
-            self._query_self_test()
-            if not identities_equal(identity, recovered_identity):
+            if (
+                not identities_equal(identity, recovered_identity)
+                or not identities_equal(
+                    state.get("mcuIdentity", {}), recovered_identity
+                )
+            ):
                 raise AcceptanceHardwareError("MCU_IDENTITY_CHANGED_AFTER_ROM_PROBE")
+            self._query_self_test()
             self.mcu.require_business_quiet(
                 quiet_ms=100,
                 invalid_marker=invalid_marker,
@@ -738,12 +870,26 @@ class FactoryAcceptanceExecutor:
             return "clean"
         raise ValueError("action must be DELIVERY or CLEAN")
 
-    def _require_action_prerequisites(self, state: dict) -> None:
+    def _require_action_prerequisites(self, state: dict, action: str) -> None:
         for name in ("mcu", "weight", "upgradeLine", "cameras"):
             if not _check_passed(state, name):
                 raise AcceptanceError(f"{name.upper()}_CHECK_REQUIRED")
         if state.get("activeAction") is not None:
             raise AcceptanceError("ANOTHER_FACTORY_ACTION_IS_ACTIVE")
+        if action == "CLEAN" and not _check_passed(state, "delivery"):
+            raise AcceptanceError("DELIVERY_SAFE_CHECK_REQUIRED")
+        check_name = self._action_check_name(action)
+        prior = state.get("checks", {}).get(check_name)
+        if not isinstance(prior, dict):
+            return
+        proven_not_sent = (
+            prior.get("status") == "FAILED_SAFE"
+            and prior.get("resultCode")
+            == f"{action}_INTERRUPTED_BEFORE_COMMAND"
+            and prior.get("sendAttempts") == 0
+        )
+        if not proven_not_sent:
+            raise AcceptanceError(f"{action}_ALREADY_ATTEMPTED_IN_CURRENT_RUN")
 
     def run_action(
         self,
@@ -764,10 +910,9 @@ class FactoryAcceptanceExecutor:
             raise ValueError("timeout_ms must be a positive integer")
         state = self._load_state()
         self._require_running(state)
-        self._require_action_prerequisites(state)
+        self._require_action_prerequisites(state, action)
         check_name = self._action_check_name(action)
-        identity = self._query_identity()
-        self._query_self_test()
+        identity, _self_test = self._query_run_bound_mcu(state)
         active = {
             "type": action,
             "phase": "ARMED",
@@ -827,9 +972,14 @@ class FactoryAcceptanceExecutor:
 
             invalid_marker = self.mcu.business_input_marker()
             recovered_identity = self._query_identity()
-            self_test = self._query_self_test()
-            if not identities_equal(identity, recovered_identity):
+            if (
+                not identities_equal(identity, recovered_identity)
+                or not identities_equal(
+                    state.get("mcuIdentity", {}), recovered_identity
+                )
+            ):
                 raise AcceptanceHardwareError("MCU_IDENTITY_CHANGED_AFTER_ACTION")
+            self_test = self._query_self_test()
             self.mcu.require_business_quiet(
                 quiet_ms=quiet_ms,
                 invalid_marker=invalid_marker,
@@ -845,6 +995,35 @@ class FactoryAcceptanceExecutor:
             ) from error
         state = self._load_state()
         result = state["activeAction"]["result"]
+        if action == "DELIVERY":
+            # The boolean accepted before BB+AA only proves that it was safe
+            # to start the mechanism.  DD and the post-action MCU checks
+            # cannot prove that the delivery opening is no longer obstructed
+            # or otherwise unsafe.  Keep the exclusive recovery lock until a
+            # new, separately persisted operator observation is submitted.
+            state["phase"] = "DELIVERY_AWAITING_AREA_CONFIRMATION"
+            state["activeAction"]["phase"] = "AWAITING_AREA_CONFIRMATION"
+            state["recovery"]["hardwareVerified"] = True
+            state["recovery"]["awaitingAreaSafetyConfirmation"] = True
+            state["recovery"]["deliveryConfirmationDisposition"] = (
+                "PASS_AFTER_CONFIRMATION"
+            )
+            state["recovery"]["resultCode"] = (
+                "DELIVERY_AREA_SAFETY_CONFIRMATION_REQUIRED"
+            )
+            state["checks"][check_name] = {
+                "status": "RECOVERY_REQUIRED",
+                "resultCode": (
+                    "DELIVERY_AREA_SAFETY_CONFIRMATION_REQUIRED"
+                ),
+                "sendAttempts": 1,
+                "result": result,
+                "postActionSelfTest": self_test,
+                "operatorAreaSafeConfirmed": False,
+            }
+            saved = self._save_state(state)
+            self._fault("delivery.after_awaiting_area_confirmation")
+            return saved
         if action == "CLEAN":
             # A boolean submitted before EE cannot prove the door leaf is
             # closed after EF.  Persist the completed electrical/protocol
@@ -868,19 +1047,126 @@ class FactoryAcceptanceExecutor:
             saved = self._save_state(state)
             self._fault("clean.after_awaiting_door_confirmation")
             return saved
+        raise AssertionError("unsupported factory action")
+
+    def confirm_delivery_area_safe(
+        self,
+        *,
+        operator_confirmed: bool,
+        quiet_ms: int = 150,
+    ) -> dict:
+        """Bind a fresh post-action area observation to one delivery state."""
+
+        self._require_open()
+        if operator_confirmed is not True:
+            raise AcceptanceError(
+                "DELIVERY_AREA_SAFETY_CONFIRMATION_REQUIRED"
+            )
+        state = self._load_state()
+        delivery = state.get("checks", {}).get("delivery", {})
+        if (
+            delivery.get("operatorAreaSafeConfirmed") is True
+            and delivery.get("status") in {"PASSED", "FAILED_SAFE"}
+        ):
+            return copy.deepcopy(state)
+        recovery = state.get("recovery")
+        active = state.get("activeAction")
+        if (
+            state.get("status") != "RECOVERY_REQUIRED"
+            or state.get("phase") != "DELIVERY_AWAITING_AREA_CONFIRMATION"
+            or not isinstance(recovery, dict)
+            or recovery.get("context") != "DELIVERY"
+            or recovery.get("awaitingAreaSafetyConfirmation") is not True
+            or recovery.get("deliveryConfirmationDisposition")
+            not in {
+                "PASS_AFTER_CONFIRMATION",
+                "FAILED_SAFE_AFTER_CONFIRMATION",
+            }
+            or not isinstance(active, dict)
+            or active.get("type") != "DELIVERY"
+            or active.get("phase") != "AWAITING_AREA_CONFIRMATION"
+        ):
+            raise AcceptanceError(
+                "DELIVERY_AREA_SAFETY_CONFIRMATION_NOT_PENDING"
+            )
+        original = recovery.get("originalMcuIdentity")
+        if not isinstance(original, dict):
+            raise AcceptanceError(
+                "ACCEPTANCE_RECOVERY_STATE_INVALID",
+                recovery_required=True,
+            )
+        try:
+            # Confirmation can happen after a browser, service, or device
+            # restart.  Re-select and re-prove the application so an old
+            # F3/F1 observation is never treated as current hardware state.
+            self.mcu.close()
+            with deny_network_access():
+                self.bootloader.force_application_selection()
+                self.bootloader.boot_application()
+            self.mcu.open()
+            self.mcu.clear_input_for_recovery()
+            self.mcu.require_business_quiet(quiet_ms=quiet_ms)
+            invalid_marker = self.mcu.business_input_marker()
+            identity = self._query_identity()
+            if (
+                not identities_equal(original, identity)
+                or not identities_equal(state.get("mcuIdentity", {}), identity)
+            ):
+                raise AcceptanceHardwareError(
+                    "MCU_IDENTITY_CHANGED_DURING_RECOVERY"
+                )
+            self_test = self._query_self_test()
+            self.mcu.require_business_quiet(
+                quiet_ms=quiet_ms,
+                invalid_marker=invalid_marker,
+            )
+        except AcceptanceHardwareError as error:
+            self._update_recovery_reason(error.code)
+            raise AcceptanceError(error.code, recovery_required=True) from error
+        except Exception as error:
+            self._update_recovery_reason("APPLICATION_RECOVERY_FAILED")
+            raise AcceptanceError(
+                "APPLICATION_RECOVERY_FAILED",
+                recovery_required=True,
+            ) from error
+        state = self._load_state()
+        prior = state["checks"]["delivery"]
+        disposition = state["recovery"]["deliveryConfirmationDisposition"]
+        passed = disposition == "PASS_AFTER_CONFIRMATION"
+        state["checks"]["delivery"] = {
+            "status": "PASSED" if passed else "FAILED_SAFE",
+            "resultCode": (
+                "DELIVERY_SAFE_VERIFIED"
+                if passed
+                else "DELIVERY_FAILED_BUT_APPLICATION_RECOVERED"
+            ),
+            "sendAttempts": prior.get("sendAttempts", 1),
+            "result": prior.get("result"),
+            "postActionSelfTest": prior.get("postActionSelfTest"),
+            "recoverySelfTest": prior.get("recoverySelfTest"),
+            "areaConfirmationSelfTest": self_test,
+            "operatorAreaSafeConfirmed": True,
+        }
         state["status"] = "RUNNING"
-        state["phase"] = f"{action}_SAFE_VERIFIED"
+        state["phase"] = (
+            "DELIVERY_SAFE_VERIFIED" if passed else "DELIVERY_RECOVERED_SAFE"
+        )
         state["recovery"] = None
         state["activeAction"] = None
-        state["checks"][check_name] = {
-            "status": "PASSED",
-            "resultCode": f"{action}_SAFE_VERIFIED",
-            "sendAttempts": 1,
-            "result": result,
-            "postActionSelfTest": self_test,
-            "cleanDoorConfirmed": None,
-        }
-        return self._save_state(state)
+        legacy_failure_ready = self._prepare_legacy_safety_failure(state)
+        saved = self._save_state(state)
+        if legacy_failure_ready or not passed:
+            # Publish a durable FAILED report before offering a new run.  If
+            # power is lost in this deliberate gap, allowedActions exposes
+            # FINALIZE only and the send-attempt gate still forbids BB+AA.
+            self._fault(
+                "legacy_safety.after_recovered_before_finalize"
+                if legacy_failure_ready
+                else "delivery.after_recovered_safe_before_finalize"
+            )
+            self.finalize()
+            return copy.deepcopy(self._load_state())
+        return saved
 
     def confirm_clean_door_closed(
         self,
@@ -930,11 +1216,14 @@ class FactoryAcceptanceExecutor:
             self.mcu.require_business_quiet(quiet_ms=quiet_ms)
             invalid_marker = self.mcu.business_input_marker()
             identity = self._query_identity()
-            self_test = self._query_self_test()
-            if not identities_equal(original, identity):
+            if (
+                not identities_equal(original, identity)
+                or not identities_equal(state.get("mcuIdentity", {}), identity)
+            ):
                 raise AcceptanceHardwareError(
                     "MCU_IDENTITY_CHANGED_DURING_RECOVERY"
                 )
+            self_test = self._query_self_test()
             self.mcu.require_business_quiet(
                 quiet_ms=quiet_ms,
                 invalid_marker=invalid_marker,
@@ -963,7 +1252,13 @@ class FactoryAcceptanceExecutor:
         state["phase"] = "CLEAN_SAFE_VERIFIED"
         state["recovery"] = None
         state["activeAction"] = None
-        return self._save_state(state)
+        legacy_failure_ready = self._prepare_legacy_safety_failure(state)
+        saved = self._save_state(state)
+        if legacy_failure_ready:
+            self._fault("legacy_safety.after_recovered_before_finalize")
+            self.finalize()
+            return copy.deepcopy(self._load_state())
+        return saved
 
     def recover(
         self,
@@ -999,6 +1294,11 @@ class FactoryAcceptanceExecutor:
                 "USE_CLEAN_DOOR_CONFIRMATION",
                 recovery_required=True,
             )
+        if recovery.get("awaitingAreaSafetyConfirmation") is True:
+            raise AcceptanceError(
+                "USE_DELIVERY_AREA_SAFETY_CONFIRMATION",
+                recovery_required=True,
+            )
         try:
             self.mcu.close()
             with deny_network_access():
@@ -1009,9 +1309,12 @@ class FactoryAcceptanceExecutor:
             self.mcu.require_business_quiet(quiet_ms=quiet_ms)
             invalid_marker = self.mcu.business_input_marker()
             identity = self._query_identity()
-            self_test = self._query_self_test()
-            if not identities_equal(original, identity):
+            if (
+                not identities_equal(original, identity)
+                or not identities_equal(state.get("mcuIdentity", {}), identity)
+            ):
                 raise AcceptanceHardwareError("MCU_IDENTITY_CHANGED_DURING_RECOVERY")
+            self_test = self._query_self_test()
             self.mcu.require_business_quiet(
                 quiet_ms=quiet_ms,
                 invalid_marker=invalid_marker,
@@ -1029,6 +1332,30 @@ class FactoryAcceptanceExecutor:
         state["recovery"]["hardwareVerified"] = True
         state["recovery"]["resultCode"] = "APPLICATION_F3_F1_RECOVERED"
         self._save_state(state)
+        if context == "DELIVERY":
+            state = self._load_state()
+            prior = state.get("checks", {}).get("delivery", {})
+            state["phase"] = "DELIVERY_AWAITING_AREA_CONFIRMATION"
+            state["activeAction"]["phase"] = "AWAITING_AREA_CONFIRMATION"
+            state["recovery"]["awaitingAreaSafetyConfirmation"] = True
+            state["recovery"]["deliveryConfirmationDisposition"] = (
+                "FAILED_SAFE_AFTER_CONFIRMATION"
+            )
+            state["recovery"]["resultCode"] = (
+                "DELIVERY_AREA_SAFETY_CONFIRMATION_REQUIRED"
+            )
+            state["checks"]["delivery"] = {
+                "status": "RECOVERY_REQUIRED",
+                "resultCode": (
+                    "DELIVERY_AREA_SAFETY_CONFIRMATION_REQUIRED"
+                ),
+                "sendAttempts": prior.get("sendAttempts", 0),
+                "result": prior.get("result"),
+                "postActionSelfTest": prior.get("postActionSelfTest"),
+                "recoverySelfTest": self_test,
+                "operatorAreaSafeConfirmed": False,
+            }
+            return self._save_state(state)
         if context == "CLEAN" and clean_door_closed_confirmed is not True:
             self._update_recovery_reason("CLEAN_DOOR_CONFIRMATION_REQUIRED")
             raise AcceptanceError(
@@ -1059,7 +1386,17 @@ class FactoryAcceptanceExecutor:
         state["phase"] = f"{context}_RECOVERED_SAFE"
         state["recovery"] = None
         state["activeAction"] = None
-        return self._save_state(state)
+        legacy_failure_ready = self._prepare_legacy_safety_failure(state)
+        saved = self._save_state(state)
+        if legacy_failure_ready or context in {"CLEAN", "UPGRADE_LINE"}:
+            self._fault(
+                "legacy_safety.after_recovered_before_finalize"
+                if legacy_failure_ready
+                else f"{context.lower()}.after_recovered_safe_before_finalize"
+            )
+            self.finalize()
+            return copy.deepcopy(self._load_state())
+        return saved
 
     @staticmethod
     def _report_from_state(state: dict, status: str, finished_ms: int) -> dict:
@@ -1078,6 +1415,10 @@ class FactoryAcceptanceExecutor:
                 "postWeightGrams": result.get("postWeightGrams"),
                 "weightDeltaGrams": result.get("weightDeltaGrams"),
                 "infraredBlocked": result.get("infraredBlocked"),
+                "operatorAreaSafeConfirmed": value.get(
+                    "operatorAreaSafeConfirmed"
+                ),
+                "cleanDoorConfirmed": value.get("cleanDoorConfirmed"),
             }
 
         return {
@@ -1191,6 +1532,26 @@ class FactoryAcceptanceExecutor:
             raise AcceptanceError("ACCEPTANCE_REPORT_MCU_BINDING_INVALID")
         if identity is not None and identity_invalid:
             raise AcceptanceError("ACCEPTANCE_REPORT_MCU_BINDING_INVALID")
+        if (
+            report.get("status") == "PASSED"
+            and report.get("checks", {})
+            .get("delivery", {})
+            .get("operatorAreaSafeConfirmed")
+            is not True
+        ):
+            raise AcceptanceError(
+                "ACCEPTANCE_REPORT_DELIVERY_SAFETY_CONFIRMATION_INVALID"
+            )
+        if (
+            report.get("status") == "PASSED"
+            and report.get("checks", {})
+            .get("clean", {})
+            .get("cleanDoorConfirmed")
+            is not True
+        ):
+            raise AcceptanceError(
+                "ACCEPTANCE_REPORT_CLEAN_SAFETY_CONFIRMATION_INVALID"
+            )
         forbidden_key_fragments = (
             "password",
             "secret",
@@ -1229,9 +1590,16 @@ class FactoryAcceptanceExecutor:
 
         self._require_open()
         state = self._load_state()
-        if state.get("status") == "RECOVERY_REQUIRED" or state.get("recovery"):
-            final_status = "RECOVERY_REQUIRED"
-        elif all(_check_passed(state, name) for name in REQUIRED_PASSED_CHECKS):
+        if (
+            state.get("status") == "RECOVERY_REQUIRED"
+            or state.get("recovery") is not None
+            or state.get("activeAction") is not None
+        ):
+            raise AcceptanceError(
+                "ACCEPTANCE_RECOVERY_REQUIRED",
+                recovery_required=True,
+            )
+        if all(_check_passed(state, name) for name in REQUIRED_PASSED_CHECKS):
             final_status = "PASSED"
         else:
             final_status = "FAILED"
@@ -1277,7 +1645,13 @@ class FactoryAcceptanceExecutor:
             or (report.get("timing") or {}).get("finishedMonotonicMs")
             != state.get("pendingFinishedMonotonicMs")
         ):
-            raise AcceptanceError("FINAL_REPORT_DOES_NOT_MATCH_STATE")
+            # A restarted terminal run intentionally retains its preceding
+            # valid report until the new report is atomically committed.  If
+            # power is lost after journaling FINALIZING_REPORT but before that
+            # replace, the old report must neither be adopted nor prevent the
+            # new finalization from being retried.  Invalid or damaged reports
+            # are still rejected by _validate_report above.
+            return
         state["status"] = report["status"]
         state["phase"] = "COMPLETE"
         state.pop("pendingFinalStatus", None)
@@ -1314,7 +1688,11 @@ class FactoryAcceptanceExecutor:
         }
         state["activeAction"] = None
         state["phase"] = f"{action}_INTERRUPTED_BEFORE_COMMAND"
+        legacy_failure_ready = self._prepare_legacy_safety_failure(state)
         self._save_state(state)
+        if legacy_failure_ready:
+            self._fault("legacy_safety.after_recovered_before_finalize")
+            self.finalize()
 
     def _reconcile_interrupted_camera_review(self) -> None:
         """Never accept an operator confirmation from a prior executor run."""

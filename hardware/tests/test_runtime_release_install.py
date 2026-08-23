@@ -8,6 +8,7 @@ import sys
 import tarfile
 from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -16,11 +17,13 @@ from cryptography.hazmat.primitives.asymmetric.rsa import generate_private_key
 
 from install import build_runtime_release, install_runtime_release, runtime_release
 from install.build_runtime_release import (
+    _copy_runtime_sources,
     _load_signing_private_key,
     _sign_archive,
     _write_deterministic_archive,
     _write_manifest,
 )
+from edge_store import CURRENT_SCHEMA_VERSION
 from install.runtime_release import (
     ACTIVATION_JOURNAL_NAME,
     ARTIFACT_KIND,
@@ -190,6 +193,82 @@ def test_runtime_source_allowlist_is_exact_and_excludes_privileged_flows():
     assert not FORBIDDEN_RUNTIME_NAMES.intersection(
         Path(name).name for name in RUNTIME_APP_FILES
     )
+
+
+def test_runtime_payload_imports_real_dependencies_outside_repository(
+    tmp_path: Path,
+):
+    hardware_root = Path(__file__).resolve().parents[1]
+    app = tmp_path / "isolated-release" / "app"
+    _copy_runtime_sources(hardware_root, app)
+    program = r"""
+import importlib
+import os
+from pathlib import Path
+import sys
+
+app = Path(sys.argv[1]).resolve()
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(app))
+os.chdir(app.parent)
+for name in (
+    "main",
+    "mqtt_client",
+    "command_processor",
+    "factory_seal.admission",
+    "onenet_wire",
+    "fixed_frame_mcu_adapter",
+    "simulated_camera",
+    "system.mcu_safe_gpio",
+    "device_credentials",
+):
+    importlib.import_module(name)
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", program, str(app)],
+        cwd=tmp_path,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_release_manifest_schema_matches_edge_store_current_schema():
+    assert EDGE_SCHEMA_VERSION == str(CURRENT_SCHEMA_VERSION)
+
+
+def test_builder_git_identity_tracks_release_manifest_and_tooling(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = tmp_path / "repository"
+    hardware_root = repository / "hardware"
+    hardware_root.mkdir(parents=True)
+    outputs = iter(
+        [
+            str(repository),
+            "",
+            "a" * 40,
+            "1",
+        ]
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(argv)
+        return SimpleNamespace(stdout=next(outputs))
+
+    monkeypatch.setattr(build_runtime_release, "_run", fake_run)
+
+    assert build_runtime_release._git_metadata(hardware_root) == ("a" * 40, 1)
+    status_command = calls[1]
+    for name in build_runtime_release.RUNTIME_RELEASE_BUILD_FILES:
+        assert str((hardware_root / name).relative_to(repository)) in status_command
 
 
 def test_builder_manifest_declares_current_edge_schema(tmp_path):

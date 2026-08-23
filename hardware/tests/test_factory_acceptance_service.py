@@ -76,6 +76,43 @@ class FakeExecutor:
         self._bump(f"{action}_PASSED")
         return self.snapshot()
 
+    def confirm_delivery_area_safe(
+        self, *, operator_confirmed: bool
+    ) -> dict[str, object]:
+        self.calls.append(
+            ("confirm_delivery_area_safe", operator_confirmed)
+        )
+        recovery = self.state.get("recovery")
+        disposition = (
+            recovery.get("deliveryConfirmationDisposition")
+            if isinstance(recovery, dict)
+            else None
+        )
+        recovered_failure = disposition == "FAILED_SAFE_AFTER_CONFIRMATION"
+        checks = self.state.setdefault("checks", {})
+        assert isinstance(checks, dict)
+        delivery = checks.setdefault("delivery", {})
+        assert isinstance(delivery, dict)
+        delivery.update(
+            {
+                "status": "FAILED_SAFE" if recovered_failure else "PASSED",
+                "resultCode": (
+                    "DELIVERY_FAILED_BUT_APPLICATION_RECOVERED"
+                    if recovered_failure
+                    else "DELIVERY_SAFE_VERIFIED"
+                ),
+                "operatorAreaSafeConfirmed": operator_confirmed,
+            }
+        )
+        self.state["status"] = "FAILED" if recovered_failure else "RUNNING"
+        self.state["recovery"] = None
+        self._bump(
+            "DELIVERY_RECOVERED_SAFE"
+            if recovered_failure
+            else "DELIVERY_SAFE_VERIFIED"
+        )
+        return self.snapshot()
+
     def __getattr__(self, name: str):
         def action(*args: object, **kwargs: object) -> dict[str, object]:
             self.calls.append((name, (args, kwargs)))
@@ -136,7 +173,25 @@ def test_start_requires_explicit_confirmation_and_binds_release_and_config() -> 
 
 def test_clean_rejects_early_door_confirmation_and_only_sends_safe_action_once() -> None:
     controller, executor = _controller()
-    executor.state.update({"status": "RUNNING", "revision": 7})
+    executor.state.update(
+        {
+            "status": "RUNNING",
+            "revision": 7,
+            "checks": {
+                name: {"status": "PASSED", "resultCode": "PASSED"}
+                for name in (
+                    "mcu",
+                    "weight",
+                    "upgradeLine",
+                    "cameras",
+                    "delivery",
+                )
+            },
+        }
+    )
+    executor.state["checks"]["delivery"][
+        "operatorAreaSafeConfirmed"
+    ] = True
 
     with pytest.raises(AcceptanceCommandError) as early:
         controller.execute(
@@ -181,6 +236,373 @@ def test_stale_revision_for_an_already_achieved_action_is_idempotent() -> None:
     assert executor.calls == []
 
 
+def test_current_revision_duplicate_delivery_is_idempotent_without_io() -> None:
+    controller, executor = _controller()
+    executor.state.update(
+        {
+            "status": "RUNNING",
+            "revision": 9,
+            "checks": {
+                "delivery": {
+                    "status": "PASSED",
+                    "resultCode": "DELIVERY_SAFE_VERIFIED",
+                    "operatorAreaSafeConfirmed": True,
+                }
+            },
+        }
+    )
+
+    result = controller.execute(
+        _request("RUN_DELIVERY", 9, {"operatorAreaSafeConfirmed": True})
+    )
+
+    assert result["idempotent"] is True
+    assert executor.calls == []
+
+
+def test_current_revision_duplicate_upgrade_line_is_idempotent_without_io() -> None:
+    controller, executor = _controller()
+    executor.state.update(
+        {
+            "status": "RUNNING",
+            "revision": 10,
+            "checks": {
+                "upgradeLine": {
+                    "status": "PASSED",
+                    "resultCode": (
+                        "F2_BOOT0_NRST_ROM_READ_ONLY_AND_APP_RECOVERY_PASSED"
+                    ),
+                }
+            },
+        }
+    )
+
+    result = controller.execute(
+        _request(
+            "CHECK_UPGRADE_LINE",
+            10,
+            {"confirmReadOnlyBootloaderProbe": True},
+        )
+    )
+
+    assert result["idempotent"] is True
+    assert executor.calls == []
+
+
+def test_delivery_post_action_confirmation_is_projected_and_executable() -> None:
+    controller, executor = _controller()
+    executor.state.update(
+        {
+            "status": "RECOVERY_REQUIRED",
+            "phase": "DELIVERY_AWAITING_AREA_CONFIRMATION",
+            "revision": 10,
+            "checks": {
+                "delivery": {
+                    "status": "RECOVERY_REQUIRED",
+                    "resultCode": (
+                        "DELIVERY_AREA_SAFETY_CONFIRMATION_REQUIRED"
+                    ),
+                }
+            },
+            "recovery": {
+                "context": "DELIVERY",
+                "resultCode": "DELIVERY_AREA_SAFETY_CONFIRMATION_REQUIRED",
+                "hardwareVerified": True,
+                "awaitingAreaSafetyConfirmation": True,
+            },
+        }
+    )
+
+    projection = controller.projection()
+
+    assert projection["allowedActions"] == ["CONFIRM_DELIVERY_AREA_SAFE"]
+    assert (
+        projection["recovery"]["awaitingAreaSafetyConfirmation"] is True
+    )
+    controller.execute(
+        _request(
+            "CONFIRM_DELIVERY_AREA_SAFE",
+            10,
+            {"operatorAreaSafeConfirmed": True},
+        )
+    )
+    assert executor.calls[-1][0] == "confirm_delivery_area_safe"
+
+
+def test_stale_run_delivery_retry_while_awaiting_confirmation_is_idempotent(
+) -> None:
+    controller, executor = _controller()
+    executor.state.update(
+        {
+            "status": "RECOVERY_REQUIRED",
+            "phase": "DELIVERY_AWAITING_AREA_CONFIRMATION",
+            "revision": 11,
+            "checks": {
+                "delivery": {
+                    "status": "RECOVERY_REQUIRED",
+                    "resultCode": (
+                        "DELIVERY_AREA_SAFETY_CONFIRMATION_REQUIRED"
+                    ),
+                }
+            },
+            "recovery": {
+                "context": "DELIVERY",
+                "awaitingAreaSafetyConfirmation": True,
+            },
+        }
+    )
+
+    result = controller.execute(
+        _request("RUN_DELIVERY", 10, {"operatorAreaSafeConfirmed": True})
+    )
+
+    assert result["idempotent"] is True
+    assert result["allowedActions"] == ["CONFIRM_DELIVERY_AREA_SAFE"]
+    assert executor.calls == []
+
+
+def test_recovered_delivery_confirmation_terminates_the_run_as_failed() -> None:
+    controller, executor = _controller()
+    executor.state.update(
+        {
+            "status": "RECOVERY_REQUIRED",
+            "phase": "DELIVERY_AWAITING_AREA_CONFIRMATION",
+            "revision": 12,
+            "checks": {
+                "delivery": {
+                    "status": "RECOVERY_REQUIRED",
+                    "resultCode": (
+                        "DELIVERY_AREA_SAFETY_CONFIRMATION_REQUIRED"
+                    ),
+                }
+            },
+            "recovery": {
+                "context": "DELIVERY",
+                "awaitingAreaSafetyConfirmation": True,
+                "deliveryConfirmationDisposition": (
+                    "FAILED_SAFE_AFTER_CONFIRMATION"
+                ),
+            },
+        }
+    )
+
+    result = controller.execute(
+        _request(
+            "CONFIRM_DELIVERY_AREA_SAFE",
+            12,
+            {"operatorAreaSafeConfirmed": True},
+        )
+    )
+
+    assert result["status"] == "FAILED"
+    assert result["allowedActions"] == ["RESTART_FAILED_RUN"]
+    assert result["checks"]["delivery"]["status"] == "FAILED_SAFE"
+    assert executor.calls == [("confirm_delivery_area_safe", True)]
+
+
+def test_recovered_safe_intermediate_only_allows_failed_report_finalize() -> None:
+    controller, executor = _controller()
+    executor.state.update(
+        {
+            "status": "RUNNING",
+            "phase": "DELIVERY_RECOVERED_SAFE",
+            "revision": 13,
+            "checks": {
+                **{
+                    name: {"status": "PASSED", "resultCode": "PASSED"}
+                    for name in (
+                        "mcu",
+                        "weight",
+                        "upgradeLine",
+                        "cameras",
+                    )
+                },
+                "delivery": {
+                    "status": "FAILED_SAFE",
+                    "resultCode": (
+                        "DELIVERY_FAILED_BUT_APPLICATION_RECOVERED"
+                    ),
+                    "sendAttempts": 1,
+                    "operatorAreaSafeConfirmed": True,
+                },
+            },
+            "recovery": None,
+        }
+    )
+
+    projection = controller.projection()
+
+    assert projection["allowedActions"] == ["FINALIZE"]
+    controller.execute(_request("FINALIZE", 13, {"confirmFinalize": True}))
+    assert executor.calls == [("finalize", ((), {}))]
+
+
+def test_recovered_upgrade_line_intermediate_never_offers_f2_again() -> None:
+    controller, executor = _controller()
+    executor.state.update(
+        {
+            "status": "RUNNING",
+            "phase": "UPGRADE_LINE_RECOVERED_SAFE",
+            "revision": 14,
+            "checks": {
+                "mcu": {"status": "PASSED", "resultCode": "PASSED"},
+                "upgradeLine": {
+                    "status": "FAILED_SAFE",
+                    "resultCode": (
+                        "UPGRADE_LINE_FAILED_BUT_APPLICATION_RECOVERED"
+                    ),
+                    "sendAttempts": 1,
+                },
+            },
+        }
+    )
+
+    projection = controller.projection()
+
+    assert projection["allowedActions"] == ["FINALIZE"]
+    with pytest.raises(AcceptanceCommandError) as blocked:
+        controller.execute(
+            _request(
+                "CHECK_UPGRADE_LINE",
+                14,
+                {"confirmReadOnlyBootloaderProbe": True},
+            )
+        )
+    assert blocked.value.code == "ACTION_NOT_ALLOWED_IN_CURRENT_STATE"
+    assert executor.calls == []
+
+
+@pytest.mark.parametrize(
+    ("action_name", "action_status", "result_code", "blocked_operation"),
+    (
+        (
+            "delivery",
+            "PASSED",
+            "DELIVERY_SAFE_VERIFIED",
+            "RUN_CLEAN",
+        ),
+        (
+            "delivery",
+            "FAILED_SAFE",
+            "DELIVERY_FAILED_BUT_APPLICATION_RECOVERED",
+            "FINALIZE",
+        ),
+        (
+            "clean",
+            "PASSED",
+            "CLEAN_SAFE_VERIFIED",
+            "FINALIZE",
+        ),
+        (
+            "clean",
+            "FAILED_SAFE",
+            "CLEAN_FAILED_BUT_APPLICATION_RECOVERED",
+            "FINALIZE",
+        ),
+    ),
+)
+def test_missing_post_action_confirmation_never_offers_next_physical_step_or_finalize(
+    action_name: str,
+    action_status: str,
+    result_code: str,
+    blocked_operation: str,
+) -> None:
+    controller, executor = _controller()
+    checks = {
+        name: {"status": "PASSED", "resultCode": "PASSED"}
+        for name in ("mcu", "weight", "upgradeLine", "cameras")
+    }
+    if action_name == "clean":
+        checks["delivery"] = {
+            "status": "PASSED",
+            "resultCode": "DELIVERY_SAFE_VERIFIED",
+            "operatorAreaSafeConfirmed": True,
+        }
+    checks[action_name] = {
+        "status": action_status,
+        "resultCode": result_code,
+        "sendAttempts": 1,
+    }
+    executor.state.update(
+        {
+            "status": "RUNNING",
+            "phase": "LEGACY_ACTION_RESULT",
+            "revision": 15,
+            "checks": checks,
+            "recovery": None,
+            "activeAction": None,
+        }
+    )
+
+    projection = controller.projection()
+
+    assert projection["allowedActions"] == []
+    parameters = (
+        {"operatorAreaSafeConfirmed": True}
+        if blocked_operation == "RUN_CLEAN"
+        else {"confirmFinalize": True}
+    )
+    with pytest.raises(AcceptanceCommandError) as blocked:
+        controller.execute(_request(blocked_operation, 15, parameters))
+    assert blocked.value.code == "ACTION_NOT_ALLOWED_IN_CURRENT_STATE"
+    assert executor.calls == []
+
+
+def test_recovered_legacy_safety_failure_only_allows_failed_finalize() -> None:
+    controller, executor = _controller()
+    executor.state.update(
+        {
+            "status": "RUNNING",
+            "phase": "LEGACY_ACTION_SAFETY_FAILURE_READY",
+            "revision": 16,
+            "checks": {
+                "delivery": {
+                    "status": "FAILED",
+                    "resultCode": (
+                        "LEGACY_ACTION_REQUIRES_NEW_ACCEPTANCE_RUN"
+                    ),
+                }
+            },
+            "recovery": None,
+            "activeAction": None,
+        }
+    )
+
+    assert controller.projection()["allowedActions"] == ["FINALIZE"]
+    controller.execute(
+        _request("FINALIZE", 16, {"confirmFinalize": True})
+    )
+    assert executor.calls == [("finalize", ((), {}))]
+
+
+def test_interrupted_failed_report_finalization_only_allows_finalize_retry() -> None:
+    controller, executor = _controller()
+    executor.state.update(
+        {
+            "status": "RUNNING",
+            "phase": "FINALIZING_REPORT",
+            "pendingFinalStatus": "FAILED",
+            "revision": 17,
+            "checks": {
+                "delivery": {
+                    "status": "FAILED",
+                    "resultCode": (
+                        "LEGACY_ACTION_REQUIRES_NEW_ACCEPTANCE_RUN"
+                    ),
+                }
+            },
+            "recovery": None,
+            "activeAction": None,
+        }
+    )
+
+    assert controller.projection()["allowedActions"] == ["FINALIZE"]
+    controller.execute(
+        _request("FINALIZE", 17, {"confirmFinalize": True})
+    )
+    assert executor.calls == [("finalize", ((), {}))]
+
+
 def test_stale_revision_for_unachieved_action_conflicts_without_hardware_io() -> None:
     controller, executor = _controller()
     executor.state.update({"status": "RUNNING", "revision": 2})
@@ -190,6 +612,24 @@ def test_stale_revision_for_unachieved_action_conflicts_without_hardware_io() ->
 
     assert conflict.value.code == "ACCEPTANCE_REVISION_CONFLICT"
     assert conflict.value.status == HTTPStatus.CONFLICT
+    assert executor.calls == []
+
+
+def test_current_revision_operation_outside_allowed_actions_is_rejected() -> None:
+    controller, executor = _controller()
+    executor.state.update({"status": "RUNNING", "revision": 3})
+
+    with pytest.raises(AcceptanceCommandError) as rejected:
+        controller.execute(
+            _request(
+                "RUN_DELIVERY",
+                3,
+                {"operatorAreaSafeConfirmed": True},
+            )
+        )
+
+    assert rejected.value.code == "ACTION_NOT_ALLOWED_IN_CURRENT_STATE"
+    assert rejected.value.status == HTTPStatus.CONFLICT
     assert executor.calls == []
 
 

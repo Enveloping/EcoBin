@@ -46,7 +46,8 @@ def test_ap_daemons_are_split_from_short_lived_root_preparation() -> None:
 
     assert "Type=oneshot" in prepare
     assert "User=root" in prepare
-    assert "CapabilityBoundingSet=CAP_NET_ADMIN" in prepare
+    assert "CapabilityBoundingSet=CAP_CHOWN CAP_NET_ADMIN" in prepare
+    assert "AmbientCapabilities=CAP_CHOWN CAP_NET_ADMIN" in prepare
     assert "RemainAfterExit=yes" in prepare
     assert "RuntimeDirectory=ecobin/factory-network" in prepare
     assert "-m factory.ap_supervisor prepare" in prepare

@@ -31,6 +31,7 @@ RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 ReadWritePaths=/etc/NetworkManager/system-connections
+ReadWritePaths=/run/lock/ecobin
 CapabilityBoundingSet=CAP_NET_ADMIN
 AmbientCapabilities=CAP_NET_ADMIN
 RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX

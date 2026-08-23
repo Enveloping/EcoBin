@@ -10,7 +10,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from factory.acceptance_core import AcceptanceError, FactoryAcceptanceExecutor
+from factory.acceptance_core import (
+    STATE_SCHEMA_VERSION,
+    AcceptanceError,
+    FactoryAcceptanceExecutor,
+)
 from factory.acceptance_hardware import (
     AcceptanceHardwareError,
     CLEAN_WIRE,
@@ -20,7 +24,7 @@ from factory.acceptance_hardware import (
     ReadOnlyStm32RomProbe,
     VirtualRomProbe,
 )
-from factory.acceptance_storage import AcceptanceLockBusy
+from factory.acceptance_storage import AcceptanceLockBusy, AtomicJsonFile
 from tools.fixed_frame_pty_simulator import (
     CLEAN_RESULT_HEADER,
     DELIVERY_RESULT_HEADER,
@@ -122,6 +126,19 @@ def _pass_prerequisites(
     executor.check_upgrade_line()
 
 
+def _pass_delivery(executor: FactoryAcceptanceExecutor) -> None:
+    executor.run_action(
+        "DELIVERY",
+        operator_area_safe_confirmed=True,
+        timeout_ms=100,
+        quiet_ms=0,
+    )
+    executor.confirm_delivery_area_safe(
+        operator_confirmed=True,
+        quiet_ms=0,
+    )
+
+
 def test_revision_2_f3_and_healthy_f1_are_required(tmp_path: Path) -> None:
     executor, _model, _factory = _build_executor(
         tmp_path,
@@ -150,6 +167,161 @@ def test_invalid_f1_blocks_mcu_check(tmp_path: Path) -> None:
         _begin(executor)
         with pytest.raises(AcceptanceError, match="MCU_F1_UNHEALTHY"):
             executor.check_mcu()
+
+
+@pytest.mark.parametrize(
+    ("check_name", "check_status", "result_code"),
+    (
+        ("delivery", "PASSED", "DELIVERY_SAFE_VERIFIED"),
+        (
+            "delivery",
+            "FAILED_SAFE",
+            "DELIVERY_FAILED_BUT_APPLICATION_RECOVERED",
+        ),
+        ("clean", "PASSED", "CLEAN_SAFE_VERIFIED"),
+        (
+            "clean",
+            "FAILED_SAFE",
+            "CLEAN_FAILED_BUT_APPLICATION_RECOVERED",
+        ),
+    ),
+)
+def test_schema_1_action_result_without_post_action_confirmation_requires_new_run(
+    tmp_path: Path,
+    check_name: str,
+    check_status: str,
+    result_code: str,
+) -> None:
+    state_path = _paths(tmp_path)["state_path"]
+    AtomicJsonFile(state_path).write(
+        {
+            "schemaVersion": 1,
+            "revision": 7,
+            "status": "RUNNING",
+            "phase": f"{check_name.upper()}_SAFE_VERIFIED",
+            "imageReleaseId": "ecobin-zero3-1.0.0",
+            "bootId": "11111111-2222-3333-4444-555555555555",
+            "hardwareConfigDigest": "a" * 64,
+            "timing": {
+                "startedMonotonicMs": 1_000,
+                "wallTimeTrusted": False,
+                "trustedStartedAtUtc": None,
+            },
+            "mcuIdentity": {
+                "fixedFrameRevision": 2,
+                "firmwareVersion": "1.0.0",
+                "firmwareVersionCode": 10_000,
+                "firmwareIdentityHex": "0102030405060708",
+            },
+            "checks": {
+                check_name: {
+                    "status": check_status,
+                    "resultCode": result_code,
+                    "sendAttempts": 1,
+                }
+            },
+            "recovery": None,
+            "activeAction": None,
+        }
+    )
+    executor, _model, _factory = _build_executor(tmp_path)
+
+    with executor:
+        migrated = executor.snapshot()
+
+    assert STATE_SCHEMA_VERSION == 2
+    assert migrated["schemaVersion"] == STATE_SCHEMA_VERSION
+    assert migrated["revision"] == 8
+    assert migrated["status"] == "FAILED"
+    assert migrated["phase"] == "LEGACY_ACTION_SAFETY_CONFIRMATION_REQUIRED"
+    assert migrated["checks"][check_name]["status"] == "FAILED"
+    assert migrated["checks"][check_name]["resultCode"] == (
+        "LEGACY_ACTION_REQUIRES_NEW_ACCEPTANCE_RUN"
+    )
+
+
+def test_schema_1_unsafe_delivery_waits_for_clean_recovery_then_fails_run(
+    tmp_path: Path,
+) -> None:
+    executor, model, factory = _build_executor(tmp_path)
+    with executor:
+        _pass_prerequisites(executor, model)
+        _pass_delivery(executor)
+        executor.run_action(
+            "CLEAN",
+            operator_area_safe_confirmed=True,
+            timeout_ms=100,
+            quiet_ms=0,
+        )
+
+    state_file = AtomicJsonFile(_paths(tmp_path)["state_path"])
+    legacy = state_file.read()
+    assert legacy is not None
+    legacy["schemaVersion"] = 1
+    del legacy["checks"]["delivery"]["operatorAreaSafeConfirmed"]
+    state_file.write(legacy)
+
+    resumed, _model, _factory = _build_executor(
+        tmp_path,
+        model=model,
+        serial_factory=factory,
+    )
+    with resumed:
+        migrated = resumed.snapshot()
+        assert migrated["schemaVersion"] == STATE_SCHEMA_VERSION
+        assert migrated["status"] == "RECOVERY_REQUIRED"
+        assert migrated["phase"] == "CLEAN_AWAITING_DOOR_CONFIRMATION"
+        assert migrated["legacySafetyFailuresPending"] == ["delivery"]
+
+        terminal = resumed.confirm_clean_door_closed(
+            operator_confirmed=True,
+            quiet_ms=0,
+        )
+
+        assert terminal["status"] == "FAILED"
+        assert terminal["phase"] == "COMPLETE"
+        assert resumed.read_report()["status"] == "FAILED"
+        assert model.delivery_start_count == 1
+        assert model.clean_start_count == 1
+
+
+def test_schema_1_unsafe_delivery_and_armed_clean_reconcile_to_failed_run(
+    tmp_path: Path,
+) -> None:
+    def fault(point: str) -> None:
+        if point == "clean.after_armed":
+            raise PowerLoss()
+
+    executor, model, factory = _build_executor(tmp_path, fault_hook=fault)
+    with pytest.raises(PowerLoss):
+        with executor:
+            _pass_prerequisites(executor, model)
+            _pass_delivery(executor)
+            executor.run_action(
+                "CLEAN",
+                operator_area_safe_confirmed=True,
+                timeout_ms=100,
+                quiet_ms=0,
+            )
+    assert model.clean_start_count == 0
+
+    state_file = AtomicJsonFile(_paths(tmp_path)["state_path"])
+    legacy = state_file.read()
+    assert legacy is not None
+    legacy["schemaVersion"] = 1
+    del legacy["checks"]["delivery"]["operatorAreaSafeConfirmed"]
+    state_file.write(legacy)
+
+    resumed, _model, _factory = _build_executor(
+        tmp_path,
+        model=model,
+        serial_factory=factory,
+    )
+    with resumed:
+        assert resumed.snapshot()["status"] == "FAILED"
+        assert resumed.snapshot()["phase"] == "COMPLETE"
+        assert resumed.read_report()["status"] == "FAILED"
+    assert model.clean_start_count == 0
 
 
 @pytest.mark.parametrize(
@@ -290,6 +462,59 @@ def test_upgrade_line_is_read_only_and_recovers_original_application(
         assert model.runtime_mode == "APPLICATION"
         assert model.update_prepared is False
         assert executor.bootloader.read_only_probe_count == 1
+        with pytest.raises(
+            AcceptanceError,
+            match="UPGRADE_LINE_ALREADY_ATTEMPTED_IN_CURRENT_RUN",
+        ):
+            executor.check_upgrade_line()
+        assert model.firmware_prepare_count == 1
+
+
+def test_replaced_mcu_is_rejected_before_f2_can_be_sent(tmp_path: Path) -> None:
+    executor, model, _factory = _build_executor(tmp_path)
+    with executor:
+        _begin(executor)
+        executor.check_mcu()
+        model.firmware_identity_hex = "1112131415161718"
+
+        with pytest.raises(
+            AcceptanceError,
+            match="MCU_IDENTITY_CHANGED_SINCE_INITIAL_CHECK",
+        ):
+            executor.check_upgrade_line()
+
+        assert model.firmware_prepare_count == 0
+        state = executor.snapshot()
+        assert state["status"] == "RUNNING"
+        assert "upgradeLine" not in state["checks"]
+
+
+@pytest.mark.parametrize("action", ("DELIVERY", "CLEAN"))
+def test_replaced_mcu_is_rejected_before_physical_action_can_be_sent(
+    tmp_path: Path,
+    action: str,
+) -> None:
+    executor, model, _factory = _build_executor(tmp_path)
+    with executor:
+        _pass_prerequisites(executor, model)
+        if action == "CLEAN":
+            _pass_delivery(executor)
+        model.firmware_identity_hex = "2122232425262728"
+
+        with pytest.raises(
+            AcceptanceError,
+            match="MCU_IDENTITY_CHANGED_SINCE_INITIAL_CHECK",
+        ):
+            executor.run_action(
+                action,
+                operator_area_safe_confirmed=True,
+                timeout_ms=100,
+                quiet_ms=0,
+            )
+
+        assert model.delivery_start_count == (1 if action == "CLEAN" else 0)
+        assert model.clean_start_count == 0
+        assert action.lower() not in executor.snapshot()["checks"]
 
 
 def test_real_rom_probe_command_has_no_flash_mutation_and_uses_wpi_2_5() -> None:
@@ -416,7 +641,8 @@ def test_prepare_journal_precedes_f2_and_power_loss_requires_recovery(
         assert state["status"] == "RECOVERY_REQUIRED"
         assert state["phase"] == "F2_COMMAND_MAY_HAVE_BEEN_SENT"
         recovered.recover()
-        assert recovered.snapshot()["status"] == "RUNNING"
+        assert recovered.snapshot()["status"] == "FAILED"
+        assert recovered.read_report()["status"] == "FAILED"
         assert model.firmware_prepare_count == 0
 
 
@@ -452,11 +678,17 @@ def test_power_loss_after_f2_never_resends_prepare_and_requires_app_reproof(
 
         recovered = resumed.recover(quiet_ms=0)
 
-        assert recovered["status"] == "RUNNING"
+        assert recovered["status"] == "FAILED"
         assert recovered["checks"]["upgradeLine"]["status"] == "FAILED_SAFE"
         assert recovered["checks"]["upgradeLine"]["resultCode"] == (
             "UPGRADE_LINE_FAILED_BUT_APPLICATION_RECOVERED"
         )
+        assert resumed.read_report()["status"] == "FAILED"
+        with pytest.raises(
+            AcceptanceError,
+            match="ACCEPTANCE_RUN_NOT_RUNNING",
+        ):
+            resumed.check_upgrade_line()
         assert model.firmware_prepare_count == 1
 
 
@@ -470,12 +702,161 @@ def test_delivery_bb_and_aa_are_one_write_and_never_retried(tmp_path: Path) -> N
             timeout_ms=100,
             quiet_ms=0,
         )
+        executor.confirm_delivery_area_safe(
+            operator_confirmed=True,
+            quiet_ms=0,
+        )
         assert model.delivery_start_count == 1
         writes = [wire for session in factory.sessions for wire in session.writes]
         assert writes.count(DELIVERY_WIRE) == 1
         check = executor.snapshot()["checks"]["delivery"]
         assert check["status"] == "PASSED"
         assert check["sendAttempts"] == 1
+        with pytest.raises(
+            AcceptanceError,
+            match="DELIVERY_ALREADY_ATTEMPTED_IN_CURRENT_RUN",
+        ):
+            executor.run_action(
+                "DELIVERY",
+                operator_area_safe_confirmed=True,
+                timeout_ms=100,
+                quiet_ms=0,
+            )
+        assert model.delivery_start_count == 1
+
+
+def test_delivery_dd_requires_fresh_post_action_area_confirmation(
+    tmp_path: Path,
+) -> None:
+    executor, model, factory = _build_executor(tmp_path)
+    with executor:
+        _pass_prerequisites(executor, model)
+
+        executor.run_action(
+            "DELIVERY",
+            operator_area_safe_confirmed=True,
+            timeout_ms=100,
+            quiet_ms=0,
+        )
+
+        pending = executor.snapshot()
+        assert model.delivery_start_count == 1
+        assert pending["status"] == "RECOVERY_REQUIRED"
+        assert pending["phase"] == "DELIVERY_AWAITING_AREA_CONFIRMATION"
+        assert pending["recovery"]["awaitingAreaSafetyConfirmation"] is True
+        assert pending["checks"]["delivery"]["status"] == "RECOVERY_REQUIRED"
+        with pytest.raises(
+            AcceptanceError,
+            match="DELIVERY_AREA_SAFETY_CONFIRMATION_REQUIRED",
+        ):
+            executor.confirm_delivery_area_safe(
+                operator_confirmed=False,
+                quiet_ms=0,
+            )
+        assert executor.snapshot()["status"] == "RECOVERY_REQUIRED"
+
+        confirmed = executor.confirm_delivery_area_safe(
+            operator_confirmed=True,
+            quiet_ms=0,
+        )
+
+        assert confirmed["status"] == "RUNNING"
+        assert confirmed["phase"] == "DELIVERY_SAFE_VERIFIED"
+        assert confirmed["recovery"] is None
+        assert confirmed["activeAction"] is None
+        assert confirmed["checks"]["delivery"]["status"] == "PASSED"
+        assert (
+            confirmed["checks"]["delivery"]["operatorAreaSafeConfirmed"]
+            is True
+        )
+        writes = [wire for session in factory.sessions for wire in session.writes]
+        assert writes.count(DELIVERY_WIRE) == 1
+
+        revision = confirmed["revision"]
+        executor.bootloader.boot_application = lambda: (_ for _ in ()).throw(
+            AssertionError("duplicate confirmation performed hardware I/O")
+        )
+        duplicate = executor.confirm_delivery_area_safe(
+            operator_confirmed=True,
+            quiet_ms=0,
+        )
+        assert duplicate["revision"] == revision
+
+
+def test_delivery_confirmation_failure_keeps_the_persisted_lock(
+    tmp_path: Path,
+) -> None:
+    executor, model, _factory = _build_executor(tmp_path)
+    with executor:
+        _pass_prerequisites(executor, model)
+        executor.run_action(
+            "DELIVERY",
+            operator_area_safe_confirmed=True,
+            timeout_ms=100,
+            quiet_ms=0,
+        )
+        original_query_identity = executor._query_identity
+
+        def fail_identity() -> dict:
+            raise AcceptanceHardwareError("MCU_F3_QUERY_TIMEOUT")
+
+        executor._query_identity = fail_identity
+        with pytest.raises(
+            AcceptanceError,
+            match="MCU_F3_QUERY_TIMEOUT",
+        ):
+            executor.confirm_delivery_area_safe(
+                operator_confirmed=True,
+                quiet_ms=0,
+            )
+
+        locked = executor.snapshot()
+        assert locked["status"] == "RECOVERY_REQUIRED"
+        assert locked["activeAction"]["type"] == "DELIVERY"
+        assert locked["recovery"]["awaitingAreaSafetyConfirmation"] is True
+        assert (
+            locked["checks"]["delivery"]["operatorAreaSafeConfirmed"]
+            is False
+        )
+        assert model.delivery_start_count == 1
+
+        executor._query_identity = original_query_identity
+        confirmed = executor.confirm_delivery_area_safe(
+            operator_confirmed=True,
+            quiet_ms=0,
+        )
+        assert confirmed["checks"]["delivery"]["status"] == "PASSED"
+        assert model.delivery_start_count == 1
+
+
+def test_delivery_pending_confirmation_survives_executor_restart(
+    tmp_path: Path,
+) -> None:
+    executor, model, factory = _build_executor(tmp_path)
+    with executor:
+        _pass_prerequisites(executor, model)
+        executor.run_action(
+            "DELIVERY",
+            operator_area_safe_confirmed=True,
+            timeout_ms=100,
+            quiet_ms=0,
+        )
+
+    resumed, _model, _factory = _build_executor(
+        tmp_path,
+        model=model,
+        serial_factory=factory,
+    )
+    with resumed:
+        pending = resumed.snapshot()
+        assert pending["phase"] == "DELIVERY_AWAITING_AREA_CONFIRMATION"
+        assert pending["status"] == "RECOVERY_REQUIRED"
+        confirmed = resumed.confirm_delivery_area_safe(
+            operator_confirmed=True,
+            quiet_ms=0,
+        )
+        assert confirmed["checks"]["delivery"]["status"] == "PASSED"
+        assert model.delivery_start_count == 1
 
 
 def test_clean_ee_is_one_write_and_requires_manual_door_confirmation(
@@ -484,6 +865,7 @@ def test_clean_ee_is_one_write_and_requires_manual_door_confirmation(
     executor, model, factory = _build_executor(tmp_path)
     with executor:
         _pass_prerequisites(executor, model)
+        _pass_delivery(executor)
         executor.run_action(
             "CLEAN",
             operator_area_safe_confirmed=True,
@@ -512,6 +894,7 @@ def test_clean_start_rejects_any_pre_action_door_confirmation_argument(
     executor, model, _factory = _build_executor(tmp_path)
     with executor:
         _pass_prerequisites(executor, model)
+        _pass_delivery(executor)
         with pytest.raises(TypeError, match="clean_door_closed_confirmed"):
             executor.run_action(
                 "CLEAN",
@@ -536,6 +919,7 @@ def test_power_loss_after_ef_before_door_confirmation_stays_locked(
     with pytest.raises(PowerLoss):
         with executor:
             _pass_prerequisites(executor, model)
+            _pass_delivery(executor)
             executor.run_action(
                 "CLEAN",
                 operator_area_safe_confirmed=True,
@@ -666,6 +1050,160 @@ def test_power_loss_after_uart_write_keeps_one_send_and_requires_recovery(
     with resumed:
         assert resumed.snapshot()["status"] == "RECOVERY_REQUIRED"
         resumed.recover(quiet_ms=0)
+        assert model.delivery_start_count == 1
+
+
+def test_delivery_recovery_keeps_lock_until_fresh_area_confirmation(
+    tmp_path: Path,
+) -> None:
+    tripped = False
+
+    def fault(point: str) -> None:
+        nonlocal tripped
+        if point == "delivery.after_serial_write" and not tripped:
+            tripped = True
+            raise PowerLoss()
+
+    executor, model, factory = _build_executor(tmp_path, fault_hook=fault)
+    with pytest.raises(PowerLoss):
+        with executor:
+            _pass_prerequisites(executor, model)
+            executor.run_action(
+                "DELIVERY",
+                operator_area_safe_confirmed=True,
+                timeout_ms=100,
+                quiet_ms=0,
+            )
+
+    resumed, _model, _factory = _build_executor(
+        tmp_path,
+        model=model,
+        serial_factory=factory,
+    )
+    with resumed:
+        recovered = resumed.recover(quiet_ms=0)
+
+        assert recovered["status"] == "RECOVERY_REQUIRED"
+        assert recovered["phase"] == "DELIVERY_AWAITING_AREA_CONFIRMATION"
+        assert recovered["recovery"]["hardwareVerified"] is True
+        assert (
+            recovered["recovery"]["awaitingAreaSafetyConfirmation"] is True
+        )
+        assert recovered["checks"]["delivery"]["status"] == (
+            "RECOVERY_REQUIRED"
+        )
+
+        confirmed = resumed.confirm_delivery_area_safe(
+            operator_confirmed=True,
+            quiet_ms=0,
+        )
+
+        assert confirmed["status"] == "FAILED"
+        assert confirmed["recovery"] is None
+        assert confirmed["checks"]["delivery"]["status"] == "FAILED_SAFE"
+        assert confirmed["checks"]["delivery"]["resultCode"] == (
+            "DELIVERY_FAILED_BUT_APPLICATION_RECOVERED"
+        )
+        assert (
+            confirmed["checks"]["delivery"]["operatorAreaSafeConfirmed"]
+            is True
+        )
+        failed_report = resumed.read_report()
+        assert failed_report is not None
+        assert failed_report["status"] == "FAILED"
+        assert (
+            failed_report["checks"]["delivery"][
+                "operatorAreaSafeConfirmed"
+            ]
+            is True
+        )
+        with pytest.raises(AcceptanceError, match="ACCEPTANCE_RUN_NOT_RUNNING"):
+            resumed.run_action(
+                "DELIVERY",
+                operator_area_safe_confirmed=True,
+                timeout_ms=100,
+                quiet_ms=0,
+            )
+        assert model.delivery_start_count == 1
+
+
+def test_power_loss_before_recovered_delivery_report_only_allows_finalize(
+    tmp_path: Path,
+) -> None:
+    command_interrupted = False
+
+    def interrupt_command(point: str) -> None:
+        nonlocal command_interrupted
+        if point == "delivery.after_serial_write" and not command_interrupted:
+            command_interrupted = True
+            raise PowerLoss()
+
+    executor, model, factory = _build_executor(
+        tmp_path,
+        fault_hook=interrupt_command,
+    )
+    with pytest.raises(PowerLoss):
+        with executor:
+            _pass_prerequisites(executor, model)
+            executor.run_action(
+                "DELIVERY",
+                operator_area_safe_confirmed=True,
+                timeout_ms=100,
+                quiet_ms=0,
+            )
+
+    finalize_interrupted = False
+
+    def interrupt_finalize(point: str) -> None:
+        nonlocal finalize_interrupted
+        if (
+            point == "delivery.after_recovered_safe_before_finalize"
+            and not finalize_interrupted
+        ):
+            finalize_interrupted = True
+            raise PowerLoss()
+
+    resumed, _model, _factory = _build_executor(
+        tmp_path,
+        model=model,
+        serial_factory=factory,
+        fault_hook=interrupt_finalize,
+    )
+    with pytest.raises(PowerLoss):
+        with resumed:
+            resumed.recover(quiet_ms=0)
+            resumed.confirm_delivery_area_safe(
+                operator_confirmed=True,
+                quiet_ms=0,
+            )
+
+    finalizer, _model, _factory = _build_executor(
+        tmp_path,
+        model=model,
+        serial_factory=factory,
+    )
+    with finalizer:
+        intermediate = finalizer.snapshot()
+        assert intermediate["status"] == "RUNNING"
+        assert intermediate["phase"] == "DELIVERY_RECOVERED_SAFE"
+        assert intermediate["checks"]["delivery"]["status"] == "FAILED_SAFE"
+        assert intermediate["recovery"] is None
+        assert finalizer.read_report() is None
+        with pytest.raises(
+            AcceptanceError,
+            match="DELIVERY_ALREADY_ATTEMPTED_IN_CURRENT_RUN",
+        ):
+            finalizer.run_action(
+                "DELIVERY",
+                operator_area_safe_confirmed=True,
+                timeout_ms=100,
+                quiet_ms=0,
+            )
+
+        report = finalizer.finalize()
+
+        assert report["status"] == "FAILED"
+        assert finalizer.snapshot()["status"] == "FAILED"
         assert model.delivery_start_count == 1
 
 
@@ -964,6 +1502,64 @@ def test_executor_restart_invalidates_pending_camera_review(tmp_path: Path) -> N
             )
 
 
+def _assert_finalize_rejects_pending_physical_recovery(
+    executor: FactoryAcceptanceExecutor,
+) -> None:
+    before = executor.snapshot()
+    with pytest.raises(
+        AcceptanceError,
+        match="ACCEPTANCE_RECOVERY_REQUIRED",
+    ) as blocked:
+        executor.finalize()
+    assert blocked.value.recovery_required is True
+    assert executor.snapshot() == before
+
+
+def test_core_finalize_rejects_pending_delivery_confirmation(tmp_path: Path) -> None:
+    executor, model, _factory = _build_executor(tmp_path)
+    with executor:
+        _pass_prerequisites(executor, model)
+        executor.run_action(
+            "DELIVERY",
+            operator_area_safe_confirmed=True,
+            timeout_ms=100,
+            quiet_ms=0,
+        )
+        _assert_finalize_rejects_pending_physical_recovery(executor)
+
+
+def test_core_finalize_rejects_pending_clean_confirmation(tmp_path: Path) -> None:
+    executor, model, _factory = _build_executor(tmp_path)
+    with executor:
+        _pass_prerequisites(executor, model)
+        _pass_delivery(executor)
+        executor.run_action(
+            "CLEAN",
+            operator_area_safe_confirmed=True,
+            timeout_ms=100,
+            quiet_ms=0,
+        )
+        _assert_finalize_rejects_pending_physical_recovery(executor)
+
+
+def test_core_finalize_rejects_pending_f2_recovery(tmp_path: Path) -> None:
+    tripped = False
+
+    def fault(point: str) -> None:
+        nonlocal tripped
+        if point == "upgrade_line.after_prepare_journal" and not tripped:
+            tripped = True
+            raise PowerLoss()
+
+    executor, _model, _factory = _build_executor(tmp_path, fault_hook=fault)
+    with executor:
+        _begin(executor)
+        executor.check_mcu()
+        with pytest.raises(PowerLoss):
+            executor.check_upgrade_line()
+        _assert_finalize_rejects_pending_physical_recovery(executor)
+
+
 def test_full_pass_report_is_private_sanitized_and_does_not_touch_production_data(
     tmp_path: Path,
 ) -> None:
@@ -984,6 +1580,10 @@ def test_full_pass_report_is_private_sanitized_and_does_not_touch_production_dat
             timeout_ms=100,
             quiet_ms=0,
         )
+        executor.confirm_delivery_area_safe(
+            operator_confirmed=True,
+            quiet_ms=0,
+        )
         executor.run_action(
             "CLEAN",
             operator_area_safe_confirmed=True,
@@ -997,7 +1597,12 @@ def test_full_pass_report_is_private_sanitized_and_does_not_touch_production_dat
         assert report["hardwareConfigDigest"] == "a" * 64
         assert report["checks"]["weight"]["deltaGrams"] == 500
         assert report["checks"]["delivery"]["weightDeltaGrams"] == 1_200
+        assert (
+            report["checks"]["delivery"]["operatorAreaSafeConfirmed"]
+            is True
+        )
         assert report["checks"]["clean"]["weightDeltaGrams"] == 10_400
+        assert report["checks"]["clean"]["cleanDoorConfirmed"] is True
         assert report["checks"]["upgradeLine"]["romWritePerformed"] is False
         assert report["checks"]["upgradeLine"]["romDeviceId"] == "0x0410"
         assert executor.read_report() == report
@@ -1043,6 +1648,10 @@ def test_report_commit_reconciles_after_power_loss_before_state_terminal(
                 timeout_ms=100,
                 quiet_ms=0,
             )
+            executor.confirm_delivery_area_safe(
+                operator_confirmed=True,
+                quiet_ms=0,
+            )
             executor.run_action(
                 "CLEAN",
                 operator_area_safe_confirmed=True,
@@ -1061,6 +1670,111 @@ def test_report_commit_reconciles_after_power_loss_before_state_terminal(
         assert resumed.snapshot()["status"] == "PASSED"
         assert resumed.snapshot()["phase"] == "COMPLETE"
         assert resumed.read_report()["status"] == "PASSED"
+
+
+def test_old_report_does_not_block_retrying_new_run_finalization_after_power_loss(
+    tmp_path: Path,
+) -> None:
+    now = [1.0]
+    interrupt_finalize = [False]
+
+    def fault(point: str) -> None:
+        if interrupt_finalize[0] and point == "finalize.after_state_journal":
+            interrupt_finalize[0] = False
+            raise PowerLoss()
+
+    executor, model, factory = _build_executor(
+        tmp_path,
+        fault_hook=fault,
+        executor_options={"monotonic": lambda: now[0]},
+    )
+    old_report: dict = {}
+    new_boot_id = "66666666-7777-8888-9999-aaaaaaaaaaaa"
+    with pytest.raises(PowerLoss):
+        with executor:
+            _begin(executor)
+            old_report = executor.finalize()
+            assert old_report["status"] == "FAILED"
+
+            now[0] = 2.0
+            executor.begin_run(
+                image_release_id="ecobin-zero3-1.0.0",
+                boot_id=new_boot_id,
+                wall_time_trusted=False,
+                hardware_config_digest="a" * 64,
+                restart_terminal=True,
+            )
+            executor.check_mcu()
+            _set_weight(model, 1_000)
+            executor.capture_empty_weight()
+            _set_weight(model, 1_500)
+            executor.capture_loaded_weight()
+            _set_weight(model, 1_000)
+            executor.confirm_weight_removed()
+            camera_state = executor.capture_cameras()
+            executor.confirm_cameras(
+                review_nonce=camera_state["checks"]["cameras"]["reviewNonce"],
+                outside_role_confirmed=True,
+                inside_role_confirmed=True,
+            )
+            executor.check_upgrade_line()
+            executor.run_action(
+                "DELIVERY",
+                operator_area_safe_confirmed=True,
+                timeout_ms=100,
+                quiet_ms=0,
+            )
+            executor.confirm_delivery_area_safe(
+                operator_confirmed=True,
+                quiet_ms=0,
+            )
+            executor.run_action(
+                "CLEAN",
+                operator_area_safe_confirmed=True,
+                timeout_ms=100,
+                quiet_ms=0,
+            )
+            executor.confirm_clean_door_closed(
+                operator_confirmed=True,
+                quiet_ms=0,
+            )
+            assert executor.read_report() == old_report
+
+            now[0] = 3.0
+            interrupt_finalize[0] = True
+            executor.finalize()
+
+    resumed, _model, _factory = _build_executor(
+        tmp_path,
+        model=model,
+        serial_factory=factory,
+        executor_options={"monotonic": lambda: now[0]},
+    )
+    with resumed:
+        pending = resumed.snapshot()
+        assert pending["status"] == "RUNNING"
+        assert pending["phase"] == "FINALIZING_REPORT"
+        assert pending["pendingFinalStatus"] == "PASSED"
+        assert resumed.read_report() == old_report
+        pending_revision = pending["revision"]
+        with pytest.raises(
+            AcceptanceError,
+            match="ACCEPTANCE_REPORT_FINALIZATION_PENDING",
+        ):
+            resumed.check_mcu()
+        assert resumed.snapshot()["revision"] == pending_revision
+        assert resumed.snapshot()["phase"] == "FINALIZING_REPORT"
+
+        now[0] = 4.0
+        new_report = resumed.finalize()
+
+        assert new_report["status"] == "PASSED"
+        assert new_report["bootId"] == new_boot_id
+        assert new_report["timing"]["finishedMonotonicMs"] == 4_000
+        assert new_report != old_report
+        assert resumed.read_report() == new_report
+        assert resumed.snapshot()["status"] == "PASSED"
+        assert resumed.snapshot()["phase"] == "COMPLETE"
 
 
 def test_duplicate_begin_returns_same_running_state(tmp_path: Path) -> None:

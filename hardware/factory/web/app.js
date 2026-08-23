@@ -56,7 +56,12 @@ const ACTIONS = {
   },
   RUN_DELIVERY: {
     label: "执行离线投递硬件测试",
-    prompt: "将真实发送一次 BB+AA，驱动屏幕、按钮、门锁/电机并等待 DD；命令绝不重发。确认周围无人且无阻挡？",
+    prompt: "将真实发送一次 BB+AA，驱动屏幕、按钮、门锁/电机并等待 DD；命令绝不重发。此确认只用于动作前，DD 后还需重新检查现场。确认周围无人且无阻挡？",
+    parameters: () => ({ operatorAreaSafeConfirmed: true }),
+  },
+  CONFIRM_DELIVERY_AREA_SAFE: {
+    label: "确认投递区域恢复安全",
+    prompt: "请在投递动作结束后重新现场检查投口机械结构、周围人员和阻挡物。确认机构已停止、投递区域安全后继续？",
     parameters: () => ({ operatorAreaSafeConfirmed: true }),
   },
   RUN_CLEAN: {
@@ -94,7 +99,8 @@ const INSTRUCTIONS = {
   CAPTURE_CAMERAS: "先拍摄本次临时画面；尚未查看画面时不能提前确认角色。",
   CONFIRM_CAMERAS: "确认请求只绑定当前 nonce；旧页面、旧画面或过期画面不能复用。",
   CHECK_UPGRADE_LINE: "只读检查 STM32F103C8 Device ID 0x0410，随后复位回原应用并复验 F3/F1。",
-  RUN_DELIVERY: "真实命令最多写入一次；超时、损坏、迟到或重复 DD 都会进入恢复锁。",
+  RUN_DELIVERY: "真实命令最多写入一次；收到 DD 并复验 MCU 后仍保留恢复锁，必须完成新的动作后现场安全确认。",
+  CONFIRM_DELIVERY_AREA_SAFE: "这是投递动作后的现场安全确认；动作前提交的布尔值不能复用。确认前禁止清运和最终封存。",
   RUN_CLEAN: "真实命令最多写入一次；收到 EF 后仍需现场确认清运门关闭。",
   CONFIRM_CLEAN_DOOR: "请完成动作后的现场观察；提交前的门确认不会被接受。",
   RECOVER: "恢复不会重发 AA/EE。任何身份、自检或静默验证失败都会继续锁住设备。",

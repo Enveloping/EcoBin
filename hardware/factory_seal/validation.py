@@ -504,6 +504,10 @@ def valid_passed_factory_report(
         for name, result_code in expected_result_codes.items()
     ):
         return False
+    if checks["delivery"].get("operatorAreaSafeConfirmed") is not True:
+        return False
+    if checks["clean"].get("cleanDoorConfirmed") is not True:
+        return False
     weight = checks["weight"]
     delta = weight.get("deltaGrams")
     if (

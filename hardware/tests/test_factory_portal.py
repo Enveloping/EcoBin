@@ -519,6 +519,16 @@ def test_static_assets_are_self_contained_and_make_no_external_requests() -> Non
     assert "<script>" not in combined.lower()
 
 
+def test_web_exposes_a_distinct_post_delivery_safety_confirmation() -> None:
+    app = (
+        Path(__file__).parents[1] / "factory" / "web" / "app.js"
+    ).read_text(encoding="utf-8")
+
+    assert "CONFIRM_DELIVERY_AREA_SAFE" in app
+    assert "投递动作后的现场安全" in app
+    assert "operatorAreaSafeConfirmed: true" in app
+
+
 def test_server_builder_uses_only_the_fixed_ap_address() -> None:
     captured: dict[str, object] = {}
 

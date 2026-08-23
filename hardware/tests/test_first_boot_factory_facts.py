@@ -221,6 +221,7 @@ def _passed_report(release_id: str = "release-1") -> dict[str, object]:
             "delivery": {
                 "status": "PASSED",
                 "resultCode": "DELIVERY_SAFE_VERIFIED",
+                "operatorAreaSafeConfirmed": True,
                 "preWeightGrams": 1000,
                 "postWeightGrams": 1200,
                 "weightDeltaGrams": 200,
@@ -229,6 +230,7 @@ def _passed_report(release_id: str = "release-1") -> dict[str, object]:
             "clean": {
                 "status": "PASSED",
                 "resultCode": "CLEAN_SAFE_VERIFIED",
+                "cleanDoorConfirmed": True,
                 "preWeightGrams": 1200,
                 "postWeightGrams": 100,
                 "weightDeltaGrams": 1100,

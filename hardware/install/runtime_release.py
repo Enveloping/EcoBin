@@ -20,11 +20,15 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+if __package__:
+    from .runtime_payload_manifest import EDGE_SCHEMA_VERSION, RUNTIME_APP_FILES
+else:  # pragma: no cover - direct execution/import from the install directory
+    from runtime_payload_manifest import EDGE_SCHEMA_VERSION, RUNTIME_APP_FILES
+
 
 RELEASE_FORMAT_VERSION = "1"
 ARTIFACT_KIND = "hardware-runtime"
 PYTHON_SERIES = "3.11"
-EDGE_SCHEMA_VERSION = "15"
 RELEASE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 SIGNING_KEY_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -48,40 +52,6 @@ EXPECTED_VENV_SYMLINKS = frozenset(
 )
 PYTHON_VENV_SYMLINKS = frozenset(
     {"bin/python", "bin/python3", "bin/python3.11"}
-)
-
-RUNTIME_APP_FILES = (
-    "command_processor.py",
-    "config.py",
-    "cos_photo_uploader.py",
-    "device_acceptance.py",
-    "device_credentials.py",
-    "device_entry_url_refresh.py",
-    "edge_boot.py",
-    "edge_identity.py",
-    "edge_store.py",
-    "edge_store_prepare.py",
-    "fixed_frame_health_recovery.py",
-    "fixed_frame_mcu_adapter.py",
-    "factory_seal/__init__.py",
-    "factory_seal/errors.py",
-    "factory_seal/runtime.py",
-    "factory_seal/validation.py",
-    "main.py",
-    "mcu_firmware_package.py",
-    "mcu_firmware_updater.py",
-    "mqtt_client.py",
-    "onenet_projection_model.json",
-    "onenet_wire.py",
-    "photo_manager.py",
-    "remote_support_control.py",
-    "simulated_camera.py",
-    "system/__init__.py",
-    "system/mcu_safe_gpio.py",
-    "system/orangepi_boot_config.py",
-    "uart_link.py",
-    "uart_protocol.py",
-    "work_manager.py",
 )
 
 FORBIDDEN_RUNTIME_NAMES = frozenset(

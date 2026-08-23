@@ -26,6 +26,16 @@ from typing import Any, Iterable
 from urllib.parse import urlsplit
 
 
+HARDWARE_SOURCE_ROOT = Path(__file__).resolve().parents[1]
+if str(HARDWARE_SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(HARDWARE_SOURCE_ROOT))
+
+from install.runtime_payload_manifest import (  # noqa: E402
+    FACTORY_APP_RUNTIME_FILES,
+    RUNTIME_APP_FILES,
+)
+
+
 LOCK_NAME = "software-payload.lock.json"
 LOCK_SCHEMA_VERSION = 1
 RELEASE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -66,39 +76,7 @@ COMPONENT_NAMES = (
     "firstBoot",
 )
 
-RUNTIME_APP_FILES = (
-    "command_processor.py",
-    "config.py",
-    "cos_photo_uploader.py",
-    "device_acceptance.py",
-    "device_credentials.py",
-    "device_entry_url_refresh.py",
-    "edge_boot.py",
-    "edge_identity.py",
-    "edge_store.py",
-    "edge_store_prepare.py",
-    "fixed_frame_health_recovery.py",
-    "fixed_frame_mcu_adapter.py",
-    "factory_seal/__init__.py",
-    "factory_seal/errors.py",
-    "factory_seal/runtime.py",
-    "factory_seal/validation.py",
-    "main.py",
-    "mcu_firmware_package.py",
-    "mcu_firmware_updater.py",
-    "mqtt_client.py",
-    "onenet_projection_model.json",
-    "onenet_wire.py",
-    "photo_manager.py",
-    "remote_support_control.py",
-    "simulated_camera.py",
-    "system/__init__.py",
-    "system/mcu_safe_gpio.py",
-    "system/orangepi_boot_config.py",
-    "uart_link.py",
-    "uart_protocol.py",
-    "work_manager.py",
-)
+FACTORY_APP_PACKAGES = ("factory", "first_boot", "factory_seal")
 
 ENROLLMENT_FILES = (
     "enrollment_bootstrap.py",
@@ -716,12 +694,25 @@ def _copy_repository_tree(source: Path, destination: Path) -> None:
 
 
 def _copy_selected(repository_hardware: Path, names: Iterable[str], destination: Path) -> None:
-    destination.mkdir(mode=0o755)
+    if _lexists(destination):
+        if destination.is_symlink() or not destination.is_dir():
+            raise ImageSoftwareError("selected-file destination is unsafe")
+    else:
+        destination.mkdir(mode=0o755)
     for name in names:
         source = repository_hardware / name
         target = destination / name
         target.parent.mkdir(parents=True, exist_ok=True)
         _install_regular(source, target, 0o644)
+
+
+def _stage_factory_app(repository_hardware: Path, app: Path) -> None:
+    if _lexists(app):
+        raise ImageSoftwareError("factory application destination already exists")
+    app.mkdir(mode=0o755)
+    for package in FACTORY_APP_PACKAGES:
+        _copy_repository_tree(repository_hardware / package, app / package)
+    _copy_selected(repository_hardware, FACTORY_APP_RUNTIME_FILES, app)
 
 
 def _write_json(destination: Path, value: dict[str, Any], mode: int = 0o644) -> None:
@@ -878,10 +869,7 @@ def install_image_software(
     factory_release.mkdir(mode=0o755)
     _copy_tree(payload_root / components["factoryTest"]["venv"], factory_release / ".venv")
     app = factory_release / "app"
-    app.mkdir(mode=0o755)
-    _copy_repository_tree(repository_hardware / "factory", app / "factory")
-    _copy_repository_tree(repository_hardware / "first_boot", app / "first_boot")
-    _copy_repository_tree(repository_hardware / "factory_seal", app / "factory_seal")
+    _stage_factory_app(repository_hardware, app)
     (rootfs / "opt/ecobin/factory-test/current").symlink_to(
         f"releases/{components['factoryTest']['releaseId']}"
     )
@@ -1020,6 +1008,34 @@ def _assert_repository_tree(installed: Path, source: Path) -> None:
         raise ImageSoftwareError(f"installed repository tree differs: {installed}")
 
 
+def _audit_factory_app(app: Path, repository_hardware: Path) -> None:
+    for package in FACTORY_APP_PACKAGES:
+        _assert_repository_tree(app / package, repository_hardware / package)
+    for name in FACTORY_APP_RUNTIME_FILES:
+        _assert_same_file(app / name, repository_hardware / name, 0o644)
+
+    expected_files = set(FACTORY_APP_RUNTIME_FILES)
+    for package in FACTORY_APP_PACKAGES:
+        expected_files.update(
+            f"{package}/{source.relative_to(repository_hardware / package).as_posix()}"
+            for source in _source_files(repository_hardware / package)
+        )
+    actual_files = {
+        source.relative_to(app).as_posix()
+        for source in _source_files(app)
+    }
+    if actual_files != expected_files:
+        raise ImageSoftwareError("factory application source allowlist is not exact")
+
+    expected_top_level = set(FACTORY_APP_PACKAGES)
+    expected_top_level.update(
+        PurePosixPath(name).parts[0] for name in FACTORY_APP_RUNTIME_FILES
+    )
+    actual_top_level = {entry.name for entry in app.iterdir()}
+    if actual_top_level != expected_top_level:
+        raise ImageSoftwareError("factory application top-level allowlist is not exact")
+
+
 def _audit_units(rootfs: Path, repository_hardware: Path) -> None:
     systemd = rootfs / "etc/systemd/system"
     for name in MAIN_UNITS:
@@ -1133,9 +1149,7 @@ def audit_image_software(
     )
 
     factory_release = rootfs / "opt/ecobin/factory-test/releases" / components["factoryTest"]["releaseId"]
-    _assert_repository_tree(factory_release / "app/factory", repository_hardware / "factory")
-    _assert_repository_tree(factory_release / "app/first_boot", repository_hardware / "first_boot")
-    _assert_repository_tree(factory_release / "app/factory_seal", repository_hardware / "factory_seal")
+    _audit_factory_app(factory_release / "app", repository_hardware)
     if payload_root is not None:
         _assert_tree_matches(factory_release / ".venv", payload_root / components["factoryTest"]["venv"])
     _assert_tree_matches_lock(

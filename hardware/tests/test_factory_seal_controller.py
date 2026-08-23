@@ -81,6 +81,7 @@ def _report(release_id: str) -> dict[str, object]:
             "delivery": {
                 "status": "PASSED",
                 "resultCode": "DELIVERY_SAFE_VERIFIED",
+                "operatorAreaSafeConfirmed": True,
                 "preWeightGrams": 1000,
                 "postWeightGrams": 1200,
                 "weightDeltaGrams": 200,
@@ -89,6 +90,7 @@ def _report(release_id: str) -> dict[str, object]:
             "clean": {
                 "status": "PASSED",
                 "resultCode": "CLEAN_SAFE_VERIFIED",
+                "cleanDoorConfirmed": True,
                 "preWeightGrams": 1200,
                 "postWeightGrams": 100,
                 "weightDeltaGrams": 1100,
@@ -651,6 +653,46 @@ def test_minimal_pass_report_and_wrong_local_hardware_identity_are_rejected(
     }
     assert not valid_passed_factory_report(
         report,
+        release_id="release-1",
+        hardware_config_digest="a" * 64,
+    )
+
+    missing_confirmation = _report("release-1")
+    del missing_confirmation["checks"]["delivery"][
+        "operatorAreaSafeConfirmed"
+    ]
+    assert not valid_passed_factory_report(
+        missing_confirmation,
+        release_id="release-1",
+        hardware_config_digest="a" * 64,
+    )
+
+    false_confirmation = _report("release-1")
+    false_confirmation["checks"]["delivery"][
+        "operatorAreaSafeConfirmed"
+    ] = False
+    assert not valid_passed_factory_report(
+        false_confirmation,
+        release_id="release-1",
+        hardware_config_digest="a" * 64,
+    )
+
+    missing_clean_confirmation = _report("release-1")
+    del missing_clean_confirmation["checks"]["clean"][
+        "cleanDoorConfirmed"
+    ]
+    assert not valid_passed_factory_report(
+        missing_clean_confirmation,
+        release_id="release-1",
+        hardware_config_digest="a" * 64,
+    )
+
+    false_clean_confirmation = _report("release-1")
+    false_clean_confirmation["checks"]["clean"][
+        "cleanDoorConfirmed"
+    ] = False
+    assert not valid_passed_factory_report(
+        false_clean_confirmation,
         release_id="release-1",
         hardware_config_digest="a" * 64,
     )
