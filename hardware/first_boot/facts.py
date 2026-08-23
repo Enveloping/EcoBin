@@ -30,6 +30,18 @@ _MACHINE_ID = re.compile(r"^[0-9a-f]{32}$")
 _BOOT_ID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
+# Keep first-boot's import closure independent from the acceptance executor.
+# Version 1 remains readable while acceptance_core migrates it to version 2;
+# the cross-module contract test fails if the producer versions change.
+_SUPPORTED_FACTORY_STATE_SCHEMA_VERSIONS = frozenset({1, 2})
+
+
+def _supported_factory_state_schema_version(value: object) -> bool:
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and value in _SUPPORTED_FACTORY_STATE_SCHEMA_VERSIONS
+    )
 
 
 class FactsProvider(Protocol):
@@ -232,7 +244,7 @@ class SystemFactsProvider:
         if _path_entry_exists(self._paths.factory_state) and state is None:
             return FactoryTestStatus.RECOVERY_REQUIRED, False, True, "FACTORY_STATE_INVALID"
         if isinstance(state, dict) and (
-            state.get("schemaVersion") != 1
+            not _supported_factory_state_schema_version(state.get("schemaVersion"))
             or state.get("status") not in {
                 "NOT_RUN",
                 "RUNNING",

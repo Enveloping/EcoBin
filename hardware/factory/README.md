@@ -33,7 +33,9 @@
   运行时 hostapd 配置位于 `/run/ecobin/factory-network/hostapd/hostapd.conf`，只允许
   hostapd 账号读取；dnsmasq 的配置目录由 root 控制且只读，租约写入另一个专用 `0700`
   状态目录，长驻进程既不能修改启动配置，也不能读取热点密码。
-- `ecobin-factory-ap-prepare.service` 只持有 `CAP_NET_ADMIN`；
+- `ecobin-factory-ap-prepare.service` 只持有 `CAP_CHOWN/CAP_NET_ADMIN`：准备进程先临时
+  持有 dnsmasq 的 `0700` 状态目录并原子写入租约文件，落盘后才把目录移交给专用账号，
+  因此不需要 `CAP_DAC_OVERRIDE` 或 `CAP_FOWNER`；
   `ecobin-factory-hostapd.service` 只持有 `CAP_NET_ADMIN/CAP_NET_RAW`；
   `ecobin-factory-dnsmasq.service` 只持有 `CAP_NET_BIND_SERVICE`；长驻就绪监控无任何能力。
   dnsmasq 已由 systemd 直接以目标账号启动，因此不需要 `CAP_SETUID/CAP_SETGID`。

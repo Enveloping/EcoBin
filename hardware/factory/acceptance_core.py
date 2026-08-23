@@ -1635,23 +1635,32 @@ class FactoryAcceptanceExecutor:
         report = self._report_file.read()
         if report is None:
             return
-        self._validate_report(report)
-        if (
-            report.get("status") != state.get("pendingFinalStatus")
-            or report.get("imageReleaseId") != state.get("imageReleaseId")
-            or report.get("hardwareConfigDigest")
-            != state.get("hardwareConfigDigest")
-            or report.get("bootId") != state.get("bootId")
-            or (report.get("timing") or {}).get("finishedMonotonicMs")
-            != state.get("pendingFinishedMonotonicMs")
-        ):
+        report_timing = report.get("timing")
+        state_timing = state.get("timing")
+        report_belongs_to_pending_finalization = (
+            isinstance(report_timing, dict)
+            and isinstance(state_timing, dict)
+            and report.get("status") == state.get("pendingFinalStatus")
+            and report.get("imageReleaseId") == state.get("imageReleaseId")
+            and report.get("hardwareConfigDigest")
+            == state.get("hardwareConfigDigest")
+            and report.get("bootId") == state.get("bootId")
+            and report_timing.get("startedMonotonicMs")
+            == state_timing.get("startedMonotonicMs")
+            and report_timing.get("finishedMonotonicMs")
+            == state.get("pendingFinishedMonotonicMs")
+        )
+        if not report_belongs_to_pending_finalization:
             # A restarted terminal run intentionally retains its preceding
-            # valid report until the new report is atomically committed.  If
+            # report until the new report is atomically committed.  If
             # power is lost after journaling FINALIZING_REPORT but before that
-            # replace, the old report must neither be adopted nor prevent the
-            # new finalization from being retried.  Invalid or damaged reports
-            # are still rejected by _validate_report above.
+            # replace, an older schema report may no longer pass today's
+            # validation rules.  Bind the report to the pending run before
+            # validating it so that such a stale report cannot block retry.
             return
+        # A report that claims the exact pending run is still validated
+        # strictly before it is allowed to complete the state transition.
+        self._validate_report(report)
         state["status"] = report["status"]
         state["phase"] = "COMPLETE"
         state.pop("pendingFinalStatus", None)

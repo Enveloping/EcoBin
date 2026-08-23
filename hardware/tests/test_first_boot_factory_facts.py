@@ -11,10 +11,15 @@ from first_boot.command import CommandResult
 from first_boot.facts import (
     FirstBootPaths,
     SystemFactsProvider,
+    _SUPPORTED_FACTORY_STATE_SCHEMA_VERSIONS,
     _valid_current_boot_gpio_fact,
 )
 from first_boot.model import FactoryTestStatus
 from factory.acceptance_config import AcceptanceConfiguration
+from factory.acceptance_core import (
+    LEGACY_STATE_SCHEMA_VERSION,
+    STATE_SCHEMA_VERSION,
+)
 
 
 class _NoCommands:
@@ -271,6 +276,69 @@ def test_valid_passed_report_is_bound_to_current_image(tmp_path: Path) -> None:
         False,
         "FACTORY_REPORT_INVALID",
     )
+
+
+def test_current_v2_passed_state_allows_first_boot_to_accept_report(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    paths.image_release.write_text(
+        json.dumps({"releaseId": "release-1"}), encoding="utf-8"
+    )
+    paths.hardware_config.write_text("# defaults\n", encoding="utf-8")
+    paths.machine_id.write_text("a" * 32 + "\n", encoding="ascii")
+    paths.factory_state.write_text(
+        json.dumps(
+            {
+                "schemaVersion": STATE_SCHEMA_VERSION,
+                "status": "PASSED",
+            }
+        ),
+        encoding="utf-8",
+    )
+    paths.factory_report.write_text(
+        json.dumps(_passed_report()),
+        encoding="utf-8",
+    )
+
+    facts = SystemFactsProvider(paths, runner=_NoCommands()).collect()
+
+    assert STATE_SCHEMA_VERSION == 2
+    assert _SUPPORTED_FACTORY_STATE_SCHEMA_VERSIONS == {
+        LEGACY_STATE_SCHEMA_VERSION,
+        STATE_SCHEMA_VERSION,
+    }
+    assert facts.factory_test_status is FactoryTestStatus.PASSED
+    assert facts.factory_report_valid
+    assert not facts.factory_recovery_required
+    assert facts.last_error_code != "FACTORY_STATE_INVALID"
+
+
+def test_unknown_or_non_integer_factory_state_schema_fails_closed(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+
+    for schema_version in (3, True, "2"):
+        paths.factory_state.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": schema_version,
+                    "status": "PASSED",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        assert SystemFactsProvider(
+            paths,
+            runner=_NoCommands(),
+        )._factory_facts("release-1", _digest()) == (
+            FactoryTestStatus.RECOVERY_REQUIRED,
+            False,
+            True,
+            "FACTORY_STATE_INVALID",
+        )
 
 
 def test_passed_report_is_invalid_after_hardware_config_or_mcu_identity_changes(

@@ -143,6 +143,14 @@ def _ensure_directory(path: Path, mode: int, identity: RuntimeIdentity) -> None:
     details = path.lstat()
     if not stat.S_ISDIR(details.st_mode) or stat.S_ISLNK(details.st_mode):
         raise AccessPointStartupError("factory runtime path is not a real directory")
+    if os.name == "posix":
+        # The root preparation unit deliberately has CAP_CHOWN but neither
+        # CAP_DAC_OVERRIDE nor CAP_FOWNER.  Reclaim an existing directory before
+        # chmod so an idempotent restart can safely prepare a directory that was
+        # handed to a dedicated daemon during the previous successful run.
+        preparer = _current_identity()
+        if details.st_uid != preparer.uid:
+            os.chown(path, preparer.uid, preparer.gid)
     os.chmod(path, mode)
     if os.name == "posix":
         os.chown(path, identity.uid, identity.gid)
@@ -242,13 +250,17 @@ def prepare_runtime_configuration(
 
     host_identity = hostapd_identity or _current_identity()
     dns_identity = dnsmasq_identity or _current_identity()
-    dns_config_identity = RuntimeIdentity(_current_identity().uid, dns_identity.gid)
+    preparer_identity = _current_identity()
+    dns_config_identity = RuntimeIdentity(preparer_identity.uid, dns_identity.gid)
     host_directory = runtime_directory / "hostapd"
     dns_directory = runtime_directory / "dnsmasq"
     dns_state_directory = runtime_directory / "dnsmasq-state"
     _ensure_directory(host_directory, 0o750, host_identity)
     _ensure_directory(dns_directory, 0o750, dns_config_identity)
-    _ensure_directory(dns_state_directory, 0o700, dns_identity)
+    # Keep the 0700 state directory owned by this short-lived preparer while it
+    # creates/replaces the lease file.  Only then hand the directory to dnsmasq;
+    # otherwise a capability-minimized UID 0 cannot create the mkstemp file.
+    _ensure_directory(dns_state_directory, 0o700, preparer_identity)
     _atomic_write(
         host_directory / HOSTAPD_CONFIG_PATH.name,
         render_hostapd(config, passphrase),
@@ -267,6 +279,7 @@ def prepare_runtime_configuration(
         0o600,
         dns_identity,
     )
+    _ensure_directory(dns_state_directory, 0o700, dns_identity)
     return config
 
 

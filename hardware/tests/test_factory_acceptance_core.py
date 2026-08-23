@@ -110,6 +110,13 @@ def _pass_prerequisites(
     model: VirtualFixedFrameMcu,
 ) -> None:
     _begin(executor)
+    _pass_prerequisites_after_begin(executor, model)
+
+
+def _pass_prerequisites_after_begin(
+    executor: FactoryAcceptanceExecutor,
+    model: VirtualFixedFrameMcu,
+) -> None:
     executor.check_mcu()
     _set_weight(model, 1_000)
     executor.capture_empty_weight()
@@ -1672,6 +1679,58 @@ def test_report_commit_reconciles_after_power_loss_before_state_terminal(
         assert resumed.read_report()["status"] == "PASSED"
 
 
+def test_current_pending_report_is_still_validated_before_reconciliation(
+    tmp_path: Path,
+) -> None:
+    tripped = False
+
+    def fault(point: str) -> None:
+        nonlocal tripped
+        if point == "finalize.after_report_commit" and not tripped:
+            tripped = True
+            raise PowerLoss()
+
+    executor, model, factory = _build_executor(tmp_path, fault_hook=fault)
+    with pytest.raises(PowerLoss):
+        with executor:
+            _pass_prerequisites(executor, model)
+            _pass_delivery(executor)
+            executor.run_action(
+                "CLEAN",
+                operator_area_safe_confirmed=True,
+                timeout_ms=100,
+                quiet_ms=0,
+            )
+            executor.confirm_clean_door_closed(
+                operator_confirmed=True,
+                quiet_ms=0,
+            )
+            executor.finalize()
+
+    report_file = AtomicJsonFile(_paths(tmp_path)["report_path"])
+    report = report_file.read()
+    assert report is not None
+    del report["checks"]["delivery"]["operatorAreaSafeConfirmed"]
+    report_file.write(report)
+
+    resumed, _model, _factory = _build_executor(
+        tmp_path,
+        model=model,
+        serial_factory=factory,
+    )
+    with pytest.raises(
+        AcceptanceError,
+        match="ACCEPTANCE_REPORT_DELIVERY_SAFETY_CONFIRMATION_INVALID",
+    ):
+        with resumed:
+            pass
+
+    pending_state = AtomicJsonFile(_paths(tmp_path)["state_path"]).read()
+    assert pending_state is not None
+    assert pending_state["phase"] == "FINALIZING_REPORT"
+    assert pending_state["status"] == "RUNNING"
+
+
 def test_old_report_does_not_block_retrying_new_run_finalization_after_power_loss(
     tmp_path: Path,
 ) -> None:
@@ -1772,6 +1831,113 @@ def test_old_report_does_not_block_retrying_new_run_finalization_after_power_los
         assert new_report["bootId"] == new_boot_id
         assert new_report["timing"]["finishedMonotonicMs"] == 4_000
         assert new_report != old_report
+        assert resumed.read_report() == new_report
+        assert resumed.snapshot()["status"] == "PASSED"
+        assert resumed.snapshot()["phase"] == "COMPLETE"
+
+
+def test_legacy_passed_report_is_ignored_while_retrying_new_finalization(
+    tmp_path: Path,
+) -> None:
+    now = [1.0]
+    interrupt_finalize = [False]
+
+    def fault(point: str) -> None:
+        if interrupt_finalize[0] and point == "finalize.after_state_journal":
+            interrupt_finalize[0] = False
+            raise PowerLoss()
+
+    executor, model, factory = _build_executor(
+        tmp_path,
+        fault_hook=fault,
+        executor_options={"monotonic": lambda: now[0]},
+    )
+    with executor:
+        _pass_prerequisites(executor, model)
+        _pass_delivery(executor)
+        executor.run_action(
+            "CLEAN",
+            operator_area_safe_confirmed=True,
+            timeout_ms=100,
+            quiet_ms=0,
+        )
+        executor.confirm_clean_door_closed(
+            operator_confirmed=True,
+            quiet_ms=0,
+        )
+        executor.finalize()
+
+    state_file = AtomicJsonFile(_paths(tmp_path)["state_path"])
+    report_file = AtomicJsonFile(_paths(tmp_path)["report_path"])
+    legacy_state = state_file.read()
+    legacy_report = report_file.read()
+    assert legacy_state is not None
+    assert legacy_report is not None
+    legacy_state["schemaVersion"] = 1
+    del legacy_state["checks"]["delivery"]["operatorAreaSafeConfirmed"]
+    del legacy_state["checks"]["clean"]["cleanDoorConfirmed"]
+    del legacy_report["checks"]["delivery"]["operatorAreaSafeConfirmed"]
+    del legacy_report["checks"]["clean"]["cleanDoorConfirmed"]
+    state_file.write(legacy_state)
+    report_file.write(legacy_report)
+
+    # A service restart during the same OS boot retains bootId.  The stale
+    # report must still be distinguished from the new run by its timing bind.
+    current_boot_id = "11111111-2222-3333-4444-555555555555"
+    interrupted, _model, _factory = _build_executor(
+        tmp_path,
+        model=model,
+        serial_factory=factory,
+        fault_hook=fault,
+        executor_options={"monotonic": lambda: now[0]},
+    )
+    with pytest.raises(PowerLoss):
+        with interrupted:
+            assert interrupted.snapshot()["status"] == "FAILED"
+            now[0] = 2.0
+            interrupted.begin_run(
+                image_release_id="ecobin-zero3-1.0.0",
+                boot_id=current_boot_id,
+                wall_time_trusted=False,
+                hardware_config_digest="a" * 64,
+                restart_terminal=True,
+            )
+            _pass_prerequisites_after_begin(interrupted, model)
+            _pass_delivery(interrupted)
+            interrupted.run_action(
+                "CLEAN",
+                operator_area_safe_confirmed=True,
+                timeout_ms=100,
+                quiet_ms=0,
+            )
+            interrupted.confirm_clean_door_closed(
+                operator_confirmed=True,
+                quiet_ms=0,
+            )
+            now[0] = 3.0
+            interrupt_finalize[0] = True
+            interrupted.finalize()
+
+    resumed, _model, _factory = _build_executor(
+        tmp_path,
+        model=model,
+        serial_factory=factory,
+        executor_options={"monotonic": lambda: now[0]},
+    )
+    with resumed:
+        pending = resumed.snapshot()
+        assert pending["status"] == "RUNNING"
+        assert pending["phase"] == "FINALIZING_REPORT"
+        assert pending["pendingFinalStatus"] == "PASSED"
+        assert report_file.read() == legacy_report
+
+        now[0] = 4.0
+        new_report = resumed.finalize()
+
+        assert new_report["status"] == "PASSED"
+        assert new_report["bootId"] == legacy_report["bootId"] == current_boot_id
+        assert new_report["timing"]["startedMonotonicMs"] == 2_000
+        assert legacy_report["timing"]["startedMonotonicMs"] == 1_000
         assert resumed.read_report() == new_report
         assert resumed.snapshot()["status"] == "PASSED"
         assert resumed.snapshot()["phase"] == "COMPLETE"

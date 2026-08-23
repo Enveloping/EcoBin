@@ -8,8 +8,10 @@ import subprocess
 
 import pytest
 
+import factory.ap_supervisor as ap_supervisor
 from factory.ap_supervisor import (
     AccessPointStartupError,
+    RuntimeIdentity,
     access_point_is_ready,
     assert_factory_ap_projection_allowed,
     assert_factory_unsealed,
@@ -79,6 +81,98 @@ def test_runtime_configuration_can_be_replaced_idempotently(tmp_path: Path) -> N
     assert (runtime / "hostapd" / "hostapd.conf").read_text(encoding="utf-8").count(
         "wpa_passphrase="
     ) == 1
+
+
+def test_dnsmasq_state_is_written_before_ownership_is_handed_to_daemon(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    machine_id = tmp_path / "machine-id"
+    release = tmp_path / "image-release.json"
+    setup_key = tmp_path / "setup-ap.key"
+    runtime = tmp_path / "run"
+    machine_id.write_text("0123456789abcdef0123456789abcdef\n", encoding="ascii")
+    release.write_text(json.dumps({"releaseId": "release-a"}), encoding="utf-8")
+    setup_key.write_text("Factory-Only-42\n", encoding="ascii")
+    os.chmod(setup_key, 0o600)
+
+    preparer = RuntimeIdentity(0, 0)
+    hostapd = RuntimeIdentity(0, 220)
+    dnsmasq = RuntimeIdentity(221, 221)
+    owners: dict[Path, RuntimeIdentity] = {}
+    events: list[tuple[str, str, RuntimeIdentity]] = []
+
+    def ensure_directory(path: Path, mode: int, identity: RuntimeIdentity) -> None:
+        assert mode in (0o700, 0o750)
+        owners[path] = identity
+        events.append(("directory", path.name, identity))
+
+    def atomic_write(
+        path: Path,
+        content: str,
+        mode: int,
+        identity: RuntimeIdentity,
+    ) -> None:
+        if path.name == "dnsmasq.leases":
+            # This models the kernel DAC check for mkstemp in the 0700 parent.
+            # The oneshot owns no CAP_DAC_OVERRIDE, so it must still own the
+            # directory at the instant the lease file is created.
+            assert owners[path.parent] == preparer
+        assert isinstance(content, str)
+        assert mode in (0o600, 0o640)
+        events.append(("write", path.name, identity))
+
+    monkeypatch.setattr(ap_supervisor, "_current_identity", lambda: preparer)
+    monkeypatch.setattr(ap_supervisor, "_ensure_directory", ensure_directory)
+    monkeypatch.setattr(ap_supervisor, "_atomic_write", atomic_write)
+
+    prepare_runtime_configuration(
+        machine_id_path=machine_id,
+        image_release_path=release,
+        setup_ap_key_path=setup_key,
+        runtime_directory=runtime,
+        hostapd_identity=hostapd,
+        dnsmasq_identity=dnsmasq,
+    )
+
+    state_directory = runtime / "dnsmasq-state"
+    assert owners[state_directory] == dnsmasq
+    assert events[-2:] == [
+        ("write", "dnsmasq.leases", dnsmasq),
+        ("directory", "dnsmasq-state", dnsmasq),
+    ]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX ownership ordering only")
+def test_existing_daemon_directory_is_reclaimed_before_chmod(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / "dnsmasq-state"
+    directory.mkdir()
+    existing_uid = directory.stat().st_uid
+    preparer = RuntimeIdentity(existing_uid + 1, 900)
+    events: list[tuple[str, int, int] | tuple[str, int]] = []
+
+    monkeypatch.setattr(ap_supervisor, "_current_identity", lambda: preparer)
+    monkeypatch.setattr(
+        ap_supervisor.os,
+        "chown",
+        lambda path, uid, gid: events.append(("chown", uid, gid)),
+    )
+    monkeypatch.setattr(
+        ap_supervisor.os,
+        "chmod",
+        lambda path, mode: events.append(("chmod", mode)),
+    )
+
+    ap_supervisor._ensure_directory(directory, 0o700, preparer)
+
+    assert events == [
+        ("chown", preparer.uid, preparer.gid),
+        ("chmod", 0o700),
+        ("chown", preparer.uid, preparer.gid),
+    ]
 
 
 def test_existing_seal_marker_fails_instead_of_skipping_factory_start(
