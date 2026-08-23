@@ -34,4 +34,10 @@ class ReliableTaskResumptionPolicyTest {
         assertTrue(ReliableTaskResumptionPolicy.supported(
                 "DEVICE", "SAMPLE_FULLNESS"));
     }
+
+    @Test
+    void factorySealAuthorizationUsesTheGenericSafeResumptionPath() {
+        assertTrue(ReliableTaskResumptionPolicy.supported(
+                "DEVICE", "AUTHORIZE_FACTORY_SEAL"));
+    }
 }
