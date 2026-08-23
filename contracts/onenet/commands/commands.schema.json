@@ -13,6 +13,7 @@
     { "$ref": "#/$defs/confirmEdgeEventCommand" },
     { "$ref": "#/$defs/providePhotoUploadGrantCommand" },
     { "$ref": "#/$defs/requestDeviceAcceptanceCommand" },
+    { "$ref": "#/$defs/authorizeFactorySealCommand" },
     { "$ref": "#/$defs/syncDeviceEntryUrlCommand" },
     { "$ref": "#/$defs/startMcuFirmwareUpdateCommand" },
     { "$ref": "#/$defs/openRemoteSupportTunnelCommand" },
@@ -667,6 +668,48 @@
         }
       }
     },
+    "authorizeFactorySealPayload": {
+      "type": "object",
+      "required": [
+        "sealAuthorizationSchemaVersion",
+        "hardwareSn",
+        "acceptanceGeneration",
+        "acceptanceEvidenceUid",
+        "acceptanceChallengeUid",
+        "acceptanceEvidenceSha256",
+        "factoryBagRevision",
+        "factoryBagSetSha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sealAuthorizationSchemaVersion": { "const": 1 },
+        "hardwareSn": {
+          "$ref": "../common.schema.json#/$defs/deviceName"
+        },
+        "acceptanceGeneration": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "acceptanceEvidenceUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "acceptanceChallengeUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "acceptanceEvidenceSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "factoryBagRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "factoryBagSetSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        }
+      }
+    },
     "syncDeviceEntryUrlPayload": {
       "type": "object",
       "required": [
@@ -1013,6 +1056,36 @@
             "cosGrant": {
               "$ref": "../common.schema.json#/$defs/cosGrant"
             }
+          }
+        }
+      ]
+    },
+    "authorizeFactorySealCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "AUTHORIZE_FACTORY_SEAL" },
+            "expiresAt": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/utcInstant" }
+              ],
+              "description": "Deadline for this device's first reliable acceptance. Once the exact command is durably accepted, queueing, restart recovery, and identical redelivery continue against the original receipt fact; this is not an execution deadline."
+            },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DEVICE_ASSET" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/authorizeFactorySealPayload"
+            },
+            "cosGrant": { "type": "null" }
           }
         }
       ]

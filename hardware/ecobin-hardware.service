@@ -1,22 +1,32 @@
 [Unit]
 Description=EcoBin Orange Pi hardware gateway
 Wants=network-online.target ecobin-remote-support.service
-Requires=ecobin-enrollment.service
-After=network-online.target ecobin-enrollment.service ecobin-remote-support.service
+Requires=ecobin-mcu-safe-gpio.service ecobin-enrollment.service
+After=network-online.target ecobin-mcu-safe-gpio.service ecobin-enrollment.service ecobin-remote-support.service
 ConditionPathExists=/etc/ecobin/device-credentials.json
 StartLimitIntervalSec=0
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
 User=root
-WorkingDirectory=/root/EcoBin/hardware
-ExecStart=/root/EcoBin/hardware/.venv/bin/python /root/EcoBin/hardware/main.py
+WorkingDirectory=/opt/ecobin/hardware/current/app
+EnvironmentFile=/etc/ecobin/hardware.env
+EnvironmentFile=/opt/ecobin/hardware/current/release.env
+ExecStartPre=/usr/bin/python3 /usr/lib/ecobin/mcu_safe_gpio.py --gpio-path /usr/bin/gpio
+ExecStart=/opt/ecobin/hardware/current/.venv/bin/python /opt/ecobin/hardware/current/app/main.py
 Restart=always
 RestartSec=5
+TimeoutStartSec=180
 KillSignal=SIGTERM
 TimeoutStopSec=15
+Environment=ECOBIN_CONFIG_MODE=production
 Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
 UMask=0077
+LimitCORE=0
+StateDirectory=ecobin/hardware
+StateDirectoryMode=0700
 
 [Install]
 WantedBy=multi-user.target

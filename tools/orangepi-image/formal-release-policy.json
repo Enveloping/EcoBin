@@ -1,0 +1,24 @@
+{
+  "$schema": "./schemas/formal-release-policy.schema.json",
+  "schemaVersion": 1,
+  "lockState": "UNLOCKED",
+  "reason": "Formal build-attestation, seal-evidence and release-signing public-key fingerprints must be provisioned on independently controlled factory tooling before production release.",
+  "rootfsQualification": {
+    "state": "UNQUALIFIED",
+    "method": null,
+    "evidenceSha256": null
+  },
+  "builderReceipts": [],
+  "buildAttestation": {
+    "keyId": null,
+    "publicKeySha256": null
+  },
+  "sealEvidence": {
+    "keyId": null,
+    "publicKeySha256": null
+  },
+  "releaseSigning": {
+    "keyId": null,
+    "publicKeySha256": null
+  }
+}

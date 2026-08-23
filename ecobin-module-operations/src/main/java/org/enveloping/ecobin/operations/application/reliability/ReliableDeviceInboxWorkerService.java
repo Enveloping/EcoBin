@@ -34,6 +34,8 @@ public class ReliableDeviceInboxWorkerService
             "DEVICE_FAULT_OBSERVED",
             "DEVICE_FAULT_RECOVERED",
             "SAFETY_SENSOR_STATE_CHANGED",
+            "DEVICE_COMMAND_OBSERVED",
+            "FACTORY_SEAL_COMPLETED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
             "MCU_FIRMWARE_UPDATE_PROGRESS");
 

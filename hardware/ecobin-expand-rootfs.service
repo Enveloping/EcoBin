@@ -1,0 +1,27 @@
+[Unit]
+Description=EcoBin idempotent qualified root filesystem expansion
+Documentation=file:/usr/share/ecobin/image-layout.json
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target ecobin-first-boot.service
+ConditionPathIsReadWrite=/
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/lib/ecobin/expand-rootfs.sh --layout /usr/share/ecobin/image-layout.json
+RemainAfterExit=yes
+TimeoutStartSec=180
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectKernelLogs=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes

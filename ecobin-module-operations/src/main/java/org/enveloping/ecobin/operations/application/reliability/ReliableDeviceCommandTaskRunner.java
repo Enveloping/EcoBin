@@ -84,7 +84,11 @@ public class ReliableDeviceCommandTaskRunner
              MDC.MDCCloseable ignoredDevice = MDC.putCloseable(
                      "hardwareSn", claim.hardwareSn())) {
             // 这是外部不可逆边界的本地证据，必须早于网络调用落库。
-            attemptService.markExternalCallMayHaveStarted(claim);
+            if (attemptService.prepareExternalCall(claim)
+                    == ReliableDeviceCommandAttemptService
+                            .DispatchPreparation.NO_SUBMISSION) {
+                return true;
+            }
             try {
                 result = submissionPort.submit(claim.submission());
             } catch (RuntimeException failure) {

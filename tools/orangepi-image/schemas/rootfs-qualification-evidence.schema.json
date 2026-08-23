@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://www.jinshoubao.com/schemas/orangepi/rootfs-qualification-evidence-v1.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "artifactClass", "method", "imageLayoutSha256", "sourceGeometry", "builderDigest", "e2fsprogsVersion", "verification"],
+  "properties": {
+    "schemaVersion": {"const": 1}, "artifactClass": {"const": "DETERMINISTIC_EXT4_ROOTFS_QUALIFICATION"},
+    "method": {"const": "DETERMINISTIC_EXT4_REBUILD_V1"}, "imageLayoutSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sourceGeometry": {"type": "object"}, "builderDigest": {"type": "string"}, "e2fsprogsVersion": {"type": "string"},
+    "verification": {"type": "object"}
+  }
+}

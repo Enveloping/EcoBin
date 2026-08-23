@@ -1,0 +1,20 @@
+[Unit]
+Description=EcoBin fail-safe MCU BOOT0 and open-drain reset gate
+RequiresMountsFor=/usr/lib/ecobin /usr/bin/gpio
+After=local-fs.target
+Before=network-pre.target ecobin-enrollment.service ecobin-hardware.service
+
+[Service]
+Type=oneshot
+User=root
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /usr/lib/ecobin/mcu_safe_gpio.py --gpio-path /usr/bin/gpio --fact-path /run/ecobin/mcu-safe-gpio/boot-safe.json --boot-id-path /proc/sys/kernel/random/boot_id
+TimeoutStartSec=15
+UMask=0077
+RuntimeDirectory=ecobin/mcu-safe-gpio
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target

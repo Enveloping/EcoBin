@@ -28,6 +28,7 @@ COMMAND_IDENTIFIERS = {
     "confirmEdgeEvent": "CONFIRM_EDGE_EVENT",
     "providePhotoUploadGrant": "PROVIDE_PHOTO_UPLOAD_GRANT",
     "requestDeviceAcceptance": "REQUEST_DEVICE_ACCEPTANCE",
+    "authorizeFactorySeal": "AUTHORIZE_FACTORY_SEAL",
     "syncDeviceEntryUrl": "SYNC_DEVICE_ENTRY_URL",
     "startMcuFirmwareUpdate": "START_MCU_FIRMWARE_UPDATE",
     "openRemoteSupportTunnel": "OPEN_REMOTE_SUPPORT_TUNNEL",
@@ -187,6 +188,52 @@ def validate_command_envelope(
 ) -> None:
     """Validate stable command facts before reliable inbox acceptance."""
 
+    _validate_command_envelope(
+        command,
+        trusted_environment=trusted_environment,
+        expiry_reference_time=datetime.now(timezone.utc),
+    )
+
+
+def validate_factory_seal_envelope_at_acceptance(
+    command: dict[str, Any],
+    acceptance_time: datetime,
+) -> None:
+    """Validate a factory-seal command at its durable acceptance instant.
+
+    ``expiresAt`` is the deadline for the device's first reliable acceptance
+    of this non-physical authorization.  EdgeStore is the only runtime caller:
+    it supplies either the instant it is about to persist, or the immutable
+    ``command_inbox.received_at`` fact for an exact duplicate / later claim.
+    The ordinary validator intentionally has no caller-selectable clock so a
+    command cannot carry or inject an old timestamp to bypass expiry.
+    """
+
+    if command.get("commandType") != "AUTHORIZE_FACTORY_SEAL":
+        raise ValueError(
+            "persisted acceptance time is only valid for factory seal"
+        )
+    if (
+        not isinstance(acceptance_time, datetime)
+        or acceptance_time.tzinfo is None
+        or acceptance_time.utcoffset() is None
+    ):
+        raise ValueError("factory seal acceptance time must be timezone-aware")
+    _validate_command_envelope(
+        command,
+        trusted_environment=None,
+        expiry_reference_time=acceptance_time.astimezone(timezone.utc),
+    )
+
+
+def _validate_command_envelope(
+    command: dict[str, Any],
+    *,
+    trusted_environment: dict[str, str] | None,
+    expiry_reference_time: datetime,
+) -> None:
+    """Shared validator with an internally selected expiry reference."""
+
     if command.get("schemaVersion") != 2:
         raise ValueError("unsupported schemaVersion")
     if command.get("payloadSchemaVersion") != 2:
@@ -211,7 +258,7 @@ def validate_command_envelope(
         raise ValueError("payloadSha256 mismatch")
     _parse_utc_instant(command.get("issuedAt"), "issuedAt")
     expires_at = _parse_utc_instant(command.get("expiresAt"), "expiresAt")
-    if expires_at <= datetime.now(timezone.utc):
+    if expires_at <= expiry_reference_time:
         raise ValueError("command expired")
     _validate_command_target(command)
     if command_type == "APPLY_CONFIGURATION":
@@ -228,6 +275,8 @@ def validate_command_envelope(
             command,
             trusted_environment=trusted_environment,
         )
+    elif command_type == "AUTHORIZE_FACTORY_SEAL":
+        _validate_authorize_factory_seal(command)
     elif command_type == "SYNC_DEVICE_ENTRY_URL":
         _validate_device_entry_url_payload(command["payload"])
     elif command_type == "OPEN_REMOTE_SUPPORT_TUNNEL":
@@ -315,6 +364,7 @@ def _validate_command_target(command: dict[str, Any]) -> None:
     }
     if command_type in {
         "REQUEST_DEVICE_ACCEPTANCE",
+        "AUTHORIZE_FACTORY_SEAL",
         "SYNC_DEVICE_ENTRY_URL",
     }:
         if command_type == "REQUEST_DEVICE_ACCEPTANCE":
@@ -590,6 +640,49 @@ def _validate_device_acceptance_command(
         work_uid=challenge_uid,
         trusted_environment=trusted_environment,
     )
+
+
+def _validate_authorize_factory_seal(command: dict[str, Any]) -> None:
+    payload = command["payload"]
+    required = {
+        "sealAuthorizationSchemaVersion",
+        "hardwareSn",
+        "acceptanceGeneration",
+        "acceptanceEvidenceUid",
+        "acceptanceChallengeUid",
+        "acceptanceEvidenceSha256",
+        "factoryBagRevision",
+        "factoryBagSetSha256",
+    }
+    if set(payload) != required:
+        raise ValueError("factory seal payload fields are invalid")
+    if payload["sealAuthorizationSchemaVersion"] != 1:
+        raise ValueError("factory seal schema is unsupported")
+    if payload["hardwareSn"] != command["targetDeviceName"]:
+        raise ValueError("factory seal hardware identity mismatch")
+    generation = payload["acceptanceGeneration"]
+    bag_revision = payload["factoryBagRevision"]
+    if (
+        not isinstance(generation, int)
+        or isinstance(generation, bool)
+        or not 1 <= generation <= 9_007_199_254_740_991
+        or not isinstance(bag_revision, int)
+        or isinstance(bag_revision, bool)
+        or not 0 <= bag_revision <= 9_007_199_254_740_991
+    ):
+        raise ValueError("factory seal generation is invalid")
+    _require_uuid4(payload["acceptanceEvidenceUid"], "acceptanceEvidenceUid")
+    _require_uuid4(
+        payload["acceptanceChallengeUid"],
+        "acceptanceChallengeUid",
+    )
+    if (
+        not _is_sha256(payload["acceptanceEvidenceSha256"])
+        or not _is_sha256(payload["factoryBagSetSha256"])
+    ):
+        raise ValueError("factory seal digest is invalid")
+    if command.get("cosGrant") is not None:
+        raise ValueError("factory seal command must not carry COS authority")
 
 
 def _validate_device_entry_url_payload(payload: dict[str, Any]) -> None:
@@ -1191,6 +1284,23 @@ def _extract_payload(identifier: str, scalars: dict[str, Any],
             "deviceEntryUrl": scalars.get("deviceEntryUrl"),
             "deviceEntryUrlSha256": scalars.get("deviceEntryUrlSha256"),
         }
+    if identifier == "authorizeFactorySeal":
+        return {
+            "sealAuthorizationSchemaVersion": scalars.get(
+                "sealAuthorizationSchemaVersion"
+            ),
+            "hardwareSn": scalars.get("hardwareSn"),
+            "acceptanceGeneration": scalars.get("acceptanceGeneration"),
+            "acceptanceEvidenceUid": scalars.get("acceptanceEvidenceUid"),
+            "acceptanceChallengeUid": scalars.get(
+                "acceptanceChallengeUid"
+            ),
+            "acceptanceEvidenceSha256": scalars.get(
+                "acceptanceEvidenceSha256"
+            ),
+            "factoryBagRevision": scalars.get("factoryBagRevision"),
+            "factoryBagSetSha256": scalars.get("factoryBagSetSha256"),
+        }
     if identifier == "syncDeviceEntryUrl":
         return {
             "deviceEntryUrl": scalars.get("deviceEntryUrl"),
@@ -1295,6 +1405,7 @@ def _target_type_for_command(command_type: str, wire_value: Any) -> str:
         "CONFIRM_EDGE_EVENT": "EDGE_EVENT",
         "PROVIDE_PHOTO_UPLOAD_GRANT": "PHOTO_GRANT_REQUEST",
         "REQUEST_DEVICE_ACCEPTANCE": "DEVICE_ASSET",
+        "AUTHORIZE_FACTORY_SEAL": "DEVICE_ASSET",
         "SYNC_DEVICE_ENTRY_URL": "DEVICE_ASSET",
         "OPEN_REMOTE_SUPPORT_TUNNEL": "REMOTE_SUPPORT_SESSION",
         "CLOSE_REMOTE_SUPPORT_TUNNEL": "REMOTE_SUPPORT_SESSION",

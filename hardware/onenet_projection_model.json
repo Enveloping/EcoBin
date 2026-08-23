@@ -1,5 +1,6 @@
 {
   "enumDisplay": {
+    "AUTHORIZE_FACTORY_SEAL": "AUTHORIZE_SEAL",
     "AVAILABLE_SAMPLES_MEAN": "AVAIL_SAMPLES_MEAN",
     "BASELINE_MEASUREMENT": "BASELINE_MEAS",
     "BASELINE_MEASUREMENT_COMPLETE": "BASELINE_MEAS_DONE",
@@ -20,6 +21,7 @@
     "DEVICE_FAULT_RECOVERED": "DEV_FAULT_RECOVERED",
     "DEVICE_RUNTIME_SNAPSHOT": "DEV_RUNTIME_SNAP",
     "END_CLEAN_BEFORE_UNLOCK": "END_CLEAN_PRE_UNLOCK",
+    "FACTORY_SEAL_COMPLETED": "FACTORY_SEAL_DONE",
     "FIXED_FRAME_CACHED_FINAL_OBSERVATION": "FIXED_FRAME_CACHED",
     "FULLNESS_SAMPLE_COMPLETE": "FULLNESS_SAMPLE_DONE",
     "FULLNESS_SENSOR_DIAGNOSTIC": "FULLNESS_DIAGNOSTIC",
@@ -4065,7 +4067,8 @@
               "3": "END_CLEAN_PRE_UNLOCK",
               "4": "RESUME_CLEAN_OPT",
               "5": "SAMPLE_FULLNESS",
-              "6": "MEAS_BAG_BASELINE"
+              "6": "MEAS_BAG_BASELINE",
+              "7": "AUTHORIZE_SEAL"
             },
             "type": "enum"
           },
@@ -6066,6 +6069,457 @@
           "jsonPath": "$.payload.ports",
           "nullable": false,
           "wireIdentifier": "ports"
+        }
+      ]
+    },
+    "factorySealCompleted": {
+      "eventType": "FACTORY_SEAL_COMPLETED",
+      "outputData": [
+        {
+          "dataType": {
+            "specs": {
+              "1": "2"
+            },
+            "type": "enum"
+          },
+          "identifier": "schemaVersion",
+          "name": "schemaVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "eventUid",
+          "name": "eventUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "9007199254740991",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "edgeEventSequence",
+          "name": "edgeEventSequence"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "FACTORY_SEAL_DONE"
+            },
+            "type": "enum"
+          },
+          "identifier": "eventType",
+          "name": "eventType"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "RELIABLE_FACT"
+            },
+            "type": "enum"
+          },
+          "identifier": "deliveryClass",
+          "name": "deliveryClass"
+        },
+        {
+          "dataType": {
+            "specs": [
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "DEVICE_ASSET"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "type",
+                "name": "type"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 64
+                  },
+                  "type": "string"
+                },
+                "identifier": "uid",
+                "name": "uid"
+              }
+            ],
+            "type": "struct"
+          },
+          "identifier": "target",
+          "name": "target"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "commandUid",
+          "name": "commandUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 30
+            },
+            "type": "string"
+          },
+          "identifier": "occurredAt",
+          "name": "occurredAt"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "SYNCED"
+            },
+            "type": "enum"
+          },
+          "identifier": "clockQuality",
+          "name": "clockQuality"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "payloadSha256",
+          "name": "payloadSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "1"
+            },
+            "type": "enum"
+          },
+          "identifier": "sealCompletionSchemaVersion",
+          "name": "sealCompletionSchemaVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "hardwareSn",
+          "name": "hardwareSn"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "authorizationCommandUid",
+          "name": "authorizationCommandUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "9007199254740991",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "acceptanceGeneration",
+          "name": "acceptanceGeneration"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "acceptanceEvidenceUid",
+          "name": "acceptanceEvidenceUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "acceptanceEvidenceSha256",
+          "name": "acceptanceEvidenceSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "acceptanceChallengeUid",
+          "name": "acceptanceChallengeUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "9007199254740991",
+              "min": "0",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "factoryBagRevision",
+          "name": "factoryBagRevision"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "factoryBagSetSha256",
+          "name": "factoryBagSetSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 128
+            },
+            "type": "string"
+          },
+          "identifier": "imageReleaseId",
+          "name": "imageReleaseId"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "imageReleaseSha256",
+          "name": "imageReleaseSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "factoryReportSha256",
+          "name": "factoryReportSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "authorizationBindingSha256",
+          "name": "authorizationBindingSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "operatorConfirmationUid",
+          "name": "operatorConfirmationUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 30
+            },
+            "type": "string"
+          },
+          "identifier": "sealedAt",
+          "name": "sealedAt"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 30
+            },
+            "type": "string"
+          },
+          "identifier": "cleanupCompletedAt",
+          "name": "cleanupCompletedAt"
+        }
+      ],
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": false,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sealCompletionSchemaVersion",
+          "nullable": false,
+          "wireIdentifier": "sealCompletionSchemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.hardwareSn",
+          "nullable": false,
+          "wireIdentifier": "hardwareSn"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.authorizationCommandUid",
+          "nullable": false,
+          "wireIdentifier": "authorizationCommandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.acceptanceGeneration",
+          "nullable": false,
+          "wireIdentifier": "acceptanceGeneration"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.acceptanceEvidenceUid",
+          "nullable": false,
+          "wireIdentifier": "acceptanceEvidenceUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.acceptanceEvidenceSha256",
+          "nullable": false,
+          "wireIdentifier": "acceptanceEvidenceSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.acceptanceChallengeUid",
+          "nullable": false,
+          "wireIdentifier": "acceptanceChallengeUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.factoryBagRevision",
+          "nullable": false,
+          "wireIdentifier": "factoryBagRevision"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.factoryBagSetSha256",
+          "nullable": false,
+          "wireIdentifier": "factoryBagSetSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.imageReleaseId",
+          "nullable": false,
+          "wireIdentifier": "imageReleaseId"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.imageReleaseSha256",
+          "nullable": false,
+          "wireIdentifier": "imageReleaseSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.factoryReportSha256",
+          "nullable": false,
+          "wireIdentifier": "factoryReportSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.authorizationBindingSha256",
+          "nullable": false,
+          "wireIdentifier": "authorizationBindingSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.operatorConfirmationUid",
+          "nullable": false,
+          "wireIdentifier": "operatorConfirmationUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sealedAt",
+          "nullable": false,
+          "wireIdentifier": "sealedAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.cleanupCompletedAt",
+          "nullable": false,
+          "wireIdentifier": "cleanupCompletedAt"
         }
       ]
     },

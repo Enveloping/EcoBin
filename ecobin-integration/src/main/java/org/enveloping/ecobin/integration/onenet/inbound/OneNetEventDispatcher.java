@@ -140,7 +140,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             new EventContract(
                     "MCU_FIRMWARE_UPDATE_PROGRESS",
                     "RELIABLE_FACT",
-                    "MCU_FIRMWARE_DEPLOYMENT")));
+                    "MCU_FIRMWARE_DEPLOYMENT")),
+            Map.entry("factorySealCompleted",
+            new EventContract(
+                    "FACTORY_SEAL_COMPLETED",
+                    "RELIABLE_FACT",
+                    "DEVICE_ASSET")));
 
     private static final Map<Long, String> CLOCK_QUALITY = Map.of(
             1L, "SYNCED",
@@ -240,7 +245,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             "DEVICE_FAULT_RECOVERED",
             "SAFETY_SENSOR_STATE_CHANGED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
-            "MCU_FIRMWARE_UPDATE_PROGRESS");
+            "MCU_FIRMWARE_UPDATE_PROGRESS",
+            "FACTORY_SEAL_COMPLETED");
 
     private final TrustedInboxPort trustedInboxPort;
     private final TrustedDeviceSourceScopePort sourceScopePort;
@@ -490,7 +496,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 // 外层 Pulsar 消费者才确认传输消息，避免“先 ACK、后端宕机、事实丢失”。
                 TrustedInboxReceipt receipt = trustedInboxPort.receive(
                         new TrustedInboxMessage(
-                            sourceNamespace(contract),
+                            sourceNamespace(contract, payload),
                             OneNetCanonicalJson.stablePrincipalKey(
                                     productId, hardwareSn),
                             eventUid.toString(),
@@ -561,9 +567,17 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             String hardwareSn,
             Map<String, Object> event,
             Map<String, Object> payload) {
+        if ("DEVICE_COMMAND_OBSERVED".equals(
+                contract.messageKind())
+                && "AUTHORIZE_FACTORY_SEAL".equals(
+                payload.get("observedCommandType"))) {
+            return sourceScopePort.resolverForPlatformAsset(hardwareSn);
+        }
         if ("DEVICE_ACCEPTANCE_EVIDENCE".equals(
                 contract.messageKind())
                 || "REMOTE_SUPPORT_TUNNEL_STATUS".equals(
+                        contract.messageKind())
+                || "FACTORY_SEAL_COMPLETED".equals(
                         contract.messageKind())
                 || "MCU_FIRMWARE_UPDATE_PROGRESS".equals(
                         contract.messageKind())) {
@@ -584,14 +598,23 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         return sourceScopePort.resolverForOrganizationAsset(hardwareSn);
     }
 
-    private static String sourceNamespace(EventContract contract) {
+    private static String sourceNamespace(
+            EventContract contract,
+            Map<String, Object> payload) {
         // 远程维护状态属于平台控制事实。独立的稳定来源身份既隔离权限边界，也允许
         // 已按旧规则错误落入机构作用域的不可变收件记录通过重传安全收敛。
         return switch (contract.messageKind()) {
+            case "DEVICE_COMMAND_OBSERVED" ->
+                    "AUTHORIZE_FACTORY_SEAL".equals(
+                            payload.get("observedCommandType"))
+                            ? "onenet.factory-seal-observation"
+                            : "onenet.device-event";
             case "REMOTE_SUPPORT_TUNNEL_STATUS" ->
                     "onenet.remote-support-status";
             case "MCU_FIRMWARE_UPDATE_PROGRESS" ->
                     "onenet.mcu-firmware-progress";
+            case "FACTORY_SEAL_COMPLETED" ->
+                    "onenet.factory-seal-completion";
             default -> "onenet.device-event";
         };
     }
@@ -666,7 +689,9 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         event.put(
                 "commandUid",
                 commandUid(contract.messageKind(), wire));
-        event.put("occurredAt", occurredAt(wire));
+        event.put(
+                "occurredAt",
+                occurredAt(contract.messageKind(), wire));
         event.put(
                 "clockQuality",
                 enumText(
@@ -735,7 +760,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 || "DEVICE_ACCEPTANCE_EVIDENCE".equals(
                 messageKind)
                 || "REMOTE_SUPPORT_TUNNEL_STATUS".equals(
-                messageKind)) {
+                messageKind)
+                || "FACTORY_SEAL_COMPLETED".equals(messageKind)) {
             return pattern(wire, "commandUid", UUID_V4);
         }
         return nullablePresenceText(
@@ -790,6 +816,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     remoteSupportStatusPayload(wire);
             case "MCU_FIRMWARE_UPDATE_PROGRESS" ->
                     mcuFirmwareProgressPayload(wire);
+            case "FACTORY_SEAL_COMPLETED" ->
+                    factorySealCompletedPayload(wire);
             default -> throw permanent(
                     "unsupported trusted event payload");
         };
@@ -858,7 +886,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                                 3L, "END_CLEAN_BEFORE_UNLOCK",
                                 4L, "RESUME_CLEAN_OPERATION",
                                 5L, "SAMPLE_FULLNESS",
-                                6L, "MEASURE_EMPTY_BAG_BASELINE"),
+                                6L, "MEASURE_EMPTY_BAG_BASELINE",
+                                7L, "AUTHORIZE_FACTORY_SEAL"),
                         "observedCommandType"));
         String stage = enumText(
                 integer(wire, "stage"),
@@ -2690,6 +2719,89 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         return payload;
     }
 
+    private static Map<String, Object> factorySealCompletedPayload(
+            JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(
+                "sealCompletionSchemaVersion",
+                exactEnum(
+                        wire, "sealCompletionSchemaVersion", 1, 1L));
+        payload.put("hardwareSn", text(wire, "hardwareSn", 64));
+        payload.put(
+                "authorizationCommandUid",
+                pattern(wire, "authorizationCommandUid", UUID_V4));
+        payload.put(
+                "acceptanceGeneration",
+                positiveSafeInteger(wire, "acceptanceGeneration"));
+        payload.put(
+                "acceptanceEvidenceUid",
+                pattern(wire, "acceptanceEvidenceUid", UUID_V4));
+        payload.put(
+                "acceptanceEvidenceSha256",
+                pattern(wire, "acceptanceEvidenceSha256", SHA256));
+        payload.put(
+                "acceptanceChallengeUid",
+                pattern(wire, "acceptanceChallengeUid", UUID_V4));
+        payload.put(
+                "factoryBagRevision",
+                nonNegativeSafeInteger(wire, "factoryBagRevision"));
+        payload.put(
+                "factoryBagSetSha256",
+                pattern(wire, "factoryBagSetSha256", SHA256));
+        payload.put(
+                "imageReleaseId",
+                pattern(wire, "imageReleaseId", "^[\\x21-\\x7e]{1,128}$"));
+        payload.put(
+                "imageReleaseSha256",
+                pattern(wire, "imageReleaseSha256", SHA256));
+        payload.put(
+                "factoryReportSha256",
+                pattern(wire, "factoryReportSha256", SHA256));
+        payload.put(
+                "authorizationBindingSha256",
+                pattern(wire, "authorizationBindingSha256", SHA256));
+        payload.put(
+                "operatorConfirmationUid",
+                pattern(wire, "operatorConfirmationUid", UUID_V4));
+        payload.put("sealedAt", requiredUtcInstant(wire, "sealedAt"));
+        payload.put(
+                "cleanupCompletedAt",
+                requiredUtcInstant(wire, "cleanupCompletedAt"));
+        Map<String, Object> binding = new LinkedHashMap<>();
+        binding.put("commandUid", payload.get("authorizationCommandUid"));
+        binding.put("hardwareSn", payload.get("hardwareSn"));
+        binding.put(
+                "acceptanceGeneration",
+                payload.get("acceptanceGeneration"));
+        binding.put(
+                "acceptanceEvidenceUid",
+                payload.get("acceptanceEvidenceUid"));
+        binding.put(
+                "acceptanceChallengeUid",
+                payload.get("acceptanceChallengeUid"));
+        binding.put(
+                "acceptanceEvidenceSha256",
+                payload.get("acceptanceEvidenceSha256"));
+        binding.put("factoryBagRevision", payload.get("factoryBagRevision"));
+        binding.put("factoryBagSetSha256", payload.get("factoryBagSetSha256"));
+        binding.put("imageReleaseId", payload.get("imageReleaseId"));
+        binding.put("imageReleaseSha256", payload.get("imageReleaseSha256"));
+        binding.put("factoryReportSha256", payload.get("factoryReportSha256"));
+        if (!OneNetCanonicalJson.payloadSha256(binding).equals(
+                payload.get("authorizationBindingSha256"))) {
+            throw permanent(
+                    "factory seal authorization binding differs");
+        }
+        Instant sealedAt = Instant.parse((String) payload.get("sealedAt"));
+        Instant cleanupCompletedAt = Instant.parse(
+                (String) payload.get("cleanupCompletedAt"));
+        if (cleanupCompletedAt.isBefore(sealedAt)) {
+            throw permanent(
+                    "factory seal cleanup precedes the seal marker");
+        }
+        return payload;
+    }
+
     private static Map<String, Object> mcuFirmwareProgressPayload(
             JsonNode wire) {
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -2890,9 +3002,27 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             throw permanent(
                     "MCU firmware progress differs from its deployment target");
         }
+        if ("FACTORY_SEAL_COMPLETED".equals(contract.messageKind())
+                && (!payload.get("hardwareSn").equals(targetUid)
+                || !payload.get("authorizationCommandUid").equals(
+                        event.get("commandUid")))) {
+            throw permanent(
+                    "factory seal completion differs from its authority");
+        }
+        if ("FACTORY_SEAL_COMPLETED".equals(contract.messageKind())
+                && !Instant.parse((String) event.get("occurredAt")).equals(
+                        Instant.parse((String) payload.get(
+                                "cleanupCompletedAt")))) {
+            throw permanent(
+                    "factory seal event time differs from completed cleanup");
+        }
     }
 
-    private static String occurredAt(JsonNode wire) {
+    private static String occurredAt(
+            String messageKind, JsonNode wire) {
+        if ("FACTORY_SEAL_COMPLETED".equals(messageKind)) {
+            return requiredUtcInstant(wire, "occurredAt");
+        }
         boolean present = bool(wire, "occurredAtPresent");
         String value = textAllowEmpty(wire, "occurredAt", 30);
         if (!present) {
@@ -2912,6 +3042,24 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             Instant.parse(value);
         } catch (RuntimeException exception) {
             throw permanent("occurredAt is not a real instant", exception);
+        }
+        return value;
+    }
+
+    private static String requiredUtcInstant(
+            JsonNode node, String field) {
+        String value = text(node, field, 30);
+        if (!value.matches(
+                "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+                        + "[0-9]{2}:[0-9]{2}:[0-9]{2}"
+                        + "(?:\\.[0-9]{1,9})?Z$")) {
+            throw permanent(field + " is not a target UTC instant");
+        }
+        try {
+            Instant.parse(value);
+        } catch (RuntimeException exception) {
+            throw permanent(
+                    field + " is not a real instant", exception);
         }
         return value;
     }

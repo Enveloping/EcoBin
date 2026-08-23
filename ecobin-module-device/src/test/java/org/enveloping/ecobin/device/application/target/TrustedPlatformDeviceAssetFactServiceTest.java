@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.JsonNode;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -20,6 +21,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
 
 class TrustedPlatformDeviceAssetFactServiceTest {
 
@@ -52,7 +54,8 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                         JsonMapper.builder().build(),
                         confirmationService,
                         mock(RemoteSupportSessionService.class),
-                        mock(McuFirmwareRolloutService.class));
+                        mock(McuFirmwareRolloutService.class),
+                        mock(FactorySealAuthorizationService.class));
 
         TrustedDeviceEventApplyResult result = service.apply(
                 new TrustedPlatformDeviceAssetFactEvent(
@@ -105,7 +108,8 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                         JsonMapper.builder().build(),
                         confirmationService,
                         remoteSupportSessions,
-                        mock(McuFirmwareRolloutService.class));
+                        mock(McuFirmwareRolloutService.class),
+                        mock(FactorySealAuthorizationService.class));
 
         TrustedDeviceEventApplyResult result = service.apply(
                 new TrustedPlatformDeviceAssetFactEvent(
@@ -123,6 +127,118 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                 eq("a".repeat(64)),
                 eq("NO_ACTION_REQUIRED"),
                 eq(now));
+    }
+
+    @Test
+    void factorySealObservationAcknowledgesTheExactPlatformTask() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        LocalDateTime now = LocalDateTime.of(2026, 8, 22, 15, 10);
+        when(jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class))
+                .thenReturn(now);
+        TrustedPlatformInboxRef sourceInbox =
+                mock(TrustedPlatformInboxRef.class);
+        when(sourceInbox.use(any())).thenAnswer(invocation -> {
+            TrustedPlatformInboxRef.PlatformInboxFunction<Object> function =
+                    invocation.getArgument(0);
+            return function.apply(17L);
+        });
+        FactorySealAuthorizationService seals =
+                mock(FactorySealAuthorizationService.class);
+        when(seals.applyTrustedObservation(
+                eq("SN-CONTRACT-0001"),
+                any(JsonNode.class),
+                eq(now))).thenReturn(
+                new FactorySealAuthorizationService.ObservationResult(
+                        41L, true));
+        ReliablePlatformEdgeConfirmationService confirmations =
+                mock(ReliablePlatformEdgeConfirmationService.class);
+        TrustedPlatformDeviceAssetFactService service =
+                new TrustedPlatformDeviceAssetFactService(
+                        jdbc,
+                        JsonMapper.builder().build(),
+                        confirmations,
+                        mock(RemoteSupportSessionService.class),
+                        mock(McuFirmwareRolloutService.class),
+                        seals);
+
+        TrustedDeviceEventApplyResult result = service.apply(
+                new TrustedPlatformDeviceAssetFactEvent(
+                        sourceInbox,
+                        "DEVICE_COMMAND_OBSERVED",
+                        2,
+                        factorySealObservationPayload()));
+
+        assertEquals(TrustedDeviceEventApplyResult.APPLIED, result);
+        verify(seals).applyTrustedObservation(
+                eq("SN-CONTRACT-0001"), any(JsonNode.class), eq(now));
+        verify(confirmations).ensureApplied(
+                41L,
+                "SN-CONTRACT-0001",
+                "84000000-0000-4000-8000-000000000001",
+                "a".repeat(64),
+                "UPDATED",
+                now);
+        verify(jdbc, never()).query(
+                contains("FROM dev_device_asset"),
+                any(RowMapper.class),
+                any(Object[].class));
+    }
+
+    @Test
+    void factorySealCompletionAppliesAndConfirmsThePlatformFact() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        LocalDateTime now = LocalDateTime.of(2026, 8, 23, 1, 10);
+        when(jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class))
+                .thenReturn(now);
+        TrustedPlatformInboxRef sourceInbox =
+                mock(TrustedPlatformInboxRef.class);
+        when(sourceInbox.use(any())).thenAnswer(invocation -> {
+            TrustedPlatformInboxRef.PlatformInboxFunction<Object> function =
+                    invocation.getArgument(0);
+            return function.apply(18L);
+        });
+        FactorySealAuthorizationService seals =
+                mock(FactorySealAuthorizationService.class);
+        when(seals.applyTrustedCompletion(
+                eq("SN-CONTRACT-0001"),
+                any(JsonNode.class),
+                eq(now))).thenReturn(
+                new FactorySealAuthorizationService.CompletionResult(
+                        41L, true));
+        ReliablePlatformEdgeConfirmationService confirmations =
+                mock(ReliablePlatformEdgeConfirmationService.class);
+        TrustedPlatformDeviceAssetFactService service =
+                new TrustedPlatformDeviceAssetFactService(
+                        jdbc,
+                        JsonMapper.builder().build(),
+                        confirmations,
+                        mock(RemoteSupportSessionService.class),
+                        mock(McuFirmwareRolloutService.class),
+                        seals);
+
+        TrustedDeviceEventApplyResult result = service.apply(
+                new TrustedPlatformDeviceAssetFactEvent(
+                        sourceInbox,
+                        "FACTORY_SEAL_COMPLETED",
+                        2,
+                        factorySealCompletionPayload()));
+
+        assertEquals(TrustedDeviceEventApplyResult.APPLIED, result);
+        verify(seals).applyTrustedCompletion(
+                eq("SN-CONTRACT-0001"), any(JsonNode.class), eq(now));
+        verify(confirmations).ensureApplied(
+                41L,
+                "SN-CONTRACT-0001",
+                "8a000000-0000-4000-8000-00000000000a",
+                "b".repeat(64),
+                "UPDATED",
+                now);
+        verify(jdbc, never()).query(
+                contains("FROM dev_device_asset"),
+                any(RowMapper.class),
+                any(Object[].class));
     }
 
     private static String safetyPayload() {
@@ -153,6 +269,39 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                 """;
     }
 
+    private static String factorySealObservationPayload() {
+        return """
+                {
+                  "trustedSource": {
+                    "productId": "contract-product",
+                    "deviceName": "SN-CONTRACT-0001"
+                  },
+                  "eventCanonicalSha256": "%s",
+                  "event": {
+                    "schemaVersion": 2,
+                    "eventUid": "84000000-0000-4000-8000-000000000001",
+                    "edgeEventSequence": 101,
+                    "eventType": "DEVICE_COMMAND_OBSERVED",
+                    "deliveryClass": "RELIABLE_FACT",
+                    "target": {
+                      "type": "DEVICE_COMMAND",
+                      "uid": "20000000-0000-4000-8000-000000000001"
+                    },
+                    "commandUid": "20000000-0000-4000-8000-000000000001",
+                    "occurredAt": "2026-08-22T15:09:00Z",
+                    "clockQuality": "SYNCED",
+                    "payloadSha256": "%s",
+                    "payload": {
+                      "observedCommandType": "AUTHORIZE_FACTORY_SEAL",
+                      "stage": "RECEIVED",
+                      "mcuCommandUid": null,
+                      "errorCode": null
+                    }
+                  }
+                }
+                """.formatted("b".repeat(64), "a".repeat(64));
+    }
+
     private static String remoteSupportPayload() {
         return """
                 {
@@ -180,5 +329,33 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                   }
                 }
                 """;
+    }
+
+    private static String factorySealCompletionPayload() {
+        return """
+                {
+                  "trustedSource": {
+                    "productId": "contract-product",
+                    "deviceName": "SN-CONTRACT-0001"
+                  },
+                  "eventCanonicalSha256": "%s",
+                  "event": {
+                    "schemaVersion": 2,
+                    "eventUid": "8a000000-0000-4000-8000-00000000000a",
+                    "edgeEventSequence": 1058,
+                    "eventType": "FACTORY_SEAL_COMPLETED",
+                    "deliveryClass": "RELIABLE_FACT",
+                    "target": {
+                      "type": "DEVICE_ASSET",
+                      "uid": "SN-CONTRACT-0001"
+                    },
+                    "commandUid": "8a000000-0000-4000-8000-000000000007",
+                    "occurredAt": "2026-08-23T01:09:00Z",
+                    "clockQuality": "SYNCED",
+                    "payloadSha256": "%s",
+                    "payload": {}
+                  }
+                }
+                """.formatted("a".repeat(64), "b".repeat(64));
     }
 }

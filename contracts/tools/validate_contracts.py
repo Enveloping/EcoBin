@@ -78,6 +78,19 @@ WORK_PHOTO_SLOTS = {
 }
 
 ONENET_IMPORT_FILE_BYTE_LIMIT = 256 * 1024
+
+
+def _utc_instant_key(value: str) -> tuple[datetime.datetime, int]:
+    """Return an exact UTC instant key without losing nanoseconds."""
+    body = value.removesuffix("Z")
+    whole_seconds, separator, fraction = body.partition(".")
+    parsed_seconds = datetime.datetime.fromisoformat(
+        whole_seconds + "+00:00"
+    )
+    nanoseconds = int(fraction.ljust(9, "0")) if separator else 0
+    return parsed_seconds, nanoseconds
+
+
 ONENET_ENUM_DESCRIPTION_PATTERN = re.compile(
     r"[A-Za-z0-9_\-\u4e00-\u9fa5]{1,20}"
 )
@@ -647,6 +660,7 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         "BUSINESS_CONFIRMATION_RECEIPT",
         "DEVICE_ACCEPTANCE_EVIDENCE",
         "REMOTE_SUPPORT_TUNNEL_STATUS",
+        "FACTORY_SEAL_COMPLETED",
     }
     if event_type in command_bound_events and instance["commandUid"] is None:
         raise ContractError(f"{event_type}: originating commandUid is required")
@@ -683,6 +697,47 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         ):
             raise ContractError(
                 "successful MCU progress must report the target as installed"
+            )
+
+    if event_type == "FACTORY_SEAL_COMPLETED":
+        if (
+            instance["target"]["uid"] != payload["hardwareSn"]
+            or instance["commandUid"]
+            != payload["authorizationCommandUid"]
+        ):
+            raise ContractError(
+                "FACTORY_SEAL_COMPLETED differs from its device or authorization"
+            )
+        binding = {
+            "commandUid": payload["authorizationCommandUid"],
+            "hardwareSn": payload["hardwareSn"],
+            "acceptanceGeneration": payload["acceptanceGeneration"],
+            "acceptanceEvidenceUid": payload["acceptanceEvidenceUid"],
+            "acceptanceChallengeUid": payload["acceptanceChallengeUid"],
+            "acceptanceEvidenceSha256": payload[
+                "acceptanceEvidenceSha256"
+            ],
+            "factoryBagRevision": payload["factoryBagRevision"],
+            "factoryBagSetSha256": payload["factoryBagSetSha256"],
+            "imageReleaseId": payload["imageReleaseId"],
+            "imageReleaseSha256": payload["imageReleaseSha256"],
+            "factoryReportSha256": payload["factoryReportSha256"],
+        }
+        if payload_sha256(binding) != payload["authorizationBindingSha256"]:
+            raise ContractError(
+                "FACTORY_SEAL_COMPLETED authorization binding differs"
+            )
+        sealed_at = _utc_instant_key(payload["sealedAt"])
+        cleanup_at = _utc_instant_key(payload["cleanupCompletedAt"])
+        occurred_at = _utc_instant_key(instance["occurredAt"])
+        if cleanup_at < sealed_at:
+            raise ContractError(
+                "FACTORY_SEAL_COMPLETED timestamps are not monotonic"
+            )
+        if occurred_at != cleanup_at:
+            raise ContractError(
+                "FACTORY_SEAL_COMPLETED occurredAt must equal "
+                "cleanupCompletedAt"
             )
 
     if event_type == "DELIVERY_COMPLETE":
@@ -938,6 +993,7 @@ def _validate_command_semantics(
     }.get(command_type)
     if command_type in {
         "REQUEST_DEVICE_ACCEPTANCE",
+        "AUTHORIZE_FACTORY_SEAL",
         "SYNC_DEVICE_ENTRY_URL",
     }:
         if instance["target"]["uid"] != instance["targetDeviceName"]:
@@ -948,6 +1004,15 @@ def _validate_command_semantics(
         raise ContractError(f"{command_type}: target UID differs from payload")
 
     payload = instance["payload"]
+    if command_type == "AUTHORIZE_FACTORY_SEAL":
+        if payload["hardwareSn"] != instance["targetDeviceName"]:
+            raise ContractError(
+                "AUTHORIZE_FACTORY_SEAL hardwareSn differs from device name"
+            )
+        if instance["cosGrant"] is not None:
+            raise ContractError(
+                "AUTHORIZE_FACTORY_SEAL must not carry COS credentials"
+            )
     if command_type in {
         "REQUEST_DEVICE_ACCEPTANCE",
         "SYNC_DEVICE_ENTRY_URL",

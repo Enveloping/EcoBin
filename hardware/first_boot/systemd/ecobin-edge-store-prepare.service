@@ -1,0 +1,39 @@
+[Unit]
+Description=EcoBin early EdgeStore schema preparation
+Requires=ecobin-expand-rootfs.service
+After=local-fs.target ecobin-expand-rootfs.service
+Before=ecobin-first-boot.service network-pre.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/ecobin/hardware/current/app
+EnvironmentFile=/etc/ecobin/hardware.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/ecobin/hardware/current/.venv/bin/python /opt/ecobin/hardware/current/app/edge_store_prepare.py
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=2
+TimeoutStartSec=60
+UMask=0077
+LimitCORE=0
+StateDirectory=ecobin/hardware
+StateDirectoryMode=0700
+PrivateNetwork=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectKernelLogs=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadWritePaths=/var/lib/ecobin/hardware
+RestrictAddressFamilies=AF_UNIX

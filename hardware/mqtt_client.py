@@ -27,6 +27,7 @@ from onenet_wire import (
     encode_event_post,
     validate_command_envelope,
 )
+from factory_seal.admission import FACTORY_NOT_SEALED
 
 logger = logging.getLogger("mqtt-client")
 
@@ -75,6 +76,7 @@ class MqttClient:
         clean_session: bool = True,
         trusted_cos_environment=None,
         unsupported_command_types=None,
+        factory_seal_gate=None,
     ):
         self.product_id = product_id
         self.device_name = device_name
@@ -88,6 +90,7 @@ class MqttClient:
         self._unsupported_command_types = frozenset(
             unsupported_command_types or ()
         )
+        self._factory_seal_gate = factory_seal_gate
         self._connected = False
         self._connect_event = threading.Event()
         self._connection_lock = threading.RLock()
@@ -402,14 +405,30 @@ class MqttClient:
             if command.get("targetDeviceName") and self.device_name:
                 if command["targetDeviceName"] != self.device_name:
                     raise ValueError("targetDeviceName mismatch")
-            validate_command_envelope(
-                command,
-                trusted_environment=(
-                    self._trusted_cos_environment
-                ),
+            is_factory_seal = (
+                command.get("commandType") == "AUTHORIZE_FACTORY_SEAL"
             )
+            if (
+                not is_factory_seal
+                or command["commandType"]
+                in self._unsupported_command_types
+            ):
+                validate_command_envelope(
+                    command,
+                    trusted_environment=(
+                        self._trusted_cos_environment
+                    ),
+                )
             rejection_error = None
             if (
+                self._production_command_blocked(command["commandType"])
+            ):
+                rejection_error = FACTORY_NOT_SEALED
+                result = self._store.receive_rejected_command(
+                    command,
+                    rejection_error,
+                )
+            elif (
                 command["commandType"]
                 in self._unsupported_command_types
             ):
@@ -423,10 +442,30 @@ class MqttClient:
                     device_name=self.device_name or command.get("targetDeviceName", ""),
                     command=command,
                 )
+            elif is_factory_seal:
+                # EdgeStore selects and persists the trusted receipt instant
+                # in the same SQLite transaction.  An exact duplicate may
+                # reuse that fact after expiresAt; a new expired delivery is
+                # still rejected before any inbox row exists.
+                result = self._store.receive_factory_seal_command(command)
             else:
                 # 必须先把稳定命令身份、摘要和载荷写入 SQLite，才能回复已受理。
                 # MQTT 回调若直接开门，进程在“动作后、落盘前”崩溃就无法判断是否执行过。
                 result = self._store.receive_command(command_uid, command["commandType"], command)
+            factory_seal_requeued = False
+            if (
+                result == "DUPLICATE"
+                and command["commandType"]
+                == "AUTHORIZE_FACTORY_SEAL"
+            ):
+                # Only a locally repairable, allow-listed FAILED command may
+                # be reopened. COMPLETED and terminal REJECTED commands remain
+                # inert even when OneNet redelivers the same command UID.
+                factory_seal_requeued = (
+                    self._store.requeue_failed_factory_seal_command(
+                        command_uid
+                    )
+                )
             control_dispatched = False
             control_error = None
             if (
@@ -475,7 +514,13 @@ class MqttClient:
                     "PROVIDE_PHOTO_UPLOAD_GRANT",
                     "REQUEST_DEVICE_ACCEPTANCE",
                     "START_MCU_FIRMWARE_UPDATE",
+                    "AUTHORIZE_FACTORY_SEAL",
                 }
+                and (
+                    command["commandType"]
+                    != "AUTHORIZE_FACTORY_SEAL"
+                    or factory_seal_requeued
+                )
             )
             if (
                 should_dispatch
@@ -502,6 +547,21 @@ class MqttClient:
                 svc_id,
                 encode_command_receipt(fallback_uid, "REJECTED", self.edge_boot_id, "BAD_COMMAND"),
             )
+
+    def _production_command_blocked(self, command_type: object) -> bool:
+        gate = getattr(self, "_factory_seal_gate", None)
+        if gate is None:
+            return False
+        try:
+            gate.require_command_allowed(command_type)
+        except Exception as error:
+            if getattr(error, "code", None) == FACTORY_NOT_SEALED:
+                return True
+            # An unreadable or otherwise uncertain local seal fact may never
+            # be interpreted as permission to execute production work.
+            logger.exception("factory seal command admission failed closed")
+            return True
+        return False
 
     def _notify_reliable_event_count_changed(self) -> None:
         """Notify diagnostics without changing an accepted confirmation result."""

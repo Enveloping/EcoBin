@@ -1,7 +1,10 @@
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
+
+import fixed_frame_mcu_adapter as fixed_frame_module
 
 from fixed_frame_mcu_adapter import (
     DEVICE_ENTRY_URL_FRAME_LENGTH,
@@ -156,6 +159,25 @@ class BlockingWriteSerial(FakeSerial):
         if not self.release_write.wait(timeout=1):
             raise TimeoutError("test did not release the UART write")
         return super().write(data)
+
+
+def test_production_serial_open_requests_posix_exclusive_ownership(monkeypatch):
+    captured = {}
+    fake = FakeSerial()
+
+    def open_serial(**kwargs):
+        captured.update(kwargs)
+        return fake
+
+    monkeypatch.setattr(
+        fixed_frame_module,
+        "serial",
+        SimpleNamespace(Serial=open_serial),
+    )
+    adapter = FixedFrameMcuAdapter("/dev/ttyS5", edge_boot_id=1)
+
+    assert adapter.open()
+    assert captured["exclusive"] is True
 
 
 def test_parser_handles_partial_joined_and_payload_marker_bytes():

@@ -22,11 +22,14 @@ from onenet_wire import (
     build_configuration_progress_event,
     build_event_envelope,
     canonical_payload_sha256,
+    validate_factory_seal_envelope_at_acceptance,
 )
+from factory_seal.errors import FactorySealError
+from factory_seal.validation import authorization_binding_sha256
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 14
+CURRENT_SCHEMA_VERSION = 16
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -54,6 +57,38 @@ REMOTE_SUPPORT_FAILURE_CODES = frozenset({
     "SSH_START_FAILED",
     "SSH_EXITED",
     "PROCESS_SUPERVISION_FAILED",
+})
+
+# A factory-seal authorization has no physical side effect until the local
+# authorization row, command completion and ACCEPTED observation commit in one
+# SQLite transaction.  These local prerequisites may be repaired safely and
+# retried only after OneNet redelivers the same immutable command.  Keep this
+# list beside the persistence transition so a caller cannot requeue an
+# arbitrary FAILED command by mistake.
+FACTORY_SEAL_RETRYABLE_ERROR_CODES = frozenset({
+    "EDGE_RESTARTED",
+    "FACTORY_SEAL_NOT_AVAILABLE",
+    "IMAGE_RELEASE_INVALID",
+    "FACTORY_REPORT_INVALID",
+    "DEVICE_CREDENTIALS_INVALID",
+    "FACTORY_SEAL_RETRYABLE_FAILURE",
+})
+
+# These failures prove that the frozen cloud authority cannot be reconciled
+# with this EdgeStore.  Retrying the same command bytes cannot change that
+# fact, so the command processor may emit the terminal REJECTED observation.
+FACTORY_SEAL_TERMINAL_ERROR_CODES = frozenset({
+    "FACTORY_ALREADY_SEALED",
+    "FACTORY_SEAL_ACCEPTANCE_FACT_INVALID",
+    "FACTORY_SEAL_COMMAND_CONFLICT",
+    "FACTORY_SEAL_COMMAND_STATE_INVALID",
+    "ACCEPTANCE_EVIDENCE_NOT_FOUND",
+    "ACCEPTANCE_EVIDENCE_NOT_LATEST",
+    "ACCEPTANCE_EVIDENCE_INVALID",
+    "ACCEPTANCE_EVIDENCE_MISMATCH",
+    "FACTORY_SEAL_GENERATION_STALE",
+    "FACTORY_SEAL_GENERATION_CONFLICT",
+    "FACTORY_SEAL_OBSERVATION_CONFLICT",
 })
 MCU_UPDATE_ACTIVE_STATES = frozenset({
     "QUEUED",
@@ -164,6 +199,50 @@ class EdgeStore:
         self._lock = threading.RLock()
 
     def initialize(self) -> None:
+        self._open_connection()
+        self._migrate()
+        recovered_events = self.recover_sending_events()
+        if recovered_events:
+            logger.info(
+                "Recovered %d in-flight events for retransmission",
+                recovered_events,
+            )
+        logger.info("EdgeStore 初始化: %s (v%d)", self.db_path, CURRENT_SCHEMA_VERSION)
+
+    def prepare_schema(self) -> None:
+        """Migrate and verify the store without starting runtime recovery.
+
+        The first-boot coordinator calls this through an early, networkless
+        oneshot before it reads the factory-seal table.  This breaks the boot
+        dependency cycle for an empty database, a v14 database, or a database
+        whose previous migration transaction was interrupted by power loss.
+        """
+
+        if self._conn is not None:
+            raise RuntimeError("EdgeStore schema preparation requires a closed store")
+        try:
+            self._open_connection()
+            self._migrate()
+            version = self._conn.execute(
+                "SELECT MAX(version) FROM schema_version"
+            ).fetchone()[0]
+            table = self._conn.execute(
+                """SELECT name FROM sqlite_master
+                   WHERE type='table' AND name='factory_seal_authorization'"""
+            ).fetchone()
+            quick_check = self._conn.execute("PRAGMA quick_check").fetchone()[0]
+            if (
+                version != CURRENT_SCHEMA_VERSION
+                or table is None
+                or quick_check != "ok"
+            ):
+                raise RuntimeError("EdgeStore schema preparation verification failed")
+        finally:
+            self.close()
+
+    def _open_connection(self) -> None:
+        if self._conn is not None:
+            return
         parent = os.path.dirname(self.db_path)
         if parent:
             os.makedirs(parent, exist_ok=True)
@@ -174,14 +253,6 @@ class EdgeStore:
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute("PRAGMA synchronous=FULL")
         self._conn = conn
-        self._migrate()
-        recovered_events = self.recover_sending_events()
-        if recovered_events:
-            logger.info(
-                "Recovered %d in-flight events for retransmission",
-                recovered_events,
-            )
-        logger.info("EdgeStore 初始化: %s (v%d)", self.db_path, CURRENT_SCHEMA_VERSION)
 
     def _migrate(self) -> None:
         conn = self._conn
@@ -206,8 +277,13 @@ class EdgeStore:
         row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         current = row[0] or 0
         if current == CURRENT_SCHEMA_VERSION:
+            # Re-check the v16 shape even when its version row is present.
+            # This turns a copied or historically partially-applied database
+            # into a fail-closed startup error instead of silently running
+            # without the seal-completion durability columns or index.
+            self._migrate_v16()
             return
-        if current not in {0, 9, 10, 11, 12, 13}:
+        if current not in {0, 9, 10, 11, 12, 13, 14, 15}:
             raise RuntimeError(
                 "EdgeStore 数据库时代不兼容；永久资产 v9 不读取旧设备数据库"
             )
@@ -266,6 +342,14 @@ class EdgeStore:
         if current < 14:
             self._migrate_v14()
             conn.execute("INSERT INTO schema_version (version) VALUES (14)")
+            current = 14
+        if current < 15:
+            self._migrate_v15()
+            conn.execute("INSERT INTO schema_version (version) VALUES (15)")
+            current = 15
+        if current < 16:
+            self._migrate_v16()
+            conn.execute("INSERT INTO schema_version (version) VALUES (16)")
 
     def _migrate_v10(self) -> None:
         """Add the independent, reboot-safe remote-support control slot."""
@@ -510,6 +594,7 @@ class EdgeStore:
                         ),
                     }
                 )
+
             except (AttributeError, TypeError, ValueError):
                 # v13 did not persist the exact pre-F2 F3 snapshot.  Missing
                 # or corrupt stable identity must migrate fail-closed.
@@ -520,6 +605,188 @@ class EdgeStore:
                        prepare_identity_json=?
                    WHERE update_uid=?""",
                 (identity_json, update["update_uid"]),
+            )
+
+    def _migrate_v15(self) -> None:
+        """Add the monotonic, reboot-safe factory-seal authorization journal.
+
+        Every DDL statement is shape-aware and idempotent.  This is required
+        even though current migrations run in one explicit transaction:
+        deployed v14 databases may be left with durable DDL but no recorded
+        v15 version by older SQLite wrappers or a process kill at the boundary.
+        """
+
+        self._conn.execute(
+            """CREATE TABLE IF NOT EXISTS factory_seal_authorization (
+                command_uid TEXT PRIMARY KEY,
+                command_sha256 TEXT NOT NULL,
+                hardware_sn TEXT NOT NULL,
+                acceptance_generation INTEGER NOT NULL
+                    CHECK (acceptance_generation > 0),
+                evidence_event_uid TEXT NOT NULL,
+                acceptance_challenge_uid TEXT NOT NULL,
+                acceptance_evidence_sha256 TEXT NOT NULL,
+                factory_bag_revision INTEGER NOT NULL
+                    CHECK (factory_bag_revision >= 0),
+                factory_bag_set_sha256 TEXT NOT NULL,
+                image_release_id TEXT NOT NULL,
+                image_release_sha256 TEXT NOT NULL,
+                factory_report_sha256 TEXT NOT NULL,
+                authorization_binding_sha256 TEXT NOT NULL,
+                state TEXT NOT NULL CHECK (state IN (
+                    'AUTHORIZED', 'SUPERSEDED', 'SEALING', 'SEALED'
+                )),
+                operator_confirmation_uid TEXT,
+                authorized_at TEXT NOT NULL,
+                confirmed_at TEXT,
+                completed_at TEXT,
+                last_error TEXT
+            )"""
+        )
+        columns = {
+            row["name"]
+            for row in self._conn.execute(
+                "PRAGMA table_info('factory_seal_authorization')"
+            ).fetchall()
+        }
+        required = {
+            "command_uid",
+            "command_sha256",
+            "hardware_sn",
+            "acceptance_generation",
+            "evidence_event_uid",
+            "acceptance_challenge_uid",
+            "acceptance_evidence_sha256",
+            "factory_bag_revision",
+            "factory_bag_set_sha256",
+            "image_release_id",
+            "image_release_sha256",
+            "factory_report_sha256",
+            "authorization_binding_sha256",
+            "state",
+            "operator_confirmation_uid",
+            "authorized_at",
+            "confirmed_at",
+            "completed_at",
+            "last_error",
+        }
+        forward_columns = {
+            "cleanup_completed_at",
+            "completion_event_uid",
+        }
+        if (
+            not required.issubset(columns)
+            or not columns.issubset(required | forward_columns)
+        ):
+            raise RuntimeError(
+                "factory seal authorization table shape is incompatible"
+            )
+        self._conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS
+                   idx_factory_seal_acceptance_generation
+               ON factory_seal_authorization(acceptance_generation)"""
+        )
+        self._conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS
+                   idx_factory_seal_operator_confirmation
+               ON factory_seal_authorization(operator_confirmation_uid)
+               WHERE operator_confirmation_uid IS NOT NULL"""
+        )
+        self._conn.execute(
+            """CREATE INDEX IF NOT EXISTS idx_factory_seal_state
+               ON factory_seal_authorization(state, acceptance_generation)"""
+        )
+
+    def _migrate_v16(self) -> None:
+        """Persist the atomic factory-seal completion fact and outbox link.
+
+        The first release of this migration may be interrupted after either
+        ``ALTER TABLE`` has reached durable storage but before schema version
+        16 is recorded.  Inspecting the real table shape makes every restart
+        safe: an existing column is retained, a missing column is added, and
+        the complete final shape is verified before the version advances.
+        """
+
+        columns = {
+            row["name"]
+            for row in self._conn.execute(
+                "PRAGMA table_info('factory_seal_authorization')"
+            ).fetchall()
+        }
+        if "cleanup_completed_at" not in columns:
+            self._conn.execute(
+                """ALTER TABLE factory_seal_authorization
+                   ADD COLUMN cleanup_completed_at TEXT"""
+            )
+        if "completion_event_uid" not in columns:
+            self._conn.execute(
+                """ALTER TABLE factory_seal_authorization
+                   ADD COLUMN completion_event_uid TEXT"""
+            )
+
+        columns = {
+            row["name"]
+            for row in self._conn.execute(
+                "PRAGMA table_info('factory_seal_authorization')"
+            ).fetchall()
+        }
+        required = {
+            "command_uid",
+            "command_sha256",
+            "hardware_sn",
+            "acceptance_generation",
+            "evidence_event_uid",
+            "acceptance_challenge_uid",
+            "acceptance_evidence_sha256",
+            "factory_bag_revision",
+            "factory_bag_set_sha256",
+            "image_release_id",
+            "image_release_sha256",
+            "factory_report_sha256",
+            "authorization_binding_sha256",
+            "state",
+            "operator_confirmation_uid",
+            "authorized_at",
+            "confirmed_at",
+            "completed_at",
+            "last_error",
+            "cleanup_completed_at",
+            "completion_event_uid",
+        }
+        if columns != required:
+            raise RuntimeError(
+                "factory seal authorization v16 table shape is incompatible"
+            )
+        self._conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS
+                   idx_factory_seal_completion_event
+               ON factory_seal_authorization(completion_event_uid)
+               WHERE completion_event_uid IS NOT NULL"""
+        )
+        index = next(
+            (
+                row
+                for row in self._conn.execute(
+                    "PRAGMA index_list('factory_seal_authorization')"
+                ).fetchall()
+                if row["name"] == "idx_factory_seal_completion_event"
+            ),
+            None,
+        )
+        indexed_columns = [
+            row["name"]
+            for row in self._conn.execute(
+                "PRAGMA index_info('idx_factory_seal_completion_event')"
+            ).fetchall()
+        ]
+        if (
+            index is None
+            or index["unique"] != 1
+            or index["partial"] != 1
+            or indexed_columns != ["completion_event_uid"]
+        ):
+            raise RuntimeError(
+                "factory seal completion index shape is incompatible"
             )
 
     def _create_tables(self) -> None:
@@ -1083,9 +1350,11 @@ class EdgeStore:
     # ── 事务辅助 ──
 
     @contextmanager
-    def transaction(self):
+    def transaction(self, *, immediate: bool = False):
         with self._lock:
             try:
+                if immediate:
+                    self._conn.execute("BEGIN IMMEDIATE")
                 yield self._conn
                 self._conn.commit()
             except Exception:
@@ -1094,6 +1363,30 @@ class EdgeStore:
 
     def _now(self) -> str:
         return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+
+    @staticmethod
+    def _command_received_at_now() -> tuple[str, datetime]:
+        received_at = datetime.now(timezone.utc)
+        encoded = received_at.isoformat(timespec="milliseconds").replace(
+            "+00:00",
+            "Z",
+        )
+        return encoded, received_at
+
+    @staticmethod
+    def _parse_command_received_at(value: str) -> datetime:
+        if not isinstance(value, str) or not value:
+            raise ValueError("command received_at is invalid")
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise ValueError("command received_at is invalid") from error
+        # Rows created before the factory-seal path stored SQLite's UTC
+        # CURRENT_TIMESTAMP form without an explicit offset.  That field is
+        # database-owned, so interpreting that legacy shape as UTC is safe.
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     def _new_uid(self) -> str:
         return str(_uuid.uuid4())
@@ -1143,6 +1436,96 @@ class EdgeStore:
             )
             return "ACCEPTED"
 
+    def receive_factory_seal_command(self, command: dict) -> str:
+        """Validate and durably accept a seal command at one trusted instant.
+
+        A first delivery must still be valid when this transaction accepts
+        it.  An exact duplicate may be validated against the original
+        database-owned receipt time, allowing queue/restart recovery after
+        ``expiresAt`` without accepting a newly expired command.
+        """
+
+        command_uid = command.get("commandUid")
+        stable = dict(command)
+        stable.pop("cosGrant", None)
+        canonical_sha256 = canonical_payload_sha256(stable)
+        stored = dict(command)
+        if "cosGrant" in stored:
+            stored["cosGrant"] = None
+        with self.transaction(immediate=True):
+            existing = self._conn.execute(
+                """SELECT command_type, canonical_sha256, received_at
+                   FROM command_inbox WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+            if existing:
+                if (
+                    existing["command_type"] != "AUTHORIZE_FACTORY_SEAL"
+                    or existing["canonical_sha256"] != canonical_sha256
+                ):
+                    logger.error("命令幂等冲突: %s", command_uid)
+                    return "CONFLICT"
+                acceptance_time = self._parse_command_received_at(
+                    existing["received_at"]
+                )
+                validate_factory_seal_envelope_at_acceptance(
+                    command,
+                    acceptance_time,
+                )
+                logger.info("命令去重: %s", command_uid)
+                return "DUPLICATE"
+
+            received_at, acceptance_time = self._command_received_at_now()
+            validate_factory_seal_envelope_at_acceptance(
+                command,
+                acceptance_time,
+            )
+            self._conn.execute(
+                """INSERT INTO command_inbox
+                   (command_uid, command_type, payload_json,
+                    canonical_sha256, received_at)
+                   VALUES (?, 'AUTHORIZE_FACTORY_SEAL', ?, ?, ?)""",
+                (
+                    command_uid,
+                    _json.dumps(stored, ensure_ascii=False),
+                    canonical_sha256,
+                    received_at,
+                ),
+            )
+            return "ACCEPTED"
+
+    def validate_claimed_factory_seal_command(self, command: dict) -> None:
+        """Revalidate a claimed seal using only its durable receipt fact."""
+
+        command_uid = command.get("commandUid")
+        stable = dict(command)
+        stable.pop("cosGrant", None)
+        canonical_sha256 = canonical_payload_sha256(stable)
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT command_type, canonical_sha256, state, received_at
+                   FROM command_inbox WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+        if row is None or row["command_type"] != "AUTHORIZE_FACTORY_SEAL":
+            raise FactorySealError("FACTORY_SEAL_COMMAND_CONFLICT")
+        if row["canonical_sha256"] != canonical_sha256:
+            raise FactorySealError("FACTORY_SEAL_COMMAND_CONFLICT")
+        if row["state"] != "PROCESSING":
+            raise FactorySealError("FACTORY_SEAL_COMMAND_STATE_INVALID")
+        try:
+            acceptance_time = self._parse_command_received_at(
+                row["received_at"]
+            )
+            validate_factory_seal_envelope_at_acceptance(
+                command,
+                acceptance_time,
+            )
+        except (TypeError, ValueError) as error:
+            raise FactorySealError(
+                "FACTORY_SEAL_ACCEPTANCE_FACT_INVALID"
+            ) from error
+
     def receive_rejected_command(
         self,
         command: dict,
@@ -1159,14 +1542,30 @@ class EdgeStore:
             stored["cosGrant"] = None
         with self.transaction():
             existing = self._conn.execute(
-                """SELECT canonical_sha256, state
+                """SELECT command_type, canonical_sha256, state, last_error
                    FROM command_inbox WHERE command_uid=?""",
                 (command_uid,),
             ).fetchone()
             if existing:
-                if existing["canonical_sha256"] != canonical_sha256:
+                if (
+                    existing["command_type"] != command_type
+                    or existing["canonical_sha256"] != canonical_sha256
+                ):
                     return "CONFLICT"
-                if existing["state"] != "REJECTED":
+                if existing["state"] == "PENDING":
+                    changed = self._conn.execute(
+                        """UPDATE command_inbox
+                           SET state='REJECTED', processed_at=?,
+                               processing_started_at=NULL, last_error=?
+                           WHERE command_uid=? AND state='PENDING'""",
+                        (self._now(), error_code, command_uid),
+                    )
+                    if changed.rowcount != 1:
+                        return "CONFLICT"
+                elif (
+                    existing["state"] != "REJECTED"
+                    or existing["last_error"] != error_code
+                ):
                     return "CONFLICT"
             else:
                 self._conn.execute(
@@ -1192,6 +1591,240 @@ class EdgeStore:
             if observation == "CONFLICT":
                 return "CONFLICT"
             return "REJECTED"
+
+    def accept_factory_seal_authorization(
+        self,
+        command: dict,
+        local_facts: dict[str, str],
+    ) -> dict[str, Any]:
+        """Atomically authorize, complete, and emit the reliable ACCEPTED fact."""
+
+        command_uid = command["commandUid"]
+        payload = command["payload"]
+        generation = payload["acceptanceGeneration"]
+        command_sha256 = canonical_payload_sha256(
+            {key: value for key, value in command.items() if key != "cosGrant"}
+        )
+        # BEGIN IMMEDIATE freezes the latest local acceptance evidence before
+        # the first read and keeps another SQLite writer from inserting a
+        # newer challenge between that check and authorization commit.
+        with self.transaction(immediate=True):
+            inbox = self._conn.execute(
+                """SELECT command_type, canonical_sha256, state
+                   FROM command_inbox WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+            if (
+                inbox is None
+                or inbox["command_type"] != "AUTHORIZE_FACTORY_SEAL"
+                or inbox["canonical_sha256"] != command_sha256
+            ):
+                raise FactorySealError("FACTORY_SEAL_COMMAND_CONFLICT")
+
+            existing = self._conn.execute(
+                """SELECT authorization_binding_sha256, state
+                   FROM factory_seal_authorization WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+            if existing is not None:
+                self._complete_factory_seal_command_in_tx(command)
+                return {
+                    "disposition": "DUPLICATE_AUTHORIZED",
+                    "acceptanceGeneration": generation,
+                    "authorizationBindingSha256": existing[
+                        "authorization_binding_sha256"
+                    ],
+                    "state": existing["state"],
+                }
+            if inbox["state"] != "PROCESSING":
+                raise FactorySealError("FACTORY_SEAL_COMMAND_STATE_INVALID")
+
+            evidence_row = self._conn.execute(
+                """SELECT event_uid, payload_json
+                   FROM event_outbox
+                   WHERE event_type='DEVICE_ACCEPTANCE_EVIDENCE'
+                     AND work_uid=?
+                   ORDER BY edge_event_sequence DESC
+                   LIMIT 1""",
+                (payload["hardwareSn"],),
+            ).fetchone()
+            if evidence_row is None:
+                raise FactorySealError("ACCEPTANCE_EVIDENCE_NOT_FOUND")
+            if evidence_row["event_uid"] != payload["acceptanceEvidenceUid"]:
+                raise FactorySealError("ACCEPTANCE_EVIDENCE_NOT_LATEST")
+            try:
+                evidence_event = _json.loads(evidence_row["payload_json"])
+                evidence = evidence_event["payload"]
+            except (KeyError, TypeError, ValueError):
+                raise FactorySealError("ACCEPTANCE_EVIDENCE_INVALID") from None
+            if (
+                evidence_event.get("eventUid")
+                != payload["acceptanceEvidenceUid"]
+                or evidence_event.get("eventType")
+                != "DEVICE_ACCEPTANCE_EVIDENCE"
+                or evidence_event.get("payloadSha256")
+                != payload["acceptanceEvidenceSha256"]
+                or canonical_payload_sha256(evidence)
+                != payload["acceptanceEvidenceSha256"]
+                or evidence_event.get("target")
+                != {"type": "DEVICE_ASSET", "uid": payload["hardwareSn"]}
+                or evidence.get("evidenceSchemaVersion") != 3
+                or evidence.get("challengeUid")
+                != payload["acceptanceChallengeUid"]
+                or evidence.get("factoryBagRevision")
+                != payload["factoryBagRevision"]
+                or evidence.get("factoryBagSetSha256")
+                != payload["factoryBagSetSha256"]
+            ):
+                raise FactorySealError("ACCEPTANCE_EVIDENCE_MISMATCH")
+
+            highest = self._conn.execute(
+                """SELECT command_uid, acceptance_generation
+                   FROM factory_seal_authorization
+                   ORDER BY acceptance_generation DESC LIMIT 1"""
+            ).fetchone()
+            if highest is not None and generation < highest["acceptance_generation"]:
+                raise FactorySealError("FACTORY_SEAL_GENERATION_STALE")
+            if highest is not None and generation == highest["acceptance_generation"]:
+                raise FactorySealError("FACTORY_SEAL_GENERATION_CONFLICT")
+
+            binding_values = {
+                "commandUid": command_uid,
+                "hardwareSn": payload["hardwareSn"],
+                "acceptanceGeneration": generation,
+                "acceptanceEvidenceUid": payload["acceptanceEvidenceUid"],
+                "acceptanceChallengeUid": payload["acceptanceChallengeUid"],
+                "acceptanceEvidenceSha256": payload[
+                    "acceptanceEvidenceSha256"
+                ],
+                "factoryBagRevision": payload["factoryBagRevision"],
+                "factoryBagSetSha256": payload["factoryBagSetSha256"],
+                **local_facts,
+            }
+            binding = authorization_binding_sha256(binding_values)
+            now = self._now()
+            self._conn.execute(
+                """UPDATE factory_seal_authorization
+                   SET state='SUPERSEDED', last_error='NEWER_GENERATION'
+                   WHERE state='AUTHORIZED'"""
+            )
+            self._conn.execute(
+                """INSERT INTO factory_seal_authorization (
+                       command_uid, command_sha256, hardware_sn,
+                       acceptance_generation, evidence_event_uid,
+                       acceptance_challenge_uid,
+                       acceptance_evidence_sha256,
+                       factory_bag_revision, factory_bag_set_sha256,
+                       image_release_id, image_release_sha256,
+                       factory_report_sha256,
+                       authorization_binding_sha256, state, authorized_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                             'AUTHORIZED', ?)""",
+                (
+                    command_uid,
+                    command_sha256,
+                    payload["hardwareSn"],
+                    generation,
+                    payload["acceptanceEvidenceUid"],
+                    payload["acceptanceChallengeUid"],
+                    payload["acceptanceEvidenceSha256"],
+                    payload["factoryBagRevision"],
+                    payload["factoryBagSetSha256"],
+                    local_facts["imageReleaseId"],
+                    local_facts["imageReleaseSha256"],
+                    local_facts["factoryReportSha256"],
+                    binding,
+                    now,
+                ),
+            )
+            self._complete_factory_seal_command_in_tx(command)
+            return {
+                "disposition": "AUTHORIZED",
+                "acceptanceGeneration": generation,
+                "authorizationBindingSha256": binding,
+                "state": "AUTHORIZED",
+            }
+
+    def reject_factory_seal_command(
+        self,
+        command: dict,
+        error_code: str,
+    ) -> bool:
+        """Atomically reject the command and retain its reliable observation."""
+
+        if error_code not in FACTORY_SEAL_TERMINAL_ERROR_CODES:
+            raise ValueError(
+                "factory seal terminal error is not allow-listed"
+            )
+        with self.transaction():
+            row = self._conn.execute(
+                """SELECT command_type, state FROM command_inbox
+                   WHERE command_uid=?""",
+                (command["commandUid"],),
+            ).fetchone()
+            if row is None or row["command_type"] != "AUTHORIZE_FACTORY_SEAL":
+                raise FactorySealError("FACTORY_SEAL_COMMAND_STATE_INVALID")
+            if row["state"] not in {"PROCESSING", "REJECTED"}:
+                raise FactorySealError("FACTORY_SEAL_COMMAND_STATE_INVALID")
+            if row["state"] == "PROCESSING":
+                updated = self._conn.execute(
+                    """UPDATE command_inbox
+                       SET state='REJECTED', processed_at=?,
+                           processing_started_at=NULL, last_error=?
+                       WHERE command_uid=? AND state='PROCESSING'""",
+                    (self._now(), error_code, command["commandUid"]),
+                )
+                if updated.rowcount != 1:
+                    raise FactorySealError("FACTORY_SEAL_COMMAND_STATE_INVALID")
+            observation = self._record_command_observation_in_tx(
+                self._conn,
+                command,
+                "REJECTED",
+                error_code=error_code,
+            )
+            if observation == "CONFLICT":
+                raise FactorySealError("FACTORY_SEAL_OBSERVATION_CONFLICT")
+            return row["state"] == "PROCESSING"
+
+    def _complete_factory_seal_command_in_tx(self, command: dict) -> None:
+        row = self._conn.execute(
+            "SELECT state FROM command_inbox WHERE command_uid=?",
+            (command["commandUid"],),
+        ).fetchone()
+        if row is None:
+            raise FactorySealError("FACTORY_SEAL_COMMAND_STATE_INVALID")
+        if row["state"] == "PROCESSING":
+            result = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='COMPLETED', processed_at=?,
+                       processing_started_at=NULL, result_json=?,
+                       last_error=NULL
+                   WHERE command_uid=? AND state='PROCESSING'""",
+                (
+                    self._now(),
+                    _json.dumps(
+                        {
+                            "acceptanceGeneration": command["payload"][
+                                "acceptanceGeneration"
+                            ],
+                            "disposition": "FACTORY_SEAL_AUTHORIZED",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    command["commandUid"],
+                ),
+            )
+            if result.rowcount != 1:
+                raise FactorySealError("FACTORY_SEAL_COMMAND_STATE_INVALID")
+        elif row["state"] != "COMPLETED":
+            raise FactorySealError("FACTORY_SEAL_COMMAND_STATE_INVALID")
+        observation = self._record_command_observation_in_tx(
+            self._conn,
+            command,
+            "ACCEPTED",
+        )
+        if observation == "CONFLICT":
+            raise FactorySealError("FACTORY_SEAL_OBSERVATION_CONFLICT")
 
     def get_command(self, command_uid: str) -> Optional[dict]:
         with self._lock:
@@ -1443,6 +2076,68 @@ class EdgeStore:
                     raise ValueError("command observation conflict")
             return cur.rowcount == 1
 
+    def reject_claimed_command_and_observe(
+        self,
+        command: dict,
+        error_code: str,
+    ) -> bool:
+        """Atomically reject a claimed command before any physical action."""
+
+        with self.transaction():
+            cur = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='REJECTED', processed_at=?,
+                       processing_started_at=NULL, last_error=?
+                   WHERE command_uid=? AND state='PROCESSING'""",
+                (
+                    self._now(),
+                    error_code,
+                    command["commandUid"],
+                ),
+            )
+            if cur.rowcount != 1:
+                return False
+            observation = self._record_command_observation_in_tx(
+                self._conn,
+                command,
+                "REJECTED",
+                error_code=error_code,
+            )
+            if observation == "CONFLICT":
+                raise ValueError("command observation conflict")
+            return True
+
+    def fail_factory_seal_command_for_retry(
+        self,
+        command_uid: str,
+        error_code: str,
+    ) -> bool:
+        """Park a locally repairable seal command until cloud redelivery.
+
+        No terminal command observation is created here.  The backend keeps
+        the immutable reliable task pending and redelivers the same command;
+        only that duplicate delivery may move this allow-listed failure back
+        to PENDING.  Restricting both command type and error code prevents this
+        recovery seam from replaying physical or deterministically rejected
+        commands.
+        """
+
+        if error_code not in FACTORY_SEAL_RETRYABLE_ERROR_CODES:
+            raise ValueError(
+                "factory seal retry error is not allow-listed"
+            )
+        with self.transaction():
+            cur = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='FAILED', processed_at=?,
+                       processing_started_at=NULL, last_error=?
+                   WHERE command_uid=?
+                     AND command_type='AUTHORIZE_FACTORY_SEAL'
+                     AND state='PROCESSING'""",
+                (self._now(), error_code, command_uid),
+            )
+            return cur.rowcount == 1
+
     def requeue_failed_command(
         self,
         command_uid: str,
@@ -1457,6 +2152,30 @@ class EdgeStore:
                    WHERE command_uid=? AND state='FAILED'
                      AND last_error=?""",
                 (command_uid, expected_error),
+            )
+            return cur.rowcount == 1
+
+    def requeue_failed_factory_seal_command(
+        self,
+        command_uid: str,
+    ) -> bool:
+        """Requeue only a repairable seal failure on duplicate delivery."""
+
+        placeholders = ",".join(
+            "?" for _ in FACTORY_SEAL_RETRYABLE_ERROR_CODES
+        )
+        retryable_errors = tuple(
+            sorted(FACTORY_SEAL_RETRYABLE_ERROR_CODES)
+        )
+        with self.transaction():
+            cur = self._conn.execute(
+                f"""UPDATE command_inbox
+                    SET state='PENDING', processed_at=NULL,
+                        processing_started_at=NULL, last_error=NULL
+                    WHERE command_uid=? AND state='FAILED'
+                      AND command_type='AUTHORIZE_FACTORY_SEAL'
+                      AND last_error IN ({placeholders})""",
+                (command_uid, *retryable_errors),
             )
             return cur.rowcount == 1
 
@@ -1557,6 +2276,17 @@ class EdgeStore:
                      AND command_type='START_MCU_FIRMWARE_UPDATE'""",
                 (self._now(),),
             ).rowcount
+            factory_seal = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='PENDING', processed_at=NULL,
+                       processing_started_at=NULL,
+                       last_error='PROCESS_RESTARTED'
+                   WHERE state IN (
+                       'PROCESSING', 'WAITING_MCU_RESULT',
+                       'RECOVERY_REQUIRED'
+                   )
+                     AND command_type='AUTHORIZE_FACTORY_SEAL'"""
+            ).rowcount
             rows = self._conn.execute(
                 """SELECT command_uid, payload_json
                    FROM command_inbox
@@ -1567,10 +2297,11 @@ class EdgeStore:
                      AND command_type NOT IN (
                          'APPLY_CONFIGURATION',
                          'REQUEST_DEVICE_ACCEPTANCE',
-                         'START_MCU_FIRMWARE_UPDATE',
-                         'OPEN_REMOTE_SUPPORT_TUNNEL',
-                         'CLOSE_REMOTE_SUPPORT_TUNNEL'
-                     )"""
+                          'START_MCU_FIRMWARE_UPDATE',
+                          'OPEN_REMOTE_SUPPORT_TUNNEL',
+                          'CLOSE_REMOTE_SUPPORT_TUNNEL',
+                          'AUTHORIZE_FACTORY_SEAL'
+                      )"""
             ).fetchall()
             physical_failed = 0
             for row in rows:
@@ -1601,6 +2332,7 @@ class EdgeStore:
                 "remote_support_requeued": remote_support,
                 "acceptance_grant_lost": acceptance,
                 "firmware_grant_lost": firmware,
+                "factory_seal_requeued": factory_seal,
                 "physical_locked": 0,
                 "physical_failed": physical_failed,
             }

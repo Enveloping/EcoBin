@@ -47,6 +47,7 @@ public class TrustedDeviceAcceptanceEvidenceService
     private final DeviceEntryUrlFactory deviceEntryUrlFactory;
     private final TrustedDeviceAcceptanceChallengePort challengePort;
     private final ReliablePlatformEdgeConfirmationService confirmationService;
+    private final FactorySealAuthorizationService factorySealAuthorizations;
     private final Set<String> supportedSoftwareVersions;
     private final Duration maximumEvidenceAge;
 
@@ -56,6 +57,7 @@ public class TrustedDeviceAcceptanceEvidenceService
             DeviceEntryUrlFactory deviceEntryUrlFactory,
             TrustedDeviceAcceptanceChallengePort challengePort,
             ReliablePlatformEdgeConfirmationService confirmationService,
+            FactorySealAuthorizationService factorySealAuthorizations,
             @Value("${ecobin.device.acceptance.supported-edge-software-versions:0.1.0}")
             String supportedSoftwareVersions,
             @Value("${ecobin.device.acceptance.maximum-evidence-age:PT10M}")
@@ -65,6 +67,7 @@ public class TrustedDeviceAcceptanceEvidenceService
         this.deviceEntryUrlFactory = deviceEntryUrlFactory;
         this.challengePort = challengePort;
         this.confirmationService = confirmationService;
+        this.factorySealAuthorizations = factorySealAuthorizations;
         this.supportedSoftwareVersions = parseVersions(
                 supportedSoftwareVersions);
         if (maximumEvidenceAge == null
@@ -222,10 +225,16 @@ public class TrustedDeviceAcceptanceEvidenceService
                     receivedAt);
             requireSingle(inserted, "insert acceptance evidence");
 
-            if ("PASSED".equals(evaluationStatus)) {
+            boolean newlyPassed = "PASSED".equals(evaluationStatus)
+                    && !"PASSED".equals(asset.acceptanceStatus());
+            if (newlyPassed) {
+                factorySealAuthorizations.requireAcceptanceSnapshotMutable(
+                        asset.id());
                 requireSingle(jdbc.update("""
                                 UPDATE dev_device_asset
                                 SET acceptance_status = 'PASSED',
+                                    acceptance_generation =
+                                        acceptance_generation + 1,
                                     accepted_at = COALESCE(accepted_at, ?),
                                     acceptance_evidence_sha256 = ?,
                                     last_acceptance_evaluated_at = ?,
@@ -239,6 +248,17 @@ public class TrustedDeviceAcceptanceEvidenceService
                         receivedAt,
                         receivedAt,
                         asset.id()), "pass device acceptance");
+                factorySealAuthorizations.ensureForAcceptedAsset(asset.id());
+            } else if ("PASSED".equals(evaluationStatus)) {
+                requireSingle(jdbc.update("""
+                                UPDATE dev_device_asset
+                                SET last_acceptance_evaluated_at = ?,
+                                    updated_at = ?
+                                WHERE id = ?
+                                """,
+                        receivedAt,
+                        receivedAt,
+                        asset.id()), "review accepted device evidence");
             } else if (!"PASSED".equals(asset.acceptanceStatus())) {
                 requireSingle(jdbc.update("""
                                 UPDATE dev_device_asset
@@ -289,6 +309,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                                asset.factory_bag_revision,
                                asset.factory_bag_set_sha256,
                                asset.acceptance_status,
+                               asset.acceptance_generation,
                                transport.onenet_connection_status,
                                (
                                    SELECT COUNT(*)
@@ -330,6 +351,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                         rs.getLong("factory_bag_revision"),
                         rs.getBytes("factory_bag_set_sha256"),
                         rs.getString("acceptance_status"),
+                        rs.getLong("acceptance_generation"),
                         "ONLINE".equals(rs.getString(
                                 "onenet_connection_status")),
                         rs.getInt("installed_bag_count")
@@ -591,6 +613,7 @@ public class TrustedDeviceAcceptanceEvidenceService
             long factoryBagRevision,
             byte[] factoryBagSetSha256,
             String acceptanceStatus,
+            long acceptanceGeneration,
             boolean oneNetOnline,
             boolean factoryBagsComplete) {
     }

@@ -6,7 +6,7 @@
 > 结论：香橙派可以通过现有 UART 烧录 MCU，但并非“只接 TX/RX 后适配软件”即可。
 > 除交叉连接的 UART 和共地外，香橙派必须可靠控制 `BOOT0` 与 `NRST`；MCU 必须先运行
 > 支持 F2 执行准备和 F3 固件身份查询的修订号 2 固件。远程发布还依赖签名包、私有 COS、
-> OneNet 合约、后端 V55 和人工灰度流程。
+> OneNet 合约、后端当前 V56（固件表由 V55 引入）和人工灰度流程。
 
 ## 1. 已实现的完整链路
 
@@ -56,20 +56,23 @@ ST 官方 AN2606 规定 STM32F10xxx 的系统存储器 Bootloader 使用 USART1�
 - [AN2606：STM32 系统存储器启动模式](https://www.st.com/resource/en/application_note/an2606-stm32microcontroller-system-memory-boot-mode-stmicroelectronics.pdf)
 - [AN3155：STM32 Bootloader USART 协议](https://www.st.com/resource/en/application_note/an3155-usart-protocol-used-in-the-stm32-bootloader-stmicroelectronics.pdf)
 
-接线关系如下。表中的“香橙派引脚”必须根据本机 `gpio readall` 选择，环境变量使用的是
-WiringOP 的 `wPi` 编号，不是 26 针排针号，也不是 H618 的 GPIO 名称。
+量产主板固定使用以下接线。环境变量使用 WiringOP 的 `wPi` 编号，不是 26 针排针号，也
+不是 H618 的 GPIO 名称。
 
 | 香橙派侧 | STM32F103C8T6 侧 | 用途与要求 |
 |---|---|---|
-| UART TX | PA10 / USART1 RX | 交叉连接，3.3 V TTL |
-| UART RX | PA9 / USART1 TX | 交叉连接，3.3 V TTL |
+| 物理 8 / UART5 TX | PA10 / USART1 RX | 交叉连接，3.3 V TTL |
+| 物理 10 / UART5 RX | PA9 / USART1 TX | 交叉连接，3.3 V TTL |
 | GND | GND | 必须共地 |
-| 一个输出 GPIO | BOOT0 | 高电平选择系统 Bootloader；默认必须有约 10 kΩ 下拉 |
-| 一个输出 GPIO | NRST | 低电平复位；建议通过开漏缓冲/三极管控制并保留上拉 |
+| 物理 7 / PC9 / wPi 2 | BOOT0 | 高电平选择系统 Bootloader；默认必须有约 10 kΩ 下拉 |
+| 物理 11 / PC6 / wPi 5 | 2N7002 Gate | 经 1 kΩ 驱动；Gate 以 100 kΩ 下拉；高电平使 MOS 导通并拉低 NRST |
+| 2N7002 Drain | NRST | MCU 侧以 10 kΩ 上拉到 3.3 V，并保留 10～100 nF 对地电容 |
+| 2N7002 Source | GND | 与香橙派和 MCU 共地，形成开漏复位控制 |
 | 固定下拉 | BOOT1 / PB2 | 约 10 kΩ 下拉，保证 BOOT0=1 时进入系统存储器 |
 
-不要把 5 V UART 直接接到 MCU 或香橙派。BOOT0 和 NRST 在香橙派启动、崩溃或 GPIO
-尚未初始化时也必须由硬件电阻保持“BOOT0=0、NRST=1”的正常运行状态。若现有主板没有
+不要把 5 V UART 直接接到 MCU 或香橙派，也不要用普通推挽反相器直接驱动 NRST。BOOT0、
+2N7002 Gate 和 NRST 在香橙派启动、崩溃或 GPIO 尚未初始化时，必须由硬件电阻分别保持
+“BOOT0=0、Gate=0、NRST=1”的正常运行状态。若现有主板没有
 引出 BOOT0/NRST，应先改板或增加可靠控制电路；仅靠应用固件主动跳转 Bootloader 不能覆盖
 固件损坏或卡死场景，不作为本方案的恢复边界。
 
@@ -169,26 +172,27 @@ sudo install -o root -g root -m 0644 \
 sudo install -o root -g root -m 0700 -d /var/lib/ecobin/mcu-firmware
 ```
 
-还必须安装并实测 WiringOP 的 `/usr/local/bin/gpio`。当前
+还必须安装并实测官方基础镜像锁定的 WiringOP `/usr/bin/gpio`。当前
 `ecobin-hardware.service` 以 root 运行，能访问 GPIO 和串口；若以后降权，必须只追加串口和
 GPIO 所需的最小设备权限，不能通过开放所有设备节点解决。
 
-### 5.2 先确认 wPi 编号
+### 5.2 核对固定 GPIO 和开漏电路
 
-在没有连接 BOOT0/NRST 或 MCU 断电时执行：
+先断开 MCU 电源，确认物理 7/11 分别对应 wPi 2/5，并检查所需工具：
 
 ```bash
 gpio readall
-ls -l /dev/ttyS5 /usr/bin/stm32flash /usr/local/bin/gpio
+ls -l /dev/ttyS5 /usr/bin/stm32flash /usr/bin/gpio
 ```
 
-记录所选排针对应的两个不同 wPi 编号，并用万用表确认软件写 0/1 后电平正确。NRST 如果
-通过反相三极管控制，环境变量中的 active level 必须按“让 MCU 进入复位”的实际 GPIO
-电平填写，不能照抄示例。
+接回 MCU 后用万用表确认安全态为 BOOT0 低、PC6/Gate 低、NRST 高。只有在现场安全监护下
+才可短暂把 wPi 5 写为高：此时 PC6/Gate 应为高、NRST 应被 MOS 拉低；随后必须立即把 wPi 5
+恢复为低并确认 NRST 回到高。这里的 `RESET_ACTIVE_LEVEL=1` 指“香橙派输出高会让 MOS 拉低
+NRST”，不是把 STM32 NRST 推挽驱动为高。
 
 ### 5.3 修改设备环境
 
-从 [`.env.example`](../.env.example) 复制以下配置到设备的受限环境文件：
+把以下固定配置安装到设备的 `/etc/ecobin/hardware.env`：
 
 ```dotenv
 ECOBIN_MCU_PROTOCOL=fixed-frame
@@ -196,15 +200,15 @@ ECOBIN_MCU_SIMULATED=false
 ECOBIN_SERIAL_PORT=/dev/ttyS5
 ECOBIN_SERIAL_BAUDRATE=115200
 ECOBIN_MCU_UPDATE_ENABLED=true
-ECOBIN_MCU_BOOT0_WPI=<boot0-wpi>
-ECOBIN_MCU_RESET_WPI=<nrst-wpi>
+ECOBIN_MCU_BOOT0_WPI=2
+ECOBIN_MCU_RESET_WPI=5
 ECOBIN_MCU_BOOT0_ACTIVE_LEVEL=1
-ECOBIN_MCU_RESET_ACTIVE_LEVEL=<实际复位有效电平>
+ECOBIN_MCU_RESET_ACTIVE_LEVEL=1
 ECOBIN_MCU_HARDWARE_COMPATIBILITY=ECOBIN_MAINBOARD_V1.1
 ECOBIN_MCU_SIGNING_PUBLIC_KEYS_DIR=/etc/ecobin/mcu-release-keys
 ECOBIN_MCU_FIRMWARE_CACHE_DIR=/var/lib/ecobin/mcu-firmware
 ECOBIN_STM32FLASH_PATH=/usr/bin/stm32flash
-ECOBIN_GPIO_PATH=/usr/local/bin/gpio
+ECOBIN_GPIO_PATH=/usr/bin/gpio
 ```
 
 保持开关为 `false` 时，设备仍按原逻辑运行，但会明确拒绝云端升级命令。只有接线、电平、
@@ -255,8 +259,8 @@ cd /root/EcoBin/hardware
 
 ## 7. 后端、OneNet、COS 和 Web 发布
 
-1. 先用独立迁移作业把目标数据库推进到 V55。V55 新增 3 个设备固件字段和 5 张固件
-   发布/灰度表；应用运行制品本身不会执行迁移。
+1. 先用独立迁移作业把目标数据库推进到当前 V56。V55 新增 3 个设备固件字段和 5 张固件
+   发布/灰度表，V56 增加封存授权与设备验收代次；应用运行制品本身不会执行迁移。
 2. 把 [OneNet 候选物模型](../../contracts/onenet/generated/onenet-thing-model.candidate.json)
    中的 `startMcuFirmwareUpdate` 服务、`mcuFirmwareUpdateProgress` 事件，以及
    `deviceRuntimeSnapshot.mcuFirmwareIdentity` 字段更新到 OneNet，再按控制台实际结果复核
@@ -268,7 +272,7 @@ cd /root/EcoBin/hardware
    ```
 
    Web 当前只登记元数据，不代替上传。对象不得公开读。
-4. 部署理解 V55 的后端和新 Web。平台管理员需要 `device.manage` 权限，进入
+4. 部署理解 V56 的后端和新 Web。平台管理员需要 `device.manage` 权限，进入
    `/mcu-firmware`。
 5. “登记发布”时逐项复制 verify 输出；相同发布、包摘要、版本码和身份不可变。
 6. “创建灰度”时指定一台验证机、目标设备、每批数量和原因。创建只冻结计划，不下发。
@@ -316,9 +320,11 @@ cd /root/EcoBin/hardware
 ## 9. 上线验收清单
 
 - [ ] PA9/PA10 交叉连接、共地，电平均为 3.3 V；
-- [ ] BOOT0 默认硬件下拉，BOOT1/PB2 固定下拉，NRST 默认上拉；
+- [ ] BOOT0 约 10 kΩ 下拉、BOOT1/PB2 固定下拉、2N7002 Gate 约 100 kΩ 下拉、NRST 约
+      10 kΩ 上拉并有 10～100 nF 对地电容；
 - [ ] 香橙派掉电或未启动时 MCU 能稳定进入原应用；
-- [ ] 两个 wPi 编号经 `gpio readall` 和万用表确认，复位有效电平实测；
+- [ ] 物理 7/PC9/wPi 2 与物理 11/PC6/wPi 5 经 `gpio readall` 和万用表确认；wPi 5 高时
+      MOS 拉低 NRST，wPi 5 低或香橙派掉电时 NRST 被释放；
 - [ ] `/dev/ttyS5` 没有被其他服务占用，应用模式 115200/8N1 正常；
 - [ ] `stm32flash`、WiringOP 和签名公钥路径均存在，公钥目录不可被普通用户写入；
 - [ ] MCU 修订号 2 的 F2/F3 和 F1 自检在真实板上通过；
@@ -330,7 +336,7 @@ cd /root/EcoBin/hardware
 - [ ] 在 MCU 已返回 F2 成功后人为使 `PREPARED` 写库失败，确认香橙派仍先复位并验证
       原身份/F1，不得在 MCU 保持升级锁存时解除维护锁；
 - [ ] 首次迁移在有人值守且可用 SWD/J-Link 恢复的设备上完成；
-- [ ] V55 迁移、V55 epoch 门禁和最小运行权限已先部署；
+- [ ] V56 迁移、V56 epoch 门禁和最小运行权限已先部署；
 - [ ] OneNet 服务/事件与生成映射一致，私有 COS 对象键和摘要一致；
 - [ ] 先用一台非关键设备验证成功，人工核验后才推广；
 - [ ] 人为制造一次目标自检失败，确认自动回滚成功且业务锁解除；

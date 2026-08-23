@@ -6,7 +6,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from command_processor import CommandProcessor
-from edge_store import EdgeStore
+from edge_store import (
+    EdgeStore,
+    FACTORY_SEAL_RETRYABLE_ERROR_CODES,
+    FACTORY_SEAL_TERMINAL_ERROR_CODES,
+)
+from factory_seal.errors import FactorySealError
 from onenet_wire import (
     canonical_payload_sha256,
     decode_service_command,
@@ -264,6 +269,411 @@ class FakeMcuFirmwareUpdater:
                 "firmwareIdentityHex": kwargs["firmware_identity_hex"],
             },
         }
+
+
+class FailingFactorySealAuthorizer:
+    def __init__(self, error):
+        self.error = error
+        self.calls = []
+
+    def authorize(self, command):
+        self.calls.append(command["commandUid"])
+        raise self.error
+
+
+class CompletingFactorySealAuthorizer:
+    def __init__(self, store):
+        self.store = store
+        self.calls = []
+
+    def authorize(self, command):
+        self.calls.append(command["commandUid"])
+        assert self.store.complete_command(
+            command["commandUid"],
+            {"disposition": "FACTORY_SEAL_AUTHORIZED"},
+        )
+
+
+def persist_factory_seal_received_before_expiry(store, command):
+    """Reconstruct a command accepted before its now-past deadline."""
+
+    now = datetime.now(timezone.utc)
+    command["issuedAt"] = (
+        now - timedelta(minutes=2)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    command["expiresAt"] = (
+        now - timedelta(minutes=1)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    assert store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    ) == "ACCEPTED"
+    received_at = (
+        now - timedelta(seconds=90)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    with store.transaction():
+        store._conn.execute(
+            "UPDATE command_inbox SET received_at=? WHERE command_uid=?",
+            (received_at, command["commandUid"]),
+        )
+
+
+class StoreFactorySealAuthorizer:
+    def __init__(self, store):
+        self.store = store
+
+    def authorize(self, command):
+        return self.store.accept_factory_seal_authorization(
+            command,
+            {
+                "imageReleaseId": "image-release-1",
+                "imageReleaseSha256": "b" * 64,
+                "factoryReportSha256": "c" * 64,
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    sorted(FACTORY_SEAL_RETRYABLE_ERROR_CODES),
+)
+def test_factory_seal_repairable_error_waits_for_duplicate_without_rejection(
+    tmp_path,
+    error_code,
+):
+    store = make_store(tmp_path)
+    command = valid_service_command(
+        "authorize-factory-seal.service-wire.json"
+    )
+    assert store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    ) == "ACCEPTED"
+    authorizer = FailingFactorySealAuthorizer(
+        FactorySealError(error_code)
+    )
+    processor = CommandProcessor(
+        store,
+        FakeUart(),
+        factory_seal_authorizer=authorizer,
+    )
+
+    assert processor.process_next()
+
+    row = store.get_command(command["commandUid"])
+    assert row["state"] == "FAILED"
+    assert row["last_error"] == error_code
+    assert authorizer.calls == [command["commandUid"]]
+    assert store.list_pending_events() == []
+    store.close()
+
+
+def test_factory_seal_unknown_internal_error_is_retryable_and_not_rejected(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    command = valid_service_command(
+        "authorize-factory-seal.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+    processor = CommandProcessor(
+        store,
+        FakeUart(),
+        factory_seal_authorizer=FailingFactorySealAuthorizer(
+            RuntimeError("temporary sqlite failure")
+        ),
+    )
+
+    assert processor.process_next()
+
+    row = store.get_command(command["commandUid"])
+    assert row["state"] == "FAILED"
+    assert row["last_error"] == "FACTORY_SEAL_RETRYABLE_FAILURE"
+    assert store.list_pending_events() == []
+    store.close()
+
+
+def test_factory_seal_receipt_read_io_error_remains_retryable(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    command = valid_service_command(
+        "authorize-factory-seal.service-wire.json"
+    )
+    assert store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    ) == "ACCEPTED"
+
+    def fail_receipt_read(_command):
+        raise OSError("temporary receipt read failure")
+
+    store.validate_claimed_factory_seal_command = fail_receipt_read
+    processor = CommandProcessor(
+        store,
+        FakeUart(),
+        factory_seal_authorizer=CompletingFactorySealAuthorizer(store),
+    )
+
+    assert processor.process_next()
+
+    row = store.get_command(command["commandUid"])
+    assert row["state"] == "FAILED"
+    assert row["last_error"] == "FACTORY_SEAL_RETRYABLE_FAILURE"
+    assert store.list_pending_events() == []
+    store.close()
+
+
+def test_factory_seal_queued_before_deadline_executes_after_deadline(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    command = valid_service_command(
+        "authorize-factory-seal.service-wire.json"
+    )
+    persist_factory_seal_received_before_expiry(store, command)
+    authorizer = CompletingFactorySealAuthorizer(store)
+    processor = CommandProcessor(
+        store,
+        FakeUart(),
+        factory_seal_authorizer=authorizer,
+    )
+
+    assert processor.process_next()
+
+    assert authorizer.calls == [command["commandUid"]]
+    assert store.get_command(command["commandUid"])["state"] == "COMPLETED"
+    store.close()
+
+
+def test_factory_seal_restart_keeps_original_acceptance_deadline_fact(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    command = valid_service_command(
+        "authorize-factory-seal.service-wire.json"
+    )
+    persist_factory_seal_received_before_expiry(store, command)
+    assert store.claim_next_command()["command_uid"] == command["commandUid"]
+    assert store.recover_interrupted_commands()["factory_seal_requeued"] == 1
+    authorizer = CompletingFactorySealAuthorizer(store)
+    processor = CommandProcessor(
+        store,
+        FakeUart(),
+        factory_seal_authorizer=authorizer,
+    )
+
+    assert processor.process_next()
+
+    assert authorizer.calls == [command["commandUid"]]
+    assert store.get_command(command["commandUid"])["state"] == "COMPLETED"
+    store.close()
+
+
+def test_expired_factory_seal_inserted_locally_is_terminally_rejected(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    command = valid_service_command(
+        "authorize-factory-seal.service-wire.json"
+    )
+    now = datetime.now(timezone.utc)
+    command["issuedAt"] = (
+        now - timedelta(minutes=2)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    command["expiresAt"] = (
+        now - timedelta(minutes=1)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    assert store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    ) == "ACCEPTED"
+    authorizer = CompletingFactorySealAuthorizer(store)
+    processor = CommandProcessor(
+        store,
+        FakeUart(),
+        factory_seal_authorizer=authorizer,
+    )
+
+    assert processor.process_next()
+
+    assert authorizer.calls == []
+    row = store.get_command(command["commandUid"])
+    assert row["state"] == "REJECTED"
+    assert row["last_error"] == "FACTORY_SEAL_ACCEPTANCE_FACT_INVALID"
+    events = store.list_pending_events()
+    assert len(events) == 1
+    observation = json.loads(events[0]["payload_json"])
+    assert observation["payload"]["stage"] == "REJECTED"
+    assert observation["payload"]["errorCode"] == (
+        "FACTORY_SEAL_ACCEPTANCE_FACT_INVALID"
+    )
+    store.close()
+
+
+def test_other_expired_command_still_uses_execution_time(tmp_path):
+    store = make_store(tmp_path)
+    command = valid_configuration_command()
+    now = datetime.now(timezone.utc)
+    command["issuedAt"] = (
+        now - timedelta(minutes=2)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    command["expiresAt"] = (
+        now - timedelta(minutes=1)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    assert store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    ) == "ACCEPTED"
+    uart = FakeUart()
+    processor = CommandProcessor(store, uart)
+
+    assert processor.process_next()
+
+    assert uart.calls == []
+    row = store.get_command(command["commandUid"])
+    assert row["state"] == "FAILED"
+    assert row["last_error"] == "COMMAND_EXPIRED"
+    store.close()
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    sorted(FACTORY_SEAL_TERMINAL_ERROR_CODES),
+)
+def test_factory_seal_deterministic_error_emits_terminal_rejection(
+    tmp_path,
+    error_code,
+):
+    store = make_store(tmp_path)
+    command = valid_service_command(
+        "authorize-factory-seal.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+    processor = CommandProcessor(
+        store,
+        FakeUart(),
+        factory_seal_authorizer=FailingFactorySealAuthorizer(
+            FactorySealError(error_code)
+        ),
+    )
+
+    assert processor.process_next()
+
+    row = store.get_command(command["commandUid"])
+    assert row["state"] == "REJECTED"
+    assert row["last_error"] == error_code
+    events = store.list_pending_events()
+    assert len(events) == 1
+    observation = json.loads(events[0]["payload_json"])
+    assert observation["payload"] == {
+        "observedCommandType": "AUTHORIZE_FACTORY_SEAL",
+        "stage": "REJECTED",
+        "mcuCommandUid": None,
+        "errorCode": error_code,
+    }
+    store.close()
+
+
+def test_factory_seal_processor_rejects_a_after_newer_evidence_b(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    device_name = "SN-CONTRACT-0001"
+    bag_digest = "a" * 64
+
+    def record_evidence() -> dict:
+        acceptance_command = {
+            "commandUid": str(uuid.uuid4()),
+            "commandType": "REQUEST_DEVICE_ACCEPTANCE",
+            "targetDeviceName": device_name,
+        }
+        store.receive_command(
+            acceptance_command["commandUid"],
+            acceptance_command["commandType"],
+            acceptance_command,
+        )
+        store.claim_next_command()
+        return store.complete_device_acceptance(
+            acceptance_command,
+            {
+                "evidenceSchemaVersion": 3,
+                "challengeUid": str(uuid.uuid4()),
+                "factoryBagRevision": 2,
+                "factoryBagSetSha256": bag_digest,
+            },
+        )
+
+    evidence_a = record_evidence()
+    evidence_b = record_evidence()
+
+    def seal_command(evidence: dict) -> dict:
+        command = valid_service_command(
+            "authorize-factory-seal.service-wire.json"
+        )
+        command["commandUid"] = str(uuid.uuid4())
+        command["payload"].update({
+            "acceptanceEvidenceUid": evidence["eventUid"],
+            "acceptanceChallengeUid": evidence["payload"][
+                "challengeUid"
+            ],
+            "acceptanceEvidenceSha256": evidence["payloadSha256"],
+            "factoryBagRevision": evidence["payload"][
+                "factoryBagRevision"
+            ],
+            "factoryBagSetSha256": evidence["payload"][
+                "factoryBagSetSha256"
+            ],
+        })
+        command["payloadSha256"] = canonical_payload_sha256(
+            command["payload"]
+        )
+        return command
+
+    processor = CommandProcessor(
+        store,
+        FakeUart(),
+        factory_seal_authorizer=StoreFactorySealAuthorizer(store),
+    )
+    stale = seal_command(evidence_a)
+    store.receive_command(
+        stale["commandUid"],
+        stale["commandType"],
+        stale,
+    )
+    assert processor.process_next()
+    stale_row = store.get_command(stale["commandUid"])
+    assert stale_row["state"] == "REJECTED"
+    assert stale_row["last_error"] == "ACCEPTANCE_EVIDENCE_NOT_LATEST"
+
+    current = seal_command(evidence_b)
+    store.receive_command(
+        current["commandUid"],
+        current["commandType"],
+        current,
+    )
+    assert processor.process_next()
+    assert store.get_command(current["commandUid"])[
+        "state"
+    ] == "COMPLETED"
+    authorization = store._conn.execute(
+        "SELECT evidence_event_uid FROM factory_seal_authorization"
+    ).fetchone()
+    assert authorization["evidence_event_uid"] == evidence_b["eventUid"]
+    store.close()
 
 
 def test_mcu_firmware_command_uses_volatile_grant_and_queues_updater(tmp_path):

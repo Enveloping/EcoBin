@@ -27,6 +27,7 @@ from edge_store import (
     FAULT_OBSERVED,
     FAULT_RECOVERED,
 )
+from factory_seal.errors import FactorySealError
 
 
 def make_store() -> EdgeStore:
@@ -296,6 +297,176 @@ class TestEdgeStoreInit:
 
         assert "prepare_recovery_required" not in columns
         assert version == 13
+
+        recovered = EdgeStore(path)
+        recovered.initialize()
+        assert recovered._conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0] == CURRENT_SCHEMA_VERSION
+        recovered.close()
+
+    def test_v15_to_v16_migration_adds_seal_completion_journal(
+        self,
+        tmp_path,
+    ):
+        path = str(tmp_path / "v15-factory-seal.db")
+        store = EdgeStore(path)
+        store.initialize()
+        store._conn.execute("DROP INDEX idx_factory_seal_completion_event")
+        store._conn.execute(
+            """ALTER TABLE factory_seal_authorization
+               DROP COLUMN completion_event_uid"""
+        )
+        store._conn.execute(
+            """ALTER TABLE factory_seal_authorization
+               DROP COLUMN cleanup_completed_at"""
+        )
+        store._conn.execute("DELETE FROM schema_version WHERE version >= 16")
+        store._conn.commit()
+        store.close()
+
+        migrated = EdgeStore(path)
+        migrated.initialize()
+
+        columns = {
+            row["name"]
+            for row in migrated._conn.execute(
+                "PRAGMA table_info('factory_seal_authorization')"
+            ).fetchall()
+        }
+        indexes = {
+            row["name"]
+            for row in migrated._conn.execute(
+                "PRAGMA index_list('factory_seal_authorization')"
+            ).fetchall()
+        }
+        assert {
+            "cleanup_completed_at",
+            "completion_event_uid",
+        }.issubset(columns)
+        assert "idx_factory_seal_completion_event" in indexes
+        assert migrated._conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0] == CURRENT_SCHEMA_VERSION
+        migrated.close()
+
+    @pytest.mark.parametrize("persisted_column_count", (1, 2))
+    def test_v16_migration_resumes_partially_persisted_ddl(
+        self,
+        tmp_path,
+        persisted_column_count,
+    ):
+        path = str(
+            tmp_path / f"v16-interrupted-{persisted_column_count}.db"
+        )
+        store = EdgeStore(path)
+        store.initialize()
+        store._conn.execute("DROP INDEX idx_factory_seal_completion_event")
+        store._conn.execute(
+            """ALTER TABLE factory_seal_authorization
+               DROP COLUMN completion_event_uid"""
+        )
+        store._conn.execute(
+            """ALTER TABLE factory_seal_authorization
+               DROP COLUMN cleanup_completed_at"""
+        )
+        store._conn.execute("DELETE FROM schema_version WHERE version >= 16")
+        store._conn.commit()
+        store.close()
+
+        interrupted = sqlite3.connect(path)
+        interrupted.execute(
+            """ALTER TABLE factory_seal_authorization
+               ADD COLUMN cleanup_completed_at TEXT"""
+        )
+        if persisted_column_count == 2:
+            interrupted.execute(
+                """ALTER TABLE factory_seal_authorization
+                   ADD COLUMN completion_event_uid TEXT"""
+            )
+        interrupted.commit()
+        interrupted.close()
+
+        resumed = EdgeStore(path)
+        resumed.initialize()
+        columns = {
+            row["name"]
+            for row in resumed._conn.execute(
+                "PRAGMA table_info('factory_seal_authorization')"
+            ).fetchall()
+        }
+        indexes = {
+            row["name"]
+            for row in resumed._conn.execute(
+                "PRAGMA index_list('factory_seal_authorization')"
+            ).fetchall()
+        }
+        assert {
+            "cleanup_completed_at",
+            "completion_event_uid",
+        }.issubset(columns)
+        assert "idx_factory_seal_completion_event" in indexes
+        assert resumed._conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0] == CURRENT_SCHEMA_VERSION
+        resumed.close()
+
+    def test_v16_migration_ddl_and_version_roll_back_together(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        path = str(tmp_path / "v16-transaction-rollback.db")
+        store = EdgeStore(path)
+        store.initialize()
+        store._conn.execute("DROP INDEX idx_factory_seal_completion_event")
+        store._conn.execute(
+            """ALTER TABLE factory_seal_authorization
+               DROP COLUMN completion_event_uid"""
+        )
+        store._conn.execute(
+            """ALTER TABLE factory_seal_authorization
+               DROP COLUMN cleanup_completed_at"""
+        )
+        store._conn.execute("DELETE FROM schema_version WHERE version >= 16")
+        store._conn.commit()
+        store.close()
+
+        def interrupt_after_first_ddl(interrupted_store):
+            interrupted_store._conn.execute(
+                """ALTER TABLE factory_seal_authorization
+                   ADD COLUMN cleanup_completed_at TEXT"""
+            )
+            raise RuntimeError("injected v16 migration interruption")
+
+        with monkeypatch.context() as migration_patch:
+            migration_patch.setattr(
+                EdgeStore,
+                "_migrate_v16",
+                interrupt_after_first_ddl,
+            )
+            interrupted = EdgeStore(path)
+            with pytest.raises(
+                RuntimeError,
+                match="injected v16 migration interruption",
+            ):
+                interrupted.initialize()
+            interrupted.close()
+
+        inspection = sqlite3.connect(path)
+        columns = {
+            row[1]
+            for row in inspection.execute(
+                "PRAGMA table_info('factory_seal_authorization')"
+            ).fetchall()
+        }
+        version = inspection.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0]
+        inspection.close()
+        assert "cleanup_completed_at" not in columns
+        assert "completion_event_uid" not in columns
+        assert version == 15
 
         recovered = EdgeStore(path)
         recovered.initialize()
@@ -879,6 +1050,231 @@ class TestAtomicReceiveCommand:
         command = store.get_command("cmd-1")
         assert command["state"] == "FAILED"
         assert command["last_error"] == "EDGE_RESTARTED"
+        store.close()
+
+    def test_factory_seal_restart_requeues_without_failed_observation(self):
+        store = make_store()
+        command_uid = str(uuid.uuid4())
+        command = {
+            "commandUid": command_uid,
+            "commandType": "AUTHORIZE_FACTORY_SEAL",
+            "targetDeviceName": "SN-FACTORY-0001",
+        }
+        assert store.receive_command(
+            command_uid,
+            "AUTHORIZE_FACTORY_SEAL",
+            command,
+        ) == "ACCEPTED"
+        assert store.claim_next_command()["state"] == "PROCESSING"
+
+        recovered = store.recover_interrupted_commands()
+
+        assert recovered["factory_seal_requeued"] == 1
+        assert recovered["physical_failed"] == 0
+        row = store.get_command(command_uid)
+        assert row["state"] == "PENDING"
+        assert row["last_error"] == "PROCESS_RESTARTED"
+        assert store._conn.execute(
+            """SELECT COUNT(*) FROM command_observation
+               WHERE command_uid=?""",
+            (command_uid,),
+        ).fetchone()[0] == 0
+        assert store.claim_next_command()["command_uid"] == command_uid
+        store.close()
+
+    def test_factory_seal_retry_requeues_only_allowlisted_failed_state(self):
+        store = make_store()
+        command_uid = str(uuid.uuid4())
+        command = {
+            "commandUid": command_uid,
+            "commandType": "AUTHORIZE_FACTORY_SEAL",
+            "targetDeviceName": "SN-FACTORY-0001",
+        }
+        store.receive_command(
+            command_uid,
+            "AUTHORIZE_FACTORY_SEAL",
+            command,
+        )
+        store.claim_next_command()
+        assert store.fail_factory_seal_command_for_retry(
+            command_uid,
+            "FACTORY_REPORT_INVALID",
+        )
+        assert store.get_command(command_uid)["state"] == "FAILED"
+        assert store.requeue_failed_factory_seal_command(command_uid)
+        assert store.get_command(command_uid)["state"] == "PENDING"
+
+        store.claim_next_command()
+        assert store.complete_command(command_uid)
+        assert not store.requeue_failed_factory_seal_command(command_uid)
+
+        rejected_uid = str(uuid.uuid4())
+        rejected = {
+            "commandUid": rejected_uid,
+            "commandType": "AUTHORIZE_FACTORY_SEAL",
+            "targetDeviceName": "SN-FACTORY-0001",
+        }
+        store.receive_command(
+            rejected_uid,
+            "AUTHORIZE_FACTORY_SEAL",
+            rejected,
+        )
+        store.claim_next_command()
+        assert store.reject_factory_seal_command(
+            rejected,
+            "ACCEPTANCE_EVIDENCE_MISMATCH",
+        )
+        assert store.get_command(rejected_uid)["state"] == "REJECTED"
+        assert not store.requeue_failed_factory_seal_command(rejected_uid)
+
+        with pytest.raises(ValueError):
+            store.fail_factory_seal_command_for_retry(
+                rejected_uid,
+                "ACCEPTANCE_EVIDENCE_MISMATCH",
+            )
+        with pytest.raises(ValueError):
+            store.reject_factory_seal_command(
+                rejected,
+                "FACTORY_REPORT_INVALID",
+            )
+        store.close()
+
+
+class TestFactorySealAuthorization:
+    def test_only_latest_local_acceptance_evidence_can_authorize(self):
+        store = make_store()
+        device_name = "SN-FACTORY-0001"
+        bag_digest = "a" * 64
+
+        def record_evidence() -> dict:
+            command_uid = str(uuid.uuid4())
+            challenge_uid = str(uuid.uuid4())
+            command = {
+                "commandUid": command_uid,
+                "commandType": "REQUEST_DEVICE_ACCEPTANCE",
+                "targetDeviceName": device_name,
+            }
+            assert store.receive_command(
+                command_uid,
+                command["commandType"],
+                command,
+            ) == "ACCEPTED"
+            assert store.claim_next_command()["command_uid"] == command_uid
+            return store.complete_device_acceptance(
+                command,
+                {
+                    "evidenceSchemaVersion": 3,
+                    "challengeUid": challenge_uid,
+                    "factoryBagRevision": 2,
+                    "factoryBagSetSha256": bag_digest,
+                },
+            )
+
+        evidence_a = record_evidence()
+        evidence_b = record_evidence()
+
+        def seal_command(evidence: dict) -> dict:
+            evidence_payload = evidence["payload"]
+            return {
+                "commandUid": str(uuid.uuid4()),
+                "commandType": "AUTHORIZE_FACTORY_SEAL",
+                "targetDeviceName": device_name,
+                "payload": {
+                    "sealAuthorizationSchemaVersion": 1,
+                    "hardwareSn": device_name,
+                    "acceptanceGeneration": 1,
+                    "acceptanceEvidenceUid": evidence["eventUid"],
+                    "acceptanceChallengeUid": evidence_payload[
+                        "challengeUid"
+                    ],
+                    "acceptanceEvidenceSha256": evidence[
+                        "payloadSha256"
+                    ],
+                    "factoryBagRevision": evidence_payload[
+                        "factoryBagRevision"
+                    ],
+                    "factoryBagSetSha256": evidence_payload[
+                        "factoryBagSetSha256"
+                    ],
+                },
+            }
+
+        local_facts = {
+            "imageReleaseId": "image-release-1",
+            "imageReleaseSha256": "b" * 64,
+            "factoryReportSha256": "c" * 64,
+        }
+        stale = seal_command(evidence_a)
+        store.receive_command(
+            stale["commandUid"],
+            stale["commandType"],
+            stale,
+        )
+        assert store.claim_next_command()["command_uid"] == stale[
+            "commandUid"
+        ]
+
+        with pytest.raises(FactorySealError) as rejected:
+            store.accept_factory_seal_authorization(stale, local_facts)
+        assert rejected.value.code == "ACCEPTANCE_EVIDENCE_NOT_LATEST"
+        assert store.reject_factory_seal_command(
+            stale,
+            rejected.value.code,
+        )
+        assert store.get_command(stale["commandUid"])["state"] == "REJECTED"
+
+        current = seal_command(evidence_b)
+        store.receive_command(
+            current["commandUid"],
+            current["commandType"],
+            current,
+        )
+        assert store.claim_next_command()["command_uid"] == current[
+            "commandUid"
+        ]
+
+        accepted = store.accept_factory_seal_authorization(
+            current,
+            local_facts,
+        )
+
+        assert accepted["disposition"] == "AUTHORIZED"
+        assert store.get_command(current["commandUid"])[
+            "state"
+        ] == "COMPLETED"
+        authorization = store._conn.execute(
+            """SELECT evidence_event_uid, acceptance_challenge_uid,
+                      acceptance_evidence_sha256,
+                      factory_bag_revision, factory_bag_set_sha256,
+                      state
+               FROM factory_seal_authorization"""
+        ).fetchone()
+        assert authorization["evidence_event_uid"] == evidence_b["eventUid"]
+        assert authorization["acceptance_challenge_uid"] == evidence_b[
+            "payload"
+        ]["challengeUid"]
+        assert authorization["acceptance_evidence_sha256"] == evidence_b[
+            "payloadSha256"
+        ]
+        assert authorization["factory_bag_revision"] == 2
+        assert authorization["factory_bag_set_sha256"] == bag_digest
+        assert authorization["state"] == "AUTHORIZED"
+
+        observations = [
+            json.loads(row["payload_json"])["payload"]
+            for row in store._conn.execute(
+                """SELECT payload_json FROM event_outbox
+                   WHERE event_type='DEVICE_COMMAND_OBSERVED'
+                   ORDER BY edge_event_sequence"""
+            ).fetchall()
+        ]
+        assert [item["stage"] for item in observations] == [
+            "REJECTED",
+            "ACCEPTED",
+        ]
+        assert observations[0]["errorCode"] == (
+            "ACCEPTANCE_EVIDENCE_NOT_LATEST"
+        )
         store.close()
 
 

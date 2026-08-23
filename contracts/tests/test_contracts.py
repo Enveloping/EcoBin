@@ -579,6 +579,61 @@ class OneNetSchemaTests(unittest.TestCase):
         instance["payloadSha256"] = payload_sha256(payload)
         _validate_command_semantics(instance)
 
+    def test_factory_seal_expiry_is_first_reliable_acceptance_deadline(
+        self,
+    ) -> None:
+        commands = load_json(
+            CONTRACTS_ROOT
+            / "onenet"
+            / "commands"
+            / "commands.schema.json"
+        )
+        mapping = load_json(
+            CONTRACTS_ROOT / "onenet" / "thing-model.mapping.yaml"
+        )
+        expiry = commands["$defs"]["authorizeFactorySealCommand"][
+            "allOf"
+        ][1]["properties"]["expiresAt"]
+        description = expiry["description"].lower()
+
+        self.assertIn("first reliable acceptance", description)
+        self.assertIn("not an execution deadline", description)
+        semantic_rule = next(
+            rule
+            for rule in mapping["semanticChecksBeyondJsonSchema"]
+            if rule.startswith("AUTHORIZE_FACTORY_SEAL ")
+        )
+        self.assertIn("first reliable-acceptance deadline", semantic_rule)
+        self.assertIn("persisted receipt fact", semantic_rule)
+
+    def test_factory_seal_event_occurs_exactly_at_cleanup_instant(
+        self,
+    ) -> None:
+        mapping = load_json(
+            CONTRACTS_ROOT / "onenet" / "thing-model.mapping.yaml"
+        )
+        event = load_json(
+            CONTRACTS_ROOT
+            / "examples"
+            / "onenet"
+            / "factory-seal-completed.event.json"
+        )
+
+        _validate_event_semantics(event, mapping)
+
+        for occurred_at in (
+            "2026-07-24T01:00:30.001Z",
+            "2026-07-24T09:00:30.000Z",
+        ):
+            with self.subTest(occurred_at=occurred_at):
+                late_event = copy.deepcopy(event)
+                late_event["occurredAt"] = occurred_at
+                with self.assertRaisesRegex(
+                    ContractError,
+                    "occurredAt must equal cleanupCompletedAt",
+                ):
+                    _validate_event_semantics(late_event, mapping)
+
     def test_stable_command_digest_excludes_only_attempt_credentials(self) -> None:
         command = load_json(
             CONTRACTS_ROOT

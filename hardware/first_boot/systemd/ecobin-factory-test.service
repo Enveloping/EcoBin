@@ -1,0 +1,60 @@
+[Unit]
+Description=EcoBin isolated factory hardware test executor (P7 gate)
+PartOf=ecobin-factory.target
+Requires=ecobin-first-boot.service ecobin-factory-egress-lock.service ecobin-mcu-safe-gpio.service ecobin-factory-portal.service
+After=ecobin-first-boot.service ecobin-factory-egress-lock.service ecobin-mcu-safe-gpio.service ecobin-factory-portal.service
+Conflicts=ecobin-cellular-uplink.service ecobin-enrollment.service ecobin-remote-support.service ecobin-hardware.service ecobin-runtime.target
+
+[Service]
+Type=simple
+User=root
+Group=ecobin-factory-web
+WorkingDirectory=/opt/ecobin/factory-test/current/app
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=/etc/ecobin/hardware.env
+ExecCondition=/opt/ecobin/factory-test/current/.venv/bin/python -m first_boot.gate --require factory-test
+ExecStart=/opt/ecobin/factory-test/current/.venv/bin/python -m factory.acceptance_service
+Restart=no
+TimeoutStartSec=30
+TimeoutStopSec=15
+TasksMax=16
+MemoryMax=192M
+UMask=0027
+StateDirectory=ecobin/factory-test
+StateDirectoryMode=0700
+RuntimeDirectory=ecobin/factory-test
+RuntimeDirectoryMode=0750
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+DevicePolicy=closed
+DeviceAllow=/dev/ttyS5 rw
+DeviceAllow=/dev/gpiomem rw
+DeviceAllow=/dev/mem rw
+DeviceAllow=char-video4linux rw
+ReadWritePaths=/var/lib/ecobin/factory-test
+ReadWritePaths=/run/ecobin/factory-test
+ReadWritePaths=/run/ecobin/factory-portal
+ReadWritePaths=/run/lock/ecobin
+InaccessiblePaths=-/etc/ecobin/enrollment.key
+InaccessiblePaths=-/etc/ecobin/setup-ap.key
+InaccessiblePaths=-/etc/ecobin/device-credentials.json
+InaccessiblePaths=-/etc/ecobin/remote-support-credentials.json
+InaccessiblePaths=-/var/lib/ecobin/hardware
+InaccessiblePaths=-/var/lib/ecobin/mcu-firmware
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any

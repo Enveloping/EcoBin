@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.jinshoubao.com/schemas/orangepi/image-layout-v2.json",
+  "title": "EcoBin compact Orange Pi image layout",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "lockState", "reason", "sourceGeometry", "targetMedia", "compactImage", "rootFilesystem", "firstBootExpansion"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 2},
+    "lockState": {"enum": ["LOCKED", "UNLOCKED"]},
+    "reason": {"type": "string", "minLength": 1},
+    "sourceGeometry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["lockState", "rawImageBytes", "rawImageSha256", "partitionTableType", "diskIdentifier", "logicalSectorBytes", "bootPrefixBytes", "bootPrefixSha256", "rootPartition"],
+      "properties": {
+        "lockState": {"const": "LOCKED"},
+        "rawImageBytes": {"type": "integer", "minimum": 1},
+        "rawImageSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "partitionTableType": {"const": "dos"},
+        "diskIdentifier": {"type": "string", "pattern": "^[0-9a-f]{8}$"},
+        "logicalSectorBytes": {"const": 512},
+        "bootPrefixBytes": {"type": "integer", "minimum": 512},
+        "bootPrefixSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "rootPartition": {
+          "type": "object", "additionalProperties": false,
+          "required": ["number", "startSector", "sectorCount", "typeCode", "mustBeFinalPartition"],
+          "properties": {
+            "number": {"type": "integer", "minimum": 1},
+            "startSector": {"type": "integer", "minimum": 1},
+            "sectorCount": {"type": "integer", "minimum": 1},
+            "typeCode": {"const": "83"},
+            "mustBeFinalPartition": {"const": true}
+          }
+        }
+      }
+    },
+    "targetMedia": {
+      "type": "object", "additionalProperties": false,
+      "required": ["marketedCapacityGB", "marketedCapacityBytes", "qualificationState", "minimumQualifiedMediaBytes", "evidenceSha256"],
+      "properties": {
+        "marketedCapacityGB": {"const": 32},
+        "marketedCapacityBytes": {"const": 32000000000},
+        "qualificationState": {"enum": ["QUALIFIED", "UNQUALIFIED"]},
+        "minimumQualifiedMediaBytes": {"type": ["integer", "null"], "minimum": 1},
+        "evidenceSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "compactImage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fixedRawImageBytes", "alignmentBytes", "tailSafetyBytes", "partitionTablePolicy"],
+      "properties": {
+        "fixedRawImageBytes": {"type": "integer", "minimum": 1},
+        "alignmentBytes": {"type": "integer", "minimum": 512},
+        "tailSafetyBytes": {"type": "integer", "minimum": 16777216},
+        "partitionTablePolicy": {"const": "locked-prefix-and-rebuilt-root"}
+      }
+    },
+    "rootFilesystem": {
+      "type": "object", "additionalProperties": false,
+      "required": ["partitionNumber", "filesystemType", "filesystemLabel", "filesystemUuid", "partitionUuid", "mustBeFinalPartition", "buildProfile"],
+      "properties": {
+        "partitionNumber": {"type": "integer", "minimum": 1},
+        "filesystemType": {"const": "ext4"},
+        "filesystemLabel": {"const": "opi_root"},
+        "filesystemUuid": {"type": "string"},
+        "partitionUuid": {"type": "string"},
+        "mustBeFinalPartition": {"const": true},
+        "buildProfile": {
+          "type": "object", "additionalProperties": false,
+          "required": ["sourceDateEpoch", "blockSize", "blockCount", "inodeCount", "inodeSize", "blocksPerGroup", "inodesPerGroup", "inodeBlocksPerGroup", "flexBlockGroupSize", "reservedBlockCount", "reservedPercent", "journalSizeBytes", "features", "defaultMountOptions", "directoryHashAlgorithm", "directoryHashSeed", "filesystemFlags", "errorBehavior", "maximumMountCount", "checkIntervalSeconds"],
+          "properties": {
+            "sourceDateEpoch": {"type": "integer", "minimum": 0},
+            "blockSize": {"const": 4096}, "blockCount": {"type": "integer", "minimum": 1},
+            "inodeCount": {"type": "integer", "minimum": 1}, "inodeSize": {"const": 256},
+            "blocksPerGroup": {"type": "integer", "minimum": 1}, "inodesPerGroup": {"type": "integer", "minimum": 1},
+            "inodeBlocksPerGroup": {"type": "integer", "minimum": 1}, "flexBlockGroupSize": {"type": "integer", "minimum": 1},
+            "reservedBlockCount": {"type": "integer", "minimum": 0}, "reservedPercent": {"type": "integer", "minimum": 0, "maximum": 50},
+            "journalSizeBytes": {"type": "integer", "minimum": 1048576},
+            "features": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+            "defaultMountOptions": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+            "directoryHashAlgorithm": {"const": "half_md4"}, "directoryHashSeed": {"type": "string"},
+            "filesystemFlags": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+            "errorBehavior": {"const": "Continue"}, "maximumMountCount": {"const": -1}, "checkIntervalSeconds": {"const": 0}
+          }
+        }
+      }
+    },
+    "firstBootExpansion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "strategy", "minimumGrowthBytes", "failurePolicy", "idempotent", "identityBinding"],
+      "properties": {
+        "schemaVersion": {"const": 2}, "strategy": {"const": "growpart-resize2fs"},
+        "minimumGrowthBytes": {"type": "integer", "minimum": 1048576}, "failurePolicy": {"const": "fail-closed"},
+        "idempotent": {"const": true}, "identityBinding": {"const": "mounted-root-maj-min-sysfs"}
+      }
+    }
+  }
+}

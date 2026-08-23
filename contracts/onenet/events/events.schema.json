@@ -19,7 +19,8 @@
     { "$ref": "#/$defs/deviceRuntimeSnapshotEvent" },
     { "$ref": "#/$defs/deviceAcceptanceEvidenceEvent" },
     { "$ref": "#/$defs/remoteSupportTunnelStatusEvent" },
-    { "$ref": "#/$defs/mcuFirmwareUpdateProgressEvent" }
+    { "$ref": "#/$defs/mcuFirmwareUpdateProgressEvent" },
+    { "$ref": "#/$defs/factorySealCompletedEvent" }
   ],
   "$defs": {
     "configSnapshot": {
@@ -77,7 +78,8 @@
             "END_CLEAN_BEFORE_UNLOCK",
             "RESUME_CLEAN_OPERATION",
             "SAMPLE_FULLNESS",
-            "MEASURE_EMPTY_BAG_BASELINE"
+            "MEASURE_EMPTY_BAG_BASELINE",
+            "AUTHORIZE_FACTORY_SEAL"
           ]
         },
         "stage": {
@@ -1021,6 +1023,85 @@
         }
       ]
     },
+    "factorySealCompletedPayload": {
+      "type": "object",
+      "required": [
+        "sealCompletionSchemaVersion",
+        "hardwareSn",
+        "authorizationCommandUid",
+        "acceptanceGeneration",
+        "acceptanceEvidenceUid",
+        "acceptanceEvidenceSha256",
+        "acceptanceChallengeUid",
+        "factoryBagRevision",
+        "factoryBagSetSha256",
+        "imageReleaseId",
+        "imageReleaseSha256",
+        "factoryReportSha256",
+        "authorizationBindingSha256",
+        "operatorConfirmationUid",
+        "sealedAt",
+        "cleanupCompletedAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sealCompletionSchemaVersion": { "const": 1 },
+        "hardwareSn": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "authorizationCommandUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "acceptanceGeneration": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "acceptanceEvidenceUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "acceptanceEvidenceSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "acceptanceChallengeUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "factoryBagRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "factoryBagSetSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "imageReleaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[!-~]+$"
+        },
+        "imageReleaseSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "factoryReportSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "authorizationBindingSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "operatorConfirmationUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "sealedAt": {
+          "$ref": "../common.schema.json#/$defs/utcInstant"
+        },
+        "cleanupCompletedAt": {
+          "$ref": "../common.schema.json#/$defs/utcInstant"
+        }
+      }
+    },
     "mcuFirmwareUpdateProgressPayload": {
       "type": "object",
       "required": [
@@ -1861,6 +1942,37 @@
             },
             "payload": {
               "$ref": "#/$defs/remoteSupportTunnelStatusPayload"
+            }
+          }
+        }
+      ]
+    },
+    "factorySealCompletedEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "FACTORY_SEAL_COMPLETED" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DEVICE_ASSET" }
+                  }
+                }
+              ]
+            },
+            "commandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "occurredAt": {
+              "$ref": "../common.schema.json#/$defs/utcInstant"
+            },
+            "clockQuality": { "const": "SYNCED" },
+            "payload": {
+              "$ref": "#/$defs/factorySealCompletedPayload"
             }
           }
         }

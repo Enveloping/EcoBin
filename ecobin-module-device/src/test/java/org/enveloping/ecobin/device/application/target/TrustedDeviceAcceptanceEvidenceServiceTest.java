@@ -48,7 +48,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
         var failures = service.failures(
                 new TrustedDeviceAcceptanceEvidenceService.AssetState(
                         1L, DEVICE_PUBLIC_CODE, 1, 1L, new byte[32],
-                        "PENDING", true, true),
+                        "PENDING", 0L, true, true),
                 healthyEvidence(true, true),
                 observedAt,
                 observedAt.plusSeconds(1));
@@ -90,7 +90,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
         var failures = service.failures(
                 new TrustedDeviceAcceptanceEvidenceService.AssetState(
                         1L, DEVICE_PUBLIC_CODE, 1, 1L, new byte[32],
-                        "PENDING", true, true),
+                        "PENDING", 0L, true, true),
                 evidence,
                 observedAt,
                 observedAt.plusSeconds(1));
@@ -107,7 +107,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 2026, 8, 7, 12, 0);
         var asset = new TrustedDeviceAcceptanceEvidenceService.AssetState(
                 1L, DEVICE_PUBLIC_CODE, 1, 1L, new byte[32],
-                "PENDING", true, true);
+                "PENDING", 0L, true, true);
 
         assertThat(service.failures(
                 asset,
@@ -129,7 +129,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
     void lateEvidenceCannotCrossFactoryBagGeneration() {
         var current = new TrustedDeviceAcceptanceEvidenceService.AssetState(
                 1L, DEVICE_PUBLIC_CODE, 1, 7L, new byte[32],
-                "PENDING", true, true);
+                "PENDING", 0L, true, true);
         var matching = healthyEvidence(false, false);
         matching = withFactoryBagGeneration(
                 matching, 7L, "0".repeat(64));
@@ -220,6 +220,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 DEVICE_ENTRY_URL_FACTORY,
                 mock(TrustedDeviceAcceptanceChallengePort.class),
                 mock(ReliablePlatformEdgeConfirmationService.class),
+                mock(FactorySealAuthorizationService.class),
                 "0.1.0",
                 Duration.ofMinutes(10));
     }
@@ -234,6 +235,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 7L,
                 new byte[32],
                 "PASSED",
+                1L,
                 true,
                 true);
         when(acceptanceJdbc.query(
@@ -280,6 +282,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                         DEVICE_ENTRY_URL_FACTORY,
                         challengePort,
                         confirmationService,
+                        mock(FactorySealAuthorizationService.class),
                         "0.1.0",
                         Duration.ofMinutes(10));
         return new AcceptanceApplyFixture(

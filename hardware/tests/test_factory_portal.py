@@ -1,0 +1,606 @@
+from __future__ import annotations
+
+from http import HTTPStatus
+import io
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from factory.acceptance_portal_client import AcceptancePortalClientError
+from factory.network import FACTORY_ADDRESS, FACTORY_PORT
+from factory.portal import (
+    BoundedHeaderReader,
+    FactoryPortalServer,
+    MAX_HEADER_BYTES,
+    MAX_HEADER_COUNT,
+    MAX_HEADER_LINE_BYTES,
+    MAX_REQUEST_LINE_BYTES,
+    PortalApplication,
+    PortalSnapshotProvider,
+    RateLimiter,
+    RequestHeaderLimitExceeded,
+    SnapshotPaths,
+    build_server,
+    security_headers,
+)
+
+
+class FixedSnapshot:
+    def snapshot(self) -> dict[str, Any]:
+        return {"schemaVersion": 1, "readOnly": True, "stage": "FACTORY_PORTAL_READY"}
+
+
+class FakeActionClient:
+    def __init__(self, status: dict[str, Any] | None = None) -> None:
+        self.current = status or {
+            "status": "RUNNING",
+            "revision": 3,
+            "cameraReview": None,
+        }
+        self.requests: list[dict[str, Any]] = []
+        self.error: AcceptancePortalClientError | None = None
+
+    def status(self) -> dict[str, Any]:
+        return dict(self.current)
+
+    def execute(self, request: dict[str, Any]) -> dict[str, Any]:
+        self.requests.append(request)
+        if self.error is not None:
+            raise self.error
+        return {"status": "RUNNING", "revision": 4, "idempotent": False}
+
+
+class FakeSealPortal:
+    def __init__(self, *, allowed: bool = False) -> None:
+        self.allowed = allowed
+        self.confirmed: list[str] = []
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "authorized": self.allowed,
+            "confirmAllowed": self.allowed,
+            "statusCode": "AUTHORIZED" if self.allowed else "NOT_AUTHORIZED",
+            "acceptanceGeneration": 1 if self.allowed else None,
+            "authorizationBindingSha256": "a" * 64 if self.allowed else None,
+        }
+
+    def confirm(self, operator_confirmation_uid: str) -> dict[str, Any]:
+        self.confirmed.append(operator_confirmation_uid)
+        return {
+            "authorized": True,
+            "confirmAllowed": False,
+            "statusCode": "SEALING",
+            "acceptanceGeneration": 1,
+            "authorizationBindingSha256": "a" * 64,
+        }
+
+
+def _headers(**overrides: str) -> dict[str, str]:
+    result = {"Host": FACTORY_ADDRESS, "Sec-Fetch-Site": "same-origin"}
+    result.update(overrides)
+    return result
+
+
+def _action_headers(body: bytes, **overrides: str) -> dict[str, str]:
+    result = _headers(
+        Origin=f"http://{FACTORY_ADDRESS}",
+        **{
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
+            "X-EcoBin-Factory-Action": "1",
+        },
+    )
+    result.update(overrides)
+    return result
+
+
+def test_status_endpoint_is_same_origin_read_only_json() -> None:
+    application = PortalApplication(snapshot_provider=FixedSnapshot())
+
+    response = application.handle(
+        "GET", "/api/v1/status", _headers(), "10.42.0.20"
+    )
+
+    assert response.status == HTTPStatus.OK
+    assert response.content_type == "application/json; charset=utf-8"
+    assert json.loads(response.body) == {
+        "schemaVersion": 1,
+        "readOnly": True,
+        "stage": "FACTORY_PORTAL_READY",
+    }
+
+
+def test_explicit_default_port_is_still_the_same_local_origin() -> None:
+    application = PortalApplication(snapshot_provider=FixedSnapshot())
+
+    response = application.handle(
+        "GET",
+        "/api/v1/status",
+        _headers(Origin=f"http://{FACTORY_ADDRESS}:{FACTORY_PORT}"),
+        "10.42.0.20",
+    )
+
+    assert response.status == HTTPStatus.OK
+
+
+def test_rate_limit_is_per_client_and_recovers_after_window() -> None:
+    now = [100.0]
+    limiter = RateLimiter(maximum_requests=2, window_seconds=10, clock=lambda: now[0])
+
+    assert limiter.allow("10.42.0.20") is True
+    assert limiter.allow("10.42.0.20") is True
+    assert limiter.allow("10.42.0.20") is False
+    assert limiter.allow("10.42.0.21") is True
+
+    now[0] = 111.0
+    assert limiter.allow("10.42.0.20") is True
+
+
+@pytest.mark.parametrize(
+    ("headers", "error"),
+    [
+        ({"Host": "evil.example"}, "HOST_FORBIDDEN"),
+        (
+            {"Host": FACTORY_ADDRESS, "Origin": "https://evil.example"},
+            "ORIGIN_FORBIDDEN",
+        ),
+        (
+            {"Host": FACTORY_ADDRESS, "Sec-Fetch-Site": "cross-site"},
+            "CROSS_SITE_FORBIDDEN",
+        ),
+    ],
+)
+def test_external_host_origin_and_cross_site_fetch_are_rejected(
+    headers: dict[str, str], error: str
+) -> None:
+    application = PortalApplication(snapshot_provider=FixedSnapshot())
+
+    response = application.handle("GET", "/api/v1/status", headers, "10.42.0.20")
+
+    assert response.status == HTTPStatus.FORBIDDEN
+    assert json.loads(response.body)["error"] == error
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "PROPFIND"])
+def test_unsupported_method_or_route_is_rejected(method: str) -> None:
+    application = PortalApplication(snapshot_provider=FixedSnapshot())
+
+    response = application.handle(method, "/api/v1/status", _headers(), "10.42.0.20")
+
+    assert response.status == HTTPStatus.METHOD_NOT_ALLOWED
+    assert json.loads(response.body)["error"] == "METHOD_NOT_ALLOWED"
+
+
+def test_exact_action_envelope_is_forwarded_to_the_root_executor() -> None:
+    client = FakeActionClient()
+    application = PortalApplication(
+        snapshot_provider=FixedSnapshot(), action_client=client
+    )
+    request = {
+        "operation": "CAPTURE_EMPTY_WEIGHT",
+        "expectedRevision": 3,
+        "parameters": {"confirmScaleEmpty": True},
+    }
+    body = json.dumps(request).encode("utf-8")
+
+    response = application.handle(
+        "POST",
+        "/api/v1/acceptance/action",
+        _action_headers(body),
+        "10.42.0.20",
+        body,
+    )
+
+    assert response.status == HTTPStatus.OK
+    assert client.requests == [request]
+    assert json.loads(response.body)["revision"] == 4
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected_status", "expected_error"),
+    (
+        ({"Origin": ""}, HTTPStatus.FORBIDDEN, "ORIGIN_FORBIDDEN"),
+        (
+            {"X-EcoBin-Factory-Action": "0"},
+            HTTPStatus.FORBIDDEN,
+            "ACTION_CSRF_GUARD_REQUIRED",
+        ),
+        (
+            {"Content-Type": "text/plain"},
+            HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+            "JSON_CONTENT_TYPE_REQUIRED",
+        ),
+    ),
+)
+def test_actions_require_same_origin_custom_header_and_json_content_type(
+    overrides: dict[str, str],
+    expected_status: HTTPStatus,
+    expected_error: str,
+) -> None:
+    body = b'{"operation":"CHECK_MCU","expectedRevision":1,"parameters":{}}'
+    application = PortalApplication(
+        snapshot_provider=FixedSnapshot(), action_client=FakeActionClient()
+    )
+
+    response = application.handle(
+        "POST",
+        "/api/v1/acceptance/action",
+        _action_headers(body, **overrides),
+        "10.42.0.20",
+        body,
+    )
+
+    assert response.status == expected_status
+    assert json.loads(response.body)["error"] == expected_error
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        b'[{"operation":"CHECK_MCU"}]',
+        b'{"operation":"CHECK_MCU","operation":"RUN_CLEAN"}',
+        b'{broken',
+    ),
+)
+def test_action_json_is_an_object_without_duplicate_keys(body: bytes) -> None:
+    application = PortalApplication(
+        snapshot_provider=FixedSnapshot(), action_client=FakeActionClient()
+    )
+
+    response = application.handle(
+        "POST",
+        "/api/v1/acceptance/action",
+        _action_headers(body),
+        "10.42.0.20",
+        body,
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert json.loads(response.body)["error"] == "ACTION_JSON_INVALID"
+
+
+def test_executor_busy_error_is_preserved_at_the_http_boundary() -> None:
+    client = FakeActionClient()
+    client.error = AcceptancePortalClientError(
+        "ACCEPTANCE_EXECUTOR_BUSY", HTTPStatus.CONFLICT
+    )
+    application = PortalApplication(
+        snapshot_provider=FixedSnapshot(), action_client=client
+    )
+    body = b'{"operation":"CHECK_MCU","expectedRevision":1,"parameters":{}}'
+
+    response = application.handle(
+        "POST",
+        "/api/v1/acceptance/action",
+        _action_headers(body),
+        "10.42.0.20",
+        body,
+    )
+
+    assert response.status == HTTPStatus.CONFLICT
+    assert json.loads(response.body)["error"] == "ACCEPTANCE_EXECUTOR_BUSY"
+
+
+def test_request_body_and_transfer_encoding_are_bounded() -> None:
+    application = PortalApplication(snapshot_provider=FixedSnapshot())
+
+    body = application.handle(
+        "GET", "/api/v1/status", _headers(**{"Content-Length": "1"}), "10.42.0.20"
+    )
+    too_large = application.handle(
+        "GET", "/api/v1/status", _headers(**{"Content-Length": "4097"}), "10.42.0.20"
+    )
+    chunked = application.handle(
+        "GET",
+        "/api/v1/status",
+        _headers(**{"Transfer-Encoding": "chunked"}),
+        "10.42.0.20",
+    )
+
+    assert body.status == HTTPStatus.BAD_REQUEST
+    assert too_large.status == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+    assert chunked.status == HTTPStatus.BAD_REQUEST
+
+
+def test_query_strings_cannot_select_files_or_parameters() -> None:
+    application = PortalApplication(snapshot_provider=FixedSnapshot())
+
+    response = application.handle(
+        "GET",
+        "/api/v1/status?path=/etc/ecobin/setup-ap.key",
+        _headers(),
+        "10.42.0.20",
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert b"setup-ap.key" not in response.body
+
+
+def test_camera_images_are_available_only_for_the_current_review_nonce(
+    tmp_path: Path,
+) -> None:
+    nonce = "a" * 32
+    current = FakeActionClient(
+        {
+            "status": "RUNNING",
+            "revision": 4,
+            "cameraReview": {"nonce": nonce},
+        }
+    )
+    (tmp_path / f"outside-{nonce}.jpg").write_bytes(b"outside-current")
+    (tmp_path / f"inside-{nonce}.jpg").write_bytes(b"inside-current")
+    application = PortalApplication(
+        snapshot_provider=FixedSnapshot(),
+        action_client=current,
+        camera_review_directory=tmp_path,
+    )
+
+    outside = application.handle(
+        "GET",
+        f"/api/v1/acceptance/camera/outside/{nonce}",
+        _headers(),
+        "10.42.0.20",
+    )
+    stale = application.handle(
+        "GET",
+        f"/api/v1/acceptance/camera/outside/{'b' * 32}",
+        _headers(),
+        "10.42.0.20",
+    )
+    traversal = application.handle(
+        "GET",
+        f"/api/v1/acceptance/camera/outside/{nonce}?path=../../etc/shadow",
+        _headers(),
+        "10.42.0.20",
+    )
+
+    assert outside.status == HTTPStatus.OK
+    assert outside.content_type == "image/jpeg"
+    assert outside.body == b"outside-current"
+    assert stale.status == HTTPStatus.NOT_FOUND
+    assert traversal.status == HTTPStatus.BAD_REQUEST
+
+
+def test_factory_seal_needs_current_pass_revision_and_server_authorization() -> None:
+    uid = "12345678-1234-4123-8123-123456789abc"
+    body = json.dumps(
+        {
+            "operation": "CONFIRM_FACTORY_SEAL",
+            "expectedRevision": 12,
+            "parameters": {"operatorConfirmationUid": uid},
+        }
+    ).encode("utf-8")
+    accepted = FakeActionClient({"status": "PASSED", "revision": 12})
+    seal = FakeSealPortal(allowed=True)
+    application = PortalApplication(
+        snapshot_provider=FixedSnapshot(),
+        action_client=accepted,
+        seal_portal=seal,
+    )
+
+    response = application.handle(
+        "POST",
+        "/api/v1/acceptance/action",
+        _action_headers(body),
+        "10.42.0.20",
+        body,
+    )
+
+    assert response.status == HTTPStatus.OK
+    assert seal.confirmed == [uid]
+    assert json.loads(response.body)["factorySeal"]["statusCode"] == "SEALING"
+
+
+@pytest.mark.parametrize(
+    ("status", "revision", "seal_allowed", "error"),
+    (
+        ("RUNNING", 12, True, "LOCAL_ACCEPTANCE_NOT_PASSED"),
+        ("PASSED", 13, True, "ACCEPTANCE_REVISION_CONFLICT"),
+        ("PASSED", 12, False, "NOT_AUTHORIZED"),
+    ),
+)
+def test_factory_seal_fails_closed_before_any_confirmation(
+    status: str,
+    revision: int,
+    seal_allowed: bool,
+    error: str,
+) -> None:
+    body = json.dumps(
+        {
+            "operation": "CONFIRM_FACTORY_SEAL",
+            "expectedRevision": 12,
+            "parameters": {
+                "operatorConfirmationUid": (
+                    "12345678-1234-4123-8123-123456789abc"
+                )
+            },
+        }
+    ).encode("utf-8")
+    client = FakeActionClient({"status": status, "revision": revision})
+    seal = FakeSealPortal(allowed=seal_allowed)
+    application = PortalApplication(
+        snapshot_provider=FixedSnapshot(), action_client=client, seal_portal=seal
+    )
+
+    response = application.handle(
+        "POST",
+        "/api/v1/acceptance/action",
+        _action_headers(body),
+        "10.42.0.20",
+        body,
+    )
+
+    assert response.status in {HTTPStatus.CONFLICT, HTTPStatus.LOCKED}
+    assert json.loads(response.body)["error"] == error
+    assert seal.confirmed == []
+
+
+def test_public_projection_never_copies_secret_shaped_fields(tmp_path: Path) -> None:
+    release = tmp_path / "release.json"
+    public_status = tmp_path / "public-status.json"
+    machine_id = tmp_path / "machine-id"
+    disk_root = tmp_path / "data"
+    acceptance_status = tmp_path / "acceptance.json"
+    disk_root.mkdir()
+    release.write_text(
+        json.dumps(
+            {
+                "imageReleaseId": "image-2026.08.22",
+                "version": "1.0.0",
+                "enrollmentKey": "K1-SHOULD-NEVER-LEAK",
+                "setupApPassword": "AP-SHOULD-NEVER-LEAK",
+            }
+        ),
+        encoding="utf-8",
+    )
+    public_status.write_text(
+        json.dumps(
+            {
+                "stage": "FACTORY_PORTAL_READY",
+                "lastErrorCode": "NONE",
+                "timeTrusted": False,
+                "factoryTestStatus": "NOT_RUN",
+                "deviceKey": "ONENET-SHOULD-NEVER-LEAK",
+                "credentials": "CREDENTIAL-SHOULD-NEVER-LEAK",
+            }
+        ),
+        encoding="utf-8",
+    )
+    machine_id.write_text("0123456789abcdef0123456789abcdef\n", encoding="ascii")
+    acceptance_status.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "status": "NOT_RUN",
+                "phase": "NOT_RUN",
+                "revision": 0,
+                "checks": {},
+                "allowedActions": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    snapshot = PortalSnapshotProvider(
+        SnapshotPaths(
+            image_release=release,
+            public_status=public_status,
+            machine_id=machine_id,
+            disk_root=disk_root,
+            acceptance_status=acceptance_status,
+        )
+    ).snapshot()
+    encoded = json.dumps(snapshot, ensure_ascii=False)
+
+    assert snapshot["stage"] == "FACTORY_PORTAL_READY"
+    assert snapshot["readOnly"] is False
+    assert snapshot["factoryTest"]["status"] == "NOT_RUN"
+    assert snapshot["network"]["clientWanForwarding"] is False
+    assert "SHOULD-NEVER-LEAK" not in encoded
+    assert "deviceKey" not in encoded
+    assert "credentials" not in encoded
+    assert "setupApPassword" not in encoded
+
+
+def test_static_assets_are_self_contained_and_make_no_external_requests() -> None:
+    web = Path(__file__).parents[1] / "factory" / "web"
+    combined = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (web / "index.html", web / "app.css", web / "app.js")
+    )
+
+    assert "https://" not in combined
+    assert "http://" not in combined
+    assert "cdn" not in combined.lower()
+    assert "analytics" not in combined.lower()
+    assert "<style" not in combined.lower()
+    assert "<script>" not in combined.lower()
+
+
+def test_server_builder_uses_only_the_fixed_ap_address() -> None:
+    captured: dict[str, object] = {}
+
+    class FakeServer:
+        def __init__(self, address: tuple[str, int], handler: object) -> None:
+            captured["address"] = address
+            captured["handler"] = handler
+
+    server = build_server(
+        PortalApplication(snapshot_provider=FixedSnapshot()),
+        server_factory=FakeServer,
+    )
+
+    assert isinstance(server, FakeServer)
+    assert captured["address"] == ("10.42.0.1", 80)
+    with pytest.raises(ValueError, match="only bind"):
+        FactoryPortalServer(("0.0.0.0", FACTORY_PORT), captured["handler"])
+
+
+def test_http_security_headers_block_embedding_and_external_content() -> None:
+    headers = security_headers()
+
+    assert headers["X-Frame-Options"] == "DENY"
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert headers["Referrer-Policy"] == "no-referrer"
+    assert "default-src 'none'" in headers["Content-Security-Policy"]
+    assert "connect-src 'self'" in headers["Content-Security-Policy"]
+    assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
+    assert "unsafe-inline" not in headers["Content-Security-Policy"]
+
+
+def test_header_reader_accepts_a_small_complete_request() -> None:
+    reader = BoundedHeaderReader(
+        io.BytesIO(b"GET /healthz HTTP/1.1\r\nHost: 10.42.0.1\r\n\r\n")
+    )
+
+    assert reader.readline() == b"GET /healthz HTTP/1.1\r\n"
+    assert reader.readline() == b"Host: 10.42.0.1\r\n"
+    assert reader.readline() == b"\r\n"
+
+
+def test_header_reader_rejects_an_oversized_request_line() -> None:
+    reader = BoundedHeaderReader(io.BytesIO(b"G" * (MAX_REQUEST_LINE_BYTES + 1)))
+
+    with pytest.raises(RequestHeaderLimitExceeded, match="line"):
+        reader.readline()
+
+
+def test_header_reader_rejects_an_oversized_single_header() -> None:
+    reader = BoundedHeaderReader(
+        io.BytesIO(
+            b"GET / HTTP/1.1\r\n"
+            + b"X-Fill: "
+            + b"a" * MAX_HEADER_LINE_BYTES
+            + b"\r\n"
+        )
+    )
+    reader.readline()
+
+    with pytest.raises(RequestHeaderLimitExceeded, match="line"):
+        reader.readline()
+
+
+def test_header_reader_rejects_too_many_headers() -> None:
+    raw = b"GET / HTTP/1.1\r\n" + b"X: a\r\n" * (MAX_HEADER_COUNT + 1)
+    reader = BoundedHeaderReader(io.BytesIO(raw))
+    reader.readline()
+
+    for _ in range(MAX_HEADER_COUNT):
+        reader.readline()
+    with pytest.raises(RequestHeaderLimitExceeded, match="count"):
+        reader.readline()
+
+
+def test_header_reader_rejects_an_oversized_aggregate_header_block() -> None:
+    line = b"X-Fill: " + b"a" * (MAX_HEADER_LINE_BYTES - 10) + b"\r\n"
+    assert len(line) <= MAX_HEADER_LINE_BYTES
+    assert len(line) * 3 > MAX_HEADER_BYTES
+    reader = BoundedHeaderReader(io.BytesIO(b"GET / HTTP/1.1\r\n" + line * 3))
+    reader.readline()
+    reader.readline()
+    reader.readline()
+
+    with pytest.raises(RequestHeaderLimitExceeded, match="block"):
+        reader.readline()

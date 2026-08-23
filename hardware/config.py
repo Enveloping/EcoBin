@@ -6,9 +6,12 @@ EcoBin 设备配置模块 —— 普通配置读取环境变量，设备密钥�
     from config import PRODUCT_ID, DEVICE_NAME, DEVICE_KEY
     # 或按需导入单项
 
-OneNet 迁移优先级: 完整旧 .env 三项 > 注册凭证；禁止部分混用。
+OneNet 迁移优先级: 完整旧进程环境三项 > 注册凭证；禁止部分混用。
+生产默认只读取 systemd 注入的环境；项目 .env 仅限显式 development 模式。
 
 环境变量:
+    ECOBIN_CONFIG_MODE     — production（默认）或 development
+    ECOBIN_DOTENV_PATH     — 仅 development 使用的显式 dotenv 路径
     ECOBIN_DEVICE_CREDENTIALS_PATH — 注册后 0600 凭证文件路径
     ECOBIN_PRODUCT_ID     — OneNet 产品 ID
     ECOBIN_DEVICE_NAME    — 设备名称 = biz_device.sn
@@ -40,7 +43,8 @@ OneNet 迁移优先级: 完整旧 .env 三项 > 注册凭证；禁止部分混�
     ECOBIN_DEVICE_CONFIG_PATH— 设备持久化配置路径
     ECOBIN_DATA_DIR       — 持久数据目录（默认: data/）
     ECOBIN_EDGE_STORE_PATH— SQLite 数据库路径（默认: data/edge.db）
-    ECOBIN_EDGE_BOOT_ID   — 边缘启动 ID 持久文件（默认: data/edge-boot-id）
+    ECOBIN_EDGE_BOOT_ID_PATH
+                          — 边缘启动 ID 持久文件（默认: data/edge-boot-id）
     ECOBIN_COS_REGION     — 当前环境 COS 地域（公开配置）
     ECOBIN_COS_BUCKET_NAME— 当前环境 COS 桶名称（公开配置）
     ECOBIN_COS_BASE_URL   — 当前环境 COS HTTPS 根 URL（公开配置）
@@ -63,6 +67,7 @@ OneNet 迁移优先级: 完整旧 .env 三项 > 注册凭证；禁止部分混�
 import logging
 import math
 import os
+from pathlib import Path
 from device_credentials import (
     credentials_path_from_environment,
     effective_onenet_credentials,
@@ -70,15 +75,72 @@ from device_credentials import (
 )
 from simulated_camera import is_simulated_camera_source
 
-try:
-    from dotenv import load_dotenv
-except ImportError:
-    def load_dotenv(*a, **kw): pass
 
-# 自动加载项目根目录的 .env 文件（已存在则覆盖系统环境变量）
-load_dotenv(override=True)
+_CONFIG_DIRECTORY = Path(__file__).resolve().parent
+
+
+def _configure_environment_source(
+    config_directory: str | os.PathLike[str] | None = None,
+) -> str:
+    """Select the production environment or an explicit development .env.
+
+    Production is deliberately the default.  A release-local ``.env`` would
+    make mutable files in ``/opt`` override the systemd EnvironmentFile, so its
+    presence is treated as a packaging/configuration error.  Development must
+    opt in through the process environment; the opt-in cannot live inside the
+    file which has not yet been read.
+    """
+
+    mode = os.getenv("ECOBIN_CONFIG_MODE", "production").strip().lower()
+    directory = Path(config_directory or _CONFIG_DIRECTORY).resolve()
+    release_dotenv = directory / ".env"
+
+    if mode == "production":
+        if os.path.lexists(release_dotenv):
+            raise RuntimeError(
+                "production runtime refuses a code-directory .env; "
+                "use /etc/ecobin/hardware.env through systemd"
+            )
+        return mode
+
+    if mode != "development":
+        raise ValueError(
+            "ECOBIN_CONFIG_MODE must be production or development"
+        )
+
+    dotenv_value = os.getenv("ECOBIN_DOTENV_PATH", "").strip()
+    dotenv_path = Path(dotenv_value) if dotenv_value else release_dotenv
+    if not dotenv_path.is_absolute():
+        dotenv_path = directory / dotenv_path
+    dotenv_path = dotenv_path.resolve()
+    if not dotenv_path.is_file():
+        raise FileNotFoundError(
+            f"development dotenv file does not exist: {dotenv_path}"
+        )
+
+    try:
+        from dotenv import load_dotenv
+    except ImportError as error:
+        raise RuntimeError(
+            "development mode requires the python-dotenv dependency"
+        ) from error
+    if not load_dotenv(dotenv_path=dotenv_path, override=False):
+        raise RuntimeError(f"failed to load development dotenv: {dotenv_path}")
+    return mode
+
+
+CONFIG_MODE = _configure_environment_source()
 
 logger = logging.getLogger("config")
+
+
+def _require_path_under(name: str, value: str, root: str) -> None:
+    path = Path(value)
+    expected_root = Path(root)
+    if not path.is_absolute() or not path.resolve(strict=False).is_relative_to(
+        expected_root
+    ):
+        raise ValueError(f"{name} must be an absolute path under {root}")
 
 
 def _first_environment_value(*names: str) -> str:
@@ -157,8 +219,8 @@ _mcu_update_enabled_raw = os.getenv(
     "false",
 ).strip().lower()
 MCU_UPDATE_ENABLED = _mcu_update_enabled_raw in {"true", "1", "yes"}
-_mcu_boot0_wpi_raw = os.getenv("ECOBIN_MCU_BOOT0_WPI", "").strip()
-_mcu_reset_wpi_raw = os.getenv("ECOBIN_MCU_RESET_WPI", "").strip()
+_mcu_boot0_wpi_raw = os.getenv("ECOBIN_MCU_BOOT0_WPI", "2").strip()
+_mcu_reset_wpi_raw = os.getenv("ECOBIN_MCU_RESET_WPI", "5").strip()
 MCU_BOOT0_WPI = int(_mcu_boot0_wpi_raw) if _mcu_boot0_wpi_raw else None
 MCU_RESET_WPI = int(_mcu_reset_wpi_raw) if _mcu_reset_wpi_raw else None
 MCU_BOOT0_ACTIVE_LEVEL = int(os.getenv(
@@ -167,7 +229,7 @@ MCU_BOOT0_ACTIVE_LEVEL = int(os.getenv(
 ))
 MCU_RESET_ACTIVE_LEVEL = int(os.getenv(
     "ECOBIN_MCU_RESET_ACTIVE_LEVEL",
-    "0",
+    "1",
 ))
 MCU_HARDWARE_COMPATIBILITY = os.getenv(
     "ECOBIN_MCU_HARDWARE_COMPATIBILITY",
@@ -183,7 +245,7 @@ STM32FLASH_PATH = os.getenv(
 ).strip()
 GPIO_PATH = os.getenv(
     "ECOBIN_GPIO_PATH",
-    "/usr/local/bin/gpio",
+    "/usr/bin/gpio",
 ).strip()
 UART_PORT_COUNT = int(os.getenv(
     "ECOBIN_UART_PORT_COUNT",
@@ -230,7 +292,7 @@ CAMERA_WARMUP_FRAMES = int(os.getenv(
 
 # ── 边缘持久存储 ──
 _data_dir = os.getenv("ECOBIN_DATA_DIR", "data")
-_project_root = os.path.dirname(__file__)
+_project_root = str(_CONFIG_DIRECTORY)
 DATA_DIR = _data_dir if os.path.isabs(_data_dir) else os.path.join(_project_root, _data_dir)
 EDGE_STORE_PATH = os.getenv(
     "ECOBIN_EDGE_STORE_PATH",
@@ -391,6 +453,87 @@ def validate():
                 "%s 未配置；请完成设备注册或提供完整的旧环境凭证",
                 field,
             )
+    if CONFIG_MODE == "production":
+        production_uart = {
+            "protocol": MCU_PROTOCOL_MODE,
+            "simulated": MCU_SIMULATED,
+            "serial_port": SERIAL_PORT,
+            "baudrate": SERIAL_BAUDRATE,
+            "port_count": UART_PORT_COUNT,
+        }
+        expected_uart = {
+            "protocol": "fixed-frame",
+            "simulated": False,
+            "serial_port": "/dev/ttyS5",
+            "baudrate": 115200,
+            "port_count": 1,
+        }
+        if production_uart != expected_uart:
+            raise ValueError(
+                "production runtime requires the fixed Orange Pi UART5 "
+                "boundary (/dev/ttyS5, 115200, fixed-frame, one real port)"
+            )
+        if not MCU_UPDATE_ENABLED:
+            raise ValueError(
+                "production runtime requires MCU firmware update support"
+            )
+        production_gpio = (
+            MCU_BOOT0_WPI,
+            MCU_RESET_WPI,
+            MCU_BOOT0_ACTIVE_LEVEL,
+            MCU_RESET_ACTIVE_LEVEL,
+        )
+        if production_gpio != (2, 5, 1, 1):
+            raise ValueError(
+                "production mainboard requires BOOT0 wPi 2 active-high and "
+                "the 2N7002 reset gate on wPi 5 active-high"
+            )
+        production_tools = (
+            GPIO_PATH,
+            STM32FLASH_PATH,
+            MCU_HARDWARE_COMPATIBILITY,
+        )
+        if production_tools != (
+            "/usr/bin/gpio",
+            "/usr/bin/stm32flash",
+            "ECOBIN_MAINBOARD_V1.1",
+        ):
+            raise ValueError(
+                "production mainboard requires the locked WiringOP gpio, "
+                "stm32flash and ECOBIN_MAINBOARD_V1.1 identities"
+            )
+        if UART_HIL_REQUIRED_CAPABILITIES is not None:
+            raise ValueError(
+                "production runtime forbids a UART HIL capability override"
+            )
+        if any(is_simulated_camera_source(source) for source in camera_sources):
+            raise ValueError(
+                "production runtime forbids simulated camera sources"
+            )
+        _require_path_under(
+            "device credentials path",
+            DEVICE_CREDENTIALS_PATH,
+            "/etc/ecobin",
+        )
+        _require_path_under(
+            "MCU signing public-key directory",
+            MCU_SIGNING_PUBLIC_KEYS_DIR,
+            "/etc/ecobin",
+        )
+        for name, path in (
+            ("data directory", DATA_DIR),
+            ("edge store path", EDGE_STORE_PATH),
+            ("edge boot ID path", EDGE_BOOT_ID_PATH),
+            ("device configuration path", DEVICE_CONFIG_PATH),
+            ("MCU firmware cache directory", MCU_FIRMWARE_CACHE_DIR),
+        ):
+            _require_path_under(name, path, "/var/lib/ecobin")
+        _require_path_under(
+            "remote-support control socket",
+            REMOTE_SUPPORT_CONTROL_SOCKET,
+            "/run/ecobin",
+        )
+        _require_path_under("serial port", SERIAL_PORT, "/dev")
     # 确保 DATA_DIR 存在
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(EDGE_PHOTO_DIR, exist_ok=True)

@@ -11,9 +11,9 @@ Type=notify
 NotifyAccess=main
 User=ecobin-remote
 Group=ecobin-remote
-WorkingDirectory=/opt/ecobin-remote-support
+WorkingDirectory=/opt/ecobin/remote-support/current/app
 LoadCredential=remote-support.json:/etc/ecobin/remote-support-credentials.json
-ExecStart=/opt/ecobin-remote-support/.venv/bin/python /opt/ecobin-remote-support/remote_support_agent.py --credentials %d/remote-support.json --state /var/lib/ecobin/remote-support/state.db --socket /run/ecobin/remote-support/control.sock --runtime-directory /run/ecobin/remote-support --allowed-uid 0
+ExecStart=/opt/ecobin/remote-support/current/.venv/bin/python /opt/ecobin/remote-support/current/app/remote_support_agent.py --credentials %d/remote-support.json --state /var/lib/ecobin/remote-support/state.db --socket /run/ecobin/remote-support/control.sock --runtime-directory /run/ecobin/remote-support --allowed-uid 0
 Restart=always
 RestartSec=2
 TimeoutStartSec=30
@@ -22,6 +22,7 @@ TimeoutStopSec=20
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 UMask=0077
+LimitCORE=0
 RuntimeDirectory=ecobin/remote-support
 RuntimeDirectoryMode=0700
 StateDirectory=ecobin/remote-support

@@ -158,6 +158,10 @@ public class OneNetClient
                     submission.commandType())) {
                 identifier = "requestDeviceAcceptance";
                 params = projectRequestDeviceAcceptance(envelope);
+            } else if ("AUTHORIZE_FACTORY_SEAL".equals(
+                    submission.commandType())) {
+                identifier = "authorizeFactorySeal";
+                params = projectAuthorizeFactorySeal(envelope);
             } else if ("SYNC_DEVICE_ENTRY_URL".equals(
                     submission.commandType())) {
                 identifier = "syncDeviceEntryUrl";
@@ -1894,6 +1898,95 @@ public class OneNetClient
                         "^[0-9a-f]{64}$",
                         64));
         putDeviceEntryUrl(payload, params);
+        params.put("cosGrantPresent", false);
+        return params;
+    }
+
+    private Map<String, Object> projectAuthorizeFactorySeal(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        String deviceName = requiredBoundedText(
+                envelope, "targetDeviceName", 64);
+        if (!"DEVICE_ASSET".equals(requiredText(target, "type"))
+                || !deviceName.equals(requiredText(target, "uid"))
+                || !deviceName.equals(requiredBoundedText(
+                payload, "hardwareSn", 64))) {
+            throw new IllegalArgumentException(
+                    "factory seal target differs from device identity");
+        }
+        String issuedAtText = requiredInstant(envelope, "issuedAt");
+        String expiresAtText = requiredInstant(envelope, "expiresAt");
+        if (!Instant.parse(expiresAtText).isAfter(
+                Instant.parse(issuedAtText))) {
+            throw new IllegalArgumentException(
+                    "factory seal expiry must follow issue time");
+        }
+        String payloadSha256 = requiredMatchingText(
+                envelope, "payloadSha256", "^[0-9a-f]{64}$", 64);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> semanticPayload = objectMapper.convertValue(
+                payload, Map.class);
+        if (!payloadSha256.equals(
+                OneNetCanonicalJson.payloadSha256(semanticPayload))) {
+            throw new IllegalArgumentException(
+                    "factory seal payload digest differs");
+        }
+        JsonNode cosGrant = envelope.get("cosGrant");
+        if (cosGrant == null || !cosGrant.isNull()) {
+            throw new IllegalArgumentException(
+                    "factory seal command cannot carry COS credentials");
+        }
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        params.put("schemaVersion", 1);
+        params.put("commandUid", requiredUuid(envelope, "commandUid"));
+        params.put("commandType", 1);
+        params.put("targetDeviceName", deviceName);
+        params.put("target", Map.of("type", 1, "uid", deviceName));
+        params.put("issuedAt", issuedAtText);
+        params.put("expiresAt", expiresAtText);
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        params.put("payloadSchemaVersion", 1);
+        params.put("payloadSha256", payloadSha256);
+        requiredInteger(payload, "sealAuthorizationSchemaVersion", 1, 1);
+        params.put("sealAuthorizationSchemaVersion", 1);
+        params.put("hardwareSn", deviceName);
+        params.put(
+                "acceptanceGeneration",
+                requiredInteger(
+                        payload,
+                        "acceptanceGeneration",
+                        1,
+                        9_007_199_254_740_991L));
+        params.put(
+                "acceptanceEvidenceUid",
+                requiredUuid(payload, "acceptanceEvidenceUid"));
+        params.put(
+                "acceptanceChallengeUid",
+                requiredUuid(payload, "acceptanceChallengeUid"));
+        params.put(
+                "acceptanceEvidenceSha256",
+                requiredMatchingText(
+                        payload,
+                        "acceptanceEvidenceSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        params.put(
+                "factoryBagRevision",
+                requiredInteger(
+                        payload,
+                        "factoryBagRevision",
+                        0,
+                        9_007_199_254_740_991L));
+        params.put(
+                "factoryBagSetSha256",
+                requiredMatchingText(
+                        payload,
+                        "factoryBagSetSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
         params.put("cosGrantPresent", false);
         return params;
     }

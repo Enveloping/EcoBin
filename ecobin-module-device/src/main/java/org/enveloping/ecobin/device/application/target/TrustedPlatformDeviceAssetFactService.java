@@ -31,6 +31,8 @@ public class TrustedPlatformDeviceAssetFactService
             "DEVICE_FAULT_OBSERVED",
             "DEVICE_FAULT_RECOVERED",
             "SAFETY_SENSOR_STATE_CHANGED",
+            "DEVICE_COMMAND_OBSERVED",
+            "FACTORY_SEAL_COMPLETED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
             McuFirmwareRolloutService.EVENT_TYPE);
     private static final String UUID_V4 =
@@ -43,18 +45,21 @@ public class TrustedPlatformDeviceAssetFactService
     private final ReliablePlatformEdgeConfirmationService confirmationService;
     private final RemoteSupportSessionService remoteSupportSessions;
     private final McuFirmwareRolloutService firmwareRollouts;
+    private final FactorySealAuthorizationService factorySealAuthorizations;
 
     public TrustedPlatformDeviceAssetFactService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             ReliablePlatformEdgeConfirmationService confirmationService,
             RemoteSupportSessionService remoteSupportSessions,
-            McuFirmwareRolloutService firmwareRollouts) {
+            McuFirmwareRolloutService firmwareRollouts,
+            FactorySealAuthorizationService factorySealAuthorizations) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.confirmationService = confirmationService;
         this.remoteSupportSessions = remoteSupportSessions;
         this.firmwareRollouts = firmwareRollouts;
+        this.factorySealAuthorizations = factorySealAuthorizations;
     }
 
     @Override
@@ -79,14 +84,52 @@ public class TrustedPlatformDeviceAssetFactService
             requireTextEquals(
                     event, "eventType", inboxEvent.messageKind());
             requireIntegerEquals(event, "schemaVersion", 2);
-            requireTextEquals(target, "type", "DEVICE_ASSET");
-            requireTextEquals(target, "uid", hardwareSn);
             String eventUid = requiredPattern(
                     event, "eventUid", UUID_V4);
             String payloadSha256 = requiredPattern(
                     event, "payloadSha256", SHA256);
             requiredPattern(
                     normalized, "eventCanonicalSha256", SHA256);
+
+            LocalDateTime now = jdbc.queryForObject(
+                    "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+            if ("DEVICE_COMMAND_OBSERVED".equals(
+                    inboxEvent.messageKind())) {
+                FactorySealAuthorizationService.ObservationResult observed =
+                        factorySealAuthorizations.applyTrustedObservation(
+                                hardwareSn, event, now);
+                confirmationService.ensureApplied(
+                        observed.assetId(),
+                        hardwareSn,
+                        eventUid,
+                        payloadSha256,
+                        observed.changed()
+                                ? "UPDATED" : "NO_ACTION_REQUIRED",
+                        now);
+                return observed.changed()
+                        ? TrustedDeviceEventApplyResult.APPLIED
+                        : TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
+            }
+            if ("FACTORY_SEAL_COMPLETED".equals(
+                    inboxEvent.messageKind())) {
+                FactorySealAuthorizationService.CompletionResult completed =
+                        factorySealAuthorizations.applyTrustedCompletion(
+                                hardwareSn, event, now);
+                confirmationService.ensureApplied(
+                        completed.assetId(),
+                        hardwareSn,
+                        eventUid,
+                        payloadSha256,
+                        completed.changed()
+                                ? "UPDATED" : "NO_ACTION_REQUIRED",
+                        now);
+                return completed.changed()
+                        ? TrustedDeviceEventApplyResult.APPLIED
+                        : TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
+            }
+
+            requireTextEquals(target, "type", "DEVICE_ASSET");
+            requireTextEquals(target, "uid", hardwareSn);
 
             List<Long> assetIds = jdbc.query("""
                             SELECT id
@@ -100,8 +143,6 @@ public class TrustedPlatformDeviceAssetFactService
                 throw new UntrustedInboxSourceException(
                         "platform device fact target is not registered");
             }
-            LocalDateTime now = jdbc.queryForObject(
-                    "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
             boolean remoteSupportChanged = false;
             if ("REMOTE_SUPPORT_TUNNEL_STATUS".equals(
                     inboxEvent.messageKind())) {

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.jinshoubao.com/schemas/orangepi/build-attestation-v1.json",
+  "title": "EcoBin authenticated reproducible candidate build attestation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema", "schemaVersion", "artifactClass", "releaseId", "version",
+    "gitCommit", "sourceDateEpoch", "locks", "candidates", "verification",
+    "rootfsQualification", "buildReceipts", "signing"
+  ],
+  "properties": {
+    "$schema": {"const": "./schemas/build-attestation.schema.json"},
+    "schemaVersion": {"const": 2},
+    "artifactClass": {"const": "AUTHENTICATED_REPRODUCIBLE_CANDIDATE_BUILD"},
+    "releaseId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "version": {"type": "string"},
+    "gitCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sourceDateEpoch": {"type": "integer", "minimum": 0},
+    "locks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceLockSha256", "builderLockSha256", "aptPackagesLockSha256",
+        "imageLayoutSha256", "softwarePayloadLockSha256",
+        "formalReleasePolicySha256"
+      ],
+      "patternProperties": {
+        ".*Sha256$": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "candidates": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["role", "rawImageBytes", "rawImageSha256", "manifestSha256"],
+        "properties": {
+          "role": {"enum": ["independent-a", "independent-b"]},
+          "rawImageBytes": {"type": "integer", "minimum": 1},
+          "rawImageSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "manifestSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "verification": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "independentCandidateFiles", "candidateRawByteForByteMatch",
+        "candidateManifestByteForByteMatch", "externalImageAuditPassed",
+        "sourceWorktreeClean"
+      ],
+      "properties": {
+        "independentCandidateFiles": {"const": true},
+        "candidateRawByteForByteMatch": {"const": true},
+        "candidateManifestByteForByteMatch": {"const": true},
+        "externalImageAuditPassed": {"const": true},
+        "sourceWorktreeClean": {"const": true}
+      }
+    },
+    "rootfsQualification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["method", "evidenceSha256"],
+      "properties": {"method": {"const": "DETERMINISTIC_EXT4_REBUILD_V1"}, "evidenceSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+    },
+    "buildReceipts": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "items": {"type": "object", "additionalProperties": false,
+        "required": ["invocationUid", "builderIdentity", "builderDomain", "receiptSha256"],
+        "properties": {"invocationUid": {"type": "string"}, "builderIdentity": {"type": "string"}, "builderDomain": {"type": "string"}, "receiptSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
+    },
+    "signing": {"$ref": "#/$defs/signingIdentity"}
+  },
+  "$defs": {
+    "signingIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["algorithm", "keyId", "publicKeySha256"],
+      "properties": {
+        "algorithm": {"const": "Ed25519"},
+        "keyId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+        "publicKeySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

@@ -1,6 +1,7 @@
 {
   "examples": [
     "apply-configuration.service-wire.json",
+    "authorize-factory-seal.service-wire.json",
     "baseline-measurement-complete.event-wire.json",
     "business-confirmation-receipt.event-wire.json",
     "clean-complete.event-wire.json",
@@ -14,6 +15,7 @@
     "device-fault-recovered.event-wire.json",
     "device-runtime-snapshot.event-wire.json",
     "end-clean-before-unlock.service-wire.json",
+    "factory-seal-completed.event-wire.json",
     "fullness-sample-complete.event-wire.json",
     "fullness-state-changed.event-wire.json",
     "mcu-firmware-update-progress.event-wire.json",

@@ -1,0 +1,33 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "8a000000-0000-4000-8000-000000000007",
+  "deliveryClass": "RELIABLE_FACT",
+  "edgeEventSequence": 1058,
+  "eventType": "FACTORY_SEAL_COMPLETED",
+  "eventUid": "8a000000-0000-4000-8000-00000000000a",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "acceptanceChallengeUid": "8a000000-0000-4000-8000-000000000003",
+    "acceptanceEvidenceSha256": "e32e41e381720317ce32602f0815bca47457723264ff582c27cc4ffd41122c99",
+    "acceptanceEvidenceUid": "8a000000-0000-4000-8000-000000000001",
+    "acceptanceGeneration": 1,
+    "authorizationBindingSha256": "3d27ce9c05bad3cc515a74aa218fc395b620e35db96f8c1956e855b13ac6b7a0",
+    "authorizationCommandUid": "8a000000-0000-4000-8000-000000000007",
+    "cleanupCompletedAt": "2026-07-24T01:00:30.000Z",
+    "factoryBagRevision": 2,
+    "factoryBagSetSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "factoryReportSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "hardwareSn": "SN-CONTRACT-0001",
+    "imageReleaseId": "ecobin-opiz3-2026.08.22.1",
+    "imageReleaseSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "operatorConfirmationUid": "8a000000-0000-4000-8000-00000000000b",
+    "sealCompletionSchemaVersion": 1,
+    "sealedAt": "2026-07-24T01:00:20.000Z"
+  },
+  "payloadSha256": "b9b9686e6bc98bb2093a89a6de78d8e47da49c9b12a6c21b9aa9762fcb6a1a3f",
+  "schemaVersion": 2,
+  "target": {
+    "type": "DEVICE_ASSET",
+    "uid": "SN-CONTRACT-0001"
+  }
+}

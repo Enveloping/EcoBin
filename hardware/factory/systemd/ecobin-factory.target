@@ -1,0 +1,12 @@
+[Unit]
+Description=EcoBin isolated local factory station
+Requires=ecobin-factory-egress-lock.service
+Requires=ecobin-mcu-safe-gpio.service
+Requires=ecobin-factory-ap.service
+Requires=ecobin-factory-portal.service
+Wants=ecobin-factory-test.service
+After=ecobin-factory-egress-lock.service
+After=ecobin-mcu-safe-gpio.service
+After=ecobin-factory-ap.service
+After=ecobin-factory-portal.service
+After=ecobin-factory-test.service

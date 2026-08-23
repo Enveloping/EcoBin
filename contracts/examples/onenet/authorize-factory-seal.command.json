@@ -1,0 +1,25 @@
+{
+  "commandType": "AUTHORIZE_FACTORY_SEAL",
+  "commandUid": "8a000000-0000-4000-8000-000000000007",
+  "cosGrant": null,
+  "expiresAt": "2027-07-24T01:00:00.000Z",
+  "issuedAt": "2026-07-24T01:00:00.000Z",
+  "payload": {
+    "acceptanceChallengeUid": "8a000000-0000-4000-8000-000000000003",
+    "acceptanceEvidenceSha256": "e32e41e381720317ce32602f0815bca47457723264ff582c27cc4ffd41122c99",
+    "acceptanceEvidenceUid": "8a000000-0000-4000-8000-000000000001",
+    "acceptanceGeneration": 1,
+    "factoryBagRevision": 2,
+    "factoryBagSetSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "hardwareSn": "SN-CONTRACT-0001",
+    "sealAuthorizationSchemaVersion": 1
+  },
+  "payloadSchemaVersion": 2,
+  "payloadSha256": "0b2fe683cc44587587bc3f58de103b48486fe262f3e822e0f25a8e8ea9e027b5",
+  "schemaVersion": 2,
+  "target": {
+    "type": "DEVICE_ASSET",
+    "uid": "SN-CONTRACT-0001"
+  },
+  "targetDeviceName": "SN-CONTRACT-0001"
+}

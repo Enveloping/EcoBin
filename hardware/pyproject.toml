@@ -1,17 +1,30 @@
 [project]
 name = "hardware"
 version = "0.1.0"
-requires-python = ">=3.11"
-dependencies = [
+requires-python = ">=3.11,<3.12"
+dependencies = []
+
+[dependency-groups]
+runtime = [
     "cos-python-sdk-v5>=1.9.44",
     "cryptography>=45.0.0,<47",
-    "dotenv>=0.9.9",
     "opencv-python-headless>=4.10.0.84,<5",
     "paho-mqtt>=2.1.0",
-    "python-dotenv>=1.0.0",
     "pyserial>=3.5",
+]
+enrollment = [
+    "cryptography>=45.0.0,<47",
     "requests>=2.34.2",
-    "tencentcloud-sdk-python-sts>=3.0.1459",
+]
+remote-support = [
+    "cryptography>=45.0.0,<47",
+]
+dev = [
+    { include-group = "runtime" },
+    { include-group = "enrollment" },
+    { include-group = "remote-support" },
+    "python-dotenv>=1.0.0",
+    "pytest>=9.0.0,<10",
 ]
 
 [tool.pytest.ini_options]

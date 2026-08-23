@@ -56,6 +56,9 @@ secrets/
 ### 硬件侧脚本 ###
 hardware/data/*.json
 hardware/data/*.tmp
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 test_report/
 /release-output/

@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.jinshoubao.com/schemas/orangepi/release-manifest-v1.json",
+  "title": "EcoBin Orange Pi sealed signed release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "artifactClass",
+    "releaseId",
+    "version",
+    "gitCommit",
+    "sourceDirty",
+    "sourceDateEpoch",
+    "baseImage",
+    "builder",
+    "locks",
+    "platform",
+    "layout",
+    "software",
+    "factory",
+    "security",
+    "audit",
+    "artifacts"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1},
+    "artifactClass": {"const": "SEALED_SIGNED_RELEASE"},
+    "releaseId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"},
+    "gitCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sourceDirty": {"const": false},
+    "sourceDateEpoch": {"type": "integer", "minimum": 0},
+    "baseImage": {"type": "object"},
+    "builder": {"type": "object"},
+    "locks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceLockSha256", "builderLockSha256", "aptPackagesLockSha256",
+        "imageLayoutSha256", "softwarePayloadLockSha256",
+        "formalReleasePolicySha256"
+      ],
+      "properties": {
+        "sourceLockSha256": {"$ref": "#/$defs/sha256"},
+        "builderLockSha256": {"$ref": "#/$defs/sha256"},
+        "aptPackagesLockSha256": {"$ref": "#/$defs/sha256"},
+        "imageLayoutSha256": {"$ref": "#/$defs/sha256"},
+        "softwarePayloadLockSha256": {"$ref": "#/$defs/sha256"},
+        "formalReleasePolicySha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "platform": {"type": "object"},
+    "layout": {"type": "object"},
+    "software": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["implementedSlices", "runtimeInstalled", "components", "uart5", "mcuBootControl", "rootfsExpansion", "factoryPortalInstalled", "buildReproducibility"],
+      "properties": {
+        "implementedSlices": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "P1"}, {"const": "P2"}, {"const": "P3"}, {"const": "P4"},
+            {"const": "P5"}, {"const": "P6"}, {"const": "P7"}, {"const": "P8"}
+          ],
+          "items": false,
+          "minItems": 8,
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "runtimeInstalled": {"const": true},
+        "factoryPortalInstalled": {"const": true},
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hardwareRuntime", "enrollment", "remoteSupport", "factoryTest", "firstBoot"],
+          "properties": {
+            "hardwareRuntime": {"$ref": "#/$defs/releaseId"},
+            "enrollment": {"$ref": "#/$defs/releaseId"},
+            "remoteSupport": {"$ref": "#/$defs/releaseId"},
+            "factoryTest": {"$ref": "#/$defs/releaseId"},
+            "firstBoot": {"$ref": "#/$defs/releaseId"}
+          }
+        },
+        "uart5": {"type": "object"},
+        "mcuBootControl": {"type": "object"},
+        "rootfsExpansion": {"type": "object"},
+        "buildReproducibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rootfsDeterministic", "releaseEligible", "proof", "candidateCount"],
+          "properties": {
+            "rootfsDeterministic": {"const": true},
+            "releaseEligible": {"const": true},
+            "proof": {"const": "AUTHENTICATED_TWO_CANDIDATE_BYTE_MATCH"},
+            "candidateCount": {"const": 2}
+          }
+        }
+      }
+    },
+    "factory": {"type": "object"},
+    "security": {
+      "type": "object",
+      "required": [
+        "enrollmentKeyId",
+        "k1Injected",
+        "setupApKeyInjected",
+        "deviceCredentialsPresent",
+        "signingState",
+        "imageSigningKeyId",
+        "imageSigningPublicKeySha256"
+      ],
+      "properties": {
+        "enrollmentKeyId": {"const": "K1"},
+        "k1Injected": {"const": true},
+        "setupApKeyInjected": {"const": true},
+        "deviceCredentialsPresent": {"const": false},
+        "signingState": {"const": "SIGNED"},
+        "imageSigningKeyId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+        "imageSigningPublicKeySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateAuditPassed",
+        "sealedAuditPassed",
+        "candidateReproducibilityAttested",
+        "authenticatedSealEvidenceVerified",
+        "deviceUniqueStateAbsent"
+      ],
+      "properties": {
+        "candidateAuditPassed": {"const": true},
+        "sealedAuditPassed": {"const": true},
+        "candidateReproducibilityAttested": {"const": true},
+        "authenticatedSealEvidenceVerified": {"const": true},
+        "deviceUniqueStateAbsent": {"const": true}
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateRawImageSha256",
+        "sealedRawImageBytes",
+        "sealedRawImageSha256",
+        "compressedImageFile",
+        "compressedImageBytes",
+        "compressedImageSha256",
+        "checksumFile",
+        "signatureFile",
+        "sbomFile",
+        "sbomSha256",
+        "aptPackagesFile",
+        "aptPackagesSha256",
+        "pythonPackagesFile",
+        "pythonPackagesSha256",
+        "buildAttestationFile",
+        "buildAttestationSha256",
+        "buildAttestationSignatureFile",
+        "buildAttestationSignatureSha256",
+        "targetMediaQualificationEvidenceFile",
+        "targetMediaQualificationEvidenceSha256",
+        "sealEvidenceFile",
+        "sealEvidenceSha256",
+        "sealEvidenceSignatureFile",
+        "sealEvidenceSignatureSha256"
+      ],
+      "properties": {
+        "candidateRawImageSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "sealedRawImageBytes": {"type": "integer", "minimum": 1},
+        "sealedRawImageSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "compressedImageFile": {"type": "string", "pattern": "^[^/]+\\.img\\.zst$"},
+        "compressedImageBytes": {"type": "integer", "minimum": 1},
+        "compressedImageSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "checksumFile": {"const": "release-checksums.txt"},
+        "signatureFile": {"const": "release-checksums.sig"},
+        "sbomFile": {"const": "sbom.spdx.json"},
+        "sbomSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "aptPackagesFile": {"const": "apt-packages.txt"},
+        "aptPackagesSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "pythonPackagesFile": {"const": "python-packages.txt"},
+        "pythonPackagesSha256": {"$ref": "#/$defs/sha256"},
+        "buildAttestationFile": {"const": "build-attestation.json"},
+        "buildAttestationSha256": {"$ref": "#/$defs/sha256"},
+        "buildAttestationSignatureFile": {"const": "build-attestation.sig"},
+        "buildAttestationSignatureSha256": {"$ref": "#/$defs/sha256"},
+        "targetMediaQualificationEvidenceFile": {
+          "const": "target-media-qualification-evidence.json"
+        },
+        "targetMediaQualificationEvidenceSha256": {"$ref": "#/$defs/sha256"},
+        "sealEvidenceFile": {"const": "seal-evidence.json"},
+        "sealEvidenceSha256": {"$ref": "#/$defs/sha256"},
+        "sealEvidenceSignatureFile": {"const": "seal-evidence.sig"},
+        "sealEvidenceSignatureSha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  },
+  "$defs": {
+    "releaseId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

@@ -34,7 +34,8 @@ public class ReliableDeviceCommandCompletionService {
 
     private static final Set<String> SAFE_CONTROL_COMMANDS = Set.of(
             "CONFIRM_EDGE_EVENT",
-            "PROVIDE_PHOTO_UPLOAD_GRANT");
+            "PROVIDE_PHOTO_UPLOAD_GRANT",
+            "AUTHORIZE_FACTORY_SEAL");
     private static final Set<String> TRANSPORT_COMPLETES_COMMANDS = Set.of(
             "SYNC_DEVICE_ENTRY_URL");
     private static final Duration CONFIGURATION_EVIDENCE_WINDOW =

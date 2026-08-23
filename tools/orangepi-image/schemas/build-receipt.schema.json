@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://www.jinshoubao.com/schemas/orangepi/build-receipt-v1.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "artifactClass", "invocationUid", "builderIdentity", "builderDomain", "builder", "releaseId", "version", "gitCommit", "inputLocks", "candidate", "completedAt", "signingKeyId"],
+  "properties": {
+    "schemaVersion": {"const": 1}, "artifactClass": {"const": "SIGNED_INDEPENDENT_IMAGE_BUILD_RECEIPT"},
+    "invocationUid": {"type": "string"}, "builderIdentity": {"type": "string"}, "builderDomain": {"type": "string"},
+    "builder": {"type": "object"}, "releaseId": {"type": "string"}, "version": {"type": "string"}, "gitCommit": {"type": "string"},
+    "inputLocks": {"type": "object"}, "candidate": {"type": "object"}, "completedAt": {"type": "string"}, "signingKeyId": {"type": "string"}
+  }
+}

@@ -8,9 +8,11 @@ $catalogPath = Join-Path $PSScriptRoot "../h02-runtime-grants.psd1"
 $catalog = Import-PowerShellDataFile -LiteralPath $catalogPath
 $provisionPath = Join-Path $PSScriptRoot "../provision-h02-target.ps1"
 $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
+$f07BootstrapPath = Join-Path $PSScriptRoot "../verify-f07-bootstrap.ps1"
+$f07BootstrapSource = Get-Content -LiteralPath $f07BootstrapPath -Raw
 
-if ($catalog.CatalogVersion -ne 28) {
-    throw "H-02 runtime grant catalog must be V28 for MCU firmware rollout"
+if ($catalog.CatalogVersion -ne 29) {
+    throw "H-02 runtime grant catalog must be V29 for factory sealing"
 }
 
 if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
@@ -19,12 +21,37 @@ if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
     throw "H-02 provisioning must reject dirty migrations and record provenance"
 }
 
-if ($provisionSource -notmatch '\$tables\.Count -ne 118' -or
-        $provisionSource -notmatch 'Expected 118 domain tables') {
-    throw "H-02 provisioning must enforce the V55 118-table shape"
+if ($provisionSource -notmatch '\$tables\.Count -ne 119' -or
+        $provisionSource -notmatch 'Expected 119 domain tables') {
+    throw "H-02 provisioning must enforce the V56 119-table shape"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 55') {
-    throw "H-02 provisioning must migrate through V55"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 56') {
+    throw "H-02 provisioning must migrate through V56"
+}
+if ($provisionSource -notmatch '\$historyCount -ne 56' -or
+        $provisionSource -notmatch
+            'Expected fifty-six successful Flyway migrations') {
+    throw "H-02 provisioning must verify all 56 migrations"
+}
+if ($provisionSource -notmatch
+        '\$existingDomainTableCount -eq 119\s+-and\s+' +
+        '\$existingHistoryCount -eq 56\s+-and\s+' +
+        '\$existingMaxVersion -eq 56' -or
+        $provisionSource -notmatch '\$existingMaxVersion -lt 56') {
+    throw "H-02 migrated resume must recognize and target V56"
+}
+if ($f07BootstrapSource -notmatch '\$tableCount -ne 120' -or
+        $f07BootstrapSource -notmatch
+            'correct target must contain 119 domain tables plus Flyway history' -or
+        $f07BootstrapSource -notmatch 'targetVersion\s*=\s*56' -or
+        $f07BootstrapSource -notmatch 'domainTables\s*=\s*119' -or
+        $f07BootstrapSource -notmatch
+            'correctV56Ready\s*=\s*\$true' -or
+        $f07BootstrapSource -match 'correct V55|correctV55Ready') {
+    throw (
+        "F-07 bootstrap verification must report the V56 shape: " +
+        "119 domain tables plus Flyway history"
+    )
 }
 if ($provisionSource -notmatch
         'sha256:9cffaceb9b62d4280247acdb2324b380d2b36208ae34dfe9f0afb62eeaf70f08' -or
@@ -313,6 +340,7 @@ $assetRequiredColumns = @(
     "organization_id"
     "organization_assigned_at"
     "acceptance_status"
+    "acceptance_generation"
     "accepted_at"
     "acceptance_evidence_sha256"
     "last_acceptance_evaluated_at"
@@ -327,7 +355,46 @@ $assetRequiredColumns = @(
 )
 $assetColumns = @($catalog.UpdateColumns.dev_device_asset)
 if (@(Compare-Object $assetRequiredColumns $assetColumns).Count -ne 0) {
-    throw "dev_device_asset runtime UPDATE grants do not match V55"
+    throw "dev_device_asset runtime UPDATE grants do not match V56"
+}
+
+$factorySealAuthorizationRequiredColumns = @(
+    "authorization_status"
+    "acknowledged_at"
+    "cancelled_at"
+    "cancellation_reason"
+    "completion_event_uid"
+    "completion_payload_sha256"
+    "image_release_id"
+    "image_release_sha256"
+    "factory_report_sha256"
+    "authorization_binding_sha256"
+    "operator_confirmation_uid"
+    "sealed_at"
+    "cleanup_completed_at"
+    "completion_received_at"
+    "updated_at"
+)
+$factorySealAuthorizationColumns = @(
+    $catalog.UpdateColumns.dev_factory_seal_authorization
+)
+if (@(
+        Compare-Object `
+            $factorySealAuthorizationRequiredColumns `
+            $factorySealAuthorizationColumns
+    ).Count -ne 0) {
+    throw (
+        "dev_factory_seal_authorization runtime UPDATE grants must expose " +
+        "only the reviewed acknowledgement, cancellation, and terminal " +
+        "completion projection"
+    )
+}
+if ($catalog.ReadOnlyTables -contains "dev_factory_seal_authorization" -or
+        $catalog.SlotTables -contains "dev_factory_seal_authorization") {
+    throw (
+        "dev_factory_seal_authorization requires INSERT and narrow UPDATE, " +
+        "but must never receive DELETE"
+    )
 }
 $rolloutRequiredColumns = @(
     "rollout_uid"

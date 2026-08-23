@@ -1,0 +1,6 @@
+[Unit]
+Description=EcoBin production runtime
+Requires=ecobin-runtime-gate.service ecobin-cellular-uplink.service
+Wants=ecobin-remote-support.service ecobin-hardware.service
+After=ecobin-runtime-gate.service ecobin-cellular-uplink.service
+Conflicts=ecobin-factory-test.service

@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 28
+    CatalogVersion = 29
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -169,6 +169,7 @@
             "organization_id"
             "organization_assigned_at"
             "acceptance_status"
+            "acceptance_generation"
             "accepted_at"
             "acceptance_evidence_sha256"
             "last_acceptance_evaluated_at"
@@ -179,6 +180,27 @@
             "retired_at"
             "retirement_reason"
             "control_version"
+            "updated_at"
+        )
+        # V56 keeps the authorization identity, accepted evidence, command,
+        # reliable task, and immutable creation fact fixed after INSERT.  The
+        # runtime may only acknowledge/cancel the issued authorization or
+        # atomically project the device's trusted terminal seal fact.
+        dev_factory_seal_authorization = @(
+            "authorization_status"
+            "acknowledged_at"
+            "cancelled_at"
+            "cancellation_reason"
+            "completion_event_uid"
+            "completion_payload_sha256"
+            "image_release_id"
+            "image_release_sha256"
+            "factory_report_sha256"
+            "authorization_binding_sha256"
+            "operator_confirmation_uid"
+            "sealed_at"
+            "cleanup_completed_at"
+            "completion_received_at"
             "updated_at"
         )
         dev_mcu_firmware_release = @(

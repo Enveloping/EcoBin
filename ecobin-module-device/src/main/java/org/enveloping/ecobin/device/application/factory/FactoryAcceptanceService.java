@@ -2,6 +2,7 @@ package org.enveloping.ecobin.device.application.factory;
 
 import org.enveloping.ecobin.device.api.port.BagCodeAdmissionPort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceAcceptanceChallengePort;
+import org.enveloping.ecobin.device.application.target.FactorySealAuthorizationService;
 import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.CorrectFactoryBagRequest;
 import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.FactoryAcceptanceView;
 import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.FactoryBagSlotView;
@@ -50,6 +51,7 @@ public class FactoryAcceptanceService {
     private final FactoryMiniappAuthorizationPort authorization;
     private final AuditPort auditPort;
     private final TrustedDeviceAcceptanceChallengePort acceptanceChallenges;
+    private final FactorySealAuthorizationService factorySealAuthorizations;
     private final GlobalOperationIdempotencyPort idempotency;
 
     public FactoryAcceptanceService(
@@ -59,6 +61,7 @@ public class FactoryAcceptanceService {
             FactoryMiniappAuthorizationPort authorization,
             AuditPort auditPort,
             TrustedDeviceAcceptanceChallengePort acceptanceChallenges,
+            FactorySealAuthorizationService factorySealAuthorizations,
             GlobalOperationIdempotencyPort idempotency) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
@@ -66,6 +69,7 @@ public class FactoryAcceptanceService {
         this.authorization = authorization;
         this.auditPort = auditPort;
         this.acceptanceChallenges = acceptanceChallenges;
+        this.factorySealAuthorizations = factorySealAuthorizations;
         this.idempotency = idempotency;
     }
 
@@ -635,6 +639,8 @@ public class FactoryAcceptanceService {
                     "DEVICE.FACTORY_ACCEPTANCE_LOCKED",
                     "设备已通过验收、已分配租户、已禁用或已报废，不能修改厂家初始袋");
         }
+        factorySealAuthorizations.requireAcceptanceSnapshotMutable(
+                asset.id());
     }
 
     private Label lockLabel(String bagCode) {

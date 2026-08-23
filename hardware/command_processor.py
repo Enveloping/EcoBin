@@ -9,6 +9,12 @@ from typing import Optional
 
 from onenet_wire import validate_command_envelope
 from uart_link import compute_mcu_payload_sha256
+from factory_seal.errors import FactorySealError
+from factory_seal.admission import FACTORY_NOT_SEALED
+from edge_store import (
+    FACTORY_SEAL_RETRYABLE_ERROR_CODES,
+    FACTORY_SEAL_TERMINAL_ERROR_CODES,
+)
 
 logger = logging.getLogger("command-processor")
 
@@ -26,6 +32,8 @@ class CommandProcessor:
         trusted_cos_environment=None,
         remote_support_controller=None,
         mcu_firmware_updater=None,
+        factory_seal_authorizer=None,
+        factory_seal_gate=None,
         device_name=None,
     ):
         self._store = store
@@ -35,6 +43,8 @@ class CommandProcessor:
         self._trusted_cos_environment = trusted_cos_environment
         self._remote_support = remote_support_controller
         self._mcu_firmware_updater = mcu_firmware_updater
+        self._factory_seal = factory_seal_authorizer
+        self._factory_seal_gate = factory_seal_gate
         self._device_name = device_name
         self._wake_event = threading.Event()
         self._grant_lock = threading.Lock()
@@ -139,6 +149,46 @@ class CommandProcessor:
         command_uid = row["command_uid"]
         validated = False
         try:
+            # This first check is deliberately before execution-only COS grant
+            # recovery.  A command accepted by an older process must still be
+            # rejected as FACTORY_NOT_SEALED after reboot even when its
+            # volatile grant disappeared with that process.
+            self._require_factory_production_admission(command)
+        except Exception as error:
+            stable_code = getattr(error, "code", None)
+            if stable_code != FACTORY_NOT_SEALED:
+                logger.exception(
+                    "factory seal command admission failed closed"
+                )
+            if (
+                command.get("commandUid") != command_uid
+                or command.get("commandType") != row["command_type"]
+                or not command.get("targetDeviceName")
+            ):
+                self._store.fail_command(
+                    command_uid,
+                    FACTORY_NOT_SEALED,
+                )
+                logger.error(
+                    "command %s failed pre-admission validation: %s",
+                    command_uid,
+                    error,
+                )
+                return True
+            if not self._store.reject_claimed_command_and_observe(
+                command,
+                FACTORY_NOT_SEALED,
+            ):
+                raise FactorySealError(
+                    "FACTORY_SEAL_COMMAND_STATE_INVALID"
+                )
+            logger.warning(
+                "production command %s rejected before execution: %s",
+                command_uid,
+                FACTORY_NOT_SEALED,
+            )
+            return True
+        try:
             with self._grant_lock:
                 grant = self._volatile_cos_grants.pop(
                     command_uid,
@@ -166,10 +216,18 @@ class CommandProcessor:
                 ):
                     raise ValueError("firmware grant not available")
                 raise ValueError("photo grant not available")
-            validate_command_envelope(
-                command,
-                trusted_environment=self._trusted_cos_environment,
-            )
+            if command.get("commandType") == "AUTHORIZE_FACTORY_SEAL":
+                # expiresAt is this non-physical authorization's first
+                # reliable-acceptance deadline.  Only EdgeStore may supply
+                # the immutable receipt fact; command payload fields cannot
+                # backdate it, and every other command still validates at
+                # execution time below.
+                self._store.validate_claimed_factory_seal_command(command)
+            else:
+                validate_command_envelope(
+                    command,
+                    trusted_environment=self._trusted_cos_environment,
+                )
             validated = True
             # 校验成功后才按命令类型进入 WorkManager；现场安全、满溢、配置和本地
             # 单作业槽等“此刻事实”由 WorkManager 在写串口前再次判断。
@@ -205,6 +263,8 @@ class CommandProcessor:
                 self._close_remote_support_tunnel(command)
             elif command["commandType"] == "START_MCU_FIRMWARE_UPDATE":
                 self._start_mcu_firmware_update(command)
+            elif command["commandType"] == "AUTHORIZE_FACTORY_SEAL":
+                self._authorize_factory_seal(command)
             else:
                 self._store.fail_command(command_uid, "COMMAND_NOT_IMPLEMENTED")
                 logger.warning(
@@ -213,6 +273,16 @@ class CommandProcessor:
         except Exception as error:
             error_code = _error_code(error)
             if (
+                validated and error_code == FACTORY_NOT_SEALED
+            ):
+                if not self._store.reject_claimed_command_and_observe(
+                    command,
+                    FACTORY_NOT_SEALED,
+                ):
+                    raise FactorySealError(
+                        "FACTORY_SEAL_COMMAND_STATE_INVALID"
+                    )
+            elif (
                 validated
                 and command.get("commandType") in {
                     "START_DELIVERY_SESSION",
@@ -235,10 +305,43 @@ class CommandProcessor:
                 current = self._store.get_command(command_uid)
                 if current and current["state"] == "PROCESSING":
                     self._store.fail_command(command_uid, error_code)
+            elif command.get("commandType") == "AUTHORIZE_FACTORY_SEAL":
+                if error_code in FACTORY_SEAL_TERMINAL_ERROR_CODES:
+                    self._store.reject_factory_seal_command(
+                        command,
+                        error_code,
+                    )
+                else:
+                    # A valid seal command has no external/physical effect
+                    # before its single EdgeStore transaction commits.  Keep
+                    # locally repairable and unknown internal failures
+                    # non-terminal; OneNet's reliable task will redeliver the
+                    # same command UID after its own bounded backoff.
+                    retry_error = (
+                        error_code
+                        if error_code
+                        in FACTORY_SEAL_RETRYABLE_ERROR_CODES
+                        else "FACTORY_SEAL_RETRYABLE_FAILURE"
+                    )
+                    parked = (
+                        self._store.fail_factory_seal_command_for_retry(
+                            command_uid,
+                            retry_error,
+                        )
+                    )
+                    if not parked:
+                        raise FactorySealError(
+                            "FACTORY_SEAL_COMMAND_STATE_INVALID"
+                        )
             else:
                 self._store.fail_command(command_uid, error_code)
             logger.error("command %s failed: %s", command_uid, error)
         return True
+
+    def _authorize_factory_seal(self, command: dict) -> None:
+        if self._factory_seal is None:
+            raise FactorySealError("FACTORY_SEAL_NOT_AVAILABLE")
+        self._factory_seal.authorize(command)
 
     def _provide_photo_upload_grant(self, command: dict) -> None:
         if self._work is None:
@@ -300,6 +403,7 @@ class CommandProcessor:
         )
 
     def _start_mcu_firmware_update(self, command: dict) -> None:
+        self._require_factory_production_admission(command)
         if self._mcu_firmware_updater is None:
             if not self._device_name:
                 raise RuntimeError("MCU firmware updater is not enabled")
@@ -391,6 +495,7 @@ class CommandProcessor:
         return {**active, "disposition": record["disposition"]}
 
     def _start_delivery_session(self, command: dict) -> None:
+        self._require_factory_production_admission(command)
         if self._work is None:
             raise RuntimeError("work manager is required")
         result = self._work.start_delivery_command(command)
@@ -403,6 +508,7 @@ class CommandProcessor:
         )
 
     def _start_clean_operation(self, command: dict) -> None:
+        self._require_factory_production_admission(command)
         if self._work is None:
             raise RuntimeError("work manager is required")
         result = self._work.start_clean_command(command)
@@ -415,6 +521,7 @@ class CommandProcessor:
         )
 
     def _sample_fullness(self, command: dict) -> None:
+        self._require_factory_production_admission(command)
         if self._work is None:
             raise RuntimeError("work manager is required")
         result = self._work.start_fullness_command(command)
@@ -429,6 +536,7 @@ class CommandProcessor:
         )
 
     def _measure_empty_bag_baseline(self, command: dict) -> None:
+        self._require_factory_production_admission(command)
         if self._work is None:
             raise RuntimeError("work manager is required")
         result = self._work.start_baseline_command(command)
@@ -443,12 +551,14 @@ class CommandProcessor:
         )
 
     def _end_clean_before_unlock(self, command: dict) -> None:
+        self._require_factory_production_admission(command)
         if self._work is None:
             raise RuntimeError("work manager is required")
         result = self._work.end_clean_before_unlock_command(command)
         self._accept_dispatch_result(command, result)
 
     def _resume_clean_operation(self, command: dict) -> None:
+        self._require_factory_production_admission(command)
         if self._work is None:
             raise RuntimeError("work manager is required")
         result = self._work.resume_clean_command(command)
@@ -460,6 +570,15 @@ class CommandProcessor:
                 result["mcu_command_uid"],
                 result,
             )
+
+    def _require_factory_production_admission(
+        self,
+        command: dict,
+    ) -> None:
+        gate = self._factory_seal_gate
+        if gate is None:
+            return
+        gate.require_command_allowed(command.get("commandType"))
 
     def _accept_dispatch_result(self, command: dict, result: dict) -> bool:
         if result.get("acked"):

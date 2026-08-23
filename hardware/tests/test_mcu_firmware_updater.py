@@ -201,6 +201,11 @@ class UnexpectedFailingDownloader:
         raise OSError("injected cache I/O failure")
 
 
+class DenyFactorySealGate:
+    def require_command_allowed(self, _command_type):
+        raise RuntimeError("factory seal is not complete")
+
+
 def updater_fixture(tmp_path: Path):
     private, private_path = signing_key(tmp_path)
     store = EdgeStore(str(tmp_path / "edge.db"))
@@ -492,6 +497,75 @@ def test_cloud_download_failure_is_journaled_reported_and_retryable(
     assert store.get_mcu_firmware_update(
         queued["updateUid"]
     )["package_ready"] is True
+
+
+def test_cloud_update_rechecks_seal_before_f2_after_queue(
+    tmp_path,
+):
+    (
+        private_path,
+        store,
+        _,
+        uart,
+        _,
+        flasher,
+        manifests,
+        updater,
+    ) = updater_fixture(tmp_path)
+    install_first_stable(
+        tmp_path,
+        private_path,
+        store,
+        uart,
+        manifests,
+        updater,
+    )
+    package_path, target = build_package(
+        tmp_path,
+        private_path,
+        version="2.0.0",
+        version_code=20000,
+        marker=2,
+    )
+    register_manifest(manifests, target)
+    updater.downloader = FailingOnceDownloader(
+        package_path,
+        failures=0,
+    )
+    updater.device_name = "SN-TEST-1"
+    updater.factory_seal_gate = DenyFactorySealGate()
+    prepare_before = uart.prepare_count
+    flash_before = len(flasher.calls)
+    queued = updater.queue_cloud(
+        deployment_uid=str(uuid.uuid4()),
+        command_uid=str(uuid.uuid4()),
+        object_key=(
+            f"ecobin/mcu-firmware/{target.manifest['releaseUid']}/"
+            f"{target.package_sha256}.efw"
+        ),
+        package_sha256=target.package_sha256,
+        package_size=target.package_size,
+        cos_grant={
+            "keyPrefix": (
+                f"ecobin/mcu-firmware/"
+                f"{target.manifest['releaseUid']}/"
+            )
+        },
+        release_uid=target.manifest["releaseUid"],
+        firmware_version=target.manifest["firmwareVersion"],
+        firmware_version_code=target.manifest["firmwareVersionCode"],
+        firmware_identity_hex=target.manifest["firmwareIdentityHex"],
+    )
+
+    assert updater.process_active()
+
+    update = store.get_mcu_firmware_update(queued["updateUid"])
+    assert update["state"] == "REJECTED"
+    assert update["last_error_code"] == "FACTORY_NOT_SEALED"
+    assert update["target_attempt_count"] == 0
+    assert uart.prepare_count == prepare_before
+    assert len(flasher.calls) == flash_before
+    assert store.get_maintenance_lock() is None
 
 
 def test_each_package_acquisition_failure_emits_a_fresh_retry_fact(
@@ -1315,7 +1389,7 @@ def test_restart_verifies_completed_target_before_reflashing(tmp_path):
     assert len(flasher.calls) == calls_before
 
 
-def test_wiringop_boot_control_uses_explicit_wpi_commands_without_shell():
+def test_wiringop_boot_control_defaults_to_high_active_open_drain_reset():
     calls = []
 
     def run(argv, **kwargs):
@@ -1332,18 +1406,23 @@ def test_wiringop_boot_control_uses_explicit_wpi_commands_without_shell():
 
     control.enter_system_bootloader()
     control.boot_application()
+    control.force_application_selection()
 
     assert [call[0] for call in calls] == [
         ["/usr/local/bin/gpio", "mode", "2", "out"],
         ["/usr/local/bin/gpio", "mode", "5", "out"],
         ["/usr/local/bin/gpio", "write", "2", "1"],
-        ["/usr/local/bin/gpio", "write", "5", "0"],
         ["/usr/local/bin/gpio", "write", "5", "1"],
+        ["/usr/local/bin/gpio", "write", "5", "0"],
+        ["/usr/local/bin/gpio", "mode", "2", "out"],
+        ["/usr/local/bin/gpio", "mode", "5", "out"],
+        ["/usr/local/bin/gpio", "write", "2", "0"],
+        ["/usr/local/bin/gpio", "write", "5", "1"],
+        ["/usr/local/bin/gpio", "write", "5", "0"],
         ["/usr/local/bin/gpio", "mode", "2", "out"],
         ["/usr/local/bin/gpio", "mode", "5", "out"],
         ["/usr/local/bin/gpio", "write", "2", "0"],
         ["/usr/local/bin/gpio", "write", "5", "0"],
-        ["/usr/local/bin/gpio", "write", "5", "1"],
     ]
     assert all("shell" not in kwargs for _, kwargs in calls)
 

@@ -113,6 +113,8 @@ public class TargetDeviceApplication {
     private final String oneNetProductId;
     private final DeviceEntryUrlFactory deviceEntryUrlFactory;
     private final AutomaticDeviceActivationService activationService;
+    private final FactorySealAuthorizationService
+            factorySealAuthorizations;
 
     public TargetDeviceApplication(
             JdbcTemplate jdbc,
@@ -127,7 +129,8 @@ public class TargetDeviceApplication {
             ReliableTaskWakePort taskWakePort,
             DeviceCommandTaskRefFactory taskRefFactory,
             @Value("${onenet.product-id:}") String oneNetProductId,
-            DeviceEntryUrlFactory deviceEntryUrlFactory) {
+            DeviceEntryUrlFactory deviceEntryUrlFactory,
+            FactorySealAuthorizationService factorySealAuthorizations) {
         this.jdbc = jdbc;
         this.authorizationPort = authorizationPort;
         this.auditPort = auditPort;
@@ -141,6 +144,7 @@ public class TargetDeviceApplication {
         this.taskRefFactory = taskRefFactory;
         this.oneNetProductId = blankToNull(oneNetProductId);
         this.deviceEntryUrlFactory = deviceEntryUrlFactory;
+        this.factorySealAuthorizations = factorySealAuthorizations;
     }
 
     @Transactional(readOnly = true)
@@ -1800,6 +1804,8 @@ public class TargetDeviceApplication {
                     "DEVICE.ACCEPTANCE_REQUIRED",
                     "真实机器尚未自动通过平台验收");
         }
+        factorySealAuthorizations.requireCurrentGenerationSealed(
+                asset.id(), asset.hardwareSn());
         if (!"ENABLED".equals(tenant.status())) {
             throw unprocessable("TENANT.DISABLED", "目标租户当前已禁用");
         }
@@ -1854,6 +1860,8 @@ public class TargetDeviceApplication {
                     "DEVICE.ASSET_UNAVAILABLE",
                     "设备未通过验收、已禁用或已报废");
         }
+        factorySealAuthorizations.requireCurrentGenerationSealed(
+                asset.id(), asset.hardwareSn());
         if (!"ENABLED".equals(organization.status())) {
             throw unprocessable("ORGANIZATION.DISABLED", "目标机构当前已禁用");
         }
@@ -2163,18 +2171,42 @@ public class TargetDeviceApplication {
                         now, now, asset.id());
             }
         } else if ("PASSED".equals(evidence.status())) {
-            jdbc.update("""
-                            UPDATE dev_device_asset
-                            SET acceptance_status = 'PASSED',
-                                accepted_at = COALESCE(accepted_at, ?),
-                                acceptance_evidence_sha256 = ?,
-                                last_acceptance_evaluated_at = ?,
-                                acceptance_failure_json = NULL,
-                                control_version = control_version + 1,
-                                updated_at = ?
-                            WHERE id = ?
-                            """,
-                    evidence.receivedAt(), evidence.sha256(), now, now, asset.id());
+            if (!"PASSED".equals(asset.acceptanceStatus())) {
+                // Re-evaluation is a production recovery path as well as an
+                // administrative view refresh.  A transition to PASSED must
+                // therefore advance the immutable acceptance generation and
+                // create its generation-bound seal task in this transaction.
+                factorySealAuthorizations
+                        .requireAcceptanceSnapshotMutable(asset.id());
+                requireSingle(jdbc.update("""
+                                UPDATE dev_device_asset
+                                SET acceptance_status = 'PASSED',
+                                    acceptance_generation =
+                                        acceptance_generation + 1,
+                                    accepted_at = COALESCE(accepted_at, ?),
+                                    acceptance_evidence_sha256 = ?,
+                                    last_acceptance_evaluated_at = ?,
+                                    acceptance_failure_json = NULL,
+                                    control_version = control_version + 1,
+                                    updated_at = ?
+                                WHERE id = ?
+                                """,
+                        evidence.receivedAt(), evidence.sha256(), now, now,
+                        asset.id()));
+                factorySealAuthorizations.ensureForAcceptedAsset(
+                        asset.id());
+            } else {
+                // Match the trusted ingest path: a later PASSED observation
+                // must not silently replace the evidence digest bound to the
+                // current generation and its already-issued authorization.
+                requireSingle(jdbc.update("""
+                                UPDATE dev_device_asset
+                                SET last_acceptance_evaluated_at = ?,
+                                    updated_at = ?
+                                WHERE id = ?
+                                """,
+                        now, now, asset.id()));
+            }
         } else if (!"PASSED".equals(asset.acceptanceStatus())) {
             jdbc.update("""
                             UPDATE dev_device_asset

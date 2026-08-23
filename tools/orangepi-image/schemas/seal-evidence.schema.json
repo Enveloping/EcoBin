@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.jinshoubao.com/schemas/orangepi/seal-evidence-v1.json",
+  "title": "EcoBin authenticated file-level image seal evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema", "schemaVersion", "artifactClass", "releaseId", "version",
+    "gitCommit", "buildAttestationSha256", "candidateRawImageSha256",
+    "sealedRawImageSha256", "rawImageBytes", "protectedFiles", "verification",
+    "signing"
+  ],
+  "properties": {
+    "$schema": {"const": "./schemas/seal-evidence.schema.json"},
+    "schemaVersion": {"const": 1},
+    "artifactClass": {"const": "AUTHENTICATED_FILE_LEVEL_SEAL_EVIDENCE"},
+    "releaseId": {"type": "string"},
+    "version": {"type": "string"},
+    "gitCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "buildAttestationSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidateRawImageSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sealedRawImageSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "rawImageBytes": {"type": "integer", "minimum": 1},
+    "protectedFiles": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "type", "uid", "gid", "mode", "present", "contentDigestDisclosed"],
+        "properties": {
+          "path": {"enum": ["/etc/ecobin/enrollment.key", "/etc/ecobin/setup-ap.key"]},
+          "type": {"const": "regular-file"},
+          "uid": {"const": 0},
+          "gid": {"const": 0},
+          "mode": {"const": "0600"},
+          "present": {"const": true},
+          "contentDigestDisclosed": {"const": false}
+        }
+      }
+    },
+    "verification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidateAuditPassed", "sealedAuditPassed", "onlyDeclaredSecretsInjected"],
+      "properties": {
+        "candidateAuditPassed": {"const": true},
+        "sealedAuditPassed": {"const": true},
+        "onlyDeclaredSecretsInjected": {"const": true}
+      }
+    },
+    "signing": {
+      "type": "object", "additionalProperties": false,
+      "required": ["algorithm", "keyId", "publicKeySha256"],
+      "properties": {
+        "algorithm": {"const": "Ed25519"},
+        "keyId": {"type": "string"},
+        "publicKeySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

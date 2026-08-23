@@ -977,6 +977,7 @@ public class ReliableOperationsJdbcRepository {
                                     AND candidate.organization_id IS NULL
                                     AND candidate.task_type IN (
                                         'REQUEST_DEVICE_ACCEPTANCE',
+                                        'AUTHORIZE_FACTORY_SEAL',
                                         'SYNC_DEVICE_ENTRY_URL',
                                         'OPEN_REMOTE_SUPPORT_TUNNEL',
                                         'CLOSE_REMOTE_SUPPORT_TUNNEL',
@@ -1003,6 +1004,7 @@ public class ReliableOperationsJdbcRepository {
                                         'CONFIRM_EDGE_EVENT',
                                         'PROVIDE_PHOTO_UPLOAD_GRANT',
                                         'REQUEST_DEVICE_ACCEPTANCE',
+                                        'AUTHORIZE_FACTORY_SEAL',
                                         'SYNC_DEVICE_ENTRY_URL',
                                         'OPEN_REMOTE_SUPPORT_TUNNEL',
                                         'CLOSE_REMOTE_SUPPORT_TUNNEL'
@@ -1023,6 +1025,7 @@ public class ReliableOperationsJdbcRepository {
                                         'CONFIRM_EDGE_EVENT',
                                         'PROVIDE_PHOTO_UPLOAD_GRANT',
                                         'REQUEST_DEVICE_ACCEPTANCE',
+                                        'AUTHORIZE_FACTORY_SEAL',
                                         'SYNC_DEVICE_ENTRY_URL',
                                         'OPEN_REMOTE_SUPPORT_TUNNEL',
                                         'CLOSE_REMOTE_SUPPORT_TUNNEL'
@@ -1072,6 +1075,7 @@ public class ReliableOperationsJdbcRepository {
                         AND t.organization_id IS NULL
                         AND t.task_type IN (
                             'REQUEST_DEVICE_ACCEPTANCE',
+                            'AUTHORIZE_FACTORY_SEAL',
                             'SYNC_DEVICE_ENTRY_URL',
                             'OPEN_REMOTE_SUPPORT_TUNNEL',
                             'CLOSE_REMOTE_SUPPORT_TUNNEL',
@@ -1262,6 +1266,7 @@ public class ReliableOperationsJdbcRepository {
                               'CONFIRM_EDGE_EVENT',
                               'PROVIDE_PHOTO_UPLOAD_GRANT',
                               'REQUEST_DEVICE_ACCEPTANCE',
+                              'AUTHORIZE_FACTORY_SEAL',
                               'SYNC_DEVICE_ENTRY_URL',
                               'OPEN_REMOTE_SUPPORT_TUNNEL',
                               'CLOSE_REMOTE_SUPPORT_TUNNEL'
@@ -1811,6 +1816,31 @@ public class ReliableOperationsJdbcRepository {
         requireSingleRow(updated, "complete reliable task");
     }
 
+    public void markTaskCancelled(
+            long taskId, long handledWakeVersion, LocalDateTime now) {
+        int updated = jdbcTemplate.update("""
+                UPDATE ops_reliable_task
+                SET state = 'CANCELLED',
+                    next_run_at = NULL,
+                    lease_token = NULL,
+                    lease_worker = NULL,
+                    lease_until = NULL,
+                    dispatch_wait_reason = NULL,
+                    handled_wake_version = ?,
+                    completed_at = ?,
+                    blocked_reason_code = NULL,
+                    blocked_diagnostic = NULL,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                handledWakeVersion,
+                now,
+                now,
+                taskId);
+        requireSingleRow(updated, "cancel reliable task");
+    }
+
     public void releaseForImmediateRecheck(long taskId, LocalDateTime now) {
         int updated = jdbcTemplate.update("""
                 UPDATE ops_reliable_task
@@ -1956,6 +1986,7 @@ public class ReliableOperationsJdbcRepository {
                         AND task.organization_id IS NULL
                         AND task.task_type IN (
                             'REQUEST_DEVICE_ACCEPTANCE',
+                            'AUTHORIZE_FACTORY_SEAL',
                             'SYNC_DEVICE_ENTRY_URL',
                             'OPEN_REMOTE_SUPPORT_TUNNEL',
                             'CLOSE_REMOTE_SUPPORT_TUNNEL',

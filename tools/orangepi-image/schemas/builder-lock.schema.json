@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.jinshoubao.com/schemas/orangepi/builder-lock-v1.json",
+  "title": "EcoBin Orange Pi builder lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "lockState", "reason", "container", "sourceDateEpoch", "uvArtifact", "tools"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1},
+    "lockState": {"enum": ["LOCKED", "UNLOCKED"]},
+    "reason": {"type": "string", "minLength": 1},
+    "container": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference", "digest", "platform"],
+      "properties": {
+        "reference": {"type": ["string", "null"]},
+        "digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+        "platform": {"type": ["string", "null"], "enum": ["linux/arm64", null]}
+      }
+    },
+    "sourceDateEpoch": {"type": ["integer", "null"], "minimum": 0},
+    "uvArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "url", "fileName", "downloadBytes", "sha256"],
+      "properties": {
+        "version": {"type": ["string", "null"]},
+        "url": {"type": ["string", "null"]},
+        "fileName": {"type": ["string", "null"]},
+        "downloadBytes": {"type": ["integer", "null"], "minimum": 1},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": {"type": ["string", "null"]},
+      "required": ["bash", "caCertificates", "coreutils", "debianArchiveKeyring", "e2fsprogs", "fdisk", "findutils", "git", "grep", "gzip", "jq", "mawk", "mount", "openssl", "p7zip", "python", "qemuUserStatic", "sed", "utilLinux", "uv", "xz", "zstd"]
+    }
+  }
+}

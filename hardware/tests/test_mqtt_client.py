@@ -1,12 +1,15 @@
 import base64
 import json
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import mqtt_client as mqtt_module
 from edge_store import EdgeStore
 from mqtt_client import MqttClient
 from onenet_wire import canonical_payload_sha256, decode_service_command
+from factory_seal.admission import FactorySealProductionGate
+from factory_seal.validation import FactorySealPaths
 
 
 class FakeExitEvent:
@@ -344,6 +347,92 @@ def test_fixed_frame_unsupported_service_is_rejected_synchronously(
     store.close()
 
 
+def test_unsealed_physical_command_is_rejected_before_inbox_dispatch(
+    tmp_path,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    paho = LifecyclePahoClient()
+    client = MqttClient.__new__(MqttClient)
+    client._store = store
+    client.client = paho
+    client.product_id = "product"
+    client.device_name = "SN-CONTRACT-0001"
+    client.edge_boot_id = 9001
+    client._trusted_cos_environment = None
+    client._unsupported_command_types = frozenset()
+    client._factory_seal_gate = FactorySealProductionGate(
+        FactorySealPaths(
+            edge_store=tmp_path / "edge.db",
+            sealed=tmp_path / "sealed.json",
+        )
+    )
+    dispatched = []
+    client.on_command_received = (
+        lambda *args: dispatched.append(args) or True
+    )
+
+    example_path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "contracts",
+        "examples",
+        "onenet-wire",
+        "start-delivery-session.service-wire.json",
+    )
+    with open(example_path, encoding="utf-8") as source:
+        wire = json.load(source)
+    body = wire["callServiceApiBodyTemplate"]
+    params = dict(body["params"])
+    params["scalarFields1"] = dict(params["scalarFields1"])
+    params["scalarFields2"] = dict(params["scalarFields2"])
+    now = datetime.now(timezone.utc)
+    params["scalarFields1"]["issuedAt"] = now.isoformat(
+        timespec="milliseconds"
+    ).replace("+00:00", "Z")
+    params["scalarFields1"]["expiresAt"] = (
+        now + timedelta(minutes=5)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    decoded = decode_service_command(body["identifier"], params)
+    params["scalarFields1"]["payloadSha256"] = canonical_payload_sha256(
+        decoded["payload"]
+    )
+    request = {"id": "request-unsealed-delivery", "params": params}
+    topic = (
+        "$sys/product/device/thing/service/"
+        f"{body['identifier']}/invoke"
+    )
+
+    client._handle_service_call(topic, request)
+    client._handle_service_call(topic, request)
+
+    row = store.get_command(decoded["commandUid"])
+    assert row["state"] == "REJECTED"
+    assert row["last_error"] == "FACTORY_NOT_SEALED"
+    assert dispatched == []
+    observations = store._conn.execute(
+        """SELECT payload_json FROM event_outbox
+           WHERE event_type='DEVICE_COMMAND_OBSERVED'"""
+    ).fetchall()
+    assert len(observations) == 1
+    observed = json.loads(observations[0]["payload_json"])["payload"]
+    assert observed["stage"] == "REJECTED"
+    assert observed["errorCode"] == "FACTORY_NOT_SEALED"
+    replies = [
+        payload
+        for reply_topic, payload, _qos in paho.publishes
+        if reply_topic.endswith("/invoke_reply")
+    ]
+    assert len(replies) == 2
+    assert all(reply["data"]["receiptState"] == 3 for reply in replies)
+    assert all(
+        reply["data"]["errorCode"] == "FACTORY_NOT_SEALED"
+        for reply in replies
+    )
+    store.close()
+
+
 def test_duplicate_apply_configuration_is_acknowledged_without_redispatch(
     tmp_path,
 ):
@@ -486,6 +575,249 @@ def test_duplicate_firmware_command_redispatches_fresh_cos_grant(tmp_path):
         if reply_topic.endswith("/invoke_reply")
     ]
     assert [reply["data"]["receiptState"] for reply in replies] == [1, 2]
+    store.close()
+
+
+def test_duplicate_factory_seal_requeues_only_repairable_failed_command(
+    tmp_path,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    paho = LifecyclePahoClient()
+    client = MqttClient.__new__(MqttClient)
+    client._store = store
+    client.client = paho
+    client.product_id = "product"
+    client.device_name = "SN-CONTRACT-0001"
+    client.edge_boot_id = 9001
+    client._unsupported_command_types = frozenset()
+    client._trusted_cos_environment = None
+    dispatched = []
+    client.on_command_received = (
+        lambda *args: dispatched.append(args) or True
+    )
+
+    example_path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "contracts",
+        "examples",
+        "onenet-wire",
+        "authorize-factory-seal.service-wire.json",
+    )
+    with open(example_path, encoding="utf-8") as source:
+        wire = json.load(source)
+    body = wire["callServiceApiBodyTemplate"]
+    params = dict(body["params"])
+    now = datetime.now(timezone.utc)
+    params["issuedAt"] = now.isoformat(
+        timespec="milliseconds"
+    ).replace("+00:00", "Z")
+    params["expiresAt"] = (
+        now + timedelta(minutes=5)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    decoded = decode_service_command(body["identifier"], params)
+    params["payloadSha256"] = canonical_payload_sha256(
+        decoded["payload"]
+    )
+    topic = (
+        "$sys/product/device/thing/service/"
+        f"{body['identifier']}/invoke"
+    )
+    request = {"id": "request-factory-seal", "params": params}
+
+    client._handle_service_call(topic, request)
+    assert len(dispatched) == 1
+    assert store.claim_next_command()["command_uid"] == decoded["commandUid"]
+    assert store.fail_factory_seal_command_for_retry(
+        decoded["commandUid"],
+        "FACTORY_REPORT_INVALID",
+    )
+
+    client._handle_service_call(topic, request)
+    assert len(dispatched) == 2
+    assert store.get_command(decoded["commandUid"])["state"] == "PENDING"
+
+    assert store.claim_next_command()["command_uid"] == decoded["commandUid"]
+    assert store.complete_command(decoded["commandUid"])
+    client._handle_service_call(topic, request)
+    assert len(dispatched) == 2
+    assert store.get_command(decoded["commandUid"])["state"] == "COMPLETED"
+
+    terminal_params = dict(params)
+    terminal_params["commandUid"] = str(uuid.uuid4())
+    terminal_command = decode_service_command(
+        body["identifier"],
+        terminal_params,
+    )
+    terminal_request = {
+        "id": "request-factory-seal-terminal",
+        "params": terminal_params,
+    }
+    client._handle_service_call(topic, terminal_request)
+    assert len(dispatched) == 3
+    assert store.claim_next_command()["command_uid"] == terminal_command[
+        "commandUid"
+    ]
+    assert store.reject_factory_seal_command(
+        terminal_command,
+        "ACCEPTANCE_EVIDENCE_MISMATCH",
+    )
+
+    client._handle_service_call(topic, terminal_request)
+    assert len(dispatched) == 3
+    assert store.get_command(terminal_command["commandUid"])[
+        "state"
+    ] == "REJECTED"
+    store.close()
+
+
+def test_expired_first_factory_seal_delivery_is_rejected_without_persisting(
+    tmp_path,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    paho = LifecyclePahoClient()
+    client = MqttClient.__new__(MqttClient)
+    client._store = store
+    client.client = paho
+    client.product_id = "product"
+    client.device_name = "SN-CONTRACT-0001"
+    client.edge_boot_id = 9001
+    client._unsupported_command_types = frozenset()
+    client._trusted_cos_environment = None
+    dispatched = []
+    client.on_command_received = (
+        lambda *args: dispatched.append(args) or True
+    )
+
+    example_path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "contracts",
+        "examples",
+        "onenet-wire",
+        "authorize-factory-seal.service-wire.json",
+    )
+    with open(example_path, encoding="utf-8") as source:
+        wire = json.load(source)
+    body = wire["callServiceApiBodyTemplate"]
+    params = dict(body["params"])
+    now = datetime.now(timezone.utc)
+    params["issuedAt"] = (
+        now - timedelta(minutes=2)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    params["expiresAt"] = (
+        now - timedelta(minutes=1)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    decoded = decode_service_command(body["identifier"], params)
+    params["payloadSha256"] = canonical_payload_sha256(
+        decoded["payload"]
+    )
+    topic = (
+        "$sys/product/device/thing/service/"
+        f"{body['identifier']}/invoke"
+    )
+
+    client._handle_service_call(
+        topic,
+        {"id": "expired-first-seal", "params": params},
+    )
+
+    assert dispatched == []
+    assert store.get_command(decoded["commandUid"]) is None
+    reply = paho.publishes[-1][1]
+    assert reply["data"]["receiptState"] == 3
+    assert reply["data"]["errorCode"] == "BAD_COMMAND"
+    store.close()
+
+
+def test_expired_factory_seal_duplicate_uses_original_persisted_receipt(
+    tmp_path,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    paho = LifecyclePahoClient()
+    client = MqttClient.__new__(MqttClient)
+    client._store = store
+    client.client = paho
+    client.product_id = "product"
+    client.device_name = "SN-CONTRACT-0001"
+    client.edge_boot_id = 9001
+    client._unsupported_command_types = frozenset()
+    client._trusted_cos_environment = None
+    dispatched = []
+    client.on_command_received = (
+        lambda *args: dispatched.append(args) or True
+    )
+
+    example_path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "contracts",
+        "examples",
+        "onenet-wire",
+        "authorize-factory-seal.service-wire.json",
+    )
+    with open(example_path, encoding="utf-8") as source:
+        wire = json.load(source)
+    body = wire["callServiceApiBodyTemplate"]
+    params = dict(body["params"])
+    now = datetime.now(timezone.utc)
+    params["issuedAt"] = (
+        now - timedelta(minutes=2)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    params["expiresAt"] = (
+        now - timedelta(minutes=1)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    command = decode_service_command(body["identifier"], params)
+    params["payloadSha256"] = canonical_payload_sha256(
+        command["payload"]
+    )
+    command = decode_service_command(body["identifier"], params)
+    assert store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    ) == "ACCEPTED"
+    with store.transaction():
+        store._conn.execute(
+            "UPDATE command_inbox SET received_at=? WHERE command_uid=?",
+            (
+                (
+                    now - timedelta(seconds=90)
+                ).isoformat(timespec="milliseconds").replace(
+                    "+00:00", "Z"
+                ),
+                command["commandUid"],
+            ),
+        )
+    assert store.claim_next_command()["command_uid"] == command[
+        "commandUid"
+    ]
+    assert store.fail_factory_seal_command_for_retry(
+        command["commandUid"],
+        "FACTORY_REPORT_INVALID",
+    )
+    topic = (
+        "$sys/product/device/thing/service/"
+        f"{body['identifier']}/invoke"
+    )
+
+    client._handle_service_call(
+        topic,
+        {"id": "expired-duplicate-seal", "params": params},
+    )
+
+    assert len(dispatched) == 1
+    assert dispatched[0][0] == command["commandUid"]
+    assert store.get_command(command["commandUid"])["state"] == "PENDING"
+    reply = paho.publishes[-1][1]
+    assert reply["data"]["receiptState"] == 2
+    assert reply["data"]["errorCode"] == ""
     store.close()
 
 

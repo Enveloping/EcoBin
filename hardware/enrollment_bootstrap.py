@@ -9,6 +9,7 @@ from pathlib import Path
 
 from device_credentials import load_device_credentials
 from secure_files import unlink_and_fsync
+from secret_memory_guard import require_no_active_swap
 
 
 logger = logging.getLogger("enrollment-bootstrap")
@@ -59,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.getenv("ECOBIN_LEGACY_HARDWARE_SN", ""),
     )
     parser.add_argument("--timeout-seconds", type=float, default=15.0)
+    parser.add_argument("--proc-swaps", default="/proc/swaps")
     return parser
 
 
@@ -68,6 +70,9 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
     )
     args = build_parser().parse_args(argv)
+    # Keep this check inside the bootstrap as well as systemd's ExecStartPre:
+    # a manual invocation must not bypass the K1 memory-safety boundary.
+    require_no_active_swap(args.proc_swaps)
     credentials_path = Path(args.credentials)
     cleanup_files = tuple(Path(path) for path in args.cleanup_file)
     if (

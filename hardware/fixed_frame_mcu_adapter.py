@@ -356,7 +356,7 @@ class FixedFrameMcuAdapter:
                 factory = serial.Serial
             try:
                 reopening = self._has_opened_once
-                self._ser = factory(
+                serial_arguments = dict(
                     port=self.port,
                     baudrate=self.baudrate,
                     bytesize=8,
@@ -364,6 +364,12 @@ class FixedFrameMcuAdapter:
                     stopbits=1,
                     timeout=self.timeout_s,
                 )
+                if self._serial_factory is None:
+                    # Production owns ttyS5 exclusively.  A second process
+                    # must fail at open instead of interleaving protocol or
+                    # STM32 ROM-loader bytes with this adapter.
+                    serial_arguments["exclusive"] = True
+                self._ser = factory(**serial_arguments)
                 self._verified_firmware_identity = None
                 logger.info(
                     "fixed-frame MCU UART opened: port=%s baudrate=%d",

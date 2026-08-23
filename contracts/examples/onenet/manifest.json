@@ -65,6 +65,10 @@
       "schema": "../../onenet/commands/commands.schema.json"
     },
     {
+      "file": "authorize-factory-seal.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
       "file": "sync-device-entry-url.command.json",
       "schema": "../../onenet/commands/commands.schema.json"
     },
@@ -118,6 +122,10 @@
     },
     {
       "file": "device-acceptance-evidence.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "factory-seal-completed.event.json",
       "schema": "../../onenet/events/events.schema.json"
     },
     {

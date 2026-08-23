@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.jinshoubao.com/schemas/orangepi/source-lock-v1.json",
+  "title": "EcoBin Orange Pi base image source lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "lockState", "reason", "board", "operatingSystem", "artifact"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1},
+    "lockState": {"enum": ["LOCKED", "UNLOCKED"]},
+    "reason": {"type": "string", "minLength": 1},
+    "board": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vendor", "model", "hardwareRevision", "soc", "architecture"],
+      "properties": {
+        "vendor": {"const": "Orange Pi"},
+        "model": {"const": "Orange Pi Zero 3"},
+        "hardwareRevision": {"const": "v1.2"},
+        "soc": {"const": "Allwinner H618"},
+        "architecture": {"const": "arm64"}
+      }
+    },
+    "operatingSystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["distribution", "majorVersion", "variant", "kernelSeries"],
+      "properties": {
+        "distribution": {"const": "Debian"},
+        "majorVersion": {"const": 12},
+        "variant": {"const": "Server"},
+        "kernelSeries": {"const": "6.1"}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "fileName", "sha256", "downloadBytes", "archiveFormat", "imageMember", "extractedImageBytes", "extractedImageSha256"],
+      "properties": {
+        "url": {"type": ["string", "null"]},
+        "fileName": {"type": ["string", "null"]},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "downloadBytes": {"type": ["integer", "null"], "minimum": 1},
+        "archiveFormat": {"type": ["string", "null"], "enum": ["raw", "gzip", "xz", "zstd", "7z", null]},
+        "imageMember": {"type": ["string", "null"]},
+        "extractedImageBytes": {"type": ["integer", "null"], "minimum": 1},
+        "extractedImageSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

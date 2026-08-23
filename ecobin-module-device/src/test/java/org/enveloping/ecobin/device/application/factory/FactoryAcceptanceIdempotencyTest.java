@@ -2,6 +2,7 @@ package org.enveloping.ecobin.device.application.factory;
 
 import org.enveloping.ecobin.device.api.port.BagCodeAdmissionPort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceAcceptanceChallengePort;
+import org.enveloping.ecobin.device.application.target.FactorySealAuthorizationService;
 import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.FactoryAcceptanceView;
 import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.InstallFactoryBagRequest;
 import org.enveloping.ecobin.framework.audit.AuditPort;
@@ -39,6 +40,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -56,6 +58,7 @@ class FactoryAcceptanceIdempotencyTest {
     private AuditPort auditPort;
     private FactoryOperatorPersistenceRef operatorRef;
     private FactoryAcceptanceService service;
+    private FactorySealAuthorizationService factorySealAuthorizations;
     private UUID actorUid;
 
     @BeforeEach
@@ -82,6 +85,8 @@ class FactoryAcceptanceIdempotencyTest {
                 FactoryMiniappAuthorizationPort.BAG_INSTALL))
                 .thenReturn(actor);
         auditPort = mock(AuditPort.class);
+        factorySealAuthorizations = mock(
+                FactorySealAuthorizationService.class);
         service = new FactoryAcceptanceService(
                 jdbc,
                 new ObjectMapper(),
@@ -89,6 +94,7 @@ class FactoryAcceptanceIdempotencyTest {
                 authorization,
                 auditPort,
                 mock(TrustedDeviceAcceptanceChallengePort.class),
+                factorySealAuthorizations,
                 idempotency);
     }
 
@@ -235,6 +241,45 @@ class FactoryAcceptanceIdempotencyTest {
         assertThat(replay.factoryBags()).isEmpty();
         verify(jdbc, never()).update(anyString(), any(Object[].class));
         verify(idempotency, never()).succeed(any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void issuedSealAuthorityRejectsBagMutationBeforeAnyBagWrite()
+            throws Exception {
+        UUID operationUid = UUID.randomUUID();
+        when(idempotency.claim(any())).thenReturn(
+                GlobalOperationClaim.acquired());
+        ResultSet asset = assetRow(UUID.randomUUID());
+        doAnswer(invocation -> {
+            RowMapper<Object> mapper = invocation.getArgument(1);
+            return List.of(mapper.mapRow(asset, 0));
+        }).when(jdbc).query(
+                contains("FROM dev_device_asset"),
+                any(RowMapper.class),
+                any(Object[].class));
+        doThrow(new TargetApiException(
+                409,
+                "DEVICE.FACTORY_SEAL_AUTHORITY_ISSUED",
+                "factory seal authority issued"))
+                .when(factorySealAuthorizations)
+                .requireAcceptanceSnapshotMutable(41L);
+
+        assertThatThrownBy(() -> service.install(
+                operationUid,
+                DEVICE_CODE,
+                new InstallFactoryBagRequest(1, BAG_CODE)))
+                .isInstanceOf(TargetApiException.class)
+                .extracting("code")
+                .isEqualTo("DEVICE.FACTORY_SEAL_AUTHORITY_ISSUED");
+
+        verify(factorySealAuthorizations)
+                .requireAcceptanceSnapshotMutable(41L);
+        verify(jdbc, never()).query(
+                contains("FROM rec_bag_label_item"),
+                any(RowMapper.class),
+                any(Object[].class));
+        verify(jdbc, never()).update(anyString(), any(Object[].class));
     }
 
     private static ResultSet assetRow(UUID assetUid) throws Exception {

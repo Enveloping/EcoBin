@@ -1,0 +1,45 @@
+[Unit]
+Description=EcoBin dedicated low-privilege factory hostapd
+Documentation=file:/opt/ecobin/factory-test/current/app/factory/README.md
+PartOf=ecobin-factory.target
+Requires=ecobin-factory-ap-prepare.service
+After=ecobin-factory-ap-prepare.service
+BindsTo=sys-subsystem-net-devices-wlan0.device
+After=sys-subsystem-net-devices-wlan0.device
+Conflicts=hostapd.service wpa_supplicant@wlan0.service
+
+[Service]
+Type=simple
+User=ecobin-factory-ap
+Group=ecobin-factory-ap
+ExecStart=/usr/sbin/hostapd /run/ecobin/factory-network/hostapd/hostapd.conf
+Restart=on-failure
+RestartSec=2
+TimeoutStartSec=20
+TimeoutStopSec=10
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+InaccessiblePaths=-/etc/ecobin
+InaccessiblePaths=-/etc/ssh
+InaccessiblePaths=-/var/lib/ecobin
+InaccessiblePaths=-/run/ecobin/factory-network/dnsmasq
+ReadOnlyPaths=/run/ecobin/factory-network/hostapd
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+RestrictAddressFamilies=AF_INET AF_NETLINK AF_PACKET AF_UNIX
+IPAddressDeny=any

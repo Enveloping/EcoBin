@@ -3323,6 +3323,77 @@ def build_onenet_examples() -> dict[str, Any]:
         },
         command_uid=acceptance_command_uid,
     )
+    factory_seal_command_uid = "8a000000-0000-4000-8000-000000000007"
+    factory_seal_command = _command(
+        factory_seal_command_uid,
+        "AUTHORIZE_FACTORY_SEAL",
+        "DEVICE_ASSET",
+        "SN-CONTRACT-0001",
+        {
+            "sealAuthorizationSchemaVersion": 1,
+            "hardwareSn": "SN-CONTRACT-0001",
+            "acceptanceGeneration": 1,
+            "acceptanceEvidenceUid": acceptance_evidence_event["eventUid"],
+            "acceptanceChallengeUid": acceptance_challenge_uid,
+            "acceptanceEvidenceSha256": (
+                acceptance_evidence_event["payloadSha256"]
+            ),
+            "factoryBagRevision": factory_bag_revision,
+            "factoryBagSetSha256": factory_bag_set_sha256,
+        },
+    )
+    factory_seal_command["expiresAt"] = "2027-07-24T01:00:00.000Z"
+    image_release_id = "ecobin-opiz3-2026.08.22.1"
+    image_release_sha256 = "1" * 64
+    factory_report_sha256 = "2" * 64
+    factory_seal_binding_values = {
+        "commandUid": factory_seal_command_uid,
+        "hardwareSn": "SN-CONTRACT-0001",
+        "acceptanceGeneration": 1,
+        "acceptanceEvidenceUid": acceptance_evidence_event["eventUid"],
+        "acceptanceChallengeUid": acceptance_challenge_uid,
+        "acceptanceEvidenceSha256": (
+            acceptance_evidence_event["payloadSha256"]
+        ),
+        "factoryBagRevision": factory_bag_revision,
+        "factoryBagSetSha256": factory_bag_set_sha256,
+        "imageReleaseId": image_release_id,
+        "imageReleaseSha256": image_release_sha256,
+        "factoryReportSha256": factory_report_sha256,
+    }
+    factory_seal_completed_event = _event(
+        "8a000000-0000-4000-8000-00000000000a",
+        1058,
+        "FACTORY_SEAL_COMPLETED",
+        "RELIABLE_FACT",
+        "DEVICE_ASSET",
+        "SN-CONTRACT-0001",
+        {
+            "sealCompletionSchemaVersion": 1,
+            "hardwareSn": "SN-CONTRACT-0001",
+            "authorizationCommandUid": factory_seal_command_uid,
+            "acceptanceGeneration": 1,
+            "acceptanceEvidenceUid": acceptance_evidence_event["eventUid"],
+            "acceptanceEvidenceSha256": (
+                acceptance_evidence_event["payloadSha256"]
+            ),
+            "acceptanceChallengeUid": acceptance_challenge_uid,
+            "factoryBagRevision": factory_bag_revision,
+            "factoryBagSetSha256": factory_bag_set_sha256,
+            "imageReleaseId": image_release_id,
+            "imageReleaseSha256": image_release_sha256,
+            "factoryReportSha256": factory_report_sha256,
+            "authorizationBindingSha256": payload_sha256(
+                factory_seal_binding_values
+            ),
+            "operatorConfirmationUid": (
+                "8a000000-0000-4000-8000-00000000000b"
+            ),
+            "sealedAt": "2026-07-24T01:00:20.000Z",
+            "cleanupCompletedAt": "2026-07-24T01:00:30.000Z",
+        },
+        command_uid=factory_seal_command_uid,
+    )
     sync_device_entry_url_command = _command(
         "8a000000-0000-4000-8000-000000000005",
         "SYNC_DEVICE_ENTRY_URL",
@@ -3496,6 +3567,10 @@ def build_onenet_examples() -> dict[str, Any]:
             request_acceptance_command,
             "../../onenet/commands/commands.schema.json",
         ),
+        "authorize-factory-seal.command.json": (
+            factory_seal_command,
+            "../../onenet/commands/commands.schema.json",
+        ),
         "sync-device-entry-url.command.json": (
             sync_device_entry_url_command,
             "../../onenet/commands/commands.schema.json",
@@ -3550,6 +3625,10 @@ def build_onenet_examples() -> dict[str, Any]:
         ),
         "device-acceptance-evidence.event.json": (
             acceptance_evidence_event,
+            "../../onenet/events/events.schema.json",
+        ),
+        "factory-seal-completed.event.json": (
+            factory_seal_completed_event,
             "../../onenet/events/events.schema.json",
         ),
         "remote-support-tunnel-status.event.json": (

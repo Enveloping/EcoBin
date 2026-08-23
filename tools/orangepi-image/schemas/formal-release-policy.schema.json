@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.jinshoubao.com/schemas/orangepi/formal-release-policy-v1.json",
+  "title": "EcoBin Orange Pi formal release trust policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "lockState",
+    "reason",
+    "rootfsQualification",
+    "builderReceipts",
+    "buildAttestation",
+    "sealEvidence",
+    "releaseSigning"
+  ],
+  "properties": {
+    "$schema": {"const": "./schemas/formal-release-policy.schema.json"},
+    "schemaVersion": {"const": 1},
+    "lockState": {"enum": ["LOCKED", "UNLOCKED"]},
+    "reason": {"type": "string", "minLength": 1},
+    "rootfsQualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "method", "evidenceSha256"],
+      "properties": {
+        "state": {"enum": ["QUALIFIED", "UNQUALIFIED"]},
+        "method": {"type": ["string", "null"]},
+        "evidenceSha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "builderReceipts": {
+      "type": "array", "maxItems": 2,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["builderIdentity", "builderDomain", "keyId", "publicKeySha256"],
+        "properties": {
+          "builderIdentity": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+          "builderDomain": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+          "keyId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+          "publicKeySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "buildAttestation": {"$ref": "#/$defs/keyIdentity"},
+    "sealEvidence": {"$ref": "#/$defs/keyIdentity"},
+    "releaseSigning": {"$ref": "#/$defs/keyIdentity"}
+  },
+  "$defs": {
+    "keyIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keyId", "publicKeySha256"],
+      "properties": {
+        "keyId": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+        },
+        "publicKeySha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

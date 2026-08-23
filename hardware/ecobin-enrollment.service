@@ -1,20 +1,24 @@
 [Unit]
 Description=EcoBin one-time device enrollment and cleanup
 Wants=network-online.target time-sync.target
-After=network-online.target time-sync.target
+Requires=ecobin-mcu-safe-gpio.service
+After=network-online.target time-sync.target ecobin-mcu-safe-gpio.service
 Before=ecobin-remote-support.service ecobin-hardware.service
 StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
 User=root
-EnvironmentFile=-/etc/ecobin/enrollment.env
+EnvironmentFile=/etc/ecobin/enrollment.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 UMask=0077
-ExecStart=/opt/ecobin-enrollment/.venv/bin/python /opt/ecobin-enrollment/enrollment_bootstrap.py --cleanup-file /opt/ecobin-enrollment/device_enrollment.py --cleanup-file /root/EcoBin/hardware/device_enrollment.py
-ExecStartPost=/opt/ecobin-enrollment/.venv/bin/python /opt/ecobin-enrollment/maintenance_ssh_setup.py
-ExecStartPost=/opt/ecobin-enrollment/.venv/bin/python /opt/ecobin-enrollment/remote_support_credentials.py
+LimitCORE=0
+MemorySwapMax=0
+ExecStartPre=/opt/ecobin/enrollment/.venv/bin/python /opt/ecobin/enrollment/secret_memory_guard.py --proc-swaps /proc/swaps
+ExecStart=/opt/ecobin/enrollment/.venv/bin/python /opt/ecobin/enrollment/enrollment_bootstrap.py --cleanup-file /opt/ecobin/enrollment/device_enrollment.py
+ExecStartPost=/opt/ecobin/enrollment/.venv/bin/python /opt/ecobin/enrollment/maintenance_ssh_setup.py
+ExecStartPost=/opt/ecobin/enrollment/.venv/bin/python /opt/ecobin/enrollment/remote_support_credentials.py
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=60

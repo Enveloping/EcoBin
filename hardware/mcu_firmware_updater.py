@@ -39,6 +39,7 @@ from mcu_firmware_package import (
     load_public_key,
     verify_package,
 )
+from system.mcu_safe_gpio import GpioCommandError, WiringOpGpio
 
 logger = logging.getLogger("mcu-firmware-updater")
 
@@ -417,7 +418,7 @@ class WiringOpBootControl:
         boot0_wpi: int,
         reset_wpi: int,
         boot0_active_level: int = 1,
-        reset_active_level: int = 0,
+        reset_active_level: int = 1,
         command_runner: Callable[..., object] = subprocess.run,
         sleeper: Callable[[float], None] = time.sleep,
     ):
@@ -432,7 +433,10 @@ class WiringOpBootControl:
         self.reset_wpi = reset_wpi
         self.boot0_active_level = boot0_active_level
         self.reset_active_level = reset_active_level
-        self._run_command = command_runner
+        self._gpio = WiringOpGpio(
+            gpio_path,
+            command_runner=command_runner,
+        )
         self._sleep = sleeper
 
     def enter_system_bootloader(self) -> None:
@@ -466,27 +470,13 @@ class WiringOpBootControl:
         self._command("write", str(pin), str(level))
 
     def _command(self, *arguments: str) -> None:
-        argv = [self.gpio_path, *arguments]
         try:
-            result = self._run_command(
-                argv,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=5,
-                check=False,
-            )
-        except Exception as error:
+            self._gpio.run(*arguments)
+        except GpioCommandError as error:
             raise McuUpdateError(
                 "GPIO_CONTROL_FAILED",
-                f"WiringOP GPIO execution failed: {type(error).__name__}",
+                "WiringOP GPIO execution failed",
             ) from error
-        if int(getattr(result, "returncode", 1)) != 0:
-            raise McuUpdateError(
-                "GPIO_CONTROL_FAILED",
-                "WiringOP GPIO command returned a failure",
-            )
 
 
 class Stm32FlashRunner:
@@ -596,6 +586,7 @@ class McuFirmwareUpdater:
         downloader: Optional[CosFirmwareDownloader] = None,
         enabled: bool = True,
         device_name: Optional[str] = None,
+        factory_seal_gate=None,
     ):
         self.store = store
         self.uart = uart_link
@@ -605,6 +596,7 @@ class McuFirmwareUpdater:
         self.downloader = downloader or CosFirmwareDownloader()
         self.enabled = bool(enabled)
         self.device_name = device_name
+        self.factory_seal_gate = factory_seal_gate
         self._execution_lock = threading.Lock()
         # This is evidence established by GPIO/UART operations in the current
         # process, not a guess derived from a journal state. Restarts begin
@@ -1096,6 +1088,7 @@ class McuFirmwareUpdater:
         self._attempt_target(update, target)
 
     def _preflight(self, update: dict, target_manifest: dict) -> None:
+        self._require_cloud_factory_sealed(update)
         self.store.transition_mcu_firmware_update(
             update["update_uid"],
             "PREFLIGHT",
@@ -1159,6 +1152,7 @@ class McuFirmwareUpdater:
                     "MCU_PREPARE_JOURNAL_FAILED",
                     "could not persist the MCU prepare recovery identity",
                 )
+            self._require_cloud_factory_sealed(update)
             self._mcu_runtime_mode = MCU_RUNTIME_UNKNOWN
             try:
                 execution = self.uart.execute_firmware_update_prepare()
@@ -1312,7 +1306,12 @@ class McuFirmwareUpdater:
             f"MCU firmware downgrade is blocked: current={current} target={target}",
         )
 
-    def _ensure_flash_entry_authorized(self, update: dict) -> None:
+    def _ensure_flash_entry_authorized(
+        self,
+        update: dict,
+        *,
+        enforce_factory_gate: bool = False,
+    ) -> None:
         """Prove that an application-to-ROM transition is currently safe.
 
         A successful application reset clears the MCU's F2 latch. Therefore a
@@ -1329,11 +1328,21 @@ class McuFirmwareUpdater:
                 "MCU_RUNTIME_MODE_UNCERTAIN",
                 "MCU runtime mode is not proven safe for a ROM bootloader reset",
             )
-        self._prepare_running_application_for_flash(update)
+        self._prepare_running_application_for_flash(
+            update,
+            enforce_factory_gate=enforce_factory_gate,
+        )
 
-    def _prepare_running_application_for_flash(self, update: dict) -> None:
+    def _prepare_running_application_for_flash(
+        self,
+        update: dict,
+        *,
+        enforce_factory_gate: bool,
+    ) -> None:
         """Persist and execute a fresh F2 for the currently running app."""
 
+        if enforce_factory_gate:
+            self._require_cloud_factory_sealed(update)
         if not self.uart.is_open and not self.uart.open():
             raise McuUpdateError(
                 "MCU_REPREPARE_UART_OPEN_FAILED",
@@ -1361,6 +1370,8 @@ class McuFirmwareUpdater:
                 "could not persist the repeated MCU prepare recovery identity",
             )
 
+        if enforce_factory_gate:
+            self._require_cloud_factory_sealed(update)
         self._mcu_runtime_mode = MCU_RUNTIME_UNKNOWN
         try:
             execution = self.uart.execute_firmware_update_prepare()
@@ -1414,8 +1425,28 @@ class McuFirmwareUpdater:
         )
         while update["target_attempt_count"] < TARGET_ATTEMPT_LIMIT:
             try:
-                self._ensure_flash_entry_authorized(update)
+                self._require_cloud_factory_sealed(update)
+                self._ensure_flash_entry_authorized(
+                    update,
+                    enforce_factory_gate=True,
+                )
+                self._require_cloud_factory_sealed(update)
             except McuUpdateError as error:
+                if error.code == "FACTORY_NOT_SEALED":
+                    current = self.store.get_mcu_firmware_update(
+                        update["update_uid"]
+                    )
+                    if current is not None and (
+                        current["target_attempt_count"] == 0
+                        and current["rollback_attempt_count"] == 0
+                    ):
+                        self._reject_preflight_failure_safely(
+                            current,
+                            error,
+                        )
+                    elif current is not None:
+                        self._lock_failure(current, error)
+                    return
                 self._lock_unsafe_flash_entry(update, error)
                 return
             attempt = self.store.record_mcu_firmware_attempt(
@@ -1425,6 +1456,12 @@ class McuFirmwareUpdater:
             )
             update = self.store.get_mcu_firmware_update(update["update_uid"])
             try:
+                # The attempt journal is the durable "may have flashed"
+                # boundary.  Check once more immediately before touching UART
+                # or GPIO; if this check fails, retain the maintenance lock
+                # because a restart could not distinguish this point from an
+                # interrupted bootloader entry.
+                self._require_cloud_factory_sealed(update)
                 self._flash(target)
                 self.store.transition_mcu_firmware_update(
                     update["update_uid"],
@@ -1438,6 +1475,9 @@ class McuFirmwareUpdater:
                 self._complete_target(update)
                 return
             except McuUpdateError as error:
+                if error.code == "FACTORY_NOT_SEALED":
+                    self._lock_failure(update, error)
+                    return
                 last_error = error
                 logger.warning(
                     "MCU target attempt %d/%d failed: %s",
@@ -1564,6 +1604,22 @@ class McuFirmwareUpdater:
             int(manifest["imageSize"]),
             manifest=manifest,
         )
+
+    def _require_cloud_factory_sealed(self, update: dict) -> None:
+        if (
+            update.get("source") != "CLOUD"
+            or self.factory_seal_gate is None
+        ):
+            return
+        try:
+            self.factory_seal_gate.require_command_allowed(
+                "START_MCU_FIRMWARE_UPDATE"
+            )
+        except Exception as cause:
+            raise McuUpdateError(
+                "FACTORY_NOT_SEALED",
+                "cloud MCU update requires completed physical factory sealing",
+            ) from cause
 
     def _verify_application(self, manifest: dict) -> None:
         self.uart.close()

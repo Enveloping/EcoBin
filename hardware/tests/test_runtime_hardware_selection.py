@@ -14,6 +14,39 @@ from fixed_frame_mcu_adapter import FixedFrameMcuAdapter
 HARDWARE_DIR = Path(__file__).resolve().parents[1]
 
 
+def _set_production_hardware_boundary(monkeypatch):
+    monkeypatch.setattr(config, "CONFIG_MODE", "production")
+    monkeypatch.setattr(config, "MCU_PROTOCOL_MODE", "fixed-frame")
+    monkeypatch.setattr(config, "MCU_SIMULATED", False)
+    monkeypatch.setattr(config, "SERIAL_PORT", "/dev/ttyS5")
+    monkeypatch.setattr(config, "SERIAL_BAUDRATE", 115200)
+    monkeypatch.setattr(config, "UART_PORT_COUNT", 1)
+    monkeypatch.setattr(config, "MCU_UPDATE_ENABLED", True)
+    monkeypatch.setattr(config, "MCU_BOOT0_WPI", 2)
+    monkeypatch.setattr(config, "MCU_RESET_WPI", 5)
+    monkeypatch.setattr(config, "MCU_BOOT0_ACTIVE_LEVEL", 1)
+    monkeypatch.setattr(config, "MCU_RESET_ACTIVE_LEVEL", 1)
+    monkeypatch.setattr(config, "UART_HIL_REQUIRED_CAPABILITIES", None)
+    monkeypatch.setattr(config, "COS_BUCKET_NAME", "demo-1250000000")
+    monkeypatch.setattr(config, "COS_REGION", "ap-shanghai")
+    monkeypatch.setattr(
+        config,
+        "COS_BASE_URL",
+        "https://demo-1250000000.cos.ap-shanghai.myqcloud.com",
+    )
+    monkeypatch.setattr(
+        config,
+        "TRUSTED_COS_ENVIRONMENT",
+        {
+            "bucket": "demo-1250000000",
+            "region": "ap-shanghai",
+            "baseUrl": (
+                "https://demo-1250000000.cos.ap-shanghai.myqcloud.com"
+            ),
+        },
+    )
+
+
 def test_runtime_configuration_has_no_global_test_mode_switch():
     config_source = (HARDWARE_DIR / "config.py").read_text(
         encoding="utf-8"
@@ -89,6 +122,7 @@ def test_device_entry_url_refresh_interval_must_be_positive(monkeypatch):
 def test_explicit_simulated_camera_sources_pass_configuration_validation(
     monkeypatch,
 ):
+    monkeypatch.setattr(config, "CONFIG_MODE", "development")
     monkeypatch.setattr(
         config,
         "CAMERA_OUTSIDE_SOURCE",
@@ -123,6 +157,66 @@ def test_explicit_simulated_camera_sources_pass_configuration_validation(
     )
 
     config.validate()
+
+
+def test_production_defaults_match_the_fixed_open_drain_mainboard():
+    assert config.MCU_BOOT0_WPI == 2
+    assert config.MCU_RESET_WPI == 5
+    assert config.MCU_BOOT0_ACTIVE_LEVEL == 1
+    assert config.MCU_RESET_ACTIVE_LEVEL == 1
+    assert config.GPIO_PATH == "/usr/bin/gpio"
+    assert config.STM32FLASH_PATH == "/usr/bin/stm32flash"
+    assert config.MCU_HARDWARE_COMPATIBILITY == "ECOBIN_MAINBOARD_V1.1"
+
+
+def test_production_rejects_a_runtime_reset_polarity_override(monkeypatch):
+    _set_production_hardware_boundary(monkeypatch)
+    monkeypatch.setattr(config, "MCU_RESET_ACTIVE_LEVEL", 0)
+
+    with pytest.raises(ValueError, match="2N7002 reset gate"):
+        config.validate()
+
+
+def test_production_rejects_a_different_uart_or_gpio_mapping(monkeypatch):
+    _set_production_hardware_boundary(monkeypatch)
+    monkeypatch.setattr(config, "SERIAL_PORT", "/dev/ttyS4")
+
+    with pytest.raises(ValueError, match="fixed Orange Pi UART5"):
+        config.validate()
+
+
+@pytest.mark.parametrize(
+    ("attribute", "value"),
+    [
+        ("GPIO_PATH", "/tmp/gpio"),
+        ("STM32FLASH_PATH", "/tmp/stm32flash"),
+        ("MCU_HARDWARE_COMPATIBILITY", "STM32F103C8T6"),
+    ],
+)
+def test_production_rejects_unlocked_tool_or_mainboard_identity(
+    monkeypatch,
+    attribute,
+    value,
+):
+    _set_production_hardware_boundary(monkeypatch)
+    monkeypatch.setattr(config, attribute, value)
+
+    with pytest.raises(ValueError, match="locked WiringOP"):
+        config.validate()
+
+
+def test_production_rejects_hil_overrides_and_simulated_cameras(monkeypatch):
+    _set_production_hardware_boundary(monkeypatch)
+    monkeypatch.setattr(config, "UART_HIL_REQUIRED_CAPABILITIES", 0x300)
+
+    with pytest.raises(ValueError, match="forbids a UART HIL"):
+        config.validate()
+
+    monkeypatch.setattr(config, "UART_HIL_REQUIRED_CAPABILITIES", None)
+    monkeypatch.setattr(config, "CAMERA_OUTSIDE_SOURCE", "simulated://outside")
+
+    with pytest.raises(ValueError, match="forbids simulated camera"):
+        config.validate()
 
 
 def test_boot_sequence_no_longer_accepts_a_test_mode_argument():

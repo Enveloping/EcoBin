@@ -156,6 +156,13 @@
       "deliveryKind": "CONTROL_COMMAND",
       "cosGrantAllowed": true
     },
+    "authorizeFactorySeal": {
+      "commandType": "AUTHORIZE_FACTORY_SEAL",
+      "targetType": "DEVICE_ASSET",
+      "schemaRef": "commands/commands.schema.json#/$defs/authorizeFactorySealCommand",
+      "deliveryKind": "CONTROL_COMMAND",
+      "cosGrantAllowed": false
+    },
     "syncDeviceEntryUrl": {
       "commandType": "SYNC_DEVICE_ENTRY_URL",
       "targetType": "DEVICE_ASSET",
@@ -287,6 +294,12 @@
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "MCU_FIRMWARE_DEPLOYMENT",
       "schemaRef": "events/events.schema.json#/$defs/mcuFirmwareUpdateProgressEvent"
+    },
+    "factorySealCompleted": {
+      "eventType": "FACTORY_SEAL_COMPLETED",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "DEVICE_ASSET",
+      "schemaRef": "events/events.schema.json#/$defs/factorySealCompletedEvent"
     }
   },
   "semanticChecksBeyondJsonSchema": [
@@ -303,8 +316,10 @@
     "APPLY_CONFIGURATION ports and runtime snapshot ports are unique, ordered and contiguous from 1",
     "configuration stages, command observation stages and receipt outcomes enforce their error/mcu identity relationships",
     "available photo URL and COS grant bucket/region/baseUrl exactly match trusted runtime configuration, and key/path exactly bind work, slot and photo identity",
-    "OneNet nullable presence flags and integer enums are decoded before JSON Schema and payload digest validation"
-    ,"REQUEST_DEVICE_ACCEPTANCE target uid and targetDeviceName both equal the authenticated immutable device name; challengeUid binds its COS prefix and evidence; factory bag revision and digest must be echoed by DEVICE_ACCEPTANCE_EVIDENCE and still match the current asset",
+    "OneNet nullable presence flags and integer enums are decoded before JSON Schema and payload digest validation",
+    "REQUEST_DEVICE_ACCEPTANCE target uid and targetDeviceName both equal the authenticated immutable device name; challengeUid binds its COS prefix and evidence; factory bag revision and digest must be echoed by DEVICE_ACCEPTANCE_EVIDENCE and still match the current asset",
+    "AUTHORIZE_FACTORY_SEAL target and payload hardwareSn equal the authenticated immutable device name; the current PASSED acceptance generation, evidence identity and digest, factory bag revision and ordered-set digest must match again immediately before every dispatch; expiresAt is the device's first reliable-acceptance deadline, and an exact command durably accepted before it may finish after it from the persisted receipt fact; duplicate commandUid is idempotent",
+    "FACTORY_SEAL_COMPLETED target and payload hardwareSn equal the authenticated immutable device name; commandUid equals authorizationCommandUid; acceptance generation, evidence, challenge and factory-bag snapshot equal the issued authorization; authorizationBindingSha256 is the RFC8785 SHA-256 of exactly commandUid, hardwareSn, acceptanceGeneration, acceptanceEvidenceUid, acceptanceChallengeUid, acceptanceEvidenceSha256, factoryBagRevision, factoryBagSetSha256, imageReleaseId, imageReleaseSha256 and factoryReportSha256; cleanupCompletedAt is not before sealedAt",
     "remote support commands target the session UID; OPEN payload expiry exactly equals envelope expiry and is at most 30 minutes; status target is the authenticated device asset and carries the originating command UID",
     "MCU firmware deployment target equals deploymentUid; COS key and grant prefix are derived from releaseUid and packageSha256; signed manifest identity must equal the command payload; cloud downgrade and legacy preflight are forbidden"
   ],
@@ -341,11 +356,13 @@
     "MEASURE_EMPTY_BAG_BASELINE": "MEAS_BAG_BASELINE",
     "PROVIDE_PHOTO_UPLOAD_GRANT": "PROVIDE_PHOTO_GRANT",
     "REQUEST_DEVICE_ACCEPTANCE": "REQUEST_DEV_ACCEPT",
+    "AUTHORIZE_FACTORY_SEAL": "AUTHORIZE_SEAL",
     "SYNC_DEVICE_ENTRY_URL": "SYNC_DEVICE_URL",
     "OPEN_REMOTE_SUPPORT_TUNNEL": "OPEN_REMOTE_TUNNEL",
     "CLOSE_REMOTE_SUPPORT_TUNNEL": "CLOSE_REMOTE_TUNNEL",
     "START_MCU_FIRMWARE_UPDATE": "START_MCU_FW_UPDATE",
     "MCU_FIRMWARE_UPDATE_PROGRESS": "MCU_FW_PROGRESS",
+    "FACTORY_SEAL_COMPLETED": "FACTORY_SEAL_DONE",
     "MCU_FIRMWARE_DEPLOYMENT": "MCU_FW_DEPLOYMENT",
     "REMOTE_SUPPORT_TUNNEL_STATUS": "REMOTE_TUNNEL_STATUS",
     "REMOTE_SUPPORT_SESSION": "REMOTE_SESSION",

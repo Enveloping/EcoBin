@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import logging
 import hashlib
+import os
 import signal
+import socket
 import sys
 import threading
 import time
@@ -71,6 +73,9 @@ from mcu_firmware_updater import (
     WiringOpBootControl,
     load_release_public_keys,
 )
+from factory_seal.runtime import RuntimeFactorySealAuthorizer
+from factory_seal.admission import FactorySealProductionGate
+from factory_seal.validation import FactorySealPaths
 
 logging.basicConfig(
     level=logging.INFO,
@@ -78,6 +83,34 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logger = logging.getLogger("main")
+
+
+_SYSTEMD_READY_BOOT_STATUSES = frozenset(
+    {
+        "READY",
+        "DEGRADED",
+        # A retained MCU-update maintenance lock deliberately blocks physical
+        # work, but the Edge process must remain available to report and
+        # recover that update.  It is therefore process-ready for systemd.
+        "MCU_UPDATE_FAILED_LOCKED",
+    }
+)
+
+
+def notify_systemd_ready(boot_status: str) -> None:
+    """Tell systemd the runtime has passed boot gating and can serve work."""
+
+    if boot_status not in _SYSTEMD_READY_BOOT_STATUSES:
+        raise RuntimeError(
+            f"refusing systemd readiness for boot status {boot_status!r}"
+        )
+    address = os.getenv("NOTIFY_SOCKET")
+    if not address:
+        return
+    if address.startswith("@"):  # Linux abstract Unix-domain socket
+        address = "\0" + address[1:]
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as notifier:
+        notifier.sendto(b"READY=1", address)
 
 
 def _is_mcu_package_retry_wait(update: dict | None) -> bool:
@@ -107,6 +140,12 @@ class EcoBinEdge:
         # -- EdgeStore (SQLite) --
         self.store = EdgeStore(EDGE_STORE_PATH)
         self.store.initialize()
+        self.factory_seal_authorizer = RuntimeFactorySealAuthorizer(
+            self.store
+        )
+        self.factory_seal_gate = FactorySealProductionGate(
+            FactorySealPaths(edge_store=Path(EDGE_STORE_PATH))
+        )
         _seed_enrolled_device_entry_url(
             self.store,
             DEVICE_CREDENTIALS.device_entry_url
@@ -154,6 +193,7 @@ class EcoBinEdge:
                 )
                 else set()
             ),
+            factory_seal_gate=self.factory_seal_gate,
         )
 
         # -- Photo Manager --
@@ -223,6 +263,7 @@ class EcoBinEdge:
                 ),
                 enabled=True,
                 device_name=DEVICE_NAME,
+                factory_seal_gate=self.factory_seal_gate,
             )
         self.commands = CommandProcessor(
             self.store,
@@ -232,6 +273,8 @@ class EcoBinEdge:
             trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
             remote_support_controller=self.remote_support,
             mcu_firmware_updater=self.mcu_updater,
+            factory_seal_authorizer=self.factory_seal_authorizer,
+            factory_seal_gate=self.factory_seal_gate,
             device_name=DEVICE_NAME,
         )
         self.fixed_frame_health_recovery = FixedFrameHealthRecoveryController(
@@ -350,6 +393,15 @@ class EcoBinEdge:
         recovered = self.store.recover_interrupted_commands()
         if any(recovered.values()):
             logger.warning("Recovered interrupted commands: %s", recovered)
+
+        # Type=notify only becomes active after all persistent state recovery
+        # and boot safety gates have completed.  A maintenance-locked updater
+        # is intentionally ready: its cloud/reporting loops are the recovery
+        # path, while EdgeStore continues to block physical work.
+        if self._exit_flag.is_set():
+            self._shutdown()
+            return
+        notify_systemd_ready(result["status"])
 
         # -- Start UART event reader thread --
         threading.Thread(target=self._uart_event_loop, daemon=True, name="uart-evt").start()

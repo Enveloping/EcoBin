@@ -164,6 +164,7 @@ class ReliableOperationsJdbcRepositorySqlTest {
                 + "AND " + alias + ".organization_id IS NULL "
                 + "AND " + alias + ".task_type IN ( "
                 + "'REQUEST_DEVICE_ACCEPTANCE', "
+                + "'AUTHORIZE_FACTORY_SEAL', "
                 + "'SYNC_DEVICE_ENTRY_URL', "
                 + "'OPEN_REMOTE_SUPPORT_TUNNEL', "
                 + "'CLOSE_REMOTE_SUPPORT_TUNNEL', "
