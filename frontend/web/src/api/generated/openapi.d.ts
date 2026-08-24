@@ -4068,6 +4068,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/operations/reliable-task-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listReliableTaskTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/operations/reliable-tasks/{taskUid}": {
         parameters: {
             query?: never;
@@ -7889,7 +7905,8 @@ export interface components {
             /** Format: uuid */
             taskUid: string;
             taskType: string;
-            taskKind: string;
+            /** @enum {string} */
+            taskKind: "BUSINESS_INTENT" | "INBOX_PROCESSING" | "TIMER" | "RECONCILIATION";
             /** @enum {string} */
             executionLane: "DEVICE" | "FUNDS" | "RECYCLING";
             /** @enum {string} */
@@ -7924,6 +7941,13 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
             nextActions: string[];
+        };
+        ReliableTaskType: {
+            taskType: string;
+            displayName: string;
+            description: string;
+            executionLanes: ("DEVICE" | "FUNDS" | "RECYCLING")[];
+            taskKinds: ("BUSINESS_INTENT" | "INBOX_PROCESSING" | "TIMER" | "RECONCILIATION")[];
         };
         ReliableTaskPage: {
             items: components["schemas"]["ReliableTask"][];
@@ -8165,6 +8189,12 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["ReliableTask"];
+            requestId: string;
+        };
+        ReliableTaskTypeCatalogEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["ReliableTaskType"][];
             requestId: string;
         };
         ReliableTaskPageEnvelope: {
@@ -15081,7 +15111,7 @@ export interface operations {
             query?: {
                 state?: "PENDING" | "DONE" | "CANCELLED" | "BLOCKED";
                 executionLane?: "DEVICE" | "FUNDS" | "RECYCLING";
-                taskKind?: string;
+                taskKind?: "BUSINESS_INTENT" | "INBOX_PROCESSING" | "TIMER" | "RECONCILIATION";
                 taskType?: string;
                 targetType?: string;
                 targetKey?: string;
@@ -15103,6 +15133,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReliableTaskPageEnvelope"];
+                };
+            };
+        };
+    };
+    listReliableTaskTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Human-readable reliable task type catalog */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReliableTaskTypeCatalogEnvelope"];
                 };
             };
         };

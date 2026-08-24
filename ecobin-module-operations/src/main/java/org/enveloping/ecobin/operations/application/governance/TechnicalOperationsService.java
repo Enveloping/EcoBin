@@ -18,6 +18,7 @@ import org.enveloping.ecobin.operations.web.v1.OperationsModels.CursorPage;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.PageData;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.QuarantineView;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.ReliableTaskView;
+import org.enveloping.ecobin.operations.web.v1.OperationsModels.ReliableTaskTypeView;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.ResumeTaskRequest;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.TaskAttemptView;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.VersionedOperationResult;
@@ -48,6 +49,8 @@ public class TechnicalOperationsService {
     private final AuditPort audit;
     private final ObjectMapper objectMapper;
     private final GlobalOperationIdempotencyPort idempotency;
+    private final Object taskTypeCatalogMonitor = new Object();
+    private volatile List<ReliableTaskTypeView> taskTypeCatalogCache;
 
     public TechnicalOperationsService(
             JdbcTemplate jdbc,
@@ -96,13 +99,39 @@ public class TechnicalOperationsService {
                 Long.class, args.toArray());
         args.add(pageSize);
         args.add((page - 1) * pageSize);
-        List<ReliableTaskView> items = jdbc.query(taskSelect() + where + """
+        List<ReliableTaskView> items = jdbc.query(
+                taskSelect() + where + "\n" + """
                         ORDER BY task.updated_at DESC, task.id DESC
                         LIMIT ? OFFSET ?
                         """,
                 (rs, ignored) -> taskView(rs), args.toArray());
         return new PageData<>(items, page, pageSize,
                 total == null ? 0 : total);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReliableTaskTypeView> taskTypes() {
+        platform();
+        List<ReliableTaskTypeView> cached = taskTypeCatalogCache;
+        if (cached != null) return cached;
+        synchronized (taskTypeCatalogMonitor) {
+            cached = taskTypeCatalogCache;
+            if (cached != null) return cached;
+            List<ReliableTaskTypeCatalog.Observation> observed = jdbc.query("""
+                            SELECT DISTINCT task_type, execution_lane,
+                                   task_category
+                            FROM ops_reliable_task
+                            ORDER BY task_type, execution_lane, task_category
+                            """,
+                    (rs, ignored) ->
+                            new ReliableTaskTypeCatalog.Observation(
+                                    rs.getString("task_type"),
+                                    rs.getString("execution_lane"),
+                                    rs.getString("task_category")));
+            cached = ReliableTaskTypeCatalog.entries(observed);
+            taskTypeCatalogCache = cached;
+            return cached;
+        }
     }
 
     @Transactional(readOnly = true)
@@ -270,7 +299,7 @@ public class TechnicalOperationsService {
         args.add(pageSize);
         args.add((page - 1) * pageSize);
         List<QuarantineView> items = jdbc.query(
-                quarantineSelect() + where + """
+                quarantineSelect() + where + "\n" + """
                         ORDER BY quarantine.first_seen_at DESC,
                                  quarantine.id DESC
                         LIMIT ? OFFSET ?

@@ -10,6 +10,7 @@ import org.enveloping.ecobin.operations.web.v1.OperationsModels.CursorPage;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.PageData;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.QuarantineView;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.ReliableTaskView;
+import org.enveloping.ecobin.operations.web.v1.OperationsModels.ReliableTaskTypeView;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.ResumeTaskRequest;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.TaskAttemptView;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.VersionedOperationResult;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -58,6 +60,12 @@ public class PlatformTechnicalOperationsController {
         return ok(service.tasks(
                 state, executionLane, taskKind, taskType, targetType,
                 targetKey, createdFrom, createdTo, page, pageSize), request);
+    }
+
+    @GetMapping("/api/v1/web/platform/operations/reliable-task-types")
+    public ResponseEntity<TargetApiEnvelope<List<ReliableTaskTypeView>>>
+    taskTypes(HttpServletRequest request) {
+        return ok(service.taskTypes(), request);
     }
 
     @GetMapping("/api/v1/web/platform/operations/reliable-tasks/{taskUid}")

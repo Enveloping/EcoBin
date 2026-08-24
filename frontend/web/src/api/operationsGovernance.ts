@@ -5,6 +5,7 @@ import request from './request';
 type Schemas = components['schemas'];
 
 export type ReliableTask = Schemas['ReliableTask'];
+export type ReliableTaskType = Schemas['ReliableTaskType'];
 export type ReliableTaskPage = Schemas['ReliableTaskPage'];
 export type ReliableTaskAttempt = Schemas['TaskAttempt'];
 export type ReliableTaskAttemptPage = Schemas['TaskAttemptCursorPage'];
@@ -19,6 +20,8 @@ export type ReliableTaskAttemptListParams = NonNullable<
 >;
 
 const base = '/api/v1/web/platform/operations/reliable-tasks';
+const taskTypesPath =
+  '/api/v1/web/platform/operations/reliable-task-types';
 
 function taskPath(taskUid: string) {
   return `${base}/${encodeURIComponent(taskUid)}`;
@@ -31,6 +34,14 @@ export function listReliableTasks(
     url: base,
     method: 'GET',
     params,
+    noStore: true,
+  });
+}
+
+export function listReliableTaskTypes() {
+  return request<ReliableTaskType[]>({
+    url: taskTypesPath,
+    method: 'GET',
     noStore: true,
   });
 }

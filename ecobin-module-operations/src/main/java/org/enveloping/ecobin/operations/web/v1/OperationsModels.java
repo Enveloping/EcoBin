@@ -47,6 +47,18 @@ public final class OperationsModels {
             Instant updatedAt,
             List<String> nextActions) { }
 
+    public record ReliableTaskTypeView(
+            String taskType,
+            String displayName,
+            String description,
+            List<String> executionLanes,
+            List<String> taskKinds) {
+        public ReliableTaskTypeView {
+            executionLanes = List.copyOf(executionLanes);
+            taskKinds = List.copyOf(taskKinds);
+        }
+    }
+
     public record TaskAttemptView(
             UUID attemptUid,
             long attemptNo,

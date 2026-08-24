@@ -63,6 +63,7 @@
 }
 
 .operations-boundary-alert,
+.operations-catalog-alert,
 .operations-blocker,
 .operations-resume-warning {
   margin-bottom: 14px;
@@ -110,6 +111,47 @@
 .operations-target-key {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
+}
+
+.operations-explained-label {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.operations-explanation-icon {
+  flex: none;
+  color: #64748b;
+  cursor: help;
+  font-size: 12px;
+}
+
+.operations-explanation-icon:hover,
+.operations-explanation-icon:focus-visible {
+  color: #0f766e;
+  outline: none;
+}
+
+.operations-task-type-option {
+  display: inline-grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+}
+
+.operations-task-type-option-name {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.operations-task-type-option-code {
+  overflow: hidden;
+  color: #64748b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .operations-target-key {
