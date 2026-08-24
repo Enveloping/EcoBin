@@ -80,6 +80,18 @@ public interface FundsOperationalControlPort {
             String outAuthorizationNo,
             LocalDateTime wakeAt);
 
+    /**
+     * A signed query for the same merchant authorization number proves that
+     * WeChat accepted (or definitively did not accept) the original create
+     * request.  That proof may close an old BLOCKED create task without ever
+     * issuing another POST.
+     */
+    void completeMerchantTransferAuthorizationCreateFromQueryProof(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime provedAt);
+
     void resolveMerchantTransferAuthorizationEvidenceMismatch(
             long tenantId,
             long organizationId,

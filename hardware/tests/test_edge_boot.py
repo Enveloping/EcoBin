@@ -2,7 +2,6 @@ import hashlib
 import json
 import os
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 
 import edge_boot as edge_boot_module
 from edge_boot import (
@@ -17,62 +16,32 @@ from onenet_wire import (
     encode_event_post,
 )
 from uart_link import compute_mcu_payload_sha256
+from trusted_clock import ClockSample
 
 
-def test_clock_state_treats_systemd_sync_marker_as_authoritative(
-    monkeypatch,
-):
+def test_clock_state_uses_shared_clock_sampler(monkeypatch):
     monkeypatch.setattr(
-        edge_boot_module.os.path,
-        "isfile",
-        lambda path: True,
-    )
-    monkeypatch.setattr(
-        edge_boot_module.subprocess,
-        "run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("timedatectl must not run when marker exists")
+        edge_boot_module,
+        "sample_clock",
+        lambda: ClockSample(
+            "SYNCED",
+            "2026-08-24T12:00:00.000Z",
+            1,
+            "2026-08-24T12:00:00.000Z",
         ),
     )
-
     assert edge_boot_module._clock_state() == "SYNCED"
 
-
-def test_clock_state_accepts_timedatectl_sync_for_chrony(monkeypatch):
     monkeypatch.setattr(
-        edge_boot_module.os.path,
-        "isfile",
-        lambda path: False,
-    )
-    monkeypatch.setattr(edge_boot_module.os, "name", "posix")
-    monkeypatch.setattr(
-        edge_boot_module.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(
-            returncode=0,
-            stdout="yes\n",
+        edge_boot_module,
+        "sample_clock",
+        lambda: ClockSample(
+            "ESTIMATED",
+            None,
+            None,
+            "2026-08-24T12:00:01.000Z",
         ),
     )
-
-    assert edge_boot_module._clock_state() == "SYNCED"
-
-
-def test_clock_state_remains_estimated_without_sync_evidence(monkeypatch):
-    monkeypatch.setattr(
-        edge_boot_module.os.path,
-        "isfile",
-        lambda path: False,
-    )
-    monkeypatch.setattr(edge_boot_module.os, "name", "posix")
-    monkeypatch.setattr(
-        edge_boot_module.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(
-            returncode=0,
-            stdout="no\n",
-        ),
-    )
-
     assert edge_boot_module._clock_state() == "ESTIMATED"
 
 

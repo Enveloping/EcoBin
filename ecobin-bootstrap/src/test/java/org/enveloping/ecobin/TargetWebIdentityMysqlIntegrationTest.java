@@ -1862,7 +1862,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertEquals(1, jdbc.update("""
                 UPDATE fund_wechat_transfer_authorization
                 SET local_state = 'CLOSED', channel_state = 'CLOSED',
-                    package_info = NULL,
+                    package_info = NULL, package_expires_at = NULL,
                     close_reason = 'TEST_FIXTURE_REPLACED',
                     closed_at = UTC_TIMESTAMP(3),
                     channel_updated_at = UTC_TIMESTAMP(3),
@@ -1922,7 +1922,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 UPDATE fund_wechat_transfer_authorization
                 SET local_state = 'UNKNOWN',
                     channel_state = 'WAIT_USER_CONFIRM',
-                    package_info = NULL,
+                    package_info = NULL, package_expires_at = NULL,
                     last_api_error_code = 'INVALID_REQUEST',
                     state_conflict = 1,
                     lock_version = lock_version + 1,
@@ -2225,7 +2225,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertEquals(1, jdbc.update("""
                 UPDATE fund_wechat_transfer_authorization
                 SET local_state = 'CLOSED', channel_state = 'CLOSED',
-                    package_info = NULL,
+                    package_info = NULL, package_expires_at = NULL,
                     close_reason = 'TEST_FIXTURE_REPLACED',
                     closed_at = UTC_TIMESTAMP(3),
                     channel_updated_at = UTC_TIMESTAMP(3),

@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 29
+    CatalogVersion = 30
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -182,7 +182,7 @@
             "control_version"
             "updated_at"
         )
-        # V56 keeps the authorization identity, accepted evidence, command,
+        # V57 keeps the authorization identity, accepted evidence, command,
         # reliable task, and immutable creation fact fixed after INSERT.  The
         # runtime may only acknowledge/cancel the issued authorization or
         # atomically project the device's trusted terminal seal fact.
@@ -198,6 +198,7 @@
             "factory_report_sha256"
             "authorization_binding_sha256"
             "operator_confirmation_uid"
+            "completion_clock_quality"
             "sealed_at"
             "cleanup_completed_at"
             "completion_received_at"
@@ -718,6 +719,7 @@
             "local_state"
             "channel_state"
             "package_info"
+            "package_expires_at"
             "last_api_error_code"
             "close_reason"
             "state_conflict"

@@ -11,7 +11,7 @@ import static org.enveloping.ecobin.recycling.application.device.CleanCommandObs
 class CleanCommandObservationDecisionTest {
 
     @Test
-    void commandTimesUseOnlyDeviceValuesBoundedByBusinessAndReceipt() {
+    void commandBusinessTimesAlwaysUseBackendReceiptClock() {
         LocalDateTime createdAt = LocalDateTime.of(
                 2026, 8, 11, 12, 0);
         LocalDateTime receivedAt = createdAt.plusSeconds(5);
@@ -19,7 +19,7 @@ class CleanCommandObservationDecisionTest {
 
         assertThat(ApplyCleanCommandObservationService
                 .trustedOperationTime(valid, createdAt, receivedAt))
-                .isEqualTo(valid);
+                .isEqualTo(receivedAt);
         assertThat(ApplyCleanCommandObservationService
                 .trustedOperationTime(null, createdAt, receivedAt))
                 .isEqualTo(receivedAt);

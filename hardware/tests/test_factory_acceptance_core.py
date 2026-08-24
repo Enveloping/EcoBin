@@ -5,11 +5,14 @@ import json
 import os
 import socket
 import stat
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+import camera_capture
+import factory.acceptance_hardware as acceptance_hardware
 from factory.acceptance_core import (
     STATE_SCHEMA_VERSION,
     AcceptanceError,
@@ -21,6 +24,7 @@ from factory.acceptance_hardware import (
     DELIVERY_WIRE,
     FixedFrameAcceptanceMcu,
     FixedRoleCameraProbe,
+    OpenCvCapture,
     ReadOnlyStm32RomProbe,
     VirtualRomProbe,
 )
@@ -45,6 +49,93 @@ def _sha256(path: Path) -> str:
 
 def _capture(source: str, destination: Path) -> None:
     destination.write_bytes(b"local-camera-probe:" + source.encode("ascii"))
+
+
+def test_factory_camera_roles_are_captured_in_parallel(tmp_path: Path) -> None:
+    barrier = threading.Barrier(2)
+    capture_threads: set[int] = set()
+
+    def parallel_capture(source: str, destination: Path) -> None:
+        capture_threads.add(threading.get_ident())
+        barrier.wait(timeout=1)
+        destination.write_bytes(b"parallel-camera-probe:" + source.encode("ascii"))
+
+    cameras = FixedRoleCameraProbe(
+        outside_source="simulated://outside",
+        inside_source="simulated://inside",
+        temporary_directory=tmp_path / "camera-temp",
+        capture=parallel_capture,
+        allow_simulated=True,
+    )
+
+    pending = cameras.capture_pending()
+
+    assert len(capture_threads) == 2
+    assert pending["outside"]["captureNonEmpty"] is True
+    assert pending["inside"]["captureNonEmpty"] is True
+    cameras.discard_all_pending()
+
+
+def test_factory_camera_failure_still_attempts_peer_and_cleans_pair(
+    tmp_path: Path,
+) -> None:
+    barrier = threading.Barrier(2)
+    attempted: set[str] = set()
+
+    def one_failed_capture(source: str, destination: Path) -> None:
+        attempted.add(source)
+        barrier.wait(timeout=1)
+        if source == "simulated://outside":
+            raise RuntimeError("outside camera failed")
+        destination.write_bytes(b"inside-camera-succeeded")
+
+    cameras = FixedRoleCameraProbe(
+        outside_source="simulated://outside",
+        inside_source="simulated://inside",
+        temporary_directory=tmp_path / "camera-temp",
+        capture=one_failed_capture,
+        allow_simulated=True,
+    )
+
+    with pytest.raises(RuntimeError, match="outside camera failed"):
+        cameras.capture_pending()
+
+    assert attempted == {"simulated://outside", "simulated://inside"}
+    assert list((tmp_path / "camera-temp").glob("*.jpg")) == []
+
+
+def test_camera_analysis_failure_is_persisted_as_factory_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    def failed_capture(_source, _destination) -> None:
+        raise camera_capture.CameraCaptureError("CAMERA_CAPTURE_FAILED")
+
+    monkeypatch.setattr(
+        acceptance_hardware,
+        "capture_v4l2_jpeg",
+        failed_capture,
+        raising=False,
+    )
+    executor, _model, _factory = _build_executor(
+        tmp_path,
+        capture=OpenCvCapture(),
+    )
+    executor.cameras.outside_source = "/dev/v4l/by-id/outside-camera"
+    executor.cameras.inside_source = "/dev/v4l/by-id/inside-camera"
+
+    with executor:
+        _begin(executor)
+        executor.check_mcu()
+        with pytest.raises(AcceptanceError, match="CAMERA_CAPTURE_FAILED"):
+            executor.capture_cameras()
+
+        state = executor.snapshot()
+        assert state["phase"] == "CAMERA_CHECK_FAILED"
+        assert state["checks"]["cameras"] == {
+            "status": "FAILED",
+            "resultCode": "CAMERA_CAPTURE_FAILED",
+        }
 
 
 def _paths(tmp_path: Path) -> dict:

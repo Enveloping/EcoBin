@@ -4,12 +4,12 @@ import json
 import logging
 import os
 import shutil
-import subprocess
 import time
 import uuid as _uuid
 from edge_identity import is_valid_edge_boot_id, new_edge_boot_id
 from edge_store import EdgeStore, WORK_TYPE_NONE
-from onenet_wire import canonical_payload_sha256, utc_now_rfc3339
+from onenet_wire import canonical_payload_sha256
+from trusted_clock import sample_clock
 logger = logging.getLogger("edge-boot")
 
 
@@ -608,7 +608,13 @@ def _persist_and_ack_mcu_frame(store, uart_link, frame):
     raise ValueError(f"MCU event persistence rejected: {result}")
 
 
-def _build_runtime_snapshot_payload(store, mcu_info, snapshots):
+def _build_runtime_snapshot_payload(
+    store,
+    mcu_info,
+    snapshots,
+    *,
+    clock_sample=None,
+):
     faults = store.list_active_faults()
     compatibility_mode = bool(mcu_info.get("compatibility_mode"))
     applied = store.get_latest_applied_configuration()
@@ -677,6 +683,7 @@ def _build_runtime_snapshot_payload(store, mcu_info, snapshots):
         "FAULT",
     }:
         uart_state = "READY" if mcu_boot_id is not None else "DISCONNECTED"
+    sampled_clock = clock_sample or sample_clock()
     payload = {
         "edgeBootId": edge_boot_id,
         "edgeVersion": (
@@ -689,7 +696,7 @@ def _build_runtime_snapshot_payload(store, mcu_info, snapshots):
         "uartProtocolMinor": mcu_info.get("uart_protocol_minor", 0),
         "uartState": uart_state,
         "localStorageState": _local_storage_state(store),
-        "clockState": _clock_state(),
+        "clockState": sampled_clock.quality,
         "appliedConfig": applied_config,
         "pendingReliableEventCount": (
             store.count_pending_reliable_events()
@@ -699,6 +706,11 @@ def _build_runtime_snapshot_payload(store, mcu_info, snapshots):
     }
     if firmware_identity is not None:
         payload["mcuFirmwareIdentity"] = firmware_identity
+    if sampled_clock.offset_millis is not None:
+        payload["clockOffsetMillis"] = sampled_clock.offset_millis
+    repair_state = store.get_state("clock_repair_state")
+    if repair_state:
+        payload["clockRepairState"] = repair_state
     return payload
 
 
@@ -711,10 +723,12 @@ def _publish_runtime_snapshot(
     force=True,
     previous_payload_sha256=None,
 ):
+    sampled_clock = sample_clock()
     payload = _build_runtime_snapshot_payload(
         store,
         mcu_info,
         snapshots,
+        clock_sample=sampled_clock,
     )
     payload_sha256 = canonical_payload_sha256(payload)
     if not force and payload_sha256 == previous_payload_sha256:
@@ -740,8 +754,8 @@ def _publish_runtime_snapshot(
             "uid": device_name,
         },
         "commandUid": None,
-        "occurredAt": utc_now_rfc3339(),
-        "clockQuality": "SYNCED",
+        "occurredAt": sampled_clock.occurred_at,
+        "clockQuality": sampled_clock.quality,
         "payloadSha256": payload_sha256,
         "payload": payload,
     }
@@ -1002,34 +1016,7 @@ def _local_storage_state(store):
 
 
 def _clock_state():
-    if time.time() < 1_735_689_600:
-        return "UNAVAILABLE"
-    sync_marker = "/run/systemd/timesync/synchronized"
-    if os.path.isfile(sync_marker):
-        return "SYNCED"
-    if os.name == "nt":
-        return "SYNCED"
-    try:
-        result = subprocess.run(
-            [
-                "timedatectl",
-                "show",
-                "--property=NTPSynchronized",
-                "--value",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return "ESTIMATED"
-    return (
-        "SYNCED"
-        if result.returncode == 0
-        and result.stdout.strip().lower() == "yes"
-        else "ESTIMATED"
-    )
+    return sample_clock().quality
 
 
 def _runtime_ports_from_snapshots(snapshots):

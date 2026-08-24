@@ -5,6 +5,8 @@ import logging
 import uuid as _uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+
+from trusted_clock import local_deadline_reference, raw_utc_now
 from edge_store import (
     EdgeStore,
     WORK_TYPE_BASELINE,
@@ -123,15 +125,32 @@ def _pending_photo_facts(slots: tuple[str, ...]) -> list[dict[str, Any]]:
 
 
 def _remaining_execution_ms(command: dict[str, Any]) -> int:
-    return _remaining_until(command["expiresAt"])
+    issued_at = datetime.fromisoformat(
+        str(command["issuedAt"]).replace("Z", "+00:00")
+    )
+    expires_at = datetime.fromisoformat(
+        str(command["expiresAt"]).replace("Z", "+00:00")
+    )
+    fallback_ms = int((expires_at - issued_at).total_seconds() * 1000)
+    return _remaining_until(
+        command["expiresAt"],
+        fallback_ms=max(1, fallback_ms),
+    )
 
 
-def _remaining_until(expires_at_value: str) -> int:
+def _remaining_until(
+    expires_at_value: str,
+    *,
+    fallback_ms: int = 4_294_967_295,
+) -> int:
     expires_at = datetime.fromisoformat(
         str(expires_at_value).replace("Z", "+00:00")
     )
+    deadline_reference = local_deadline_reference()
+    if deadline_reference is None:
+        return min(max(1, int(fallback_ms)), 4_294_967_295)
     remaining = int(
-        (expires_at - datetime.now(timezone.utc)).total_seconds() * 1000
+        (expires_at - deadline_reference).total_seconds() * 1000
     )
     if remaining <= 0:
         raise ValueError("command expired")
@@ -139,8 +158,13 @@ def _remaining_until(expires_at_value: str) -> int:
 
 
 def _deadline_after_ms(duration_ms: int) -> str:
+    reference = local_deadline_reference()
+    if reference is None:
+        reference = datetime.fromisoformat(
+            raw_utc_now().replace("Z", "+00:00")
+        )
     return (
-        datetime.now(timezone.utc) + timedelta(milliseconds=duration_ms)
+        reference + timedelta(milliseconds=duration_ms)
     ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 

@@ -308,9 +308,11 @@ public class ApplyFullnessStateChangedService
                 source.cleanRecordId(),
                 physical.state(),
                 disposition,
-                LocalDateTime.ofInstant(
-                        physical.deviceOccurredAt(),
-                        java.time.ZoneOffset.UTC),
+                physical.deviceOccurredAt() == null
+                        ? null
+                        : LocalDateTime.ofInstant(
+                                physical.deviceOccurredAt(),
+                                java.time.ZoneOffset.UTC),
                 facts.backendReceivedAt(),
                 facts.backendReceivedAt()),
                 "insert fullness state history");

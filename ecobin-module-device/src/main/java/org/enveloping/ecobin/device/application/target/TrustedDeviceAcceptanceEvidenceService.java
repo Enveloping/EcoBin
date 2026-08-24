@@ -8,6 +8,8 @@ import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
@@ -35,6 +37,9 @@ import java.util.UUID;
 @Service
 public class TrustedDeviceAcceptanceEvidenceService
         implements TrustedDeviceAcceptanceEvidencePort {
+
+    private static final Logger LOG = LoggerFactory.getLogger(
+            TrustedDeviceAcceptanceEvidenceService.class);
 
     private static final String SHA256 = "^[0-9a-f]{64}$";
     private static final String UUID_V4 =
@@ -104,10 +109,24 @@ public class TrustedDeviceAcceptanceEvidenceService
 
             AssetState asset = lockAsset(hardwareSn);
             LocalDateTime receivedAt = databaseNow();
-            LocalDateTime observedAt = timestamp(event, "occurredAt");
-            if (observedAt.isAfter(receivedAt)) {
+            String clockQuality = requiredText(
+                    event, "clockQuality", 16);
+            LocalDateTime observedAt = nullableTimestamp(
+                    event, "occurredAt");
+            if (!Set.of("SYNCED", "ESTIMATED", "UNAVAILABLE")
+                    .contains(clockQuality)
+                    || ("SYNCED".equals(clockQuality)
+                    != (observedAt != null))) {
                 throw new IllegalArgumentException(
-                        "acceptance evidence occurredAt is in the future");
+                        "acceptance evidence clock fields differ");
+            }
+            if (observedAt != null
+                    && observedAt.isAfter(receivedAt.plusSeconds(60))) {
+                LOG.warn(
+                        "Acceptance evidence carries a future device time; "
+                                + "hardwareSn={} eventUid={} "
+                                + "maximumFutureSkewSeconds=60",
+                        hardwareSn, event.path("eventUid").asText("-"));
             }
 
             String eventUid = requiredText(event, "eventUid", 36);
@@ -175,6 +194,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                                 onenet_online,
                                 persistent_store_healthy,
                                 trusted_time_healthy,
+                                clock_quality,
                                 configuration_persistence_healthy,
                                 mcu_communication_healthy,
                                 sensors_healthy,
@@ -188,7 +208,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                                 evidence_sha256,
                                 observed_at, received_at, created_at
                             ) VALUES (
-                                ?, ?, ?, ?, ?, ?, 3, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                ?, ?, ?, ?, ?, ?, 3, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                                 ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?
                             )
                             """,
@@ -206,6 +226,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                     asset.oneNetOnline(),
                     facts.persistentStoreHealthy(),
                     facts.trustedTimeHealthy(),
+                    clockQuality,
                     facts.configurationPersistenceHealthy(),
                     facts.mcuCommunicationHealthy(),
                     facts.sensorsHealthy(),
@@ -431,12 +452,6 @@ public class TrustedDeviceAcceptanceEvidenceService
         addUnless(result, asset.factoryBagsComplete(),
                 "FACTORY_BAGS_INCOMPLETE");
         addUnless(result,
-                Duration.between(
-                        observedAt.toInstant(ZoneOffset.UTC),
-                        receivedAt.toInstant(ZoneOffset.UTC))
-                        .compareTo(maximumEvidenceAge) <= 0,
-                "EVIDENCE_STALE");
-        addUnless(result,
                 supportedSoftwareVersions.contains(
                         evidence.edgeSoftwareVersion()),
                 "UNSUPPORTED_EDGE_SOFTWARE");
@@ -445,8 +460,6 @@ public class TrustedDeviceAcceptanceEvidenceService
                 "UNSUPPORTED_EDGE_PROTOCOL");
         addUnless(result, evidence.persistentStoreHealthy(),
                 "PERSISTENT_STORE_UNHEALTHY");
-        addUnless(result, evidence.trustedTimeHealthy(),
-                "TRUSTED_TIME_UNHEALTHY");
         addUnless(result, evidence.configurationPersistenceHealthy(),
                 "CONFIGURATION_PERSISTENCE_UNHEALTHY");
         addUnless(result, evidence.mcuCommunicationHealthy(),
@@ -587,7 +600,13 @@ public class TrustedDeviceAcceptanceEvidenceService
         }
     }
 
-    private static LocalDateTime timestamp(JsonNode parent, String field) {
+    private static LocalDateTime nullableTimestamp(
+            JsonNode parent,
+            String field) {
+        JsonNode value = parent == null ? null : parent.get(field);
+        if (value == null || value.isNull()) {
+            return null;
+        }
         try {
             return LocalDateTime.ofInstant(
                     Instant.parse(requiredText(parent, field, 40)),

@@ -353,6 +353,70 @@ public class FundsOperationalControlService
                 AuthorizationQueryWakeMode.TERMINAL_CONVERGENCE, wakeAt);
     }
 
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void completeMerchantTransferAuthorizationCreateFromQueryProof(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime provedAt) {
+        if (tenantId <= 0 || organizationId <= 0
+                || outAuthorizationNo == null
+                || outAuthorizationNo.isBlank()) {
+            throw new IllegalArgumentException(
+                    "authorization create proof scope is incomplete");
+        }
+        Objects.requireNonNull(provedAt, "provedAt");
+        String taskType = "CREATE_MERCHANT_TRANSFER_AUTHORIZATION";
+        String taskKey = (taskType + ":" + outAuthorizationNo)
+                .toUpperCase(Locale.ROOT);
+        List<WithdrawalSubmitTask> tasks = jdbc.query("""
+                SELECT id, state, lease_token, dispatch_wait_reason,
+                       wake_version
+                FROM ops_reliable_task
+                WHERE scope_kind = 'ORGANIZATION'
+                  AND tenant_id = ? AND organization_id = ?
+                  AND execution_lane = 'FUNDS'
+                  AND task_type = ?
+                  AND target_type = 'WECHAT_TRANSFER_AUTHORIZATION'
+                  AND target_stable_key = ?
+                  AND task_key = ?
+                FOR UPDATE
+                """, (resultSet, ignored) -> new WithdrawalSubmitTask(
+                        resultSet.getLong("id"),
+                        resultSet.getString("state"),
+                        resultSet.getString("lease_token"),
+                        resultSet.getString("dispatch_wait_reason"),
+                        resultSet.getLong("wake_version")),
+                tenantId, organizationId, taskType,
+                outAuthorizationNo, taskKey);
+        if (tasks.size() != 1) {
+            throw new IllegalStateException(
+                    "trusted authorization query did not resolve one create task");
+        }
+        WithdrawalSubmitTask task = tasks.getFirst();
+        if ("DONE".equals(task.state())
+                || "CANCELLED".equals(task.state())) {
+            return;
+        }
+        int updated = jdbc.update("""
+                UPDATE ops_reliable_task
+                SET state = 'DONE', next_run_at = NULL,
+                    lease_token = NULL, lease_worker = NULL,
+                    lease_until = NULL, dispatch_wait_reason = NULL,
+                    handled_wake_version = wake_version,
+                    consecutive_failure_count = 0,
+                    completed_at = ?, blocked_reason_code = NULL,
+                    blocked_diagnostic = NULL,
+                    lock_version = lock_version + 1, updated_at = ?
+                WHERE id = ? AND state IN ('PENDING', 'BLOCKED')
+                """, provedAt, provedAt, task.id());
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "trusted authorization query could not complete create task");
+        }
+    }
+
     private AuthorizationQueryTaskWakeResult wakeExactAuthorizationQuery(
             long tenantId,
             long organizationId,

@@ -1,12 +1,10 @@
-import builtins
 import json
-import sys
 import threading
 import time
-from types import SimpleNamespace
 
 import pytest
 
+import photo_manager
 from edge_store import EdgeStore
 from photo_manager import PhotoManager
 
@@ -85,18 +83,19 @@ def test_async_capture_does_not_block_workflow_thread(tmp_path):
         "BEFORE_INNER",
     }
     assert {row["state"] for row in registered} == {"PENDING"}
-    assert camera_indices == [
+    assert len(camera_indices) == 2
+    assert set(camera_indices) == {
         (
             "/dev/v4l/by-id/"
             "usb-DECXIN_CAMERA_DECXIN_CAMERA_01.00.00-video-index0"
         ),
         "/dev/v4l/by-id/usb-icSpring_icspring_camera-video-index0",
-    ]
+    }
     photos.close()
     store.close()
 
 
-def test_capture_uses_explicit_v4l2_source_and_last_warmup_frame(
+def test_capture_delegates_explicit_v4l2_source_to_bounded_worker(
     tmp_path,
     monkeypatch,
 ):
@@ -106,38 +105,18 @@ def test_capture_uses_explicit_v4l2_source_and_last_warmup_frame(
         "/dev/v4l/by-id/"
         "usb-DECXIN_CAMERA_DECXIN_CAMERA_01.00.00-video-index0"
     )
-    opened_with = []
-    written_frames = []
+    calls = []
 
-    class FakeCapture:
-        def __init__(self, *args):
-            opened_with.append(args)
-            self.read_count = 0
-            self.released = False
+    def bounded_capture(camera_source, destination):
+        calls.append((camera_source, destination))
+        with open(destination, "wb") as output:
+            output.write(b"\xff\xd8\xffbounded-camera-worker")
 
-        def isOpened(self):
-            return True
-
-        def read(self):
-            self.read_count += 1
-            return True, f"frame-{self.read_count}"
-
-        def release(self):
-            self.released = True
-
-    captures = []
-
-    def video_capture(*args):
-        capture = FakeCapture(*args)
-        captures.append(capture)
-        return capture
-
-    fake_cv2 = SimpleNamespace(
-        CAP_V4L2=200,
-        VideoCapture=video_capture,
-        imwrite=lambda path, frame: written_frames.append(frame) or True,
+    monkeypatch.setattr(
+        photo_manager,
+        "capture_v4l2_jpeg",
+        bounded_capture,
     )
-    monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
     photos = PhotoManager(
         store,
         str(tmp_path / "photos"),
@@ -146,7 +125,6 @@ def test_capture_uses_explicit_v4l2_source_and_last_warmup_frame(
             "/dev/v4l/by-id/"
             "usb-icSpring_icspring_camera-video-index0"
         ),
-        camera_warmup_frames=3,
         start_upload_worker=False,
     )
     try:
@@ -158,10 +136,125 @@ def test_capture_uses_explicit_v4l2_source_and_last_warmup_frame(
         photos.close()
         store.close()
 
-    assert opened_with == [(source, fake_cv2.CAP_V4L2)]
-    assert captures[0].read_count == 3
-    assert captures[0].released
-    assert written_frames == ["frame-3"]
+    assert calls == [(source, str(tmp_path / "outside.jpg"))]
+    assert (tmp_path / "outside.jpg").read_bytes() == (
+        b"\xff\xd8\xffbounded-camera-worker"
+    )
+
+
+def test_outer_and_inner_capture_in_parallel_then_persist_on_caller_thread(
+    tmp_path,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    photos = PhotoManager(
+        store,
+        str(tmp_path / "photos"),
+        start_upload_worker=False,
+    )
+    barrier = threading.Barrier(2)
+    capture_threads = set()
+    persistence_threads = []
+    caller_thread = threading.get_ident()
+    original_mark_captured = store.mark_photo_captured
+
+    def capture(path, camera_source):
+        capture_threads.add(threading.get_ident())
+        barrier.wait(timeout=1)
+        with open(path, "wb") as output:
+            output.write(b"\xff\xd8\xffparallel-photo")
+
+    def mark_photo_captured(*args, **kwargs):
+        persistence_threads.append(threading.get_ident())
+        return original_mark_captured(*args, **kwargs)
+
+    photos._capture_camera_to_path = capture
+    store.mark_photo_captured = mark_photo_captured
+    try:
+        results = photos.capture_open_photos("session-parallel")
+    finally:
+        photos.close()
+        store.close()
+
+    assert len(capture_threads) == 2
+    assert set(results) == {"BEFORE_OUTER", "BEFORE_INNER"}
+    assert {result["status"] for result in results.values()} == {"OK"}
+    assert persistence_threads == [caller_thread, caller_thread]
+
+
+def test_one_camera_failure_does_not_cancel_the_other_slot(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    photos = PhotoManager(
+        store,
+        str(tmp_path / "photos"),
+        start_upload_worker=False,
+    )
+
+    def capture(path, camera_source):
+        if camera_source == photos._outside_camera_source:
+            raise RuntimeError("CAMERA_UNAVAILABLE")
+        with open(path, "wb") as output:
+            output.write(b"\xff\xd8\xffinside-photo")
+
+    photos._capture_camera_to_path = capture
+    try:
+        results = photos.capture_open_photos("session-one-camera-failed")
+        rows = {
+            row["slot_name"]: row
+            for row in store.get_photos_by_work("session-one-camera-failed")
+        }
+    finally:
+        photos.close()
+        store.close()
+
+    assert results["BEFORE_OUTER"]["status"] == "FAILED"
+    assert results["BEFORE_INNER"]["status"] == "OK"
+    assert rows["BEFORE_OUTER"]["state"] == "DEAD"
+    assert rows["BEFORE_OUTER"]["last_error"] == "CAMERA_UNAVAILABLE"
+    assert rows["BEFORE_INNER"]["state"] == "PENDING"
+
+
+def test_clean_photo_phases_are_parallel_per_pair_but_serial_between_pairs(
+    tmp_path,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    photos = PhotoManager(
+        store,
+        str(tmp_path / "photos"),
+        start_upload_worker=False,
+    )
+    barrier = threading.Barrier(2)
+    state_lock = threading.Lock()
+    active_sources = set()
+    maximum_active = [0]
+    captured_paths = []
+
+    def capture(path, camera_source):
+        with state_lock:
+            assert camera_source not in active_sources
+            active_sources.add(camera_source)
+            maximum_active[0] = max(maximum_active[0], len(active_sources))
+        barrier.wait(timeout=1)
+        try:
+            with open(path, "wb") as output:
+                output.write(b"\xff\xd8\xffclean-photo")
+            captured_paths.append(path)
+        finally:
+            with state_lock:
+                active_sources.remove(camera_source)
+
+    photos._capture_camera_to_path = capture
+    try:
+        results = photos.capture_clean_photos("clean-parallel-pairs")
+    finally:
+        photos.close()
+        store.close()
+
+    assert len(captured_paths) == 4
+    assert maximum_active == [2]
+    assert {result["status"] for result in results.values()} == {"OK"}
 
 
 def test_clean_capture_phases_use_first_open_then_final_close_slots(
@@ -210,14 +303,14 @@ def test_missing_opencv_is_not_replaced_with_a_fake_photo(
         str(tmp_path / "photos"),
         start_upload_worker=False,
     )
-    real_import = builtins.__import__
+    def missing_cv2(_source, _destination):
+        raise photo_manager.CameraCaptureError("OPENCV_NOT_INSTALLED")
 
-    def missing_cv2(name, *args, **kwargs):
-        if name == "cv2":
-            raise ImportError("cv2 unavailable")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", missing_cv2)
+    monkeypatch.setattr(
+        photo_manager,
+        "capture_v4l2_jpeg",
+        missing_cv2,
+    )
     target = tmp_path / "not-a-photo.jpg"
     try:
         with pytest.raises(RuntimeError, match="OPENCV_NOT_INSTALLED"):

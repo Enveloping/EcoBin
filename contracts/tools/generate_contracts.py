@@ -3213,6 +3213,8 @@ def build_onenet_examples() -> dict[str, Any]:
             "appliedConfig": config,
             "localStorageState": "HEALTHY",
             "clockState": "SYNCED",
+            "clockOffsetMillis": 2,
+            "clockRepairState": "SYNCHRONIZED",
             "pendingReliableEventCount": 2,
             "ports": [
                 {
@@ -3369,7 +3371,7 @@ def build_onenet_examples() -> dict[str, Any]:
         "DEVICE_ASSET",
         "SN-CONTRACT-0001",
         {
-            "sealCompletionSchemaVersion": 1,
+            "sealCompletionSchemaVersion": 2,
             "hardwareSn": "SN-CONTRACT-0001",
             "authorizationCommandUid": factory_seal_command_uid,
             "acceptanceGeneration": 1,
@@ -3389,6 +3391,7 @@ def build_onenet_examples() -> dict[str, Any]:
             "operatorConfirmationUid": (
                 "8a000000-0000-4000-8000-00000000000b"
             ),
+            "completionClockQuality": "SYNCED",
             "sealedAt": "2026-07-24T01:00:20.000Z",
             "cleanupCompletedAt": "2026-07-24T01:00:30.000Z",
         },
@@ -4431,6 +4434,9 @@ def _schema_summary(schema: Mapping[str, Any]) -> dict[str, Any]:
             for name in item.get("properties", {}):
                 if name not in property_names:
                     property_names.append(name)
+        required_properties = set(property_names)
+        for item in concrete:
+            required_properties.intersection_update(item.get("required", []))
         properties: dict[str, Any] = {}
         for name in property_names:
             variants = []
@@ -4444,6 +4450,7 @@ def _schema_summary(schema: Mapping[str, Any]) -> dict[str, Any]:
                 variants[0] if len(variants) == 1 else {"oneOf": variants}
             )
         result["properties"] = properties
+        result["requiredProperties"] = required_properties
     elif kind == "array":
         item_variants = [item["items"] for item in concrete]
         result["items"] = (
@@ -4587,17 +4594,23 @@ def _one_net_parameter(
     identifier: str,
     schema: Mapping[str, Any],
     enum_display: Mapping[str, str] | None = None,
+    *,
+    optional: bool = False,
 ) -> list[dict[str, Any]]:
     summary = _schema_summary(schema)
     parameters: list[dict[str, Any]] = []
-    id_max = 25 if summary["nullable"] else 32
+    presence_encoded = summary["nullable"] or optional
+    id_max = 25 if presence_encoded else 32
     safe_id = _safe_id(identifier, id_max)
-    if summary["nullable"]:
+    if presence_encoded:
         parameters.append(_presence_parameter(safe_id))
     if summary["kind"] == "null":
         return parameters
     if summary["kind"] == "object":
-        members = _flatten_struct_members(summary["properties"], enum_display=enum_display)
+        members = _flatten_struct_members(
+            summary["properties"],
+            enum_display=enum_display,
+        )
         parameters.append(
             {
                 "identifier": safe_id,
@@ -4611,7 +4624,10 @@ def _one_net_parameter(
         if item_summary["nullable"]:
             raise ValueError(f"OneNet array {identifier} cannot contain null items")
         if item_summary["kind"] == "object":
-            item_specs: Any = _flatten_struct_members(item_summary["properties"], enum_display=enum_display)
+            item_specs: Any = _flatten_struct_members(
+                item_summary["properties"],
+                enum_display=enum_display,
+            )
             item_descriptor = {"type": "struct", "specs": item_specs}
         else:
             item_data_type = _one_net_primitive_data_type(item_summary, enum_display)
@@ -4667,9 +4683,16 @@ def _project_root_parameters(
         identifier: str,
         property_schema: Mapping[str, Any],
         json_path: str,
+        *,
+        optional: bool = False,
     ) -> None:
         safe_identifier = _safe_id(identifier, 32)
-        emitted = _one_net_parameter(safe_identifier, property_schema, enum_display)
+        emitted = _one_net_parameter(
+            safe_identifier,
+            property_schema,
+            enum_display,
+            optional=optional,
+        )
         for parameter in emitted:
             wire_identifier = parameter["identifier"]
             if wire_identifier in seen_identifiers:
@@ -4677,20 +4700,30 @@ def _project_root_parameters(
             seen_identifiers.add(wire_identifier)
             parameters.append(parameter)
         nullable = _schema_summary(property_schema)["nullable"]
-        mappings.append(
-            {
-                "wireIdentifier": _safe_id(safe_identifier, 25) if nullable else safe_identifier,
-                "jsonPath": json_path,
-                "encoding": "FLAT_TYPED",
-                "nullable": nullable,
-            }
-        )
+        presence_encoded = nullable or optional
+        mapping = {
+            "wireIdentifier": (
+                _safe_id(safe_identifier, 25)
+                if presence_encoded
+                else safe_identifier
+            ),
+            "jsonPath": json_path,
+            "encoding": "FLAT_TYPED",
+            "nullable": nullable,
+        }
+        if optional:
+            mapping["optional"] = True
+        mappings.append(mapping)
 
+    root_required = set(summary.get("requiredProperties", ()))
     for property_name, property_schema in summary["properties"].items():
         property_summary = _schema_summary(property_schema)
         if property_name == "payload":
             if property_summary["kind"] != "object":
                 raise ValueError("typed payload must be an object")
+            payload_required = set(
+                property_summary.get("requiredProperties", ())
+            )
             for payload_name, payload_schema in property_summary["properties"].items():
                 wire_name = payload_name
                 if _safe_id(wire_name, 32) in seen_identifiers:
@@ -4699,6 +4732,7 @@ def _project_root_parameters(
                     wire_name,
                     payload_schema,
                     f"$.payload.{payload_name}",
+                    optional=payload_name not in payload_required,
                 )
             continue
         if property_name == "cosGrant" and (
@@ -4725,7 +4759,12 @@ def _project_root_parameters(
                         f"$.cosGrant.{grant_name}",
                     )
             continue
-        append_parameter(property_name, property_schema, f"$.{property_name}")
+        append_parameter(
+            property_name,
+            property_schema,
+            f"$.{property_name}",
+            optional=property_name not in root_required,
+        )
     return parameters, mappings
 
 
@@ -4766,13 +4805,14 @@ def _group_scalar_parameters_to_limit(
         )
         source_mapping = mapping_by_identifier[source_identifier]
         scalar_source_identifiers.add(source_identifier)
-        scalar_member_mappings.append(
-            {
-                "wireIdentifier": identifier,
-                "jsonPath": source_mapping["jsonPath"],
-                "presenceFlag": identifier.endswith("Present"),
-            }
-        )
+        member_mapping = {
+            "wireIdentifier": identifier,
+            "jsonPath": source_mapping["jsonPath"],
+            "presenceFlag": identifier.endswith("Present"),
+        }
+        if source_mapping.get("optional"):
+            member_mapping["optional"] = True
+        scalar_member_mappings.append(member_mapping)
     maximum_struct_members = 20
     parameter_chunks = [
         scalar_parameters[index : index + maximum_struct_members]
@@ -5062,10 +5102,18 @@ def _encode_function_parameters(
             for member_descriptor in descriptor["dataType"]["specs"]:
                 member_identifier = member_descriptor["identifier"]
                 member_mapping = member_mappings[member_identifier]
-                source_value = _json_path_value(
-                    instance,
-                    member_mapping["jsonPath"],
-                )
+                try:
+                    source_value = _json_path_value(
+                        instance,
+                        member_mapping["jsonPath"],
+                    )
+                except KeyError:
+                    if not (
+                        member_mapping.get("nullable")
+                        or member_mapping.get("optional")
+                    ):
+                        raise
+                    source_value = None
                 if member_mapping["presenceFlag"]:
                     encoded_members[member_identifier] = source_value is not None
                 else:
@@ -5082,7 +5130,18 @@ def _encode_function_parameters(
             else identifier
         )
         field_mapping = mapping_by_identifier[source_identifier]
-        source_value = _json_path_value(instance, field_mapping["jsonPath"])
+        try:
+            source_value = _json_path_value(
+                instance,
+                field_mapping["jsonPath"],
+            )
+        except KeyError:
+            if not (
+                field_mapping.get("nullable")
+                or field_mapping.get("optional")
+            ):
+                raise
+            source_value = None
         if identifier.endswith("Present"):
             encoded[identifier] = source_value is not None
         else:

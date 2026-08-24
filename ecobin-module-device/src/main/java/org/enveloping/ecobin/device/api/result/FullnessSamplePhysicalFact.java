@@ -34,7 +34,6 @@ public record FullnessSamplePhysicalFact(
         Objects.requireNonNull(commandUid, "commandUid");
         Objects.requireNonNull(detectionUid, "detectionUid");
         Objects.requireNonNull(hardwareSn, "hardwareSn");
-        Objects.requireNonNull(deviceOccurredAt, "deviceOccurredAt");
         Objects.requireNonNull(clockQuality, "clockQuality");
         Objects.requireNonNull(payloadSha256, "payloadSha256");
         Objects.requireNonNull(canonicalSha256, "canonicalSha256");

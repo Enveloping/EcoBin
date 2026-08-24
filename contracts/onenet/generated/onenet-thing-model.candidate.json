@@ -5941,6 +5941,56 @@
     {
      "dataType": {
       "specs": {
+       "false": "null",
+       "true": "present"
+      },
+      "type": "bool"
+     },
+     "identifier": "clockOffsetMillisPresent",
+     "name": "clockOffsetMillisPresent"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "max": "86400000",
+       "min": "-86400000",
+       "step": "1",
+       "unit": ""
+      },
+      "type": "int32"
+     },
+     "identifier": "clockOffsetMillis",
+     "name": "clockOffsetMillis"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "null",
+       "true": "present"
+      },
+      "type": "bool"
+     },
+     "identifier": "clockRepairStatePresent",
+     "name": "clockRepairStatePresent"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "1": "NOT_ATTEMPTED",
+       "2": "NOT_APPLICABLE",
+       "3": "PROVIDER_UNAVAILABLE",
+       "4": "REPAIR_REQUESTED",
+       "5": "REPAIR_FAILED",
+       "6": "SYNCHRONIZED"
+      },
+      "type": "enum"
+     },
+     "identifier": "clockRepairState",
+     "name": "clockRepairState"
+    },
+    {
+     "dataType": {
+      "specs": {
        "max": "4294967295",
        "min": "0",
        "step": "1",
@@ -7505,6 +7555,17 @@
     {
      "dataType": {
       "specs": {
+       "false": "null",
+       "true": "present"
+      },
+      "type": "bool"
+     },
+     "identifier": "occurredAtPresent",
+     "name": "occurredAtPresent"
+    },
+    {
+     "dataType": {
+      "specs": {
        "length": 30
       },
       "type": "string"
@@ -7515,7 +7576,9 @@
     {
      "dataType": {
       "specs": {
-       "1": "SYNCED"
+       "1": "SYNCED",
+       "2": "ESTIMATED",
+       "3": "UNAVAILABLE"
       },
       "type": "enum"
      },
@@ -7535,7 +7598,8 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "1",
+       "2": "2"
       },
       "type": "enum"
      },
@@ -7681,12 +7745,57 @@
     {
      "dataType": {
       "specs": {
+       "false": "null",
+       "true": "present"
+      },
+      "type": "bool"
+     },
+     "identifier": "completionClockQualityPresent",
+     "name": "completionClockQualityPresent"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "1": "SYNCED",
+       "2": "ESTIMATED",
+       "3": "UNAVAILABLE"
+      },
+      "type": "enum"
+     },
+     "identifier": "completionClockQuality",
+     "name": "completionClockQuality"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "null",
+       "true": "present"
+      },
+      "type": "bool"
+     },
+     "identifier": "sealedAtPresent",
+     "name": "sealedAtPresent"
+    },
+    {
+     "dataType": {
+      "specs": {
        "length": 30
       },
       "type": "string"
      },
      "identifier": "sealedAt",
      "name": "sealedAt"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "null",
+       "true": "present"
+      },
+      "type": "bool"
+     },
+     "identifier": "cleanupCompletedAtPresent",
+     "name": "cleanupCompletedAtPresent"
     },
     {
      "dataType": {

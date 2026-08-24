@@ -54,8 +54,6 @@ OneNet 迁移优先级: 完整旧进程环境三项 > 注册凭证；禁止部�
                             （当前真机: DECXIN）
     ECOBIN_CAMERA_INSIDE  — 内部摄像头 V4L2 稳定路径或 simulated:// 源
                             （当前真机: icspring）
-    ECOBIN_CAMERA_WARMUP_FRAMES
-                          — 摄像头打开后读取的预热帧数（默认: 5）
     ECOBIN_PHOTO_UPLOAD_POLL_SECONDS
                           — 照片上传队列轮询秒数（默认: 1）
     ECOBIN_PHOTO_GRANT_EXPIRY_SKEW_SECONDS
@@ -285,11 +283,6 @@ CAMERA_INSIDE_SOURCE = os.getenv(
     "ECOBIN_CAMERA_INSIDE",
     "/dev/v4l/by-id/usb-icSpring_icspring_camera-video-index0",
 ).strip()
-CAMERA_WARMUP_FRAMES = int(os.getenv(
-    "ECOBIN_CAMERA_WARMUP_FRAMES",
-    "5",
-))
-
 # ── 边缘持久存储 ──
 _data_dir = os.getenv("ECOBIN_DATA_DIR", "data")
 _project_root = str(_CONFIG_DIRECTORY)
@@ -414,8 +407,6 @@ def validate():
             "camera sources must use stable /dev/v4l/by-id paths "
             "or explicit simulated:// names"
         )
-    if CAMERA_WARMUP_FRAMES <= 0:
-        raise ValueError("camera warmup frames must be positive")
     if COS_REQUEST_TIMEOUT_SECONDS <= 0:
         raise ValueError("COS request timeout must be positive")
     if PHOTO_UPLOAD_POLL_SECONDS <= 0:

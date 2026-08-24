@@ -57,6 +57,45 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
     }
 
     @Test
+    void unsynchronizedClockDoesNotFailOtherwiseHealthyAcceptance() {
+        TrustedDeviceAcceptanceEvidenceService service = service();
+        var healthy = healthyEvidence(false, false);
+        var unsynchronized = new TrustedDeviceAcceptanceEvidenceService.Evidence(
+                healthy.challengeUid(),
+                healthy.factoryBagRevision(),
+                healthy.factoryBagSetSha256(),
+                healthy.edgeSoftwareVersion(),
+                healthy.edgeProtocolVersion(),
+                healthy.edgeStoreInstanceUid(),
+                healthy.mcuFirmwareVersion(),
+                healthy.persistentStoreHealthy(),
+                false,
+                healthy.configurationPersistenceHealthy(),
+                healthy.mcuCommunicationHealthy(),
+                healthy.sensorsHealthy(),
+                healthy.camerasCaptureHealthy(),
+                healthy.cameraUploadHealthy(),
+                healthy.deviceEntryUrlStored(),
+                healthy.deviceEntryUrlSha256(),
+                healthy.mcuSimulated(),
+                healthy.camerasSimulated(),
+                healthy.verifiedPortCount(),
+                healthy.verifiedCameraCount(),
+                healthy.sensorSampleSha256(),
+                healthy.cameraCaptureSha256(),
+                healthy.cameraUploadSha256());
+
+        assertThat(service.failures(
+                new TrustedDeviceAcceptanceEvidenceService.AssetState(
+                        1L, DEVICE_PUBLIC_CODE, 1, 1L, new byte[32],
+                        "PENDING", 0L, true, true),
+                unsynchronized,
+                null,
+                LocalDateTime.of(2026, 8, 7, 12, 0)))
+                .isEmpty();
+    }
+
+    @Test
     void functionalSensorFailureStillBlocksSimulatedHardware() {
         TrustedDeviceAcceptanceEvidenceService service = service();
         LocalDateTime observedAt = LocalDateTime.of(
@@ -326,6 +365,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                     "eventType": "DEVICE_ACCEPTANCE_EVIDENCE",
                     "commandUid": "40000000-0000-4000-8000-000000000001",
                     "occurredAt": "2026-08-07T12:00:00Z",
+                    "clockQuality": "SYNCED",
                     "target": {
                       "type": "DEVICE_ASSET",
                       "uid": "test-device-1"

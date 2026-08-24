@@ -53,7 +53,6 @@ class AcceptanceConfiguration:
     gpio_path: str
     outside_camera: str
     inside_camera: str
-    camera_warmup_frames: int
     weight_target_grams: int
     weight_tolerance_grams: int
     weight_stable_sample_count: int
@@ -104,9 +103,6 @@ class AcceptanceConfiguration:
             ),
             inside_camera=_text(
                 values, "ECOBIN_CAMERA_INSIDE", DEFAULT_INSIDE_CAMERA
-            ),
-            camera_warmup_frames=_integer(
-                values, "ECOBIN_CAMERA_WARMUP_FRAMES", 5
             ),
             weight_target_grams=_integer(
                 values, "ECOBIN_FACTORY_TEST_WEIGHT_GRAMS", 500
@@ -184,8 +180,6 @@ class AcceptanceConfiguration:
                 raise AcceptanceConfigurationError(
                     "factory cameras must use stable V4L by-id paths"
                 )
-        if not 1 <= self.camera_warmup_frames <= 30:
-            raise AcceptanceConfigurationError("camera warmup frames are invalid")
         if (self.weight_target_grams, self.weight_tolerance_grams) != (500, 10):
             raise AcceptanceConfigurationError(
                 "factory weight gate must remain 500g +/-10g"

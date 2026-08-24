@@ -21,6 +21,7 @@ def test_default_configuration_is_the_fixed_production_wiring() -> None:
     assert (config.boot0_active_level, config.reset_active_level) == (1, 1)
     assert config.outside_camera.startswith("/dev/v4l/by-id/")
     assert config.inside_camera.startswith("/dev/v4l/by-id/")
+    assert not hasattr(config, "camera_warmup_frames")
     assert (config.weight_target_grams, config.weight_tolerance_grams) == (500, 10)
     assert (
         config.weight_stable_sample_count,
@@ -29,6 +30,14 @@ def test_default_configuration_is_the_fixed_production_wiring() -> None:
         config.weight_sample_timeout_ms,
     ) == (3, 2, 100, 3000)
     assert re.fullmatch(r"[0-9a-f]{64}", config.digest())
+
+
+def test_legacy_camera_warmup_frames_is_ignored() -> None:
+    config = AcceptanceConfiguration.from_mapping(
+        {"ECOBIN_CAMERA_WARMUP_FRAMES": "not-used"}
+    )
+
+    assert not hasattr(config, "camera_warmup_frames")
 
 
 def test_digest_is_canonical_and_binds_hardware_but_not_storage_paths() -> None:

@@ -373,8 +373,7 @@ public class TrustedFullnessStateChangeService
                 assetId,
                 fact.edgeEventSequence(),
                 sha256(fact.stateChangeUid().toString()),
-                LocalDateTime.ofInstant(
-                        fact.deviceOccurredAt(), ZoneOffset.UTC),
+                databaseTime(fact.deviceOccurredAt()),
                 fact.clockQuality(),
                 receivedAt,
                 digest(fact.payloadSha256()),
@@ -469,8 +468,7 @@ public class TrustedFullnessStateChangeService
                 fact.configurationVersion(),
                 digest(fact.configurationContentSha256()),
                 digest(fact.configurationMcuPayloadSha256()),
-                LocalDateTime.ofInstant(
-                        fact.deviceOccurredAt(), ZoneOffset.UTC),
+                databaseTime(fact.deviceOccurredAt()),
                 receivedAt,
                 receivedAt),
                 "insert fullness state physical fact");
@@ -544,7 +542,7 @@ public class TrustedFullnessStateChangeService
                 uuid(payload, "stateChangeUid"),
                 requiredText(source, "deviceName"),
                 positiveLong(event, "edgeEventSequence"),
-                Instant.parse(requiredText(event, "occurredAt")),
+                nullableInstant(event, "occurredAt"),
                 requiredText(event, "clockQuality"),
                 requiredDigest(event, "payloadSha256"),
                 requiredDigest(root, "eventCanonicalSha256"),
@@ -598,7 +596,10 @@ public class TrustedFullnessStateChangeService
                 || !Set.of("FIXED_FRAME_CACHED_FINAL_OBSERVATION",
                 "MCU_INDEPENDENT_RECHECK")
                 .contains(fact.confirmationBasis())
-                || !"SYNCED".equals(fact.clockQuality())
+                || !Set.of("SYNCED", "ESTIMATED", "UNAVAILABLE")
+                .contains(fact.clockQuality())
+                || ("SYNCED".equals(fact.clockQuality())
+                    != (fact.deviceOccurredAt() != null))
                 || fact.portNo() < 1 || fact.portNo() > 6
                 || !"STABLE".equals(measurement.status())
                 || !measurement.weightValueAvailable()
@@ -667,6 +668,11 @@ public class TrustedFullnessStateChangeService
         return now;
     }
 
+    private static LocalDateTime databaseTime(Instant value) {
+        return value == null
+                ? null : LocalDateTime.ofInstant(value, ZoneOffset.UTC);
+    }
+
     private static JsonNode requiredObject(
             JsonNode parent, String field) {
         JsonNode value = parent == null ? null : parent.get(field);
@@ -699,6 +705,12 @@ public class TrustedFullnessStateChangeService
                     field + " must be nullable text");
         }
         return value.asText();
+    }
+
+    private static Instant nullableInstant(
+            JsonNode parent, String field) {
+        String value = nullableText(parent, field);
+        return value == null ? null : Instant.parse(value);
     }
 
     private static String requiredDigest(

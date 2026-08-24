@@ -95,6 +95,7 @@ REMOTE_SUPPORT_FILES = (
     "remote_support_store.py",
     "device_credentials.py",
     "secure_files.py",
+    "trusted_clock.py",
 )
 
 MAIN_UNITS = (

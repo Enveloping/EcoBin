@@ -30,7 +30,7 @@ from config import (
     EDGE_SOFTWARE_VERSION,
     MQTT_CLEAN_SESSION, MCU_PROTOCOL_MODE, MCU_SIMULATED,
     DEVICE_ENTRY_URL_REFRESH_SECONDS,
-    CAMERA_OUTSIDE_SOURCE, CAMERA_INSIDE_SOURCE, CAMERA_WARMUP_FRAMES,
+    CAMERA_OUTSIDE_SOURCE, CAMERA_INSIDE_SOURCE,
     EDGE_PHOTO_DIR, PHOTO_UPLOAD_POLL_SECONDS,
     PHOTO_GRANT_EXPIRY_SKEW_SECONDS, PHOTO_RETENTION_HOURS,
     TRUSTED_COS_ENVIRONMENT, COS_REQUEST_TIMEOUT_SECONDS,
@@ -76,6 +76,7 @@ from mcu_firmware_updater import (
 from factory_seal.runtime import RuntimeFactorySealAuthorizer
 from factory_seal.admission import FactorySealProductionGate
 from factory_seal.validation import FactorySealPaths
+from trusted_clock import ClockHealthMonitor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -135,6 +136,7 @@ class EcoBinEdge:
         self._next_runtime_snapshot_monotonic = 0.0
         self._remote_support_bridge_retry_at = 0.0
         self._remote_support_bridge_last_warning_at = 0.0
+        self.clock_monitor = ClockHealthMonitor()
 
         config_validate()
         # -- EdgeStore (SQLite) --
@@ -205,7 +207,6 @@ class EcoBinEdge:
             photo_dir=EDGE_PHOTO_DIR,
             outside_camera_source=CAMERA_OUTSIDE_SOURCE,
             inside_camera_source=CAMERA_INSIDE_SOURCE,
-            camera_warmup_frames=CAMERA_WARMUP_FRAMES,
             device_name=DEVICE_NAME,
             uploader=self.cos_uploader,
             upload_poll_seconds=PHOTO_UPLOAD_POLL_SECONDS,
@@ -329,6 +330,9 @@ class EcoBinEdge:
 
     def run(self):
         logger.info("EcoBin Edge v2 starting (boot_id=%d)", self._edge_boot_id)
+        # Clock repair starts before business recovery, but clock uncertainty
+        # is diagnostic only and never blocks physical work or event creation.
+        self._poll_clock_health()
         reconciled_progress = (
             self.store.reconcile_mcu_firmware_progress_events(DEVICE_NAME)
         )
@@ -411,6 +415,9 @@ class EcoBinEdge:
 
         # -- Periodic runtime snapshots --
         threading.Thread(target=self._runtime_snapshot_loop, daemon=True, name="rt-snap").start()
+
+        # -- Clock quality / bounded NTP self-repair --
+        threading.Thread(target=self._clock_health_loop, daemon=True, name="clock-health").start()
 
         # -- MQTT main loop --
         self.mqtt.loop_forever()
@@ -592,6 +599,59 @@ class EcoBinEdge:
                 self._remote_support_bridge_last_warning_at = now
             return 0
 
+    def _clock_health_loop(self):
+        logger.info("clock health monitor started")
+        while not self._exit_flag.wait(60.0):
+            try:
+                self._poll_clock_health()
+            except Exception as error:
+                logger.error(
+                    "clock health monitor error: %s",
+                    type(error).__name__,
+                )
+        logger.info("clock health monitor stopped")
+
+    def _poll_clock_health(self):
+        outcome = self.clock_monitor.poll()
+        repair_state = str(outcome["repair_state"])
+        previous_repair_state = self.store.get_state(
+            "clock_repair_state"
+        )
+        self.store.set_state("clock_repair_state", repair_state)
+        if outcome["warning_due"]:
+            self.store.observe_fault_and_create_event(
+                device_name=DEVICE_NAME,
+                component="CLOCK",
+                fault_code="CLOCK_UNSYNCED",
+                severity="WARNING",
+                detail={
+                    "clockQuality": outcome["sample"].quality,
+                    "repairState": repair_state,
+                },
+            )
+            logger.warning(
+                "clock remained unsynchronised for five minutes: %s",
+                repair_state,
+            )
+            self._request_runtime_snapshot()
+        if outcome["recovered"]:
+            fault = self.store.get_active_edge_fault(
+                "CLOCK", "CLOCK_UNSYNCED"
+            )
+            if fault is not None:
+                self.store.recover_fault_and_create_event(
+                    device_name=DEVICE_NAME,
+                    fault_uid=fault["fault_uid"],
+                    component="CLOCK",
+                    fault_code="CLOCK_UNSYNCED",
+                    port_no=fault["port_no"],
+                    recovery_evidence="NTP_SYNCHRONIZED",
+                )
+            logger.info("clock synchronization recovered")
+            self._request_runtime_snapshot()
+        elif previous_repair_state != repair_state:
+            self._request_runtime_snapshot()
+        return outcome
     def _runtime_snapshot_loop(self):
         """Publish state-change snapshots plus a low-frequency fallback."""
         self._reset_runtime_snapshot_fallback()

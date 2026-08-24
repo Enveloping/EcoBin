@@ -12,6 +12,7 @@ from typing import Any, BinaryIO, Callable
 
 from device_credentials import RemoteSupportCredentials
 from secure_files import atomic_write_bytes
+from trusted_clock import local_deadline_reference
 
 
 logger = logging.getLogger("remote-support")
@@ -77,6 +78,7 @@ class RemoteSupportManager:
         runtime_dir: str | os.PathLike[str] = "/run/ecobin/remote-support",
         popen_factory: Callable[..., Any] = subprocess.Popen,
         utc_now: Callable[[], datetime] | None = None,
+        deadline_reference: Callable[[], datetime | None] | None = None,
         monotonic: Callable[[], float] | None = None,
         stabilization_seconds: float = 2.0,
         retry_base_seconds: float = 1.0,
@@ -94,6 +96,14 @@ class RemoteSupportManager:
         self._runtime_dir = Path(runtime_dir)
         self._popen = popen_factory
         self._utc_now = utc_now or (lambda: datetime.now(timezone.utc))
+        self._deadline_reference = (
+            deadline_reference
+            or (
+                (lambda: self._utc_now().astimezone(timezone.utc))
+                if utc_now is not None
+                else local_deadline_reference
+            )
+        )
         if monotonic is None:
             import time
 
@@ -178,7 +188,11 @@ class RemoteSupportManager:
             session_uid = row["session_uid"]
             now = self._utc_now().astimezone(timezone.utc)
             expires_at = _parse_utc(row["expires_at"])
-            if expires_at <= now:
+            deadline_reference = self._deadline_reference()
+            if (
+                deadline_reference is not None
+                and expires_at <= deadline_reference
+            ):
                 self._terminate_process()
                 self._store.transition_remote_support_session(
                     session_uid,

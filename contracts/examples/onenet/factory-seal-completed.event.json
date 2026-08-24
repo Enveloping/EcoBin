@@ -14,6 +14,7 @@
     "authorizationBindingSha256": "3d27ce9c05bad3cc515a74aa218fc395b620e35db96f8c1956e855b13ac6b7a0",
     "authorizationCommandUid": "8a000000-0000-4000-8000-000000000007",
     "cleanupCompletedAt": "2026-07-24T01:00:30.000Z",
+    "completionClockQuality": "SYNCED",
     "factoryBagRevision": 2,
     "factoryBagSetSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "factoryReportSha256": "2222222222222222222222222222222222222222222222222222222222222222",
@@ -21,10 +22,10 @@
     "imageReleaseId": "ecobin-opiz3-2026.08.22.1",
     "imageReleaseSha256": "1111111111111111111111111111111111111111111111111111111111111111",
     "operatorConfirmationUid": "8a000000-0000-4000-8000-00000000000b",
-    "sealCompletionSchemaVersion": 1,
+    "sealCompletionSchemaVersion": 2,
     "sealedAt": "2026-07-24T01:00:20.000Z"
   },
-  "payloadSha256": "b9b9686e6bc98bb2093a89a6de78d8e47da49c9b12a6c21b9aa9762fcb6a1a3f",
+  "payloadSha256": "4ae4c42f35b9365e15ef47cbf558b37b90cd1233559e49960bdf525a1793a229",
   "schemaVersion": 2,
   "target": {
     "type": "DEVICE_ASSET",

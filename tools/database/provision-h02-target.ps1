@@ -1020,15 +1020,18 @@ WHERE table_schema = '$DatabaseName'
                 $existingMaxVersion -eq 55) -or
             ($existingDomainTableCount -eq 119 -and
                 $existingHistoryCount -eq 56 -and
-                $existingMaxVersion -eq 56)
+                $existingMaxVersion -eq 56) -or
+            ($existingDomainTableCount -eq 119 -and
+                $existingHistoryCount -eq 57 -and
+                $existingMaxVersion -eq 57)
         )
         if (-not $resumeLayoutValid) {
             throw (
-                "Migrated resume requires a complete V30 through V56 " +
+                "Migrated resume requires a complete V30 through V57 " +
                 "target database"
             )
         }
-        if ($existingMaxVersion -lt 56) {
+        if ($existingMaxVersion -lt 57) {
             # Check before changing the owner account so a stale local tunnel
             # fails without opening a database mutation window.
             if ($RemoteHost.Length -gt 0) {
@@ -1087,7 +1090,7 @@ GRANT SELECT (
 "@ | Out-Null
         }
 
-        Invoke-FlywayMigration -Target 56 -OwnerPassword $ownerPassword
+        Invoke-FlywayMigration -Target 57 -OwnerPassword $ownerPassword
         $migrationCompleted = $true
 
         Invoke-RootSql -Sql @"
@@ -1162,8 +1165,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 56) {
-        throw "Expected fifty-six successful Flyway migrations"
+    if ($historyCount -ne 57) {
+        throw "Expected fifty-seven successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
@@ -1473,7 +1476,7 @@ WHERE user = 'ecobin_schema_owner' AND host = '%';
     if (-not $migrationCompleted) {
         if ($upgradeExistingMigratedEnvironment) {
             Write-Warning (
-                "The target may contain a failed V56 forward migration. " +
+                "The target may contain a failed V57 forward migration. " +
                 "It was intentionally preserved. Restore from the " +
                 "pre-migration backup; do not run Flyway repair. " +
                 "Container=$ContainerName Volume=$VolumeName"

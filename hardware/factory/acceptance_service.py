@@ -852,7 +852,7 @@ def build_executor(config: AcceptanceConfiguration) -> FactoryAcceptanceExecutor
         outside_source=config.outside_camera,
         inside_source=config.inside_camera,
         temporary_directory=config.photo_directory,
-        capture=OpenCvCapture(config.camera_warmup_frames),
+        capture=OpenCvCapture(),
         shared_group_readable=True,
     )
     bootloader = ReadOnlyStm32RomProbe(

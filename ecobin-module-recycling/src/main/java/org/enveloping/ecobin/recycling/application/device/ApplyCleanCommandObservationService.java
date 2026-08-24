@@ -295,11 +295,9 @@ public class ApplyCleanCommandObservationService
             LocalDateTime occurredAt,
             LocalDateTime createdAt,
             LocalDateTime receivedAt) {
-        return occurredAt != null
-                && !occurredAt.isBefore(createdAt)
-                && !occurredAt.isAfter(receivedAt)
-                ? occurredAt
-                : receivedAt;
+        // The device timestamp is retained as evidence only.  State changes
+        // are ordered by the backend receive clock.
+        return receivedAt;
     }
 
     private static void requireSingle(int updated, String action) {

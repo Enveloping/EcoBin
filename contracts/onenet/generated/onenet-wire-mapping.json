@@ -1745,6 +1745,7 @@
           "encoding": "FLAT_TYPED",
           "jsonPath": "$.payload.mcuFirmwareIdentity",
           "nullable": true,
+          "optional": true,
           "wireIdentifier": "mcuFirmwareIdentity"
         },
         {
@@ -1788,6 +1789,20 @@
           "jsonPath": "$.payload.clockState",
           "nullable": false,
           "wireIdentifier": "clockState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.clockOffsetMillis",
+          "nullable": false,
+          "optional": true,
+          "wireIdentifier": "clockOffsetMillis"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.clockRepairState",
+          "nullable": false,
+          "optional": true,
+          "wireIdentifier": "clockRepairState"
         },
         {
           "encoding": "FLAT_TYPED",
@@ -1972,7 +1987,7 @@
         {
           "encoding": "FLAT_TYPED",
           "jsonPath": "$.occurredAt",
-          "nullable": false,
+          "nullable": true,
           "wireIdentifier": "occurredAt"
         },
         {
@@ -2073,14 +2088,21 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.payload.sealedAt",
+          "jsonPath": "$.payload.completionClockQuality",
           "nullable": false,
+          "optional": true,
+          "wireIdentifier": "completionClockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sealedAt",
+          "nullable": true,
           "wireIdentifier": "sealedAt"
         },
         {
           "encoding": "FLAT_TYPED",
           "jsonPath": "$.payload.cleanupCompletedAt",
-          "nullable": false,
+          "nullable": true,
           "wireIdentifier": "cleanupCompletedAt"
         }
       ],
@@ -4600,7 +4622,7 @@
     "fixedFieldEncoding": "commandType/eventType/deliveryClass and target type remain explicit enum parameters and must equal the function identifier registry.",
     "functionPointLimit": 100,
     "generatedImportFile": "generated/onenet-thing-model.candidate.json",
-    "nullableEncoding": "Every nullable field is encoded as <field>Present plus a typed placeholder value; adapters reconstruct JSON null before payload digest validation.",
+    "nullableEncoding": "Every nullable or optional field is encoded as <field>Present plus a typed placeholder value; adapters reconstruct JSON null or omission before payload digest validation.",
     "objectEncoding": "Envelope and payload wrapper are projected losslessly; when a service would exceed OneNet's 20 top-level input limit, primitive parameters are grouped into one-level scalarFields/scalarFieldsN structs of at most 20 members each. Nested business objects use one-level struct; arrays of objects use array-of-struct.",
     "semanticValidation": "OneNet validates primitive shapes; edge and backend must still validate the authoritative Draft 2020-12 schema and semanticChecksBeyondJsonSchema.",
     "serviceCallType": "sync",

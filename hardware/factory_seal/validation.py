@@ -302,7 +302,7 @@ def sealed_document_matches_authorization(
 ) -> bool:
     if row is None:
         return False
-    fields = {
+    v1_fields = {
         "schemaVersion",
         "status",
         "imageReleaseId",
@@ -314,11 +314,19 @@ def sealed_document_matches_authorization(
         "operatorConfirmationUid",
         "sealedAt",
     }
+    v2_fields = v1_fields | {"sealedClockQuality"}
     try:
+        schema_version = sealed.get("schemaVersion")
+        valid_shape = (
+            schema_version == 1 and set(sealed) == v1_fields
+        ) or (
+            schema_version == 2 and set(sealed) == v2_fields
+            and sealed.get("sealedClockQuality")
+            in {"SYNCED", "ESTIMATED", "UNAVAILABLE"}
+        )
         return bool(
-            set(sealed) == fields
+            valid_shape
             and type(sealed.get("schemaVersion")) is int
-            and sealed.get("schemaVersion") == 1
             and sealed.get("status") == "SEALED"
             and sealed.get("imageReleaseId") == row["image_release_id"]
             and sealed.get("hardwareIdentitySha256")
@@ -350,11 +358,19 @@ def factory_seal_completion_payload(
     sealed: dict[str, Any],
     row: Any,
     cleanup_completed_at: str,
+    completion_clock_quality: str | None = None,
 ) -> dict[str, Any]:
     """Build the immutable payload bound to the accepted authorization."""
 
-    return {
-        "sealCompletionSchemaVersion": 1,
+    schema_version = sealed.get("schemaVersion", 1)
+    clock_quality = (
+        completion_clock_quality
+        or _optional_row_value(row, "completion_clock_quality")
+        or "SYNCED"
+    )
+    trusted_times = schema_version == 1 or clock_quality == "SYNCED"
+    payload = {
+        "sealCompletionSchemaVersion": schema_version,
         "hardwareSn": row["hardware_sn"],
         "authorizationCommandUid": row["command_uid"],
         "acceptanceGeneration": row["acceptance_generation"],
@@ -372,9 +388,14 @@ def factory_seal_completion_payload(
             "authorization_binding_sha256"
         ],
         "operatorConfirmationUid": sealed["operatorConfirmationUid"],
-        "sealedAt": sealed["sealedAt"],
-        "cleanupCompletedAt": cleanup_completed_at,
+        "sealedAt": sealed["sealedAt"] if trusted_times else None,
+        "cleanupCompletedAt": (
+            cleanup_completed_at if trusted_times else None
+        ),
     }
+    if schema_version >= 2:
+        payload["completionClockQuality"] = clock_quality
+    return payload
 
 
 def completion_event_matches_authorization(
@@ -395,6 +416,12 @@ def completion_event_matches_authorization(
             row,
             cleanup_completed_at,
         )
+        schema_version = sealed.get("schemaVersion", 1)
+        clock_quality = (
+            _optional_row_value(row, "completion_clock_quality")
+            or "SYNCED"
+        )
+        trusted_time = clock_quality == "SYNCED"
         return bool(
             row["state"] == "SEALED"
             and _is_utc_instant(cleanup_completed_at)
@@ -431,9 +458,15 @@ def completion_event_matches_authorization(
             and envelope["target"]
             == {"type": "DEVICE_ASSET", "uid": row["hardware_sn"]}
             and envelope["commandUid"] == row["command_uid"]
-            and _is_utc_instant(envelope["occurredAt"])
-            and envelope["occurredAt"] == cleanup_completed_at
-            and envelope["clockQuality"] == "SYNCED"
+            and envelope["clockQuality"] == clock_quality
+            and (
+                trusted_time
+                and _is_utc_instant(envelope["occurredAt"])
+                and envelope["occurredAt"] == cleanup_completed_at
+                or not trusted_time
+                and schema_version >= 2
+                and envelope["occurredAt"] is None
+            )
             and envelope["payload"] == payload
             and envelope["payloadSha256"] == _canonical_sha256(payload)
         )

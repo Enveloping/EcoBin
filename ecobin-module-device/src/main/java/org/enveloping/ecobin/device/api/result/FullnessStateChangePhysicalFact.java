@@ -35,7 +35,6 @@ public record FullnessStateChangePhysicalFact(
         Objects.requireNonNull(eventUid, "eventUid");
         Objects.requireNonNull(stateChangeUid, "stateChangeUid");
         Objects.requireNonNull(hardwareSn, "hardwareSn");
-        Objects.requireNonNull(deviceOccurredAt, "deviceOccurredAt");
         Objects.requireNonNull(clockQuality, "clockQuality");
         Objects.requireNonNull(payloadSha256, "payloadSha256");
         Objects.requireNonNull(canonicalSha256, "canonicalSha256");

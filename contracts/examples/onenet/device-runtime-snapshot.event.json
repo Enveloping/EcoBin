@@ -13,6 +13,8 @@
       "version": 8
     },
     "capabilityBitmapHex": "0000000000001fff",
+    "clockOffsetMillis": 2,
+    "clockRepairState": "SYNCHRONIZED",
     "clockState": "SYNCED",
     "edgeBootId": 9001,
     "edgeVersion": "1.0.0-rc.3",
@@ -94,7 +96,7 @@
     "uartProtocolMinor": 0,
     "uartState": "READY"
   },
-  "payloadSha256": "0b653ed6ef518204633d647e763c6cdbb8bf41d9e407f12cdafd3f2f673d050d",
+  "payloadSha256": "39b36ce91af76bcc09f82d04db1ae8ad670d261bea6c628655ec26969cdabb3c",
   "schemaVersion": 2,
   "target": {
     "type": "DEVICE_ASSET",

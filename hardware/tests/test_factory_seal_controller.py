@@ -18,6 +18,7 @@ from factory_seal.validation import (
     valid_passed_factory_report,
 )
 from onenet_wire import canonical_payload_sha256, encode_event_post
+from trusted_clock import ClockSample
 
 
 HARDWARE_SN = "SN-FACTORY-SEAL-0001"
@@ -346,8 +347,10 @@ def test_completion_fact_has_exact_binding_and_one_authoritative_instant(
     controller.confirm(confirmation_uid)
     cleanup_at = "2026-08-22T12:01:00.123Z"
     monkeypatch.setattr(
-        "factory_seal.controller._utc_now",
-        lambda: cleanup_at,
+        "factory_seal.controller.sample_clock",
+        lambda: ClockSample(
+            "SYNCED", cleanup_at, None, cleanup_at
+        ),
     )
     # Deliberately make the generic envelope builder observe another
     # millisecond.  The persisted completion occurrence must still reuse the
@@ -364,7 +367,7 @@ def test_completion_fact_has_exact_binding_and_one_authoritative_instant(
     event = json.loads(events[0]["payload_json"])
     sealed = json.loads(paths.sealed.read_text(encoding="utf-8"))
     expected_payload = {
-        "sealCompletionSchemaVersion": 1,
+        "sealCompletionSchemaVersion": 2,
         "hardwareSn": HARDWARE_SN,
         "authorizationCommandUid": command_uid,
         "acceptanceGeneration": 1,
@@ -384,6 +387,7 @@ def test_completion_fact_has_exact_binding_and_one_authoritative_instant(
             "authorization_binding_sha256"
         ],
         "operatorConfirmationUid": confirmation_uid,
+        "completionClockQuality": "SYNCED",
         "sealedAt": sealed["sealedAt"],
         "cleanupCompletedAt": cleanup_at,
     }
@@ -405,6 +409,52 @@ def test_completion_fact_has_exact_binding_and_one_authoritative_instant(
     assert encode_event_post("FACTORY_SEAL_COMPLETED", event)["id"] == str(
         event["edgeEventSequence"]
     )
+
+
+def test_unsynced_seal_preserves_raw_local_times_but_emits_no_false_instant(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths, _ = _authorized(tmp_path)
+    raw_times = iter(
+        (
+            "2023-11-14T22:13:20.000Z",
+            "2023-11-14T22:13:21.000Z",
+        )
+    )
+
+    def unsynced_sample() -> ClockSample:
+        raw = next(raw_times)
+        return ClockSample("ESTIMATED", None, None, raw)
+
+    monkeypatch.setattr(
+        "factory_seal.controller.sample_clock",
+        unsynced_sample,
+    )
+    controller = _controller(
+        paths,
+        stopped=[],
+        production=[],
+        emergency=[],
+    )
+
+    controller.confirm(str(uuid.uuid4()))
+    assert controller.reconcile_cleanup() == "SEALED"
+
+    authorization, events = _completion_rows(paths)
+    event = json.loads(events[0]["payload_json"])
+    sealed = json.loads(paths.sealed.read_text(encoding="utf-8"))
+    assert sealed["sealedAt"] == "2023-11-14T22:13:20.000Z"
+    assert sealed["sealedClockQuality"] == "ESTIMATED"
+    assert authorization["cleanup_completed_at"] == (
+        "2023-11-14T22:13:21.000Z"
+    )
+    assert authorization["completion_clock_quality"] == "ESTIMATED"
+    assert event["clockQuality"] == "ESTIMATED"
+    assert event["occurredAt"] is None
+    assert event["payload"]["completionClockQuality"] == "ESTIMATED"
+    assert event["payload"]["sealedAt"] is None
+    assert event["payload"]["cleanupCompletedAt"] is None
 
 
 @pytest.mark.parametrize(

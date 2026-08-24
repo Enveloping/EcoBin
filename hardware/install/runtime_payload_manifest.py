@@ -7,9 +7,10 @@ release tooling and the immutable image builder.
 from __future__ import annotations
 
 
-EDGE_SCHEMA_VERSION = "16"
+EDGE_SCHEMA_VERSION = "17"
 
 RUNTIME_APP_FILES = (
+    "camera_capture.py",
     "command_processor.py",
     "config.py",
     "cos_photo_uploader.py",
@@ -39,6 +40,7 @@ RUNTIME_APP_FILES = (
     "system/__init__.py",
     "system/mcu_safe_gpio.py",
     "system/orangepi_boot_config.py",
+    "trusted_clock.py",
     "uart_link.py",
     "uart_protocol.py",
     "work_manager.py",
@@ -48,6 +50,7 @@ RUNTIME_APP_FILES = (
 # cannot import from /opt/ecobin/hardware/current/app.  These are the exact
 # top-level runtime sources needed by its real systemd entry points.
 FACTORY_APP_RUNTIME_FILES = (
+    "camera_capture.py",
     "device_credentials.py",
     "fixed_frame_mcu_adapter.py",
     "onenet_projection_model.json",
@@ -55,4 +58,5 @@ FACTORY_APP_RUNTIME_FILES = (
     "simulated_camera.py",
     "system/__init__.py",
     "system/mcu_safe_gpio.py",
+    "trusted_clock.py",
 )

@@ -594,6 +594,52 @@ class FactorySealAuthorizationServiceTest {
                 any(Object[].class));
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void unsyncedSchemaV2CompletionSealsWithoutInventingDeviceTimes()
+            throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        stubAssetFirstLock(jdbc);
+        JsonNode event = unsyncedCompletionEvent();
+        var row = mock(java.sql.ResultSet.class);
+        stubCompletionAuthorization(row, "ACKNOWLEDGED", null, null);
+        when(jdbc.query(
+                contains("authorization.completion_event_uid"),
+                any(RowMapper.class),
+                any(Object[].class)))
+                .thenAnswer(invocation -> List.of(
+                        invocation.<RowMapper<Object>>getArgument(1)
+                                .mapRow(row, 0)));
+        when(jdbc.update(
+                contains("authorization_status = 'SEALED'"),
+                any(Object[].class))).thenReturn(1);
+        FactorySealReliableTaskPort reliableTasks =
+                mock(FactorySealReliableTaskPort.class);
+        FactorySealAuthorizationService service = service(
+                jdbc,
+                mock(PlatformDeviceAssetTaskRefFactory.class),
+                mock(ReliablePlatformDeviceControlTaskRegistrationPort.class),
+                reliableTasks);
+        LocalDateTime receivedAt = LocalDateTime.of(
+                2026, 8, 23, 1, 0);
+
+        FactorySealAuthorizationService.CompletionResult result =
+                service.applyTrustedCompletion(
+                        HARDWARE_SN, event, receivedAt);
+
+        assertThat(result.changed()).isTrue();
+        ArgumentCaptor<Object[]> arguments =
+                ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).update(
+                contains("authorization_status = 'SEALED'"),
+                arguments.capture());
+        assertThat(arguments.getValue()[7]).isEqualTo("ESTIMATED");
+        assertThat(arguments.getValue()[8]).isNull();
+        assertThat(arguments.getValue()[9]).isNull();
+        verify(reliableTasks).completeAcceptedCommand(
+                SEAL_COMMAND_UID, receivedAt);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "2026-08-23T01:00:00.001Z",
@@ -1032,11 +1078,35 @@ class FactorySealAuthorizationServiceTest {
         event.put("commandUid", SEAL_COMMAND_UID.toString());
         event.put("target", target);
         event.put("occurredAt", occurredAt);
+        event.put("clockQuality", "SYNCED");
         event.put(
                 "payloadSha256",
                 canonicalizer.hex(canonicalizer.payloadSha256(payload)));
         event.put("payload", payload);
         return JsonMapper.builder().build().valueToTree(event);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static JsonNode unsyncedCompletionEvent() {
+        DeviceConfigurationCanonicalizer canonicalizer =
+                new DeviceConfigurationCanonicalizer();
+        JsonNode event = completionEvent();
+        Map<String, Object> payload = JsonMapper.builder().build()
+                .convertValue(event.path("payload"), Map.class);
+        payload.put("sealCompletionSchemaVersion", 2);
+        payload.put("completionClockQuality", "ESTIMATED");
+        payload.put("sealedAt", null);
+        payload.put("cleanupCompletedAt", null);
+        ((tools.jackson.databind.node.ObjectNode) event)
+                .putNull("occurredAt")
+                .put("clockQuality", "ESTIMATED")
+                .put(
+                        "payloadSha256",
+                        canonicalizer.hex(
+                                canonicalizer.payloadSha256(payload)))
+                .set("payload", JsonMapper.builder().build()
+                        .valueToTree(payload));
+        return event;
     }
 
     private static byte[] bytes(int value) {

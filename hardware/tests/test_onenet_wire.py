@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import onenet_wire
 from edge_store import EdgeStore
 from onenet_wire import (
     build_configuration_progress_event,
@@ -43,12 +44,16 @@ def test_runtime_snapshot_without_optional_mcu_identity_still_encodes():
     with path.open(encoding="utf-8") as source:
         event = json.load(source)
     event["payload"].pop("mcuFirmwareIdentity")
+    event["payload"].pop("clockOffsetMillis")
+    event["payload"].pop("clockRepairState")
     event["payloadSha256"] = canonical_payload_sha256(event["payload"])
 
     wire = encode_event_post("DEVICE_RUNTIME_SNAPSHOT", event)
     value = wire["params"]["deviceRuntimeSnapshot"]["value"]
 
     assert value["mcuFirmwareIdentityPresent"] is False
+    assert value["clockOffsetMillisPresent"] is False
+    assert value["clockRepairStatePresent"] is False
 
 
 def test_decode_start_delivery_session_wire_example():
@@ -77,6 +82,48 @@ def test_decode_start_delivery_session_wire_example():
     assert command["payload"]["sessionUid"] == "30000000-0000-4000-8000-000000000001"
     assert command["payload"]["portNo"] == 2
     assert command["cosGrant"] is None
+
+
+def test_expired_command_is_structurally_accepted_without_trusted_clock(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "contracts"
+        / "examples"
+        / "onenet-wire"
+        / "start-delivery-session.service-wire.json"
+    )
+    with path.open(encoding="utf-8") as source:
+        body = json.load(source)["callServiceApiBodyTemplate"]
+    command = decode_service_command(body["identifier"], body["params"])
+    monkeypatch.setattr(onenet_wire, "local_deadline_reference", lambda: None)
+
+    validate_command_envelope(command)
+
+
+def test_event_builder_omits_occurrence_when_clock_is_untrusted(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        onenet_wire,
+        "event_clock_fields",
+        lambda: {"occurredAt": None, "clockQuality": "ESTIMATED"},
+    )
+
+    event = build_configuration_progress_event(
+        device_name="SN-DEMO-0001",
+        command_uid="20000000-0000-4000-8000-000000000001",
+        application_uid="10000000-0000-4000-8000-000000000001",
+        stage="EDGE_SAVED",
+        version=8,
+        content_sha256="a" * 64,
+        mcu_payload_sha256="b" * 64,
+        edge_event_sequence=1,
+    )
+
+    assert event["occurredAt"] is None
+    assert event["clockQuality"] == "ESTIMATED"
 
 
 def test_decode_confirm_edge_event_wire_example():

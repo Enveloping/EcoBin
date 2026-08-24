@@ -24,6 +24,7 @@ from .validation import (
     inspect_sealed_authorization,
     sealed_document_matches_authorization,
 )
+from trusted_clock import raw_utc_now, sample_clock
 
 
 _HEX_64 = re.compile(r"^[0-9a-f]{64}$")
@@ -147,9 +148,10 @@ class FactorySealController:
             code = self._eligibility_code(row)
             if code != "SEAL_READY":
                 raise FactorySealError(code)
-            now = _utc_now()
+            sealed_clock = sample_clock()
+            now = sealed_clock.raw_observed_at or raw_utc_now()
             sealed = {
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "status": "SEALED",
                 "imageReleaseId": row["image_release_id"],
                 "hardwareIdentitySha256": _sha256_text(row["hardware_sn"]),
@@ -160,6 +162,7 @@ class FactorySealController:
                     "authorization_binding_sha256"
                 ],
                 "operatorConfirmationUid": confirmation_uid,
+                "sealedClockQuality": sealed_clock.quality,
                 "sealedAt": now,
             }
             self._write_seal_and_mark_sealing(row, sealed)
@@ -433,7 +436,14 @@ class FactorySealController:
                 connection.commit()
                 return completion_event_uid
 
-            cleanup_completed_at = _utc_now()
+            cleanup_clock = sample_clock()
+            cleanup_completed_at = (
+                cleanup_clock.raw_observed_at or raw_utc_now()
+            )
+            completion_clock_quality = _combined_clock_quality(
+                sealed.get("sealedClockQuality", "SYNCED"),
+                cleanup_clock.quality,
+            )
             completion_event_uid = str(uuid.uuid4())
             edge_event_sequence = self._next_event_sequence(
                 connection,
@@ -443,6 +453,7 @@ class FactorySealController:
                 sealed,
                 row,
                 cleanup_completed_at,
+                completion_clock_quality,
             )
             event = build_event_envelope(
                 event_uid=completion_event_uid,
@@ -460,10 +471,14 @@ class FactorySealController:
             # so pin the envelope to the already-persisted transaction fact
             # even when the two calls cross a millisecond boundary.
             event["occurredAt"] = cleanup_completed_at
+            event["clockQuality"] = completion_clock_quality
+            if completion_clock_quality != "SYNCED":
+                event["occurredAt"] = None
             updated = connection.execute(
                 """UPDATE factory_seal_authorization
                    SET state='SEALED', completed_at=COALESCE(completed_at, ?),
                        cleanup_completed_at=?, completion_event_uid=?,
+                       completion_clock_quality=?,
                        last_error=NULL
                    WHERE command_uid=?
                      AND authorization_binding_sha256=?
@@ -474,6 +489,7 @@ class FactorySealController:
                     cleanup_completed_at,
                     cleanup_completed_at,
                     completion_event_uid,
+                    completion_clock_quality,
                     sealed["authorizationCommandUid"],
                     sealed["authorizationBindingSha256"],
                 ),
@@ -707,6 +723,15 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
         "+00:00", "Z"
     )
+
+
+def _combined_clock_quality(first: str, second: str) -> str:
+    qualities = {first, second}
+    if qualities == {"SYNCED"}:
+        return "SYNCED"
+    if "UNAVAILABLE" in qualities:
+        return "UNAVAILABLE"
+    return "ESTIMATED"
 
 
 __all__ = ["FactorySealController"]

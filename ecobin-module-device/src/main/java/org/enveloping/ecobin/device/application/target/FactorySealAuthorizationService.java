@@ -45,7 +45,7 @@ public class FactorySealAuthorizationService
     private static final String UUID_V4 =
             "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
                     + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
-    private static final Set<String> COMPLETION_FIELDS = Set.of(
+    private static final Set<String> COMPLETION_V1_FIELDS = Set.of(
             "sealCompletionSchemaVersion",
             "hardwareSn",
             "authorizationCommandUid",
@@ -60,6 +60,24 @@ public class FactorySealAuthorizationService
             "factoryReportSha256",
             "authorizationBindingSha256",
             "operatorConfirmationUid",
+            "sealedAt",
+            "cleanupCompletedAt");
+    private static final Set<String> COMPLETION_V2_FIELDS = Set.of(
+            "sealCompletionSchemaVersion",
+            "hardwareSn",
+            "authorizationCommandUid",
+            "acceptanceGeneration",
+            "acceptanceEvidenceUid",
+            "acceptanceEvidenceSha256",
+            "acceptanceChallengeUid",
+            "factoryBagRevision",
+            "factoryBagSetSha256",
+            "imageReleaseId",
+            "imageReleaseSha256",
+            "factoryReportSha256",
+            "authorizationBindingSha256",
+            "operatorConfirmationUid",
+            "completionClockQuality",
             "sealedAt",
             "cleanupCompletedAt");
 
@@ -506,12 +524,21 @@ public class FactorySealAuthorizationService
         requireText(target, "type", TARGET_TYPE);
         requireText(target, "uid", hardwareSn);
         JsonNode payload = requiredObject(event, "payload");
-        if (payload.size() != COMPLETION_FIELDS.size()) {
+        long completionSchemaVersion = requiredSafeInteger(
+                payload, "sealCompletionSchemaVersion", 1);
+        Set<String> expectedFields = switch (
+                Math.toIntExact(completionSchemaVersion)) {
+            case 1 -> COMPLETION_V1_FIELDS;
+            case 2 -> COMPLETION_V2_FIELDS;
+            default -> throw new IllegalArgumentException(
+                    "sealCompletionSchemaVersion is unsupported");
+        };
+        if (payload.size() != expectedFields.size()) {
             throw new IllegalArgumentException(
                     "factory seal completion fields differ");
         }
         payload.propertyNames().forEach(field -> {
-            if (!COMPLETION_FIELDS.contains(field)) {
+            if (!expectedFields.contains(field)) {
                 throw new IllegalArgumentException(
                         "factory seal completion fields differ");
             }
@@ -523,11 +550,24 @@ public class FactorySealAuthorizationService
             throw new IllegalArgumentException(
                     "factory seal completion authority differs");
         }
-        String occurredAt = requiredText(event, "occurredAt", 30);
-        Instant occurred = parseUtcInstant(occurredAt, "occurredAt");
-        if (!occurred.equals(completion.cleanupCompletedAt())) {
+        String clockQuality = requiredText(event, "clockQuality", 16);
+        if (!Set.of("SYNCED", "ESTIMATED", "UNAVAILABLE")
+                .contains(clockQuality)
+                || !clockQuality.equals(completion.clockQuality())) {
+            throw new IllegalArgumentException(
+                    "factory seal completion clock quality differs");
+        }
+        Instant occurred = nullableUtcInstant(
+                event, "occurredAt");
+        if ("SYNCED".equals(clockQuality)
+                && (occurred == null
+                    || !occurred.equals(completion.cleanupCompletedAt()))) {
             throw new IllegalArgumentException(
                     "factory seal event time differs from completed cleanup");
+        }
+        if (!"SYNCED".equals(clockQuality) && occurred != null) {
+            throw new IllegalArgumentException(
+                    "unsynced factory seal event carries occurredAt");
         }
         byte[] canonicalPayloadSha256 = canonicalizer.payloadSha256(
                 completion.canonicalPayload());
@@ -544,8 +584,9 @@ public class FactorySealAuthorizationService
             throw new IllegalArgumentException(
                     "factory seal completion binding differs");
         }
-        if (completion.cleanupCompletedAt().isBefore(
-                completion.sealedAt())) {
+        if (completion.cleanupCompletedAt() != null
+                && completion.cleanupCompletedAt().isBefore(
+                        completion.sealedAt())) {
             throw new IllegalArgumentException(
                     "factory seal cleanup precedes sealing");
         }
@@ -665,6 +706,7 @@ public class FactorySealAuthorizationService
                             factory_report_sha256 = ?,
                             authorization_binding_sha256 = ?,
                             operator_confirmation_uid = ?,
+                            completion_clock_quality = ?,
                             sealed_at = ?,
                             cleanup_completed_at = ?,
                             completion_received_at = ?,
@@ -681,10 +723,9 @@ public class FactorySealAuthorizationService
                 hexBytes(completion.factoryReportSha256()),
                 expectedBinding,
                 completion.operatorConfirmationUid(),
-                LocalDateTime.ofInstant(
-                        completion.sealedAt(), ZoneOffset.UTC),
-                LocalDateTime.ofInstant(
-                        completion.cleanupCompletedAt(), ZoneOffset.UTC),
+                completion.clockQuality(),
+                nullableLocalDateTime(completion.sealedAt()),
+                nullableLocalDateTime(completion.cleanupCompletedAt()),
                 receivedAt,
                 receivedAt,
                 authorization.id()),
@@ -1001,7 +1042,8 @@ public class FactorySealAuthorizationService
         JsonNode schemaVersion = payload.get("sealCompletionSchemaVersion");
         if (schemaVersion == null
                 || !schemaVersion.isIntegralNumber()
-                || schemaVersion.longValue() != 1L) {
+                || (schemaVersion.longValue() != 1L
+                    && schemaVersion.longValue() != 2L)) {
             throw new IllegalArgumentException(
                     "sealCompletionSchemaVersion is unsupported");
         }
@@ -1015,10 +1057,30 @@ public class FactorySealAuthorizationService
             throw new IllegalArgumentException(
                     "imageReleaseId is not printable ASCII");
         }
-        String sealedAtText = requiredText(payload, "sealedAt", 30);
-        String cleanupCompletedAtText = requiredText(
+        long version = schemaVersion.longValue();
+        String clockQuality = version == 1
+                ? "SYNCED"
+                : requiredText(payload, "completionClockQuality", 16);
+        if (!Set.of("SYNCED", "ESTIMATED", "UNAVAILABLE")
+                .contains(clockQuality)) {
+            throw new IllegalArgumentException(
+                    "completionClockQuality is unsupported");
+        }
+        String sealedAtText = nullableTextValue(payload, "sealedAt", 30);
+        String cleanupCompletedAtText = nullableTextValue(
                 payload, "cleanupCompletedAt", 30);
+        boolean syncedClock = "SYNCED".equals(clockQuality);
+        if ((syncedClock
+                    && (sealedAtText == null
+                        || cleanupCompletedAtText == null))
+                || (!syncedClock
+                    && (sealedAtText != null
+                        || cleanupCompletedAtText != null))) {
+            throw new IllegalArgumentException(
+                    "factory seal completion timestamps differ from clock quality");
+        }
         return new CompletionPayload(
+                Math.toIntExact(version),
                 requiredText(payload, "hardwareSn", 64),
                 requiredPattern(
                         payload, "authorizationCommandUid", UUID_V4),
@@ -1037,11 +1099,47 @@ public class FactorySealAuthorizationService
                         payload, "authorizationBindingSha256", SHA256),
                 requiredPattern(
                         payload, "operatorConfirmationUid", UUID_V4),
+                clockQuality,
                 sealedAtText,
-                parseUtcInstant(sealedAtText, "sealedAt"),
+                sealedAtText == null
+                        ? null
+                        : parseUtcInstant(sealedAtText, "sealedAt"),
                 cleanupCompletedAtText,
-                parseUtcInstant(
-                        cleanupCompletedAtText, "cleanupCompletedAt"));
+                cleanupCompletedAtText == null
+                        ? null
+                        : parseUtcInstant(
+                                cleanupCompletedAtText,
+                                "cleanupCompletedAt"));
+    }
+
+    private static String nullableTextValue(
+            JsonNode parent, String field, int maximumLength) {
+        JsonNode value = parent == null ? null : parent.get(field);
+        if (value == null) {
+            throw new IllegalArgumentException(field + " is required");
+        }
+        if (value.isNull()) {
+            return null;
+        }
+        if (!value.isTextual()
+                || value.asText().isBlank()
+                || value.asText().length() > maximumLength) {
+            throw new IllegalArgumentException(
+                    field + " must be bounded text or null");
+        }
+        return value.asText();
+    }
+
+    private static Instant nullableUtcInstant(
+            JsonNode parent, String field) {
+        String value = nullableTextValue(parent, field, 30);
+        return value == null ? null : parseUtcInstant(value, field);
+    }
+
+    private static LocalDateTime nullableLocalDateTime(Instant value) {
+        return value == null
+                ? null
+                : LocalDateTime.ofInstant(value, ZoneOffset.UTC);
     }
 
     private static long requiredSafeInteger(
@@ -1128,6 +1226,7 @@ public class FactorySealAuthorizationService
     }
 
     private record CompletionPayload(
+            int schemaVersion,
             String hardwareSn,
             String authorizationCommandUid,
             long acceptanceGeneration,
@@ -1141,6 +1240,7 @@ public class FactorySealAuthorizationService
             String factoryReportSha256,
             String authorizationBindingSha256,
             String operatorConfirmationUid,
+            String clockQuality,
             String sealedAtText,
             Instant sealedAt,
             String cleanupCompletedAtText,
@@ -1166,7 +1266,7 @@ public class FactorySealAuthorizationService
 
         private Map<String, Object> canonicalPayload() {
             Map<String, Object> values = new LinkedHashMap<>();
-            values.put("sealCompletionSchemaVersion", 1);
+            values.put("sealCompletionSchemaVersion", schemaVersion);
             values.put("hardwareSn", hardwareSn);
             values.put(
                     "authorizationCommandUid",
@@ -1186,6 +1286,9 @@ public class FactorySealAuthorizationService
                     "authorizationBindingSha256",
                     authorizationBindingSha256);
             values.put("operatorConfirmationUid", operatorConfirmationUid);
+            if (schemaVersion >= 2) {
+                values.put("completionClockQuality", clockQuality);
+            }
             values.put("sealedAt", sealedAtText);
             values.put("cleanupCompletedAt", cleanupCompletedAtText);
             return values;

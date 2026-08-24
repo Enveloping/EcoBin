@@ -591,9 +591,22 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         }
         if (PERMANENT_ASSET_FACTS.contains(contract.messageKind())) {
             String occurredAt = (String) event.get("occurredAt");
+            Instant trustedOccurrence = occurredAt == null
+                    ? null : Instant.parse(occurredAt);
+            if (!"SYNCED".equals(event.get("clockQuality"))) {
+                trustedOccurrence = null;
+            } else if (trustedOccurrence != null
+                    && trustedOccurrence.isAfter(
+                            Instant.now().plusSeconds(60))) {
+                log.warn(
+                        "Ignoring future device occurrence for ownership "
+                                + "scope hardwareSn={} eventUid={} "
+                                + "maximumFutureSkewSeconds=60",
+                        hardwareSn, event.get("eventUid"));
+                trustedOccurrence = null;
+            }
             return sourceScopePort.resolverForPermanentAssetFact(
-                    hardwareSn,
-                    occurredAt == null ? null : Instant.parse(occurredAt));
+                    hardwareSn, trustedOccurrence);
         }
         return sourceScopePort.resolverForOrganizationAsset(hardwareSn);
     }
@@ -2228,6 +2241,38 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                         integer(wire, "clockState"),
                         CLOCK_QUALITY,
                         "clockState"));
+        JsonNode clockOffsetPresence = wire.get("clockOffsetMillisPresent");
+        JsonNode clockOffsetValue = wire.get("clockOffsetMillis");
+        boolean clockOffsetPresent = clockOffsetPresence == null
+                ? clockOffsetValue != null && !clockOffsetValue.isNull()
+                : bool(wire, "clockOffsetMillisPresent");
+        if (clockOffsetPresent) {
+            long clockOffsetMillis = integer(wire, "clockOffsetMillis");
+            if (clockOffsetMillis < -86_400_000L
+                    || clockOffsetMillis > 86_400_000L) {
+                throw permanent("clockOffsetMillis is outside accepted range");
+            }
+            payload.put("clockOffsetMillis", clockOffsetMillis);
+        }
+        JsonNode clockRepairPresence = wire.get("clockRepairStatePresent");
+        JsonNode clockRepairValue = wire.get("clockRepairState");
+        boolean clockRepairPresent = clockRepairPresence == null
+                ? clockRepairValue != null && !clockRepairValue.isNull()
+                : bool(wire, "clockRepairStatePresent");
+        if (clockRepairPresent) {
+            payload.put(
+                    "clockRepairState",
+                    enumText(
+                            integer(wire, "clockRepairState"),
+                            Map.of(
+                                    1L, "NOT_ATTEMPTED",
+                                    2L, "NOT_APPLICABLE",
+                                    3L, "PROVIDER_UNAVAILABLE",
+                                    4L, "REPAIR_REQUESTED",
+                                    5L, "REPAIR_FAILED",
+                                    6L, "SYNCHRONIZED"),
+                            "clockRepairState"));
+        }
         payload.put(
                 "pendingReliableEventCount",
                 nonNegativeSafeInteger(
@@ -2722,10 +2767,14 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     private static Map<String, Object> factorySealCompletedPayload(
             JsonNode wire) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put(
-                "sealCompletionSchemaVersion",
-                exactEnum(
-                        wire, "sealCompletionSchemaVersion", 1, 1L));
+        long schemaVersion = integer(
+                wire, "sealCompletionSchemaVersion");
+        if (schemaVersion != 1L && schemaVersion != 2L) {
+            throw permanent(
+                    "sealCompletionSchemaVersion has an unsupported "
+                            + "enum value");
+        }
+        payload.put("sealCompletionSchemaVersion", schemaVersion);
         payload.put("hardwareSn", text(wire, "hardwareSn", 64));
         payload.put(
                 "authorizationCommandUid",
@@ -2763,10 +2812,53 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         payload.put(
                 "operatorConfirmationUid",
                 pattern(wire, "operatorConfirmationUid", UUID_V4));
-        payload.put("sealedAt", requiredUtcInstant(wire, "sealedAt"));
-        payload.put(
-                "cleanupCompletedAt",
-                requiredUtcInstant(wire, "cleanupCompletedAt"));
+        String completionClockQuality;
+        String sealedAt;
+        String cleanupCompletedAt;
+        JsonNode completionClockPresence = wire.get(
+                "completionClockQualityPresent");
+        if (schemaVersion == 1L) {
+            if (completionClockPresence != null
+                    && bool(wire, "completionClockQualityPresent")) {
+                throw permanent(
+                        "factory seal v1 must not carry clock quality");
+            }
+            completionClockQuality = "SYNCED";
+            sealedAt = requiredUtcInstant(wire, "sealedAt");
+            cleanupCompletedAt = requiredUtcInstant(
+                    wire, "cleanupCompletedAt");
+        } else {
+            if (completionClockPresence == null
+                    || !bool(wire, "completionClockQualityPresent")) {
+                throw permanent(
+                        "factory seal v2 lacks clock quality");
+            }
+            completionClockQuality = enumText(
+                    integer(wire, "completionClockQuality"),
+                    Map.of(
+                            1L, "SYNCED",
+                            2L, "ESTIMATED",
+                            3L, "UNAVAILABLE"),
+                    "completionClockQuality");
+            sealedAt = nullablePresenceInstant(
+                    wire, "sealedAtPresent", "sealedAt");
+            cleanupCompletedAt = nullablePresenceInstant(
+                    wire,
+                    "cleanupCompletedAtPresent",
+                    "cleanupCompletedAt");
+            boolean trusted = "SYNCED".equals(
+                    completionClockQuality);
+            if (trusted != (sealedAt != null)
+                    || trusted != (cleanupCompletedAt != null)) {
+                throw permanent(
+                        "factory seal completion clock fields differ");
+            }
+            payload.put(
+                    "completionClockQuality",
+                    completionClockQuality);
+        }
+        payload.put("sealedAt", sealedAt);
+        payload.put("cleanupCompletedAt", cleanupCompletedAt);
         Map<String, Object> binding = new LinkedHashMap<>();
         binding.put("commandUid", payload.get("authorizationCommandUid"));
         binding.put("hardwareSn", payload.get("hardwareSn"));
@@ -2792,10 +2884,9 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             throw permanent(
                     "factory seal authorization binding differs");
         }
-        Instant sealedAt = Instant.parse((String) payload.get("sealedAt"));
-        Instant cleanupCompletedAt = Instant.parse(
-                (String) payload.get("cleanupCompletedAt"));
-        if (cleanupCompletedAt.isBefore(sealedAt)) {
+        if (sealedAt != null
+                && Instant.parse(cleanupCompletedAt).isBefore(
+                        Instant.parse(sealedAt))) {
             throw permanent(
                     "factory seal cleanup precedes the seal marker");
         }
@@ -3009,20 +3100,26 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             throw permanent(
                     "factory seal completion differs from its authority");
         }
-        if ("FACTORY_SEAL_COMPLETED".equals(contract.messageKind())
-                && !Instant.parse((String) event.get("occurredAt")).equals(
-                        Instant.parse((String) payload.get(
-                                "cleanupCompletedAt")))) {
-            throw permanent(
-                    "factory seal event time differs from completed cleanup");
+        if ("FACTORY_SEAL_COMPLETED".equals(contract.messageKind())) {
+            String eventClockQuality = (String) event.get("clockQuality");
+            String completionClockQuality = (String) payload.getOrDefault(
+                    "completionClockQuality", "SYNCED");
+            if (!eventClockQuality.equals(completionClockQuality)) {
+                throw permanent(
+                        "factory seal completion clock quality differs");
+            }
+            if ("SYNCED".equals(eventClockQuality)
+                    && !Instant.parse((String) event.get("occurredAt"))
+                    .equals(Instant.parse((String) payload.get(
+                            "cleanupCompletedAt")))) {
+                throw permanent(
+                        "factory seal event time differs from completed cleanup");
+            }
         }
     }
 
     private static String occurredAt(
             String messageKind, JsonNode wire) {
-        if ("FACTORY_SEAL_COMPLETED".equals(messageKind)) {
-            return requiredUtcInstant(wire, "occurredAt");
-        }
         boolean present = bool(wire, "occurredAtPresent");
         String value = textAllowEmpty(wire, "occurredAt", 30);
         if (!present) {

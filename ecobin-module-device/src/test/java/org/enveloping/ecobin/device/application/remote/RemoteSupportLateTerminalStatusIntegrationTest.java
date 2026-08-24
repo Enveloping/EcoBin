@@ -25,7 +25,6 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -109,7 +108,7 @@ class RemoteSupportLateTerminalStatusIntegrationTest {
     }
 
     @Test
-    void olderTerminalEvidenceCannotRegressLatestDeviceSnapshot() {
+    void laterReceivedEvidenceWinsEvenWhenDeviceTimestampIsOlder() {
         seedTerminalSession("CLOSED", "CLOSED", null);
         Instant latestOccurredAt = Instant.now().minusSeconds(2)
                 .truncatedTo(ChronoUnit.MILLIS);
@@ -130,9 +129,9 @@ class RemoteSupportLateTerminalStatusIntegrationTest {
                         latestOccurredAt.minusSeconds(1)));
 
         Map<String, Object> projection = sessionProjection();
-        assertFalse(changed);
+        assertTrue(changed);
         assertEquals("CLOSED", projection.get("state"));
-        assertEquals("CLOSED", projection.get("device_reported_state"));
+        assertEquals("FAILED", projection.get("device_reported_state"));
         assertNull(projection.get("failure_code"));
         assertEquals(2, jdbc.queryForObject(
                 "SELECT COUNT(*) FROM dev_remote_support_status_event",
@@ -216,7 +215,8 @@ class RemoteSupportLateTerminalStatusIntegrationTest {
                     failure_code VARCHAR(100),
                     ssh_exit_code INT,
                     event_sha256 VARBINARY(32) NOT NULL,
-                    occurred_at TIMESTAMP NOT NULL,
+                    occurred_at TIMESTAMP,
+                    clock_quality VARCHAR(16) NOT NULL DEFAULT 'SYNCED',
                     received_at TIMESTAMP NOT NULL,
                     created_at TIMESTAMP NOT NULL
                 )
@@ -323,6 +323,7 @@ class RemoteSupportLateTerminalStatusIntegrationTest {
         event.put("eventType", "REMOTE_SUPPORT_TUNNEL_STATUS");
         event.put("commandUid", commandUid.toString());
         event.put("occurredAt", occurredAt.toString());
+        event.put("clockQuality", "SYNCED");
         event.putObject("target")
                 .put("type", "DEVICE_ASSET")
                 .put("uid", HARDWARE_SN);

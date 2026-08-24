@@ -61,13 +61,13 @@ from config import (
     SERIAL_BAUDRATE,
     CAMERA_OUTSIDE_SOURCE,
     CAMERA_INSIDE_SOURCE,
-    CAMERA_WARMUP_FRAMES,
 )
 
 # ================================================================
 #  配置区 — 值从 config.py 导入，环境变量覆盖
 # ================================================================
 SERIAL_TIMEOUT = 0.5
+CAMERA_WARMUP_FRAMES = 5  # Legacy DualCamera behavior; not a formal runtime path.
 
 # 拍照保存目录
 PHOTO_DIR = "/tmp/smartbin_photos"

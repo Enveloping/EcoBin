@@ -11,7 +11,7 @@ import static org.enveloping.ecobin.device.application.delivery.DeliveryCommandO
 class DeliveryCommandObservationDecisionTest {
 
     @Test
-    void commandTimesUseOnlyDeviceValuesBoundedByBusinessAndReceipt() {
+    void commandBusinessTimesAlwaysUseBackendReceiptClock() {
         LocalDateTime createdAt = LocalDateTime.of(
                 2026, 8, 11, 12, 0);
         LocalDateTime receivedAt = createdAt.plusSeconds(5);
@@ -19,7 +19,7 @@ class DeliveryCommandObservationDecisionTest {
 
         assertThat(ApplyDeliveryCommandObservationService
                 .trustedOperationTime(valid, createdAt, receivedAt))
-                .isEqualTo(valid);
+                .isEqualTo(receivedAt);
         assertThat(ApplyDeliveryCommandObservationService
                 .trustedOperationTime(null, createdAt, receivedAt))
                 .isEqualTo(receivedAt);

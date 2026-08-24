@@ -422,9 +422,11 @@ public class ApplyFullnessSampleCompleteService
                 calculation.weightFull(),
                 calculation.conclusion(),
                 calculation.fullReason(),
-                LocalDateTime.ofInstant(
-                        facts.physicalFact().deviceOccurredAt(),
-                        ZoneOffset.UTC),
+                facts.physicalFact().deviceOccurredAt() == null
+                        ? null
+                        : LocalDateTime.ofInstant(
+                                facts.physicalFact().deviceOccurredAt(),
+                                ZoneOffset.UTC),
                 facts.backendReceivedAt(),
                 facts.backendReceivedAt()),
                 "insert fullness sample");

@@ -140,11 +140,21 @@ class IdentitySourceBoundaryTest {
     }
 
     private static List<Path> javaSources(Path root) throws IOException {
-        try (var paths = Files.walk(root)) {
-            return paths.filter(Files::isRegularFile)
-                    .filter(path -> path.toString().endsWith(".java"))
-                    .toList();
+        List<Path> sources = new ArrayList<>();
+        try (var children = Files.list(root)) {
+            for (Path child : children.filter(Files::isDirectory).toList()) {
+                Path mainJava = child.resolve("src/main/java");
+                if (!Files.isDirectory(mainJava)) {
+                    continue;
+                }
+                try (var paths = Files.walk(mainJava)) {
+                    sources.addAll(paths.filter(Files::isRegularFile)
+                            .filter(path -> path.toString().endsWith(".java"))
+                            .toList());
+                }
+            }
         }
+        return sources;
     }
 
     private static boolean isProductionSource(Path file) {

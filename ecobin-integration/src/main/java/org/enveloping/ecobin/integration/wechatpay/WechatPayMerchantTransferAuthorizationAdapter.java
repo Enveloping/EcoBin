@@ -59,8 +59,12 @@ public class WechatPayMerchantTransferAuthorizationAdapter
             return merchantMismatch();
         }
         try {
-            return map(client.get(BASE + "/out-authorization-no/"
-                    + encode(query.outAuthorizationNo())));
+            String path = BASE + "/out-authorization-no/"
+                    + encode(query.outAuthorizationNo());
+            if (query.displayAuthorization()) {
+                path += "?is_display_authorization=true";
+            }
+            return map(client.get(path));
         } catch (WechatPayApiException failure) {
             if (failure.status() == 404
                     && "NOT_FOUND".equals(failure.code())) {
@@ -114,8 +118,10 @@ public class WechatPayMerchantTransferAuthorizationAdapter
                     AuthorizationResult.Outcome.UNKNOWN_STATE, failure);
         }
         if ("INVALID_REQUEST".equals(failure.code())) {
+            // 微信明确要求这类创建响应继续查询原商户授权单号。
+            // 不能继续 POST，也不能换新的 out_authorization_no。
             return error(
-                    AuthorizationResult.Outcome.RETRYABLE_FAILURE, failure);
+                    AuthorizationResult.Outcome.UNKNOWN_STATE, failure);
         }
         return permanentOrRetryable(failure);
     }

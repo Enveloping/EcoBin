@@ -49,7 +49,8 @@ public interface MerchantTransferAuthorizationChannelPort {
             String sceneId,
             String userDisplayName,
             String userRecvPerception,
-            Instant knownChannelCreatedAt) {
+            Instant knownChannelCreatedAt,
+            boolean displayAuthorization) {
 
         public AuthorizationQuery {
             requireText(mchid, "mchid");
@@ -58,6 +59,20 @@ public interface MerchantTransferAuthorizationChannelPort {
             requireText(openid, "openid");
             requireText(sceneId, "sceneId");
             requireText(userDisplayName, "userDisplayName");
+        }
+
+        public AuthorizationQuery(
+                String mchid,
+                String outAuthorizationNo,
+                String appid,
+                String openid,
+                String sceneId,
+                String userDisplayName,
+                String userRecvPerception,
+                Instant knownChannelCreatedAt) {
+            this(mchid, outAuthorizationNo, appid, openid, sceneId,
+                    userDisplayName, userRecvPerception,
+                    knownChannelCreatedAt, false);
         }
     }
 

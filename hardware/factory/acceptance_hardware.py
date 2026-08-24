@@ -20,6 +20,13 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Optional
 
+from camera_capture import (
+    CAMERA_OPEN_FAILED,
+    OPENCV_NOT_INSTALLED,
+    CameraCaptureError,
+    capture_v4l2_jpeg,
+    run_camera_captures,
+)
 from fixed_frame_mcu_adapter import (
     CLEAN_HEADER,
     DELIVERY_HEADER,
@@ -648,36 +655,22 @@ class VirtualRomProbe:
 class OpenCvCapture:
     """Capture one local V4L2 frame without importing production PhotoManager."""
 
-    def __init__(self, warmup_frames: int = 3) -> None:
-        if warmup_frames <= 0:
-            raise ValueError("camera warmup frames must be positive")
-        self.warmup_frames = warmup_frames
-
     def __call__(self, source: str, destination: Path) -> None:
         if is_simulated_camera_source(source):
             capture_simulated_camera(str(destination), source)
             return
         try:
-            import cv2
-        except ImportError as error:
-            raise AcceptanceHardwareError("OPENCV_NOT_INSTALLED") from error
-        capture = cv2.VideoCapture(source, cv2.CAP_V4L2)
-        if not capture.isOpened():
-            capture.release()
-            raise AcceptanceHardwareError("CAMERA_OPEN_FAILED")
-        frame = None
-        try:
-            for _ in range(self.warmup_frames):
-                ok, candidate = capture.read()
-                if not ok or candidate is None:
-                    if frame is None:
-                        raise AcceptanceHardwareError("CAMERA_CAPTURE_FAILED")
-                    break
-                frame = candidate
-        finally:
-            capture.release()
-        if frame is None or not cv2.imwrite(str(destination), frame):
-            raise AcceptanceHardwareError("CAMERA_CAPTURE_FAILED")
+            capture_v4l2_jpeg(source, destination)
+        except CameraCaptureError as error:
+            if error.code == OPENCV_NOT_INSTALLED:
+                code = "OPENCV_NOT_INSTALLED"
+            elif error.code == CAMERA_OPEN_FAILED:
+                code = "CAMERA_OPEN_FAILED"
+            else:
+                code = "CAMERA_CAPTURE_FAILED"
+            raise AcceptanceHardwareError(code) from error
+        except Exception as error:
+            raise AcceptanceHardwareError("CAMERA_CAPTURE_FAILED") from error
 
 
 class FixedRoleCameraProbe:
@@ -777,6 +770,7 @@ class FixedRoleCameraProbe:
         }
         summaries: dict[str, dict] = {}
         try:
+            tasks = {}
             for role, source in (
                 ("OUTSIDE", self.outside_source),
                 ("INSIDE", self.inside_source),
@@ -786,7 +780,24 @@ class FixedRoleCameraProbe:
                     destination.unlink()
                 except FileNotFoundError:
                     pass
-                self.capture(source, destination)
+                tasks[role] = (
+                    lambda camera_source=source, path=destination:
+                    self.capture(camera_source, path)
+                )
+
+            outcomes = run_camera_captures(tasks)
+            for role, source in (
+                ("OUTSIDE", self.outside_source),
+                ("INSIDE", self.inside_source),
+            ):
+                capture_error = outcomes[role].error
+                if capture_error is not None:
+                    if isinstance(capture_error, CameraCaptureError):
+                        raise AcceptanceHardwareError(
+                            "CAMERA_CAPTURE_FAILED"
+                        ) from capture_error
+                    raise capture_error
+                destination = files[role]
                 metadata = destination.lstat()
                 if not stat.S_ISREG(metadata.st_mode) or metadata.st_size <= 0:
                     raise AcceptanceHardwareError("CAMERA_CAPTURE_EMPTY")

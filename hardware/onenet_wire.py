@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from trusted_clock import event_clock_fields, local_deadline_reference
+
 
 COMMAND_IDENTIFIERS = {
     "applyConfiguration": "APPLY_CONFIGURATION",
@@ -191,13 +193,15 @@ def validate_command_envelope(
     _validate_command_envelope(
         command,
         trusted_environment=trusted_environment,
-        expiry_reference_time=datetime.now(timezone.utc),
+        expiry_reference_time=local_deadline_reference(),
     )
 
 
 def validate_factory_seal_envelope_at_acceptance(
     command: dict[str, Any],
     acceptance_time: datetime,
+    *,
+    acceptance_clock_quality: str = "SYNCED",
 ) -> None:
     """Validate a factory-seal command at its durable acceptance instant.
 
@@ -222,7 +226,11 @@ def validate_factory_seal_envelope_at_acceptance(
     _validate_command_envelope(
         command,
         trusted_environment=None,
-        expiry_reference_time=acceptance_time.astimezone(timezone.utc),
+        expiry_reference_time=(
+            acceptance_time.astimezone(timezone.utc)
+            if acceptance_clock_quality == "SYNCED"
+            else None
+        ),
     )
 
 
@@ -230,7 +238,7 @@ def _validate_command_envelope(
     command: dict[str, Any],
     *,
     trusted_environment: dict[str, str] | None,
-    expiry_reference_time: datetime,
+    expiry_reference_time: datetime | None,
 ) -> None:
     """Shared validator with an internally selected expiry reference."""
 
@@ -258,7 +266,10 @@ def _validate_command_envelope(
         raise ValueError("payloadSha256 mismatch")
     _parse_utc_instant(command.get("issuedAt"), "issuedAt")
     expires_at = _parse_utc_instant(command.get("expiresAt"), "expiresAt")
-    if expires_at <= expiry_reference_time:
+    if (
+        expiry_reference_time is not None
+        and expires_at <= expiry_reference_time
+    ):
         raise ValueError("command expired")
     _validate_command_target(command)
     if command_type == "APPLY_CONFIGURATION":
@@ -544,10 +555,11 @@ def validate_cos_grant(
         or parsed.fragment
     ):
         raise ValueError("cosGrant.baseUrl is not a canonical HTTPS origin")
-    if _parse_utc_instant(
+    deadline_reference = local_deadline_reference()
+    if deadline_reference is not None and _parse_utc_instant(
         grant["expiresAt"],
         "cosGrant.expiresAt",
-    ) <= datetime.now(timezone.utc):
+    ) <= deadline_reference:
         raise ValueError("cosGrant expired")
 
 
@@ -864,8 +876,7 @@ def build_business_confirmation_receipt(
         "deliveryClass": "CONTROL_RECEIPT",
         "target": {"type": "BUSINESS_CONFIRMATION", "uid": confirmation_uid},
         "commandUid": command_uid,
-        "occurredAt": utc_now_rfc3339(),
-        "clockQuality": "SYNCED",
+        **event_clock_fields(),
         "payloadSha256": canonical_payload_sha256(payload),
         "payload": payload,
     }
@@ -901,8 +912,7 @@ def build_configuration_progress_event(
         "deliveryClass": "RELIABLE_FACT",
         "target": {"type": "CONFIGURATION_APPLICATION", "uid": application_uid},
         "commandUid": command_uid,
-        "occurredAt": utc_now_rfc3339(),
-        "clockQuality": "SYNCED",
+        **event_clock_fields(),
         "payloadSha256": canonical_payload_sha256(payload),
         "payload": payload,
     }
@@ -929,8 +939,7 @@ def build_event_envelope(
         "deliveryClass": delivery_class,
         "target": {"type": target_type, "uid": target_uid},
         "commandUid": command_uid,
-        "occurredAt": utc_now_rfc3339(),
-        "clockQuality": "SYNCED",
+        **event_clock_fields(),
         "payloadSha256": canonical_payload_sha256(payload),
         "payload": payload,
     }
@@ -1106,10 +1115,18 @@ def _encode_function_parameters(
             for member_descriptor in descriptor["dataType"]["specs"]:
                 member_identifier = member_descriptor["identifier"]
                 member_mapping = member_mappings[member_identifier]
-                source_value = _json_path_value(
-                    instance,
-                    member_mapping["jsonPath"],
-                )
+                try:
+                    source_value = _json_path_value(
+                        instance,
+                        member_mapping["jsonPath"],
+                    )
+                except KeyError:
+                    if not (
+                        member_mapping.get("nullable")
+                        or member_mapping.get("optional")
+                    ):
+                        raise
+                    source_value = None
                 if member_mapping["presenceFlag"]:
                     encoded_members[member_identifier] = source_value is not None
                 else:
@@ -1132,7 +1149,10 @@ def _encode_function_parameters(
                 field_mapping["jsonPath"],
             )
         except KeyError:
-            if not field_mapping.get("nullable"):
+            if not (
+                field_mapping.get("nullable")
+                or field_mapping.get("optional")
+            ):
                 raise
             source_value = None
         if identifier.endswith("Present"):

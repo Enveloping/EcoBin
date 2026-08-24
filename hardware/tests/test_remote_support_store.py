@@ -5,6 +5,7 @@ from pathlib import Path
 
 from edge_store import EdgeStore
 from remote_support_store import RemoteSupportStore
+from trusted_clock import ClockSample
 
 
 def _uid() -> str:
@@ -42,9 +43,10 @@ def test_agent_store_owns_session_and_durable_status_outbox(
         "deviceName": "ECM0-TEST",
         "remotePort": 22011,
         "state": "CONNECTING",
-        "failureCode": None,
-        "occurredAt": events[0]["occurredAt"],
-    }
+            "failureCode": None,
+            "occurredAt": events[0]["occurredAt"],
+            "clockQuality": "SYNCED",
+        }
 
     event_uid = events[0]["eventUid"]
     store.close()
@@ -85,6 +87,31 @@ def test_agent_store_terminal_session_uid_cannot_be_resurrected(
     assert store.request_remote_support_open(
         **{**request, "command_uid": _uid(), "remote_port": 22013},
     ) == "CONFLICT"
+    store.close()
+
+
+def test_untrusted_clock_does_not_reject_deadline_or_emit_false_instant(
+    tmp_path: Path,
+):
+    raw = "2023-11-14T22:13:20.000Z"
+    store = RemoteSupportStore(
+        tmp_path / "remote-support.db",
+        clock_sampler=lambda: ClockSample(
+            "UNAVAILABLE", None, None, raw
+        ),
+    )
+    store.initialize()
+
+    assert store.request_remote_support_open(
+        session_uid=_uid(),
+        command_uid=_uid(),
+        device_name="ECM0-TEST",
+        remote_port=22011,
+        expires_at="2020-01-01T00:00:00.000Z",
+    ) == "ACCEPTED"
+    event = store.list_status_events()[0]
+    assert event["occurredAt"] is None
+    assert event["clockQuality"] == "UNAVAILABLE"
     store.close()
 
 

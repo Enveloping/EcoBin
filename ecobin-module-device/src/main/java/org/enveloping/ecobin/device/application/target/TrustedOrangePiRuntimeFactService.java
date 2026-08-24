@@ -2902,7 +2902,6 @@ public class TrustedOrangePiRuntimeFactService
                             && photoSha256 != null
                             && sizeBytes != null
                             && sizeBytes > 0
-                            && capturedAt != null
                             && missingReason == null;
             case "PERMANENTLY_MISSING" ->
                     objectUrl == null
@@ -2915,8 +2914,7 @@ public class TrustedOrangePiRuntimeFactService
                             || photoUid != null
                                     && photoSha256 != null
                                     && sizeBytes != null
-                                    && sizeBytes > 0
-                                    && capturedAt != null);
+                                    && sizeBytes > 0);
             default -> false;
         };
         if (!valid) {

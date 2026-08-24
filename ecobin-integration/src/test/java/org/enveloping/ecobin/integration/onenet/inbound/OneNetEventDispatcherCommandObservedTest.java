@@ -202,6 +202,52 @@ class OneNetEventDispatcherCommandObservedTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void legacyFactorySealCompletionV1RemainsReadable()
+            throws Exception {
+        ObjectNode wire = eventWireValue(
+                "factory-seal-completed", "factorySealCompleted");
+        wire.put("sealCompletionSchemaVersion", 1);
+        wire.remove("completionClockQuality");
+        wire.remove("completionClockQualityPresent");
+        wire.remove("sealedAtPresent");
+        wire.remove("cleanupCompletedAtPresent");
+        ObjectNode payload = (ObjectNode) objectMapper.readTree(
+                        Files.readString(contractPath(
+                                "contracts/examples/onenet/"
+                                        + "factory-seal-completed.event.json")))
+                .path("payload").deepCopy();
+        payload.put("sealCompletionSchemaVersion", 1);
+        payload.remove("completionClockQuality");
+        wire.put(
+                "payloadSha256",
+                OneNetCanonicalJson.payloadSha256(
+                        objectMapper.convertValue(payload, Map.class)));
+
+        dispatcher.handle(
+                decrypted("factorySealCompleted", wire),
+                "mq-factory-seal-completed-v1",
+                RAW_TRANSPORT);
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort).receive(captor.capture());
+        JsonNode normalizedPayload = objectMapper.readTree(
+                        captor.getValue().normalizedPayload())
+                .path("event").path("payload");
+        assertEquals(1, normalizedPayload.path(
+                "sealCompletionSchemaVersion").asInt());
+        assertEquals(false, normalizedPayload.has(
+                "completionClockQuality"));
+        assertEquals(
+                "2026-07-24T01:00:20.000Z",
+                normalizedPayload.path("sealedAt").asText());
+        assertEquals(
+                "2026-07-24T01:00:30.000Z",
+                normalizedPayload.path("cleanupCompletedAt").asText());
+    }
+
+    @Test
     void factorySealCompletionRejectsForgedAuthorizationBinding()
             throws Exception {
         ObjectNode wire = eventWireValue(

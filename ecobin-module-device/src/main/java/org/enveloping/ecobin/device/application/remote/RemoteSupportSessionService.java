@@ -501,11 +501,23 @@ public class RemoteSupportSessionService {
         }
         String canonicalSha256 = requiredPattern(
                 normalized, "eventCanonicalSha256", SHA256);
-        LocalDateTime occurredAt = timestamp(event, "occurredAt");
+        String clockQuality = requiredText(event, "clockQuality", 16);
+        LocalDateTime occurredAt = nullableTimestamp(event, "occurredAt");
         LocalDateTime receivedAt = databaseNow();
-        if (occurredAt.isAfter(receivedAt)) {
+        if (!List.of("SYNCED", "ESTIMATED", "UNAVAILABLE")
+                .contains(clockQuality)
+                || ("SYNCED".equals(clockQuality)
+                != (occurredAt != null))) {
             throw new IllegalArgumentException(
-                    "remote support status occurred in the future");
+                    "remote support status clock fields differ");
+        }
+        if (occurredAt != null
+                && occurredAt.isAfter(receivedAt.plusSeconds(60))) {
+            LOGGER.warn(
+                    "Remote-support status carries a future device time; "
+                            + "hardwareSn={} eventUid={} "
+                            + "maximumFutureSkewSeconds=60",
+                    hardwareSn, eventUid);
         }
         Integer existing = jdbc.queryForObject("""
                         SELECT COUNT(*)
@@ -543,8 +555,9 @@ public class RemoteSupportSessionService {
                         INSERT INTO dev_remote_support_status_event (
                             event_uid, session_id, source_inbox_id,
                             reported_state, failure_code, ssh_exit_code,
-                            event_sha256, occurred_at, received_at, created_at
-                        ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+                            event_sha256, occurred_at, clock_quality,
+                            received_at, created_at
+                        ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
                         """,
                 eventUid.toString(),
                 session.id(),
@@ -553,6 +566,7 @@ public class RemoteSupportSessionService {
                 failureCode,
                 HexFormat.of().parseHex(canonicalSha256),
                 occurredAt,
+                clockQuality,
                 receivedAt,
                 receivedAt);
         boolean changed;
@@ -623,7 +637,7 @@ public class RemoteSupportSessionService {
                                 SELECT latest.reported_state
                                 FROM dev_remote_support_status_event latest
                                 WHERE latest.session_id = ?
-                                ORDER BY latest.occurred_at DESC,
+                                ORDER BY latest.received_at DESC,
                                          latest.id DESC
                                 LIMIT 1
                             ),
@@ -637,7 +651,7 @@ public class RemoteSupportSessionService {
                                   SELECT latest.reported_state
                                   FROM dev_remote_support_status_event latest
                                   WHERE latest.session_id = ?
-                                  ORDER BY latest.occurred_at DESC,
+                                  ORDER BY latest.received_at DESC,
                                            latest.id DESC
                                   LIMIT 1
                               )
@@ -1557,10 +1571,16 @@ public class RemoteSupportSessionService {
         return value.asInt();
     }
 
-    private static LocalDateTime timestamp(JsonNode parent, String field) {
+    private static LocalDateTime nullableTimestamp(
+            JsonNode parent,
+            String field) {
+        String value = nullableText(parent, field, 40);
+        if (value == null) {
+            return null;
+        }
         try {
             return LocalDateTime.ofInstant(
-                    Instant.parse(requiredText(parent, field, 40)),
+                    Instant.parse(value),
                     ZoneOffset.UTC);
         } catch (RuntimeException invalidTimestamp) {
             throw new IllegalArgumentException(

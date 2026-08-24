@@ -5464,6 +5464,56 @@
         {
           "dataType": {
             "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "clockOffsetMillisPresent",
+          "name": "clockOffsetMillisPresent"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "86400000",
+              "min": "-86400000",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int32"
+          },
+          "identifier": "clockOffsetMillis",
+          "name": "clockOffsetMillis"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "clockRepairStatePresent",
+          "name": "clockRepairStatePresent"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "NOT_ATTEMPTED",
+              "2": "NOT_APPLICABLE",
+              "3": "PROVIDER_UNAVAILABLE",
+              "4": "REPAIR_REQUESTED",
+              "5": "REPAIR_FAILED",
+              "6": "SYNCHRONIZED"
+            },
+            "type": "enum"
+          },
+          "identifier": "clockRepairState",
+          "name": "clockRepairState"
+        },
+        {
+          "dataType": {
+            "specs": {
               "max": "4294967295",
               "min": "0",
               "step": "1",
@@ -6014,6 +6064,7 @@
           "encoding": "FLAT_TYPED",
           "jsonPath": "$.payload.mcuFirmwareIdentity",
           "nullable": true,
+          "optional": true,
           "wireIdentifier": "mcuFirmwareIdentity"
         },
         {
@@ -6057,6 +6108,20 @@
           "jsonPath": "$.payload.clockState",
           "nullable": false,
           "wireIdentifier": "clockState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.clockOffsetMillis",
+          "nullable": false,
+          "optional": true,
+          "wireIdentifier": "clockOffsetMillis"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.clockRepairState",
+          "nullable": false,
+          "optional": true,
+          "wireIdentifier": "clockRepairState"
         },
         {
           "encoding": "FLAT_TYPED",
@@ -6170,6 +6235,17 @@
         {
           "dataType": {
             "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "occurredAtPresent",
+          "name": "occurredAtPresent"
+        },
+        {
+          "dataType": {
+            "specs": {
               "length": 30
             },
             "type": "string"
@@ -6180,7 +6256,9 @@
         {
           "dataType": {
             "specs": {
-              "1": "SYNCED"
+              "1": "SYNCED",
+              "2": "ESTIMATED",
+              "3": "UNAVAILABLE"
             },
             "type": "enum"
           },
@@ -6200,7 +6278,8 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "1",
+              "2": "2"
             },
             "type": "enum"
           },
@@ -6346,12 +6425,57 @@
         {
           "dataType": {
             "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "completionClockQualityPresent",
+          "name": "completionClockQualityPresent"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "SYNCED",
+              "2": "ESTIMATED",
+              "3": "UNAVAILABLE"
+            },
+            "type": "enum"
+          },
+          "identifier": "completionClockQuality",
+          "name": "completionClockQuality"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "sealedAtPresent",
+          "name": "sealedAtPresent"
+        },
+        {
+          "dataType": {
+            "specs": {
               "length": 30
             },
             "type": "string"
           },
           "identifier": "sealedAt",
           "name": "sealedAt"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "cleanupCompletedAtPresent",
+          "name": "cleanupCompletedAtPresent"
         },
         {
           "dataType": {
@@ -6410,7 +6534,7 @@
         {
           "encoding": "FLAT_TYPED",
           "jsonPath": "$.occurredAt",
-          "nullable": false,
+          "nullable": true,
           "wireIdentifier": "occurredAt"
         },
         {
@@ -6511,14 +6635,21 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.payload.sealedAt",
+          "jsonPath": "$.payload.completionClockQuality",
           "nullable": false,
+          "optional": true,
+          "wireIdentifier": "completionClockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sealedAt",
+          "nullable": true,
           "wireIdentifier": "sealedAt"
         },
         {
           "encoding": "FLAT_TYPED",
           "jsonPath": "$.payload.cleanupCompletedAt",
-          "nullable": false,
+          "nullable": true,
           "wireIdentifier": "cleanupCompletedAt"
         }
       ]

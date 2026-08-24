@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from trusted_clock import ClockSample, local_deadline_reference, sample_clock
+
 
 REMOTE_PORTS = frozenset(range(22011, 22015))
 TERMINAL_STATES = frozenset({"CLOSED", "FAILED", "EXPIRED"})
@@ -43,9 +45,16 @@ class RemoteSupportStore:
         path: str | Path,
         *,
         utc_now: Callable[[], datetime] | None = None,
+        clock_sampler: Callable[[], ClockSample] | None = None,
     ) -> None:
         self.path = Path(path)
         self._utc_now = utc_now or (lambda: datetime.now(timezone.utc))
+        if clock_sampler is not None:
+            self._clock_sampler = clock_sampler
+        elif utc_now is not None:
+            self._clock_sampler = self._injected_clock_sample
+        else:
+            self._clock_sampler = sample_clock
         self._connection: sqlite3.Connection | None = None
         self._lock = threading.RLock()
 
@@ -102,8 +111,76 @@ class RemoteSupportStore:
             );
             """
         )
+        version = connection.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0]
+        if version == 1:
+            self._migrate_v2(connection)
+            connection.execute(
+                "INSERT INTO schema_version(version) VALUES (2)"
+            )
+        elif version != 2:
+            connection.close()
+            raise RuntimeError(
+                "remote support database schema is incompatible"
+            )
         connection.commit()
         self._connection = connection
+
+    @staticmethod
+    def _migrate_v2(connection: sqlite3.Connection) -> None:
+        columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info('status_outbox')"
+            ).fetchall()
+        }
+        required = {
+            "sequence", "event_uid", "session_uid", "command_uid",
+            "device_name", "remote_port", "state", "failure_code",
+            "occurred_at", "raw_occurred_at", "clock_quality",
+        }
+        if columns == required:
+            return
+        legacy = required - {"raw_occurred_at", "clock_quality"}
+        if columns != legacy:
+            raise RuntimeError(
+                "remote support status outbox shape is incompatible"
+            )
+        connection.execute(
+            "ALTER TABLE status_outbox RENAME TO status_outbox_v1"
+        )
+        connection.execute(
+            """CREATE TABLE status_outbox (
+                sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_uid TEXT NOT NULL UNIQUE,
+                session_uid TEXT NOT NULL,
+                command_uid TEXT NOT NULL,
+                device_name TEXT NOT NULL,
+                remote_port INTEGER NOT NULL
+                    CHECK (remote_port BETWEEN 22011 AND 22014),
+                state TEXT NOT NULL CHECK (state IN (
+                    'CONNECTING', 'OPEN', 'CLOSED', 'FAILED', 'EXPIRED'
+                )),
+                failure_code TEXT,
+                occurred_at TEXT,
+                raw_occurred_at TEXT NOT NULL,
+                clock_quality TEXT NOT NULL CHECK (clock_quality IN (
+                    'SYNCED', 'ESTIMATED', 'UNAVAILABLE'
+                ))
+            )"""
+        )
+        connection.execute(
+            """INSERT INTO status_outbox
+               (sequence, event_uid, session_uid, command_uid,
+                device_name, remote_port, state, failure_code,
+                occurred_at, raw_occurred_at, clock_quality)
+               SELECT sequence, event_uid, session_uid, command_uid,
+                      device_name, remote_port, state, failure_code,
+                      occurred_at, occurred_at, 'SYNCED'
+               FROM status_outbox_v1"""
+        )
+        connection.execute("DROP TABLE status_outbox_v1")
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
@@ -131,7 +208,8 @@ class RemoteSupportStore:
         _require_device_name(device_name)
         _require_remote_port(remote_port)
         expiry = _parse_utc(expires_at, "expires_at")
-        if expiry <= self._now_datetime():
+        deadline_reference = self._deadline_reference()
+        if deadline_reference is not None and expiry <= deadline_reference:
             raise ValueError("remote support session is already expired")
 
         with self.transaction() as connection:
@@ -336,6 +414,7 @@ class RemoteSupportStore:
                 "state": row["state"],
                 "failureCode": row["failure_code"],
                 "occurredAt": row["occurred_at"],
+                "clockQuality": row["clock_quality"],
             }
             for row in rows
         ]
@@ -379,7 +458,12 @@ class RemoteSupportStore:
             return "NO_LEGACY_SESSION"
         if row["state"] in TERMINAL_STATES:
             return "TERMINAL_IGNORED"
-        if _parse_utc(row["expires_at"], "expires_at") <= self._now_datetime():
+        deadline_reference = self._deadline_reference()
+        if (
+            deadline_reference is not None
+            and _parse_utc(row["expires_at"], "expires_at")
+            <= deadline_reference
+        ):
             return "EXPIRED_IGNORED"
         result = self.request_remote_support_open(
             session_uid=row["session_uid"],
@@ -414,11 +498,14 @@ class RemoteSupportStore:
         state: str,
         failure_code: str | None,
     ) -> None:
+        sampled = self._clock_sampler()
+        raw_occurred_at = sampled.raw_observed_at or self._now_text()
         connection.execute(
             """INSERT INTO status_outbox
                (event_uid, session_uid, command_uid, device_name,
-                remote_port, state, failure_code, occurred_at)
-               VALUES (?,?,?,?,?,?,?,?)""",
+                remote_port, state, failure_code, occurred_at,
+                raw_occurred_at, clock_quality)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
             (
                 str(uuid.uuid4()),
                 session_uid,
@@ -427,7 +514,9 @@ class RemoteSupportStore:
                 remote_port,
                 state,
                 failure_code,
-                self._now_text(),
+                sampled.occurred_at,
+                raw_occurred_at,
+                sampled.quality,
             ),
         )
 
@@ -440,6 +529,18 @@ class RemoteSupportStore:
     def _now_text(self) -> str:
         value = self._now_datetime().isoformat(timespec="milliseconds")
         return value.replace("+00:00", "Z")
+
+    def _deadline_reference(self) -> datetime | None:
+        if self._clock_sampler is sample_clock:
+            return local_deadline_reference()
+        sampled = self._clock_sampler()
+        if not sampled.trusted or sampled.occurred_at is None:
+            return None
+        return _parse_utc(sampled.occurred_at, "clock_sample")
+
+    def _injected_clock_sample(self) -> ClockSample:
+        raw = self._now_text()
+        return ClockSample("SYNCED", raw, None, raw)
 
     def _require_connection(self) -> sqlite3.Connection:
         if self._connection is None:

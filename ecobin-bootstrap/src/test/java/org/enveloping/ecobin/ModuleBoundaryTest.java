@@ -188,15 +188,21 @@ class ModuleBoundaryTest {
     }
 
     private static List<Path> productionJavaSources(Path root) throws IOException {
-        try (var files = Files.walk(root)) {
-            return files.filter(Files::isRegularFile)
-                    .filter(path -> path.toString().endsWith(".java"))
-                    .filter(path -> path.toString().contains(
-                            "src" + java.io.File.separator
-                                    + "main" + java.io.File.separator
-                                    + "java"))
-                    .toList();
+        List<Path> sources = new ArrayList<>();
+        try (var children = Files.list(root)) {
+            for (Path child : children.filter(Files::isDirectory).toList()) {
+                Path mainJava = child.resolve("src/main/java");
+                if (!Files.isDirectory(mainJava)) {
+                    continue;
+                }
+                try (var files = Files.walk(mainJava)) {
+                    sources.addAll(files.filter(Files::isRegularFile)
+                            .filter(path -> path.toString().endsWith(".java"))
+                            .toList());
+                }
+            }
         }
+        return sources;
     }
 
     private static String ownerModule(Path root, Path file) {

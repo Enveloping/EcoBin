@@ -1045,7 +1045,7 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "sealCompletionSchemaVersion": { "const": 1 },
+        "sealCompletionSchemaVersion": { "enum": [1, 2] },
         "hardwareSn": {
           "type": "string",
           "minLength": 1,
@@ -1094,13 +1094,72 @@
         "operatorConfirmationUid": {
           "$ref": "../common.schema.json#/$defs/uuid"
         },
+        "completionClockQuality": {
+          "enum": ["SYNCED", "ESTIMATED", "UNAVAILABLE"]
+        },
         "sealedAt": {
-          "$ref": "../common.schema.json#/$defs/utcInstant"
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/utcInstant" },
+            { "type": "null" }
+          ]
         },
         "cleanupCompletedAt": {
-          "$ref": "../common.schema.json#/$defs/utcInstant"
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/utcInstant" },
+            { "type": "null" }
+          ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "sealCompletionSchemaVersion": { "const": 1 }
+            },
+            "required": ["sealCompletionSchemaVersion"]
+          },
+          "then": {
+            "not": { "required": ["completionClockQuality"] },
+            "properties": {
+              "sealedAt": {
+                "$ref": "../common.schema.json#/$defs/utcInstant"
+              },
+              "cleanupCompletedAt": {
+                "$ref": "../common.schema.json#/$defs/utcInstant"
+              }
+            }
+          },
+          "else": {
+            "required": ["completionClockQuality"],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "completionClockQuality": { "const": "SYNCED" }
+                  },
+                  "required": ["completionClockQuality"]
+                },
+                "then": {
+                  "properties": {
+                    "sealedAt": {
+                      "$ref": "../common.schema.json#/$defs/utcInstant"
+                    },
+                    "cleanupCompletedAt": {
+                      "$ref": "../common.schema.json#/$defs/utcInstant"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "sealedAt": { "type": "null" },
+                    "cleanupCompletedAt": { "type": "null" }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
     },
     "mcuFirmwareUpdateProgressPayload": {
       "type": "object",
@@ -1510,6 +1569,21 @@
         },
         "clockState": {
           "enum": ["SYNCED", "ESTIMATED", "UNAVAILABLE"]
+        },
+        "clockOffsetMillis": {
+          "type": "integer",
+          "minimum": -86400000,
+          "maximum": 86400000
+        },
+        "clockRepairState": {
+          "enum": [
+            "NOT_ATTEMPTED",
+            "NOT_APPLICABLE",
+            "PROVIDER_UNAVAILABLE",
+            "REPAIR_REQUESTED",
+            "REPAIR_FAILED",
+            "SYNCHRONIZED"
+          ]
         },
         "pendingReliableEventCount": {
           "type": "integer",
@@ -1967,10 +2041,6 @@
             "commandUid": {
               "$ref": "../common.schema.json#/$defs/uuid"
             },
-            "occurredAt": {
-              "$ref": "../common.schema.json#/$defs/utcInstant"
-            },
-            "clockQuality": { "const": "SYNCED" },
             "payload": {
               "$ref": "#/$defs/factorySealCompletedPayload"
             }

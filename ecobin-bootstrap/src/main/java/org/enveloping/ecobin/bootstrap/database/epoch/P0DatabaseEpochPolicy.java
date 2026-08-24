@@ -7,7 +7,7 @@ import java.util.Objects;
 /**
  * P0 首个目标数据库纪元的固定判定规则。
  *
- * <p>V1 的 description/script/checksum 是纪元身份，V1～V56 必须逐版成功。
+ * <p>V1 的 description/script/checksum 是纪元身份，V1～V57 必须逐版成功。
  * 这些值不能由部署配置覆盖，否则错误库可以通过修改环境变量被伪装成目标库。</p>
  */
 public final class P0DatabaseEpochPolicy {
@@ -17,7 +17,7 @@ public final class P0DatabaseEpochPolicy {
     static final int REQUIRED_DATABASE_MINOR_VERSION = 4;
     static final String REQUIRED_DATABASE_PRINCIPAL = "ecobin_app";
     static final String HISTORY_TABLE = "flyway_schema_history";
-    static final int MINIMUM_MIGRATION_VERSION = 56;
+    static final int MINIMUM_MIGRATION_VERSION = 57;
     static final String V1_DESCRIPTION = "p0 epoch and iam core";
     static final String V1_SCRIPT = "V1__p0_epoch_and_iam_core.sql";
     static final int V1_CHECKSUM = 229072802;

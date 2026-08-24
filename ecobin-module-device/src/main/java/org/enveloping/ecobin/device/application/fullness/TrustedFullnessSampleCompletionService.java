@@ -529,9 +529,7 @@ public class TrustedFullnessSampleCompletionService
                 assetId,
                 fact.edgeEventSequence(),
                 sha256(fact.detectionUid().toString()),
-                LocalDateTime.ofInstant(
-                        fact.deviceOccurredAt(),
-                        ZoneOffset.UTC),
+                databaseTime(fact.deviceOccurredAt()),
                 fact.clockQuality(),
                 receivedAt,
                 digest(fact.payloadSha256()),
@@ -699,9 +697,7 @@ public class TrustedFullnessSampleCompletionService
                 detectionUid,
                 requiredText(source, "deviceName"),
                 positiveLong(event, "edgeEventSequence"),
-                Instant.parse(requiredText(
-                        event,
-                        "occurredAt")),
+                nullableInstant(event, "occurredAt"),
                 requiredText(event, "clockQuality"),
                 requiredDigest(event, "payloadSha256"),
                 requiredDigest(root, "eventCanonicalSha256"),
@@ -790,7 +786,10 @@ public class TrustedFullnessSampleCompletionService
                 && fact.validSampleCount() == 1)
                 || (fact.requestedSampleCount() == 0
                 && fact.validSampleCount() == 0))
-                || !"SYNCED".equals(fact.clockQuality())
+                || !List.of("SYNCED", "ESTIMATED", "UNAVAILABLE")
+                .contains(fact.clockQuality())
+                || ("SYNCED".equals(fact.clockQuality())
+                    != (fact.deviceOccurredAt() != null))
                 || !"STABLE".equals(measurement.status())
                 || !measurement.weightValueAvailable()
                 || measurement.reportedWeightGrams() == null
@@ -815,6 +814,11 @@ public class TrustedFullnessSampleCompletionService
                     "database time is unavailable");
         }
         return now;
+    }
+
+    private static LocalDateTime databaseTime(Instant value) {
+        return value == null
+                ? null : LocalDateTime.ofInstant(value, ZoneOffset.UTC);
     }
 
     private static JsonNode requiredObject(
@@ -857,6 +861,13 @@ public class TrustedFullnessSampleCompletionService
                     field + " must be nullable text");
         }
         return value.asText();
+    }
+
+    private static Instant nullableInstant(
+            JsonNode parent,
+            String field) {
+        String value = nullableText(parent, field);
+        return value == null ? null : Instant.parse(value);
     }
 
     private static UUID uuid(

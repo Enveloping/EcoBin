@@ -13,6 +13,15 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from camera_capture import (
+    CAMERA_CAPTURE_FAILED,
+    CAMERA_OPEN_FAILED,
+    CAMERA_WRITE_FAILED,
+    OPENCV_NOT_INSTALLED,
+    CameraCaptureError,
+    capture_v4l2_jpeg,
+    run_camera_captures,
+)
 from edge_store import EdgeStore
 from onenet_wire import (
     WORK_PHOTO_SLOTS,
@@ -20,6 +29,7 @@ from onenet_wire import (
     validate_command_envelope,
     validate_cos_grant,
 )
+from trusted_clock import local_deadline_reference, sample_clock
 from simulated_camera import (
     capture_simulated_camera,
     is_simulated_camera_source,
@@ -85,7 +95,6 @@ class PhotoManager:
             "usb-icSpring_icspring_camera-video-index0"
         ),
         *,
-        camera_warmup_frames=5,
         device_name="",
         uploader=None,
         upload_poll_seconds=1.0,
@@ -108,11 +117,8 @@ class PhotoManager:
             raise ValueError(
                 "outside and inside cameras must be different"
             )
-        if camera_warmup_frames <= 0:
-            raise ValueError("camera warmup frames must be positive")
         self._outside_camera_source = outside_camera_source
         self._inside_camera_source = inside_camera_source
-        self._camera_warmup_frames = camera_warmup_frames
         self._device_name = device_name
         self._uploader = uploader
         self._upload_poll_seconds = upload_poll_seconds
@@ -238,8 +244,9 @@ class PhotoManager:
             challenge_uid,
         )
         os.makedirs(probe_dir, exist_ok=True)
-        results: list[dict[str, Any]] = []
         with self._capture_lock:
+            entries = {}
+            tasks = {}
             for camera_name, source in sources:
                 photo_uid = str(_uuid.uuid4())
                 path = os.path.join(
@@ -249,16 +256,34 @@ class PhotoManager:
                 )
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 temporary_path = self._temporary_path(path)
-                result: dict[str, Any] = {
+                entries[camera_name] = {
                     "camera": camera_name,
                     "simulated": is_simulated_camera_source(source),
                     "path": None,
                     "contentSha256": None,
                     "sizeBytes": 0,
                     "error": None,
+                    "finalPath": path,
+                    "temporaryPath": temporary_path,
                 }
+                tasks[camera_name] = (
+                    lambda capture_path=temporary_path, camera_source=source:
+                    self._capture_camera_to_path(
+                        capture_path,
+                        camera_source,
+                    )
+                )
+
+            outcomes = run_camera_captures(tasks)
+            results: list[dict[str, Any]] = []
+            for camera_name, _source in sources:
+                entry = entries[camera_name]
+                path = entry.pop("finalPath")
+                temporary_path = entry.pop("temporaryPath")
+                capture_error = outcomes[camera_name].error
                 try:
-                    self._capture_camera_to_path(temporary_path, source)
+                    if capture_error is not None:
+                        raise capture_error
                     with open(temporary_path, "rb+") as captured:
                         os.fsync(captured.fileno())
                     os.replace(temporary_path, path)
@@ -266,20 +291,20 @@ class PhotoManager:
                     size_bytes = os.path.getsize(path)
                     if not 1 <= size_bytes <= MAXIMUM_PHOTO_BYTES:
                         raise RuntimeError("captured photo size is invalid")
-                    result.update({
+                    entry.update({
                         "path": path,
                         "contentSha256": _file_sha256(path),
                         "sizeBytes": size_bytes,
                     })
                 except Exception as error:
-                    result["error"] = self._capture_error_code(error)
+                    entry["error"] = self._capture_error_code(error)
                     for candidate in (temporary_path, path):
                         try:
                             if os.path.exists(candidate):
                                 os.remove(candidate)
                         except OSError:
                             pass
-                results.append(result)
+                results.append(entry)
         return {
             "challengeUid": challenge_uid,
             "camerasSimulated": any(
@@ -391,6 +416,7 @@ class PhotoManager:
 
     def _capture_reserved_photos_serial(self, captures):
         results = {}
+        groups = defaultdict(list)
         for reserved in captures:
             photo = self._store.get_photo(reserved["photo_uid"])
             if photo is None:
@@ -407,67 +433,109 @@ class PhotoManager:
                     "status": photo["state"],
                 }
                 continue
+            groups[
+                (
+                    photo["work_type"],
+                    photo["work_uid"],
+                    self._capture_phase(slot),
+                )
+            ].append(photo)
+
+        for group in groups.values():
+            results.update(self._capture_reserved_group(group))
+        return results
+
+    def _capture_reserved_group(self, photos):
+        tasks = {}
+        paths = {}
+        capture_errors = {}
+        for photo in photos:
+            slot = photo["slot_name"]
+            photo_uid = photo["photo_uid"]
             local_path = photo["local_path"]
             directory = os.path.dirname(local_path)
-            os.makedirs(directory, exist_ok=True)
             temporary_path = self._temporary_path(local_path)
             try:
-                self._capture_camera_to_path(
-                    temporary_path,
-                    self._camera_source_for_slot(slot),
+                os.makedirs(directory, exist_ok=True)
+                source = self._camera_source_for_slot(slot)
+                tasks[photo_uid] = (
+                    lambda path=temporary_path, camera_source=source:
+                    self._capture_camera_to_path(path, camera_source)
                 )
-                with open(temporary_path, "rb+") as captured:
-                    os.fsync(captured.fileno())
-                os.replace(temporary_path, local_path)
-                self._sync_directory(directory)
-                size_bytes = os.path.getsize(local_path)
-                if not 1 <= size_bytes <= MAXIMUM_PHOTO_BYTES:
-                    raise RuntimeError("captured photo size is invalid")
-                content_sha256 = _file_sha256(local_path)
-                captured_at = _utc_now()
-                captured = self._store.mark_photo_captured(
-                    photo_uid,
-                    content_sha256=content_sha256,
-                    size_bytes=size_bytes,
-                    captured_at=captured_at,
-                )
-                if not captured:
-                    raise RuntimeError("PHOTO_CAPTURE_STATE_CONFLICT")
-                results[slot] = {
-                    "photo_uid": photo_uid,
-                    "local_path": local_path,
-                    "status": "OK",
-                }
-                self._upload_wake.set()
             except Exception as error:
-                for path in (temporary_path, local_path):
-                    try:
-                        if os.path.exists(path):
-                            os.remove(path)
-                    except OSError:
-                        pass
-                reason = self._capture_error_code(error)
+                capture_errors[photo_uid] = error
+            paths[photo_uid] = (local_path, temporary_path, directory)
+
+        outcomes = run_camera_captures(tasks)
+        for photo_uid, outcome in outcomes.items():
+            if outcome.error is not None:
+                capture_errors[photo_uid] = outcome.error
+
+        results = {}
+        for photo in photos:
+            slot = photo["slot_name"]
+            photo_uid = photo["photo_uid"]
+            local_path, temporary_path, directory = paths[photo_uid]
+            error = capture_errors.get(photo_uid)
+            if error is None:
                 try:
-                    self._report_permanently_missing(
-                        photo,
-                        reason,
-                    )
-                except Exception:
-                    logger.exception(
-                        "photo capture failure persistence failed: "
-                        "photo=%s",
+                    with open(temporary_path, "rb+") as captured:
+                        os.fsync(captured.fileno())
+                    os.replace(temporary_path, local_path)
+                    self._sync_directory(directory)
+                    size_bytes = os.path.getsize(local_path)
+                    if not 1 <= size_bytes <= MAXIMUM_PHOTO_BYTES:
+                        raise RuntimeError("captured photo size is invalid")
+                    content_sha256 = _file_sha256(local_path)
+                    clock_sample = sample_clock()
+                    captured_at = clock_sample.raw_observed_at or _utc_now()
+                    captured = self._store.mark_photo_captured(
                         photo_uid,
+                        content_sha256=content_sha256,
+                        size_bytes=size_bytes,
+                        captured_at=captured_at,
+                        captured_clock_quality=clock_sample.quality,
                     )
-                logger.warning(
-                    "photo capture failed: %s %s",
-                    slot,
+                    if not captured:
+                        raise RuntimeError("PHOTO_CAPTURE_STATE_CONFLICT")
+                    results[slot] = {
+                        "photo_uid": photo_uid,
+                        "local_path": local_path,
+                        "status": "OK",
+                    }
+                    self._upload_wake.set()
+                    continue
+                except Exception as persistence_error:
+                    error = persistence_error
+
+            for path in (temporary_path, local_path):
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                except OSError:
+                    pass
+            reason = self._capture_error_code(error)
+            try:
+                self._report_permanently_missing(
+                    photo,
                     reason,
                 )
-                results[slot] = {
-                    "photo_uid": photo_uid,
-                    "local_path": None,
-                    "status": "FAILED",
-                }
+            except Exception:
+                logger.exception(
+                    "photo capture failure persistence failed: "
+                    "photo=%s",
+                    photo_uid,
+                )
+            logger.warning(
+                "photo capture failed: %s %s",
+                slot,
+                reason,
+            )
+            results[slot] = {
+                "photo_uid": photo_uid,
+                "local_path": None,
+                "status": "FAILED",
+            }
         return results
 
     def _recover_interrupted_captures(self) -> None:
@@ -492,6 +560,7 @@ class PhotoManager:
                         content_sha256=_file_sha256(local_path),
                         size_bytes=size_bytes,
                         captured_at=captured_at,
+                        captured_clock_quality="ESTIMATED",
                     ):
                         raise RuntimeError(
                             "PHOTO_CAPTURE_STATE_CONFLICT"
@@ -552,6 +621,13 @@ class PhotoManager:
             return self._inside_camera_source
         raise ValueError(f"unknown photo slot: {slot}")
 
+    @staticmethod
+    def _capture_phase(slot):
+        for suffix in ("_OUTER", "_INNER"):
+            if slot.endswith(suffix):
+                return slot[:-len(suffix)]
+        raise ValueError(f"unknown photo slot: {slot}")
+
     def _capture_camera_to_path(self, path, camera_source):
         if is_simulated_camera_source(camera_source):
             capture_simulated_camera(path, camera_source)
@@ -562,32 +638,15 @@ class PhotoManager:
             )
             return
         try:
-            import cv2
-        except ImportError as error:
-            raise RuntimeError("OPENCV_NOT_INSTALLED") from error
-        if isinstance(camera_source, str):
-            cap = cv2.VideoCapture(camera_source, cv2.CAP_V4L2)
-        else:
-            cap = cv2.VideoCapture(camera_source)
-        if not cap.isOpened():
-            cap.release()
-            raise RuntimeError("CV2_CAMERA_OPEN_FAILED")
-        frame = None
-        try:
-            for _ in range(self._camera_warmup_frames):
-                ret, candidate = cap.read()
-                if not ret or candidate is None:
-                    if frame is None:
-                        raise RuntimeError("CV2_CAPTURE_NULL_FRAME")
-                    break
-                frame = candidate
-        finally:
-            cap.release()
-        if frame is not None:
-            if not cv2.imwrite(path, frame):
-                raise RuntimeError("CV2_IMAGE_WRITE_FAILED")
-            return
-        raise RuntimeError("CV2_CAPTURE_NULL_FRAME")
+            capture_v4l2_jpeg(camera_source, path)
+        except CameraCaptureError as error:
+            code = {
+                OPENCV_NOT_INSTALLED: "OPENCV_NOT_INSTALLED",
+                CAMERA_OPEN_FAILED: "CV2_CAMERA_OPEN_FAILED",
+                CAMERA_CAPTURE_FAILED: "CV2_CAPTURE_NULL_FRAME",
+                CAMERA_WRITE_FAILED: "CV2_IMAGE_WRITE_FAILED",
+            }.get(error.code, "PHOTO_CAPTURE_FAILED")
+            raise RuntimeError(code) from error
 
     def offer_initial_grant(
         self,
@@ -715,8 +774,13 @@ class PhotoManager:
             return True
         grant = grant_state["grant"]
         expires_at = _parse_utc(grant["expiresAt"])
-        if expires_at <= datetime.now(timezone.utc) + timedelta(
-            seconds=self._grant_expiry_skew_seconds
+        deadline_reference = local_deadline_reference()
+        if (
+            deadline_reference is not None
+            and expires_at
+            <= deadline_reference + timedelta(
+                seconds=self._grant_expiry_skew_seconds
+            )
         ):
             with self._grant_lock:
                 self._grants.pop(identity, None)
@@ -910,7 +974,7 @@ class PhotoManager:
                     "url": url,
                     "sha256": photo["content_sha256"],
                     "sizeBytes": photo["size_bytes"],
-                    "capturedAt": photo["captured_at"],
+                    "capturedAt": self._trusted_captured_at(photo),
                     "missingReason": None,
                 },
             },
@@ -955,7 +1019,9 @@ class PhotoManager:
                         photo["size_bytes"] if was_captured else None
                     ),
                     "capturedAt": (
-                        photo["captured_at"] if was_captured else None
+                        self._trusted_captured_at(photo)
+                        if was_captured
+                        else None
                     ),
                     "missingReason": reason,
                 },
@@ -974,11 +1040,22 @@ class PhotoManager:
 
     def _photo_expired(self, photo: dict) -> bool:
         captured_at = photo.get("captured_at")
-        if not captured_at:
+        deadline_reference = local_deadline_reference()
+        if (
+            not captured_at
+            or photo.get("captured_clock_quality") != "SYNCED"
+            or deadline_reference is None
+        ):
             return False
         return _parse_utc(captured_at) <= (
-            datetime.now(timezone.utc) - self._retention
+            deadline_reference - self._retention
         )
+
+    @staticmethod
+    def _trusted_captured_at(photo: dict) -> str | None:
+        if photo.get("captured_clock_quality") != "SYNCED":
+            return None
+        return photo.get("captured_at")
 
     def _cleanup_confirmed_photos(self) -> None:
         for photo in self._store.list_confirmed_uploaded_photos(limit=20):
@@ -1036,7 +1113,7 @@ class PhotoManager:
                     "url": photo["url"],
                     "sha256": photo["content_sha256"],
                     "sizeBytes": photo["size_bytes"],
-                    "capturedAt": photo["captured_at"],
+                    "capturedAt": self._trusted_captured_at(photo),
                     "missingReason": None,
                 })
                 continue
@@ -1059,7 +1136,9 @@ class PhotoManager:
                         photo["size_bytes"] if was_captured else None
                     ),
                     "capturedAt": (
-                        photo["captured_at"] if was_captured else None
+                        self._trusted_captured_at(photo)
+                        if was_captured
+                        else None
                     ),
                     "missingReason": (
                         photo.get("last_error")
@@ -1075,7 +1154,7 @@ class PhotoManager:
                     "url": None,
                     "sha256": photo["content_sha256"],
                     "sizeBytes": photo["size_bytes"],
-                    "capturedAt": photo["captured_at"],
+                    "capturedAt": self._trusted_captured_at(photo),
                     "missingReason": "PHOTO_UPLOAD_PENDING",
                 })
             else:

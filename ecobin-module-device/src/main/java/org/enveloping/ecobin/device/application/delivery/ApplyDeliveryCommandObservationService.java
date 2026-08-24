@@ -270,10 +270,10 @@ public class ApplyDeliveryCommandObservationService {
             LocalDateTime occurredAt,
             LocalDateTime createdAt,
             LocalDateTime receivedAt) {
-        return occurredAt != null
-                && !occurredAt.isBefore(createdAt)
-                && !occurredAt.isAfter(receivedAt)
-                ? occurredAt : receivedAt;
+        // Device wall time remains raw evidence on the inbox event.  Business
+        // transitions use the backend receive clock, so skew never changes
+        // ordering or creates a cross-clock rejection boundary.
+        return receivedAt;
     }
 
     private static String stableReason(String errorCode) {

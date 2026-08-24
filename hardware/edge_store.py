@@ -26,10 +26,11 @@ from onenet_wire import (
 )
 from factory_seal.errors import FactorySealError
 from factory_seal.validation import authorization_binding_sha256
+from trusted_clock import local_deadline_reference, sample_clock
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 16
+CURRENT_SCHEMA_VERSION = 17
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -277,13 +278,13 @@ class EdgeStore:
         row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         current = row[0] or 0
         if current == CURRENT_SCHEMA_VERSION:
-            # Re-check the v16 shape even when its version row is present.
+            # Re-check the v17 shape even when its version row is present.
             # This turns a copied or historically partially-applied database
             # into a fail-closed startup error instead of silently running
             # without the seal-completion durability columns or index.
-            self._migrate_v16()
+            self._migrate_v17()
             return
-        if current not in {0, 9, 10, 11, 12, 13, 14, 15}:
+        if current not in {0, 9, 10, 11, 12, 13, 14, 15, 16}:
             raise RuntimeError(
                 "EdgeStore 数据库时代不兼容；永久资产 v9 不读取旧设备数据库"
             )
@@ -350,6 +351,10 @@ class EdgeStore:
         if current < 16:
             self._migrate_v16()
             conn.execute("INSERT INTO schema_version (version) VALUES (16)")
+            current = 16
+        if current < 17:
+            self._migrate_v17()
+            conn.execute("INSERT INTO schema_version (version) VALUES (17)")
 
     def _migrate_v10(self) -> None:
         """Add the independent, reboot-safe remote-support control slot."""
@@ -673,6 +678,7 @@ class EdgeStore:
         forward_columns = {
             "cleanup_completed_at",
             "completion_event_uid",
+            "completion_clock_quality",
         }
         if (
             not required.issubset(columns)
@@ -753,7 +759,9 @@ class EdgeStore:
             "cleanup_completed_at",
             "completion_event_uid",
         }
-        if columns != required:
+        if not required.issubset(columns) or not columns.issubset(
+            required | {"completion_clock_quality"}
+        ):
             raise RuntimeError(
                 "factory seal authorization v16 table shape is incompatible"
             )
@@ -788,6 +796,86 @@ class EdgeStore:
             raise RuntimeError(
                 "factory seal completion index shape is incompatible"
             )
+
+    def _migrate_v17(self) -> None:
+        """Persist clock trust beside raw device wall-clock observations."""
+
+        command_columns = {
+            row["name"]
+            for row in self._conn.execute(
+                "PRAGMA table_info('command_inbox')"
+            ).fetchall()
+        }
+        if "received_clock_quality" not in command_columns:
+            self._conn.execute(
+                """ALTER TABLE command_inbox
+                   ADD COLUMN received_clock_quality TEXT NOT NULL
+                       DEFAULT 'ESTIMATED'
+                       CHECK (received_clock_quality IN (
+                           'SYNCED', 'ESTIMATED', 'UNAVAILABLE'
+                       ))"""
+            )
+
+        photo_columns = {
+            row["name"]
+            for row in self._conn.execute(
+                "PRAGMA table_info('photo_outbox')"
+            ).fetchall()
+        }
+        if "captured_clock_quality" not in photo_columns:
+            self._conn.execute(
+                """ALTER TABLE photo_outbox
+                   ADD COLUMN captured_clock_quality TEXT
+                       CHECK (captured_clock_quality IS NULL OR
+                              captured_clock_quality IN (
+                                  'SYNCED', 'ESTIMATED', 'UNAVAILABLE'
+                              ))"""
+            )
+        self._conn.execute(
+            """UPDATE photo_outbox
+               SET captured_clock_quality='ESTIMATED'
+               WHERE captured_at IS NOT NULL
+                 AND captured_clock_quality IS NULL"""
+        )
+
+        seal_columns = {
+            row["name"]
+            for row in self._conn.execute(
+                "PRAGMA table_info('factory_seal_authorization')"
+            ).fetchall()
+        }
+        if "completion_clock_quality" not in seal_columns:
+            self._conn.execute(
+                """ALTER TABLE factory_seal_authorization
+                   ADD COLUMN completion_clock_quality TEXT
+                       CHECK (completion_clock_quality IS NULL OR
+                              completion_clock_quality IN (
+                                  'SYNCED', 'ESTIMATED', 'UNAVAILABLE'
+                              ))"""
+            )
+        self._conn.execute(
+            """UPDATE factory_seal_authorization
+               SET completion_clock_quality='SYNCED'
+               WHERE state='SEALED'
+                 AND completion_clock_quality IS NULL"""
+        )
+
+        required_shapes = {
+            "command_inbox": "received_clock_quality",
+            "photo_outbox": "captured_clock_quality",
+            "factory_seal_authorization": "completion_clock_quality",
+        }
+        for table, column in required_shapes.items():
+            columns = {
+                row["name"]
+                for row in self._conn.execute(
+                    f"PRAGMA table_info('{table}')"
+                ).fetchall()
+            }
+            if column not in columns:
+                raise RuntimeError(
+                    f"EdgeStore v17 {table} shape is incompatible"
+                )
 
     def _create_tables(self) -> None:
         conn = self._conn
@@ -1365,13 +1453,20 @@ class EdgeStore:
         return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
 
     @staticmethod
-    def _command_received_at_now() -> tuple[str, datetime]:
-        received_at = datetime.now(timezone.utc)
-        encoded = received_at.isoformat(timespec="milliseconds").replace(
-            "+00:00",
-            "Z",
-        )
-        return encoded, received_at
+    def _command_received_at_now() -> tuple[str, datetime, str]:
+        sampled = sample_clock()
+        encoded = sampled.raw_observed_at
+        if encoded is None:
+            received_at = datetime.now(timezone.utc)
+            encoded = received_at.isoformat(timespec="milliseconds").replace(
+                "+00:00",
+                "Z",
+            )
+        else:
+            received_at = datetime.fromisoformat(
+                encoded.replace("Z", "+00:00")
+            ).astimezone(timezone.utc)
+        return encoded, received_at, sampled.quality
 
     @staticmethod
     def _parse_command_received_at(value: str) -> datetime:
@@ -1411,6 +1506,9 @@ class EdgeStore:
         stored = dict(payload)
         if "cosGrant" in stored:
             stored["cosGrant"] = None
+        received_at, _received_datetime, clock_quality = (
+            self._command_received_at_now()
+        )
         with self.transaction():
             conn = self._conn
             existing = conn.execute(
@@ -1425,13 +1523,17 @@ class EdgeStore:
                 return "DUPLICATE"
             conn.execute(
                 """INSERT INTO command_inbox
-                   (command_uid, command_type, payload_json, canonical_sha256)
-                   VALUES (?,?,?,?)""",
+                   (command_uid, command_type, payload_json,
+                    canonical_sha256, received_at,
+                    received_clock_quality)
+                   VALUES (?,?,?,?,?,?)""",
                 (
                     command_uid,
                     command_type,
                     _json.dumps(stored, ensure_ascii=False),
                     canonical_sha256,
+                    received_at,
+                    clock_quality,
                 ),
             )
             return "ACCEPTED"
@@ -1454,7 +1556,8 @@ class EdgeStore:
             stored["cosGrant"] = None
         with self.transaction(immediate=True):
             existing = self._conn.execute(
-                """SELECT command_type, canonical_sha256, received_at
+                """SELECT command_type, canonical_sha256, received_at,
+                          received_clock_quality
                    FROM command_inbox WHERE command_uid=?""",
                 (command_uid,),
             ).fetchone()
@@ -1471,25 +1574,33 @@ class EdgeStore:
                 validate_factory_seal_envelope_at_acceptance(
                     command,
                     acceptance_time,
+                    acceptance_clock_quality=existing[
+                        "received_clock_quality"
+                    ],
                 )
                 logger.info("命令去重: %s", command_uid)
                 return "DUPLICATE"
 
-            received_at, acceptance_time = self._command_received_at_now()
+            received_at, acceptance_time, clock_quality = (
+                self._command_received_at_now()
+            )
             validate_factory_seal_envelope_at_acceptance(
                 command,
                 acceptance_time,
+                acceptance_clock_quality=clock_quality,
             )
             self._conn.execute(
                 """INSERT INTO command_inbox
                    (command_uid, command_type, payload_json,
-                    canonical_sha256, received_at)
-                   VALUES (?, 'AUTHORIZE_FACTORY_SEAL', ?, ?, ?)""",
+                    canonical_sha256, received_at,
+                    received_clock_quality)
+                   VALUES (?, 'AUTHORIZE_FACTORY_SEAL', ?, ?, ?, ?)""",
                 (
                     command_uid,
                     _json.dumps(stored, ensure_ascii=False),
                     canonical_sha256,
                     received_at,
+                    clock_quality,
                 ),
             )
             return "ACCEPTED"
@@ -1503,7 +1614,8 @@ class EdgeStore:
         canonical_sha256 = canonical_payload_sha256(stable)
         with self._lock:
             row = self._conn.execute(
-                """SELECT command_type, canonical_sha256, state, received_at
+                """SELECT command_type, canonical_sha256, state, received_at,
+                          received_clock_quality
                    FROM command_inbox WHERE command_uid=?""",
                 (command_uid,),
             ).fetchone()
@@ -1520,6 +1632,9 @@ class EdgeStore:
             validate_factory_seal_envelope_at_acceptance(
                 command,
                 acceptance_time,
+                acceptance_clock_quality=row[
+                    "received_clock_quality"
+                ],
             )
         except (TypeError, ValueError) as error:
             raise FactorySealError(
@@ -1540,6 +1655,9 @@ class EdgeStore:
         stored = dict(command)
         if "cosGrant" in stored:
             stored["cosGrant"] = None
+        received_at, _received_datetime, clock_quality = (
+            self._command_received_at_now()
+        )
         with self.transaction():
             existing = self._conn.execute(
                 """SELECT command_type, canonical_sha256, state, last_error
@@ -1571,13 +1689,16 @@ class EdgeStore:
                 self._conn.execute(
                     """INSERT INTO command_inbox
                        (command_uid, command_type, payload_json,
-                        canonical_sha256, state, processed_at, last_error)
-                       VALUES (?, ?, ?, ?, 'REJECTED', ?, ?)""",
+                        canonical_sha256, state, received_at,
+                        received_clock_quality, processed_at, last_error)
+                       VALUES (?, ?, ?, ?, 'REJECTED', ?, ?, ?, ?)""",
                     (
                         command_uid,
                         command_type,
                         _json.dumps(stored, ensure_ascii=False),
                         canonical_sha256,
+                        received_at,
+                        clock_quality,
                         self._now(),
                         error_code,
                     ),
@@ -4951,7 +5072,13 @@ class EdgeStore:
             "failureCode",
             "occurredAt",
         }
-        if not isinstance(fact, dict) or set(fact) != required:
+        if (
+            not isinstance(fact, dict)
+            or frozenset(fact) not in {
+                frozenset(required),
+                frozenset(required | {"clockQuality"}),
+            }
+        ):
             raise ValueError("remote support status fact fields are invalid")
         event_uid = _require_uuid4_local(fact["eventUid"], "eventUid")
         session_uid = _require_uuid4_local(
@@ -4994,7 +5121,13 @@ class EdgeStore:
         if state == "FAILED" and failure_code is None:
             raise ValueError("FAILED remote support status requires failureCode")
         occurred_at = fact["occurredAt"]
-        _parse_utc_instant(occurred_at, "occurredAt")
+        clock_quality = fact.get("clockQuality", "SYNCED")
+        if clock_quality not in {"SYNCED", "ESTIMATED", "UNAVAILABLE"}:
+            raise ValueError("remote support clockQuality is invalid")
+        if clock_quality == "SYNCED":
+            _parse_utc_instant(occurred_at, "occurredAt")
+        elif occurred_at is not None:
+            raise ValueError("unsynced remote support fact carries occurredAt")
         payload = {
             "sessionUid": session_uid,
             "state": state,
@@ -5016,6 +5149,7 @@ class EdgeStore:
                     and envelope.get("target")
                     == {"type": "DEVICE_ASSET", "uid": device_name}
                     and envelope.get("occurredAt") == occurred_at
+                    and envelope.get("clockQuality") == clock_quality
                     and envelope.get("payload") == payload
                 )
                 return "DUPLICATE" if same else "CONFLICT"
@@ -5032,6 +5166,7 @@ class EdgeStore:
                 payload=payload,
             )
             envelope["occurredAt"] = occurred_at
+            envelope["clockQuality"] = clock_quality
             self._insert_event(
                 self._conn,
                 envelope,
@@ -5060,7 +5195,12 @@ class EdgeStore:
             or remote_port not in range(22011, 22015)
         ):
             raise ValueError("remote_port must be one of 22011..22014")
-        if _parse_utc_instant(expires_at, "expires_at") <= datetime.now(timezone.utc):
+        deadline_reference = local_deadline_reference()
+        if (
+            deadline_reference is not None
+            and _parse_utc_instant(expires_at, "expires_at")
+            <= deadline_reference
+        ):
             raise ValueError("remote support session is already expired")
         with self.transaction():
             existing = self._conn.execute(
@@ -5365,12 +5505,18 @@ class EdgeStore:
         content_sha256: str,
         size_bytes: int,
         captured_at: str,
+        captured_clock_quality: str,
     ) -> bool:
+        if captured_clock_quality not in {
+            "SYNCED", "ESTIMATED", "UNAVAILABLE"
+        }:
+            raise ValueError("captured clock quality is invalid")
         with self.transaction():
             updated = self._conn.execute(
                 """UPDATE photo_outbox
                    SET state=?, content_sha256=?, size_bytes=?,
-                       captured_at=?, last_error=NULL
+                       captured_at=?, captured_clock_quality=?,
+                       last_error=NULL
                    WHERE photo_uid=? AND state=?
                      AND tombstoned=0""",
                 (
@@ -5378,6 +5524,7 @@ class EdgeStore:
                     content_sha256,
                     size_bytes,
                     captured_at,
+                    captured_clock_quality,
                     photo_uid,
                     PHOTO_CAPTURE_PENDING,
                 ),
@@ -6592,7 +6739,22 @@ class EdgeStore:
         content_sha256: Optional[str] = None,
         size_bytes: Optional[int] = None,
         captured_at: Optional[str] = None,
+        captured_clock_quality: Optional[str] = None,
     ) -> str:
+        if captured_at is None:
+            if captured_clock_quality is not None:
+                raise ValueError(
+                    "captured clock quality requires captured_at"
+                )
+        else:
+            # Calls predating EdgeStore v17 supplied a captured timestamp but
+            # had no separate quality argument. Preserve their historical
+            # semantics: an explicitly supplied capture time was trusted.
+            captured_clock_quality = captured_clock_quality or "SYNCED"
+            if captured_clock_quality not in {
+                "SYNCED", "ESTIMATED", "UNAVAILABLE"
+            }:
+                raise ValueError("captured clock quality is invalid")
         with self.transaction():
             conn = self._conn
             existing = conn.execute(
@@ -6604,8 +6766,8 @@ class EdgeStore:
                 """INSERT INTO photo_outbox
                    (photo_uid, slot_name, local_path, cos_key, work_uid,
                     work_type, device_name, content_sha256, size_bytes,
-                    captured_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    captured_at, captured_clock_quality)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     photo_uid,
                     slot_name,
@@ -6617,6 +6779,7 @@ class EdgeStore:
                     content_sha256,
                     size_bytes,
                     captured_at,
+                    captured_clock_quality,
                 ),
             )
             return "ACCEPTED"

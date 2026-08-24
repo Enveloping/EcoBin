@@ -531,7 +531,9 @@ public class ApplyDeliveryCompleteService
                     null);
         }
         LocalDateTime occurredAt = utc(physical.deviceOccurredAt());
-        if (facts.backendReceivedAt().isAfter(
+        if ("SYNCED".equals(physical.clockQuality())
+                && occurredAt != null
+                && facts.backendReceivedAt().isAfter(
                 occurredAt.plusMinutes(15))) {
             insertAnomaly(
                     facts,
