@@ -27,6 +27,7 @@ class ExternalClockToleranceMigrationTest {
                 "LEAST(",
                 "ADD COLUMN CLOCK_QUALITY VARCHAR(16)",
                 "MODIFY COLUMN OBSERVED_AT DATETIME(3) NULL",
+                "DROP CHECK CK_DEV_ACCEPTANCE_EVIDENCE_RESULT_V42",
                 "MODIFY COLUMN OCCURRED_AT DATETIME(3) NULL",
                 "MODIFY COLUMN DEVICE_OCCURRED_AT DATETIME(3) NULL",
                 "SESSION_ID, RECEIVED_AT DESC, ID DESC",

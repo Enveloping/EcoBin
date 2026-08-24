@@ -157,7 +157,7 @@ SET clock_quality = CASE
 END;
 
 ALTER TABLE dev_device_acceptance_evidence
-    DROP CHECK ck_dev_acceptance_evidence_result,
+    DROP CHECK ck_dev_acceptance_evidence_result_v42,
     DROP CHECK ck_dev_acceptance_evidence_times,
     MODIFY COLUMN observed_at DATETIME(3) NULL,
     MODIFY COLUMN clock_quality VARCHAR(16)
