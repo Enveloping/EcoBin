@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   PageContainer,
   ProTable,
@@ -55,6 +55,8 @@ import {
   acceptanceLabels,
   assetColors,
   assetLabels,
+  connectivityColors,
+  connectivityLabels,
 } from './devicePresentation';
 
 interface AssetFormValues {
@@ -141,10 +143,24 @@ export default function DeviceManagementPage() {
       : 'organization';
   const canCreate = platform && hasCapability('device.manage');
 
+  useEffect(() => {
+    const refreshVisibleList = () => {
+      if (document.visibilityState === 'visible') {
+        void actionRef.current?.reload();
+      }
+    };
+    const interval = window.setInterval(refreshVisibleList, 15_000);
+    document.addEventListener('visibilitychange', refreshVisibleList);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshVisibleList);
+    };
+  }, [mode, organizationScope.organizationCode]);
+
   const pageCopy = mode === 'platform'
     ? {
       title: '永久设备资产',
-      description: '平台登记物理设备资产、查看自动验收证据，并只分配一次租户。',
+      description: '平台登记物理设备资产、查看当前在线状态和历史验收证据，并只分配一次租户。',
     }
     : mode === 'tenant'
       ? {
@@ -175,6 +191,27 @@ export default function DeviceManagementPage() {
           </Typography.Text>
         </Space>
       ),
+    },
+    {
+      title: '联网状态',
+      dataIndex: ['connectivity', 'oneNetConnectionStatus'],
+      search: false,
+      width: 170,
+      render: (_, asset) => {
+        const status = asset.connectivity?.oneNetConnectionStatus ?? 'UNKNOWN';
+        return (
+          <Space direction="vertical" size={1}>
+            <Tag color={connectivityColors[status]}>
+              {connectivityLabels[status]}
+            </Tag>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {asset.connectivity?.statusObservedAt
+                ? formatShanghaiTime(asset.connectivity.statusObservedAt)
+                : '尚未收到上下线事实'}
+            </Typography.Text>
+          </Space>
+        );
+      },
     },
     {
       title: '型号 / 投口',

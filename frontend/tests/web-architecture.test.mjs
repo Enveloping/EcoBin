@@ -488,6 +488,9 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.match(apiSource, /assignPlatformDeviceTenant/);
   assert.match(apiSource, /assignTenantDeviceOrganization/);
   assert.match(apiSource, /listDeviceAcceptanceEvidence/);
+  assert.match(apiSource, /getPlatformDeviceRuntime/);
+  assert.match(apiSource, /getTenantDeviceRuntime/);
+  assert.match(apiSource, /getOrganizationDeviceRuntime/);
   assert.match(apiSource, /reevaluateDeviceAcceptance/);
   assert.match(apiSource, /listPlatformDeviceConfigurationVersions/);
   assert.match(apiSource, /rollForwardPlatformDeviceConfiguration/);
@@ -504,6 +507,8 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.match(pageSource, /共享小程序的设备出厂端/);
   assert.match(pageSource, /联网即可使用/);
   assert.match(pageSource, /运行快照策略/);
+  assert.match(pageSource, /联网状态/);
+  assert.match(pageSource, /window\.setInterval\(refreshVisibleList, 15_000\)/);
   assert.match(runtimePolicySource, /不是设备在线心跳/);
   assert.match(runtimePolicySource, /fallbackIntervalMinutes/);
   assert.doesNotMatch(
@@ -512,7 +517,12 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   );
   assert.match(drawerSource, /mcuSimulated/);
   assert.match(drawerSource, /camerasSimulated/);
-  assert.match(drawerSource, /设备联网后会自动提交功能验收证据/);
+  assert.match(drawerSource, /当前验收代次尚未保存自动验收证据/);
+  assert.match(drawerSource, /当前联网与最近运行状态/);
+  assert.match(drawerSource, /每 15 秒自动刷新/);
+  assert.match(drawerSource, /出厂自动机器验收（历史证据）/);
+  assert.match(drawerSource, /不是设备当前状态/);
+  assert.match(drawerSource, /activeKey=\{evidenceExpanded/);
   assert.match(drawerSource, /模拟器（仅诊断）/);
   assert.doesNotMatch(drawerSource, /模拟器（不能通过）/);
   assert.match(drawerSource, /expectedLatestVersion:\s*current\.versionNo/);

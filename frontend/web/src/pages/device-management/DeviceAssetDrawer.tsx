@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Collapse,
   Descriptions,
   Divider,
   Drawer,
@@ -24,6 +25,8 @@ import {
   CloudSyncOutlined,
   DownloadOutlined,
   EditOutlined,
+  HistoryOutlined,
+  MonitorOutlined,
   QrcodeOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
@@ -31,8 +34,11 @@ import {
 import QRCode from 'qrcode';
 import {
   getDeviceConfigurationVersion,
+  getOrganizationDeviceRuntime,
   getPlatformDeviceConfigurationApplication,
   getPlatformDeviceConfigurationVersion,
+  getPlatformDeviceRuntime,
+  getTenantDeviceRuntime,
   listDeviceAcceptanceEvidence,
   listDeviceConfigurationVersions,
   listPlatformDeviceConfigurationVersions,
@@ -47,6 +53,8 @@ import {
   type DeviceConfigurationReleaseRequest,
   type DeviceConfigurationVersion,
   type DeviceConfigurationVersionSummary,
+  type DevicePortRuntime,
+  type DeviceRuntime,
   type DeviceTechnicalIssue,
 } from '@/api/deviceDirectory';
 import { ApiProblem } from '@/api/request';
@@ -60,6 +68,10 @@ import {
   booleanEvidence,
   configurationColors,
   configurationLabels,
+  connectivityColors,
+  connectivityLabels,
+  runtimeStatusColor,
+  runtimeStatusLabel,
 } from './devicePresentation';
 import RemoteSupportPanel from './RemoteSupportPanel';
 
@@ -110,9 +122,21 @@ interface TechnicalIssueLoadState {
   hasLoaded: boolean;
 }
 
+interface RuntimeLoadState {
+  status: TechnicalIssueLoadStatus;
+  data?: DeviceRuntime;
+  error?: string;
+  hasLoaded: boolean;
+}
+
 const EMPTY_TECHNICAL_ISSUE_LOAD: TechnicalIssueLoadState = {
   status: 'idle',
   data: [],
+  hasLoaded: false,
+};
+
+const EMPTY_RUNTIME_LOAD: RuntimeLoadState = {
+  status: 'idle',
   hasLoaded: false,
 };
 
@@ -123,6 +147,283 @@ function errorMessage(error: unknown): string {
       : error.message;
   }
   return error instanceof Error ? error.message : '设备数据加载失败';
+}
+
+function RuntimeTag({ value }: { value?: string | null }) {
+  return (
+    <Tag color={runtimeStatusColor(value)}>
+      {runtimeStatusLabel(value)}
+    </Tag>
+  );
+}
+
+function optionalTime(value?: string | null): string {
+  return value ? formatShanghaiTime(value) : '尚无记录';
+}
+
+function portWeightText(port: DevicePortRuntime): string {
+  if (port.weightValueAvailable === false) return '本次没有有效重量';
+  if (port.reportedWeightGrams == null) return '尚无重量数据';
+  const kind = port.weightValueKind
+    ? ` · ${runtimeStatusLabel(port.weightValueKind)}`
+    : '';
+  return `${port.reportedWeightGrams} 克${kind}`;
+}
+
+function PortRuntimePanel({ port }: { port: DevicePortRuntime }) {
+  return (
+    <Descriptions size="small" bordered column={2}>
+      <Descriptions.Item label="投递门状态">
+        <RuntimeTag value={port.deliveryDoorState} />
+      </Descriptions.Item>
+      <Descriptions.Item label="投递门执行器">
+        <RuntimeTag value={port.deliveryDoorActuatorHealth} />
+      </Descriptions.Item>
+      <Descriptions.Item label="投递门检测">
+        <RuntimeTag value={port.deliveryDoorContactState} />
+      </Descriptions.Item>
+      <Descriptions.Item label="最近投递门命令">
+        <Space size={4} wrap>
+          <Typography.Text>
+            {port.lastDeliveryDoorCommand
+              ? runtimeStatusLabel(port.lastDeliveryDoorCommand)
+              : '尚无命令'}
+          </Typography.Text>
+          {port.lastDeliveryDoorOutputStatus && (
+            <Tag color={runtimeStatusColor(
+              port.lastDeliveryDoorOutputStatus,
+            )}>
+              {runtimeStatusLabel(port.lastDeliveryDoorOutputStatus)}
+            </Tag>
+          )}
+        </Space>
+      </Descriptions.Item>
+      <Descriptions.Item label="清运锁供电">
+        <RuntimeTag value={port.cleanLockPowerState} />
+      </Descriptions.Item>
+      <Descriptions.Item label="清运电磁阀">
+        <RuntimeTag value={port.cleanSolenoidHealth} />
+      </Descriptions.Item>
+      <Descriptions.Item label="清运门记录状态">
+        <RuntimeTag value={port.cleanDoorRecordedState} />
+      </Descriptions.Item>
+      <Descriptions.Item label="清运门事实依据">
+        {runtimeStatusLabel(port.cleanDoorStateBasis)}
+      </Descriptions.Item>
+      <Descriptions.Item label="清运员关门确认">
+        {port.cleanerPhysicalCloseConfirmed == null
+          ? '本次快照未提供'
+          : port.cleanerPhysicalCloseConfirmed
+            ? <Tag color="success">已现场确认关闭</Tag>
+            : <Tag color="warning">尚未确认关闭</Tag>}
+      </Descriptions.Item>
+      <Descriptions.Item label="称重传感器">
+        <RuntimeTag value={port.weightSensorHealth} />
+      </Descriptions.Item>
+      <Descriptions.Item label="最近重量">
+        {portWeightText(port)}
+      </Descriptions.Item>
+      <Descriptions.Item label="重量测量状态">
+        <RuntimeTag value={port.weightMeasurementStatus} />
+      </Descriptions.Item>
+      <Descriptions.Item label="红外传感器">
+        <Space size={4} wrap>
+          <RuntimeTag value={port.infraredSensorHealth} />
+          <RuntimeTag value={port.infraredValue} />
+        </Space>
+      </Descriptions.Item>
+      <Descriptions.Item label="满溢传感器">
+        {port.fullnessSensorKind ? (
+          <Space size={4} wrap>
+            <Typography.Text>{port.fullnessSensorKind}</Typography.Text>
+            <RuntimeTag value={port.fullnessSensorValue} />
+            {port.representativeDistanceMm != null && (
+              <Typography.Text type="secondary">
+                {port.representativeDistanceMm} mm
+              </Typography.Text>
+            )}
+          </Space>
+        ) : '尚无数据'}
+      </Descriptions.Item>
+      <Descriptions.Item label="烟雾传感器">
+        <Space size={4} wrap>
+          <RuntimeTag value={port.smokeSensorHealth} />
+          <RuntimeTag value={port.smokeState} />
+        </Space>
+      </Descriptions.Item>
+      <Descriptions.Item label="投口安全状态">
+        <RuntimeTag value={port.safetyStatus} />
+      </Descriptions.Item>
+      <Descriptions.Item label="配置状态">
+        {port.configuredEnabled == null
+          ? '尚无配置'
+          : port.configuredEnabled
+            ? <Tag color="success">已启用</Tag>
+            : <Tag>未启用</Tag>}
+      </Descriptions.Item>
+      <Descriptions.Item label="最后观测时间" span={2}>
+        {optionalTime(port.lastObservedAt)}
+      </Descriptions.Item>
+    </Descriptions>
+  );
+}
+
+function RuntimeStatusPanel({
+  runtime,
+}: {
+  runtime: DeviceRuntime;
+}) {
+  const { health, configuration } = runtime;
+  const online = health.oneNetConnectionStatus;
+  const configurationText = configuration.latestPublishedVersion == null
+    ? '尚未发布配置'
+    : `已发布 v${configuration.latestPublishedVersion}`
+      + (configuration.latestAppliedVersion == null
+        ? ' · 尚未应用'
+        : ` · 设备已应用 v${configuration.latestAppliedVersion}`);
+  return (
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      <Alert
+        showIcon
+        type={online === 'ONLINE'
+          ? 'success'
+          : online === 'OFFLINE'
+            ? 'error'
+            : 'warning'}
+        message={online === 'ONLINE'
+          ? 'OneNet 当前报告设备在线'
+          : online === 'OFFLINE'
+            ? 'OneNet 当前报告设备离线，新投递和清运会被阻止'
+            : '尚未取得可信的设备上下线事实'}
+        description="在线状态来自 OneNet 上下线通知；其余健康项来自最近一次可信运行快照，必须结合各自时间判断，不代表持续直播值。"
+      />
+      {!health.trustedRuntimeReceivedAt && (
+        <Alert
+          type="warning"
+          showIcon
+          message="尚未收到机构归属后的可信运行快照"
+          description="设备可以已经在线，但 MCU、摄像头和传感器等项目仍会显示未知；设备分配机构并上报运行快照后才会形成这些当前投影。"
+        />
+      )}
+      <Descriptions size="small" bordered column={2}>
+        <Descriptions.Item label="设备联网">
+          <RuntimeTag value={health.oneNetConnectionStatus} />
+        </Descriptions.Item>
+        <Descriptions.Item label="联网事实时间">
+          {optionalTime(health.oneNetStatusObservedAt)}
+        </Descriptions.Item>
+        <Descriptions.Item label="平台收到联网事实">
+          {optionalTime(health.oneNetStatusReceivedAt)}
+        </Descriptions.Item>
+        <Descriptions.Item label="香橙派最近运行状态">
+          <RuntimeTag value={health.edgeConnectionStatus} />
+        </Descriptions.Item>
+        <Descriptions.Item label="最近运行快照">
+          {optionalTime(health.trustedRuntimeReceivedAt)}
+        </Descriptions.Item>
+        <Descriptions.Item label="MCU 通信">
+          <RuntimeTag value={health.mcuLinkStatus} />
+        </Descriptions.Item>
+        <Descriptions.Item label="整机安全状态">
+          <RuntimeTag value={health.safetyStatus} />
+        </Descriptions.Item>
+        <Descriptions.Item label="整机称重健康">
+          <RuntimeTag value={health.aggregateWeightHealth} />
+        </Descriptions.Item>
+        <Descriptions.Item label="摄像头健康">
+          <RuntimeTag value={health.cameraHealth} />
+        </Descriptions.Item>
+        <Descriptions.Item label="本地存储">
+          <RuntimeTag value={health.localStorageHealth} />
+        </Descriptions.Item>
+        <Descriptions.Item label="设备时钟">
+          <RuntimeTag value={health.clockSyncHealth} />
+        </Descriptions.Item>
+        <Descriptions.Item label="当前作业占用">
+          {runtime.occupied ? (
+            <Space size={4} wrap>
+              <RuntimeTag value={runtime.occupancyKind} />
+              <Typography.Text type="secondary">
+                {optionalTime(runtime.occupiedAt)}
+              </Typography.Text>
+            </Space>
+          ) : <Tag color="success">空闲</Tag>}
+        </Descriptions.Item>
+        <Descriptions.Item label="当前配置">
+          <Space size={4} wrap>
+            <Typography.Text>{configurationText}</Typography.Text>
+            {configuration.latestPreciselyApplied && (
+              <Tag color="success">精确生效</Tag>
+            )}
+          </Space>
+        </Descriptions.Item>
+        <Descriptions.Item label="香橙派软件">
+          {health.edgeSoftwareVersion ?? '尚无数据'}
+        </Descriptions.Item>
+        <Descriptions.Item label="香橙派启动编号">
+          {health.edgeBootId ?? '尚无数据'}
+        </Descriptions.Item>
+        <Descriptions.Item label="MCU 固件">
+          {health.mcuFirmwareVersion ?? '尚无数据'}
+        </Descriptions.Item>
+        <Descriptions.Item label="MCU 最近重启原因">
+          {health.lastMcuResetReason ?? '尚无数据'}
+        </Descriptions.Item>
+        <Descriptions.Item label="串口状态">
+          <Space size={4} wrap>
+            <RuntimeTag value={health.uartState} />
+            {health.uartProtocolMajor != null
+              && health.uartProtocolMinor != null && (
+              <Typography.Text type="secondary">
+                协议 {health.uartProtocolMajor}.{health.uartProtocolMinor}
+              </Typography.Text>
+            )}
+          </Space>
+        </Descriptions.Item>
+        <Descriptions.Item label="待发送可靠事件">
+          {health.pendingReliableEventCount ?? '尚无数据'}
+        </Descriptions.Item>
+        <Descriptions.Item label="香橙派上报配置版本">
+          {health.orangePiReportedConfigurationVersion == null
+            ? '尚无数据'
+            : `v${health.orangePiReportedConfigurationVersion}`}
+        </Descriptions.Item>
+        <Descriptions.Item label="最近心跳记录">
+          {optionalTime(health.lastHeartbeatAt)}
+        </Descriptions.Item>
+        <Descriptions.Item label="最近设备事件">
+          {optionalTime(health.lastDeviceEventAt)}
+        </Descriptions.Item>
+      </Descriptions>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        页面读取时间：{formatShanghaiTime(runtime.fetchedAt)}。这里是观察视图；真正开始投递或清运时，后端仍会在事务中重新检查全部准入条件。
+      </Typography.Text>
+      {runtime.ports.length ? (
+        <Collapse
+          size="small"
+          items={runtime.ports.map((port) => ({
+            key: String(port.portNo),
+            label: (
+              <Space wrap>
+                <Typography.Text strong>
+                  {port.portNo} 号投口 · {port.displayName}
+                </Typography.Text>
+                <RuntimeTag value={port.safetyStatus} />
+                <RuntimeTag value={port.weightSensorHealth} />
+                <RuntimeTag value={port.smokeState} />
+              </Space>
+            ),
+            children: <PortRuntimePanel port={port} />,
+          }))}
+        />
+      ) : (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="永久分配机构后才会建立投口运行状态"
+        />
+      )}
+    </Space>
+  );
 }
 
 function mergeConfiguration(
@@ -152,7 +453,7 @@ function EvidencePanel({ rows }: { rows: DeviceAcceptanceEvidence[] }) {
     return (
       <Empty
         image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="设备联网后会自动提交功能验收证据"
+        description="当前验收代次尚未保存自动验收证据"
       />
     );
   }
@@ -174,13 +475,13 @@ function EvidencePanel({ rows }: { rows: DeviceAcceptanceEvidence[] }) {
         type={latest.evaluationStatus === 'PASSED' ? 'success' : 'warning'}
         message={
           latest.evaluationStatus === 'PASSED'
-            ? '最新功能证据已通过机器验收'
-            : '最新证据尚未满足机器验收'
+            ? '验收代次最后一份功能证据已通过'
+            : '验收代次最后一份功能证据未通过'
         }
         description={
           latest.failureReasons.length
             ? latest.failureReasons.join('、')
-            : `设备软件 ${latest.edgeSoftwareVersion} · 协议 ${latest.edgeProtocolVersion}`
+            : `验收时设备软件 ${latest.edgeSoftwareVersion} · 协议 ${latest.edgeProtocolVersion}`
         }
       />
       <Descriptions size="small" column={2} bordered>
@@ -207,7 +508,7 @@ function EvidencePanel({ rows }: { rows: DeviceAcceptanceEvidence[] }) {
       </Descriptions>
       {rows.length > 1 && (
         <Typography.Text type="secondary">
-          共保存 {rows.length} 次验收证据；历史失败不会因后来通过而被删除。
+          共保存 {rows.length} 次出厂验收证据；历史失败不会因后来通过而被删除。
         </Typography.Text>
       )}
     </Space>
@@ -231,6 +532,10 @@ export default function DeviceAssetDrawer({
   const [recoveryForm] = Form.useForm<PlatformConfigurationRecovery>();
   const [baselineForm] = Form.useForm<ManualBaselineAttempt>();
   const [evidence, setEvidence] = useState<DeviceAcceptanceEvidence[]>([]);
+  const [evidenceExpanded, setEvidenceExpanded] = useState(false);
+  const [evidenceLoaded, setEvidenceLoaded] = useState(false);
+  const [runtimeLoad, setRuntimeLoad] =
+    useState<RuntimeLoadState>(EMPTY_RUNTIME_LOAD);
   const [technicalIssueLoad, setTechnicalIssueLoad] =
     useState<TechnicalIssueLoadState>(EMPTY_TECHNICAL_ISSUE_LOAD);
   const [versions, setVersions] = useState<DeviceConfigurationVersionSummary[]>([]);
@@ -238,6 +543,7 @@ export default function DeviceAssetDrawer({
   const [latestApplication, setLatestApplication] =
     useState<DeviceConfigurationApplication>();
   const [loadingEvidence, setLoadingEvidence] = useState(false);
+  const runtimeRequest = useRef(0);
   const technicalIssueRequest = useRef(0);
   const [loadingConfiguration, setLoadingConfiguration] = useState(false);
   const [configurationModalOpen, setConfigurationModalOpen] = useState(false);
@@ -251,6 +557,7 @@ export default function DeviceAssetDrawer({
   const [entryQrError, setEntryQrError] = useState(false);
   const technicalIssues = technicalIssueLoad.data;
   const loadingTechnicalIssues = technicalIssueLoad.status === 'loading';
+  const loadingRuntime = runtimeLoad.status === 'loading';
 
   const canConfigure = Boolean(asset) && (
     (mode === 'organization' && Boolean(organizationCode))
@@ -262,10 +569,45 @@ export default function DeviceAssetDrawer({
     setLoadingEvidence(true);
     try {
       setEvidence(await listDeviceAcceptanceEvidence(asset.hardwareSn));
+      setEvidenceLoaded(true);
     } catch (error) {
       message.error(errorMessage(error));
     } finally {
       setLoadingEvidence(false);
+    }
+  };
+
+  const loadRuntime = async () => {
+    if (!asset) return;
+    if (mode === 'organization' && !organizationCode) return;
+    const requestId = ++runtimeRequest.current;
+    setRuntimeLoad((current) => ({
+      ...current,
+      status: 'loading',
+      error: undefined,
+    }));
+    try {
+      const data = mode === 'platform'
+        ? await getPlatformDeviceRuntime(asset.hardwareSn)
+        : mode === 'tenant'
+          ? await getTenantDeviceRuntime(asset.hardwareSn)
+          : await getOrganizationDeviceRuntime(
+            organizationCode!,
+            asset.deviceCode,
+          );
+      if (runtimeRequest.current !== requestId) return;
+      setRuntimeLoad({
+        status: 'loaded',
+        data,
+        hasLoaded: true,
+      });
+    } catch (error) {
+      if (runtimeRequest.current !== requestId) return;
+      setRuntimeLoad((current) => ({
+        ...current,
+        status: 'error',
+        error: errorMessage(error),
+      }));
     }
   };
 
@@ -347,15 +689,18 @@ export default function DeviceAssetDrawer({
   };
 
   useEffect(() => {
+    runtimeRequest.current += 1;
     technicalIssueRequest.current += 1;
     if (!open) return;
     setEvidence([]);
+    setEvidenceExpanded(false);
+    setEvidenceLoaded(false);
+    setRuntimeLoad(EMPTY_RUNTIME_LOAD);
     setTechnicalIssueLoad(EMPTY_TECHNICAL_ISSUE_LOAD);
     setVersions([]);
     setLatestVersion(undefined);
     setLatestApplication(undefined);
     setBaselineIssue(undefined);
-    void loadEvidence();
     void loadTechnicalIssues();
     void loadConfiguration();
     // The stable identities below intentionally define a new drawer target.
@@ -366,6 +711,26 @@ export default function DeviceAssetDrawer({
     asset?.hardwareSn,
     asset?.deviceCode,
     asset?.organizationCode,
+    organizationCode,
+  ]);
+
+  useEffect(() => {
+    if (!open || !asset) return () => undefined;
+    void loadRuntime();
+    const interval = window.setInterval(() => {
+      void loadRuntime();
+    }, 15_000);
+    return () => {
+      window.clearInterval(interval);
+      runtimeRequest.current += 1;
+    };
+    // A new target must start a separate polling lifecycle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    open,
+    mode,
+    asset?.hardwareSn,
+    asset?.deviceCode,
     organizationCode,
   ]);
 
@@ -706,6 +1071,20 @@ export default function DeviceAssetDrawer({
                     {assetLabels[asset.lifecycleStatus]}
                   </Tag>
                 </Descriptions.Item>
+                <Descriptions.Item label="设备联网">
+                  <Space direction="vertical" size={0}>
+                    <Tag color={connectivityColors[
+                      asset.connectivity?.oneNetConnectionStatus ?? 'UNKNOWN'
+                    ]}>
+                      {connectivityLabels[
+                        asset.connectivity?.oneNetConnectionStatus ?? 'UNKNOWN'
+                      ]}
+                    </Tag>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {optionalTime(asset.connectivity?.statusObservedAt)}
+                    </Typography.Text>
+                  </Space>
+                </Descriptions.Item>
                 <Descriptions.Item label="永久租户">
                   {asset.tenantCode ?? '尚未分配'}
                 </Descriptions.Item>
@@ -786,6 +1165,68 @@ export default function DeviceAssetDrawer({
                 </Descriptions.Item>
               </Descriptions>
             </Card>
+
+            <section>
+              <Space
+                align="center"
+                style={{
+                  width: '100%',
+                  justifyContent: 'space-between',
+                  marginBottom: 12,
+                }}
+              >
+                <Space>
+                  <MonitorOutlined />
+                  <Typography.Title level={5} style={{ margin: 0 }}>
+                    当前联网与最近运行状态
+                  </Typography.Title>
+                  {runtimeLoad.data && (
+                    <RuntimeTag
+                      value={runtimeLoad.data.health.oneNetConnectionStatus}
+                    />
+                  )}
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    每 15 秒自动刷新
+                  </Typography.Text>
+                </Space>
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  loading={loadingRuntime}
+                  onClick={() => void loadRuntime()}
+                >
+                  立即刷新
+                </Button>
+              </Space>
+              <Spin spinning={loadingRuntime && !runtimeLoad.hasLoaded}>
+                {runtimeLoad.status === 'error' && (
+                  <Alert
+                    type={runtimeLoad.hasLoaded ? 'warning' : 'error'}
+                    showIcon
+                    style={{ marginBottom: runtimeLoad.data ? 12 : 0 }}
+                    message={runtimeLoad.hasLoaded
+                      ? '设备状态刷新失败，以下是上一次成功结果'
+                      : '设备状态加载失败'}
+                    description={runtimeLoad.error}
+                    action={(
+                      <Button size="small" onClick={() => void loadRuntime()}>
+                        重试
+                      </Button>
+                    )}
+                  />
+                )}
+                {runtimeLoad.data ? (
+                  <RuntimeStatusPanel runtime={runtimeLoad.data} />
+                ) : loadingRuntime ? (
+                  <div
+                    aria-label="正在加载设备当前状态"
+                    style={{ minHeight: 96 }}
+                  />
+                ) : runtimeLoad.status !== 'error' ? (
+                  <Empty description="尚未读取设备当前状态" />
+                ) : null}
+              </Spin>
+            </section>
 
             {mode === 'platform' && (
               <RemoteSupportPanel hardwareSn={asset.hardwareSn} />
@@ -931,15 +1372,61 @@ export default function DeviceAssetDrawer({
 
             {mode === 'platform' && (
               <section>
-                <Space style={{ marginBottom: 12 }}>
-                  <SafetyCertificateOutlined />
-                  <Typography.Title level={5} style={{ margin: 0 }}>
-                    自动机器验收证据
-                  </Typography.Title>
-                </Space>
-                <Spin spinning={loadingEvidence}>
-                  <EvidencePanel rows={evidence} />
-                </Spin>
+                <Collapse
+                  activeKey={evidenceExpanded ? ['acceptance-evidence'] : []}
+                  onChange={(keys) => {
+                    const expanded = Array.isArray(keys)
+                      ? keys.includes('acceptance-evidence')
+                      : keys === 'acceptance-evidence';
+                    setEvidenceExpanded(expanded);
+                    if (expanded && !evidenceLoaded && !loadingEvidence) {
+                      void loadEvidence();
+                    }
+                  }}
+                  items={[{
+                    key: 'acceptance-evidence',
+                    label: (
+                      <Space wrap>
+                        <HistoryOutlined />
+                        <Typography.Text strong>
+                          出厂自动机器验收（历史证据）
+                        </Typography.Text>
+                        <Tag color={acceptanceColors[asset.acceptanceStatus]}>
+                          {asset.acceptanceStatus === 'PASSED'
+                            ? '验收已通过'
+                            : asset.acceptanceStatus === 'FAILED'
+                              ? '验收阻断：最近证据未通过'
+                              : '验收阻断：等待合格证据'}
+                        </Tag>
+                        {asset.acceptedAt && (
+                          <Typography.Text
+                            type="secondary"
+                            style={{ fontSize: 12 }}
+                          >
+                            通过时间 {formatShanghaiTime(asset.acceptedAt)}
+                          </Typography.Text>
+                        )}
+                      </Space>
+                    ),
+                    children: (
+                      <Space
+                        direction="vertical"
+                        size={12}
+                        style={{ width: '100%' }}
+                      >
+                        <Alert
+                          type="info"
+                          showIcon
+                          message="这里是验收时保存的历史功能快照，不是设备当前状态"
+                          description="设备通过验收后发生的离线、MCU、摄像头或传感器故障不会改写历史验收结论；请以上方“当前联网与最近运行状态”和“设备问题与安全恢复”为准。"
+                        />
+                        <Spin spinning={loadingEvidence}>
+                          <EvidencePanel rows={evidence} />
+                        </Spin>
+                      </Space>
+                    ),
+                  }]}
+                />
               </section>
             )}
 

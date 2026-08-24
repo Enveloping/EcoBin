@@ -10,6 +10,8 @@ export type DeviceAssetLifecycleStatus =
   Schemas['DeviceAssetLifecycleStatus'];
 export type DeviceAcceptanceStatus = Schemas['DeviceAcceptanceStatus'];
 export type DeviceAcceptanceEvidence = Schemas['DeviceAcceptanceEvidence'];
+export type DeviceRuntime = Schemas['DeviceRuntime'];
+export type DevicePortRuntime = Schemas['DevicePortRuntime'];
 export type CreateDeviceAssetRequest = Schemas['CreateDeviceAssetRequest'];
 export type AssignDeviceTenantRequest = Schemas['AssignDeviceTenantRequest'];
 export type AssignDeviceOrganizationRequest =
@@ -99,6 +101,16 @@ export function createPlatformDeviceAsset(
 export function getPlatformDeviceAsset(hardwareSn: string) {
   return request<DeviceAsset>({
     url: `/api/v1/web/platform/device-assets/${encodeURIComponent(hardwareSn)}`,
+    method: 'GET',
+    noStore: true,
+  });
+}
+
+export function getPlatformDeviceRuntime(hardwareSn: string) {
+  return request<DeviceRuntime>({
+    url:
+      `/api/v1/web/platform/device-assets/${encodeURIComponent(hardwareSn)}`
+      + '/runtime',
     method: 'GET',
     noStore: true,
   });
@@ -300,6 +312,14 @@ export function getTenantDeviceAsset(hardwareSn: string) {
   });
 }
 
+export function getTenantDeviceRuntime(hardwareSn: string) {
+  return request<DeviceRuntime>({
+    url: `/api/v1/web/device-assets/${encodeURIComponent(hardwareSn)}/runtime`,
+    method: 'GET',
+    noStore: true,
+  });
+}
+
 export function assignTenantDeviceOrganization(
   hardwareSn: string,
   data: AssignDeviceOrganizationRequest,
@@ -342,6 +362,17 @@ export function getOrganizationDevice(
 ) {
   return request<DeviceAsset>({
     url: organizationDeviceUrl(organizationCode, deviceCode),
+    method: 'GET',
+    noStore: true,
+  });
+}
+
+export function getOrganizationDeviceRuntime(
+  organizationCode: string,
+  deviceCode: string,
+) {
+  return request<DeviceRuntime>({
+    url: `${organizationDeviceUrl(organizationCode, deviceCode)}/runtime`,
     method: 'GET',
     noStore: true,
   });

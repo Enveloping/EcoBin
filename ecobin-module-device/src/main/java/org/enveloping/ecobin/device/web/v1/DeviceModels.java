@@ -51,6 +51,18 @@ public final class DeviceModels {
             boolean currentComputedValue) {
     }
 
+    /**
+     * OneNet 当前连接投影。
+     *
+     * <p>它来自设备上线/下线事实，不使用运行快照的年龄推断在线状态。</p>
+     */
+    public record DeviceConnectivityView(
+            String oneNetConnectionStatus,
+            Instant statusObservedAt,
+            Instant statusReceivedAt,
+            String evidenceSource) {
+    }
+
     public record DeviceAssetView(
             UUID assetUid,
             String deviceCode,
@@ -72,6 +84,7 @@ public final class DeviceModels {
             Instant createdAt,
             Instant updatedAt,
             DeviceInstallationProfileView installationProfile,
+            DeviceConnectivityView connectivity,
             ComputedOneNetMapping oneNetMapping) {
     }
 
@@ -226,6 +239,8 @@ public final class DeviceModels {
             String edgeConnectionStatus,
             String oneNetConnectionStatus,
             Instant oneNetStatusObservedAt,
+            Instant oneNetStatusReceivedAt,
+            String oneNetEvidenceSource,
             Instant trustedRuntimeReceivedAt,
             String mcuLinkStatus,
             String safetyStatus,
@@ -239,9 +254,13 @@ public final class DeviceModels {
             Integer uartProtocolMajor,
             Integer uartProtocolMinor,
             String capabilityBitmapHex,
+            Long edgeBootId,
+            String lastMcuResetReason,
+            Long pendingReliableEventCount,
+            Long orangePiReportedConfigurationVersion,
             Instant lastHeartbeatAt,
             Instant lastDeviceEventAt,
-            long runtimeVersion) {
+            Long runtimeVersion) {
     }
 
     public record DeviceRuntimeView(
@@ -252,54 +271,46 @@ public final class DeviceModels {
             RuntimeConfigurationSummary configuration,
             RuntimeHealthSummary health,
             boolean occupied,
-            boolean deliveryAllowed,
-            boolean cleaningAllowed,
-            List<String> deliveryBlockers,
-            List<String> cleaningBlockers) {
+            String occupancyKind,
+            Instant occupiedAt,
+            List<PortRuntimeView> ports,
+            Instant fetchedAt) {
 
         public DeviceRuntimeView {
-            deliveryBlockers = List.copyOf(deliveryBlockers);
-            cleaningBlockers = List.copyOf(cleaningBlockers);
+            ports = List.copyOf(ports);
         }
-    }
-
-    public record PortBusinessSummary(
-            boolean currentBagPresent,
-            String baselineState,
-            String detectionGate,
-            String fullnessState,
-            String displayedFullnessPercent,
-            boolean cleanOperationActive) {
     }
 
     public record PortRuntimeView(
             String deviceCode,
             int portNo,
+            String displayName,
+            Boolean configuredEnabled,
             String deliveryDoorState,
             String deliveryDoorActuatorHealth,
             String deliveryDoorContactState,
+            String lastDeliveryDoorCommand,
+            String lastDeliveryDoorOutputStatus,
             String cleanLockPowerState,
             String cleanSolenoidHealth,
-            String cleanDoorPhysicalState,
+            String cleanDoorRecordedState,
             String cleanDoorStateBasis,
+            Boolean cleanerPhysicalCloseConfirmed,
             String weightSensorHealth,
+            String weightMeasurementStatus,
+            Boolean weightValueAvailable,
+            Long reportedWeightGrams,
+            String weightValueKind,
             String infraredValue,
             String infraredSensorHealth,
+            String fullnessSensorKind,
+            String fullnessSensorValue,
+            Long representativeDistanceMm,
             String smokeState,
             String smokeSensorHealth,
             String safetyStatus,
-            PortBusinessSummary business,
-            boolean deliveryAllowed,
-            boolean cleaningAllowed,
-            List<String> deliveryBlockers,
-            List<String> cleaningBlockers,
             Instant lastObservedAt,
-            long runtimeVersion) {
-
-        public PortRuntimeView {
-            deliveryBlockers = List.copyOf(deliveryBlockers);
-            cleaningBlockers = List.copyOf(cleaningBlockers);
-        }
+            Long runtimeVersion) {
     }
 
     public record ConfigurationReleaseRequest(

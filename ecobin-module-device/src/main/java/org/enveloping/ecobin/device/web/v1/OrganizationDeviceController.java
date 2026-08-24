@@ -11,6 +11,7 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionSumm
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CursorPage;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceRuntimeView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.PageData;
 import org.enveloping.ecobin.framework.web.v1.TargetApiEnvelope;
 import org.enveloping.ecobin.framework.web.v1.TargetRequestIds;
@@ -55,6 +56,15 @@ public class OrganizationDeviceController {
             @PathVariable String deviceCode,
             HttpServletRequest request) {
         return noStore(application.organizationAsset(
+                organizationCode, deviceCode), request);
+    }
+
+    @GetMapping("/{deviceCode}/runtime")
+    public ResponseEntity<TargetApiEnvelope<DeviceRuntimeView>> runtime(
+            @PathVariable String organizationCode,
+            @PathVariable String deviceCode,
+            HttpServletRequest request) {
+        return noStore(application.organizationRuntime(
                 organizationCode, deviceCode), request);
     }
 

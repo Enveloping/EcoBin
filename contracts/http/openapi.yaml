@@ -4799,7 +4799,26 @@
         }
       }
     }
-,
+    ,
+    "/api/v1/web/platform/device-assets/{hardwareSn}/runtime": {
+      "parameters": [
+        {"$ref": "#/components/parameters/HardwareSn"}
+      ],
+      "get": {
+        "operationId": "getPlatformDeviceRuntime",
+        "tags": ["Device management"],
+        "summary": "Read current OneNet presence and the latest trusted device runtime projection",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceRuntimeOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    }
+    ,
     "/api/v1/web/platform/device-assets/{hardwareSn}/technical-issues": {
       "parameters": [
         {"$ref": "#/components/parameters/HardwareSn"}
@@ -5392,7 +5411,26 @@
         }
       }
     }
-,
+    ,
+    "/api/v1/web/device-assets/{hardwareSn}/runtime": {
+      "parameters": [
+        {"$ref": "#/components/parameters/HardwareSn"}
+      ],
+      "get": {
+        "operationId": "getTenantDeviceRuntime",
+        "tags": ["Device management"],
+        "summary": "Read current runtime facts for one manageable tenant asset",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceRuntimeOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    }
+    ,
     "/api/v1/web/device-assets/{hardwareSn}/organization-assignments": {
       "parameters": [
         {
@@ -5541,7 +5579,27 @@
         }
       }
     }
-,
+    ,
+    "/api/v1/web/organizations/{organizationCode}/devices/{deviceCode}/runtime": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/DeviceCode"}
+      ],
+      "get": {
+        "operationId": "getOrganizationDeviceRuntime",
+        "tags": ["Device management"],
+        "summary": "Read current runtime facts for one normal organization device",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceRuntimeOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    }
+    ,
     "/api/v1/web/organizations/{organizationCode}/devices/{deviceCode}/configuration-versions": {
       "parameters": [
         {
@@ -7532,7 +7590,20 @@
           }
         }
       }
-,
+      ,
+      "DeviceRuntimeOk": {
+        "description": "Current OneNet presence and latest trusted runtime projection",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/DeviceRuntimeEnvelope"}
+          }
+        }
+      }
+      ,
       "DeviceInstallationProfileOk": {
         "description": "Current permanent-asset installation profile",
         "headers": {
@@ -7831,6 +7902,8 @@
           "edgeConnectionStatus",
           "oneNetConnectionStatus",
           "oneNetStatusObservedAt",
+          "oneNetStatusReceivedAt",
+          "oneNetEvidenceSource",
           "trustedRuntimeReceivedAt",
           "mcuLinkStatus",
           "safetyStatus",
@@ -7844,6 +7917,10 @@
           "uartProtocolMajor",
           "uartProtocolMinor",
           "capabilityBitmapHex",
+          "edgeBootId",
+          "lastMcuResetReason",
+          "pendingReliableEventCount",
+          "orangePiReportedConfigurationVersion",
           "lastHeartbeatAt",
           "lastDeviceEventAt",
           "runtimeVersion"
@@ -7855,6 +7932,19 @@
             "oneOf": [
               {"$ref": "#/components/schemas/UtcTimestamp"},
               {"type": "null"}
+            ]
+          },
+          "oneNetStatusReceivedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "oneNetEvidenceSource": {
+            "type": ["string", "null"],
+            "enum": [
+              "LIFECYCLE_EVENT",
+              null
             ]
           },
           "trustedRuntimeReceivedAt": {
@@ -7871,10 +7961,14 @@
           "clockSyncHealth": {"type": "string", "maxLength": 32},
           "edgeSoftwareVersion": {"type": ["string", "null"], "maxLength": 64},
           "mcuFirmwareVersion": {"type": ["string", "null"], "maxLength": 64},
-          "uartState": {"type": "string", "maxLength": 32},
+          "uartState": {"type": ["string", "null"], "maxLength": 32},
           "uartProtocolMajor": {"type": ["integer", "null"], "minimum": 0},
           "uartProtocolMinor": {"type": ["integer", "null"], "minimum": 0},
           "capabilityBitmapHex": {"type": ["string", "null"], "maxLength": 128},
+          "edgeBootId": {"type": ["integer", "null"], "format": "int64", "minimum": 1},
+          "lastMcuResetReason": {"type": ["string", "null"], "maxLength": 100},
+          "pendingReliableEventCount": {"type": ["integer", "null"], "format": "int64", "minimum": 0},
+          "orangePiReportedConfigurationVersion": {"type": ["integer", "null"], "format": "int64", "minimum": 1},
           "lastHeartbeatAt": {
             "oneOf": [
               {"$ref": "#/components/schemas/UtcTimestamp"},
@@ -7887,30 +7981,12 @@
               {"type": "null"}
             ]
           },
-          "runtimeVersion": {"$ref": "#/components/schemas/ExpectedVersion"}
-        }
-      },
-      "DevicePortBusinessSummary": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "currentBagPresent",
-          "baselineState",
-          "detectionGate",
-          "fullnessState",
-          "displayedFullnessPercent",
-          "cleanOperationActive"
-        ],
-        "properties": {
-          "currentBagPresent": {"type": "boolean"},
-          "baselineState": {"type": "string", "maxLength": 32},
-          "detectionGate": {"type": "string", "maxLength": 32},
-          "fullnessState": {"type": "string", "maxLength": 32},
-          "displayedFullnessPercent": {
-            "type": ["string", "null"],
-            "pattern": "^(100|[0-9]{1,2})(\\.\\d+)?$"
-          },
-          "cleanOperationActive": {"type": "boolean"}
+          "runtimeVersion": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/ExpectedVersion"},
+              {"type": "null"}
+            ]
+          }
         }
       },
       "DevicePortRuntime": {
@@ -7919,71 +7995,117 @@
         "required": [
           "deviceCode",
           "portNo",
+          "displayName",
+          "configuredEnabled",
           "deliveryDoorState",
           "deliveryDoorActuatorHealth",
           "deliveryDoorContactState",
+          "lastDeliveryDoorCommand",
+          "lastDeliveryDoorOutputStatus",
           "cleanLockPowerState",
           "cleanSolenoidHealth",
-          "cleanDoorPhysicalState",
+          "cleanDoorRecordedState",
           "cleanDoorStateBasis",
+          "cleanerPhysicalCloseConfirmed",
           "weightSensorHealth",
+          "weightMeasurementStatus",
+          "weightValueAvailable",
+          "reportedWeightGrams",
+          "weightValueKind",
           "infraredValue",
           "infraredSensorHealth",
+          "fullnessSensorKind",
+          "fullnessSensorValue",
+          "representativeDistanceMm",
           "smokeState",
           "smokeSensorHealth",
           "safetyStatus",
-          "business",
-          "deliveryAllowed",
-          "cleaningAllowed",
-          "deliveryBlockers",
-          "cleaningBlockers",
           "lastObservedAt",
           "runtimeVersion"
         ],
         "properties": {
           "deviceCode": {"$ref": "#/components/schemas/DeviceCode"},
           "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
+          "displayName": {"type": "string", "maxLength": 32},
+          "configuredEnabled": {"type": ["boolean", "null"]},
           "deliveryDoorState": {"type": "string", "maxLength": 32},
           "deliveryDoorActuatorHealth": {"type": "string", "maxLength": 32},
           "deliveryDoorContactState": {"type": "string", "maxLength": 32},
+          "lastDeliveryDoorCommand": {"type": ["string", "null"], "maxLength": 32},
+          "lastDeliveryDoorOutputStatus": {"type": ["string", "null"], "maxLength": 64},
           "cleanLockPowerState": {"type": "string", "maxLength": 32},
           "cleanSolenoidHealth": {"type": "string", "maxLength": 32},
-          "cleanDoorPhysicalState": {
-            "type": "string",
-            "enum": ["UNKNOWN"]
-          },
-          "cleanDoorStateBasis": {
-            "type": "string",
-            "enum": ["NOT_OBSERVABLE"]
-          },
+          "cleanDoorRecordedState": {"type": "string", "maxLength": 32},
+          "cleanDoorStateBasis": {"type": "string", "maxLength": 32},
+          "cleanerPhysicalCloseConfirmed": {"type": ["boolean", "null"]},
           "weightSensorHealth": {"type": "string", "maxLength": 32},
+          "weightMeasurementStatus": {"type": ["string", "null"], "maxLength": 32},
+          "weightValueAvailable": {"type": ["boolean", "null"]},
+          "reportedWeightGrams": {"type": ["integer", "null"], "format": "int64"},
+          "weightValueKind": {"type": ["string", "null"], "maxLength": 32},
           "infraredValue": {"type": ["string", "null"], "maxLength": 64},
           "infraredSensorHealth": {"type": "string", "maxLength": 32},
+          "fullnessSensorKind": {"type": ["string", "null"], "maxLength": 32},
+          "fullnessSensorValue": {"type": ["string", "null"], "maxLength": 32},
+          "representativeDistanceMm": {"type": ["integer", "null"], "format": "int64", "minimum": 0},
           "smokeState": {"type": "string", "maxLength": 32},
           "smokeSensorHealth": {"type": "string", "maxLength": 32},
           "safetyStatus": {"type": "string", "maxLength": 32},
-          "business": {
-            "$ref": "#/components/schemas/DevicePortBusinessSummary"
-          },
-          "deliveryAllowed": {"type": "boolean"},
-          "cleaningAllowed": {"type": "boolean"},
-          "deliveryBlockers": {
-            "type": "array",
-            "uniqueItems": true,
-            "items": {"type": "string", "minLength": 1, "maxLength": 100}
-          },
-          "cleaningBlockers": {
-            "type": "array",
-            "uniqueItems": true,
-            "items": {"type": "string", "minLength": 1, "maxLength": 100}
-          },
           "lastObservedAt": {
             "oneOf": [
               {"$ref": "#/components/schemas/UtcTimestamp"},
               {"type": "null"}
             ]
           },
-          "runtimeVersion": {"$ref": "#/components/schemas/ExpectedVersion"}
+          "runtimeVersion": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/ExpectedVersion"},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
+      "DeviceRuntime": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Current OneNet presence plus the latest trusted runtime projection. Runtime health fields are snapshots and include their observation times.",
+        "required": [
+          "deviceCode",
+          "lifecycleStatus",
+          "acceptanceStatus",
+          "version",
+          "configuration",
+          "health",
+          "occupied",
+          "occupancyKind",
+          "occupiedAt",
+          "ports",
+          "fetchedAt"
+        ],
+        "properties": {
+          "deviceCode": {"$ref": "#/components/schemas/DeviceCode"},
+          "lifecycleStatus": {"$ref": "#/components/schemas/DeviceAssetLifecycleStatus"},
+          "acceptanceStatus": {"$ref": "#/components/schemas/DeviceAcceptanceStatus"},
+          "version": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "configuration": {"$ref": "#/components/schemas/DeviceRuntimeConfigurationSummary"},
+          "health": {"$ref": "#/components/schemas/DeviceRuntimeHealthSummary"},
+          "occupied": {"type": "boolean"},
+          "occupancyKind": {
+            "type": ["string", "null"],
+            "enum": ["DELIVERY", "CLEAN", null]
+          },
+          "occupiedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "ports": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {"$ref": "#/components/schemas/DevicePortRuntime"}
+          },
+          "fetchedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
         }
       },
       "DeviceConfigurationApplicationSummary": {
@@ -8279,6 +8401,16 @@
         "properties": {
           "code": {"type": "string", "const": "OK"},
           "data": {"$ref": "#/components/schemas/DevicePortRuntime"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "DeviceRuntimeEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/DeviceRuntime"},
           "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
         }
       },
@@ -13579,7 +13711,44 @@
           }
         }
       }
-,
+      ,
+      "DeviceConnectivity": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Current OneNet lifecycle presence. This is independent from periodic device runtime snapshots.",
+        "required": [
+          "oneNetConnectionStatus",
+          "statusObservedAt",
+          "statusReceivedAt",
+          "evidenceSource"
+        ],
+        "properties": {
+          "oneNetConnectionStatus": {
+            "type": "string",
+            "enum": ["ONLINE", "OFFLINE", "UNKNOWN"]
+          },
+          "statusObservedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "statusReceivedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "evidenceSource": {
+            "type": ["string", "null"],
+            "enum": [
+              "LIFECYCLE_EVENT",
+              null
+            ]
+          }
+        }
+      }
+      ,
       "DeviceInstallationProfile": {
         "type": "object",
         "additionalProperties": false,
@@ -13667,6 +13836,7 @@
           "createdAt",
           "updatedAt",
           "installationProfile",
+          "connectivity",
           "oneNetMapping"
         ],
         "properties": {
@@ -13765,6 +13935,9 @@
           },
           "installationProfile": {
             "$ref": "#/components/schemas/DeviceInstallationProfile"
+          },
+          "connectivity": {
+            "$ref": "#/components/schemas/DeviceConnectivity"
           },
           "oneNetMapping": {
             "$ref": "#/components/schemas/ComputedOneNetMapping"

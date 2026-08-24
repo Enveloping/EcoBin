@@ -2526,9 +2526,231 @@ function permanentDeviceAsset(overrides: Record<string, unknown> = {}) {
       deviceName: hardwareSn,
       currentComputedValue: true,
     },
+    connectivity: {
+      oneNetConnectionStatus: 'UNKNOWN',
+      statusObservedAt: null,
+      statusReceivedAt: null,
+      evidenceSource: null,
+    },
     ...overrides,
   };
 }
+
+function permanentDeviceRuntime(deviceCode: string) {
+  return {
+    deviceCode,
+    lifecycleStatus: 'NORMAL',
+    acceptanceStatus: 'PASSED',
+    version: 4,
+    configuration: {
+      latestPublishedVersion: 3,
+      latestAppliedVersion: 3,
+      latestApplicationStatus: 'APPLIED',
+      latestPreciselyApplied: true,
+    },
+    health: {
+      edgeConnectionStatus: 'ONLINE',
+      oneNetConnectionStatus: 'ONLINE',
+      oneNetStatusObservedAt: '2026-08-24T03:00:00.000Z',
+      oneNetStatusReceivedAt: '2026-08-24T03:00:01.000Z',
+      oneNetEvidenceSource: 'LIFECYCLE_EVENT',
+      trustedRuntimeReceivedAt: '2026-08-24T03:00:02.000Z',
+      mcuLinkStatus: 'OK',
+      safetyStatus: 'SAFE',
+      aggregateWeightHealth: 'OK',
+      cameraHealth: 'OK',
+      localStorageHealth: 'OK',
+      clockSyncHealth: 'OK',
+      edgeSoftwareVersion: 'edge-1.2.3',
+      mcuFirmwareVersion: 'mcu-2.0.0',
+      uartState: 'READY',
+      uartProtocolMajor: 1,
+      uartProtocolMinor: 0,
+      capabilityBitmapHex: '0f',
+      edgeBootId: 18,
+      lastMcuResetReason: null,
+      pendingReliableEventCount: 0,
+      orangePiReportedConfigurationVersion: 3,
+      lastHeartbeatAt: '2026-08-24T03:00:02.000Z',
+      lastDeviceEventAt: '2026-08-24T02:59:30.000Z',
+      runtimeVersion: 6,
+    },
+    occupied: false,
+    occupancyKind: null,
+    occupiedAt: null,
+    ports: [{
+      deviceCode,
+      portNo: 1,
+      displayName: '可回收物投口',
+      configuredEnabled: true,
+      deliveryDoorState: 'CLOSED',
+      deliveryDoorActuatorHealth: 'OK',
+      deliveryDoorContactState: 'CLOSED',
+      lastDeliveryDoorCommand: 'CLOSE',
+      lastDeliveryDoorOutputStatus: 'COMMAND_DISPATCHED',
+      cleanLockPowerState: 'DEENERGIZED',
+      cleanSolenoidHealth: 'OK',
+      cleanDoorRecordedState: 'CLOSED',
+      cleanDoorStateBasis: 'CLEANER_CONFIRMATION',
+      cleanerPhysicalCloseConfirmed: true,
+      weightSensorHealth: 'OK',
+      weightMeasurementStatus: 'STABLE',
+      weightValueAvailable: true,
+      reportedWeightGrams: 1200,
+      weightValueKind: 'STABLE_WINDOW_MEAN',
+      infraredValue: 'CLEAR',
+      infraredSensorHealth: 'OK',
+      fullnessSensorKind: 'ULTRASONIC',
+      fullnessSensorValue: 'NORMAL',
+      representativeDistanceMm: 438,
+      smokeState: 'CLEAR',
+      smokeSensorHealth: 'OK',
+      safetyStatus: 'SAFE',
+      lastObservedAt: '2026-08-24T03:00:02.000Z',
+      runtimeVersion: 8,
+    }],
+    fetchedAt: '2026-08-24T03:00:05.000Z',
+  };
+}
+
+test('device drawer separates current runtime from collapsed historical acceptance evidence', async ({
+  page,
+}) => {
+  const hardwareSn = 'SN-CURRENT-RUNTIME';
+  const asset = permanentDeviceAsset({
+    hardwareSn,
+    acceptanceStatus: 'PASSED',
+    acceptedAt: '2026-08-20T02:00:00.000Z',
+    version: 4,
+    connectivity: {
+      oneNetConnectionStatus: 'ONLINE',
+      statusObservedAt: '2026-08-24T03:00:00.000Z',
+      statusReceivedAt: '2026-08-24T03:00:01.000Z',
+      evidenceSource: 'LIFECYCLE_EVENT',
+    },
+  });
+  const runtime = permanentDeviceRuntime(asset.deviceCode as string);
+  let evidenceRequests = 0;
+  const evidence = [{
+    evidenceUid: 'b0bfd6a1-e970-4c52-8d51-bb46ef70a36a',
+    schemaVersion: 3,
+    edgeSoftwareVersion: 'edge-1.0.0',
+    edgeProtocolVersion: '2',
+    oneNetOnline: true,
+    persistentStoreHealthy: true,
+    trustedTimeHealthy: true,
+    configurationPersistenceHealthy: true,
+    mcuCommunicationHealthy: true,
+    sensorsHealthy: true,
+    camerasCaptureHealthy: true,
+    cameraUploadHealthy: true,
+    deviceEntryUrlStored: true,
+    deviceEntryUrlSha256:
+      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    mcuSimulated: false,
+    camerasSimulated: false,
+    evaluationStatus: 'PASSED',
+    failureReasons: [],
+    evidenceSha256:
+      'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    observedAt: '2026-08-20T01:59:00.000Z',
+    receivedAt: '2026-08-20T01:59:01.000Z',
+  }];
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
+    if (method === 'GET'
+        && url.pathname === '/api/v1/web/auth/sessions/current') {
+      await route.fulfill(problem(401));
+      return;
+    }
+    if (method === 'GET'
+        && url.pathname === '/api/v1/web/platform/auth/sessions/current') {
+      await json(route, {
+        ...platformSession,
+        capabilities: ['device.read', 'device.manage'],
+      });
+      return;
+    }
+    if (method === 'GET'
+        && url.pathname === '/api/v1/web/platform/tenants') {
+      await json(route, { items: [], page: 1, pageSize: 200, total: 0 });
+      return;
+    }
+    if (method === 'GET'
+        && url.pathname === '/api/v1/web/platform/device-assets') {
+      await json(route, { items: [asset], page: 1, pageSize: 20, total: 1 });
+      return;
+    }
+    const deviceBase = `/api/v1/web/platform/device-assets/${hardwareSn}`;
+    if (method === 'GET' && url.pathname === `${deviceBase}/runtime`) {
+      await json(route, runtime);
+      return;
+    }
+    if (method === 'GET'
+        && url.pathname === `${deviceBase}/acceptance-evidence`) {
+      evidenceRequests += 1;
+      await json(route, evidence);
+      return;
+    }
+    if (method === 'GET'
+        && url.pathname === `${deviceBase}/technical-issues`) {
+      await json(route, []);
+      return;
+    }
+    if (method === 'GET'
+        && url.pathname === `${deviceBase}/configuration-versions`) {
+      await json(route, { items: [], nextBeforeVersionNo: null });
+      return;
+    }
+    if (method === 'GET'
+        && url.pathname === '/api/v1/web/platform/maintenance-ssh-keys') {
+      await json(route, []);
+      return;
+    }
+    if (method === 'GET'
+        && url.pathname === `${deviceBase}/remote-support-sessions/current`) {
+      await route.fulfill(problem(404));
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/devices');
+  await expect(page.getByText('在线', { exact: true }).first()).toBeVisible();
+  await page.getByText(hardwareSn, { exact: true }).click();
+  const drawer = page.locator('.ant-drawer').filter({ hasText: hardwareSn });
+
+  await expect(
+    drawer.getByText('OneNet 当前报告设备在线', { exact: true }),
+  ).toBeVisible();
+  await expect(drawer.getByText('MCU 通信', { exact: true })).toBeVisible();
+  await expect(drawer.getByText('可回收物投口', { exact: false }))
+    .toBeVisible();
+  await expect(
+    drawer.getByText('出厂自动机器验收（历史证据）', { exact: true }),
+  ).toBeVisible();
+  await expect(drawer.getByText('验收已通过', { exact: true })).toBeVisible();
+  await expect(drawer.getByText('OneNet 在线', { exact: true })).toHaveCount(0);
+  expect(evidenceRequests).toBe(0);
+
+  await drawer.getByText(
+    '出厂自动机器验收（历史证据）',
+    { exact: true },
+  ).click();
+  await expect.poll(() => evidenceRequests).toBe(1);
+  await expect(drawer.getByText(
+    '这里是验收时保存的历史功能快照，不是设备当前状态',
+    { exact: true },
+  )).toBeVisible();
+  await expect(drawer.getByText(
+    '验收代次最后一份功能证据已通过',
+    { exact: true },
+  )).toBeVisible();
+  await expect(drawer.getByText('OneNet 在线', { exact: true })).toBeVisible();
+});
 
 test('failed acceptance reevaluation refreshes CSRF and reports once', async ({
   page,
@@ -2761,7 +2983,7 @@ test('device technical issue failures never masquerade as a healthy device', asy
   await drawer.getByRole('button', { name: '重试加载' }).click();
   await expect(drawer.getByText(issue.title, { exact: true })).toBeVisible();
 
-  await drawer.getByRole('button', { name: '刷新' }).click();
+  await drawer.locator('button').filter({ hasText: /^刷新$/ }).click();
   await expect(drawer.getByText('设备问题刷新失败', { exact: true }))
     .toBeVisible();
   await expect(

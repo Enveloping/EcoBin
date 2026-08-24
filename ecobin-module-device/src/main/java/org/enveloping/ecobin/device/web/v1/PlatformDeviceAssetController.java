@@ -17,6 +17,7 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionView
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CursorPage;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceRuntimeView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceTechnicalIssueView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.PageData;
 import org.enveloping.ecobin.framework.web.v1.TargetApiEnvelope;
@@ -77,6 +78,13 @@ public class PlatformDeviceAssetController {
             @PathVariable String hardwareSn,
             HttpServletRequest request) {
         return noStore(application.platformAsset(hardwareSn), request);
+    }
+
+    @GetMapping("/{hardwareSn}/runtime")
+    public ResponseEntity<TargetApiEnvelope<DeviceRuntimeView>> runtime(
+            @PathVariable String hardwareSn,
+            HttpServletRequest request) {
+        return noStore(application.platformRuntime(hardwareSn), request);
     }
 
     @GetMapping("/{hardwareSn}/technical-issues")

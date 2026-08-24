@@ -21,10 +21,15 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionSumm
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CursorPage;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceConnectivityView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceInstallationProfileView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceRuntimeView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceTechnicalIssueView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.PageData;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.PortRuntimeView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeConfigurationSummary;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeHealthSummary;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeSnapshotPolicyReleaseRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeSnapshotPolicyView;
 import org.enveloping.ecobin.framework.audit.AuditActorKind;
@@ -246,6 +251,14 @@ public class TargetDeviceApplication {
     }
 
     @Transactional(readOnly = true)
+    public DeviceRuntimeView platformRuntime(String hardwareSn) {
+        authorize(true, null, null, "device.read");
+        return findRuntimeView(
+                normalizeHardwareSn(hardwareSn), null, null, false)
+                .orElseThrow(TargetDeviceApplication::notFound);
+    }
+
+    @Transactional(readOnly = true)
     public List<DeviceTechnicalIssueView> platformTechnicalIssues(
             String hardwareSn) {
         authorize(true, null, null, "device.read");
@@ -340,12 +353,35 @@ public class TargetDeviceApplication {
     }
 
     @Transactional(readOnly = true)
+    public DeviceRuntimeView tenantRuntime(String hardwareSn) {
+        Scope scope = authorize(false, null, null, "device.read");
+        return findRuntimeView(
+                normalizeHardwareSn(hardwareSn),
+                scope.tenantId(),
+                null,
+                true).orElseThrow(TargetDeviceApplication::notFound);
+    }
+
+    @Transactional(readOnly = true)
     public DeviceAssetView organizationAsset(
             String organizationCode,
             String deviceCode) {
         Scope scope = authorize(
                 false, null, organizationCode, "device.read");
         return findAssetViewByCode(
+                normalizeDeviceCode(deviceCode),
+                scope.tenantId(),
+                scope.organizationId(),
+                true).orElseThrow(TargetDeviceApplication::notFound);
+    }
+
+    @Transactional(readOnly = true)
+    public DeviceRuntimeView organizationRuntime(
+            String organizationCode,
+            String deviceCode) {
+        Scope scope = authorize(
+                false, null, organizationCode, "device.read");
+        return findRuntimeViewByCode(
                 normalizeDeviceCode(deviceCode),
                 scope.tenantId(),
                 scope.organizationId(),
@@ -2691,6 +2727,276 @@ public class TargetDeviceApplication {
         return row.publisherName() == null ? "SYSTEM" : row.publisherName();
     }
 
+    private Optional<DeviceRuntimeView> findRuntimeView(
+            String hardwareSn,
+            Long tenantId,
+            Long organizationId,
+            boolean hideUnavailable) {
+        StringBuilder sql = new StringBuilder(runtimeHeadSelect())
+                .append(" WHERE asset.hardware_sn = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(hardwareSn);
+        appendVisibility(sql, args, tenantId, organizationId, hideUnavailable);
+        return jdbc.query(
+                        sql.toString(),
+                        (rs, ignored) -> runtimeHead(rs),
+                        args.toArray())
+                .stream()
+                .findFirst()
+                .map(this::runtimeView);
+    }
+
+    private Optional<DeviceRuntimeView> findRuntimeViewByCode(
+            String deviceCode,
+            Long tenantId,
+            Long organizationId,
+            boolean hideUnavailable) {
+        StringBuilder sql = new StringBuilder(runtimeHeadSelect())
+                .append(" WHERE asset.device_public_code = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(deviceCode);
+        appendVisibility(sql, args, tenantId, organizationId, hideUnavailable);
+        return jdbc.query(
+                        sql.toString(),
+                        (rs, ignored) -> runtimeHead(rs),
+                        args.toArray())
+                .stream()
+                .findFirst()
+                .map(this::runtimeView);
+    }
+
+    private DeviceRuntimeView runtimeView(RuntimeHead head) {
+        List<PortRuntimeView> ports = jdbc.query("""
+                        SELECT port.port_no,
+                               COALESCE(snapshot.display_name,
+                                   CONCAT('投口 ', port.port_no))
+                                   AS display_name,
+                               snapshot.business_enabled,
+                               COALESCE(runtime.delivery_door_state,
+                                   'UNKNOWN') AS delivery_door_state,
+                               COALESCE(runtime.delivery_door_actuator_health,
+                                   'UNKNOWN') AS delivery_door_actuator_health,
+                               COALESCE(runtime.delivery_door_contact_state,
+                                   'UNKNOWN') AS delivery_door_contact_state,
+                               runtime.last_delivery_door_command,
+                               runtime.last_delivery_door_output_status,
+                               COALESCE(runtime.clean_lock_power_state,
+                                   'UNKNOWN') AS clean_lock_power_state,
+                               COALESCE(runtime.clean_solenoid_health,
+                                   'UNKNOWN') AS clean_solenoid_health,
+                               COALESCE(runtime.clean_door_inferred_state,
+                                   'UNKNOWN') AS clean_door_recorded_state,
+                               COALESCE(runtime.clean_door_state_basis,
+                                   'NOT_OBSERVABLE') AS clean_door_state_basis,
+                               runtime.cleaner_physical_close_confirmed,
+                               COALESCE(runtime.weight_sensor_health,
+                                   'UNKNOWN') AS weight_sensor_health,
+                               runtime.weight_measurement_status,
+                               runtime.weight_value_available,
+                               runtime.reported_weight_grams,
+                               runtime.weight_value_kind,
+                               runtime.infrared_value,
+                               COALESCE(runtime.infrared_sensor_health,
+                                   'UNKNOWN') AS infrared_sensor_health,
+                               runtime.fullness_sensor_kind,
+                               runtime.fullness_sensor_value,
+                               runtime.representative_distance_mm,
+                               COALESCE(runtime.smoke_state,
+                                   'UNKNOWN') AS smoke_state,
+                               COALESCE(runtime.smoke_sensor_health,
+                                   'UNKNOWN') AS smoke_sensor_health,
+                               COALESCE(runtime.safety_status,
+                                   'UNKNOWN') AS safety_status,
+                               runtime.last_observed_at,
+                               runtime.lock_version AS runtime_version
+                        FROM dev_port port
+                        LEFT JOIN dev_config_version configuration
+                          ON configuration.id = (
+                              SELECT latest.id
+                              FROM dev_config_version latest
+                              WHERE latest.asset_id = port.asset_id
+                              ORDER BY latest.version_no DESC
+                              LIMIT 1
+                          )
+                        LEFT JOIN dev_port_config_snapshot snapshot
+                          ON snapshot.config_version_id = configuration.id
+                         AND snapshot.port_id = port.id
+                        LEFT JOIN dev_port_runtime_state runtime
+                          ON runtime.port_id = port.id
+                         AND runtime.asset_id = port.asset_id
+                        WHERE port.asset_id = ?
+                        ORDER BY port.port_no
+                        """,
+                (rs, ignored) -> new PortRuntimeView(
+                        head.deviceCode(),
+                        rs.getInt("port_no"),
+                        rs.getString("display_name"),
+                        rs.getObject("business_enabled", Boolean.class),
+                        rs.getString("delivery_door_state"),
+                        rs.getString("delivery_door_actuator_health"),
+                        rs.getString("delivery_door_contact_state"),
+                        rs.getString("last_delivery_door_command"),
+                        rs.getString("last_delivery_door_output_status"),
+                        rs.getString("clean_lock_power_state"),
+                        rs.getString("clean_solenoid_health"),
+                        rs.getString("clean_door_recorded_state"),
+                        rs.getString("clean_door_state_basis"),
+                        rs.getObject(
+                                "cleaner_physical_close_confirmed",
+                                Boolean.class),
+                        rs.getString("weight_sensor_health"),
+                        rs.getString("weight_measurement_status"),
+                        rs.getObject("weight_value_available", Boolean.class),
+                        nullableLong(rs, "reported_weight_grams"),
+                        rs.getString("weight_value_kind"),
+                        rs.getString("infrared_value"),
+                        rs.getString("infrared_sensor_health"),
+                        rs.getString("fullness_sensor_kind"),
+                        rs.getString("fullness_sensor_value"),
+                        nullableLong(rs, "representative_distance_mm"),
+                        rs.getString("smoke_state"),
+                        rs.getString("smoke_sensor_health"),
+                        rs.getString("safety_status"),
+                        instant(rs, "last_observed_at"),
+                        nullableLong(rs, "runtime_version")),
+                head.assetId());
+        return new DeviceRuntimeView(
+                head.deviceCode(),
+                head.lifecycleStatus(),
+                head.acceptanceStatus(),
+                head.version(),
+                head.configuration(),
+                head.health(),
+                head.occupancyKind() != null,
+                head.occupancyKind(),
+                head.occupiedAt(),
+                ports,
+                databaseNow().toInstant(ZoneOffset.UTC));
+    }
+
+    private static String runtimeHeadSelect() {
+        return """
+                SELECT asset.id AS asset_id,
+                       asset.device_public_code,
+                       asset.lifecycle_status,
+                       asset.acceptance_status,
+                       asset.control_version,
+                       latest_config.version_no AS latest_published_version,
+                       runtime.applied_config_version_no
+                           AS latest_applied_version,
+                       latest_application.status
+                           AS latest_application_status,
+                       COALESCE(runtime.edge_connection_status, 'UNKNOWN')
+                           AS edge_connection_status,
+                       COALESCE(transport.onenet_connection_status, 'UNKNOWN')
+                           AS onenet_connection_status,
+                       transport.status_observed_at,
+                       transport.status_received_at,
+                       transport.evidence_source,
+                       runtime.trusted_runtime_received_at,
+                       COALESCE(runtime.mcu_link_status, 'UNKNOWN')
+                           AS mcu_link_status,
+                       COALESCE(runtime.safety_status, 'UNKNOWN')
+                           AS safety_status,
+                       COALESCE(runtime.aggregate_weight_health, 'UNKNOWN')
+                           AS aggregate_weight_health,
+                       COALESCE(runtime.camera_health, 'UNKNOWN')
+                           AS camera_health,
+                       COALESCE(runtime.local_storage_health, 'UNKNOWN')
+                           AS local_storage_health,
+                       COALESCE(runtime.clock_sync_health, 'UNKNOWN')
+                           AS clock_sync_health,
+                       runtime.edge_software_version,
+                       runtime.mcu_firmware_version,
+                       runtime.uart_state,
+                       runtime.uart_protocol_major,
+                       runtime.uart_protocol_minor,
+                       runtime.capability_bitmap_hex,
+                       runtime.edge_boot_id,
+                       runtime.last_mcu_reset_reason,
+                       runtime.pending_reliable_event_count,
+                       runtime.orange_pi_reported_config_version_no,
+                       runtime.last_heartbeat_at,
+                       runtime.last_device_event_at,
+                       runtime.lock_version AS runtime_version,
+                       occupancy.occupancy_kind,
+                       occupancy.acquired_at AS occupied_at
+                FROM dev_device_asset asset
+                LEFT JOIN dev_device_transport_state transport
+                  ON transport.asset_id = asset.id
+                LEFT JOIN dev_device_runtime_state runtime
+                  ON runtime.asset_id = asset.id
+                 AND runtime.tenant_id = asset.tenant_id
+                 AND runtime.organization_id = asset.organization_id
+                LEFT JOIN dev_config_version latest_config
+                  ON latest_config.id = (
+                      SELECT latest.id
+                      FROM dev_config_version latest
+                      WHERE latest.asset_id = asset.id
+                      ORDER BY latest.version_no DESC
+                      LIMIT 1
+                  )
+                LEFT JOIN dev_config_application latest_application
+                  ON latest_application.config_version_id = latest_config.id
+                LEFT JOIN dev_device_occupancy occupancy
+                  ON occupancy.asset_id = asset.id
+                """;
+    }
+
+    private static RuntimeHead runtimeHead(ResultSet rs) throws SQLException {
+        Long latestPublishedVersion = nullableLong(
+                rs, "latest_published_version");
+        Long latestAppliedVersion = nullableLong(
+                rs, "latest_applied_version");
+        String latestApplicationStatus = rs.getString(
+                "latest_application_status");
+        RuntimeConfigurationSummary configuration =
+                new RuntimeConfigurationSummary(
+                        latestPublishedVersion,
+                        latestAppliedVersion,
+                        latestApplicationStatus,
+                        "APPLIED".equals(latestApplicationStatus)
+                                && Objects.equals(
+                                        latestPublishedVersion,
+                                        latestAppliedVersion));
+        RuntimeHealthSummary health = new RuntimeHealthSummary(
+                rs.getString("edge_connection_status"),
+                rs.getString("onenet_connection_status"),
+                instant(rs, "status_observed_at"),
+                instant(rs, "status_received_at"),
+                rs.getString("evidence_source"),
+                instant(rs, "trusted_runtime_received_at"),
+                rs.getString("mcu_link_status"),
+                rs.getString("safety_status"),
+                rs.getString("aggregate_weight_health"),
+                rs.getString("camera_health"),
+                rs.getString("local_storage_health"),
+                rs.getString("clock_sync_health"),
+                rs.getString("edge_software_version"),
+                rs.getString("mcu_firmware_version"),
+                rs.getString("uart_state"),
+                (Integer) rs.getObject("uart_protocol_major"),
+                (Integer) rs.getObject("uart_protocol_minor"),
+                rs.getString("capability_bitmap_hex"),
+                nullableLong(rs, "edge_boot_id"),
+                rs.getString("last_mcu_reset_reason"),
+                nullableLong(rs, "pending_reliable_event_count"),
+                nullableLong(rs, "orange_pi_reported_config_version_no"),
+                instant(rs, "last_heartbeat_at"),
+                instant(rs, "last_device_event_at"),
+                nullableLong(rs, "runtime_version"));
+        return new RuntimeHead(
+                rs.getLong("asset_id"),
+                rs.getString("device_public_code"),
+                rs.getString("lifecycle_status"),
+                rs.getString("acceptance_status"),
+                rs.getLong("control_version"),
+                configuration,
+                health,
+                rs.getString("occupancy_kind"),
+                instant(rs, "occupied_at"));
+    }
+
     private Optional<DeviceAssetView> findAssetView(
             String hardwareSn,
             Long tenantId,
@@ -2756,6 +3062,11 @@ public class TargetDeviceApplication {
                        tenant.tenant_code, organization.organization_code,
                        asset.acceptance_status,
                        channel_binding.miniapp_channel_id,
+                       COALESCE(transport.onenet_connection_status, 'UNKNOWN')
+                           AS onenet_connection_status,
+                       transport.status_observed_at,
+                       transport.status_received_at,
+                       transport.evidence_source,
                        asset.lifecycle_status, asset.control_version,
                        asset.tenant_assigned_at,
                        asset.organization_assigned_at, asset.accepted_at,
@@ -2775,6 +3086,8 @@ public class TargetDeviceApplication {
                   ON channel_binding.tenant_id = asset.tenant_id
                  AND channel_binding.organization_id = asset.organization_id
                  AND channel_binding.status = 'ACTIVE'
+                LEFT JOIN dev_device_transport_state transport
+                  ON transport.asset_id = asset.id
                 """;
     }
 
@@ -2804,6 +3117,11 @@ public class TargetDeviceApplication {
                 instant(rs, "updated_at"),
                 installationProfileView(
                         rs.getString("device_public_code"), rs),
+                new DeviceConnectivityView(
+                        rs.getString("onenet_connection_status"),
+                        instant(rs, "status_observed_at"),
+                        instant(rs, "status_received_at"),
+                        rs.getString("evidence_source")),
                 new ComputedOneNetMapping(
                         oneNetProductId,
                         hardwareSn,
@@ -3780,6 +4098,18 @@ public class TargetDeviceApplication {
             String acceptanceStatus,
             String lifecycleStatus,
             long controlVersion) {
+    }
+
+    private record RuntimeHead(
+            long assetId,
+            String deviceCode,
+            String lifecycleStatus,
+            String acceptanceStatus,
+            long version,
+            RuntimeConfigurationSummary configuration,
+            RuntimeHealthSummary health,
+            String occupancyKind,
+            Instant occupiedAt) {
     }
 
     private record Tenant(long id, String code, String status) {

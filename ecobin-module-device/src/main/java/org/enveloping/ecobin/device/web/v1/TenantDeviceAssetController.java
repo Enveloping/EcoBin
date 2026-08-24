@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import org.enveloping.ecobin.device.application.target.TargetDeviceApplication;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignOrganizationRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceRuntimeView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.PageData;
 import org.enveloping.ecobin.framework.web.v1.TargetApiEnvelope;
 import org.enveloping.ecobin.framework.web.v1.TargetRequestIds;
@@ -47,6 +48,13 @@ public class TenantDeviceAssetController {
             @PathVariable String hardwareSn,
             HttpServletRequest request) {
         return noStore(application.tenantAsset(hardwareSn), request);
+    }
+
+    @GetMapping("/{hardwareSn}/runtime")
+    public ResponseEntity<TargetApiEnvelope<DeviceRuntimeView>> runtime(
+            @PathVariable String hardwareSn,
+            HttpServletRequest request) {
+        return noStore(application.tenantRuntime(hardwareSn), request);
     }
 
     @PostMapping("/{hardwareSn}/organization-assignments")

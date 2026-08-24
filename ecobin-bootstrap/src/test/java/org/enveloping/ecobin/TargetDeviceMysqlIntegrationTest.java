@@ -155,6 +155,106 @@ class TargetDeviceMysqlIntegrationTest {
     }
 
     @Test
+    void runtimeViewUsesOneNetLifecycleFactWithoutInventingLiveHealth()
+            throws Exception {
+        BrowserClient platform = new BrowserClient();
+        login(platform, "/api/v1/web/platform/auth/sessions",
+                platformLogin, PLATFORM_PASSWORD, 201);
+
+        String hardwareSn = "HW-RUNTIME-" + run;
+        JsonNode created = data(write(
+                platform,
+                post("/api/v1/web/platform/device-assets"),
+                UUID.randomUUID(),
+                Map.of(
+                        "hardwareSn", hardwareSn,
+                        "modelCode", "EC-M0",
+                        "productionBatch", "RUNTIME-" + run,
+                        "expectedPortCount", 1),
+                201));
+        assertEquals("UNKNOWN",
+                created.path("connectivity")
+                        .path("oneNetConnectionStatus").asText());
+
+        JsonNode unknownRuntime = data(read(platform,
+                "/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/runtime",
+                200));
+        assertEquals("UNKNOWN",
+                unknownRuntime.path("health")
+                        .path("oneNetConnectionStatus").asText());
+        assertEquals("UNKNOWN",
+                unknownRuntime.path("health")
+                        .path("edgeConnectionStatus").asText());
+        assertTrue(unknownRuntime.path("health")
+                .path("trustedRuntimeReceivedAt").isNull());
+        assertEquals(0, unknownRuntime.path("ports").size());
+
+        UUID presenceEventUid = UUID.randomUUID();
+        TrustedInboxReceipt presenceReceipt = trustedInbox.receive(
+                new TrustedInboxMessage(
+                        "onenet.device-lifecycle",
+                        "onenet-product:" + hardwareSn,
+                        presenceEventUid.toString(),
+                        "DEVICE_TRANSPORT_STATUS_CHANGED",
+                        1,
+                        "device-online-lifecycle-fact"
+                                .getBytes(StandardCharsets.UTF_8),
+                        objectMapper.writeValueAsString(Map.of(
+                                "trustedSource", Map.of(
+                                        "deviceName", hardwareSn),
+                                "presence", Map.of(
+                                        "status", "ONLINE",
+                                        "observedAt",
+                                        Instant.now().toString()))),
+                        "ONENET_MQ",
+                        "onenet:lifecycle-test-fixture",
+                        presenceEventUid,
+                        null,
+                        TrustedInboxExecutionLane.DEVICE));
+        assertEquals(
+                TrustedInboxReceiptState.ACCEPTED,
+                presenceReceipt.state());
+        deviceInboxWorker.runBatch("runtime-presence-worker-" + run);
+        assertEquals("DONE", jdbc.queryForObject("""
+                        SELECT state
+                        FROM ops_reliable_task
+                        WHERE task_uid = ?
+                        """,
+                String.class,
+                presenceReceipt.taskUid().toString()));
+
+        JsonNode onlineAsset = data(read(platform,
+                "/api/v1/web/platform/device-assets/" + hardwareSn,
+                200));
+        assertEquals("ONLINE",
+                onlineAsset.path("connectivity")
+                        .path("oneNetConnectionStatus").asText());
+        assertEquals("LIFECYCLE_EVENT",
+                onlineAsset.path("connectivity")
+                        .path("evidenceSource").asText());
+
+        JsonNode onlineRuntime = data(read(platform,
+                "/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/runtime",
+                200));
+        assertEquals("ONLINE",
+                onlineRuntime.path("health")
+                        .path("oneNetConnectionStatus").asText());
+        assertFalse(onlineRuntime.path("health")
+                .path("oneNetStatusObservedAt").isNull());
+        assertEquals("UNKNOWN",
+                onlineRuntime.path("health")
+                        .path("edgeConnectionStatus").asText());
+        assertTrue(onlineRuntime.path("health")
+                .path("trustedRuntimeReceivedAt").isNull());
+        assertTrue(onlineRuntime.path("configuration")
+                .path("latestPublishedVersion").isNull());
+        assertFalse(onlineRuntime.path("occupied").asBoolean());
+        assertFalse(onlineRuntime.path("fetchedAt").isNull());
+    }
+
+    @Test
     void permanentOwnershipAutomaticallyCreatesOrganizationFactsAndHidesStoppedAssets()
             throws Exception {
         BrowserClient platform = new BrowserClient();
@@ -244,6 +344,11 @@ class TargetDeviceMysqlIntegrationTest {
         assertEquals("NORMAL", created.path("lifecycleStatus").asText());
         assertEquals("PENDING", created.path("acceptanceStatus").asText());
         assertTrue(created.path("deviceEntryUrl").isNull());
+        assertEquals("UNKNOWN",
+                created.path("connectivity")
+                        .path("oneNetConnectionStatus").asText());
+        assertTrue(created.path("connectivity")
+                .path("statusObservedAt").isNull());
         assertEquals(hardwareSn,
                 created.path("oneNetMapping").path("deviceName").asText());
         assertEquals(2, jdbc.queryForObject("""

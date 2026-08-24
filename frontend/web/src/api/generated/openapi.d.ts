@@ -4729,6 +4729,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        /** Read current OneNet presence and the latest trusted device runtime projection */
+        get: operations["getPlatformDeviceRuntime"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/device-assets/{hardwareSn}/technical-issues": {
         parameters: {
             query?: never;
@@ -5016,6 +5035,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/device-assets/{hardwareSn}/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        /** Read current runtime facts for one manageable tenant asset */
+        get: operations["getTenantDeviceRuntime"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/device-assets/{hardwareSn}/organization-assignments": {
         parameters: {
             query?: never;
@@ -5066,6 +5104,26 @@ export interface paths {
         };
         /** Read one normal permanent device */
         get: operations["getOrganizationPermanentDevice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/devices/{deviceCode}/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deviceCode: components["parameters"]["DeviceCode"];
+            };
+            cookie?: never;
+        };
+        /** Read current runtime facts for one normal organization device */
+        get: operations["getOrganizationDeviceRuntime"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5651,6 +5709,9 @@ export interface components {
             /** @description 仅由 OneNet 生命周期上线/下线通知更新。 */
             oneNetConnectionStatus: string;
             oneNetStatusObservedAt: components["schemas"]["UtcTimestamp"] | null;
+            oneNetStatusReceivedAt: components["schemas"]["UtcTimestamp"] | null;
+            /** @enum {string|null} */
+            oneNetEvidenceSource: "LIFECYCLE_EVENT" | null;
             trustedRuntimeReceivedAt: components["schemas"]["UtcTimestamp"] | null;
             mcuLinkStatus: string;
             safetyStatus: string;
@@ -5660,47 +5721,68 @@ export interface components {
             clockSyncHealth: string;
             edgeSoftwareVersion: string | null;
             mcuFirmwareVersion: string | null;
-            uartState: string;
+            uartState: string | null;
             uartProtocolMajor: number | null;
             uartProtocolMinor: number | null;
             capabilityBitmapHex: string | null;
+            /** Format: int64 */
+            edgeBootId: number | null;
+            lastMcuResetReason: string | null;
+            /** Format: int64 */
+            pendingReliableEventCount: number | null;
+            /** Format: int64 */
+            orangePiReportedConfigurationVersion: number | null;
             lastHeartbeatAt: components["schemas"]["UtcTimestamp"] | null;
             lastDeviceEventAt: components["schemas"]["UtcTimestamp"] | null;
-            runtimeVersion: components["schemas"]["ExpectedVersion"];
-        };
-        DevicePortBusinessSummary: {
-            currentBagPresent: boolean;
-            baselineState: string;
-            detectionGate: string;
-            fullnessState: string;
-            displayedFullnessPercent: string | null;
-            cleanOperationActive: boolean;
+            runtimeVersion: components["schemas"]["ExpectedVersion"] | null;
         };
         DevicePortRuntime: {
             deviceCode: components["schemas"]["DeviceCode"];
             portNo: number;
+            displayName: string;
+            configuredEnabled: boolean | null;
             deliveryDoorState: string;
             deliveryDoorActuatorHealth: string;
             deliveryDoorContactState: string;
+            lastDeliveryDoorCommand: string | null;
+            lastDeliveryDoorOutputStatus: string | null;
             cleanLockPowerState: string;
             cleanSolenoidHealth: string;
-            /** @enum {string} */
-            cleanDoorPhysicalState: "UNKNOWN";
-            /** @enum {string} */
-            cleanDoorStateBasis: "NOT_OBSERVABLE";
+            cleanDoorRecordedState: string;
+            cleanDoorStateBasis: string;
+            cleanerPhysicalCloseConfirmed: boolean | null;
             weightSensorHealth: string;
+            weightMeasurementStatus: string | null;
+            weightValueAvailable: boolean | null;
+            /** Format: int64 */
+            reportedWeightGrams: number | null;
+            weightValueKind: string | null;
             infraredValue: string | null;
             infraredSensorHealth: string;
+            fullnessSensorKind: string | null;
+            fullnessSensorValue: string | null;
+            /** Format: int64 */
+            representativeDistanceMm: number | null;
             smokeState: string;
             smokeSensorHealth: string;
             safetyStatus: string;
-            business: components["schemas"]["DevicePortBusinessSummary"];
-            deliveryAllowed: boolean;
-            cleaningAllowed: boolean;
-            deliveryBlockers: string[];
-            cleaningBlockers: string[];
             lastObservedAt: components["schemas"]["UtcTimestamp"] | null;
-            runtimeVersion: components["schemas"]["ExpectedVersion"];
+            runtimeVersion: components["schemas"]["ExpectedVersion"] | null;
+        };
+        /** @description Current OneNet presence plus the latest trusted runtime projection. Runtime health fields are snapshots and include their observation times. */
+        DeviceRuntime: {
+            deviceCode: components["schemas"]["DeviceCode"];
+            lifecycleStatus: components["schemas"]["DeviceAssetLifecycleStatus"];
+            acceptanceStatus: components["schemas"]["DeviceAcceptanceStatus"];
+            version: components["schemas"]["ExpectedVersion"];
+            configuration: components["schemas"]["DeviceRuntimeConfigurationSummary"];
+            health: components["schemas"]["DeviceRuntimeHealthSummary"];
+            occupied: boolean;
+            /** @enum {string|null} */
+            occupancyKind: "DELIVERY" | "CLEAN" | null;
+            occupiedAt: components["schemas"]["UtcTimestamp"] | null;
+            ports: components["schemas"]["DevicePortRuntime"][];
+            fetchedAt: components["schemas"]["UtcTimestamp"];
         };
         DeviceConfigurationApplicationSummary: {
             applicationUid: components["schemas"]["UuidV4"];
@@ -5795,6 +5877,12 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["DevicePortRuntime"];
+            requestId: string;
+        };
+        DeviceRuntimeEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeviceRuntime"];
             requestId: string;
         };
         DeviceConfigurationVersionPageEnvelope: {
@@ -8335,6 +8423,15 @@ export interface components {
             deviceName: string;
             currentComputedValue: boolean;
         };
+        /** @description Current OneNet lifecycle presence. This is independent from periodic device runtime snapshots. */
+        DeviceConnectivity: {
+            /** @enum {string} */
+            oneNetConnectionStatus: "ONLINE" | "OFFLINE" | "UNKNOWN";
+            statusObservedAt: components["schemas"]["UtcTimestamp"] | null;
+            statusReceivedAt: components["schemas"]["UtcTimestamp"] | null;
+            /** @enum {string|null} */
+            evidenceSource: "LIFECYCLE_EVENT" | null;
+        };
         DeviceInstallationProfile: {
             deviceCode: components["schemas"]["DeviceCode"];
             version: components["schemas"]["ExpectedVersion"];
@@ -8393,6 +8490,7 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
             installationProfile: components["schemas"]["DeviceInstallationProfile"];
+            connectivity: components["schemas"]["DeviceConnectivity"];
             oneNetMapping: components["schemas"]["ComputedOneNetMapping"];
         };
         DeviceAssetPage: {
@@ -9751,6 +9849,17 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["DeviceAssetEnvelope"];
+            };
+        };
+        /** @description Current OneNet presence and latest trusted runtime projection */
+        DeviceRuntimeOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceRuntimeEnvelope"];
             };
         };
         /** @description Current permanent-asset installation profile */
@@ -16218,6 +16327,24 @@ export interface operations {
             409: components["responses"]["ConflictProblem"];
         };
     };
+    getPlatformDeviceRuntime: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceRuntimeOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
     listPlatformDeviceTechnicalIssues: {
         parameters: {
             query?: never;
@@ -16564,6 +16691,24 @@ export interface operations {
             409: components["responses"]["ConflictProblem"];
         };
     };
+    getTenantDeviceRuntime: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceRuntimeOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
     assignDeviceOrganizationPermanently: {
         parameters: {
             query?: never;
@@ -16629,6 +16774,25 @@ export interface operations {
             403: components["responses"]["ForbiddenProblem"];
             404: components["responses"]["NotFoundProblem"];
             409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getOrganizationDeviceRuntime: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deviceCode: components["parameters"]["DeviceCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceRuntimeOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
         };
     };
     listOrganizationDeviceConfigurationVersions: {

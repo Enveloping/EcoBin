@@ -418,6 +418,10 @@ class HttpContractTests(unittest.TestCase):
             "/api/v1/web/platform/device-assets/{hardwareSn}": {"get"},
             (
                 "/api/v1/web/platform/device-assets/{hardwareSn}"
+                "/runtime"
+            ): {"get"},
+            (
+                "/api/v1/web/platform/device-assets/{hardwareSn}"
                 "/tenant-assignments"
             ): {"post"},
             (
@@ -442,6 +446,7 @@ class HttpContractTests(unittest.TestCase):
             ): {"post"},
             "/api/v1/web/device-assets": {"get"},
             "/api/v1/web/device-assets/{hardwareSn}": {"get"},
+            "/api/v1/web/device-assets/{hardwareSn}/runtime": {"get"},
             (
                 "/api/v1/web/device-assets/{hardwareSn}"
                 "/organization-assignments"
@@ -452,6 +457,10 @@ class HttpContractTests(unittest.TestCase):
             (
                 "/api/v1/web/organizations/{organizationCode}"
                 "/devices/{deviceCode}"
+            ): {"get"},
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/devices/{deviceCode}/runtime"
             ): {"get"},
         }
         for path, expected in required_methods.items():
@@ -481,6 +490,11 @@ class HttpContractTests(unittest.TestCase):
         for schema_name in (
             "DeviceAsset",
             "ComputedOneNetMapping",
+            "DeviceConnectivity",
+            "DeviceRuntime",
+            "DeviceRuntimeConfigurationSummary",
+            "DeviceRuntimeHealthSummary",
+            "DevicePortRuntime",
             "StaffDeviceSummary",
             "StaffPortSummary",
         ):
@@ -494,8 +508,19 @@ class HttpContractTests(unittest.TestCase):
         asset = schemas["DeviceAsset"]
         self.assertIn("deviceCode", asset["properties"])
         self.assertIn("oneNetMapping", asset["properties"])
+        self.assertIn("connectivity", asset["properties"])
         self.assertNotIn("tenantAllocation", asset["properties"])
         self.assertNotIn("deploymentProgress", asset["properties"])
+
+        connectivity = schemas["DeviceConnectivity"]
+        self.assertEqual(
+            ["ONLINE", "OFFLINE", "UNKNOWN"],
+            connectivity["properties"]["oneNetConnectionStatus"]["enum"],
+        )
+        runtime = schemas["DeviceRuntime"]
+        self.assertIn("health", runtime["properties"])
+        self.assertIn("ports", runtime["properties"])
+        self.assertIn("fetchedAt", runtime["properties"])
 
         staff_port = schemas["StaffPortSummary"]
         self.assertIn("enabled", staff_port["properties"])
