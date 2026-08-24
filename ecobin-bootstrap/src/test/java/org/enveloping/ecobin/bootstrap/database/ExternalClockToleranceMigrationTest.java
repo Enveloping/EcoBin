@@ -28,6 +28,8 @@ class ExternalClockToleranceMigrationTest {
                 "ADD COLUMN CLOCK_QUALITY VARCHAR(16)",
                 "MODIFY COLUMN OBSERVED_AT DATETIME(3) NULL",
                 "DROP CHECK CK_DEV_ACCEPTANCE_EVIDENCE_RESULT_V42",
+                "EVIDENCE_SCHEMA_VERSION = 1",
+                "OR DEVICE_ENTRY_URL_STORED = 1",
                 "MODIFY COLUMN OCCURRED_AT DATETIME(3) NULL",
                 "MODIFY COLUMN DEVICE_OCCURRED_AT DATETIME(3) NULL",
                 "SESSION_ID, RECEIVED_AT DESC, ID DESC",
@@ -41,7 +43,9 @@ class ExternalClockToleranceMigrationTest {
                 "RECEIVED_AT >= OBSERVED_AT",
                 "RECEIVED_AT >= OCCURRED_AT",
                 "BACKEND_RECEIVED_AT >= DEVICE_OCCURRED_AT",
-                "CLEANUP_COMPLETED_AT >= SEALED_AT");
+                "CLEANUP_COMPLETED_AT >= SEALED_AT",
+                "AND MCU_SIMULATED = 0",
+                "AND CAMERAS_SIMULATED = 0");
     }
 
     private static Path resolve() {

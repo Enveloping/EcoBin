@@ -177,8 +177,10 @@ ALTER TABLE dev_device_acceptance_evidence
                 AND sensors_healthy = 1
                 AND cameras_capture_healthy = 1
                 AND camera_upload_healthy = 1
-                AND mcu_simulated = 0
-                AND cameras_simulated = 0
+                AND (
+                    evidence_schema_version = 1
+                    OR device_entry_url_stored = 1
+                )
                 AND JSON_LENGTH(failure_reasons_json) = 0
             )
         )
