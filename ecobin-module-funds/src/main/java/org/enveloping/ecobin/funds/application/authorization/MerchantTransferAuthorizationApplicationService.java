@@ -298,7 +298,7 @@ public class MerchantTransferAuthorizationApplicationService {
                 row.mchid(), row.outAuthorizationNo(), row.appid(),
                 row.openid(), row.sceneId(), row.userDisplayName(),
                 row.userRecvPerception(), instant(row.channelCreatedAt()),
-                true));
+                false));
         return transactions.execute(status -> mergeTaskResult(
                 command, row.id(), "QUERY", result));
     }
@@ -552,9 +552,34 @@ public class MerchantTransferAuthorizationApplicationService {
         }
         if (packageInfo == null || packageExpiresAt == null
                 || !now.isBefore(packageExpiresAt)) {
-            markUnknown(row, result.channelState(), now);
-            return blocked(
-                    "waiting authorization has no currently valid display package");
+            jdbc.update("""
+                    UPDATE fund_wechat_transfer_authorization
+                    SET local_state = 'UNKNOWN',
+                        channel_state = 'WAIT_USER_CONFIRM',
+                        package_info = NULL, package_expires_at = NULL,
+                        last_api_error_code = NULL, close_reason = NULL,
+                        state_conflict = 1,
+                        submitted_at = COALESCE(submitted_at, ?),
+                        channel_created_at = ?,
+                        confirmation_deadline_at = DATE_ADD(?, INTERVAL 24 HOUR),
+                        authorized_at = NULL, closed_at = NULL,
+                        channel_updated_at = ?,
+                        lock_version = lock_version + 1, updated_at = ?
+                    WHERE id = ?
+                    """, now, channelCreated, channelCreated,
+                    now, now, row.id());
+            resolveEvidenceMismatch(row, now);
+            observeIssue(
+                    command.sourceTaskAttemptId(), row,
+                    "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_QUERY_RECOVERY_MISSING",
+                    "CRITICAL", "WAITING_DISPLAY_PACKAGE_UNRECOVERABLE",
+                    result, now);
+            AuthorizationRow updated = requiredById(row.id(), false);
+            return waiting(
+                    "authorization is waiting at WeChat, but the original "
+                            + "display package is unavailable; terminal "
+                            + "state polling continues",
+                    queryDelay(updated, now));
         }
         jdbc.update("""
                 UPDATE fund_wechat_transfer_authorization
@@ -998,21 +1023,12 @@ public class MerchantTransferAuthorizationApplicationService {
                 row.userDisplayName(), "USER_DISPLAY_NAME");
         validation.equalIfPresent(result.userRecvPerception(),
                 row.userRecvPerception(), "USER_RECV_PERCEPTION");
-        if (row.channelCreatedAt() == null) {
-            validation.present(result.channelCreatedAt(), "CREATE_TIME");
-        } else if (result.channelCreatedAt() != null
-                && !databaseTime(result.channelCreatedAt()).equals(
-                row.channelCreatedAt())) {
-            validation.violation("CREATE_TIME_MISMATCH");
-        }
+        // WeChat timestamps are optional diagnostic evidence. They are kept in
+        // observations, but an estimated local fallback must not turn a later
+        // authoritative timestamp into an identity/evidence mismatch.
         if (result.outcome() == AuthorizationResult.Outcome.ACTIVE) {
             validation.present(result.authorizationId(), "AUTHORIZATION_ID");
             validation.present(result.authorizedAt(), "AUTHORIZE_TIME");
-        }
-        if (result.authorizedAt() != null && row.authorizedAt() != null
-                && !databaseTime(result.authorizedAt()).equals(
-                row.authorizedAt())) {
-            validation.violation("AUTHORIZE_TIME_MISMATCH");
         }
         if (result.outcome() == AuthorizationResult.Outcome.CLOSED) {
             validation.present(result.closeReason(), "CLOSE_REASON");
@@ -1043,11 +1059,8 @@ public class MerchantTransferAuthorizationApplicationService {
         if (authorizeTime != null && parsedAuthorizeTime == null) {
             validation.violation("AUTHORIZE_TIME_INVALID");
         }
-        if (parsedAuthorizeTime != null && row.authorizedAt() != null
-                && !databaseTime(parsedAuthorizeTime).equals(
-                row.authorizedAt())) {
-            validation.violation("AUTHORIZE_TIME_MISMATCH");
-        }
+        // A parseable provider timestamp is evidence, not an identity field;
+        // repeated observations need not be byte-for-byte time-equal.
         if ("CLOSED".equals(state)) {
             validation.present(text(payload.path("close_info"),
                     "close_reason"), "CLOSE_REASON");
@@ -1753,7 +1766,9 @@ public class MerchantTransferAuthorizationApplicationService {
             AuthorizationRow row,
             AuthorizationResult result) {
         LocalDateTime observed = databaseTime(result.channelCreatedAt());
-        return observed == null ? row.channelCreatedAt() : observed;
+        if (observed != null) return observed;
+        if (row.channelCreatedAt() != null) return row.channelCreatedAt();
+        return row.createdAt();
     }
 
     private static String expectedChannelState(

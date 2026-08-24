@@ -1920,17 +1920,31 @@ class TargetWebIdentityMysqlIntegrationTest {
 
         assertEquals(1, jdbc.update("""
                 UPDATE fund_wechat_transfer_authorization
-                SET local_state = 'UNKNOWN',
-                    channel_state = 'WAIT_USER_CONFIRM',
+                SET local_state = 'CREATED', channel_state = NULL,
                     package_info = NULL, package_expires_at = NULL,
                     last_api_error_code = 'INVALID_REQUEST',
-                    state_conflict = 1,
+                    state_conflict = 0, submitted_at = NULL,
+                    channel_created_at = NULL,
+                    confirmation_deadline_at = NULL,
                     lock_version = lock_version + 1,
                     updated_at = UTC_TIMESTAMP(3)
                 WHERE out_authorization_no = ?
                 """, accepted.authorizationNo()));
+        assertEquals(1, jdbc.update("""
+                UPDATE ops_reliable_task
+                SET state = 'BLOCKED', next_run_at = NULL,
+                    lease_token = NULL, lease_worker = NULL,
+                    lease_until = NULL,
+                    completed_at = UTC_TIMESTAMP(3),
+                    blocked_reason_code = 'AUTO_RETRY_EXHAUSTED',
+                    blocked_diagnostic = 'legacy create rollback fixture',
+                    handled_wake_version = wake_version,
+                    lock_version = lock_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE id = ? AND state = 'PENDING'
+                """, createTask.taskId()));
         var damagedByLegacyValidation = service.current();
-        assertEquals("UNKNOWN", damagedByLegacyValidation.status());
+        assertEquals("PREPARING", damagedByLegacyValidation.status());
         assertNull(damagedByLegacyValidation.packageInfo());
         assertFalse(damagedByLegacyValidation.confirmationRequired());
 
@@ -1959,20 +1973,22 @@ class TargetWebIdentityMysqlIntegrationTest {
                 waitingQueryResult.outcome());
         recordFundsAttemptResult(waitingQueryCommand, waitingQueryResult);
         var waitingAfterQuery = service.current();
-        assertEquals("WAIT_USER_CONFIRM", waitingAfterQuery.status());
-        assertEquals("authorization-package",
-                waitingAfterQuery.packageInfo());
-        assertTrue(waitingAfterQuery.confirmationRequired());
-        assertEquals(fixture.appid(), waitingAfterQuery.appId());
-        assertNotNull(waitingAfterQuery.mchId());
+        assertEquals("UNKNOWN", waitingAfterQuery.status());
+        assertNull(waitingAfterQuery.packageInfo());
+        assertFalse(waitingAfterQuery.confirmationRequired());
+        assertNull(waitingAfterQuery.appId());
+        assertNull(waitingAfterQuery.mchId());
         assertNotNull(waitingAfterQuery.confirmationExpiresAt());
         assertNotNull(waitingAfterQuery.lastSuccessfulQueryAt());
-        assertEquals("0|-", jdbc.queryForObject("""
-                SELECT CONCAT(state_conflict, '|',
-                              COALESCE(last_api_error_code, '-'))
-                FROM fund_wechat_transfer_authorization
-                WHERE out_authorization_no = ?
-                """, String.class, accepted.authorizationNo()));
+        assertEquals("1|-|DONE", jdbc.queryForObject("""
+                SELECT CONCAT(auth.state_conflict, '|',
+                              COALESCE(auth.last_api_error_code, '-'), '|',
+                              task.state)
+                FROM fund_wechat_transfer_authorization auth
+                JOIN ops_reliable_task task ON task.id = ?
+                WHERE auth.out_authorization_no = ?
+                """, String.class, createTask.taskId(),
+                accepted.authorizationNo()));
         assertEquals("RESOLVED|1", jdbc.queryForObject("""
                 SELECT CONCAT(state, '|',
                               system_verified_resolved_at IS NOT NULL)
@@ -2007,10 +2023,9 @@ class TargetWebIdentityMysqlIntegrationTest {
                 recoveredQueryResult.outcome());
         recordFundsAttemptResult(recoveredQueryCommand, recoveredQueryResult);
         var recoveredAfterMismatch = service.current();
-        assertEquals("WAIT_USER_CONFIRM", recoveredAfterMismatch.status());
-        assertEquals("authorization-package",
-                recoveredAfterMismatch.packageInfo());
-        assertTrue(recoveredAfterMismatch.confirmationRequired());
+        assertEquals("UNKNOWN", recoveredAfterMismatch.status());
+        assertNull(recoveredAfterMismatch.packageInfo());
+        assertFalse(recoveredAfterMismatch.confirmationRequired());
 
         var activeQueryResult = service.executeTask(fundsCommand(
                 queryTask.taskUid(), queryTask.taskId(), 4, fixture,
@@ -5211,6 +5226,10 @@ class TargetWebIdentityMysqlIntegrationTest {
         @Override
         public AuthorizationResult query(AuthorizationQuery query) {
             assertNotNull(request);
+            assertFalse(query.displayAuthorization(),
+                    "WAIT_USER_CONFIRM recovery must not request a display "
+                            + "package that WeChat only promises after the "
+                            + "authorization takes effect");
             assertEquals(request.mchid(), query.mchid());
             assertEquals(request.outAuthorizationNo(),
                     query.outAuthorizationNo());
