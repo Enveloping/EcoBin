@@ -75,7 +75,7 @@ apt-get "${bootstrap_apt_options[@]}" install -y --no-install-recommends \
 apt-get "${apt_options[@]}" update
 
 mapfile -t locked_packages < <(
-    python3 - "${builder_lock}" <<'PY'
+    python3 - "${builder_lock}" "${build_mode}" <<'PY'
 import json
 import pathlib
 import sys
@@ -110,10 +110,26 @@ mapping = {
     "xz": "xz-utils",
     "zstd": "zstd",
 }
+build_mode = sys.argv[2]
+if build_mode not in {"image", "runtime-release", "software-payload"}:
+    raise SystemExit("builder mode is invalid")
+image_only_tools = {
+    "e2fsprogs",
+    "fdisk",
+    "jq",
+    "mount",
+    "p7zip",
+    "qemuUserStatic",
+    "utilLinux",
+    "xz",
+    "zstd",
+}
 tools = document.get("tools")
 if not isinstance(tools, dict) or set(tools) != set(mapping) | {"uv"}:
     raise SystemExit("builder tool mapping differs from the lock")
 for key, package in mapping.items():
+    if build_mode != "image" and key in image_only_tools:
+        continue
     value = tools[key]
     if not isinstance(value, str) or not value:
         raise SystemExit("builder tool version is absent")
@@ -152,7 +168,7 @@ PY
     export ECOBIN_TARGET_DEB_DIRECTORY="${target_deb_directory}"
 fi
 
-python3 - "${builder_lock}" <<'PY'
+python3 - "${builder_lock}" "${build_mode}" <<'PY'
 import json
 import pathlib
 import subprocess
@@ -186,7 +202,23 @@ mapping = {
     "xz": "xz-utils",
     "zstd": "zstd",
 }
+build_mode = sys.argv[2]
+if build_mode not in {"image", "runtime-release", "software-payload"}:
+    raise SystemExit("builder mode is invalid")
+image_only_tools = {
+    "e2fsprogs",
+    "fdisk",
+    "jq",
+    "mount",
+    "p7zip",
+    "qemuUserStatic",
+    "utilLinux",
+    "xz",
+    "zstd",
+}
 for key, package in mapping.items():
+    if build_mode != "image" and key in image_only_tools:
+        continue
     actual = subprocess.run(
         ["dpkg-query", "-W", "-f=${Version}", package],
         check=True,

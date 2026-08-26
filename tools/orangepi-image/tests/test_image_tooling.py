@@ -367,6 +367,12 @@ class ImageToolingTest(unittest.TestCase):
         self.assertNotIn("--privileged", launcher)
         self.assertIn("--runtime-release-only", bootstrap)
         self.assertIn("hardware/install/build_runtime_release.py", bootstrap)
+        self.assertEqual(bootstrap.count("image_only_tools = {"), 2)
+        self.assertIn('"qemuUserStatic",', bootstrap)
+        self.assertIn(
+            'if build_mode != "image" and key in image_only_tools:',
+            bootstrap,
+        )
 
     def test_target_package_installer_is_chrooted_pinned_and_service_safe(self) -> None:
         installer = (TOOL_ROOT / "install-target-packages.sh").read_text(
