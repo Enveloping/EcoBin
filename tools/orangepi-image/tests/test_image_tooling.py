@@ -314,18 +314,18 @@ class ImageToolingTest(unittest.TestCase):
         self.assertNotIn("BuilderDigest", wrapper)
         self.assertIn("run-builder.sh", wrapper)
 
-    def test_ca_less_builder_bootstraps_from_signed_http_snapshot(self) -> None:
+    def test_ca_less_builder_uses_two_phase_signed_https_snapshot(self) -> None:
         bootstrap = (TOOL_ROOT / "bootstrap-builder.sh").read_text(
             encoding="utf-8"
         )
 
-        # debian:bookworm-slim does not contain a CA bundle.  Requiring HTTPS
-        # before the locked ca-certificates package is installed creates an
-        # impossible bootstrap cycle.  APT authenticates this immutable HTTP
-        # snapshot through its signed InRelease metadata and the pinned Debian
-        # archive keyring.
+        # debian:bookworm-slim does not contain a CA bundle.  The first HTTPS
+        # transfer therefore disables only TLS peer verification while APT
+        # still authenticates the immutable snapshot through signed InRelease
+        # metadata.  After the exact CA package is installed, the builder must
+        # rerun update with normal HTTPS certificate verification.
         self.assertIn(
-            'snapshot_url="http://snapshot.debian.org/archive/'
+            'snapshot_url="https://snapshot.debian.org/archive/'
             'debian/20260803T000000Z/"',
             bootstrap,
         )
@@ -334,6 +334,10 @@ class ImageToolingTest(unittest.TestCase):
             bootstrap,
         )
         self.assertIn("Acquire::Retries=4", bootstrap)
+        self.assertIn("Acquire::https::Verify-Peer=false", bootstrap)
+        self.assertIn("ca-certificates=20230311+deb12u1", bootstrap)
+        self.assertIn('apt-get "${bootstrap_apt_options[@]}" update', bootstrap)
+        self.assertIn('apt-get "${apt_options[@]}" update', bootstrap)
 
     def test_runtime_release_has_a_locked_arm64_build_entry(self) -> None:
         launcher = (TOOL_ROOT / "run-runtime-builder.sh").read_text(
@@ -357,6 +361,7 @@ class ImageToolingTest(unittest.TestCase):
         self.assertIn("dst=/workspace,readonly", launcher)
         self.assertIn("dst=/runtime-input/signing-private.pem,readonly", launcher)
         self.assertIn("formal runtime releases require a clean repository", launcher)
+        self.assertIn("repository status could not be verified", launcher)
         self.assertIn("signing private key permissions are unsafe", launcher)
         self.assertIn("--runtime-release-only", launcher)
         self.assertNotIn("--privileged", launcher)
@@ -394,6 +399,7 @@ class ImageToolingTest(unittest.TestCase):
         self.assertIn("dst=/workspace,readonly", launcher)
         self.assertIn("runtime-trust,readonly", launcher)
         self.assertIn("--software-payload-only", launcher)
+        self.assertIn("repository status could not be verified", launcher)
         self.assertIn("uv sync", builder)
         self.assertIn("--frozen", builder)
         self.assertIn("--only-group", builder)

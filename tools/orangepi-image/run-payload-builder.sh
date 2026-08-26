@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
         *) fail "unknown or incomplete argument: $1" ;;
     esac
 done
-for command_name in docker python3 readlink stat; do
+for command_name in docker git python3 readlink stat; do
     command -v "${command_name}" >/dev/null 2>&1 || fail "missing command: ${command_name}"
 done
 for value in "${output_directory}" "${runtime_archive}" "${runtime_sha256}" \
@@ -63,7 +63,11 @@ for variable_name in runtime_trust_directory mcu_trust_directory; do
     [[ -d "${value}" && ! -L "${value}" ]] || fail "payload trust directory is unsafe"
     printf -v "${variable_name}" '%s' "$(readlink -f -- "${value}")"
 done
-[[ -z "$(git -C "${repository_root}" status --porcelain --untracked-files=normal)" ]] \
+if ! repository_status="$(git -C "${repository_root}" status \
+    --porcelain --untracked-files=normal)"; then
+    fail "repository status could not be verified"
+fi
+[[ -z "${repository_status}" ]] \
     || fail "formal software payloads require a clean repository"
 if [[ "${output_directory}" != /* ]]; then output_directory="${PWD}/${output_directory}"; fi
 output_parent="$(dirname -- "${output_directory}")"

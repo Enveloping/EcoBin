@@ -17,13 +17,14 @@ case "${1:-}" in
         ;;
 esac
 builder_lock="${script_directory}/builder.lock"
-# The locked debian:bookworm-slim base deliberately has no CA bundle.  Use the
-# immutable HTTP snapshot for the initial APT bootstrap so ca-certificates can
-# be installed without a TLS trust cycle.  APT still authenticates InRelease
-# and every package through the pinned Debian archive keyring and exact
-# versions below.  Non-APT artifacts continue to require HTTPS plus size and
-# SHA-256 verification after the CA bundle is installed.
-snapshot_url="http://snapshot.debian.org/archive/debian/20260803T000000Z/"
+# The locked debian:bookworm-slim base deliberately has no CA bundle.  For the
+# first HTTPS transfer only, disable TLS peer verification while APT still
+# authenticates the immutable snapshot's InRelease and package hashes through
+# the pinned Debian archive keyring.  Install the exact CA package, require its
+# bundle, then repeat update with normal HTTPS verification before installing
+# any remaining builder tool.  This avoids both a CA bootstrap cycle and an
+# unauthenticated package source.
+snapshot_url="https://snapshot.debian.org/archive/debian/20260803T000000Z/"
 snapshot_sources="/tmp/ecobin-builder-snapshot.sources"
 
 fail() {
@@ -53,16 +54,25 @@ apt_options=(
     -o "Dir::Etc::sourceparts=-"
     -o "APT::Get::List-Cleanup=0"
 )
+bootstrap_apt_options=(
+    "${apt_options[@]}"
+    -o "Acquire::https::Verify-Peer=false"
+)
 export DEBIAN_FRONTEND=noninteractive
 export LC_ALL=C.UTF-8
 export TZ=UTC
 export PYTHONDONTWRITEBYTECODE=1
 
-apt-get "${apt_options[@]}" update
-# Python is the only bootstrap parser. Its version is rechecked with every
-# other tool before an image is attached.
-apt-get "${apt_options[@]}" install -y --no-install-recommends \
+apt-get "${bootstrap_apt_options[@]}" update
+# Python is the only bootstrap parser.  Both bootstrap packages are installed
+# at their exact locked versions and rechecked with every other tool later.
+apt-get "${bootstrap_apt_options[@]}" install -y --no-install-recommends \
+    ca-certificates=20230311+deb12u1 \
     python3=3.11.2-1+b1
+[[ -s /etc/ssl/certs/ca-certificates.crt \
+    && ! -L /etc/ssl/certs/ca-certificates.crt ]] \
+    || fail "bootstrap CA bundle is unavailable"
+apt-get "${apt_options[@]}" update
 
 mapfile -t locked_packages < <(
     python3 - "${builder_lock}" <<'PY'

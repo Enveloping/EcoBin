@@ -54,7 +54,11 @@ private_key_mode="$(stat -c '%a' -- "${signing_private_key}")"
     || fail "signing private key permissions are unsafe"
 signing_private_key="$(readlink -f -- "${signing_private_key}")"
 
-[[ -z "$(git -C "${repository_root}" status --porcelain --untracked-files=normal)" ]] \
+if ! repository_status="$(git -C "${repository_root}" status \
+    --porcelain --untracked-files=normal)"; then
+    fail "repository status could not be verified"
+fi
+[[ -z "${repository_status}" ]] \
     || fail "formal runtime releases require a clean repository"
 if [[ "${output_directory}" != /* ]]; then
     output_directory="${PWD}/${output_directory}"
