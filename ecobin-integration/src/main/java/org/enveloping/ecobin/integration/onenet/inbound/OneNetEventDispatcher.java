@@ -2295,10 +2295,18 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     private static Map<String, Object> acceptanceEvidencePayload(
             JsonNode wire) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put(
-                "evidenceSchemaVersion",
-                exactEnum(
-                        wire, "evidenceSchemaVersion", 1, 3L));
+        long wireEvidenceSchemaVersion = integer(
+                wire, "evidenceSchemaVersion");
+        long evidenceSchemaVersion;
+        if (wireEvidenceSchemaVersion == 1L) {
+            evidenceSchemaVersion = 3L;
+        } else if (wireEvidenceSchemaVersion == 2L) {
+            evidenceSchemaVersion = 4L;
+        } else {
+            throw permanent(
+                    "evidenceSchemaVersion has an unsupported enum value");
+        }
+        payload.put("evidenceSchemaVersion", evidenceSchemaVersion);
         payload.put(
                 "challengeUid",
                 pattern(wire, "challengeUid", UUID_V4));
@@ -2335,6 +2343,38 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         payload.put(
                 "mcuCommunicationHealthy",
                 bool(wire, "mcuCommunicationHealthy"));
+        JsonNode capabilityPresence = wire.get(
+                "mcuRemoteUpdateCapablePresent");
+        JsonNode capabilityValue = wire.get(
+                "mcuRemoteUpdateCapable");
+        if (evidenceSchemaVersion == 3L) {
+            if (capabilityPresence == null) {
+                if (capabilityValue != null) {
+                    throw permanent(
+                            "v3 remote-update capability has no presence flag");
+                }
+            } else if (nullablePresenceBoolean(
+                    wire,
+                    "mcuRemoteUpdateCapablePresent",
+                    "mcuRemoteUpdateCapable") != null) {
+                throw permanent(
+                        "v3 acceptance evidence carries v4 capability");
+            }
+        } else {
+            if (capabilityPresence == null) {
+                throw permanent(
+                        "v4 remote-update capability presence is missing");
+            }
+            Boolean capability = nullablePresenceBoolean(
+                    wire,
+                    "mcuRemoteUpdateCapablePresent",
+                    "mcuRemoteUpdateCapable");
+            if (capability == null) {
+                throw permanent(
+                        "v4 remote-update capability is missing");
+            }
+            payload.put("mcuRemoteUpdateCapable", capability);
+        }
         payload.put(
                 "sensorsHealthy",
                 bool(wire, "sensorsHealthy"));

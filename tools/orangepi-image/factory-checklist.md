@@ -5,7 +5,7 @@
 ## 写卡工位
 
 - [ ] 从工位外可信介质安装 root 所有、发布目录不可修改的 `trusted-flash-entry`、外部 `LOCKED` 策略和当前发布公钥，并核对 `imageSigningKeyId`。
-- [ ] 两张以上同批次 32 GB TF 卡的整卡容量已形成可复算的 target-media 资格证据，证据摘要和最小值与锁定布局一致；外部策略中的两个构建者身份/域/公钥、rootfs 资格证据摘要和三类发布角色公钥均经同行复核；两个 build receipt 的 invocation UID 不同，聚合 build attestation 和 seal evidence 验签通过。
+- [ ] target-media 资格证据与本次批准模式一致：默认模式为两张以上同批次 32 GB TF 卡；项目负责人明确接受单卡时，证据必须标记 `SINGLE_CARD_PROJECT_OWNER_ACCEPTED` 且只覆盖该卡。证据摘要和最小值与锁定布局一致；外部策略中的两个构建者身份/域/公钥、rootfs 资格证据摘要和三类发布角色公钥均经同行复核；两个 build receipt 的 invocation UID 不同，聚合 build attestation 和 seal evidence 验签通过。
 - [ ] `/proc/swaps` 只有表头，没有 swapfile、交换分区或 zram；没有在活动交换空间存在时处理含 K1 的封存镜像。
 - [ ] 可信入口先验证 `release-checksums.sig` 和精确 19 项发布清单，再把镜像、manifest、SBOM、包清单、证明、target-media/rootfs 资格证据、schema 和写卡程序完整快照到 `root:root 0700` 目录；没有直接运行发布目录中的脚本。
 - [ ] 目标是明确选择且重复确认的可返工 32 GB TF 卡，不是系统盘；真实字节数不小于已签名 manifest 的 `minimumQualifiedMediaBytes`。
@@ -16,8 +16,9 @@
 - [ ] 根分区和 ext4 文件系统扩容完成；内核分区扇区数真实增大、文件系统覆盖到分区尾部，重启后仍正常。
 - [ ] 当前启动已重新建立安全 GPIO、EdgeStore 结构和首启门禁，不是只复用旧 `state.json` 阶段。
 - [ ] 未插 SIM 时手机可连接验收热点；客户端不能访问设备 SSH、蜂窝或以太网 WAN。
-- [ ] UART5 `/dev/ttyS5`、BOOT0 物理 7 号针和经 2N7002 的 NRST 物理 11 号针实测正确。
-- [ ] MCU F3 为固定帧 revision 2，F1 自检健康，ROM 只读探测后回到原应用身份。
+- [ ] UART5 `/dev/ttyS5` 实测正确；验收开始时已如实选择本机是否安装 MCU 远程升级线。
+- [ ] MCU F3 为固定帧 revision 2，F1 自检健康。若已安装升级线，BOOT0 物理 7 号针和经 2N7002 的 NRST 物理 11 号针、ROM `0x0410` 及应用恢复全部通过；若未安装，报告为 `NOT_APPLICABLE` 且能力文件为 `false`。
+- [ ] 如 F3 是保留的 `factory-sim-1.0.0 / ECOSIM01`，页面已显示模拟告警，人工步骤仍正常完成，操作员在最终 PASSED 前再次确认该证据不能证明真实 MCU 外设质量。
 - [ ] DECXIN 外部摄像头和 icspring 内部摄像头路径稳定、画面角色人工确认正确。
 - [ ] 500 g 砝码差分位于 490～510 g，砝码随后已取下。
 - [ ] 离线投递收到 DD 并完成 F3/F1/静默复查后，操作员重新现场确认投口驱动机构已停止、投口机械结构及周围区域安全；最终报告中的 `operatorAreaSafeConfirmed=true` 来自该动作后确认，不是发送 BB+AA 前的勾选。

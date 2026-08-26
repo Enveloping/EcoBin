@@ -1,8 +1,8 @@
 {
   "$schema": "./schemas/image-layout.schema.json",
   "schemaVersion": 2,
-  "lockState": "UNLOCKED",
-  "reason": "Source image geometry and deterministic ext4 profile are measured and locked; formal use remains blocked until real 32 GB TF media qualification evidence is recorded outside the repository template.",
+  "lockState": "LOCKED",
+  "reason": "Source geometry, deterministic ext4 profile, and the project-owner-accepted single 32 GB TF card capacity are measured and locked; this target-media qualification covers only the identified card.",
   "sourceGeometry": {
     "lockState": "LOCKED",
     "rawImageBytes": 2571108352,
@@ -23,9 +23,9 @@
   "targetMedia": {
     "marketedCapacityGB": 32,
     "marketedCapacityBytes": 32000000000,
-    "qualificationState": "UNQUALIFIED",
-    "minimumQualifiedMediaBytes": null,
-    "evidenceSha256": null
+    "qualificationState": "QUALIFIED",
+    "minimumQualifiedMediaBytes": 31268536320,
+    "evidenceSha256": "e048967cbd8f19d50eeed30905915119a814e397c60c364c24532c9bfcc1f2ad"
   },
   "compactImage": {
     "fixedRawImageBytes": 2571108352,

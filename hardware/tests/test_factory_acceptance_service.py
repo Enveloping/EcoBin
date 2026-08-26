@@ -155,9 +155,25 @@ def test_start_requires_explicit_confirmation_and_binds_release_and_config() -> 
     controller, executor = _controller()
 
     with pytest.raises(AcceptanceCommandError) as missing:
-        controller.execute(_request("START", 0, {"confirmOfflineAcceptance": False}))
+        controller.execute(
+            _request(
+                "START",
+                0,
+                {
+                    "confirmOfflineAcceptance": False,
+                    "mcuUpdateLineInstalled": True,
+                },
+            )
+        )
     result = controller.execute(
-        _request("START", 0, {"confirmOfflineAcceptance": True})
+        _request(
+            "START",
+            0,
+            {
+                "confirmOfflineAcceptance": True,
+                "mcuUpdateLineInstalled": True,
+            },
+        )
     )
 
     assert missing.value.code == "OFFLINE_ACCEPTANCE_CONFIRMATION_REQUIRED"
@@ -168,6 +184,125 @@ def test_start_requires_explicit_confirmation_and_binds_release_and_config() -> 
     assert begin_values["image_release_id"] == "ecobin-zero3-1.0.0"
     assert begin_values["hardware_config_digest"] == (
         AcceptanceConfiguration.from_mapping({}).digest()
+    )
+
+
+def test_start_requires_explicit_update_line_choice_and_binds_false() -> None:
+    controller, executor = _controller()
+
+    with pytest.raises(AcceptanceCommandError) as missing:
+        controller.execute(
+            _request(
+                "START",
+                0,
+                {
+                    "confirmOfflineAcceptance": True,
+                    "mcuUpdateLineInstalled": None,
+                },
+            )
+        )
+
+    assert missing.value.code == "MCU_UPDATE_LINE_SELECTION_REQUIRED"
+    result = controller.execute(
+        _request(
+            "START",
+            0,
+            {
+                "confirmOfflineAcceptance": True,
+                "mcuUpdateLineInstalled": False,
+            },
+        )
+    )
+    assert result["status"] == "RUNNING"
+    begin_values = executor.calls[-1][1]
+    assert isinstance(begin_values, dict)
+    assert begin_values["mcu_update_line_installed"] is False
+
+
+def test_not_applicable_update_line_allows_delivery_step() -> None:
+    controller, executor = _controller()
+    executor.state.update(
+        {
+            "status": "RUNNING",
+            "revision": 5,
+            "checks": {
+                "mcu": {"status": "PASSED", "resultCode": "PASSED"},
+                "weight": {"status": "PASSED", "resultCode": "PASSED"},
+                "cameras": {"status": "PASSED", "resultCode": "PASSED"},
+                "upgradeLine": {
+                    "status": "NOT_APPLICABLE",
+                    "resultCode": "MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED",
+                    "prepareSendAttempts": 0,
+                    "romWritePerformed": False,
+                    "romDeviceId": None,
+                },
+            },
+        }
+    )
+
+    assert controller.projection()["allowedActions"] == ["RUN_DELIVERY"]
+
+
+def test_simulated_mcu_finalize_requires_dedicated_confirmation() -> None:
+    controller, executor = _controller()
+    executor.state.update(
+        {
+            "status": "RUNNING",
+            "phase": "CLEAN_SAFE_VERIFIED",
+            "revision": 12,
+            "mcuPeripheralEvidenceMode": "SIMULATED_PERIPHERALS",
+            "checks": {
+                name: {
+                    "status": "PASSED",
+                    "resultCode": "PASSED",
+                    **(
+                        {"operatorAreaSafeConfirmed": True}
+                        if name == "delivery"
+                        else {"cleanDoorConfirmed": True}
+                        if name == "clean"
+                        else {}
+                    ),
+                }
+                for name in (
+                    "mcu",
+                    "weight",
+                    "upgradeLine",
+                    "cameras",
+                    "delivery",
+                    "clean",
+                )
+            },
+        }
+    )
+
+    with pytest.raises(AcceptanceCommandError) as rejected:
+        controller.execute(
+            _request(
+                "FINALIZE",
+                12,
+                {
+                    "confirmFinalize": True,
+                    "confirmSimulatedPeripheralEvidence": False,
+                },
+            )
+        )
+    assert rejected.value.code == (
+        "SIMULATED_PERIPHERAL_EVIDENCE_CONFIRMATION_REQUIRED"
+    )
+
+    controller.execute(
+        _request(
+            "FINALIZE",
+            12,
+            {
+                "confirmFinalize": True,
+                "confirmSimulatedPeripheralEvidence": True,
+            },
+        )
+    )
+    assert executor.calls[-1] == (
+        "finalize",
+        ((), {"confirm_simulated_peripheral_evidence": True}),
     )
 
 
@@ -639,7 +774,14 @@ def test_concurrent_physical_mutation_returns_busy_instead_of_queueing() -> None
     try:
         with pytest.raises(AcceptanceCommandError) as busy:
             controller.execute(
-                _request("START", 0, {"confirmOfflineAcceptance": True})
+                _request(
+                    "START",
+                    0,
+                    {
+                        "confirmOfflineAcceptance": True,
+                        "mcuUpdateLineInstalled": True,
+                    },
+                )
             )
     finally:
         controller._action_lock.release()

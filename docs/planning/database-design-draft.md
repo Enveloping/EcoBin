@@ -50,7 +50,7 @@
 > 状态：**数据库设计基线已确认，D-001～D-049 均已确认**
 > 整理日期：2026-07-24
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)、[`system-architecture-draft.md`](system-architecture-draft.md)
-> 当前目标结构：独立目标迁移已推进到 V59，共 119 张领域表；V59 只扩大袋码数量检查约束，表族数量和 76 条有效权限定义不变
+> 当前目标结构：独立目标迁移已推进到 V60，共 119 张领域表；V59 只扩大袋码数量检查约束，V60 增加 MCU 远程升级线路能力三态列，表族数量和 76 条有效权限定义不变
 > 历史字段讨论：[`../architecture/database-refactor-fields-draft.md`](../architecture/database-refactor-fields-draft.md)
 > 目的：把冻结的业务事实和架构边界落实为目标表、字段、约束、索引、事务锁根及迁移方案；F-04～F-06 已把 V1～V10 落为独立迁移，F-07 已验证只读纪元门禁，V-01、V-02 已使用目标身份和钱包表完成纵切；H-02 已完成本地开发演练和服务器整改阶段 0～3，目标数据库、加密备份和隔离恢复已通过，V-09 已 ready 但尚未授权，其他纵向业务仍不能当作已经实施。
 > 文档结构：本文件保存总状态、审计、表族概览、分章导航和后续顺序；各决策正文位于 [`database-design/`](database-design/) 下。

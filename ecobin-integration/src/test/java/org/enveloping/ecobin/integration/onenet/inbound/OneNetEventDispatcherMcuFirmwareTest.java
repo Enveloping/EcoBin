@@ -117,44 +117,8 @@ class OneNetEventDispatcherMcuFirmwareTest {
     @Test
     void packageFetchFailureCodeTwelveIsNormalizedWithItsError()
             throws Exception {
-        ObjectNode wire = wireValue();
-        wire.put("stage", 12);
-        wire.put("targetAttemptCount", 0);
-        wire.put("installedFirmwareVersionPresent", false);
-        wire.put("installedFirmwareVersion", "");
-        wire.put("installedFirmwareVersionCPresent", false);
-        wire.put("installedFirmwareVersionC", 0);
-        wire.put("installedFirmwareIdentityPresent", false);
-        wire.put("installedFirmwareIdentity", "");
-        wire.put("errorCodePresent", true);
-        wire.put("errorCode", "COS_DOWNLOAD_FAILED");
-        Map<String, Object> semanticPayload = new LinkedHashMap<>();
-        semanticPayload.put(
-                "deploymentUid",
-                "8c000000-0000-4000-8000-000000000002");
-        semanticPayload.put(
-                "updateUid",
-                "8c000000-0000-4000-8000-000000000004");
-        semanticPayload.put(
-                "releaseUid",
-                "8c000000-0000-4000-8000-000000000001");
-        semanticPayload.put("source", "CLOUD");
-        semanticPayload.put("stage", "PACKAGE_FETCH_FAILED");
-        semanticPayload.put("firmwareVersion", "2.1.0");
-        semanticPayload.put("firmwareVersionCode", 20_100L);
-        semanticPayload.put("firmwareIdentityHex", "0123456789abcdef");
-        semanticPayload.put("fixedFrameRevision", 2L);
-        semanticPayload.put("targetAttemptCount", 0L);
-        semanticPayload.put("rollbackAttemptCount", 0L);
-        semanticPayload.put("legacyPreflight", false);
-        semanticPayload.put("downgradeAuthorized", false);
-        semanticPayload.put("installedFirmwareVersion", null);
-        semanticPayload.put("installedFirmwareVersionCode", null);
-        semanticPayload.put("installedFirmwareIdentityHex", null);
-        semanticPayload.put("errorCode", "COS_DOWNLOAD_FAILED");
-        wire.put(
-                "payloadSha256",
-                OneNetCanonicalJson.payloadSha256(semanticPayload));
+        ObjectNode wire = failureBeforeFlashWire(
+                12, "PACKAGE_FETCH_FAILED", "COS_DOWNLOAD_FAILED");
 
         dispatcher.handle(
                 decrypted(wire),
@@ -172,6 +136,78 @@ class OneNetEventDispatcherMcuFirmwareTest {
         assertEquals("PACKAGE_FETCH_FAILED", payload.path("stage").asText());
         assertEquals("COS_DOWNLOAD_FAILED", payload.path("errorCode").asText());
         assertEquals(0, payload.path("targetAttemptCount").asInt());
+    }
+
+    @Test
+    void unavailableRemoteUpdateIsNormalizedAsStableRejection()
+            throws Exception {
+        ObjectNode wire = failureBeforeFlashWire(
+                11, "REJECTED", "MCU_REMOTE_UPDATE_UNAVAILABLE");
+
+        dispatcher.handle(
+                decrypted(wire),
+                "mq-mcu-firmware-remote-update-unavailable",
+                "encrypted-mcu-firmware-remote-update-unavailable"
+                        .getBytes(StandardCharsets.UTF_8));
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort).receive(captor.capture());
+        JsonNode payload = objectMapper.readTree(
+                        captor.getValue().normalizedPayload())
+                .path("event")
+                .path("payload");
+        assertEquals("REJECTED", payload.path("stage").asText());
+        assertEquals(
+                "MCU_REMOTE_UPDATE_UNAVAILABLE",
+                payload.path("errorCode").asText());
+        assertEquals(0, payload.path("targetAttemptCount").asInt());
+        assertEquals(0, payload.path("rollbackAttemptCount").asInt());
+    }
+
+    private ObjectNode failureBeforeFlashWire(
+            int wireStage,
+            String semanticStage,
+            String errorCode) throws Exception {
+        ObjectNode wire = wireValue();
+        wire.put("stage", wireStage);
+        wire.put("targetAttemptCount", 0);
+        wire.put("installedFirmwareVersionPresent", false);
+        wire.put("installedFirmwareVersion", "");
+        wire.put("installedFirmwareVersionCPresent", false);
+        wire.put("installedFirmwareVersionC", 0);
+        wire.put("installedFirmwareIdentityPresent", false);
+        wire.put("installedFirmwareIdentity", "");
+        wire.put("errorCodePresent", true);
+        wire.put("errorCode", errorCode);
+        Map<String, Object> semanticPayload = new LinkedHashMap<>();
+        semanticPayload.put(
+                "deploymentUid",
+                "8c000000-0000-4000-8000-000000000002");
+        semanticPayload.put(
+                "updateUid",
+                "8c000000-0000-4000-8000-000000000004");
+        semanticPayload.put(
+                "releaseUid",
+                "8c000000-0000-4000-8000-000000000001");
+        semanticPayload.put("source", "CLOUD");
+        semanticPayload.put("stage", semanticStage);
+        semanticPayload.put("firmwareVersion", "2.1.0");
+        semanticPayload.put("firmwareVersionCode", 20_100L);
+        semanticPayload.put("firmwareIdentityHex", "0123456789abcdef");
+        semanticPayload.put("fixedFrameRevision", 2L);
+        semanticPayload.put("targetAttemptCount", 0L);
+        semanticPayload.put("rollbackAttemptCount", 0L);
+        semanticPayload.put("legacyPreflight", false);
+        semanticPayload.put("downgradeAuthorized", false);
+        semanticPayload.put("installedFirmwareVersion", null);
+        semanticPayload.put("installedFirmwareVersionCode", null);
+        semanticPayload.put("installedFirmwareIdentityHex", null);
+        semanticPayload.put("errorCode", errorCode);
+        wire.put(
+                "payloadSha256",
+                OneNetCanonicalJson.payloadSha256(semanticPayload));
+        return wire;
     }
 
     private String decrypted(ObjectNode value) {

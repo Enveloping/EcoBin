@@ -157,6 +157,7 @@
             "mcu_firmware_version_code"
             "mcu_firmware_identity_hex"
             "mcu_fixed_frame_revision"
+            "mcu_remote_update_capable"
             "installation_display_name"
             "installation_address"
             "installation_latitude"

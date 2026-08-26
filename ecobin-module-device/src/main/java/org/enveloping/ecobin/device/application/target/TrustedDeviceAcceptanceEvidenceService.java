@@ -100,12 +100,13 @@ public class TrustedDeviceAcceptanceEvidenceService
             requireIntegerEquals(event, "schemaVersion", 2);
             requireTextEquals(target, "type", "DEVICE_ASSET");
             requireTextEquals(target, "uid", hardwareSn);
-            requireIntegerEquals(payload, "evidenceSchemaVersion", 3);
+            int evidenceSchemaVersion = requiredInteger(
+                    payload, "evidenceSchemaVersion", 3, 4);
             UUID commandUid = UUID.fromString(
                     requiredPattern(event, "commandUid", UUID_V4));
             UUID challengeUid = UUID.fromString(
                     requiredPattern(payload, "challengeUid", UUID_V4));
-            Evidence facts = evidence(payload);
+            Evidence facts = evidence(payload, evidenceSchemaVersion);
 
             AssetState asset = lockAsset(hardwareSn);
             LocalDateTime receivedAt = databaseNow();
@@ -197,6 +198,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                                 clock_quality,
                                 configuration_persistence_healthy,
                                 mcu_communication_healthy,
+                                mcu_remote_update_capable,
                                 sensors_healthy,
                                 cameras_capture_healthy,
                                 camera_upload_healthy,
@@ -208,8 +210,8 @@ public class TrustedDeviceAcceptanceEvidenceService
                                 evidence_sha256,
                                 observed_at, received_at, created_at
                             ) VALUES (
-                                ?, ?, ?, ?, ?, ?, 3, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                                ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?
+                                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?
                             )
                             """,
                     eventUid,
@@ -219,6 +221,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                     facts.factoryBagRevision(),
                     HexFormat.of().parseHex(
                             facts.factoryBagSetSha256()),
+                    evidenceSchemaVersion,
                     facts.edgeStoreInstanceUid(),
                     facts.edgeSoftwareVersion(),
                     facts.edgeProtocolVersion(),
@@ -229,6 +232,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                     clockQuality,
                     facts.configurationPersistenceHealthy(),
                     facts.mcuCommunicationHealthy(),
+                    facts.mcuRemoteUpdateCapable(),
                     facts.sensorsHealthy(),
                     facts.camerasCaptureHealthy(),
                     facts.cameraUploadHealthy(),
@@ -260,6 +264,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                                     acceptance_evidence_sha256 = ?,
                                     last_acceptance_evaluated_at = ?,
                                     acceptance_failure_json = NULL,
+                                    mcu_remote_update_capable = ?,
                                     control_version = control_version + 1,
                                     updated_at = ?
                                 WHERE id = ?
@@ -267,16 +272,19 @@ public class TrustedDeviceAcceptanceEvidenceService
                         receivedAt,
                         evidenceSha256,
                         receivedAt,
+                        facts.mcuRemoteUpdateCapable(),
                         receivedAt,
                         asset.id()), "pass device acceptance");
                 factorySealAuthorizations.ensureForAcceptedAsset(asset.id());
             } else if ("PASSED".equals(evaluationStatus)) {
                 requireSingle(jdbc.update("""
                                 UPDATE dev_device_asset
-                                SET last_acceptance_evaluated_at = ?,
+                                SET mcu_remote_update_capable = ?,
+                                    last_acceptance_evaluated_at = ?,
                                     updated_at = ?
                                 WHERE id = ?
                                 """,
+                        facts.mcuRemoteUpdateCapable(),
                         receivedAt,
                         receivedAt,
                         asset.id()), "review accepted device evidence");
@@ -288,6 +296,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                                     acceptance_evidence_sha256 = ?,
                                     last_acceptance_evaluated_at = ?,
                                     acceptance_failure_json = CAST(? AS JSON),
+                                    mcu_remote_update_capable = ?,
                                     control_version = control_version + 1,
                                     updated_at = ?
                                 WHERE id = ?
@@ -295,15 +304,18 @@ public class TrustedDeviceAcceptanceEvidenceService
                         evidenceSha256,
                         receivedAt,
                         failureJson,
+                        facts.mcuRemoteUpdateCapable(),
                         receivedAt,
                         asset.id()), "fail device acceptance");
             } else {
                 requireSingle(jdbc.update("""
                                 UPDATE dev_device_asset
-                                SET last_acceptance_evaluated_at = ?,
+                                SET mcu_remote_update_capable = ?,
+                                    last_acceptance_evaluated_at = ?,
                                     updated_at = ?
                                 WHERE id = ?
                                 """,
+                        facts.mcuRemoteUpdateCapable(),
                         receivedAt,
                         receivedAt,
                         asset.id()), "review accepted device evidence");
@@ -403,7 +415,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                 digest).stream().findFirst().orElse(null);
     }
 
-    private Evidence evidence(JsonNode payload) {
+    private Evidence evidence(JsonNode payload, int evidenceSchemaVersion) {
         return new Evidence(
                 requiredPattern(payload, "challengeUid", UUID_V4),
                 requiredLong(payload, "factoryBagRevision", 0),
@@ -416,6 +428,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                 requiredBoolean(payload, "trustedTimeHealthy"),
                 requiredBoolean(payload, "configurationPersistenceHealthy"),
                 requiredBoolean(payload, "mcuCommunicationHealthy"),
+                remoteUpdateCapability(payload, evidenceSchemaVersion),
                 requiredBoolean(payload, "sensorsHealthy"),
                 requiredBoolean(payload, "camerasCaptureHealthy"),
                 requiredBoolean(payload, "cameraUploadHealthy"),
@@ -561,6 +574,25 @@ public class TrustedDeviceAcceptanceEvidenceService
         return value.booleanValue();
     }
 
+    private static Boolean remoteUpdateCapability(
+            JsonNode payload,
+            int evidenceSchemaVersion) {
+        JsonNode value = payload == null
+                ? null : payload.get("mcuRemoteUpdateCapable");
+        if (evidenceSchemaVersion == 3) {
+            if (value != null) {
+                throw new IllegalArgumentException(
+                        "mcuRemoteUpdateCapable is unsupported by evidence v3");
+            }
+            return null;
+        }
+        if (value == null || !value.isBoolean()) {
+            throw new IllegalArgumentException(
+                    "mcuRemoteUpdateCapable must be boolean for evidence v4");
+        }
+        return value.booleanValue();
+    }
+
     private static int requiredInteger(
             JsonNode parent, String field, int minimum, int maximum) {
         JsonNode value = parent == null ? null : parent.get(field);
@@ -652,6 +684,7 @@ public class TrustedDeviceAcceptanceEvidenceService
             boolean trustedTimeHealthy,
             boolean configurationPersistenceHealthy,
             boolean mcuCommunicationHealthy,
+            Boolean mcuRemoteUpdateCapable,
             boolean sensorsHealthy,
             boolean camerasCaptureHealthy,
             boolean cameraUploadHealthy,

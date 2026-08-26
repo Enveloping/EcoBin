@@ -12,7 +12,7 @@ $f07BootstrapPath = Join-Path $PSScriptRoot "../verify-f07-bootstrap.ps1"
 $f07BootstrapSource = Get-Content -LiteralPath $f07BootstrapPath -Raw
 
 if ($catalog.CatalogVersion -ne 30) {
-    throw "H-02 runtime grant catalog must remain V30 for the V59 target"
+    throw "H-02 runtime grant catalog must remain V30 for the V60 target"
 }
 
 if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
@@ -23,30 +23,32 @@ if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
 
 if ($provisionSource -notmatch '\$tables\.Count -ne 119' -or
         $provisionSource -notmatch 'Expected 119 domain tables') {
-    throw "H-02 provisioning must enforce the V59 119-table shape"
+    throw "H-02 provisioning must enforce the V60 119-table shape"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 59') {
-    throw "H-02 provisioning must migrate through V59"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 60') {
+    throw "H-02 provisioning must migrate through V60"
 }
-if ($provisionSource -notmatch '\$historyCount -ne 59' -or
+if ($provisionSource -notmatch '\$historyCount -ne 60' -or
         $provisionSource -notmatch
-            'Expected fifty-nine successful Flyway migrations') {
-    throw "H-02 provisioning must verify all 59 migrations"
+            'Expected sixty successful Flyway migrations') {
+    throw "H-02 provisioning must verify all 60 migrations"
 }
 if ($provisionSource -notmatch
         '\$existingDomainTableCount -eq 119\s+-and\s+' +
-        '\$existingHistoryCount -eq 59\s+-and\s+' +
-        '\$existingMaxVersion -eq 59' -or
-        $provisionSource -notmatch '\$existingMaxVersion -lt 59') {
-    throw "H-02 migrated resume must recognize and target V59"
+        '\$existingHistoryCount -eq 60\s+-and\s+' +
+        '\$existingMaxVersion -eq 60' -or
+        $provisionSource -notmatch '\$existingMaxVersion -lt 60') {
+    throw "H-02 migrated resume must recognize and target V60"
 }
 if ($f07BootstrapSource -notmatch '\$tableCount -ne 120' -or
         $f07BootstrapSource -notmatch
             'correct target must contain 119 domain tables plus Flyway history' -or
-        $f07BootstrapSource -notmatch 'targetVersion\s*=\s*59' -or
+        $f07BootstrapSource -notmatch 'targetVersion\s*=\s*60' -or
         $f07BootstrapSource -notmatch 'domainTables\s*=\s*119' -or
         $f07BootstrapSource -notmatch
-            'correctV59Ready\s*=\s*\$true' -or
+            'correctV60Ready\s*=\s*\$true' -or
+        $f07BootstrapSource -notmatch
+            'mcuRemoteUpdateCapabilityV60\s*=\s*\$true' -or
         $f07BootstrapSource -notmatch
             'bagLabelBatchLimit500\s*=\s*\$true' -or
         $f07BootstrapSource -notmatch
@@ -57,7 +59,7 @@ if ($f07BootstrapSource -notmatch '\$tableCount -ne 120' -or
             'sealedClockQualityRequired\s*=\s*\$true' -or
         $f07BootstrapSource -match 'correct V56|correctV56Ready') {
     throw (
-        "F-07 bootstrap verification must report the V59 shape: " +
+        "F-07 bootstrap verification must report the V60 shape: " +
         "119 domain tables plus Flyway history"
     )
 }
@@ -336,6 +338,7 @@ $assetRequiredColumns = @(
     "mcu_firmware_version_code"
     "mcu_firmware_identity_hex"
     "mcu_fixed_frame_revision"
+    "mcu_remote_update_capable"
     "installation_display_name"
     "installation_address"
     "installation_latitude"
@@ -363,7 +366,7 @@ $assetRequiredColumns = @(
 )
 $assetColumns = @($catalog.UpdateColumns.dev_device_asset)
 if (@(Compare-Object $assetRequiredColumns $assetColumns).Count -ne 0) {
-    throw "dev_device_asset runtime UPDATE grants do not match V58"
+    throw "dev_device_asset runtime UPDATE grants do not match V60"
 }
 
 $factorySealAuthorizationRequiredColumns = @(

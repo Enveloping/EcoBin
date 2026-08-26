@@ -609,6 +609,30 @@ def test_firmware_identity_query_updates_handshake_identity():
         "firmwareVersion": "1.2.3",
         "firmwareIdentityHex": "0102030405060708",
     }
+    assert adapter.mcu_peripherals_simulated is False
+
+
+def test_exact_factory_firmware_identity_marks_simulated_peripherals():
+    response = firmware_status_frame(
+        mode=1,
+        version_code=1,
+        version="factory-sim-1.0.0",
+        identity=b"ECOSIM01",
+        safe_flags=0x0F,
+    )
+    fake = FirmwareRespondingSerial({1: response})
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    assert adapter.query_firmware_identity(timeout_ms=20)[
+        "queryStatus"
+    ] == "OK"
+    assert adapter.is_simulated is False
+    assert adapter.mcu_peripherals_simulated is True
 
 
 def test_firmware_identity_query_keeps_timeout_stable_across_fragments():

@@ -23,6 +23,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -101,6 +103,41 @@ class OneNetEventDispatcherAcceptanceTest {
     }
 
     @Test
+    void legacyV3AcceptanceWithoutNewWireMembersRemainsAccepted()
+            throws Exception {
+        dispatcher.handle(
+                decrypted(
+                        "deviceAcceptanceEvidence",
+                        acceptanceWireValueV3()),
+                "mq-device-acceptance-v3",
+                RAW_TRANSPORT);
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort).receive(captor.capture());
+        JsonNode payload = objectMapper.readTree(
+                        captor.getValue().normalizedPayload())
+                .path("event")
+                .path("payload");
+        assertEquals(3, payload.path("evidenceSchemaVersion").asInt());
+        assertFalse(payload.has("mcuRemoteUpdateCapable"));
+    }
+
+    @Test
+    void v4AcceptanceRequiresExplicitCapabilityPresence()
+            throws Exception {
+        ObjectNode wire = acceptanceWireValue();
+        wire.remove("mcuRemoteUpdateCapablePresent");
+
+        assertThrows(
+                OneNetPermanentMessageException.class,
+                () -> dispatcher.handle(
+                        decrypted("deviceAcceptanceEvidence", wire),
+                        "mq-device-acceptance-v4-missing-capability",
+                        RAW_TRANSPORT));
+    }
+
+    @Test
     void confirmationReceiptResolvesScopeFromItsFrozenTask()
             throws Exception {
         dispatcher.handle(
@@ -164,6 +201,24 @@ class OneNetEventDispatcherAcceptanceTest {
                 .path("deviceAcceptanceEvidence")
                 .path("value")
                 .deepCopy();
+    }
+
+    private ObjectNode acceptanceWireValueV3() throws Exception {
+        ObjectNode wire = acceptanceWireValue();
+        wire.put("evidenceSchemaVersion", 1);
+        wire.remove("mcuRemoteUpdateCapablePresent");
+        wire.remove("mcuRemoteUpdateCapable");
+
+        ObjectNode payload = (ObjectNode) objectMapper.readTree(
+                        Files.readString(contractPath(
+                                "contracts/examples/onenet/"
+                                        + "device-acceptance-evidence.event.json")))
+                .path("payload")
+                .deepCopy();
+        payload.put("evidenceSchemaVersion", 3);
+        payload.remove("mcuRemoteUpdateCapable");
+        wire.put("payloadSha256", canonicalHash(payload));
+        return wire;
     }
 
     private String canonicalHash(JsonNode value) {

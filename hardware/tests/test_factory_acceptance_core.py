@@ -189,6 +189,7 @@ def _begin(executor: FactoryAcceptanceExecutor) -> None:
         boot_id="11111111-2222-3333-4444-555555555555",
         wall_time_trusted=False,
         hardware_config_digest="a" * 64,
+        mcu_update_line_installed=True,
     )
 
 
@@ -222,6 +223,25 @@ def _pass_prerequisites_after_begin(
         inside_role_confirmed=True,
     )
     executor.check_upgrade_line()
+
+
+def _pass_sensor_and_camera_checks(
+    executor: FactoryAcceptanceExecutor,
+    model: VirtualFixedFrameMcu,
+) -> None:
+    executor.check_mcu()
+    _set_weight(model, 1_000)
+    executor.capture_empty_weight()
+    _set_weight(model, 1_500)
+    executor.capture_loaded_weight()
+    _set_weight(model, 1_000)
+    executor.confirm_weight_removed()
+    camera_state = executor.capture_cameras()
+    executor.confirm_cameras(
+        review_nonce=camera_state["checks"]["cameras"]["reviewNonce"],
+        outside_role_confirmed=True,
+        inside_role_confirmed=True,
+    )
 
 
 def _pass_delivery(executor: FactoryAcceptanceExecutor) -> None:
@@ -265,6 +285,164 @@ def test_invalid_f1_blocks_mcu_check(tmp_path: Path) -> None:
         _begin(executor)
         with pytest.raises(AcceptanceError, match="MCU_F1_UNHEALTHY"):
             executor.check_mcu()
+
+
+def test_boolean_acceptance_schema_versions_are_rejected() -> None:
+    with pytest.raises(
+        AcceptanceError,
+        match="ACCEPTANCE_REPORT_SCHEMA_INVALID",
+    ):
+        FactoryAcceptanceExecutor._validate_report({"schemaVersion": True})
+
+
+def test_missing_update_line_skips_f2_and_still_allows_full_acceptance(
+    tmp_path: Path,
+) -> None:
+    executor, model, _factory = _build_executor(tmp_path)
+    reset_calls: list[str] = []
+    original_force_application = executor.bootloader.force_application_selection
+    original_boot_application = executor.bootloader.boot_application
+
+    def track_force_application() -> None:
+        reset_calls.append("force_application_selection")
+        original_force_application()
+
+    def track_boot_application() -> None:
+        reset_calls.append("boot_application")
+        original_boot_application()
+
+    executor.bootloader.force_application_selection = track_force_application
+    executor.bootloader.boot_application = track_boot_application
+    with executor:
+        executor.begin_run(
+            image_release_id="ecobin-zero3-1.0.0",
+            boot_id="11111111-2222-3333-4444-555555555555",
+            wall_time_trusted=False,
+            hardware_config_digest="a" * 64,
+            mcu_update_line_installed=False,
+        )
+        _pass_sensor_and_camera_checks(executor, model)
+        state = executor.snapshot()
+        assert state["checks"]["upgradeLine"] == {
+            "status": "NOT_APPLICABLE",
+            "resultCode": "MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED",
+            "prepareSendAttempts": 0,
+            "romWritePerformed": False,
+            "romDeviceId": None,
+        }
+        with pytest.raises(
+            AcceptanceError,
+            match="MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED",
+        ):
+            executor.check_upgrade_line()
+        assert model.firmware_prepare_count == 0
+        assert executor.bootloader.read_only_probe_count == 0
+
+        _pass_delivery(executor)
+        executor.run_action(
+            "CLEAN",
+            operator_area_safe_confirmed=True,
+            timeout_ms=100,
+            quiet_ms=0,
+        )
+        executor.confirm_clean_door_closed(
+            operator_confirmed=True,
+            quiet_ms=0,
+        )
+        report = executor.finalize()
+
+    assert report["status"] == "PASSED"
+    assert report["schemaVersion"] == 2
+    assert report["mcuRemoteUpdateCapable"] is False
+    assert report["mcuPeripheralEvidenceMode"] == "PHYSICAL"
+    assert report["checks"]["upgradeLine"]["prepareSendAttempts"] == 0
+    assert model.firmware_prepare_count == 0
+    assert reset_calls == []
+
+
+def test_exact_simulation_identity_requires_explicit_final_confirmation(
+    tmp_path: Path,
+) -> None:
+    executor, model, _factory = _build_executor(
+        tmp_path,
+        config=SimulatorConfig(
+            firmware_version="factory-sim-1.0.0",
+            firmware_version_code=1,
+            firmware_identity_hex="45434f53494d3031",
+        ),
+    )
+    with executor:
+        executor.begin_run(
+            image_release_id="ecobin-zero3-1.0.0",
+            boot_id="11111111-2222-3333-4444-555555555555",
+            wall_time_trusted=False,
+            hardware_config_digest="a" * 64,
+            mcu_update_line_installed=False,
+        )
+        _pass_sensor_and_camera_checks(executor, model)
+        assert (
+            executor.snapshot()["mcuPeripheralEvidenceMode"]
+            == "SIMULATED_PERIPHERALS"
+        )
+        _pass_delivery(executor)
+        executor.run_action(
+            "CLEAN",
+            operator_area_safe_confirmed=True,
+            timeout_ms=100,
+            quiet_ms=0,
+        )
+        executor.confirm_clean_door_closed(
+            operator_confirmed=True,
+            quiet_ms=0,
+        )
+        with pytest.raises(
+            AcceptanceError,
+            match="SIMULATED_PERIPHERAL_EVIDENCE_CONFIRMATION_REQUIRED",
+        ):
+            executor.finalize()
+        report = executor.finalize(
+            confirm_simulated_peripheral_evidence=True
+        )
+
+    assert report["status"] == "PASSED"
+    assert report["mcuPeripheralEvidenceMode"] == "SIMULATED_PERIPHERALS"
+    assert report["mcuRemoteUpdateCapable"] is False
+
+
+@pytest.mark.parametrize(
+    ("version", "version_code", "identity_hex"),
+    (
+        ("factory-sim-1.0.0", 1, "0102030405060708"),
+        ("1.0.0", 1, "45434f53494d3031"),
+        ("factory-sim-1.0.1", 1, "45434f53494d3031"),
+        ("factory-sim-1.0.0", 2, "45434f53494d3031"),
+    ),
+)
+def test_partial_simulation_identity_fails_closed(
+    tmp_path: Path,
+    version: str,
+    version_code: int,
+    identity_hex: str,
+) -> None:
+    executor, _model, _factory = _build_executor(
+        tmp_path,
+        config=SimulatorConfig(
+            firmware_version=version,
+            firmware_version_code=version_code,
+            firmware_identity_hex=identity_hex,
+        ),
+    )
+    with executor:
+        _begin(executor)
+        with pytest.raises(
+            AcceptanceError,
+            match="MCU_SIMULATION_IDENTITY_INVALID",
+        ):
+            executor.check_mcu()
+        assert executor.snapshot()["checks"]["mcu"] == {
+            "status": "FAILED",
+            "resultCode": "MCU_SIMULATION_IDENTITY_INVALID",
+        }
 
 
 @pytest.mark.parametrize(
@@ -327,9 +505,9 @@ def test_schema_1_action_result_without_post_action_confirmation_requires_new_ru
     with executor:
         migrated = executor.snapshot()
 
-    assert STATE_SCHEMA_VERSION == 2
+    assert STATE_SCHEMA_VERSION == 3
     assert migrated["schemaVersion"] == STATE_SCHEMA_VERSION
-    assert migrated["revision"] == 8
+    assert migrated["revision"] == 9
     assert migrated["status"] == "FAILED"
     assert migrated["phase"] == "LEGACY_ACTION_SAFETY_CONFIRMATION_REQUIRED"
     assert migrated["checks"][check_name]["status"] == "FAILED"
@@ -381,6 +559,112 @@ def test_schema_1_unsafe_delivery_waits_for_clean_recovery_then_fails_run(
         assert resumed.read_report()["status"] == "FAILED"
         assert model.delivery_start_count == 1
         assert model.clean_start_count == 1
+
+
+def test_schema_2_active_run_never_guesses_update_line_choice(
+    tmp_path: Path,
+) -> None:
+    state_path = _paths(tmp_path)["state_path"]
+    AtomicJsonFile(state_path).write(
+        {
+            "schemaVersion": 2,
+            "revision": 4,
+            "status": "RUNNING",
+            "phase": "WEIGHT_CHECK_PASSED",
+            "imageReleaseId": "ecobin-zero3-1.0.0",
+            "bootId": "11111111-2222-3333-4444-555555555555",
+            "hardwareConfigDigest": "a" * 64,
+            "checks": {},
+            "recovery": None,
+            "activeAction": None,
+        }
+    )
+    executor, _model, _factory = _build_executor(tmp_path)
+
+    with executor:
+        migrated = executor.snapshot()
+        assert migrated["schemaVersion"] == 3
+        assert migrated["status"] == "FAILED"
+        assert migrated["phase"] == "LEGACY_UPDATE_LINE_SELECTION_REQUIRED"
+        assert migrated["mcuUpdateLineInstalled"] is None
+
+        restarted = executor.begin_run(
+            image_release_id="ecobin-zero3-1.0.0",
+            boot_id="11111111-2222-3333-4444-555555555555",
+            wall_time_trusted=False,
+            hardware_config_digest="a" * 64,
+            mcu_update_line_installed=False,
+            restart_terminal=True,
+        )
+
+    assert restarted["status"] == "RUNNING"
+    assert restarted["mcuUpdateLineInstalled"] is False
+    assert restarted["checks"]["upgradeLine"]["status"] == "NOT_APPLICABLE"
+
+
+def test_schema_2_running_run_preserves_proven_update_line(tmp_path: Path) -> None:
+    executor, model, _factory = _build_executor(tmp_path)
+    with executor:
+        _pass_prerequisites(executor, model)
+
+    state_file = AtomicJsonFile(_paths(tmp_path)["state_path"])
+    previous = state_file.read()
+    assert previous is not None
+    previous["schemaVersion"] = 2
+    previous.pop("mcuUpdateLineInstalled")
+    state_file.write(previous)
+
+    resumed, _model, _factory = _build_executor(tmp_path)
+    with resumed:
+        migrated = resumed.snapshot()
+
+    assert migrated["schemaVersion"] == 3
+    assert migrated["status"] == "RUNNING"
+    assert migrated["phase"] == previous["phase"]
+    assert migrated["mcuUpdateLineInstalled"] is True
+    assert "legacyUpdateLineSelectionRequired" not in migrated
+
+
+def test_schema_2_recovery_preserves_proven_update_line(tmp_path: Path) -> None:
+    def interrupt_after_journal(point: str) -> None:
+        if point == "delivery.after_command_journal":
+            raise PowerLoss()
+
+    executor, model, factory = _build_executor(
+        tmp_path,
+        fault_hook=interrupt_after_journal,
+    )
+    with pytest.raises(PowerLoss):
+        with executor:
+            _pass_prerequisites(executor, model)
+            executor.run_action(
+                "DELIVERY",
+                operator_area_safe_confirmed=True,
+                timeout_ms=100,
+                quiet_ms=0,
+            )
+
+    state_file = AtomicJsonFile(_paths(tmp_path)["state_path"])
+    previous = state_file.read()
+    assert previous is not None
+    previous["schemaVersion"] = 2
+    previous.pop("mcuUpdateLineInstalled")
+    state_file.write(previous)
+
+    resumed, _model, _factory = _build_executor(
+        tmp_path,
+        model=model,
+        serial_factory=factory,
+    )
+    with resumed:
+        migrated = resumed.snapshot()
+
+    assert migrated["schemaVersion"] == 3
+    assert migrated["status"] == "RECOVERY_REQUIRED"
+    assert migrated["phase"] == "DELIVERY_COMMAND_MAY_HAVE_BEEN_SENT"
+    assert migrated["mcuUpdateLineInstalled"] is True
+    assert migrated["checks"]["upgradeLine"]["status"] == "PASSED"
+    assert "legacyUpdateLineSelectionRequired" not in migrated
 
 
 def test_schema_1_unsafe_delivery_and_armed_clean_reconcile_to_failed_run(
@@ -1350,6 +1634,68 @@ def test_timeout_wrong_or_corrupt_final_result_requires_recovery(
         assert model.delivery_start_count == 1
 
 
+def test_unknown_delivery_result_without_update_line_stays_locked_without_reset(
+    tmp_path: Path,
+) -> None:
+    executor, model, factory = _build_executor(tmp_path)
+    reset_calls: list[str] = []
+    original_force_application = executor.bootloader.force_application_selection
+    original_boot_application = executor.bootloader.boot_application
+
+    def track_force_application() -> None:
+        reset_calls.append("force_application_selection")
+        original_force_application()
+
+    def track_boot_application() -> None:
+        reset_calls.append("boot_application")
+        original_boot_application()
+
+    executor.bootloader.force_application_selection = track_force_application
+    executor.bootloader.boot_application = track_boot_application
+    with executor:
+        executor.begin_run(
+            image_release_id="ecobin-zero3-1.0.0",
+            boot_id="11111111-2222-3333-4444-555555555555",
+            wall_time_trusted=False,
+            hardware_config_digest="a" * 64,
+            mcu_update_line_installed=False,
+        )
+        _pass_sensor_and_camera_checks(executor, model)
+        original = executor.mcu.await_final_result
+
+        def discard_then_wait(action: str, timeout_ms: int):
+            serial = factory.sessions[-1]
+            with serial._condition:
+                serial._received.clear()
+                serial._condition.notify_all()
+            return original(action, timeout_ms)
+
+        executor.mcu.await_final_result = discard_then_wait
+        with pytest.raises(AcceptanceError, match="FINAL_RESULT_TIMEOUT"):
+            executor.run_action(
+                "DELIVERY",
+                operator_area_safe_confirmed=True,
+                timeout_ms=20,
+                quiet_ms=0,
+            )
+
+        with pytest.raises(
+            AcceptanceError,
+            match="MCU_RESET_LINE_REQUIRED_FOR_RECOVERY",
+        ) as recovery_error:
+            executor.recover(quiet_ms=0)
+
+        state = executor.snapshot()
+        assert recovery_error.value.recovery_required is True
+        assert state["status"] == "RECOVERY_REQUIRED"
+        assert state["recovery"]["resultCode"] == (
+            "MCU_RESET_LINE_REQUIRED_FOR_RECOVERY"
+        )
+        assert state["checks"]["delivery"]["sendAttempts"] == 1
+        assert model.delivery_start_count == 1
+        assert reset_calls == []
+
+
 def test_duplicate_final_result_after_recording_requires_recovery(
     tmp_path: Path,
 ) -> None:
@@ -1852,6 +2198,7 @@ def test_old_report_does_not_block_retrying_new_run_finalization_after_power_los
                 boot_id=new_boot_id,
                 wall_time_trusted=False,
                 hardware_config_digest="a" * 64,
+                mcu_update_line_installed=True,
                 restart_terminal=True,
             )
             executor.check_mcu()
@@ -1991,6 +2338,7 @@ def test_legacy_passed_report_is_ignored_while_retrying_new_finalization(
                 boot_id=current_boot_id,
                 wall_time_trusted=False,
                 hardware_config_digest="a" * 64,
+                mcu_update_line_installed=True,
                 restart_terminal=True,
             )
             _pass_prerequisites_after_begin(interrupted, model)

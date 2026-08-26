@@ -658,18 +658,31 @@ def validate_target_media_qualification_evidence(
         },
         "target media qualification evidence",
     )
+    evidence_mode = (
+        evidence["artifactClass"],
+        evidence["method"],
+        evidence["measurementTool"],
+        evidence["sampleSelection"],
+    )
+    batch_mode = (
+        "TARGET_MEDIA_BATCH_CAPACITY_QUALIFICATION",
+        "BLOCK_DEVICE_CAPACITY_SAMPLE_MINIMUM_V1",
+        "blockdev --getsize64",
+        "SAME_PROCUREMENT_BATCH_MULTIPLE_CARDS",
+    )
+    single_card_mode = (
+        "TARGET_MEDIA_SINGLE_CARD_CAPACITY_QUALIFICATION",
+        "WINDOWS_STORAGE_API_SINGLE_CARD_V1",
+        "PowerShell Get-Disk.Size",
+        "SINGLE_CARD_PROJECT_OWNER_ACCEPTED",
+    )
     if (
         evidence["$schema"]
         != "./schemas/target-media-qualification-evidence.schema.json"
         or evidence["schemaVersion"] != 1
-        or evidence["artifactClass"]
-        != "TARGET_MEDIA_BATCH_CAPACITY_QUALIFICATION"
         or evidence["qualificationState"] != "QUALIFIED"
-        or evidence["method"] != "BLOCK_DEVICE_CAPACITY_SAMPLE_MINIMUM_V1"
         or evidence["deviceClass"] != "TF_CARD"
-        or evidence["measurementTool"] != "blockdev --getsize64"
-        or evidence["sampleSelection"]
-        != "SAME_PROCUREMENT_BATCH_MULTIPLE_CARDS"
+        or evidence_mode not in {batch_mode, single_card_mode}
     ):
         raise ValidationError(
             "target media qualification evidence header or measurement method is invalid"
@@ -695,9 +708,14 @@ def validate_target_media_qualification_evidence(
         raise ValidationError("target media evidence measuredAt is invalid") from exc
 
     measurements = evidence["measurements"]
-    if not isinstance(measurements, list) or not 2 <= len(measurements) <= 256:
+    if evidence_mode == batch_mode:
+        if not isinstance(measurements, list) or not 2 <= len(measurements) <= 256:
+            raise ValidationError(
+                "target media batch qualification requires at least two independently identified cards"
+            )
+    elif not isinstance(measurements, list) or len(measurements) != 1:
         raise ValidationError(
-            "target media qualification requires at least two independently identified cards"
+            "target media single-card qualification requires exactly one identified card"
         )
     sample_ids: set[str] = set()
     measured_sizes: list[int] = []

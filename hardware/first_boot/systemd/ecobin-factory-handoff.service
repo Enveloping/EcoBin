@@ -31,6 +31,7 @@ DevicePolicy=closed
 DeviceAllow=/dev/ttyS5 rw
 DeviceAllow=/dev/gpiomem rw
 DeviceAllow=/dev/mem rw
+ReadWritePaths=/var/lib/ecobin
 ReadWritePaths=/var/lib/ecobin/first-boot
 ReadWritePaths=/run/lock/ecobin
 InaccessiblePaths=-/etc/ecobin/enrollment.key

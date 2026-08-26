@@ -97,7 +97,17 @@ def _is_terminal_physical_failure(name: str, value: object) -> bool:
 
 
 def _is_safely_passed(name: str, value: object) -> bool:
-    if not isinstance(value, dict) or value.get("status") != "PASSED":
+    if not isinstance(value, dict):
+        return False
+    if name == "upgradeLine" and value.get("status") == "NOT_APPLICABLE":
+        return bool(
+            value.get("resultCode")
+            == "MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED"
+            and value.get("prepareSendAttempts") == 0
+            and value.get("romWritePerformed") is False
+            and value.get("romDeviceId") is None
+        )
+    if value.get("status") != "PASSED":
         return False
     if name == "delivery":
         return value.get("operatorAreaSafeConfirmed") is True
@@ -121,6 +131,7 @@ def _check_summary(value: object) -> dict[str, Any]:
         "targetDeltaGrams",
         "toleranceGrams",
         "sendAttempts",
+        "prepareSendAttempts",
         "romWritePerformed",
         "romDeviceId",
         "cleanDoorConfirmed",
@@ -210,6 +221,10 @@ class AcceptanceCommandController:
             "imageReleaseId": state.get("imageReleaseId"),
             "hardwareConfigSummary": self._config.digest()[:12].upper(),
             "mcuIdentity": _mcu_identity_summary(state.get("mcuIdentity")),
+            "mcuUpdateLineInstalled": state.get("mcuUpdateLineInstalled"),
+            "mcuPeripheralEvidenceMode": state.get(
+                "mcuPeripheralEvidenceMode"
+            ),
             "checks": {
                 name: _check_summary(checks.get(name))
                 for name in (
@@ -297,7 +312,7 @@ class AcceptanceCommandController:
         upgrade = checks.get("upgradeLine", {})
         if upgrade.get("status") == "FAILED_SAFE":
             return []
-        if upgrade.get("status") != "PASSED":
+        if not _is_safely_passed("upgradeLine", upgrade):
             return ["CHECK_UPGRADE_LINE"]
         delivery = checks.get("delivery", {})
         if delivery.get("status") == "FAILED_SAFE":
@@ -340,7 +355,9 @@ class AcceptanceCommandController:
         if operation == "CONFIRM_CAMERAS":
             return checks.get("cameras", {}).get("status") == "PASSED"
         if operation == "CHECK_UPGRADE_LINE":
-            return checks.get("upgradeLine", {}).get("status") == "PASSED"
+            return _is_safely_passed(
+                "upgradeLine", checks.get("upgradeLine")
+            )
         if operation == "RUN_DELIVERY":
             return checks.get("delivery", {}).get("status") in {
                 "RECOVERY_REQUIRED",
@@ -454,30 +471,54 @@ class AcceptanceCommandController:
     ) -> None:
         if operation == "START":
             parameters = _exact_parameters(
-                parameters_value, frozenset({"confirmOfflineAcceptance"})
+                parameters_value,
+                frozenset(
+                    {
+                        "confirmOfflineAcceptance",
+                        "mcuUpdateLineInstalled",
+                    }
+                ),
             )
             _require_true(
                 parameters,
                 "confirmOfflineAcceptance",
                 "OFFLINE_ACCEPTANCE_CONFIRMATION_REQUIRED",
             )
+            if not isinstance(parameters.get("mcuUpdateLineInstalled"), bool):
+                raise AcceptanceCommandError(
+                    "MCU_UPDATE_LINE_SELECTION_REQUIRED",
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                )
             self._executor.begin_run(
                 image_release_id=self._image_release_id,
                 boot_id=self._boot_id,
                 wall_time_trusted=self._wall_time_trusted,
                 hardware_config_digest=self._config.digest(),
+                mcu_update_line_installed=parameters[
+                    "mcuUpdateLineInstalled"
+                ],
             )
             return
         if operation == "RESTART_FAILED_RUN":
             parameters = _exact_parameters(
                 parameters_value,
-                frozenset({"confirmRestartFailedAcceptance"}),
+                frozenset(
+                    {
+                        "confirmRestartFailedAcceptance",
+                        "mcuUpdateLineInstalled",
+                    }
+                ),
             )
             _require_true(
                 parameters,
                 "confirmRestartFailedAcceptance",
                 "RESTART_FAILED_ACCEPTANCE_CONFIRMATION_REQUIRED",
             )
+            if not isinstance(parameters.get("mcuUpdateLineInstalled"), bool):
+                raise AcceptanceCommandError(
+                    "MCU_UPDATE_LINE_SELECTION_REQUIRED",
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                )
             if state.get("status") != "FAILED":
                 raise AcceptanceCommandError(
                     "FAILED_ACCEPTANCE_REQUIRED", HTTPStatus.CONFLICT
@@ -488,6 +529,9 @@ class AcceptanceCommandController:
                 wall_time_trusted=self._wall_time_trusted,
                 hardware_config_digest=self._config.digest(),
                 restart_terminal=True,
+                mcu_update_line_installed=parameters[
+                    "mcuUpdateLineInstalled"
+                ],
             )
             return
         if operation == "CHECK_MCU":
@@ -623,14 +667,32 @@ class AcceptanceCommandController:
             )
             return
         if operation == "FINALIZE":
+            simulated = (
+                state.get("mcuPeripheralEvidenceMode")
+                == "SIMULATED_PERIPHERALS"
+            )
             parameters = _exact_parameters(
-                parameters_value, frozenset({"confirmFinalize"})
+                parameters_value,
+                frozenset(
+                    {"confirmFinalize", "confirmSimulatedPeripheralEvidence"}
+                    if simulated
+                    else {"confirmFinalize"}
+                ),
             )
             _require_true(
                 parameters,
                 "confirmFinalize",
                 "FINALIZE_CONFIRMATION_REQUIRED",
             )
+            if (
+                simulated
+                and parameters.get("confirmSimulatedPeripheralEvidence")
+                is not True
+            ):
+                raise AcceptanceCommandError(
+                    "SIMULATED_PERIPHERAL_EVIDENCE_CONFIRMATION_REQUIRED",
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                )
             checks = state.get("checks") or {}
             required = ("mcu", "weight", "upgradeLine", "cameras", "delivery", "clean")
             all_passed = all(
@@ -670,7 +732,12 @@ class AcceptanceCommandController:
                     "ALL_ACCEPTANCE_CHECKS_REQUIRED",
                     HTTPStatus.UNPROCESSABLE_ENTITY,
                 )
-            self._executor.finalize()
+            if simulated:
+                self._executor.finalize(
+                    confirm_simulated_peripheral_evidence=True
+                )
+            else:
+                self._executor.finalize()
             return
         raise AssertionError("unreachable operation")
 

@@ -13825,6 +13825,7 @@
           "tenantCode",
           "organizationCode",
           "acceptanceStatus",
+          "mcuRemoteUpdateCapable",
           "deviceEntryUrl",
           "lifecycleStatus",
           "version",
@@ -13878,6 +13879,10 @@
           },
           "acceptanceStatus": {
             "$ref": "#/components/schemas/DeviceAcceptanceStatus"
+          },
+          "mcuRemoteUpdateCapable": {
+            "type": ["boolean", "null"],
+            "description": "Tri-state trusted acceptance fact: true permits MCU remote-update rollout admission; false means the wiring is explicitly unavailable; null means legacy v3 or no trusted v4 evidence."
           },
           "deviceEntryUrl": {
             "type": ["string", "null"],
@@ -14536,6 +14541,7 @@
           "trustedTimeHealthy",
           "configurationPersistenceHealthy",
           "mcuCommunicationHealthy",
+          "mcuRemoteUpdateCapable",
           "sensorsHealthy",
           "camerasCaptureHealthy",
           "cameraUploadHealthy",
@@ -14576,6 +14582,10 @@
           },
           "mcuCommunicationHealthy": {
             "type": "boolean"
+          },
+          "mcuRemoteUpdateCapable": {
+            "type": ["boolean", "null"],
+            "description": "Null for legacy evidence schemas; v4 records the explicit remote-update wiring capability without changing the acceptance outcome."
           },
           "sensorsHealthy": {
             "type": "boolean"

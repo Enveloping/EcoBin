@@ -38,6 +38,7 @@ REMOVE_EXACT_PATHS = (
     "etc/ecobin/device-credentials.json",
     "etc/ecobin/remote-support-credentials.json",
     "var/lib/ecobin/enrollment-state.json",
+    "var/lib/ecobin/device-capabilities.json",
     "var/lib/ecobin/first-boot/state.json",
     "var/lib/ecobin/first-boot/sealed.json",
     "var/lib/ecobin/remote-support/state.db",

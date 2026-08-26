@@ -4,16 +4,29 @@ const byId = (id) => document.getElementById(id);
 let currentStatus = null;
 let requestRunning = false;
 
+function selectedUpdateLineState() {
+  const value = byId("mcu-update-line-installed").value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return null;
+}
+
 const ACTIONS = {
   START: {
     label: "开始离线硬件验收",
     prompt: "确认设备周围无人、普通硬件服务未运行，并开始本机离线验收？",
-    parameters: () => ({ confirmOfflineAcceptance: true }),
+    parameters: () => ({
+      confirmOfflineAcceptance: true,
+      mcuUpdateLineInstalled: selectedUpdateLineState(),
+    }),
   },
   RESTART_FAILED_RUN: {
     label: "重新开始失败的验收",
     prompt: "旧报告将保留为历史文件内容直到新验收完成。确认重新开始？",
-    parameters: () => ({ confirmRestartFailedAcceptance: true }),
+    parameters: () => ({
+      confirmRestartFailedAcceptance: true,
+      mcuUpdateLineInstalled: selectedUpdateLineState(),
+    }),
   },
   CHECK_MCU: {
     label: "检查 MCU revision 2 与 F1",
@@ -85,7 +98,12 @@ const ACTIONS = {
   FINALIZE: {
     label: "生成本地验收报告",
     prompt: "确认所有项目已由当前设备、当前镜像和当前 MCU 完成，并生成不可用于业务的本地验收报告？",
-    parameters: () => ({ confirmFinalize: true }),
+    parameters: () => ({
+      confirmFinalize: true,
+      ...(currentStatus.factoryTest.mcuPeripheralEvidenceMode === "SIMULATED_PERIPHERALS"
+        ? { confirmSimulatedPeripheralEvidence: true }
+        : {}),
+    }),
   },
 };
 
@@ -143,6 +161,12 @@ function updateActionConsole(status) {
   button.dataset.operation = action || "";
   button.textContent = definition ? definition.label : "暂无可执行操作";
   button.disabled = requestRunning || !definition || !factory.executorAvailable;
+  const selectingUpdateLine = action === "START" || action === "RESTART_FAILED_RUN";
+  byId("update-line-selection").hidden = !selectingUpdateLine;
+  byId("mcu-update-line-installed").disabled = requestRunning || !selectingUpdateLine;
+
+  const simulated = factory.mcuPeripheralEvidenceMode === "SIMULATED_PERIPHERALS";
+  byId("simulation-warning").hidden = !simulated;
 
   const recovery = factory.recovery;
   byId("recovery-panel").hidden = !recovery;
@@ -248,7 +272,22 @@ async function postAction(operation, parameters) {
 async function performPrimaryAction() {
   const operation = byId("primary-action").dataset.operation;
   const definition = ACTIONS[operation];
-  if (!definition || requestRunning || !window.confirm(definition.prompt)) return;
+  if (!definition || requestRunning) return;
+  if (
+    (operation === "START" || operation === "RESTART_FAILED_RUN")
+    && selectedUpdateLineState() === null
+  ) {
+    byId("action-result").textContent = "请先选择 MCU 远程升级线路的实际装配情况。";
+    return;
+  }
+  let prompt = definition.prompt;
+  if (
+    operation === "FINALIZE"
+    && currentStatus.factoryTest.mcuPeripheralEvidenceMode === "SIMULATED_PERIPHERALS"
+  ) {
+    prompt = "当前报告将明确记录传感器、屏幕与执行机构证据来自模拟固件，不能证明实物外设质量。确认仍生成正式 PASSED 报告？";
+  }
+  if (!window.confirm(prompt)) return;
   await postAction(operation, definition.parameters());
 }
 

@@ -238,24 +238,18 @@ class ImageToolingTest(unittest.TestCase):
             str(self.target_media_evidence),
         )
 
-    def test_checked_in_partial_locks_are_valid_but_build_is_blocked(self) -> None:
+    def test_checked_in_locks_are_valid_but_formal_policy_is_blocked(self) -> None:
+        checked_in_evidence = TOOL_ROOT / "target-media-qualification-evidence.json"
         structural = run_command(
             sys.executable,
             str(VALIDATOR),
             "--config-dir",
             str(TOOL_ROOT),
-            "--allow-unlocked",
+            "--require-locked",
+            "--target-media-qualification-evidence",
+            str(checked_in_evidence),
         )
         self.assertEqual(structural.returncode, 0, structural.stderr)
-        locked = run_command(
-            sys.executable,
-            str(VALIDATOR),
-            "--config-dir",
-            str(TOOL_ROOT),
-            "--require-locked",
-        )
-        self.assertEqual(locked.returncode, 2)
-        self.assertIn("production image inputs are not locked: layout", locked.stderr)
 
         formal = run_command(
             sys.executable,
@@ -442,6 +436,32 @@ class ImageToolingTest(unittest.TestCase):
         differs_from_layout = self.validate_fixture()
         self.assertEqual(differs_from_layout.returncode, 2)
         self.assertIn("minimum differs from image layout", differs_from_layout.stderr)
+
+    def test_media_evidence_accepts_explicit_single_card_owner_approval(self) -> None:
+        self.target_media_evidence_value["artifactClass"] = (
+            "TARGET_MEDIA_SINGLE_CARD_CAPACITY_QUALIFICATION"
+        )
+        self.target_media_evidence_value["method"] = (
+            "WINDOWS_STORAGE_API_SINGLE_CARD_V1"
+        )
+        self.target_media_evidence_value["measurementTool"] = (
+            "PowerShell Get-Disk.Size"
+        )
+        self.target_media_evidence_value["sampleSelection"] = (
+            "SINGLE_CARD_PROJECT_OWNER_ACCEPTED"
+        )
+        self.target_media_evidence_value["measurements"] = [
+            self.target_media_evidence_value["measurements"][0]
+        ]
+        self.target_media_evidence_value["minimumQualifiedMediaBytes"] = 31_000_000_000
+        layout = self.read_json("image-layout.json")
+        layout["targetMedia"]["minimumQualifiedMediaBytes"] = 31_000_000_000
+        self.write_json("image-layout.json", layout)
+        self.write_target_media_evidence(update_layout_digest=True)
+
+        accepted = self.validate_fixture()
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
 
     def test_media_evidence_rejects_one_card_and_implausibly_small_capacity(self) -> None:
         self.target_media_evidence_value["measurements"] = [
@@ -723,6 +743,10 @@ class ImageToolingTest(unittest.TestCase):
         (root / "var/lib/ecobin/factory-test/result.json").write_text(
             "{}", encoding="ascii"
         )
+        (root / "var/lib/ecobin/device-capabilities.json").write_text(
+            '{"schemaVersion":1,"mcuRemoteUpdateCapable":true}',
+            encoding="ascii",
+        )
         (root / "var/lib/ecobin/hardware/photos/test.jpg").write_text(
             "photo", encoding="ascii"
         )
@@ -759,6 +783,9 @@ class ImageToolingTest(unittest.TestCase):
         self.assertFalse((root / "etc/systemd/system/multi-user.target.wants/orangepi-zram-config.service").exists())
         self.assertEqual(list((root / "var/lib/cloud").iterdir()), [])
         self.assertEqual(list((root / "var/lib/ecobin/factory-test").iterdir()), [])
+        self.assertFalse(
+            (root / "var/lib/ecobin/device-capabilities.json").exists()
+        )
         self.assertEqual(list((root / "var/lib/ecobin/hardware").iterdir()), [])
         self.assertEqual(list((root / "root/EcoBin/hardware/data").iterdir()), [])
         self.assertEqual(list((root / "var/log").iterdir()), [])

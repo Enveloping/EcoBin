@@ -78,7 +78,8 @@ class RuntimeSafetyConfigurationTest {
             "V56__factory_seal_authorization.sql",
             "V57__external_clock_tolerance_and_authorization_recovery.sql",
             "V58__clock_recovery_invariants.sql",
-            "V59__bag_label_batch_limit_500.sql"
+            "V59__bag_label_batch_limit_500.sql",
+            "V60__mcu_remote_update_capability.sql"
     };
 
     @Test

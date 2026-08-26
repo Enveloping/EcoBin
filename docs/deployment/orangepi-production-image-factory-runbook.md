@@ -67,8 +67,9 @@ bash tools/orangepi-image/build-image.sh --validate-only \
 
 这一阶段只需在首次选卡或更换 TF 卡型号、基础镜像、内核、分区方式时执行。
 
-1. 准备同一采购批次中容量最小的多张 32 GB 卡，逐张读取实际字节数；记录最小值，不使用
-   包装上的“32 GB”替代测量值。
+1. 默认准备同一采购批次中容量最小的多张 32 GB 卡，逐张读取实际字节数；记录最小值，不使用
+   包装上的“32 GB”替代测量值。项目负责人明确接受单卡时，可使用
+   `SINGLE_CARD_PROJECT_OWNER_ACCEPTED` 模式，但证据只覆盖该卡，不代表采购批次抽样。
 2. 对锁定的官方镜像只读检查分区表、最终根分区、ext4 UUID 和 PARTUUID。
 3. 证明固定原始镜像大小不超过
    `minimumQualifiedMediaBytes - tailSafetyBytes`，且根分区是最后一个分区。
@@ -84,9 +85,12 @@ bash tools/orangepi-image/build-image.sh --validate-only \
    记录其 SHA-256，并把实际文件摘要固定进仓库外正式发布策略；介质资格证据与 rootfs 资格证据
    是两个不同事实，缺少任一个都不能正式发布。
 
-介质测量是只读操作，但必须先用 `/dev/disk/by-id/` 唯一识别整卡，不能把分区或系统盘当成
-样本。下面以同批次两张卡为最小示例；实际抽样可以增加到 256 张。先替换两个 by-id 路径和批次
-编号，再在隔离 Linux 工位执行：
+介质测量是只读操作。默认批次模式必须先用 `/dev/disk/by-id/` 唯一识别整卡，不能把分区或
+系统盘当成样本；下面以同批次两张卡为示例，实际抽样可以增加到 256 张。项目负责人明确接受
+单卡且 Windows 会话不能把物理盘交给 WSL 时，可用 PowerShell `Get-Disk` 的整盘 `Size` 和
+`LogicalSectorSize` 形成单卡证据，并保存
+`TARGET_MEDIA_SINGLE_CARD_CAPACITY_QUALIFICATION`、`WINDOWS_STORAGE_API_SINGLE_CARD_V1`、
+`PowerShell Get-Disk.Size` 和 `SINGLE_CARD_PROJECT_OWNER_ACCEPTED` 四个一致的模式字段。
 
 ```bash
 card_a='/dev/disk/by-id/REPLACE_WITH_CARD_A_ID'
@@ -453,9 +457,10 @@ PowerShell 可信入口只负责先验签，再把已人工映射到 WSL 的块�
 
 - MCU 已由线下烧录器预装 revision 2 固件；香橙派不负责全新 MCU 首刷；
 - UART5 使用物理 8/10 号针并共地；
-- BOOT0 接物理 7 号针，MCU 侧约 10 kΩ 下拉；BOOT1/PB2 固定下拉；
-- NRST 接物理 11 号针经 2N7002 开漏：PC6 经 1 kΩ 到 Gate，Gate 100 kΩ 下拉，Source
-  共地，Drain 接 NRST，NRST 由 MCU 3.3 V 经 10 kΩ 上拉并保留 10～100 nF 对地电容；
+- 若本机安装 MCU 远程升级线：BOOT0 接物理 7 号针并在 MCU 侧约 10 kΩ 下拉；
+  BOOT1/PB2 固定下拉；NRST 接物理 11 号针经 2N7002 开漏，PC6 经 1 kΩ 到
+  Gate，Gate 100 kΩ 下拉，Source 共地，Drain 接 NRST，NRST 由 MCU 3.3 V 经 10 kΩ
+  上拉并保留 10～100 nF 对地电容；未安装时在验收页必须如实选择“未安装”；
 - DECXIN 和 icspring 摄像头插在批准的 USB 位置；
 - Air780E 载板供电、天线、SIM、PWRKEY 和 USB 数据连接完好；
 - 设备舱体、门锁、电机和清运工装处于可安全动作状态。
@@ -477,8 +482,9 @@ PowerShell 可信入口只负责先验签，再把已人工映射到 WSL 的块�
 2. MCU 身份：F3 必须成功、`statusCode=0`、固定帧 revision 为 2、硬件兼容标识和固件身份
    符合当前批次；
 3. MCU 自检：在限定时间内采集稳定 F1 样本，重量、红外、烟感等字段有效；
-4. Bootloader 线路：F2 后只读探测 STM32 ROM Device ID，必须精确为 `0x0410`；随后 BOOT0
-   回低、应用复位，重新验证原 F3 身份和健康 F1，不写 MCU Flash；
+4. Bootloader 线路：已安装时，F2 后只读探测 STM32 ROM Device ID，必须精确为
+   `0x0410`；随后 BOOT0 回低、应用复位，重新验证原 F3 身份和健康 F1，不写 MCU
+   Flash。未安装时必须显示 `NOT_APPLICABLE`，F2 mode 02 发送次数、ROM 写入次数均为 0；
 5. 双摄：分别拍摄当前临时画面，再由操作员根据本次 nonce 确认 DECXIN 为箱外、icspring
    为箱内；不能沿用上一次启动或换线前的确认；
 6. 称重：空载稳定采样，放置 500 g 砝码后稳定采样，增量必须为 490～510 g；取下砝码后
@@ -491,6 +497,10 @@ PowerShell 可信入口只负责先验签，再把已人工映射到 WSL 的块�
    网页执行独立的“门已关闭”确认；
 9. 安全交接：受控复位 MCU、清理串口输入、等待静默窗口、重新验证 F3/F1，释放 UART/GPIO/
    摄像头后才允许首次启动编排进入联网阶段。
+
+如使用 `hardware_mcu/factory_sim` 固件联调缺少的 MCU 传感器、屏幕和执行器，
+网页必须显示 `SIMULATED_PERIPHERALS`。操作员仍按上述顺序点击、完成动作前/后安全
+确认，并在生成 PASSED 报告前再次确认该证据不能证明真实 MCU 外设质量。
 
 AA、EE 或 F2 只要“可能已经发送”，程序就必须先可靠保存恢复锁。浏览器刷新、手机断开或设备
 断电都不能创建第二次动作。重启后页面只允许查看同一动作和执行受控恢复；原身份/F1 或动作后

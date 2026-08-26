@@ -4,7 +4,10 @@ set -euo pipefail
 script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tool_root="$(cd "${script_directory}/.." && pwd)"
 
-python3 "${tool_root}/lib/validate_inputs.py" --allow-unlocked
+python3 "${tool_root}/lib/validate_inputs.py" \
+    --require-locked \
+    --target-media-qualification-evidence \
+    "${tool_root}/target-media-qualification-evidence.json"
 bash -n \
     "${tool_root}/build-image.sh" \
     "${tool_root}/rebuild-rootfs.sh" \

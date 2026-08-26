@@ -958,6 +958,7 @@ public class McuFirmwareRolloutService {
                                asset.lifecycle_status,
                                asset.acceptance_status,
                                asset.mcu_fixed_frame_revision,
+                               asset.mcu_remote_update_capable,
                                COALESCE(transport.onenet_connection_status,
                                         'UNKNOWN') AS transport_status
                         FROM dev_device_asset asset
@@ -973,6 +974,8 @@ public class McuFirmwareRolloutService {
                         rs.getString("lifecycle_status"),
                         rs.getString("acceptance_status"),
                         rs.getObject("mcu_fixed_frame_revision", Integer.class),
+                        rs.getObject(
+                                "mcu_remote_update_capable", Boolean.class),
                         rs.getString("transport_status")),
                 hardwareSn);
         if (rows.size() != 1) {
@@ -984,6 +987,12 @@ public class McuFirmwareRolloutService {
             throw conflict(
                     "DEVICE.MCU_FIRMWARE_ASSET_UNAVAILABLE",
                     "设备 " + hardwareSn + " 未通过验收或已被禁用/报废");
+        }
+        if (!Boolean.TRUE.equals(asset.remoteUpdateCapable())) {
+            throw conflict(
+                    "DEVICE.MCU_REMOTE_UPDATE_UNAVAILABLE",
+                    "设备 " + hardwareSn
+                            + " 未明确确认 MCU 远程升级线路可用");
         }
         if (!Integer.valueOf(2).equals(asset.fixedFrameRevision())) {
             throw conflict(
@@ -1783,6 +1792,7 @@ public class McuFirmwareRolloutService {
             String lifecycleStatus,
             String acceptanceStatus,
             Integer fixedFrameRevision,
+            Boolean remoteUpdateCapable,
             String transportStatus) {
     }
 

@@ -197,6 +197,30 @@ def validate_command_envelope(
     )
 
 
+def validate_unavailable_mcu_firmware_update_envelope(
+    command: dict[str, Any],
+) -> None:
+    """Validate stable update facts without requiring execution authority.
+
+    A device that has no BOOT0/NRST update wiring must durably reject the
+    deployment even after a reboot has discarded the volatile COS grant.  The
+    grant cannot affect that decision and is deliberately not inspected here;
+    all stable envelope, target, lifetime and release fields remain validated.
+    """
+
+    if command.get("commandType") != "START_MCU_FIRMWARE_UPDATE":
+        raise ValueError("command is not an MCU firmware update")
+    _validate_command_envelope(
+        command,
+        trusted_environment=None,
+        # The command was already durably accepted while valid.  This path
+        # performs no physical or network action, so a later process restart
+        # must still converge to the immutable capability rejection.
+        expiry_reference_time=None,
+        require_mcu_firmware_grant=False,
+    )
+
+
 def validate_factory_seal_envelope_at_acceptance(
     command: dict[str, Any],
     acceptance_time: datetime,
@@ -239,6 +263,7 @@ def _validate_command_envelope(
     *,
     trusted_environment: dict[str, str] | None,
     expiry_reference_time: datetime | None,
+    require_mcu_firmware_grant: bool = True,
 ) -> None:
     """Shared validator with an internally selected expiry reference."""
 
@@ -298,6 +323,7 @@ def _validate_command_envelope(
         _validate_start_mcu_firmware_update(
             command,
             trusted_environment=trusted_environment,
+            require_cos_grant=require_mcu_firmware_grant,
         )
     elif command_type == "START_DELIVERY_SESSION" and command.get("cosGrant"):
         validate_cos_grant(
@@ -722,6 +748,7 @@ def _validate_start_mcu_firmware_update(
     command: dict[str, Any],
     *,
     trusted_environment: dict[str, str] | None,
+    require_cos_grant: bool = True,
 ) -> None:
     payload = command["payload"]
     required = {
@@ -791,19 +818,20 @@ def _validate_start_mcu_firmware_update(
     expires_at = _parse_utc_instant(command["expiresAt"], "expiresAt")
     if not issued_at < expires_at <= issued_at + timedelta(minutes=15):
         raise ValueError("MCU firmware command lifetime must not exceed 15 minutes")
-    validate_cos_grant(
-        command.get("cosGrant"),
-        device_name=command["targetDeviceName"],
-        work_type="MCU_FIRMWARE_RELEASE",
-        work_uid=release_uid,
-        trusted_environment=trusted_environment,
-    )
-    grant_expiry = _parse_utc_instant(
-        command["cosGrant"]["expiresAt"],
-        "cosGrant.expiresAt",
-    )
-    if grant_expiry < expires_at:
-        raise ValueError("firmware COS grant expires before the command")
+    if require_cos_grant:
+        validate_cos_grant(
+            command.get("cosGrant"),
+            device_name=command["targetDeviceName"],
+            work_type="MCU_FIRMWARE_RELEASE",
+            work_uid=release_uid,
+            trusted_environment=trusted_environment,
+        )
+        grant_expiry = _parse_utc_instant(
+            command["cosGrant"]["expiresAt"],
+            "cosGrant.expiresAt",
+        )
+        if grant_expiry < expires_at:
+            raise ValueError("firmware COS grant expires before the command")
 
 
 def _validate_open_remote_support(command: dict[str, Any]) -> None:

@@ -19,11 +19,12 @@
     "edgeProtocolVersion": "2",
     "edgeSoftwareVersion": "0.1.0",
     "edgeStoreInstanceUid": "8a000000-0000-4000-8000-000000000002",
-    "evidenceSchemaVersion": 3,
+    "evidenceSchemaVersion": 4,
     "factoryBagRevision": 2,
     "factoryBagSetSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "mcuCommunicationHealthy": true,
     "mcuFirmwareVersion": "fixed-frame-1.0.0",
+    "mcuRemoteUpdateCapable": true,
     "mcuSimulated": false,
     "persistentStoreHealthy": true,
     "sensorSampleSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -32,7 +33,7 @@
     "verifiedCameraCount": 2,
     "verifiedPortCount": 2
   },
-  "payloadSha256": "e32e41e381720317ce32602f0815bca47457723264ff582c27cc4ffd41122c99",
+  "payloadSha256": "c3b2ee98dbd0a630d73c65ac04ce1fccc5354bc692cec945c87426ba5e773fd5",
   "schemaVersion": 2,
   "target": {
     "type": "DEVICE_ASSET",

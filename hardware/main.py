@@ -225,6 +225,7 @@ class EcoBinEdge:
             self.photo,
             self.cos_uploader,
             device_name=DEVICE_NAME,
+            mcu_remote_update_capable=MCU_UPDATE_ENABLED,
             edge_software_version=EDGE_SOFTWARE_VERSION,
         )
         self.remote_support = RemoteSupportControlClient(

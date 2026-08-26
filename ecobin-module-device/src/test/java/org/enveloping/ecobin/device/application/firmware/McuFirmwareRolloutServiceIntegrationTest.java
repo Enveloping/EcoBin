@@ -424,6 +424,94 @@ class McuFirmwareRolloutServiceIntegrationTest {
     }
 
     @Test
+    void explicitlyUnavailableDeviceCannotEnterFirmwareRollout() {
+        registerRelease(UUID.randomUUID(), "remote wiring unavailable");
+        jdbc.update("""
+                        UPDATE dev_device_asset
+                        SET mcu_remote_update_capable = FALSE
+                        WHERE hardware_sn = ?
+                        """,
+                VALIDATION_SN);
+
+        TargetApiException rejected = assertThrows(
+                TargetApiException.class,
+                () -> service.createRollout(
+                        UUID.randomUUID(),
+                        rolloutRequest(RELEASE_UID, "must reject false")));
+
+        assertEquals(
+                "DEVICE.MCU_REMOTE_UPDATE_UNAVAILABLE",
+                rejected.code());
+        assertEquals(0L, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM dev_mcu_firmware_rollout",
+                Long.class));
+    }
+
+    @Test
+    void unknownCapabilityCannotEnterFirmwareRollout() {
+        registerRelease(UUID.randomUUID(), "remote wiring unknown");
+        jdbc.update("""
+                        UPDATE dev_device_asset
+                        SET mcu_remote_update_capable = NULL
+                        WHERE hardware_sn = ?
+                        """,
+                VALIDATION_SN);
+
+        TargetApiException rejected = assertThrows(
+                TargetApiException.class,
+                () -> service.createRollout(
+                        UUID.randomUUID(),
+                        rolloutRequest(RELEASE_UID, "must reject unknown")));
+
+        assertEquals(
+                "DEVICE.MCU_REMOTE_UPDATE_UNAVAILABLE",
+                rejected.code());
+        assertEquals(0L, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM dev_mcu_firmware_rollout",
+                Long.class));
+    }
+
+    @Test
+    void deviceRejectionForUnavailableWiringIsTerminalAndNotRetried() {
+        registerRelease(UUID.randomUUID(), "stable device rejection");
+        UUID rolloutUid = UUID.randomUUID();
+        service.createRollout(
+                rolloutUid,
+                rolloutRequest(RELEASE_UID, "stable rejection test"));
+        RolloutView validating = service.startValidation(
+                UUID.randomUUID(),
+                rolloutUid,
+                new RolloutActionRequest("start validation"));
+        DeploymentView deployment = deployment(
+                validating, "VALIDATION", 0);
+
+        assertEquals(
+                TrustedDeviceEventApplyResult.APPLIED,
+                service.applyProgress(progress(
+                        deployment,
+                        "REJECTED",
+                        0,
+                        0,
+                        null,
+                        null,
+                        null,
+                        "MCU_REMOTE_UPDATE_UNAVAILABLE")));
+
+        RolloutView failed = service.detail(rolloutUid);
+        DeploymentView rejected = deployment(failed, "VALIDATION", 0);
+        assertEquals("VALIDATION_FAILED", failed.status());
+        assertEquals("REJECTED", rejected.status());
+        assertEquals(
+                "MCU_REMOTE_UPDATE_UNAVAILABLE",
+                rejected.errorCode());
+        verify(taskProof).completeFromTrustedProof(
+                "START_MCU_FIRMWARE_UPDATE",
+                "MCU_FIRMWARE_DEPLOYMENT",
+                deployment.deploymentUid().toString());
+        verify(taskWake, times(0)).wake(any(ReliableTaskWake.class));
+    }
+
+    @Test
     void concurrentRolloutsCannotReserveTheSamePhysicalAssets()
             throws Exception {
         registerRelease(UUID.randomUUID(), "first release");
@@ -541,6 +629,27 @@ class McuFirmwareRolloutServiceIntegrationTest {
             String installedVersion,
             Long installedVersionCode,
             String installedIdentity) {
+        return progress(
+                deployment,
+                stage,
+                targetAttempts,
+                rollbackAttempts,
+                installedVersion,
+                installedVersionCode,
+                installedIdentity,
+                "PACKAGE_FETCH_FAILED".equals(stage)
+                        ? "COS_DOWNLOAD_FAILED" : null);
+    }
+
+    private TrustedPlatformDeviceAssetFactEvent progress(
+            DeploymentView deployment,
+            String stage,
+            int targetAttempts,
+            int rollbackAttempts,
+            String installedVersion,
+            Long installedVersionCode,
+            String installedIdentity,
+            String errorCode) {
         ObjectNode normalized = objectMapper.createObjectNode();
         normalized.put("eventCanonicalSha256", "b".repeat(64));
         normalized.putObject("trustedSource")
@@ -567,8 +676,8 @@ class McuFirmwareRolloutServiceIntegrationTest {
         payload.put("stage", stage);
         payload.put("targetAttemptCount", targetAttempts);
         payload.put("rollbackAttemptCount", rollbackAttempts);
-        if ("PACKAGE_FETCH_FAILED".equals(stage)) {
-            payload.put("errorCode", "COS_DOWNLOAD_FAILED");
+        if (errorCode != null) {
+            payload.put("errorCode", errorCode);
         } else {
             payload.putNull("errorCode");
         }
@@ -666,6 +775,7 @@ class McuFirmwareRolloutServiceIntegrationTest {
                     mcu_firmware_version_code BIGINT,
                     mcu_firmware_identity_hex VARCHAR(16),
                     mcu_fixed_frame_revision INT,
+                    mcu_remote_update_capable BOOLEAN,
                     updated_at TIMESTAMP NOT NULL
                 )
                 """);
@@ -803,9 +913,11 @@ class McuFirmwareRolloutServiceIntegrationTest {
                                 id, hardware_sn, tenant_id, organization_id,
                                 lifecycle_status, acceptance_status,
                                 mcu_fixed_frame_revision,
+                                mcu_remote_update_capable,
                                 updated_at
                             ) VALUES (
-                                ?, ?, NULL, NULL, 'NORMAL', 'PASSED', 2, ?
+                                ?, ?, NULL, NULL, 'NORMAL', 'PASSED',
+                                2, TRUE, ?
                             )
                             """,
                     assetId,

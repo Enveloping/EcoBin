@@ -72,6 +72,53 @@ def test_unknown_configuration_mode_is_rejected(tmp_path, monkeypatch):
         config._configure_environment_source(tmp_path)
 
 
+def test_device_capability_fact_is_strict_and_boolean(tmp_path):
+    path = tmp_path / "device-capabilities.json"
+    path.write_text(
+        '{"schemaVersion":1,"mcuRemoteUpdateCapable":false,'
+        '"factoryReportSha256":"' + "a" * 64 + '"}',
+        encoding="utf-8",
+    )
+
+    assert config._load_device_capabilities(str(path)) == {
+        "schemaVersion": 1,
+        "mcuRemoteUpdateCapable": False,
+        "factoryReportSha256": "a" * 64,
+    }
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {},
+        {
+            "schemaVersion": True,
+            "mcuRemoteUpdateCapable": False,
+            "factoryReportSha256": "a" * 64,
+        },
+        {
+            "schemaVersion": 1,
+            "mcuRemoteUpdateCapable": "false",
+            "factoryReportSha256": "a" * 64,
+        },
+        {
+            "schemaVersion": 1,
+            "mcuRemoteUpdateCapable": True,
+            "factoryReportSha256": "a" * 64,
+            "unexpected": True,
+        },
+    ],
+)
+def test_device_capability_fact_rejects_ambiguous_content(tmp_path, document):
+    import json
+
+    path = tmp_path / "device-capabilities.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="capability|Capable"):
+        config._load_device_capabilities(str(path))
+
+
 def test_production_environment_template_uses_fhs_and_no_device_secrets():
     content = (HARDWARE / "install" / "hardware.env.example").read_text(
         encoding="utf-8"
@@ -88,6 +135,10 @@ def test_production_environment_template_uses_fhs_and_no_device_secrets():
         "ECOBIN_EDGE_BOOT_ID_PATH=/var/lib/ecobin/hardware/edge-boot-id",
         "ECOBIN_DEVICE_CONFIG_PATH=/var/lib/ecobin/hardware/device-config.json",
         "ECOBIN_DEVICE_CREDENTIALS_PATH=/etc/ecobin/device-credentials.json",
+        (
+            "ECOBIN_DEVICE_CAPABILITIES_PATH="
+            "/var/lib/ecobin/device-capabilities.json"
+        ),
         "ECOBIN_MCU_BOOT0_WPI=2",
         "ECOBIN_MCU_RESET_WPI=5",
         "ECOBIN_MCU_BOOT0_ACTIVE_LEVEL=1",
@@ -100,6 +151,7 @@ def test_production_environment_template_uses_fhs_and_no_device_secrets():
         "ECOBIN_DEVICE_KEY=",
         "ECOBIN_UART_HIL_REQUIRED_CAPABILITIES=",
         "ECOBIN_EDGE_VERSION=0.1.0",
+        "ECOBIN_MCU_UPDATE_ENABLED=",
     ):
         assert forbidden not in content
     assert not any("simulated://" in assignment for assignment in assignments)

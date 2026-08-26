@@ -406,6 +406,12 @@ class PortalSnapshotProvider:
                 "recovery": acceptance.get("recovery"),
                 "cameraReview": acceptance.get("cameraReview"),
                 "mcuIdentity": acceptance.get("mcuIdentity"),
+                "mcuUpdateLineInstalled": acceptance.get(
+                    "mcuUpdateLineInstalled"
+                ),
+                "mcuPeripheralEvidenceMode": acceptance.get(
+                    "mcuPeripheralEvidenceMode"
+                ),
                 "hardwareConfigSummary": acceptance.get(
                     "hardwareConfigSummary"
                 ),

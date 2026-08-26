@@ -655,8 +655,8 @@ class McuFirmwareUpdater:
         update_uid = str(uuid.uuid4())
         if not self.enabled:
             error = McuUpdateError(
-                "MCU_UPDATE_DISABLED",
-                "MCU firmware update is disabled on this edge device",
+                "MCU_REMOTE_UPDATE_UNAVAILABLE",
+                "MCU remote-update wiring is unavailable on this device",
             )
             rejected = self.store.reject_mcu_firmware_update_before_start(
                 update_uid=update_uid,
@@ -1788,6 +1788,6 @@ class McuFirmwareUpdater:
     def _require_enabled(self) -> None:
         if not self.enabled:
             raise McuUpdateError(
-                "MCU_UPDATE_DISABLED",
-                "MCU firmware update is disabled on this edge device",
+                "MCU_REMOTE_UPDATE_UNAVAILABLE",
+                "MCU remote-update wiring is unavailable on this device",
             )

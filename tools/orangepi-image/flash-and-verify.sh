@@ -280,16 +280,29 @@ if (
     or evidence.get("$schema")
        != "./schemas/target-media-qualification-evidence.schema.json"
     or evidence.get("schemaVersion") != 1
-    or evidence.get("artifactClass")
-       != "TARGET_MEDIA_BATCH_CAPACITY_QUALIFICATION"
     or evidence.get("qualificationState") != "QUALIFIED"
-    or evidence.get("method") != "BLOCK_DEVICE_CAPACITY_SAMPLE_MINIMUM_V1"
     or evidence.get("deviceClass") != "TF_CARD"
     or evidence.get("marketedCapacityGB") != 32
     or evidence.get("marketedCapacityBytes") != 32000000000
-    or evidence.get("measurementTool") != "blockdev --getsize64"
-    or evidence.get("sampleSelection")
-       != "SAME_PROCUREMENT_BATCH_MULTIPLE_CARDS"
+    or (
+        evidence.get("artifactClass"),
+        evidence.get("method"),
+        evidence.get("measurementTool"),
+        evidence.get("sampleSelection"),
+    ) not in {
+        (
+            "TARGET_MEDIA_BATCH_CAPACITY_QUALIFICATION",
+            "BLOCK_DEVICE_CAPACITY_SAMPLE_MINIMUM_V1",
+            "blockdev --getsize64",
+            "SAME_PROCUREMENT_BATCH_MULTIPLE_CARDS",
+        ),
+        (
+            "TARGET_MEDIA_SINGLE_CARD_CAPACITY_QUALIFICATION",
+            "WINDOWS_STORAGE_API_SINGLE_CARD_V1",
+            "PowerShell Get-Disk.Size",
+            "SINGLE_CARD_PROJECT_OWNER_ACCEPTED",
+        ),
+    }
     or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", evidence.get("batchId", ""))
     or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", evidence.get("measuredAt", ""))
 ):
@@ -299,8 +312,13 @@ try:
 except ValueError:
     raise SystemExit("signed target-media evidence has invalid measurement time") from None
 measurements = evidence.get("measurements")
-if not isinstance(measurements, list) or not 2 <= len(measurements) <= 256:
-    raise SystemExit("signed target-media evidence lacks multiple card samples")
+single_card_mode = (
+    evidence["artifactClass"] == "TARGET_MEDIA_SINGLE_CARD_CAPACITY_QUALIFICATION"
+)
+if not isinstance(measurements, list) or (
+    len(measurements) != 1 if single_card_mode else not 2 <= len(measurements) <= 256
+):
+    raise SystemExit("signed target-media evidence does not match its approved sampling mode")
 sample_ids = set()
 measured_sizes = []
 for measurement in measurements:

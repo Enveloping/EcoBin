@@ -73,6 +73,29 @@ def test_atomic_json_is_private_on_posix(tmp_path: Path) -> None:
         assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
 
 
+def test_atomic_json_can_preserve_an_existing_shared_parent_mode(
+    tmp_path: Path,
+) -> None:
+    shared = (tmp_path / "shared-ecobin-parent").absolute()
+    shared.mkdir()
+    if os.name != "nt":
+        shared.chmod(0o755)
+    path = shared / "device-capabilities.json"
+
+    AtomicJsonFile(
+        path,
+        chmod_existing_parent=False,
+    ).write({"schemaVersion": 1})
+
+    assert AtomicJsonFile(
+        path,
+        chmod_existing_parent=False,
+    ).read() == {"schemaVersion": 1}
+    if os.name != "nt":
+        assert stat.S_IMODE(shared.stat().st_mode) == 0o755
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
 def test_malformed_or_non_object_json_is_rejected(tmp_path: Path) -> None:
     path = (tmp_path / "private" / "state.json").absolute()
     path.parent.mkdir()

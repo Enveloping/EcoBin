@@ -6598,7 +6598,8 @@
     {
      "dataType": {
       "specs": {
-       "1": "3"
+       "1": "3",
+       "2": "4"
       },
       "type": "enum"
      },
@@ -6721,6 +6722,28 @@
      },
      "identifier": "mcuCommunicationHealthy",
      "name": "mcuCommunicationHealthy"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "null",
+       "true": "present"
+      },
+      "type": "bool"
+     },
+     "identifier": "mcuRemoteUpdateCapablePresent",
+     "name": "mcuRemoteUpdateCapablePresent"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "false",
+       "true": "true"
+      },
+      "type": "bool"
+     },
+     "identifier": "mcuRemoteUpdateCapable",
+     "name": "mcuRemoteUpdateCapable"
     },
     {
      "dataType": {

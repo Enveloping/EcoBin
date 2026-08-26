@@ -3296,7 +3296,7 @@ def build_onenet_examples() -> dict[str, Any]:
         "DEVICE_ASSET",
         "SN-CONTRACT-0001",
         {
-            "evidenceSchemaVersion": 3,
+            "evidenceSchemaVersion": 4,
             "challengeUid": acceptance_challenge_uid,
             "factoryBagRevision": factory_bag_revision,
             "factoryBagSetSha256": factory_bag_set_sha256,
@@ -3310,6 +3310,7 @@ def build_onenet_examples() -> dict[str, Any]:
             "trustedTimeHealthy": True,
             "configurationPersistenceHealthy": True,
             "mcuCommunicationHealthy": True,
+            "mcuRemoteUpdateCapable": True,
             "sensorsHealthy": True,
             "camerasCaptureHealthy": True,
             "cameraUploadHealthy": True,

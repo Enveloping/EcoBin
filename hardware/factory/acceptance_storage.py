@@ -120,14 +120,18 @@ class AtomicJsonFile:
         *,
         fault_hook: FaultHook = None,
         fault_prefix: str = "json",
+        chmod_existing_parent: bool = True,
     ) -> None:
         self.path = Path(path)
         if not self.path.is_absolute():
             raise AcceptanceStorageError("acceptance JSON path must be absolute")
         if self.path.name in {"", ".", ".."}:
             raise AcceptanceStorageError("acceptance JSON filename is invalid")
+        if not isinstance(chmod_existing_parent, bool):
+            raise TypeError("chmod_existing_parent must be boolean")
         self._fault_hook = fault_hook
         self._fault_prefix = fault_prefix
+        self._chmod_existing_parent = chmod_existing_parent
         self._mutex = threading.RLock()
 
     def exists(self) -> bool:
@@ -189,7 +193,10 @@ class AtomicJsonFile:
             + "\n"
         ).encode("utf-8")
         with self._mutex:
-            _ensure_private_directory(self.path.parent)
+            _ensure_private_directory(
+                self.path.parent,
+                chmod_existing=self._chmod_existing_parent,
+            )
             _reject_symlink(self.path)
             temporary = self.path.parent / (
                 f".{self.path.name}.{os.getpid()}."

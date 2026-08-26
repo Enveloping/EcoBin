@@ -12,31 +12,35 @@ The official Orange Pi Debian 12 Server/Linux 6.1 source artifact is locked to
 the exact 1.0.4 Google Drive object, byte length, archive SHA-256, member name,
 and extracted byte length verified on 2026-08-22. The Docker Official Image
 builder is locked to the `linux/arm64` manifest digest, and all builder tools
-plus target additions come from the signed immutable Debian 2026-08-03
-snapshot at exact versions. The qualified 32 GB media/layout and independent
-qualification evidence for the deterministic ext4 rebuild are still
-`UNLOCKED`/`UNQUALIFIED`. This is a safe partial-lock state:
+  plus target additions come from the signed immutable Debian 2026-08-03
+  snapshot at exact versions. On 2026-08-26 the project owner explicitly
+  accepted one identified 32 GB TF card measured through Windows `Get-Disk`;
+  its 31,268,536,320-byte capacity and evidence digest now lock the target-media
+  layout. Independent qualification evidence for the deterministic ext4 rebuild
+  and the external formal-release policy are still required:
 
 ```text
-python tools/orangepi-image/lib/validate_inputs.py --allow-unlocked
-# source=LOCKED builder=LOCKED apt=LOCKED layout=UNLOCKED
+python tools/orangepi-image/lib/validate_inputs.py --require-locked \
+  --target-media-qualification-evidence \
+  tools/orangepi-image/target-media-qualification-evidence.json
+# source=LOCKED builder=LOCKED apt=LOCKED layout=LOCKED
 
-bash tools/orangepi-image/build-image.sh --validate-only
-# fails because production inputs are not locked
+bash tools/orangepi-image/build-image.sh --validate-only \
+  --target-media-qualification-evidence \
+  tools/orangepi-image/target-media-qualification-evidence.json
+# validates the locked image inputs; it does not approve formal release trust
 
 python tools/orangepi-image/lib/release_trust.py validate-policy \
   --trust-policy tools/orangepi-image/formal-release-policy.json
 # fails because the repository file is only an UNLOCKED template
 ```
 
-Do not replace the remaining layout nulls with guessed values. The three locked
-inputs prove artifact, builder and package identity; they do not claim that the
-image has passed the target board or smallest qualified 32 GB card boot test.
-Those facts keep the layout and production build gate locked shut until
-hardware-in-the-loop qualification. Even after that qualification, a formal
-candidate remains blocked until deterministic ext4 rebuild evidence is
-independently approved. This tooling deliberately does not claim that the
-current read-write ext4 mutation path is reproducible.
+The single-card evidence covers only `single-card-a`; it is not a claim about a
+procurement batch or other nominally 32 GB cards. The measured capacity locks
+the layout, but it does not claim that target-board boot/expansion or the full
+hardware-in-the-loop acceptance has passed. A formal release remains blocked
+until deterministic ext4 rebuild evidence and the external trust policy are
+independently approved.
 
 The same read-only source inspection measured the extracted member as
 2,571,108,352 bytes with SHA-256
@@ -44,8 +48,8 @@ The same read-only source inspection measured the extracted member as
 It has a DOS partition-table identifier `da1827ff`; partition 1 starts at sector
 8192, has 5,013,504 sectors, ext4 UUID
 `535922e7-511d-46ea-82e6-573f913006af`, and PARTUUID `da1827ff-01`.
-These are inspection evidence, not qualified `image-layout.json` values: the
-minimum real 32 GB card and target-board boot/expansion test are still missing.
+These source values and the measured single-card minimum are now qualified in
+`image-layout.json`; the target-board boot/expansion test is still missing.
 The untouched base also contained a non-empty machine ID, six SSH host-key
 files (private/public), and an enabled `orangepi-resize-filesystem.service`.
 Consequently, merely extracting and auditing that base is expected to fail.
@@ -56,10 +60,12 @@ Consequently, merely extracting and auditing that base is expected to fail.
 - `builder.lock`: digest-pinned Linux builder and exact tool versions.
 - `apt-packages.lock`: exact target package versions; no ranges or `latest`.
 - `image-layout.json`: independently locked source geometry/ext4 build profile
-  plus the still-separate 32 GB media-qualification gate.
-- `schemas/target-media-qualification-evidence.schema.json`: exact same-batch
-  whole-card capacity evidence contract. A formal build must provide the actual
-  evidence file whose raw SHA-256 and measured minimum are locked by the layout.
+  plus the explicitly approved single-card 32 GB capacity qualification.
+- `target-media-qualification-evidence.json`: non-secret canonical copy of the
+  measured evidence whose raw SHA-256 and minimum are locked by the layout.
+- `schemas/target-media-qualification-evidence.schema.json`: whole-card capacity
+  evidence contract for normal multi-card batch sampling and explicit
+  project-owner-accepted single-card qualification.
 - `formal-release-policy.json`: permanently fail-closed repository template.
   It must remain `UNLOCKED`, contain no key fingerprint, and cannot authorize a
   release. A locked policy is provisioned separately on each controlled
@@ -139,10 +145,15 @@ Consequently, merely extracting and auditing that base is expected to fail.
    `targetMedia` become `QUALIFIED`, receive a non-null evidence digest and
    minimum byte size, and the top-level layout become `LOCKED`. Never make the
    fixed image larger than `minimumQualifiedMediaBytes - tailSafetyBytes`.
-   The supplied `target-media-qualification-evidence.json` must record at least
-   two uniquely identified whole cards from the same procurement batch measured
-   with `blockdev --getsize64`; the validator recomputes its raw digest and
-   requires its smallest sample to equal the locked minimum.
+   The normal batch mode records at least two uniquely identified whole cards
+   from the same procurement batch with `blockdev --getsize64`. When the project
+   owner explicitly accepts a single-card release, the evidence instead uses
+   `TARGET_MEDIA_SINGLE_CARD_CAPACITY_QUALIFICATION`,
+   `WINDOWS_STORAGE_API_SINGLE_CARD_V1`, `PowerShell Get-Disk.Size` and
+   `SINGLE_CARD_PROJECT_OWNER_ACCEPTED`; that qualification covers only the
+   identified card and does not claim procurement-batch sampling. The validator
+   recomputes the raw evidence digest and requires its minimum to equal the
+   locked value.
 6. Pass that evidence explicitly as
    `--target-media-qualification-evidence FILE`, then run both test entry points
    and `build-image.sh --validate-only` before a real build.

@@ -16,6 +16,21 @@ HARDWARE_DIR = Path(__file__).resolve().parents[1]
 
 def _set_production_hardware_boundary(monkeypatch):
     monkeypatch.setattr(config, "CONFIG_MODE", "production")
+    monkeypatch.setattr(
+        config,
+        "DEVICE_CAPABILITIES_PATH",
+        "/var/lib/ecobin/device-capabilities.json",
+    )
+    monkeypatch.setattr(
+        config,
+        "DEVICE_CAPABILITIES",
+        {
+            "schemaVersion": 1,
+            "mcuRemoteUpdateCapable": True,
+            "factoryReportSha256": "a" * 64,
+        },
+    )
+    monkeypatch.setattr(config, "DEVICE_CAPABILITIES_ERROR", None)
     monkeypatch.setattr(config, "MCU_PROTOCOL_MODE", "fixed-frame")
     monkeypatch.setattr(config, "MCU_SIMULATED", False)
     monkeypatch.setattr(config, "SERIAL_PORT", "/dev/ttyS5")
@@ -167,6 +182,40 @@ def test_production_defaults_match_the_fixed_open_drain_mainboard():
     assert config.GPIO_PATH == "/usr/bin/gpio"
     assert config.STM32FLASH_PATH == "/usr/bin/stm32flash"
     assert config.MCU_HARDWARE_COMPATIBILITY == "ECOBIN_MAINBOARD_V1.1"
+
+
+def test_production_accepts_device_without_remote_update_lines(monkeypatch):
+    _set_production_hardware_boundary(monkeypatch)
+    monkeypatch.setattr(config, "_require_path_under", lambda *args: None)
+    monkeypatch.setattr(config, "MCU_UPDATE_ENABLED", False)
+    monkeypatch.setattr(
+        config,
+        "DEVICE_CAPABILITIES",
+        {
+            "schemaVersion": 1,
+            "mcuRemoteUpdateCapable": False,
+            "factoryReportSha256": "b" * 64,
+        },
+    )
+    monkeypatch.setattr(config, "MCU_BOOT0_WPI", None)
+    monkeypatch.setattr(config, "MCU_RESET_WPI", None)
+    monkeypatch.setattr(config, "GPIO_PATH", "")
+    monkeypatch.setattr(config, "STM32FLASH_PATH", "")
+
+    config.validate()
+
+
+def test_production_fails_closed_without_device_capability_fact(monkeypatch):
+    _set_production_hardware_boundary(monkeypatch)
+    monkeypatch.setattr(config, "DEVICE_CAPABILITIES", None)
+    monkeypatch.setattr(
+        config,
+        "DEVICE_CAPABILITIES_ERROR",
+        "device capability file does not exist",
+    )
+
+    with pytest.raises(ValueError, match="capability file does not exist"):
+        config.validate()
 
 
 def test_production_rejects_a_runtime_reset_polarity_override(monkeypatch):

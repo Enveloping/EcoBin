@@ -480,6 +480,76 @@ class OneNetSchemaTests(unittest.TestCase):
         validate_sources(summary)
         self.assertGreaterEqual(len(summary.checks), 3)
 
+    def test_acceptance_evidence_v4_requires_remote_update_capability_and_v3_omits_it(
+        self,
+    ) -> None:
+        validator = JsonSchemaSubsetValidator()
+        schema = (
+            CONTRACTS_ROOT / "onenet" / "events" / "events.schema.json"
+        )
+        event = load_json(
+            CONTRACTS_ROOT
+            / "examples"
+            / "onenet"
+            / "device-acceptance-evidence.event.json"
+        )
+        validator.validate(event, schema)
+
+        v4_missing_capability = copy.deepcopy(event)
+        del v4_missing_capability["payload"]["mcuRemoteUpdateCapable"]
+        from contractlib import payload_sha256
+
+        v4_missing_capability["payloadSha256"] = payload_sha256(
+            v4_missing_capability["payload"]
+        )
+        with self.assertRaises(ContractError):
+            validator.validate(v4_missing_capability, schema)
+
+        v3 = copy.deepcopy(v4_missing_capability)
+        v3["payload"]["evidenceSchemaVersion"] = 3
+        v3["payloadSha256"] = payload_sha256(v3["payload"])
+        validator.validate(v3, schema)
+
+        v3_with_capability = copy.deepcopy(v3)
+        v3_with_capability["payload"]["mcuRemoteUpdateCapable"] = True
+        v3_with_capability["payloadSha256"] = payload_sha256(
+            v3_with_capability["payload"]
+        )
+        with self.assertRaises(ContractError):
+            validator.validate(v3_with_capability, schema)
+
+    def test_remote_update_unavailable_is_a_valid_stable_rejection_code(
+        self,
+    ) -> None:
+        event = load_json(
+            CONTRACTS_ROOT
+            / "examples"
+            / "onenet"
+            / "mcu-firmware-update-progress.event.json"
+        )
+        payload = event["payload"]
+        payload["stage"] = "REJECTED"
+        payload["targetAttemptCount"] = 0
+        payload["rollbackAttemptCount"] = 0
+        payload["installedFirmwareVersion"] = None
+        payload["installedFirmwareVersionCode"] = None
+        payload["installedFirmwareIdentityHex"] = None
+        payload["errorCode"] = "MCU_REMOTE_UPDATE_UNAVAILABLE"
+        from contractlib import payload_sha256
+
+        event["payloadSha256"] = payload_sha256(payload)
+        self.assertEqual("REJECTED", event["payload"]["stage"])
+        self.assertEqual(0, event["payload"]["targetAttemptCount"])
+        self.assertEqual(0, event["payload"]["rollbackAttemptCount"])
+        self.assertEqual(
+            "MCU_REMOTE_UPDATE_UNAVAILABLE",
+            event["payload"]["errorCode"],
+        )
+        JsonSchemaSubsetValidator().validate(
+            event,
+            CONTRACTS_ROOT / "onenet" / "events" / "events.schema.json",
+        )
+
     def test_examples_and_semantic_rules(self) -> None:
         summary = ValidationSummary()
         validate_onenet_examples(summary)

@@ -31,10 +31,12 @@ from factory.acceptance_storage import (
 )
 
 
-STATE_SCHEMA_VERSION = 2
+STATE_SCHEMA_VERSION = 3
+PREVIOUS_STATE_SCHEMA_VERSION = 2
 LEGACY_STATE_SCHEMA_VERSION = 1
 LEGACY_SAFETY_FAILURE_PHASE = "LEGACY_ACTION_SAFETY_FAILURE_READY"
-REPORT_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2
+LEGACY_REPORT_SCHEMA_VERSION = 1
 REPORT_STATUSES = {
     "NOT_RUN",
     "RUNNING",
@@ -60,6 +62,9 @@ DEFAULT_WEIGHT_STABLE_MAX_SPREAD_GRAMS = 2
 DEFAULT_WEIGHT_SAMPLE_INTERVAL_MS = 100
 DEFAULT_WEIGHT_SAMPLE_TIMEOUT_MS = 3_000
 DEFAULT_CAMERA_REVIEW_TTL_MS = 300_000
+SIMULATED_MCU_FIRMWARE_IDENTITY_HEX = "45434f53494d3031"
+SIMULATED_MCU_FIRMWARE_VERSION = "factory-sim-1.0.0"
+SIMULATED_MCU_FIRMWARE_VERSION_CODE = 1
 
 
 class AcceptanceError(RuntimeError):
@@ -85,6 +90,15 @@ def _stable_code(value: object, fallback: str) -> str:
 
 def _check_passed(state: dict, name: str) -> bool:
     check = (state.get("checks") or {}).get(name, {})
+    if name == "upgradeLine" and check.get("status") == "NOT_APPLICABLE":
+        return bool(
+            state.get("mcuUpdateLineInstalled") is False
+            and check.get("resultCode")
+            == "MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED"
+            and check.get("prepareSendAttempts") == 0
+            and check.get("romWritePerformed") is False
+            and check.get("romDeviceId") is None
+        )
     if check.get("status") != "PASSED":
         return False
     if name == "delivery":
@@ -92,6 +106,31 @@ def _check_passed(state: dict, name: str) -> bool:
     if name == "clean":
         return check.get("cleanDoorConfirmed") is True
     return True
+
+
+def _mcu_peripheral_evidence_mode(identity: dict) -> str:
+    identity_marker = (
+        identity.get("firmwareIdentityHex")
+        == SIMULATED_MCU_FIRMWARE_IDENTITY_HEX
+    )
+    version_marker = str(identity.get("firmwareVersion", "")).startswith(
+        "factory-sim-"
+    )
+    exact_simulated_identity = bool(
+        identity.get("fixedFrameRevision") == 2
+        and identity.get("firmwareVersion")
+        == SIMULATED_MCU_FIRMWARE_VERSION
+        and identity.get("firmwareVersionCode")
+        == SIMULATED_MCU_FIRMWARE_VERSION_CODE
+        and identity_marker
+    )
+    if (identity_marker or version_marker) and not exact_simulated_identity:
+        raise AcceptanceError("MCU_SIMULATION_IDENTITY_INVALID")
+    return (
+        "SIMULATED_PERIPHERALS"
+        if exact_simulated_identity
+        else "PHYSICAL"
+    )
 
 
 def _validate_release_id(value: str) -> str:
@@ -259,7 +298,10 @@ class FactoryAcceptanceExecutor:
                 "recovery": None,
                 "activeAction": None,
             }
-        if value.get("schemaVersion") == LEGACY_STATE_SCHEMA_VERSION:
+        schema_version = value.get("schemaVersion")
+        if type(schema_version) is not int:
+            raise AcceptanceError("ACCEPTANCE_STATE_SCHEMA_UNSUPPORTED")
+        if schema_version == LEGACY_STATE_SCHEMA_VERSION:
             if value.get("status") not in REPORT_STATUSES:
                 raise AcceptanceError("ACCEPTANCE_STATE_STATUS_INVALID")
             if not isinstance(value.get("revision"), int) or isinstance(
@@ -267,11 +309,17 @@ class FactoryAcceptanceExecutor:
             ):
                 raise AcceptanceError("ACCEPTANCE_STATE_REVISION_INVALID")
             value = self._migrate_legacy_state(value)
-        elif value.get("schemaVersion") != STATE_SCHEMA_VERSION:
+            schema_version = value.get("schemaVersion")
+        if schema_version == PREVIOUS_STATE_SCHEMA_VERSION:
+            value = self._migrate_previous_state(value)
+            schema_version = value.get("schemaVersion")
+        elif schema_version != STATE_SCHEMA_VERSION:
             raise AcceptanceError("ACCEPTANCE_STATE_SCHEMA_UNSUPPORTED")
         if value.get("status") not in REPORT_STATUSES:
             raise AcceptanceError("ACCEPTANCE_STATE_STATUS_INVALID")
-        if not isinstance(value.get("revision"), int):
+        if not isinstance(value.get("revision"), int) or isinstance(
+            value.get("revision"), bool
+        ):
             raise AcceptanceError("ACCEPTANCE_STATE_REVISION_INVALID")
         return value
 
@@ -325,10 +373,88 @@ class FactoryAcceptanceExecutor:
             # run to a durable FAILED report instead of exposing a dead-end
             # RUNNING state.
             state["legacySafetyFailuresPending"] = unsafe_actions
-        state["schemaVersion"] = STATE_SCHEMA_VERSION
+        state["schemaVersion"] = PREVIOUS_STATE_SCHEMA_VERSION
         state["revision"] = int(state["revision"]) + 1
         self._state_file.write(state)
         return copy.deepcopy(state)
+
+    def _migrate_previous_state(self, previous: dict) -> dict:
+        """Add the explicit update-line choice without guessing an active run.
+
+        A completed F2 plus STM32 ROM probe proves the line regardless of the
+        run's terminal status, so both running and recovery states retain that
+        fact.  An unfinished run without that proof is ambiguous: it is made
+        restartable only when no physical recovery lock is active.  When an
+        action may already have reached the MCU, the lock is retained and the
+        run is forced to fail after the existing recovery path proves safety.
+        """
+
+        state = copy.deepcopy(previous)
+        status = state.get("status")
+        checks = state.get("checks")
+        if not isinstance(checks, dict):
+            checks = {}
+            state["checks"] = checks
+        upgrade = checks.get("upgradeLine")
+        proven_installed = bool(
+            isinstance(upgrade, dict)
+            and upgrade.get("status") == "PASSED"
+            and upgrade.get("resultCode")
+            == "F2_BOOT0_NRST_ROM_READ_ONLY_AND_APP_RECOVERY_PASSED"
+            and upgrade.get("romWritePerformed") is False
+            and upgrade.get("romDeviceId") == "0x0410"
+        )
+        if status == "PASSED":
+            if not proven_installed:
+                raise AcceptanceError("ACCEPTANCE_STATE_UPGRADE_LINE_INVALID")
+            state["mcuUpdateLineInstalled"] = True
+        elif status in {"RUNNING", "RECOVERY_REQUIRED"}:
+            if proven_installed:
+                state["mcuUpdateLineInstalled"] = True
+            else:
+                state["mcuUpdateLineInstalled"] = None
+                if (
+                    status == "RECOVERY_REQUIRED"
+                    or isinstance(state.get("recovery"), dict)
+                    or isinstance(state.get("activeAction"), dict)
+                ):
+                    state["legacyUpdateLineSelectionRequired"] = True
+                else:
+                    if (
+                        state.get("phase")
+                        == "WAITING_FOR_CAMERA_ROLE_CONFIRMATION"
+                    ):
+                        # The old run can no longer complete, so its volatile
+                        # operator-review images and nonce must not survive
+                        # into the explicitly restarted run.
+                        self.cameras.discard_all_pending()
+                    state["status"] = "FAILED"
+                    state["phase"] = "LEGACY_UPDATE_LINE_SELECTION_REQUIRED"
+                    state["recovery"] = None
+                    state["activeAction"] = None
+                    state.pop("pendingFinalStatus", None)
+                    state.pop("pendingFinishedMonotonicMs", None)
+        else:
+            state["mcuUpdateLineInstalled"] = True if proven_installed else None
+        state["schemaVersion"] = STATE_SCHEMA_VERSION
+        state["revision"] = int(state.get("revision", 0)) + 1
+        self._state_file.write(state)
+        return copy.deepcopy(state)
+
+    @staticmethod
+    def _prepare_legacy_update_line_failure(state: dict) -> bool:
+        if state.get("legacyUpdateLineSelectionRequired") is not True:
+            return False
+        if (
+            state.get("status") == "RECOVERY_REQUIRED"
+            or state.get("recovery") is not None
+            or state.get("activeAction") is not None
+        ):
+            return False
+        state.pop("legacyUpdateLineSelectionRequired", None)
+        state["status"] = "RUNNING"
+        state["phase"] = "LEGACY_UPDATE_LINE_SELECTION_REQUIRED"
+        return True
 
     @staticmethod
     def _prepare_legacy_safety_failure(state: dict) -> bool:
@@ -382,6 +508,7 @@ class FactoryAcceptanceExecutor:
         boot_id: str,
         wall_time_trusted: bool,
         hardware_config_digest: str,
+        mcu_update_line_installed: bool,
         trusted_wall_time_utc: Optional[str] = None,
         restart_terminal: bool = False,
     ) -> dict:
@@ -395,6 +522,8 @@ class FactoryAcceptanceExecutor:
             raise ValueError("hardware config digest is invalid")
         if not isinstance(wall_time_trusted, bool):
             raise ValueError("wall_time_trusted must be boolean")
+        if not isinstance(mcu_update_line_installed, bool):
+            raise ValueError("mcu_update_line_installed must be boolean")
         if wall_time_trusted and not trusted_wall_time_utc:
             trusted_wall_time_utc = _utc_now()
         if trusted_wall_time_utc is not None and (
@@ -408,6 +537,8 @@ class FactoryAcceptanceExecutor:
                 state.get("imageReleaseId") == release
                 and state.get("bootId") == boot
                 and state.get("hardwareConfigDigest") == hardware_config_digest
+                and state.get("mcuUpdateLineInstalled")
+                is mcu_update_line_installed
             ):
                 return copy.deepcopy(state)
             raise AcceptanceError(
@@ -418,12 +549,23 @@ class FactoryAcceptanceExecutor:
             if (
                 state.get("imageReleaseId") != release
                 or state.get("hardwareConfigDigest") != hardware_config_digest
+                or state.get("mcuUpdateLineInstalled")
+                is not mcu_update_line_installed
             ):
                 raise AcceptanceError(
                     "TERMINAL_ACCEPTANCE_BOUND_TO_DIFFERENT_CONFIG"
                 )
             return copy.deepcopy(state)
         started_monotonic_ms = int(self._monotonic() * 1000)
+        checks = {}
+        if not mcu_update_line_installed:
+            checks["upgradeLine"] = {
+                "status": "NOT_APPLICABLE",
+                "resultCode": "MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED",
+                "prepareSendAttempts": 0,
+                "romWritePerformed": False,
+                "romDeviceId": None,
+            }
         state = {
             "schemaVersion": STATE_SCHEMA_VERSION,
             "revision": state.get("revision", 0),
@@ -432,13 +574,15 @@ class FactoryAcceptanceExecutor:
             "imageReleaseId": release,
             "bootId": boot,
             "hardwareConfigDigest": hardware_config_digest,
+            "mcuUpdateLineInstalled": mcu_update_line_installed,
+            "mcuPeripheralEvidenceMode": None,
             "timing": {
                 "startedMonotonicMs": started_monotonic_ms,
                 "wallTimeTrusted": wall_time_trusted,
                 "trustedStartedAtUtc": trusted_wall_time_utc,
             },
             "mcuIdentity": None,
-            "checks": {},
+            "checks": checks,
             "recovery": None,
             "activeAction": None,
         }
@@ -480,6 +624,40 @@ class FactoryAcceptanceExecutor:
         except AcceptanceHardwareError as error:
             raise AcceptanceError(error.code) from error
         return current, self_test
+
+    def _reprove_application_state(
+        self,
+        state: dict,
+        original_identity: dict,
+        *,
+        quiet_ms: int,
+        reset_via_update_line: bool,
+    ) -> dict:
+        """Obtain fresh F3/F1 evidence, resetting only through a proven line."""
+
+        self.mcu.close()
+        if reset_via_update_line:
+            with deny_network_access():
+                self.bootloader.force_application_selection()
+                self.bootloader.boot_application()
+        self.mcu.open()
+        self.mcu.clear_input_for_recovery()
+        self.mcu.require_business_quiet(quiet_ms=quiet_ms)
+        invalid_marker = self.mcu.business_input_marker()
+        identity = self._query_identity()
+        if (
+            not identities_equal(original_identity, identity)
+            or not identities_equal(state.get("mcuIdentity", {}), identity)
+        ):
+            raise AcceptanceHardwareError(
+                "MCU_IDENTITY_CHANGED_DURING_RECOVERY"
+            )
+        self_test = self._query_self_test()
+        self.mcu.require_business_quiet(
+            quiet_ms=quiet_ms,
+            invalid_marker=invalid_marker,
+        )
+        return self_test
 
     def _stable_weight(self) -> tuple[int, list[int]]:
         """Return the median of one bounded stable window of F1 samples."""
@@ -530,7 +708,16 @@ class FactoryAcceptanceExecutor:
         self._require_running(state)
         try:
             identity = self._query_identity()
+            evidence_mode = _mcu_peripheral_evidence_mode(identity)
             self_test = self._query_self_test()
+        except AcceptanceError as error:
+            state["checks"]["mcu"] = {
+                "status": "FAILED",
+                "resultCode": error.code,
+            }
+            state["phase"] = "MCU_CHECK_FAILED"
+            self._save_state(state)
+            raise
         except AcceptanceHardwareError as error:
             state["checks"]["mcu"] = {
                 "status": "FAILED",
@@ -540,6 +727,7 @@ class FactoryAcceptanceExecutor:
             self._save_state(state)
             raise AcceptanceError(error.code) from error
         state["mcuIdentity"] = identity
+        state["mcuPeripheralEvidenceMode"] = evidence_mode
         state["checks"]["mcu"] = {
             "status": "PASSED",
             "resultCode": "MCU_REVISION_2_AND_F1_HEALTHY",
@@ -763,6 +951,8 @@ class FactoryAcceptanceExecutor:
         self._require_open()
         state = self._load_state()
         self._require_running(state)
+        if state.get("mcuUpdateLineInstalled") is not True:
+            raise AcceptanceError("MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED")
         if not _check_passed(state, "mcu"):
             raise AcceptanceError("MCU_CHECK_REQUIRED")
         prior_upgrade = state.get("checks", {}).get("upgradeLine")
@@ -1096,29 +1286,17 @@ class FactoryAcceptanceExecutor:
                 recovery_required=True,
             )
         try:
-            # Confirmation can happen after a browser, service, or device
-            # restart.  Re-select and re-prove the application so an old
-            # F3/F1 observation is never treated as current hardware state.
-            self.mcu.close()
-            with deny_network_access():
-                self.bootloader.force_application_selection()
-                self.bootloader.boot_application()
-            self.mcu.open()
-            self.mcu.clear_input_for_recovery()
-            self.mcu.require_business_quiet(quiet_ms=quiet_ms)
-            invalid_marker = self.mcu.business_input_marker()
-            identity = self._query_identity()
-            if (
-                not identities_equal(original, identity)
-                or not identities_equal(state.get("mcuIdentity", {}), identity)
-            ):
-                raise AcceptanceHardwareError(
-                    "MCU_IDENTITY_CHANGED_DURING_RECOVERY"
-                )
-            self_test = self._query_self_test()
-            self.mcu.require_business_quiet(
+            # A reliably recorded DD proves the action reached its terminal
+            # protocol state.  With an installed line we additionally reset;
+            # without one we only reopen UART and collect fresh F3/F1/quiet
+            # evidence, never claiming that NRST was asserted.
+            self_test = self._reprove_application_state(
+                state,
+                original,
                 quiet_ms=quiet_ms,
-                invalid_marker=invalid_marker,
+                reset_via_update_line=(
+                    state.get("mcuUpdateLineInstalled") is True
+                ),
             )
         except AcceptanceHardwareError as error:
             self._update_recovery_reason(error.code)
@@ -1154,14 +1332,15 @@ class FactoryAcceptanceExecutor:
         state["recovery"] = None
         state["activeAction"] = None
         legacy_failure_ready = self._prepare_legacy_safety_failure(state)
+        legacy_update_line_failure = self._prepare_legacy_update_line_failure(state)
         saved = self._save_state(state)
-        if legacy_failure_ready or not passed:
+        if legacy_failure_ready or legacy_update_line_failure or not passed:
             # Publish a durable FAILED report before offering a new run.  If
             # power is lost in this deliberate gap, allowedActions exposes
             # FINALIZE only and the send-attempt gate still forbids BB+AA.
             self._fault(
                 "legacy_safety.after_recovered_before_finalize"
-                if legacy_failure_ready
+                if legacy_failure_ready or legacy_update_line_failure
                 else "delivery.after_recovered_safe_before_finalize"
             )
             self.finalize()
@@ -1204,29 +1383,16 @@ class FactoryAcceptanceExecutor:
                 recovery_required=True,
             )
         try:
-            # This explicit reset makes a confirmation after service/device
-            # restart safe: a persisted pre-crash F3/F1 observation is never
-            # treated as current hardware state.
-            self.mcu.close()
-            with deny_network_access():
-                self.bootloader.force_application_selection()
-                self.bootloader.boot_application()
-            self.mcu.open()
-            self.mcu.clear_input_for_recovery()
-            self.mcu.require_business_quiet(quiet_ms=quiet_ms)
-            invalid_marker = self.mcu.business_input_marker()
-            identity = self._query_identity()
-            if (
-                not identities_equal(original, identity)
-                or not identities_equal(state.get("mcuIdentity", {}), identity)
-            ):
-                raise AcceptanceHardwareError(
-                    "MCU_IDENTITY_CHANGED_DURING_RECOVERY"
-                )
-            self_test = self._query_self_test()
-            self.mcu.require_business_quiet(
+            # EF is already durably recorded.  An absent optional update line
+            # therefore changes only how fresh application evidence is
+            # collected; it never permits a fictitious GPIO reset claim.
+            self_test = self._reprove_application_state(
+                state,
+                original,
                 quiet_ms=quiet_ms,
-                invalid_marker=invalid_marker,
+                reset_via_update_line=(
+                    state.get("mcuUpdateLineInstalled") is True
+                ),
             )
         except AcceptanceHardwareError as error:
             self._update_recovery_reason(error.code)
@@ -1253,8 +1419,9 @@ class FactoryAcceptanceExecutor:
         state["recovery"] = None
         state["activeAction"] = None
         legacy_failure_ready = self._prepare_legacy_safety_failure(state)
+        legacy_update_line_failure = self._prepare_legacy_update_line_failure(state)
         saved = self._save_state(state)
-        if legacy_failure_ready:
+        if legacy_failure_ready or legacy_update_line_failure:
             self._fault("legacy_safety.after_recovered_before_finalize")
             self.finalize()
             return copy.deepcopy(self._load_state())
@@ -1299,25 +1466,24 @@ class FactoryAcceptanceExecutor:
                 "USE_DELIVERY_AREA_SAFETY_CONFIRMATION",
                 recovery_required=True,
             )
+        if state.get("mcuUpdateLineInstalled") is not True:
+            # Once AA/EE may have been sent but no valid DD/EF was recorded,
+            # F3/F1 plus a short quiet window cannot prove a delayed mechanism
+            # will not still move.  Without a proven NRST line there is no
+            # software recovery capable of safely releasing this lock.
+            self._update_recovery_reason(
+                "MCU_RESET_LINE_REQUIRED_FOR_RECOVERY"
+            )
+            raise AcceptanceError(
+                "MCU_RESET_LINE_REQUIRED_FOR_RECOVERY",
+                recovery_required=True,
+            )
         try:
-            self.mcu.close()
-            with deny_network_access():
-                self.bootloader.force_application_selection()
-                self.bootloader.boot_application()
-            self.mcu.open()
-            self.mcu.clear_input_for_recovery()
-            self.mcu.require_business_quiet(quiet_ms=quiet_ms)
-            invalid_marker = self.mcu.business_input_marker()
-            identity = self._query_identity()
-            if (
-                not identities_equal(original, identity)
-                or not identities_equal(state.get("mcuIdentity", {}), identity)
-            ):
-                raise AcceptanceHardwareError("MCU_IDENTITY_CHANGED_DURING_RECOVERY")
-            self_test = self._query_self_test()
-            self.mcu.require_business_quiet(
+            self_test = self._reprove_application_state(
+                state,
+                original,
                 quiet_ms=quiet_ms,
-                invalid_marker=invalid_marker,
+                reset_via_update_line=True,
             )
         except AcceptanceHardwareError as error:
             self._update_recovery_reason(error.code)
@@ -1387,11 +1553,16 @@ class FactoryAcceptanceExecutor:
         state["recovery"] = None
         state["activeAction"] = None
         legacy_failure_ready = self._prepare_legacy_safety_failure(state)
+        legacy_update_line_failure = self._prepare_legacy_update_line_failure(state)
         saved = self._save_state(state)
-        if legacy_failure_ready or context in {"CLEAN", "UPGRADE_LINE"}:
+        if (
+            legacy_failure_ready
+            or legacy_update_line_failure
+            or context in {"CLEAN", "UPGRADE_LINE"}
+        ):
             self._fault(
                 "legacy_safety.after_recovered_before_finalize"
-                if legacy_failure_ready
+                if legacy_failure_ready or legacy_update_line_failure
                 else f"{context.lower()}.after_recovered_safe_before_finalize"
             )
             self.finalize()
@@ -1446,6 +1617,12 @@ class FactoryAcceptanceExecutor:
                 ),
             },
             "mcuIdentity": state.get("mcuIdentity"),
+            "mcuPeripheralEvidenceMode": state.get(
+                "mcuPeripheralEvidenceMode"
+            ),
+            "mcuRemoteUpdateCapable": (
+                checks.get("upgradeLine", {}).get("status") == "PASSED"
+            ),
             "cameraSummary": {
                 "status": cameras.get("status", "NOT_RUN"),
                 "resultCode": cameras.get("resultCode", "NOT_RUN"),
@@ -1482,6 +1659,9 @@ class FactoryAcceptanceExecutor:
                     "resultCode": checks.get("upgradeLine", {}).get(
                         "resultCode", "NOT_RUN"
                     ),
+                    "prepareSendAttempts": checks.get(
+                        "upgradeLine", {}
+                    ).get("prepareSendAttempts", 0),
                     "romWritePerformed": checks.get("upgradeLine", {}).get(
                         "romWritePerformed", False
                     ),
@@ -1496,7 +1676,11 @@ class FactoryAcceptanceExecutor:
 
     @staticmethod
     def _validate_report(report: dict) -> None:
-        if report.get("schemaVersion") != REPORT_SCHEMA_VERSION:
+        schema_version = report.get("schemaVersion")
+        if schema_version not in {
+            LEGACY_REPORT_SCHEMA_VERSION,
+            REPORT_SCHEMA_VERSION,
+        } or type(schema_version) is not int:
             raise AcceptanceError("ACCEPTANCE_REPORT_SCHEMA_INVALID")
         if report.get("status") not in REPORT_STATUSES:
             raise AcceptanceError("ACCEPTANCE_REPORT_STATUS_INVALID")
@@ -1532,6 +1716,55 @@ class FactoryAcceptanceExecutor:
             raise AcceptanceError("ACCEPTANCE_REPORT_MCU_BINDING_INVALID")
         if identity is not None and identity_invalid:
             raise AcceptanceError("ACCEPTANCE_REPORT_MCU_BINDING_INVALID")
+        if schema_version == REPORT_SCHEMA_VERSION:
+            evidence_mode = report.get("mcuPeripheralEvidenceMode")
+            if isinstance(identity, dict):
+                try:
+                    expected_evidence_mode = _mcu_peripheral_evidence_mode(identity)
+                except AcceptanceError as error:
+                    raise AcceptanceError(
+                        "ACCEPTANCE_REPORT_MCU_EVIDENCE_INVALID"
+                    ) from error
+                if evidence_mode != expected_evidence_mode:
+                    raise AcceptanceError(
+                        "ACCEPTANCE_REPORT_MCU_EVIDENCE_INVALID"
+                    )
+            elif evidence_mode is not None:
+                raise AcceptanceError("ACCEPTANCE_REPORT_MCU_EVIDENCE_INVALID")
+            update_capable = report.get("mcuRemoteUpdateCapable")
+            if not isinstance(update_capable, bool):
+                raise AcceptanceError(
+                    "ACCEPTANCE_REPORT_UPDATE_CAPABILITY_INVALID"
+                )
+            upgrade = report.get("checks", {}).get("upgradeLine", {})
+            valid_capable = bool(
+                upgrade.get("status") == "PASSED"
+                and upgrade.get("resultCode")
+                == "F2_BOOT0_NRST_ROM_READ_ONLY_AND_APP_RECOVERY_PASSED"
+                and upgrade.get("prepareSendAttempts") == 1
+                and upgrade.get("romWritePerformed") is False
+                and upgrade.get("romDeviceId") == "0x0410"
+            )
+            valid_not_applicable = bool(
+                upgrade.get("status") == "NOT_APPLICABLE"
+                and upgrade.get("resultCode")
+                == "MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED"
+                and upgrade.get("prepareSendAttempts") == 0
+                and upgrade.get("romWritePerformed") is False
+                and upgrade.get("romDeviceId") is None
+            )
+            if update_capable is True and not valid_capable:
+                raise AcceptanceError(
+                    "ACCEPTANCE_REPORT_UPDATE_CAPABILITY_INVALID"
+                )
+            if (
+                report.get("status") == "PASSED"
+                and update_capable is False
+                and not valid_not_applicable
+            ):
+                raise AcceptanceError(
+                    "ACCEPTANCE_REPORT_UPDATE_CAPABILITY_INVALID"
+                )
         if (
             report.get("status") == "PASSED"
             and report.get("checks", {})
@@ -1585,7 +1818,11 @@ class FactoryAcceptanceExecutor:
 
         inspect(report)
 
-    def finalize(self) -> dict:
+    def finalize(
+        self,
+        *,
+        confirm_simulated_peripheral_evidence: bool = False,
+    ) -> dict:
         """Atomically publish the final private report, then close state."""
 
         self._require_open()
@@ -1603,6 +1840,15 @@ class FactoryAcceptanceExecutor:
             final_status = "PASSED"
         else:
             final_status = "FAILED"
+        if (
+            final_status == "PASSED"
+            and state.get("mcuPeripheralEvidenceMode")
+            == "SIMULATED_PERIPHERALS"
+            and confirm_simulated_peripheral_evidence is not True
+        ):
+            raise AcceptanceError(
+                "SIMULATED_PERIPHERAL_EVIDENCE_CONFIRMATION_REQUIRED"
+            )
         finished_ms = int(self._monotonic() * 1000)
         report = self._report_from_state(state, final_status, finished_ms)
         self._validate_report(report)
@@ -1698,8 +1944,9 @@ class FactoryAcceptanceExecutor:
         state["activeAction"] = None
         state["phase"] = f"{action}_INTERRUPTED_BEFORE_COMMAND"
         legacy_failure_ready = self._prepare_legacy_safety_failure(state)
+        legacy_update_line_failure = self._prepare_legacy_update_line_failure(state)
         self._save_state(state)
-        if legacy_failure_ready:
+        if legacy_failure_ready or legacy_update_line_failure:
             self._fault("legacy_safety.after_recovered_before_finalize")
             self.finalize()
 

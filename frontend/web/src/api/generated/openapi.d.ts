@@ -8468,6 +8468,8 @@ export interface components {
             tenantCode: string | null;
             organizationCode: string | null;
             acceptanceStatus: components["schemas"]["DeviceAcceptanceStatus"];
+            /** @description Tri-state trusted acceptance fact: true permits MCU remote-update rollout admission; false means the wiring is explicitly unavailable; null means legacy v3 or no trusted v4 evidence. */
+            mcuRemoteUpdateCapable: boolean | null;
             /**
              * Format: uri
              * @description Derived from the application-wide HTTPS entry base when the asset organization has an active miniapp-channel binding. The only business query parameter added by the server is the full public deviceCode.
@@ -8748,6 +8750,8 @@ export interface components {
             trustedTimeHealthy: boolean;
             configurationPersistenceHealthy: boolean;
             mcuCommunicationHealthy: boolean;
+            /** @description Null for legacy evidence schemas; v4 records the explicit remote-update wiring capability without changing the acceptance outcome. */
+            mcuRemoteUpdateCapable: boolean | null;
             sensorsHealthy: boolean;
             camerasCaptureHealthy: boolean;
             cameraUploadHealthy: boolean;

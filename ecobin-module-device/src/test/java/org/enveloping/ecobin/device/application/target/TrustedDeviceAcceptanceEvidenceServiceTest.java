@@ -72,6 +72,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 false,
                 healthy.configurationPersistenceHealthy(),
                 healthy.mcuCommunicationHealthy(),
+                healthy.mcuRemoteUpdateCapable(),
                 healthy.sensorsHealthy(),
                 healthy.camerasCaptureHealthy(),
                 healthy.cameraUploadHealthy(),
@@ -113,6 +114,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 evidence.trustedTimeHealthy(),
                 evidence.configurationPersistenceHealthy(),
                 evidence.mcuCommunicationHealthy(),
+                evidence.mcuRemoteUpdateCapable(),
                 false,
                 evidence.camerasCaptureHealthy(),
                 evidence.cameraUploadHealthy(),
@@ -252,6 +254,69 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
         verifyNoInteractions(fixture.registrationPort());
     }
 
+    @Test
+    void v4StoresExplicitFalseCapabilityWithoutFailingAcceptance() {
+        AcceptanceApplyFixture fixture = acceptanceApplyFixture();
+
+        DeviceAcceptanceEvidenceApplyResult result = fixture.service().apply(
+                acceptanceEvent(7L, "0".repeat(64), 4, false));
+
+        assertThat(result).isEqualTo(
+                new DeviceAcceptanceEvidenceApplyResult(
+                        13L, "PASSED", true));
+        ArgumentCaptor<Object[]> insertArgs =
+                ArgumentCaptor.forClass(Object[].class);
+        verify(fixture.acceptanceJdbc()).update(
+                contains("INSERT INTO dev_device_acceptance_evidence"),
+                insertArgs.capture());
+        assertThat(insertArgs.getValue()).hasSize(32);
+        assertThat(insertArgs.getValue()[6]).isEqualTo(4);
+        assertThat(insertArgs.getValue()[17]).isEqualTo(false);
+
+        ArgumentCaptor<Object[]> assetArgs =
+                ArgumentCaptor.forClass(Object[].class);
+        verify(fixture.acceptanceJdbc()).update(
+                contains("SET mcu_remote_update_capable = ?"),
+                assetArgs.capture());
+        assertThat(assetArgs.getValue()[0]).isEqualTo(false);
+    }
+
+    @Test
+    void v3StoresUnknownCapabilityForBackwardCompatibility() {
+        AcceptanceApplyFixture fixture = acceptanceApplyFixture();
+
+        fixture.service().apply(
+                acceptanceEvent(7L, "0".repeat(64), 3, null));
+
+        ArgumentCaptor<Object[]> insertArgs =
+                ArgumentCaptor.forClass(Object[].class);
+        verify(fixture.acceptanceJdbc()).update(
+                contains("INSERT INTO dev_device_acceptance_evidence"),
+                insertArgs.capture());
+        assertThat(insertArgs.getValue()[6]).isEqualTo(3);
+        assertThat(insertArgs.getValue()[17]).isNull();
+        ArgumentCaptor<Object[]> assetArgs =
+                ArgumentCaptor.forClass(Object[].class);
+        verify(fixture.acceptanceJdbc()).update(
+                contains("SET mcu_remote_update_capable = ?"),
+                assetArgs.capture());
+        assertThat(assetArgs.getValue()[0]).isNull();
+    }
+
+    @Test
+    void v4RejectsMissingCapabilityBeforeTouchingPersistence() {
+        AcceptanceApplyFixture fixture = acceptanceApplyFixture();
+
+        assertThatThrownBy(() -> fixture.service().apply(
+                acceptanceEvent(7L, "0".repeat(64), 4, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("mcuRemoteUpdateCapable");
+
+        verify(fixture.acceptanceJdbc(), never()).update(
+                anyString(), any(Object[].class));
+        verifyNoInteractions(fixture.challengePort());
+    }
+
     private static TrustedDeviceAcceptanceEvidenceService service() {
         return new TrustedDeviceAcceptanceEvidenceService(
                 mock(JdbcTemplate.class),
@@ -292,6 +357,8 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
         when(acceptanceJdbc.queryForObject(
                 "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class))
                 .thenReturn(receivedAt);
+        when(acceptanceJdbc.update(
+                anyString(), any(Object[].class))).thenReturn(1);
 
         JdbcTemplate confirmationJdbc = mock(JdbcTemplate.class);
         when(confirmationJdbc.queryForObject(
@@ -335,6 +402,15 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
     private static TrustedDeviceAcceptanceEvent acceptanceEvent(
             long factoryBagRevision,
             String factoryBagSetSha256) {
+        return acceptanceEvent(
+                factoryBagRevision, factoryBagSetSha256, 3, null);
+    }
+
+    private static TrustedDeviceAcceptanceEvent acceptanceEvent(
+            long factoryBagRevision,
+            String factoryBagSetSha256,
+            int evidenceSchemaVersion,
+            Boolean mcuRemoteUpdateCapable) {
         TrustedPlatformInboxRef sourceInbox =
                 mock(TrustedPlatformInboxRef.class);
         when(sourceInbox.use(any())).thenAnswer(invocation -> {
@@ -347,7 +423,30 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 2,
                 acceptancePayload(
                         factoryBagRevision,
-                        factoryBagSetSha256));
+                        factoryBagSetSha256,
+                        evidenceSchemaVersion,
+                        mcuRemoteUpdateCapable));
+    }
+
+    private static String acceptancePayload(
+            long factoryBagRevision,
+            String factoryBagSetSha256,
+            int evidenceSchemaVersion,
+            Boolean mcuRemoteUpdateCapable) {
+        String payload = acceptancePayload(
+                factoryBagRevision, factoryBagSetSha256);
+        payload = payload.replace(
+                "\"evidenceSchemaVersion\": 3",
+                "\"evidenceSchemaVersion\": " + evidenceSchemaVersion);
+        if (mcuRemoteUpdateCapable != null) {
+            payload = payload.replace(
+                    "\"mcuCommunicationHealthy\": true,",
+                    "\"mcuCommunicationHealthy\": true,\n"
+                            + "                      "
+                            + "\"mcuRemoteUpdateCapable\": "
+                            + mcuRemoteUpdateCapable + ",");
+        }
+        return payload;
     }
 
     private static String acceptancePayload(
@@ -440,6 +539,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 true,
                 true,
                 true,
+                true,
                 DEVICE_ENTRY_URL_FACTORY.create(
                         DEVICE_PUBLIC_CODE).sha256Hex(),
                 mcuSimulated,
@@ -466,6 +566,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 evidence.trustedTimeHealthy(),
                 evidence.configurationPersistenceHealthy(),
                 evidence.mcuCommunicationHealthy(),
+                evidence.mcuRemoteUpdateCapable(),
                 evidence.sensorsHealthy(),
                 evidence.camerasCaptureHealthy(),
                 evidence.cameraUploadHealthy(),
@@ -497,6 +598,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 evidence.trustedTimeHealthy(),
                 evidence.configurationPersistenceHealthy(),
                 evidence.mcuCommunicationHealthy(),
+                evidence.mcuRemoteUpdateCapable(),
                 evidence.sensorsHealthy(),
                 evidence.camerasCaptureHealthy(),
                 evidence.cameraUploadHealthy(),

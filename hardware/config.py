@@ -24,7 +24,10 @@ OneNet 迁移优先级: 完整旧进程环境三项 > 注册凭证；禁止部�
                             可选 uart-v1，仅保留原 UART 1.0 实现）
     ECOBIN_MCU_SIMULATED  — 当前串口对端是否为模拟器（默认: false；
                             使用 PTY 模拟器时必须显式设为 true）
-    ECOBIN_MCU_UPDATE_ENABLED— 是否允许 STM32 ROM Bootloader 升级（默认: false）
+    ECOBIN_DEVICE_CAPABILITIES_PATH
+                          — 出厂验收写入的设备能力事实文件
+    ECOBIN_MCU_UPDATE_ENABLED— 仅 development 模式使用的升级能力开关；
+                            production 只信任设备能力事实文件
     ECOBIN_MCU_BOOT0_WPI  — 香橙派连接 MCU BOOT0 的 WiringOP wPi 编号
     ECOBIN_MCU_RESET_WPI  — 香橙派连接 MCU NRST 的 WiringOP wPi 编号
     ECOBIN_MCU_HARDWARE_COMPATIBILITY— 本机主板兼容标识
@@ -62,9 +65,11 @@ OneNet 迁移优先级: 完整旧进程环境三项 > 注册凭证；禁止部�
                           — 照片失败后永久缺失期限小时数（默认: 72）
 """
 
+import json
 import logging
 import math
 import os
+import re
 from pathlib import Path
 from device_credentials import (
     credentials_path_from_environment,
@@ -212,11 +217,75 @@ _mcu_simulated_raw = os.getenv(
     "false",
 ).strip().lower()
 MCU_SIMULATED = _mcu_simulated_raw in {"true", "1", "yes"}
+DEVICE_CAPABILITIES_PATH = os.getenv(
+    "ECOBIN_DEVICE_CAPABILITIES_PATH",
+    "/var/lib/ecobin/device-capabilities.json",
+).strip()
+DEVICE_CAPABILITIES_SCHEMA_VERSION = 1
+
+
+def _load_device_capabilities(path_value: str) -> dict:
+    """Read the factory capability fact used by the production runtime.
+
+    Unknown fields are rejected so a typo or partially written factory result
+    cannot silently enable a physical MCU update path.  First boot owns atomic
+    creation of this file; this reader never repairs or rewrites it.
+    """
+
+    path = Path(path_value)
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as error:
+        raise ValueError(
+            f"device capability file does not exist: {path}"
+        ) from error
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(
+            f"device capability file is unreadable: {path}"
+        ) from error
+    required = {
+        "schemaVersion",
+        "mcuRemoteUpdateCapable",
+        "factoryReportSha256",
+    }
+    if not isinstance(document, dict) or set(document) != required:
+        raise ValueError("device capability fields are invalid")
+    if (
+        type(document["schemaVersion"]) is not int
+        or document["schemaVersion"] != DEVICE_CAPABILITIES_SCHEMA_VERSION
+    ):
+        raise ValueError("device capability schema version is unsupported")
+    if not isinstance(document["mcuRemoteUpdateCapable"], bool):
+        raise ValueError("mcuRemoteUpdateCapable must be boolean")
+    report_sha256 = document["factoryReportSha256"]
+    if not isinstance(report_sha256, str) or not re.fullmatch(
+        r"[0-9a-f]{64}", report_sha256
+    ):
+        raise ValueError("factoryReportSha256 is invalid")
+    return document
+
+
 _mcu_update_enabled_raw = os.getenv(
     "ECOBIN_MCU_UPDATE_ENABLED",
     "false",
 ).strip().lower()
-MCU_UPDATE_ENABLED = _mcu_update_enabled_raw in {"true", "1", "yes"}
+DEVICE_CAPABILITIES = None
+DEVICE_CAPABILITIES_ERROR = None
+if CONFIG_MODE == "production":
+    try:
+        DEVICE_CAPABILITIES = _load_device_capabilities(
+            DEVICE_CAPABILITIES_PATH
+        )
+    except ValueError as error:
+        # Importing configuration remains side-effect free. validate() fails
+        # closed before the runtime opens UART, MQTT, GPIO or firmware files.
+        DEVICE_CAPABILITIES_ERROR = str(error)
+    MCU_UPDATE_ENABLED = bool(
+        DEVICE_CAPABILITIES
+        and DEVICE_CAPABILITIES["mcuRemoteUpdateCapable"]
+    )
+else:
+    MCU_UPDATE_ENABLED = _mcu_update_enabled_raw in {"true", "1", "yes"}
 _mcu_boot0_wpi_raw = os.getenv("ECOBIN_MCU_BOOT0_WPI", "2").strip()
 _mcu_reset_wpi_raw = os.getenv("ECOBIN_MCU_RESET_WPI", "5").strip()
 MCU_BOOT0_WPI = int(_mcu_boot0_wpi_raw) if _mcu_boot0_wpi_raw else None
@@ -343,9 +412,12 @@ def validate():
         raise ValueError(
             "ECOBIN_MCU_SIMULATED must be true or false"
         )
-    if _mcu_update_enabled_raw not in {
-        "true", "1", "yes", "false", "0", "no",
-    }:
+    if (
+        CONFIG_MODE == "development"
+        and _mcu_update_enabled_raw not in {
+            "true", "1", "yes", "false", "0", "no",
+        }
+    ):
         raise ValueError(
             "ECOBIN_MCU_UPDATE_ENABLED must be true or false"
         )
@@ -445,6 +517,17 @@ def validate():
                 field,
             )
     if CONFIG_MODE == "production":
+        if DEVICE_CAPABILITIES_ERROR is not None:
+            raise ValueError(DEVICE_CAPABILITIES_ERROR)
+        if DEVICE_CAPABILITIES is None:
+            raise ValueError("device capability fact is unavailable")
+        if DEVICE_CAPABILITIES_PATH != (
+            "/var/lib/ecobin/device-capabilities.json"
+        ):
+            raise ValueError(
+                "production device capability path must be "
+                "/var/lib/ecobin/device-capabilities.json"
+            )
         production_uart = {
             "protocol": MCU_PROTOCOL_MODE,
             "simulated": MCU_SIMULATED,
@@ -464,35 +547,34 @@ def validate():
                 "production runtime requires the fixed Orange Pi UART5 "
                 "boundary (/dev/ttyS5, 115200, fixed-frame, one real port)"
             )
-        if not MCU_UPDATE_ENABLED:
-            raise ValueError(
-                "production runtime requires MCU firmware update support"
+        if MCU_UPDATE_ENABLED:
+            production_gpio = (
+                MCU_BOOT0_WPI,
+                MCU_RESET_WPI,
+                MCU_BOOT0_ACTIVE_LEVEL,
+                MCU_RESET_ACTIVE_LEVEL,
             )
-        production_gpio = (
-            MCU_BOOT0_WPI,
-            MCU_RESET_WPI,
-            MCU_BOOT0_ACTIVE_LEVEL,
-            MCU_RESET_ACTIVE_LEVEL,
-        )
-        if production_gpio != (2, 5, 1, 1):
-            raise ValueError(
-                "production mainboard requires BOOT0 wPi 2 active-high and "
-                "the 2N7002 reset gate on wPi 5 active-high"
+            if production_gpio != (2, 5, 1, 1):
+                raise ValueError(
+                    "production update-capable mainboard requires BOOT0 "
+                    "wPi 2 active-high and the 2N7002 reset gate on wPi 5 "
+                    "active-high"
+                )
+            production_tools = (
+                GPIO_PATH,
+                STM32FLASH_PATH,
+                MCU_HARDWARE_COMPATIBILITY,
             )
-        production_tools = (
-            GPIO_PATH,
-            STM32FLASH_PATH,
-            MCU_HARDWARE_COMPATIBILITY,
-        )
-        if production_tools != (
-            "/usr/bin/gpio",
-            "/usr/bin/stm32flash",
-            "ECOBIN_MAINBOARD_V1.1",
-        ):
-            raise ValueError(
-                "production mainboard requires the locked WiringOP gpio, "
-                "stm32flash and ECOBIN_MAINBOARD_V1.1 identities"
-            )
+            if production_tools != (
+                "/usr/bin/gpio",
+                "/usr/bin/stm32flash",
+                "ECOBIN_MAINBOARD_V1.1",
+            ):
+                raise ValueError(
+                    "production update-capable mainboard requires the "
+                    "locked WiringOP gpio, stm32flash and "
+                    "ECOBIN_MAINBOARD_V1.1 identities"
+                )
         if UART_HIL_REQUIRED_CAPABILITIES is not None:
             raise ValueError(
                 "production runtime forbids a UART HIL capability override"

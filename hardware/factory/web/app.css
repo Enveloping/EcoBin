@@ -262,6 +262,43 @@ main {
   border: 1px solid var(--ink);
 }
 
+.simulation-warning {
+  margin: 18px 0;
+  padding: 22px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 18px;
+  border: 3px solid #9b240f;
+  background: #fff0e8;
+  color: #531408;
+}
+
+.simulation-warning[hidden] {
+  display: none;
+}
+
+.simulation-warning .safety-notice__mark {
+  min-width: 54px;
+  font-size: 0.9rem;
+}
+
+.update-line-selection {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0;
+  max-width: 560px;
+  font-weight: 700;
+}
+
+.update-line-selection select {
+  min-height: 46px;
+  padding: 0 12px;
+  border: 2px solid currentColor;
+  background: #fff;
+  color: #111510;
+  font: inherit;
+}
+
 .safety-notice__mark {
   display: grid;
   place-items: center;

@@ -37,6 +37,7 @@ class DeviceAcceptanceRunner:
         uploader,
         *,
         device_name: str,
+        mcu_remote_update_capable: bool,
         edge_software_version: str = "0.1.0",
         maximum_sensor_age_seconds: int = (
             MAXIMUM_SENSOR_EVIDENCE_AGE_SECONDS
@@ -46,6 +47,8 @@ class DeviceAcceptanceRunner:
             raise ValueError("device name is required for acceptance")
         if not edge_software_version:
             raise ValueError("edge software version is required")
+        if not isinstance(mcu_remote_update_capable, bool):
+            raise ValueError("MCU remote-update capability must be boolean")
         if maximum_sensor_age_seconds <= 0:
             raise ValueError("maximum sensor age must be positive")
         self._store = store
@@ -53,6 +56,7 @@ class DeviceAcceptanceRunner:
         self._photo = photo_manager
         self._uploader = uploader
         self._device_name = device_name
+        self._mcu_remote_update_capable = mcu_remote_update_capable
         self._edge_software_version = edge_software_version
         self._maximum_sensor_age_seconds = maximum_sensor_age_seconds
 
@@ -76,8 +80,12 @@ class DeviceAcceptanceRunner:
             )
         )
         trusted_time_healthy = _clock_state() == "SYNCED"
+        # ``is_simulated`` describes the serial transport (for example a PTY
+        # test double).  Factory simulation firmware runs on a real MCU/UART,
+        # so its exact, verified F3 identity is a second provenance signal.
         mcu_simulated = bool(
             getattr(self._uart, "is_simulated", True)
+            or getattr(self._uart, "mcu_peripherals_simulated", False)
         )
         mcu_firmware_version = str(
             getattr(self._uart, "_mcu_firmware_version", "")
@@ -107,7 +115,7 @@ class DeviceAcceptanceRunner:
             else "0" * 64
         )
         evidence = {
-            "evidenceSchemaVersion": 3,
+            "evidenceSchemaVersion": 4,
             "challengeUid": challenge_uid,
             "factoryBagRevision": factory_bag_revision,
             "factoryBagSetSha256": factory_bag_set_sha256,
@@ -129,6 +137,7 @@ class DeviceAcceptanceRunner:
             ],
             "cameraUploadHealthy": camera_result["uploadHealthy"],
             "mcuSimulated": mcu_simulated,
+            "mcuRemoteUpdateCapable": self._mcu_remote_update_capable,
             "camerasSimulated": camera_result["camerasSimulated"],
             "verifiedPortCount": sensor_result["verifiedPortCount"],
             "verifiedCameraCount": camera_result[

@@ -6,7 +6,7 @@
 - UART Registry SHA-256：`d2b73386e99e7f5be3b05129617afcfe4499cbc4d3f2e8401a4ce5342ca90b75`
 - UART 状态：`MCU_REVIEW_REQUIRED`
 - UART 物理链路：`115200 baud / 8N1 / no flow control`
-- OneNet Mapping：`2.0.0` / `IMPLEMENTATION_CANDIDATE`
+- OneNet Mapping：`2.1.0` / `IMPLEMENTATION_CANDIDATE`
 
 ## UART 消息
 

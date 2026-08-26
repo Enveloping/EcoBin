@@ -18,8 +18,10 @@ from first_boot.model import FactoryTestStatus
 from factory.acceptance_config import AcceptanceConfiguration
 from factory.acceptance_core import (
     LEGACY_STATE_SCHEMA_VERSION,
+    PREVIOUS_STATE_SCHEMA_VERSION,
     STATE_SCHEMA_VERSION,
 )
+from factory_seal.validation import canonical_factory_report_sha256
 
 
 class _NoCommands:
@@ -58,6 +60,7 @@ def _paths(tmp_path: Path) -> FirstBootPaths:
         factory_report=tmp_path / "factory-report.json",
         credentials=tmp_path / "credentials.json",
         handoff_fact=tmp_path / "handoff.json",
+        device_capabilities=tmp_path / "device-capabilities.json",
         cellular_config=tmp_path / "cellular.env",
         sealed=tmp_path / "sealed.json",
         setup_ap_key=tmp_path / "setup-ap.key",
@@ -303,9 +306,10 @@ def test_current_v2_passed_state_allows_first_boot_to_accept_report(
 
     facts = SystemFactsProvider(paths, runner=_NoCommands()).collect()
 
-    assert STATE_SCHEMA_VERSION == 2
+    assert STATE_SCHEMA_VERSION == 3
     assert _SUPPORTED_FACTORY_STATE_SCHEMA_VERSIONS == {
         LEGACY_STATE_SCHEMA_VERSION,
+        PREVIOUS_STATE_SCHEMA_VERSION,
         STATE_SCHEMA_VERSION,
     }
     assert facts.factory_test_status is FactoryTestStatus.PASSED
@@ -319,7 +323,7 @@ def test_unknown_or_non_integer_factory_state_schema_fails_closed(
 ) -> None:
     paths = _paths(tmp_path)
 
-    for schema_version in (3, True, "2"):
+    for schema_version in (4, True, "2"):
         paths.factory_state.write_text(
             json.dumps(
                 {
@@ -347,6 +351,18 @@ def test_passed_report_is_invalid_after_hardware_config_or_mcu_identity_changes(
     paths = _paths(tmp_path)
     report = _passed_report()
     paths.factory_report.write_text(json.dumps(report), encoding="utf-8")
+    paths.device_capabilities.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "mcuRemoteUpdateCapable": True,
+                "factoryReportSha256": canonical_factory_report_sha256(
+                    report
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
     provider = SystemFactsProvider(paths, runner=_NoCommands())
 
     changed_config = provider._factory_facts("release-1", "b" * 64)
@@ -599,6 +615,18 @@ def test_handoff_fact_is_bound_to_current_config_and_p7_mcu_identity(
     paths.hardware_config.write_text("# defaults\n", encoding="utf-8")
     paths.machine_id.write_text("a" * 32 + "\n", encoding="ascii")
     paths.factory_report.write_text(json.dumps(report), encoding="utf-8")
+    paths.device_capabilities.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "mcuRemoteUpdateCapable": True,
+                "factoryReportSha256": canonical_factory_report_sha256(
+                    report
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
     handoff = {
         "schemaVersion": 1,
         "status": "HANDOFF_SAFE",
@@ -625,4 +653,13 @@ def test_handoff_fact_is_bound_to_current_config_and_p7_mcu_identity(
     handoff["mcuIdentity"] = report["mcuIdentity"]
     handoff["hardwareConfigDigest"] = "f" * 64
     paths.handoff_fact.write_text(json.dumps(handoff), encoding="utf-8")
+    assert not provider.collect().handoff_safe
+
+    handoff["hardwareConfigDigest"] = _digest()
+    paths.handoff_fact.write_text(json.dumps(handoff), encoding="utf-8")
+    capabilities = json.loads(paths.device_capabilities.read_text("utf-8"))
+    capabilities["factoryReportSha256"] = "f" * 64
+    paths.device_capabilities.write_text(
+        json.dumps(capabilities), encoding="utf-8"
+    )
     assert not provider.collect().handoff_safe

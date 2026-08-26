@@ -7,10 +7,10 @@
       "factorySealCompleted": {
         "value": {
           "acceptanceChallengeUid": "8a000000-0000-4000-8000-000000000003",
-          "acceptanceEvidenceSha256": "e32e41e381720317ce32602f0815bca47457723264ff582c27cc4ffd41122c99",
+          "acceptanceEvidenceSha256": "c3b2ee98dbd0a630d73c65ac04ce1fccc5354bc692cec945c87426ba5e773fd5",
           "acceptanceEvidenceUid": "8a000000-0000-4000-8000-000000000001",
           "acceptanceGeneration": 1,
-          "authorizationBindingSha256": "3d27ce9c05bad3cc515a74aa218fc395b620e35db96f8c1956e855b13ac6b7a0",
+          "authorizationBindingSha256": "4b724e15418e0a7d4f31e1209ea13662a8f2f132bbd3a8c2a0599868c88c7712",
           "authorizationCommandUid": "8a000000-0000-4000-8000-000000000007",
           "cleanupCompletedAt": "2026-07-24T01:00:30.000Z",
           "cleanupCompletedAtPresent": true,
@@ -31,7 +31,7 @@
           "occurredAt": "2026-07-24T01:00:30.000Z",
           "occurredAtPresent": true,
           "operatorConfirmationUid": "8a000000-0000-4000-8000-00000000000b",
-          "payloadSha256": "4ae4c42f35b9365e15ef47cbf558b37b90cd1233559e49960bdf525a1793a229",
+          "payloadSha256": "031d005375d7e2e720031016548b2196b8448f207fde2352116e8a37702c1b9a",
           "schemaVersion": 1,
           "sealCompletionSchemaVersion": 2,
           "sealedAt": "2026-07-24T01:00:20.000Z",

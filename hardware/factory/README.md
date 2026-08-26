@@ -81,8 +81,14 @@ EdgeStore 目录，使用与 P8 相同的严格 sealed + SQLite authorization �
 ## 离线验收状态机
 
 验收报告同时绑定当前 `releaseId`、普通硬件配置 SHA-256 摘要和 MCU revision 2 固件身份。
-顺序为 F3/F1、三阶段稳定称重、双摄像头拍摄后人工确认、F2 后 STM32 ROM 只读探测、模拟投递、
-模拟清运和最终报告。ROM 探测必须得到 STM32F103C8 的 device ID `0x0410`，且永不写 Flash。
+顺序为 F3/F1、三阶段稳定称重、双摄像头拍摄后人工确认、条件化升级线检查、投递、
+清运和最终报告。开始时操作员必须如实选择 BOOT0/NRST 线是否安装；已安装时 ROM
+探测必须得到 STM32F103C8 的 device ID `0x0410` 且永不写 Flash，未安装时全程不发
+F2 mode 02、不切换 GPIO、不运行 ROM 工具，并将远程升级能力记为 `false`。
+
+保留 F3 身份 `factory-sim-1.0.0 / 45434f53494d3031` 表示 MCU 侧传感器、屏幕和执行器
+来自专用模拟固件。页面必须告警，人工步骤不会自动点击，最终报告必须再次显式
+确认并永久保存 `SIMULATED_PERIPHERALS`。
 
 投递/清运的动作帧只发送一次，任何“可能已经发送”的断电或超时都进入
 `RECOVERY_REQUIRED`，不会自动重发。投递收到 DD 并完成 F3/F1/串口静默复查后仍保留锁，操作员

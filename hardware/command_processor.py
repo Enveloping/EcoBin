@@ -7,7 +7,10 @@ import threading
 import uuid
 from typing import Optional
 
-from onenet_wire import validate_command_envelope
+from onenet_wire import (
+    validate_command_envelope,
+    validate_unavailable_mcu_firmware_update_envelope,
+)
 from uart_link import compute_mcu_payload_sha256
 from factory_seal.errors import FactorySealError
 from factory_seal.admission import FACTORY_NOT_SEALED
@@ -204,6 +207,11 @@ class CommandProcessor:
                     "START_MCU_FIRMWARE_UPDATE",
                 }
                 and not command.get("cosGrant")
+                and not (
+                    command.get("commandType")
+                    == "START_MCU_FIRMWARE_UPDATE"
+                    and self._mcu_firmware_updater is None
+                )
             ):
                 if (
                     command.get("commandType")
@@ -224,10 +232,19 @@ class CommandProcessor:
                 # execution time below.
                 self._store.validate_claimed_factory_seal_command(command)
             else:
-                validate_command_envelope(
-                    command,
-                    trusted_environment=self._trusted_cos_environment,
-                )
+                if (
+                    command.get("commandType")
+                    == "START_MCU_FIRMWARE_UPDATE"
+                    and self._mcu_firmware_updater is None
+                ):
+                    validate_unavailable_mcu_firmware_update_envelope(
+                        command
+                    )
+                else:
+                    validate_command_envelope(
+                        command,
+                        trusted_environment=self._trusted_cos_environment,
+                    )
             validated = True
             # 校验成功后才按命令类型进入 WorkManager；现场安全、满溢、配置和本地
             # 单作业槽等“此刻事实”由 WorkManager 在写串口前再次判断。
@@ -425,9 +442,10 @@ class CommandProcessor:
                         ],
                         "fixedFrameRevision": 2,
                     },
-                    error_code="MCU_UPDATE_DISABLED",
+                    error_code="MCU_REMOTE_UPDATE_UNAVAILABLE",
                     error_message=(
-                        "MCU firmware update is disabled on this edge device"
+                        "MCU remote-update wiring is unavailable on this "
+                        "device"
                     ),
                     device_name=self._device_name,
                     requested_reason=payload.get("reason"),

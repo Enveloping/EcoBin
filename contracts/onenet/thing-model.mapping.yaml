@@ -1,5 +1,5 @@
 {
-  "mappingVersion": "2.0.0",
+  "mappingVersion": "2.1.0",
   "status": "IMPLEMENTATION_CANDIDATE",
   "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "transport": {

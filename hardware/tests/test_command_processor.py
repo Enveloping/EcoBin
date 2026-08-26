@@ -751,13 +751,19 @@ def test_mcu_firmware_command_without_volatile_grant_fails_closed(tmp_path):
     store.close()
 
 
-def test_disabled_mcu_updater_reports_terminal_rejection(tmp_path):
+def test_missing_update_lines_reject_after_grant_loss_and_expiry(tmp_path):
     store = make_store(tmp_path)
     command = valid_service_command(
         "start-mcu-firmware-update.service-wire.json"
     )
     command["cosGrant"]["expiresAt"] = (
         datetime.now(timezone.utc) + timedelta(minutes=10)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    command["issuedAt"] = (
+        datetime.now(timezone.utc) - timedelta(minutes=20)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    command["expiresAt"] = (
+        datetime.now(timezone.utc) - timedelta(minutes=10)
     ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     trusted = {
         field: command["cosGrant"][field]
@@ -775,21 +781,19 @@ def test_disabled_mcu_updater_reports_terminal_rejection(tmp_path):
         mcu_firmware_updater=None,
         device_name="SN-TEST-1",
     )
-    assert processor.offer_cos_grant(
-        command["commandUid"],
-        command["cosGrant"],
-    )
-
     assert processor.process_next()
 
     row = store.get_command(command["commandUid"])
     assert row["state"] == "FAILED"
-    assert row["last_error"] == "MCU_UPDATE_DISABLED"
+    assert row["last_error"] == "MCU_REMOTE_UPDATE_UNAVAILABLE"
     update = store.get_mcu_firmware_update_by_deployment(
         command["payload"]["deploymentUid"]
     )
     assert update["state"] == "REJECTED"
-    assert update["last_error_code"] == "MCU_UPDATE_DISABLED"
+    assert (
+        update["last_error_code"]
+        == "MCU_REMOTE_UPDATE_UNAVAILABLE"
+    )
     assert store.get_maintenance_lock() is None
     events = [
         json.loads(item["payload_json"])

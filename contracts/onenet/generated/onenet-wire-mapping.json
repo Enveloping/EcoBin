@@ -1267,6 +1267,13 @@
         },
         {
           "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuRemoteUpdateCapable",
+          "nullable": false,
+          "optional": true,
+          "wireIdentifier": "mcuRemoteUpdateCapable"
+        },
+        {
+          "encoding": "FLAT_TYPED",
           "jsonPath": "$.payload.sensorsHealthy",
           "nullable": false,
           "wireIdentifier": "sensorsHealthy"
@@ -4615,7 +4622,7 @@
     }
   },
   "generated": true,
-  "mappingVersion": "2.0.0",
+  "mappingVersion": "2.1.0",
   "projection": {
     "dataProtocol": "OneJSON",
     "enumEncoding": "JSON string enums are encoded as OneNet integer enums; generated wire mapping is authoritative for integer-to-symbol conversion.",

@@ -61,6 +61,15 @@
         </div>
       </section>
 
+      <section id="simulation-warning" class="simulation-warning" hidden aria-live="polite">
+        <div class="safety-notice__mark" aria-hidden="true">SIM</div>
+        <div>
+          <p class="kicker">SIMULATED MCU EVIDENCE</p>
+          <h2>当前 MCU 正在模拟传感器、屏幕与执行机构</h2>
+          <p>UART 协议和香橙派验收状态机仍真实执行，但称重、传感器、屏幕按钮、门锁与电机结果不代表实物质量。该来源将永久写入验收报告。</p>
+        </div>
+      </section>
+
       <section class="safety-notice" aria-labelledby="safety-title">
         <div class="safety-notice__mark" aria-hidden="true">!</div>
         <div>
@@ -165,6 +174,14 @@
           <p id="action-instruction" class="action-instruction">
             正在读取可执行步骤……
           </p>
+          <label id="update-line-selection" class="update-line-selection" hidden>
+            <span>MCU 远程升级线路</span>
+            <select id="mcu-update-line-installed">
+              <option value="">请选择实际装配情况</option>
+              <option value="true">已安装 BOOT0 / NRST 线路</option>
+              <option value="false">未安装，验收时跳过 ROM 探测</option>
+            </select>
+          </label>
           <div id="recovery-panel" class="recovery-panel" hidden>
             <strong>设备处于恢复锁定</strong>
             <p id="recovery-reason">必须完成受控恢复后才能继续。</p>

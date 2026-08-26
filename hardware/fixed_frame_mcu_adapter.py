@@ -53,6 +53,9 @@ FIRMWARE_PROTOCOL_REVISION = 2
 FIRMWARE_QUERY_IDENTITY_MODE = 1
 FIRMWARE_EXECUTE_UPDATE_PREPARE_MODE = 2
 FIRMWARE_REQUIRED_SAFE_FLAGS = 0x1F
+FACTORY_SIM_FIRMWARE_VERSION = "factory-sim-1.0.0"
+FACTORY_SIM_FIRMWARE_VERSION_CODE = 1
+FACTORY_SIM_FIRMWARE_IDENTITY_HEX = "45434f53494d3031"
 DEVICE_ENTRY_URL_FIELD_LENGTH = 192
 DEVICE_ENTRY_URL_FRAME_LENGTH = 195
 MAXIMUM_WEIGHT_GRAMS = 350_000
@@ -345,6 +348,26 @@ class FixedFrameMcuAdapter:
             dict(self._verified_firmware_identity)
             if self._verified_firmware_identity is not None
             else None
+        )
+
+    @property
+    def mcu_peripherals_simulated(self) -> bool:
+        """Whether a successful F3 proves the dedicated factory image.
+
+        Matching only a friendly version string would let an incomplete or
+        corrupt response mislabel production evidence.  All immutable fields
+        of the published factory-simulation identity must match.
+        """
+
+        identity = self._verified_firmware_identity
+        return bool(
+            identity
+            and identity.get("firmwareVersion")
+            == FACTORY_SIM_FIRMWARE_VERSION
+            and identity.get("firmwareVersionCode")
+            == FACTORY_SIM_FIRMWARE_VERSION_CODE
+            and identity.get("firmwareIdentityHex")
+            == FACTORY_SIM_FIRMWARE_IDENTITY_HEX
         )
 
     def open(self) -> bool:

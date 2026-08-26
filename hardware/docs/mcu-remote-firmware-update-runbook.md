@@ -6,7 +6,9 @@
 > 结论：香橙派可以通过现有 UART 烧录 MCU，但并非“只接 TX/RX 后适配软件”即可。
 > 除交叉连接的 UART 和共地外，香橙派必须可靠控制 `BOOT0` 与 `NRST`；MCU 必须先运行
 > 支持 F2 执行准备和 F3 固件身份查询的修订号 2 固件。远程发布还依赖签名包、私有 COS、
-> OneNet 合约、后端当前 V59（固件表由 V55 引入）和人工灰度流程。
+> OneNet 合约、后端当前 V60（固件表由 V55 引入）和人工灰度流程。
+> 未安装 BOOT0/NRST 线的设备仍可运行普通 UART 业务并完成出厂封存，但验收必须
+> 写入 `mcuRemoteUpdateCapable=false`，平台不得把它加入灰度计划。
 
 ## 1. 已实现的完整链路
 
@@ -199,7 +201,7 @@ ECOBIN_MCU_PROTOCOL=fixed-frame
 ECOBIN_MCU_SIMULATED=false
 ECOBIN_SERIAL_PORT=/dev/ttyS5
 ECOBIN_SERIAL_BAUDRATE=115200
-ECOBIN_MCU_UPDATE_ENABLED=true
+ECOBIN_DEVICE_CAPABILITIES_PATH=/var/lib/ecobin/device-capabilities.json
 ECOBIN_MCU_BOOT0_WPI=2
 ECOBIN_MCU_RESET_WPI=5
 ECOBIN_MCU_BOOT0_ACTIVE_LEVEL=1
@@ -211,8 +213,10 @@ ECOBIN_STM32FLASH_PATH=/usr/bin/stm32flash
 ECOBIN_GPIO_PATH=/usr/bin/gpio
 ```
 
-保持开关为 `false` 时，设备仍按原逻辑运行，但会明确拒绝云端升级命令。只有接线、电平、
-公钥、工具路径和真实 UART 都验收后才改为 `true`。重启服务并检查启动日志：
+生产环境不再从 `ECOBIN_MCU_UPDATE_ENABLED` 接受人工开关。离线验收中操作员声明本机是否
+安装升级线；只有声明已安装且 F2、电平、ROM 只读探测、恢复回原 F3/F1 全部通过时，
+首启交接才会原子写入 `mcuRemoteUpdateCapable=true`。未安装时写入 `false`，运行时在下载、
+F2 和维护锁之前以 `MCU_REMOTE_UPDATE_UNAVAILABLE` 终态拒绝。重启服务并检查启动日志：
 
 ```bash
 sudo systemctl restart ecobin-hardware.service
@@ -259,9 +263,10 @@ cd /root/EcoBin/hardware
 
 ## 7. 后端、OneNet、COS 和 Web 发布
 
-1. 先用独立迁移作业把目标数据库推进到当前 V59。V55 新增 3 个设备固件字段和 5 张固件
+1. 先用独立迁移作业把目标数据库推进到当前 V60。V55 新增 3 个设备固件字段和 5 张固件
    发布/灰度表，V56 增加封存授权与设备验收代次，V57 增加跨时钟容错，V58 补强恢复约束，
-   V59 将袋标签单批生成上限统一为 500；应用运行制品本身不会执行迁移。
+   V59 将袋标签单批生成上限统一为 500，V60 增加可空的 MCU 远程升级能力事实；
+   应用运行制品本身不会执行迁移。
 2. 把 [OneNet 候选物模型](../../contracts/onenet/generated/onenet-thing-model.candidate.json)
    中的 `startMcuFirmwareUpdate` 服务、`mcuFirmwareUpdateProgress` 事件，以及
    `deviceRuntimeSnapshot.mcuFirmwareIdentity` 字段更新到 OneNet，再按控制台实际结果复核
@@ -273,7 +278,7 @@ cd /root/EcoBin/hardware
    ```
 
    Web 当前只登记元数据，不代替上传。对象不得公开读。
-4. 部署理解 V59 的后端和新 Web。平台管理员需要 `device.manage` 权限，进入
+4. 部署理解 V60 的后端和新 Web。平台管理员需要 `device.manage` 权限，进入
    `/mcu-firmware`。
 5. “登记发布”时逐项复制 verify 输出；相同发布、包摘要、版本码和身份不可变。
 6. “创建灰度”时指定一台验证机、目标设备、每批数量和原因。创建只冻结计划，不下发。
@@ -295,7 +300,7 @@ cd /root/EcoBin/hardware
 | `ROLLING_BACK/VERIFYING_ROLLBACK` | 目标失败，正在恢复上一稳定版本 | 是 |
 | `SUCCEEDED` | 目标身份和自检均通过 | 否 |
 | `ROLLED_BACK` | 上一稳定版本恢复成功 | 否，但后端阻止继续灰度 |
-| `REJECTED` | 擦写前因投递/清运或其他维护占用、升级开关关闭、签名/板型/摘要/发布身份错误，或 COS 临时失败达到 3 次而终止；设备释放本次升级维护锁 | 否 |
+| `REJECTED` | 擦写前因投递/清运或其他维护占用、本机未验收远程升级线、签名/板型/摘要/发布身份错误，或 COS 临时失败达到 3 次而终止；设备释放本次升级维护锁 | 否 |
 | `FAILED_LOCKED` | 目标/回滚验证失败，或 F2 执行不确定后无法重新证明原应用已恢复 | 是，重启后仍保持 |
 
 查看指定记录：
@@ -337,7 +342,7 @@ cd /root/EcoBin/hardware
 - [ ] 在 MCU 已返回 F2 成功后人为使 `PREPARED` 写库失败，确认香橙派仍先复位并验证
       原身份/F1，不得在 MCU 保持升级锁存时解除维护锁；
 - [ ] 首次迁移在有人值守且可用 SWD/J-Link 恢复的设备上完成；
-- [ ] V59 迁移、V59 epoch 门禁和最小运行权限已先部署；
+- [ ] V60 迁移、V60 epoch 门禁和最小运行权限已先部署；
 - [ ] OneNet 服务/事件与生成映射一致，私有 COS 对象键和摘要一致；
 - [ ] 先用一台非关键设备验证成功，人工核验后才推广；
 - [ ] 人为制造一次目标自检失败，确认自动回滚成功且业务锁解除；

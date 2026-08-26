@@ -403,7 +403,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V59 application exited before readiness`n$diagnostic"
+            throw "correct V60 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -441,7 +441,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V59 application did not become ready; " +
+    throw "correct V60 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -1285,6 +1285,44 @@ WHERE constraint_schema = '$($databaseNames.Correct)'
     if ($bagLabelLimitConstraints -ne 2) {
         throw "V59 bag-label quantity constraints are not both 1 through 500"
     }
+    $mcuRemoteUpdateColumns = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT COUNT(*)
+FROM information_schema.columns
+WHERE table_schema = '$($databaseNames.Correct)'
+  AND column_name = 'mcu_remote_update_capable'
+  AND table_name IN (
+      'dev_device_acceptance_evidence',
+      'dev_device_asset'
+  )
+  AND is_nullable = 'YES'
+  AND data_type = 'tinyint';
+"@)
+    if ($mcuRemoteUpdateColumns -ne 2) {
+        throw "V60 MCU remote-update capability columns are incomplete"
+    }
+    $mcuRemoteUpdateConstraints = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT COUNT(*)
+FROM information_schema.check_constraints
+WHERE constraint_schema = '$($databaseNames.Correct)'
+  AND constraint_name IN (
+      'ck_dev_acceptance_mcu_remote_update_v60',
+      'ck_dev_asset_mcu_remote_update_v60'
+  )
+  AND REPLACE(LOWER(check_clause), CHAR(96), '')
+      LIKE '%mcu_remote_update_capable%'
+  AND (
+      constraint_name = 'ck_dev_asset_mcu_remote_update_v60'
+      OR REPLACE(LOWER(check_clause), CHAR(96), '')
+          LIKE '%mcu_remote_update_capable is not null%'
+  );
+"@)
+    if ($mcuRemoteUpdateConstraints -ne 2) {
+        throw "V60 MCU remote-update capability constraints are incomplete"
+    }
     $businessRowsBefore = Get-BusinessRowCount `
         -Database $databaseNames.Correct
     if ($businessRowsBefore -ne 0) {
@@ -1463,7 +1501,7 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 59
+        targetVersion = 60
         domainTables = 119
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
@@ -1472,8 +1510,9 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV59Ready = $true
+        correctV60Ready = $true
         bagLabelBatchLimit500 = $true
+        mcuRemoteUpdateCapabilityV60 = $true
         clockRecoveryV57UpgradeConverged = $true
         qualifiedCommandFailuresRetained = $true
         authorizationNullableStateFactsRejected = $true

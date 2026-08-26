@@ -79,6 +79,11 @@ P7 通过后，验收执行器会因正式运行的冲突关系停止，但热�
 完成后端授权封存；只有 P8 封存控制器可以停止整个 `ecobin-factory.target`。首次启动编排器
 不会提前关闭热点，也不会用本地按钮替代后端授权。已封存设备冷启动绝不重开热点。
 
+UART 安全交接还会把本地 PASSED 报告中的 `mcuRemoteUpdateCapable` 与报告摘要原子写入
+`/var/lib/ecobin/device-capabilities.json`。正式运行时只信任这个文件：值为 `false`
+不阻止本地业务、OneNet 或封存，但 MCU 升级命令会在下载固件、发送 F2 或建立维护锁前
+终态拒绝为 `MCU_REMOTE_UPDATE_UNAVAILABLE`。
+
 `ecobin-cellular-uplink.service`、`ecobin-factory-test.service`、
 `ecobin-factory-handoff.service`、`ecobin-runtime-gate.service` 和
 `ecobin-runtime.target` 都是静态单元，没有 `[Install]`；已有注册、硬件和远程支持服务的

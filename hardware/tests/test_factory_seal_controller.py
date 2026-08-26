@@ -13,8 +13,10 @@ from factory_seal.controller import FactorySealController, _runtime_healthy
 from factory_seal.errors import FactorySealError
 from factory_seal.validation import (
     FactorySealPaths,
+    canonical_factory_report_sha256,
     collect_local_factory_facts,
     inspect_sealed_authorization,
+    valid_device_capabilities,
     valid_passed_factory_report,
 )
 from onenet_wire import canonical_payload_sha256, encode_event_post
@@ -115,6 +117,7 @@ def _paths(tmp_path: Path) -> FactorySealPaths:
         enrollment_implementation=tmp_path / "device_enrollment.py",
         credentials=tmp_path / "credentials.json",
         handoff_fact=tmp_path / "handoff.json",
+        device_capabilities=tmp_path / "device-capabilities.json",
     )
 
 
@@ -125,8 +128,21 @@ def _authorized(tmp_path: Path) -> tuple[FactorySealPaths, str]:
         json.dumps({"schemaVersion": 1, "releaseId": release_id}),
         encoding="utf-8",
     )
+    report = _report(release_id)
     paths.factory_report.write_text(
-        json.dumps(_report(release_id)),
+        json.dumps(report),
+        encoding="utf-8",
+    )
+    paths.device_capabilities.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "mcuRemoteUpdateCapable": True,
+                "factoryReportSha256": canonical_factory_report_sha256(
+                    report
+                ),
+            }
+        ),
         encoding="utf-8",
     )
     paths.credentials.write_text(
@@ -892,6 +908,103 @@ def test_minimal_pass_report_and_wrong_local_hardware_identity_are_rejected(
             expected_hardware_sn="SN-DIFFERENT",
         )
     assert captured.value.code == "DEVICE_CREDENTIALS_INVALID"
+
+
+def test_schema_2_report_accepts_optional_update_line_and_binds_capability() -> None:
+    report = _report("release-1")
+    report.update(
+        {
+            "schemaVersion": 2,
+            "mcuPeripheralEvidenceMode": "PHYSICAL",
+            "mcuRemoteUpdateCapable": False,
+        }
+    )
+    report["checks"]["upgradeLine"] = {
+        "status": "NOT_APPLICABLE",
+        "resultCode": "MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED",
+        "prepareSendAttempts": 0,
+        "romWritePerformed": False,
+        "romDeviceId": None,
+    }
+    capabilities = {
+        "schemaVersion": 1,
+        "mcuRemoteUpdateCapable": False,
+        "factoryReportSha256": canonical_factory_report_sha256(report),
+    }
+
+    assert valid_passed_factory_report(
+        report,
+        release_id="release-1",
+        hardware_config_digest="a" * 64,
+    )
+    report["schemaVersion"] = True
+    assert not valid_passed_factory_report(
+        report,
+        release_id="release-1",
+        hardware_config_digest="a" * 64,
+    )
+    report["schemaVersion"] = 2
+    assert valid_device_capabilities(capabilities, report)
+
+    capabilities["schemaVersion"] = True
+    assert not valid_device_capabilities(capabilities, report)
+    capabilities["schemaVersion"] = 1
+
+    capabilities["mcuRemoteUpdateCapable"] = True
+    assert not valid_device_capabilities(capabilities, report)
+
+
+def test_schema_2_report_accepts_only_the_exact_simulation_identity() -> None:
+    report = _report("release-1")
+    report.update(
+        {
+            "schemaVersion": 2,
+            "mcuPeripheralEvidenceMode": "SIMULATED_PERIPHERALS",
+            "mcuRemoteUpdateCapable": True,
+        }
+    )
+    report["mcuIdentity"] = {
+        "fixedFrameRevision": 2,
+        "firmwareVersion": "factory-sim-1.0.0",
+        "firmwareVersionCode": 1,
+        "firmwareIdentityHex": "45434f53494d3031",
+    }
+    report["checks"]["upgradeLine"]["prepareSendAttempts"] = 1
+
+    assert valid_passed_factory_report(
+        report,
+        release_id="release-1",
+        hardware_config_digest="a" * 64,
+    )
+
+    report["mcuIdentity"]["firmwareVersionCode"] = 2
+    assert not valid_passed_factory_report(
+        report,
+        release_id="release-1",
+        hardware_config_digest="a" * 64,
+    )
+
+
+def test_seal_is_blocked_when_capability_file_no_longer_matches_report(
+    tmp_path: Path,
+) -> None:
+    paths, _command_uid = _authorized(tmp_path)
+    capabilities = json.loads(paths.device_capabilities.read_text("utf-8"))
+    capabilities["factoryReportSha256"] = "f" * 64
+    paths.device_capabilities.write_text(
+        json.dumps(capabilities),
+        encoding="utf-8",
+    )
+
+    status = _controller(
+        paths,
+        stopped=[],
+        production=[],
+        emergency=[],
+    ).status()
+
+    assert status["confirmAllowed"] is False
+    assert status["statusCode"] == "DEVICE_CAPABILITIES_INVALID"
 
 
 @pytest.mark.parametrize(

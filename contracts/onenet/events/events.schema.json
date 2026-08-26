@@ -922,7 +922,7 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "evidenceSchemaVersion": { "const": 3 },
+        "evidenceSchemaVersion": { "enum": [3, 4] },
         "challengeUid": {
           "$ref": "../common.schema.json#/$defs/uuid"
         },
@@ -951,6 +951,7 @@
         "trustedTimeHealthy": { "type": "boolean" },
         "configurationPersistenceHealthy": { "type": "boolean" },
         "mcuCommunicationHealthy": { "type": "boolean" },
+        "mcuRemoteUpdateCapable": { "type": "boolean" },
         "sensorsHealthy": { "type": "boolean" },
         "camerasCaptureHealthy": { "type": "boolean" },
         "cameraUploadHealthy": { "type": "boolean" },
@@ -979,7 +980,23 @@
         "cameraUploadSha256": {
           "$ref": "../common.schema.json#/$defs/sha256"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "evidenceSchemaVersion": { "const": 3 }
+            },
+            "required": ["evidenceSchemaVersion"]
+          },
+          "then": {
+            "not": { "required": ["mcuRemoteUpdateCapable"] }
+          },
+          "else": {
+            "required": ["mcuRemoteUpdateCapable"]
+          }
+        }
+      ]
     },
     "remoteSupportTunnelStatusPayload": {
       "type": "object",
@@ -1256,7 +1273,9 @@
           "pattern": "^[0-9a-f]{16}$"
         },
         "errorCode": {
-          "$ref": "../common.schema.json#/$defs/errorCode"
+          "$ref": "../common.schema.json#/$defs/errorCode",
+          "description": "Stable rejection code MCU_REMOTE_UPDATE_UNAVAILABLE means the device has no explicitly enabled BOOT0/NRST remote-update wiring and the update state machine did not start.",
+          "examples": ["MCU_REMOTE_UPDATE_UNAVAILABLE"]
         }
       },
       "allOf": [

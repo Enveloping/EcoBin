@@ -195,7 +195,14 @@ def _store_with_stale_business_sample(tmp_path):
     return store
 
 
-def _process(tmp_path, monkeypatch, uart, *, cameras_simulated=False):
+def _process(
+    tmp_path,
+    monkeypatch,
+    uart,
+    *,
+    cameras_simulated=False,
+    mcu_remote_update_capable=True,
+):
     monkeypatch.setattr("device_acceptance._clock_state", lambda: "SYNCED")
     store = _store_with_stale_business_sample(tmp_path)
     uploader = ReadbackUploader()
@@ -208,6 +215,7 @@ def _process(tmp_path, monkeypatch, uart, *, cameras_simulated=False):
         ),
         uploader,
         device_name=DEVICE_NAME,
+        mcu_remote_update_capable=mcu_remote_update_capable,
     )
     command = _command(str(uuid.uuid4()))
     assert store.receive_command(
@@ -248,7 +256,8 @@ def test_real_hardware_acceptance_records_reliable_evidence(
     assert event["payload"]["camerasSimulated"] is False
     assert event["payload"]["sensorsHealthy"] is True
     assert event["payload"]["cameraUploadHealthy"] is True
-    assert event["payload"]["evidenceSchemaVersion"] == 3
+    assert event["payload"]["evidenceSchemaVersion"] == 4
+    assert event["payload"]["mcuRemoteUpdateCapable"] is True
     assert event["payload"]["factoryBagRevision"] == FACTORY_BAG_REVISION
     assert (
         event["payload"]["factoryBagSetSha256"]
@@ -362,6 +371,26 @@ def test_simulators_are_diagnostic_and_functional_checks_still_pass(
     assert event["payload"]["sensorsHealthy"] is True
     assert event["payload"]["camerasCaptureHealthy"] is True
     assert event["payload"]["cameraUploadHealthy"] is True
+    store.close()
+
+
+def test_factory_simulation_identity_and_missing_update_lines_are_reported(
+    tmp_path,
+    monkeypatch,
+):
+    uart = RealFixedFrameUart()
+    uart.mcu_peripherals_simulated = True
+    store, command, _, event = _process(
+        tmp_path,
+        monkeypatch,
+        uart,
+        mcu_remote_update_capable=False,
+    )
+
+    assert store.get_command(command["commandUid"])["state"] == "COMPLETED"
+    assert event["payload"]["mcuSimulated"] is True
+    assert event["payload"]["mcuRemoteUpdateCapable"] is False
+    assert event["payload"]["sensorsHealthy"] is True
     store.close()
 
 

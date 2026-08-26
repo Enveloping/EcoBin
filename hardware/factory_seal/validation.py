@@ -35,6 +35,9 @@ class FactorySealPaths:
     )
     credentials: Path = Path("/etc/ecobin/device-credentials.json")
     handoff_fact: Path = Path("/var/lib/ecobin/first-boot/handoff-safe.json")
+    device_capabilities: Path = Path(
+        "/var/lib/ecobin/device-capabilities.json"
+    )
 
 
 @dataclass(frozen=True)
@@ -495,8 +498,10 @@ def valid_passed_factory_report(
 ) -> bool:
     """One strict P7 PASSED gate shared by first boot and factory seal."""
 
+    schema_version = report.get("schemaVersion")
     if (
-        report.get("schemaVersion") != 1
+        type(schema_version) is not int
+        or schema_version not in {1, 2}
         or report.get("status") != "PASSED"
         or report.get("recoveryRequired") is not False
         or report.get("imageReleaseId") != release_id
@@ -524,9 +529,6 @@ def valid_passed_factory_report(
     expected_result_codes = {
         "mcu": "MCU_REVISION_2_AND_F1_HEALTHY",
         "weight": "WEIGHT_500G_WITHIN_490_510_AND_REMOVED",
-        "upgradeLine": (
-            "F2_BOOT0_NRST_ROM_READ_ONLY_AND_APP_RECOVERY_PASSED"
-        ),
         "delivery": "DELIVERY_SAFE_VERIFIED",
         "clean": "CLEAN_SAFE_VERIFIED",
     }
@@ -563,10 +565,33 @@ def valid_passed_factory_report(
         or weight.get("sampleTimeoutMs") != 3000
     ):
         return False
-    upgrade = checks["upgradeLine"]
-    if (
-        upgrade.get("romWritePerformed") is not False
-        or upgrade.get("romDeviceId") != "0x0410"
+    upgrade = checks.get("upgradeLine")
+    if not isinstance(upgrade, dict):
+        return False
+    update_capable = mcu_remote_update_capability(report)
+    if update_capable is None:
+        return False
+    if update_capable:
+        if (
+            upgrade.get("status") != "PASSED"
+            or upgrade.get("resultCode")
+            != "F2_BOOT0_NRST_ROM_READ_ONLY_AND_APP_RECOVERY_PASSED"
+            or (
+                schema_version == 2
+                and upgrade.get("prepareSendAttempts") != 1
+            )
+            or upgrade.get("romWritePerformed") is not False
+            or upgrade.get("romDeviceId") != "0x0410"
+        ):
+            return False
+    elif (
+        schema_version != 2
+        or upgrade.get("status") != "NOT_APPLICABLE"
+        or upgrade.get("resultCode")
+        != "MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED"
+        or upgrade.get("prepareSendAttempts") != 0
+        or upgrade.get("romWritePerformed") is not False
+        or upgrade.get("romDeviceId") is not None
     ):
         return False
     camera = report.get("cameraSummary")
@@ -607,6 +632,72 @@ def valid_passed_factory_report(
         ):
             return False
     return True
+
+
+def mcu_remote_update_capability(report: dict[str, Any]) -> bool | None:
+    """Return the report-proven capability; schema 1 always proved ROM access."""
+
+    schema_version = report.get("schemaVersion")
+    if type(schema_version) is not int:
+        return None
+    if schema_version == 1:
+        return True
+    if schema_version != 2 or not isinstance(
+        report.get("mcuRemoteUpdateCapable"), bool
+    ):
+        return None
+    identity = report.get("mcuIdentity")
+    if not isinstance(identity, dict):
+        return None
+    simulated_identity_marker = (
+        identity.get("firmwareIdentityHex") == "45434f53494d3031"
+    )
+    simulated_version_marker = str(identity.get("firmwareVersion", "")).startswith(
+        "factory-sim-"
+    )
+    exact_simulated_identity = bool(
+        identity.get("fixedFrameRevision") == 2
+        and identity.get("firmwareVersion") == "factory-sim-1.0.0"
+        and identity.get("firmwareVersionCode") == 1
+        and simulated_identity_marker
+    )
+    if (
+        simulated_identity_marker or simulated_version_marker
+    ) and not exact_simulated_identity:
+        return None
+    expected_mode = (
+        "SIMULATED_PERIPHERALS" if exact_simulated_identity else "PHYSICAL"
+    )
+    if report.get("mcuPeripheralEvidenceMode") != expected_mode:
+        return None
+    return report["mcuRemoteUpdateCapable"]
+
+
+def canonical_factory_report_sha256(report: dict[str, Any]) -> str:
+    return _canonical_sha256(report)
+
+
+def valid_device_capabilities(
+    document: object,
+    report: dict[str, Any],
+) -> bool:
+    capability = mcu_remote_update_capability(report)
+    return bool(
+        isinstance(document, dict)
+        and set(document)
+        == {
+            "schemaVersion",
+            "mcuRemoteUpdateCapable",
+            "factoryReportSha256",
+        }
+        and type(document.get("schemaVersion")) is int
+        and document.get("schemaVersion") == 1
+        and isinstance(document.get("mcuRemoteUpdateCapable"), bool)
+        and capability is not None
+        and document.get("mcuRemoteUpdateCapable") is capability
+        and document.get("factoryReportSha256")
+        == canonical_factory_report_sha256(report)
+    )
 
 
 def _canonical_sha256(value: dict[str, Any]) -> str:
@@ -703,10 +794,13 @@ __all__ = [
     "LocalFactoryFacts",
     "SealedAuthorizationFact",
     "authorization_binding_sha256",
+    "canonical_factory_report_sha256",
     "collect_local_factory_facts",
     "completion_event_matches_authorization",
     "factory_seal_completion_payload",
     "inspect_sealed_authorization",
+    "mcu_remote_update_capability",
     "sealed_document_matches_authorization",
     "valid_passed_factory_report",
+    "valid_device_capabilities",
 ]

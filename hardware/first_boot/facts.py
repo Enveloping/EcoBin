@@ -21,6 +21,7 @@ from factory.acceptance_hardware import identities_equal
 from factory_seal.validation import (
     FactorySealPaths,
     inspect_sealed_authorization,
+    valid_device_capabilities,
     valid_passed_factory_report,
 )
 
@@ -31,9 +32,9 @@ _BOOT_ID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 # Keep first-boot's import closure independent from the acceptance executor.
-# Version 1 remains readable while acceptance_core migrates it to version 2;
-# the cross-module contract test fails if the producer versions change.
-_SUPPORTED_FACTORY_STATE_SCHEMA_VERSIONS = frozenset({1, 2})
+# Versions 1 and 2 remain readable while acceptance_core migrates them to
+# version 3; the cross-module contract test fails if producer versions change.
+_SUPPORTED_FACTORY_STATE_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 
 
 def _supported_factory_state_schema_version(value: object) -> bool:
@@ -57,6 +58,9 @@ class FirstBootPaths:
     factory_report: Path = Path("/var/lib/ecobin/factory-test/report.json")
     credentials: Path = Path("/etc/ecobin/device-credentials.json")
     handoff_fact: Path = Path("/var/lib/ecobin/first-boot/handoff-safe.json")
+    device_capabilities: Path = Path(
+        "/var/lib/ecobin/device-capabilities.json"
+    )
     cellular_config: Path = Path("/etc/ecobin/cellular.env")
     sealed: Path = Path("/var/lib/ecobin/first-boot/sealed.json")
     setup_ap_key: Path = Path("/etc/ecobin/setup-ap.key")
@@ -178,6 +182,7 @@ class SystemFactsProvider:
         enrollment_complete = self._credentials_valid()
         handoff_document = _read_json(self._paths.handoff_fact)
         current_report = _read_json(self._paths.factory_report)
+        device_capabilities = _read_json(self._paths.device_capabilities)
         handoff_safe = bool(
             enrollment_complete
             and isinstance(handoff_document, dict)
@@ -195,6 +200,10 @@ class SystemFactsProvider:
             and handoff_document.get("hardwareConfigDigest")
             == hardware_config_digest
             and isinstance(current_report, dict)
+            and valid_device_capabilities(
+                device_capabilities,
+                current_report,
+            )
             and isinstance(current_report.get("mcuIdentity"), dict)
             and isinstance(handoff_document.get("mcuIdentity"), dict)
             and identities_equal(

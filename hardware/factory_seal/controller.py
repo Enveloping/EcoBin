@@ -23,6 +23,7 @@ from .validation import (
     factory_seal_completion_payload,
     inspect_sealed_authorization,
     sealed_document_matches_authorization,
+    valid_device_capabilities,
 )
 from trusted_clock import raw_utc_now, sample_clock
 
@@ -259,6 +260,13 @@ class FactorySealController:
             or handoff.get("imageReleaseId") != row["image_release_id"]
         ):
             return "HANDOFF_SAFE_REQUIRED"
+        report = _read_json(self.paths.factory_report)
+        capabilities = _read_json(self.paths.device_capabilities)
+        if not isinstance(report, dict) or not valid_device_capabilities(
+            capabilities,
+            report,
+        ):
+            return "DEVICE_CAPABILITIES_INVALID"
         if self._maintenance_lock_exists():
             return "MAINTENANCE_BUSY"
         if not self._runtime_healthy():

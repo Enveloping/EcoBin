@@ -24,7 +24,10 @@ foreach ($script in $scripts) {
     }
 }
 
-& python (Join-Path $toolRoot 'lib\validate_inputs.py') --allow-unlocked
+& python (Join-Path $toolRoot 'lib\validate_inputs.py') `
+    --require-locked `
+    --target-media-qualification-evidence `
+    (Join-Path $toolRoot 'target-media-qualification-evidence.json')
 if ($LASTEXITCODE -ne 0) {
     throw 'Checked-in lock metadata validation failed.'
 }

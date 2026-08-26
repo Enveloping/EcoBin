@@ -9,7 +9,7 @@
 3. [V52 设备出厂与远程维护代码审查](review/device-enrollment-factory-remote-support-v52-review-2026-08-15.md)：跟踪厂家袋扫码、验收证据代次、远程租约与生产证书权限的 4 项 P1、3 项 P2 及修复证据。
 4. [V53 投递自动审核与自动提现](architecture/delivery-auto-review-and-withdrawal-v53.md)：正常投递的版本化自动审核、异常转人工、首次正返现自动提现及安全跳过边界。
 5. [V54 投递审核金额阈值与 Web 配置中心](architecture/delivery-review-amount-limit-and-configuration-center-v54.md)：按结算金额决定自动或人工审核，复用单次最大提现金额，并收拢两类机构业务规则入口。
-6. [香橙派可重复量产镜像与首次启动编排计划](planning/orangepi-production-image-first-boot-plan.md)：统一面向 32 GB TF 卡的 Debian 12/Python 3.11 镜像构建、UART5、NRST 开漏控制、Air780E USB RNDIS 上行、共用密码的隔离验收热点、500 g±10 g 称重预检、零业务数据的真实投递/清运动作测试、K1 清理、机器验收后单向封存、revision 2、双摄预检和镜像发布物；仓库内 P1～P10 软件与文档已经完成，真实 HIL 门禁仍关闭。
+6. [香橙派可重复量产镜像与首次启动编排计划](planning/orangepi-production-image-first-boot-plan.md)：统一面向 32 GB TF 卡的 Debian 12/Python 3.11 镜像构建、UART5、可选 BOOT0/NRST 升级能力、Air780E USB RNDIS 上行、隔离验收热点、500 g±10 g 称重预检、真实或明确标记的 MCU 模拟外设证据、K1 清理、单向封存、revision 2、双摄预检和镜像发布物；真实 HIL 门禁仍关闭。
 7. [V36 设备永久归属、自动验收与无部署码模型](architecture/permanent-device-ownership-v36.md)：设备全链路目标，覆盖旧部署、调拨和人工激活模型；2026-08-10 补充未分配设备运行、故障与安全事实的平台作用域。
 8. [V41 全局固定设备二维码入口](architecture/global-miniapp-device-entry-v41.md)：普通二维码统一使用全局地址，设备公开码区分设备和机构，渠道/机构不再保存入口地址。
 9. [V42 设备入口 URL 下发](architecture/device-entry-url-edge-delivery-v42.md)：验收时保存完整 URL，全局地址改变时自动下发，MCU 无应答且屏幕结果不进入平台验收。
@@ -30,7 +30,7 @@
 24. [P0 详细设计与任务拆分](planning/detailed-design-draft.md)：已批准的施工方案、跨端责任、任务依赖与目标窗口。
 25. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：历史任务入口；设备相关旧部署步骤由 V36 裁决覆盖。
 26. [权限与角色设计](architecture/permission-design.md)：三类登录主体、多租户隔离和接口鉴权。
-27. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构；新栈目标迁移已推进到 V59，并由只读 epoch guard 校验，运行制品不携带 Flyway 或迁移脚本。
+27. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构；新栈目标迁移已推进到 V60，并由只读 epoch guard 校验，运行制品不携带 Flyway 或迁移脚本。
 
 ## 目录说明
 
@@ -97,7 +97,7 @@
 
 ### `planning/` — 需求、计划与待办
 
-- [香橙派可重复量产镜像与首次启动编排计划](planning/orangepi-production-image-first-boot-plan.md)：32 GB TF 卡的 Debian 12/Python 3.11 量产镜像、NRST 开漏控制、Air780E RNDIS 上行、共用密码的固定离线验收热点、500 g±10 g 称重预检、隔离硬件动作测试、云端验收后单向封存、首启恢复和无需 SSH 出厂验收；仓库内 P1～P10 软件与文档已经完成，真机门禁保持关闭。
+- [香橙派可重复量产镜像与首次启动编排计划](planning/orangepi-production-image-first-boot-plan.md)：32 GB TF 卡的 Debian 12/Python 3.11 量产镜像、可选 MCU 远程升级线与能力事实、Air780E RNDIS 上行、固定离线验收热点、出厂 MCU 外设模拟、云端验收后单向封存、首启恢复和无需 SSH 出厂验收；真机门禁保持关闭。
 - [产品需求基线](planning/requirements-baseline.md)
 - [一周 P0 范围基线](planning/p0-scope-baseline.md)
 - [P0 业务模型基线](planning/business-model-baseline.md)

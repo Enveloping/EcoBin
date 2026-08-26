@@ -518,7 +518,8 @@ public class TargetDeviceApplication {
                                onenet_online, persistent_store_healthy,
                                trusted_time_healthy,
                                configuration_persistence_healthy,
-                               mcu_communication_healthy, sensors_healthy,
+                               mcu_communication_healthy,
+                               mcu_remote_update_capable, sensors_healthy,
                                cameras_capture_healthy,
                                camera_upload_healthy,
                                device_entry_url_stored,
@@ -3061,6 +3062,7 @@ public class TargetDeviceApplication {
                        asset.installation_updated_at,
                        tenant.tenant_code, organization.organization_code,
                        asset.acceptance_status,
+                       asset.mcu_remote_update_capable,
                        channel_binding.miniapp_channel_id,
                        COALESCE(transport.onenet_connection_status, 'UNKNOWN')
                            AS onenet_connection_status,
@@ -3103,6 +3105,7 @@ public class TargetDeviceApplication {
                 rs.getString("tenant_code"),
                 rs.getString("organization_code"),
                 rs.getString("acceptance_status"),
+                rs.getObject("mcu_remote_update_capable", Boolean.class),
                 deviceEntryUrl(
                         rs.getObject("miniapp_channel_id") != null,
                         rs.getString("device_public_code")),
@@ -3321,6 +3324,7 @@ public class TargetDeviceApplication {
                 rs.getBoolean("trusted_time_healthy"),
                 rs.getBoolean("configuration_persistence_healthy"),
                 rs.getBoolean("mcu_communication_healthy"),
+                rs.getObject("mcu_remote_update_capable", Boolean.class),
                 rs.getBoolean("sensors_healthy"),
                 rs.getBoolean("cameras_capture_healthy"),
                 rs.getBoolean("camera_upload_healthy"),
@@ -3882,6 +3886,9 @@ public class TargetDeviceApplication {
         result.put("tenantCode", view.tenantCode());
         result.put("organizationCode", view.organizationCode());
         result.put("acceptanceStatus", view.acceptanceStatus());
+        result.put(
+                "mcuRemoteUpdateCapable",
+                view.mcuRemoteUpdateCapable());
         result.put("lifecycleStatus", view.lifecycleStatus());
         result.put("version", view.version());
         return result;

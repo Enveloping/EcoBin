@@ -19,11 +19,16 @@ from .acceptance_hardware import (
     sanitize_self_test,
 )
 from .acceptance_storage import AcceptanceLease, AtomicJsonFile
-from factory_seal.validation import valid_passed_factory_report
+from factory_seal.validation import (
+    canonical_factory_report_sha256,
+    mcu_remote_update_capability,
+    valid_passed_factory_report,
+)
 
 
 IMAGE_RELEASE_PATH = Path("/etc/ecobin/image-release.json")
 HANDOFF_FACT_PATH = Path("/var/lib/ecobin/first-boot/handoff-safe.json")
+DEVICE_CAPABILITIES_PATH = Path("/var/lib/ecobin/device-capabilities.json")
 INSTANCE_LOCK_PATH = Path("/run/lock/ecobin/factory-handoff.lock")
 UART_LOCK_PATH = Path("/run/lock/ecobin/uart5.lock")
 
@@ -59,6 +64,9 @@ def run_handoff(config: AcceptanceConfiguration) -> dict:
         hardware_config_digest=config.digest(),
     ):
         raise AcceptanceHardwareError("FACTORY_REPORT_NOT_VALID_FOR_HANDOFF")
+    update_capable = mcu_remote_update_capability(report)
+    if update_capable is None:
+        raise AcceptanceHardwareError("FACTORY_REPORT_NOT_VALID_FOR_HANDOFF")
     expected_identity = report["mcuIdentity"]
     mcu = FixedFrameAcceptanceMcu.for_port(config.serial_port)
     bootloader = ReadOnlyStm32RomProbe(
@@ -70,9 +78,10 @@ def run_handoff(config: AcceptanceConfiguration) -> dict:
     )
     with AcceptanceLease(INSTANCE_LOCK_PATH, UART_LOCK_PATH):
         try:
-            with deny_network_access():
-                bootloader.force_application_selection()
-                bootloader.boot_application()
+            if update_capable:
+                with deny_network_access():
+                    bootloader.force_application_selection()
+                    bootloader.boot_application()
             mcu.open()
             mcu.clear_input_for_recovery()
             mcu.require_business_quiet(quiet_ms=250)
@@ -85,6 +94,18 @@ def run_handoff(config: AcceptanceConfiguration) -> dict:
             mcu.require_business_quiet(quiet_ms=250, invalid_marker=marker)
         finally:
             mcu.close()
+        capabilities = {
+            "schemaVersion": 1,
+            "mcuRemoteUpdateCapable": update_capable,
+            "factoryReportSha256": canonical_factory_report_sha256(report),
+        }
+        # Commit capabilities first.  A power loss before the handoff fact
+        # leaves runtime admission closed; retry deterministically replaces
+        # the same report-bound document.
+        AtomicJsonFile(
+            DEVICE_CAPABILITIES_PATH,
+            chmod_existing_parent=False,
+        ).write(capabilities)
         fact = {
             "schemaVersion": 1,
             "status": "HANDOFF_SAFE",
