@@ -34,6 +34,7 @@ SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 SIGNING_KEY_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 MAX_ARCHIVE_MEMBERS = 20_000
 MAX_ARCHIVE_BYTES = 1_500_000_000
+MAX_LEGACY_CRYPTOGRAPHY_MESSAGE_BYTES = 512 * 1024 * 1024
 MAX_PUBLIC_KEY_BYTES = 16_384
 MAX_PRIVATE_KEY_BYTES = 16_384
 ED25519_SIGNATURE_BYTES = 64
@@ -288,7 +289,26 @@ def verified_archive_stream(
                 0,
                 access=mmap.ACCESS_READ,
             ) as archive_bytes:
-                public_key.verify(signature, archive_bytes)
+                try:
+                    public_key.verify(signature, archive_bytes)
+                except TypeError:
+                    if len(archive_bytes) > MAX_LEGACY_CRYPTOGRAPHY_MESSAGE_BYTES:
+                        raise ReleaseValidationError(
+                            "archive is too large for the installed legacy "
+                            "cryptography backend"
+                        ) from None
+                    try:
+                        legacy_message = archive_bytes[:]
+                    except (MemoryError, OSError, ValueError):
+                        raise ReleaseValidationError(
+                            "archive signature cannot be verified"
+                        ) from None
+                    try:
+                        public_key.verify(signature, legacy_message)
+                    except TypeError:
+                        raise ReleaseValidationError(
+                            "archive signature cannot be verified"
+                        ) from None
         except InvalidSignature:
             raise ReleaseValidationError("archive signature is invalid") from None
         except (OSError, ValueError):

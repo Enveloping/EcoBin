@@ -25,6 +25,7 @@ try:
         ARTIFACT_KIND,
         EDGE_SCHEMA_VERSION,
         ED25519_SIGNATURE_BYTES,
+        MAX_LEGACY_CRYPTOGRAPHY_MESSAGE_BYTES,
         MAX_PRIVATE_KEY_BYTES,
         PYTHON_SERIES,
         RELEASE_FORMAT_VERSION,
@@ -42,6 +43,7 @@ except ImportError:  # pragma: no cover - direct execution in the ARM64 builder
         ARTIFACT_KIND,
         EDGE_SCHEMA_VERSION,
         ED25519_SIGNATURE_BYTES,
+        MAX_LEGACY_CRYPTOGRAPHY_MESSAGE_BYTES,
         MAX_PRIVATE_KEY_BYTES,
         PYTHON_SERIES,
         RELEASE_FORMAT_VERSION,
@@ -371,7 +373,20 @@ def _sign_archive(
     try:
         with archive.open("rb") as stream:
             with mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data:
-                signature = private_key.sign(data)
+                try:
+                    signature = private_key.sign(data)
+                except TypeError:
+                    if len(data) > MAX_LEGACY_CRYPTOGRAPHY_MESSAGE_BYTES:
+                        raise RuntimeError(
+                            "archive is too large for the locked legacy "
+                            "cryptography signer"
+                        ) from None
+                    try:
+                        signature = private_key.sign(data[:])
+                    except (MemoryError, TypeError):
+                        raise RuntimeError(
+                            "runtime archive could not be signed"
+                        ) from None
     except OSError:
         raise RuntimeError("runtime archive could not be signed") from None
     if len(signature) != ED25519_SIGNATURE_BYTES:

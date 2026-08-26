@@ -350,6 +350,24 @@ def test_builder_loads_external_pkcs8_ed25519_key_and_emits_raw_signature(
     material["private_key"].public_key().verify(signature, archive.read_bytes())
 
 
+def test_builder_signing_falls_back_for_legacy_cryptography_mmap_rejection(
+    tmp_path,
+):
+    archive = tmp_path / "archive.tar.gz"
+    archive.write_bytes(b"legacy cryptography compatibility")
+    private_key = Ed25519PrivateKey.generate()
+
+    class LegacyPrivateKey:
+        def sign(self, message):
+            if not isinstance(message, bytes):
+                raise TypeError("legacy backend requires bytes")
+            return private_key.sign(message)
+
+    signature = _sign_archive(archive, LegacyPrivateKey())
+
+    private_key.public_key().verify(signature, archive.read_bytes())
+
+
 def test_builder_publishes_detached_sig_without_copying_private_key(
     monkeypatch,
     tmp_path,
@@ -478,6 +496,36 @@ def test_verified_archive_stream_accepts_matching_ed25519_signature(tmp_path):
         **_verified_stream_kwargs(material),
     ) as verified:
         assert verified.read() == b"signed archive"
+
+
+def test_verified_archive_stream_falls_back_for_legacy_cryptography(
+    tmp_path,
+    monkeypatch,
+):
+    archive = tmp_path / "archive.tar.gz"
+    archive.write_bytes(b"legacy verification compatibility")
+    material = _write_signing_material(tmp_path / "signing", archive)
+    real_public_key = material["private_key"].public_key()
+
+    class LegacyPublicKey:
+        def verify(self, signature, message):
+            if not isinstance(message, bytes):
+                raise TypeError("legacy backend requires bytes")
+            return real_public_key.verify(signature, message)
+
+    monkeypatch.setattr(
+        runtime_release.serialization,
+        "load_pem_public_key",
+        lambda _pem: LegacyPublicKey(),
+    )
+    monkeypatch.setattr(runtime_release, "Ed25519PublicKey", LegacyPublicKey)
+
+    with verified_archive_stream(
+        archive,
+        expected_sha256=sha256_file(archive),
+        **_verified_stream_kwargs(material),
+    ) as verified:
+        assert verified.read() == b"legacy verification compatibility"
 
 
 def test_digest_failure_happens_before_signature_or_release_store_access(
