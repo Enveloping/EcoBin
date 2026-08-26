@@ -62,5 +62,6 @@ __pycache__/
 
 test_report/
 /release-output/
+/exports/
 /docs/deploy-docker.md
 /docs/deploy-web-docker.md
