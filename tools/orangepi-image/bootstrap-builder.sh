@@ -5,13 +5,25 @@ umask 077
 # Runs only inside the digest-pinned disposable Debian builder.  The outer
 # launcher mounts the repository and source artifact read-only.
 script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-software_payload_only=false
-if [[ "${1:-}" = --software-payload-only ]]; then
-    software_payload_only=true
-    shift
-fi
+build_mode=image
+case "${1:-}" in
+    --software-payload-only)
+        build_mode=software-payload
+        shift
+        ;;
+    --runtime-release-only)
+        build_mode=runtime-release
+        shift
+        ;;
+esac
 builder_lock="${script_directory}/builder.lock"
-snapshot_url="https://snapshot.debian.org/archive/debian/20260803T000000Z/"
+# The locked debian:bookworm-slim base deliberately has no CA bundle.  Use the
+# immutable HTTP snapshot for the initial APT bootstrap so ca-certificates can
+# be installed without a TLS trust cycle.  APT still authenticates InRelease
+# and every package through the pinned Debian archive keyring and exact
+# versions below.  Non-APT artifacts continue to require HTTPS plus size and
+# SHA-256 verification after the CA bundle is installed.
+snapshot_url="http://snapshot.debian.org/archive/debian/20260803T000000Z/"
 snapshot_sources="/tmp/ecobin-builder-snapshot.sources"
 
 fail() {
@@ -34,6 +46,9 @@ EOF
 
 apt_options=(
     -o "Acquire::Check-Valid-Until=false"
+    -o "Acquire::Retries=4"
+    -o "Acquire::http::Timeout=60"
+    -o "Acquire::https::Timeout=60"
     -o "Dir::Etc::sourcelist=${snapshot_sources}"
     -o "Dir::Etc::sourceparts=-"
     -o "APT::Get::List-Cleanup=0"
@@ -75,6 +90,10 @@ mapping = {
     "openssl": "openssl",
     "p7zip": "p7zip-full",
     "python": "python3",
+    "python311Venv": "python3.11-venv",
+    "pythonCryptography": "python3-cryptography",
+    "pythonPip": "python3-pip",
+    "pythonVenv": "python3-venv",
     "qemuUserStatic": "qemu-user-static",
     "sed": "sed",
     "utilLinux": "util-linux",
@@ -97,29 +116,31 @@ PY
 apt-get "${apt_options[@]}" install -y --no-install-recommends \
     "${locked_packages[@]}"
 
-mapfile -t target_packages < <(
-    python3 - "${script_directory}/apt-packages.lock" <<'PY'
+if [[ "${build_mode}" = image ]]; then
+    mapfile -t target_packages < <(
+        python3 - "${script_directory}/apt-packages.lock" <<'PY'
 import pathlib
 import sys
 for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
     if line and not line.startswith("#"):
         print(line.split(" sha256=", 1)[0])
 PY
-)
-[[ "${#target_packages[@]}" -gt 0 ]] \
-    || fail "target package lock produced no packages"
-target_deb_directory="/tmp/ecobin-target-debs"
-mkdir -m 0755 -- "${target_deb_directory}"
-(
-    cd "${target_deb_directory}"
-    apt-get "${apt_options[@]}" download "${target_packages[@]}"
-)
-mapfile -t downloaded_debs < <(find "${target_deb_directory}" \
-    -mindepth 1 -maxdepth 1 -type f -name '*.deb' -printf '%p\n' | sort)
-[[ "${#downloaded_debs[@]}" = "${#target_packages[@]}" ]] \
-    || fail "downloaded target deb set is incomplete"
-chmod 0644 -- "${downloaded_debs[@]}"
-export ECOBIN_TARGET_DEB_DIRECTORY="${target_deb_directory}"
+    )
+    [[ "${#target_packages[@]}" -gt 0 ]] \
+        || fail "target package lock produced no packages"
+    target_deb_directory="/tmp/ecobin-target-debs"
+    mkdir -m 0755 -- "${target_deb_directory}"
+    (
+        cd "${target_deb_directory}"
+        apt-get "${apt_options[@]}" download "${target_packages[@]}"
+    )
+    mapfile -t downloaded_debs < <(find "${target_deb_directory}" \
+        -mindepth 1 -maxdepth 1 -type f -name '*.deb' -printf '%p\n' | sort)
+    [[ "${#downloaded_debs[@]}" = "${#target_packages[@]}" ]] \
+        || fail "downloaded target deb set is incomplete"
+    chmod 0644 -- "${downloaded_debs[@]}"
+    export ECOBIN_TARGET_DEB_DIRECTORY="${target_deb_directory}"
+fi
 
 python3 - "${builder_lock}" <<'PY'
 import json
@@ -145,6 +166,10 @@ mapping = {
     "openssl": "openssl",
     "p7zip": "p7zip-full",
     "python": "python3",
+    "python311Venv": "python3.11-venv",
+    "pythonCryptography": "python3-cryptography",
+    "pythonPip": "python3-pip",
+    "pythonVenv": "python3-venv",
     "qemuUserStatic": "qemu-user-static",
     "sed": "sed",
     "utilLinux": "util-linux",
@@ -245,7 +270,10 @@ esac
 
 apt-get clean
 rm -rf -- /var/lib/apt/lists/*
-if [[ "${software_payload_only}" = true ]]; then
+if [[ "${build_mode}" = runtime-release ]]; then
+    exec python3 /workspace/hardware/install/build_runtime_release.py "$@"
+fi
+if [[ "${build_mode}" = software-payload ]]; then
     exec bash "${script_directory}/build-software-payload.sh" "$@"
 fi
 exec bash "${script_directory}/build-image.sh" "$@"

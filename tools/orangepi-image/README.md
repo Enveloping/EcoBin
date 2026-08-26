@@ -167,8 +167,20 @@ checked-in formal policy template into a trust root.
 
 Do not assemble `components/` by hand. Build it in the same digest-pinned ARM64
 container used by the image builder. The hardware runtime must first be built
-and signed through `hardware/install/build_runtime_release.py`. All inputs below
-are mandatory and mounted read-only:
+and signed through the locked launcher below. It mounts the repository and the
+external Ed25519 private key read-only, rejects a dirty repository or permissive
+private-key mode, and does not copy the private key into the output:
+
+```bash
+tools/orangepi-image/run-runtime-builder.sh \
+  --output-dir /controlled/runtime/hardware-runtime-001 \
+  --release-id hardware-runtime-001 \
+  --signing-private-key /controlled/keys/runtime-signing-private.pem
+```
+
+The runtime output contains the deterministic ARM64 archive, its SHA-256 file
+and a detached Ed25519 signature. Use those three outputs in the payload build.
+All payload inputs below are mandatory and mounted read-only:
 
 ```bash
 tools/orangepi-image/run-payload-builder.sh \

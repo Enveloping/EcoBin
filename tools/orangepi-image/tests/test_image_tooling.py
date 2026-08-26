@@ -314,6 +314,55 @@ class ImageToolingTest(unittest.TestCase):
         self.assertNotIn("BuilderDigest", wrapper)
         self.assertIn("run-builder.sh", wrapper)
 
+    def test_ca_less_builder_bootstraps_from_signed_http_snapshot(self) -> None:
+        bootstrap = (TOOL_ROOT / "bootstrap-builder.sh").read_text(
+            encoding="utf-8"
+        )
+
+        # debian:bookworm-slim does not contain a CA bundle.  Requiring HTTPS
+        # before the locked ca-certificates package is installed creates an
+        # impossible bootstrap cycle.  APT authenticates this immutable HTTP
+        # snapshot through its signed InRelease metadata and the pinned Debian
+        # archive keyring.
+        self.assertIn(
+            'snapshot_url="http://snapshot.debian.org/archive/'
+            'debian/20260803T000000Z/"',
+            bootstrap,
+        )
+        self.assertIn(
+            "Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg",
+            bootstrap,
+        )
+        self.assertIn("Acquire::Retries=4", bootstrap)
+
+    def test_runtime_release_has_a_locked_arm64_build_entry(self) -> None:
+        launcher = (TOOL_ROOT / "run-runtime-builder.sh").read_text(
+            encoding="utf-8"
+        )
+        bootstrap = (TOOL_ROOT / "bootstrap-builder.sh").read_text(
+            encoding="utf-8"
+        )
+        builder = json.loads(
+            (TOOL_ROOT / "builder.lock").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(builder["tools"]["pythonPip"], "23.0.1+dfsg-1")
+        self.assertEqual(builder["tools"]["pythonVenv"], "3.11.2-1+b1")
+        self.assertEqual(builder["tools"]["python311Venv"], "3.11.2-6+deb12u8")
+        self.assertEqual(
+            builder["tools"]["pythonCryptography"],
+            "38.0.4-3+deb12u1",
+        )
+        self.assertIn("builder.lock", launcher)
+        self.assertIn("dst=/workspace,readonly", launcher)
+        self.assertIn("dst=/runtime-input/signing-private.pem,readonly", launcher)
+        self.assertIn("formal runtime releases require a clean repository", launcher)
+        self.assertIn("signing private key permissions are unsafe", launcher)
+        self.assertIn("--runtime-release-only", launcher)
+        self.assertNotIn("--privileged", launcher)
+        self.assertIn("--runtime-release-only", bootstrap)
+        self.assertIn("hardware/install/build_runtime_release.py", bootstrap)
+
     def test_target_package_installer_is_chrooted_pinned_and_service_safe(self) -> None:
         installer = (TOOL_ROOT / "install-target-packages.sh").read_text(
             encoding="utf-8"

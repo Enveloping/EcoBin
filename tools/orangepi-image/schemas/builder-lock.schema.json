@@ -36,7 +36,7 @@
     "tools": {
       "type": "object",
       "additionalProperties": {"type": ["string", "null"]},
-      "required": ["bash", "caCertificates", "coreutils", "debianArchiveKeyring", "e2fsprogs", "fdisk", "findutils", "git", "grep", "gzip", "jq", "mawk", "mount", "openssl", "p7zip", "python", "qemuUserStatic", "sed", "utilLinux", "uv", "xz", "zstd"]
+      "required": ["bash", "caCertificates", "coreutils", "debianArchiveKeyring", "e2fsprogs", "fdisk", "findutils", "git", "grep", "gzip", "jq", "mawk", "mount", "openssl", "p7zip", "python", "python311Venv", "pythonCryptography", "pythonPip", "pythonVenv", "qemuUserStatic", "sed", "utilLinux", "uv", "xz", "zstd"]
     }
   }
 }
