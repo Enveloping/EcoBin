@@ -135,8 +135,8 @@ if [[ -n "${software_payload}${software_payload_sha256}${release_id}${version}${
 fi
 [[ "$(id -u)" = 0 ]] || fail "read-only loop inspection requires root"
 for command_name in \
-    python3 losetup lsblk blkid mount umount mountpoint stat find grep awk \
-    readlink basename sfdisk dumpe2fs; do
+    python3 losetup blkid mount umount mountpoint stat find grep awk \
+    readlink basename dumpe2fs; do
     command -v "${command_name}" >/dev/null 2>&1 \
         || fail "required command is missing: ${command_name}"
 done
@@ -159,6 +159,18 @@ expected_filesystem_uuid="$(json_value \
     "${config_directory}/image-layout.json" rootFilesystem.filesystemUuid)"
 expected_partition_uuid="$(json_value \
     "${config_directory}/image-layout.json" rootFilesystem.partitionUuid)"
+partition_table_type="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.partitionTableType)"
+expected_disk_identifier="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.diskIdentifier)"
+logical_sector_bytes="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.logicalSectorBytes)"
+expected_root_start="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.rootPartition.startSector)"
+expected_root_sectors="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.rootPartition.sectorCount)"
+[[ "${logical_sector_bytes}" = 512 ]] \
+    || fail "only locked 512-byte image sectors are supported"
 [[ "$(stat -c '%s' -- "${image_path}")" = "${expected_size}" ]] \
     || fail "raw image size does not match image-layout.json"
 
@@ -166,35 +178,31 @@ loop_device="$(losetup --find --show --partscan --read-only -- "${image_path}")"
 [[ -b "${loop_device}" ]] || fail "failed to attach a read-only loop device"
 udevadm settle 2>/dev/null || true
 
-partition_rows_output="$(ecobin_list_direct_partitions "${loop_device}")" \
-    || fail "cannot resolve image partitions through sysfs"
-[[ -n "${partition_rows_output}" ]] || fail "image has no partitions"
-mapfile -t partition_rows <<< "${partition_rows_output}"
-root_partition=""
-highest_partition=0
-for row in "${partition_rows[@]}"; do
-    partition_name="${row% *}"
-    partition_number="${row##* }"
-    [[ "${partition_number}" =~ ^[0-9]+$ ]] \
-        || fail "image contains a non-numeric sysfs partition number"
-    (( partition_number > highest_partition )) && highest_partition="${partition_number}"
-    if [[ "${partition_number}" = "${root_partition_number}" ]]; then
-        root_partition="${partition_name}"
-    fi
-done
-[[ -n "${root_partition}" && -b "${root_partition}" ]] \
-    || fail "locked root partition is absent"
-[[ "${root_partition_number}" = "${highest_partition}" ]] \
-    || fail "root partition is not the final image partition"
-
+root_geometry="$(ecobin_final_partition_geometry \
+    "${loop_device}" "${root_partition_number}")" \
+    || fail "locked root partition is absent or not final"
+read -r root_start root_sectors unexpected <<< "${root_geometry}"
+[[ -z "${unexpected}" && "${root_start}" = "${expected_root_start}" \
+    && "${root_sectors}" = "${expected_root_sectors}" ]] \
+    || fail "root partition sysfs geometry differs from image-layout.json"
+ecobin_verify_dos_partition_identity \
+    "${loop_device}" "${partition_table_type}" "${expected_disk_identifier}" \
+    "${root_partition_number}" "${expected_partition_uuid}" \
+    || fail "root partition UUID does not match image-layout.json"
+losetup -d "${loop_device}"
+loop_device=""
+root_offset_bytes="$((root_start * logical_sector_bytes))"
+root_size_bytes="$((root_sectors * logical_sector_bytes))"
+loop_device="$(losetup --find --show --read-only \
+    --offset "${root_offset_bytes}" --sizelimit "${root_size_bytes}" \
+    -- "${image_path}")"
+[[ -b "${loop_device}" ]] || fail "failed to attach a read-only root slice"
+root_partition="${loop_device}"
 actual_type="$(blkid -s TYPE -o value -- "${root_partition}")"
 actual_uuid="$(blkid -s UUID -o value -- "${root_partition}")"
-actual_partuuid="$(blkid -s PARTUUID -o value -- "${root_partition}")"
 [[ "${actual_type}" = ext4 ]] || fail "locked root partition is not ext4"
 [[ "${actual_uuid,,}" = "${expected_filesystem_uuid,,}" ]] \
     || fail "root filesystem UUID does not match image-layout.json"
-[[ "${actual_partuuid,,}" = "${expected_partition_uuid,,}" ]] \
-    || fail "root partition UUID does not match image-layout.json"
 python3 "${script_directory}/lib/verify_ext4_profile.py" \
     --device "${root_partition}" --layout "${config_directory}/image-layout.json" \
     || fail "root ext4 construction profile differs from image-layout.json"
@@ -279,7 +287,7 @@ if find "${mount_directory}/etc/ssh" -maxdepth 1 -type f \
     -name 'ssh_host_*' -print -quit 2>/dev/null | grep -q .; then
     fail "image contains generated SSH host keys"
 fi
-if find "${mount_directory}" -xdev -type d -name .git -print -quit \
+if find "${mount_directory}" -xdev -name .git -print -quit \
     2>/dev/null | grep -q .; then
     fail "image contains Git metadata"
 fi

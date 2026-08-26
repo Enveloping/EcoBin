@@ -202,8 +202,29 @@ class RootfsSanitizer:
         for target in parent.glob(name_pattern):
             self.remove(target.relative_to(self.root).as_posix())
 
-    @staticmethod
-    def _read_regular_configuration(path: pathlib.Path) -> str:
+    def remove_named_entries(self, entry_name: str) -> None:
+        if not entry_name or "/" in entry_name or entry_name in (".", ".."):
+            raise SanitizationError("unsafe recursive cleanup entry name")
+        for current_name, directory_names, file_names in os.walk(
+            self.root, topdown=True, followlinks=False
+        ):
+            current = pathlib.Path(current_name)
+            retained_directories: list[str] = []
+            for directory_name in directory_names:
+                candidate = current / directory_name
+                if directory_name == entry_name:
+                    self.remove(candidate.relative_to(self.root).as_posix())
+                    continue
+                if candidate.is_symlink():
+                    continue
+                retained_directories.append(directory_name)
+            directory_names[:] = retained_directories
+            for file_name in file_names:
+                if file_name == entry_name:
+                    candidate = current / file_name
+                    self.remove(candidate.relative_to(self.root).as_posix())
+
+    def _read_regular_configuration(self, path: pathlib.Path) -> str:
         details = path.lstat()
         if (
             stat.S_ISLNK(details.st_mode)
@@ -211,8 +232,10 @@ class RootfsSanitizer:
             or details.st_nlink != 1
             or details.st_size > 1024 * 1024
         ):
+            relative = path.relative_to(self.root).as_posix()
             raise SanitizationError(
-                "local-login configuration must be a bounded regular single-link file"
+                "local-login configuration must be a bounded regular "
+                f"single-link file: /{relative}"
             )
         return path.read_text(encoding="utf-8")
 
@@ -244,6 +267,13 @@ class RootfsSanitizer:
         for directory in self._systemd_unit_directories():
             for entry in directory.iterdir():
                 if GETTY_UNIT_NAME.fullmatch(entry.name):
+                    details = entry.lstat()
+                    if stat.S_ISLNK(details.st_mode):
+                        if os.readlink(entry) == "/dev/null":
+                            continue
+                        raise SanitizationError(
+                            "getty unit symlink is not an exact systemd mask"
+                        )
                     if entry not in seen:
                         files.append(entry)
                         seen.add(entry)
@@ -521,6 +551,9 @@ class RootfsSanitizer:
         os.chmod(target, 0o644)
 
     def run(self) -> None:
+        # Vendor images may carry full Git repositories under /etc and /usr/src.
+        # Remove directory, file and symlink forms without following rootfs links.
+        self.remove_named_entries(".git")
         for relative in REMOVE_EXACT_PATHS:
             self.remove(relative)
         for pattern in REMOVE_GLOBS:

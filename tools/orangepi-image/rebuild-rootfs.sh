@@ -65,6 +65,24 @@ label="$(json_value "${layout}" rootFilesystem.filesystemLabel)"
 hash_seed="$(json_value "${layout}" rootFilesystem.buildProfile.directoryHashSeed)"
 block_count="$(json_value "${layout}" rootFilesystem.buildProfile.blockCount)"
 inode_count="$(json_value "${layout}" rootFilesystem.buildProfile.inodeCount)"
+if ! filesystem_flag_value="$(python3 - "${layout}" <<'PY'
+import json
+import pathlib
+import sys
+
+flags = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["rootFilesystem"]["buildProfile"]["filesystemFlags"]
+values = {
+    ("signed_directory_hash",): "0x1",
+    ("unsigned_directory_hash",): "0x2",
+}
+try:
+    print(values[tuple(flags)])
+except (KeyError, TypeError):
+    raise SystemExit(2) from None
+PY
+)"; then
+    fail "locked filesystem flags are unsupported"
+fi
 
 source_loop="$(losetup --find --show --read-only --offset "$((sector_bytes * start_sector))" --sizelimit "${partition_bytes}" -- "${source_image}")"
 source_mount="$(mktemp -d "${working_directory}/source-root.XXXXXXXX")"
@@ -82,6 +100,12 @@ env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C TZ=UTC E2FSPROGS_FAKE_TIME="$
     -O has_journal,ext_attr,resize_inode,dir_index,filetype,extent,flex_bg,sparse_super,large_file,huge_file,dir_nlink,extra_isize,^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file \
     -E "hash_seed=${hash_seed},lazy_itable_init=0,lazy_journal_init=0,nodiscard,root_owner=0:0" \
     -d "${source_mount}" "${output_partition}" "${block_count}"
+# libext2fs chooses this hint from the builder architecture's default char
+# signedness.  Set the locked, architecture-independent value immediately
+# after population; mke2fs -d creates linear directories and no htree whose
+# hashes would need conversion.
+debugfs -w -R "set_super_value flags ${filesystem_flag_value}" \
+    "${output_partition}" >/dev/null
 env E2FSPROGS_FAKE_TIME="${epoch}" tune2fs -E hash_alg=half_md4 \
     -o journal_data_writeback,user_xattr,acl -e continue -c -1 -i 0 -- \
     "${output_partition}" >/dev/null

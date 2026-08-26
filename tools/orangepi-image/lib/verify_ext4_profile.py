@@ -54,8 +54,14 @@ def main() -> int:
             differences.append("Filesystem features")
         if set(fields.get("Default mount options", "").split()) != set(profile["defaultMountOptions"]):
             differences.append("Default mount options")
-        if set(fields.get("Filesystem flags", "").split()) != set(profile["filesystemFlags"]):
-            differences.append("Filesystem flags")
+        actual_filesystem_flags = set(fields.get("Filesystem flags", "").split())
+        expected_filesystem_flags = set(profile["filesystemFlags"])
+        if actual_filesystem_flags != expected_filesystem_flags:
+            differences.append(
+                "Filesystem flags="
+                f"{sorted(actual_filesystem_flags)!r} "
+                f"(expected {sorted(expected_filesystem_flags)!r})"
+            )
         if _size_bytes(fields.get("Total journal size", "0")) != profile["journalSizeBytes"]:
             differences.append("Total journal size")
         expected_time = time.strftime("%a %b %e %H:%M:%S %Y", time.gmtime(profile["sourceDateEpoch"]))

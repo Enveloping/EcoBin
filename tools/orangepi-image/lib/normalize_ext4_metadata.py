@@ -21,16 +21,27 @@ def main() -> int:
     parser.add_argument("--epoch", type=int, required=True)
     args = parser.parse_args()
     try:
-        if args.epoch < 0 or not args.device.is_file() or args.device.is_symlink():
-            raise ValueError("device must be a regular non-symlink partition image and epoch non-negative")
+        if (
+            args.epoch < 0
+            or args.epoch > 0x7FFFFFFF
+            or not args.device.is_file()
+            or args.device.is_symlink()
+        ):
+            raise ValueError(
+                "device must be a regular non-symlink partition image and "
+                "epoch must fit ext4 epoch-zero timestamps"
+            )
         inventory = json.loads(args.inventory.read_text(encoding="utf-8"))
         inodes = sorted({int(entry["inode"]) for entry in inventory["entries"]})
         if not inodes or any(inode <= 0 for inode in inodes):
             raise ValueError("inventory has invalid inode identities")
+        timestamp_hex = f"0x{args.epoch:08x}"
         commands = []
         for inode in inodes:
             for field in FIELDS:
-                commands.append(f"set_inode_field <{inode}> {field} {args.epoch}")
+                # debugfs treats a bare decimal time value as a date expression.
+                # An explicit hexadecimal timestamp avoids locale/date parsing.
+                commands.append(f"set_inode_field <{inode}> {field} {timestamp_hex}")
                 commands.append(f"set_inode_field <{inode}> {field}_extra 0")
         commands.extend(f"stat <{inode}>" for inode in inodes)
         deterministic_environment = os.environ.copy()
@@ -49,10 +60,12 @@ def main() -> int:
         )
         if verify.returncode:
             raise RuntimeError("debugfs verification failed")
-        expected_hex = f"0x{args.epoch:08x}:00000000"
+        expected_hex = f"{timestamp_hex}:00000000"
         for field in ("atime", "mtime", "ctime", "crtime"):
-            if verify.stdout.count(f"{field}:") != len(inodes) or verify.stdout.count(expected_hex) < len(inodes) * 4:
-                raise RuntimeError("normalized inode timestamp verification failed")
+            if verify.stdout.count(f"{field}: {expected_hex}") != len(inodes):
+                raise RuntimeError(
+                    f"normalized inode {field} timestamp verification failed"
+                )
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError, RuntimeError) as exc:
         print(f"ext4-normalization=FAIL: {exc}", file=sys.stderr)
         return 2

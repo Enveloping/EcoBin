@@ -134,7 +134,7 @@ done
     || fail "signing key ID has an invalid format"
 [[ "$(id -u)" = 0 ]] || fail "release inspection requires root"
 ulimit -c 0 || fail "core dumps must be disabled before handling release keys"
-for command_name in python3 sha256sum stat readlink cmp zstd losetup lsblk blkid \
+for command_name in python3 sha256sum stat readlink cmp zstd losetup blkid \
     mount umount mountpoint udevadm awk cp chmod touch flock find dpkg-query \
     swapon sync; do
     command -v "${command_name}" >/dev/null 2>&1 \
@@ -281,29 +281,43 @@ expected_filesystem_uuid="$(json_value \
     "${config_directory}/image-layout.json" rootFilesystem.filesystemUuid)"
 expected_partition_uuid="$(json_value \
     "${config_directory}/image-layout.json" rootFilesystem.partitionUuid)"
+partition_table_type="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.partitionTableType)"
+expected_disk_identifier="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.diskIdentifier)"
+logical_sector_bytes="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.logicalSectorBytes)"
+expected_root_start="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.rootPartition.startSector)"
+expected_root_sectors="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.rootPartition.sectorCount)"
+[[ "${logical_sector_bytes}" = 512 ]] \
+    || fail "only locked 512-byte image sectors are supported"
 loop_device="$(losetup --find --show --partscan --read-only -- "${sealed_image}")"
 udevadm settle 2>/dev/null || true
-root_partition=""
-highest_partition=0
-partition_rows_output="$(ecobin_list_direct_partitions "${loop_device}")" \
-    || fail "cannot resolve release partitions through sysfs"
-[[ -n "${partition_rows_output}" ]] || fail "release image has no partitions"
-while read -r partition_name partition_number; do
-    [[ -n "${partition_name}" ]] || continue
-    [[ "${partition_number}" =~ ^[0-9]+$ ]] \
-        || fail "release image has a non-numeric sysfs partition number"
-    (( partition_number > highest_partition )) && highest_partition="${partition_number}"
-    [[ "${partition_number}" = "${root_partition_number}" ]] \
-        && root_partition="${partition_name}"
-done <<< "${partition_rows_output}"
-[[ -n "${root_partition}" && -b "${root_partition}" \
-    && "${root_partition_number}" = "${highest_partition}" ]] \
+root_geometry="$(ecobin_final_partition_geometry \
+    "${loop_device}" "${root_partition_number}")" \
     || fail "locked root partition is absent or not final"
+read -r root_start root_sectors unexpected <<< "${root_geometry}"
+[[ -z "${unexpected}" && "${root_start}" = "${expected_root_start}" \
+    && "${root_sectors}" = "${expected_root_sectors}" ]] \
+    || fail "root partition sysfs geometry differs from image-layout.json"
+ecobin_verify_dos_partition_identity \
+    "${loop_device}" "${partition_table_type}" "${expected_disk_identifier}" \
+    "${root_partition_number}" "${expected_partition_uuid}" \
+    || fail "release root partition UUID differs from locked layout"
+losetup -d "${loop_device}"
+loop_device=""
+root_offset_bytes="$((root_start * logical_sector_bytes))"
+root_size_bytes="$((root_sectors * logical_sector_bytes))"
+loop_device="$(losetup --find --show --read-only \
+    --offset "${root_offset_bytes}" --sizelimit "${root_size_bytes}" \
+    -- "${sealed_image}")"
+[[ -b "${loop_device}" ]] || fail "failed to attach release root slice"
+root_partition="${loop_device}"
 [[ "$(blkid -s TYPE -o value -- "${root_partition}")" = ext4 \
     && "$(blkid -s UUID -o value -- "${root_partition}")" = \
-        "${expected_filesystem_uuid}" \
-    && "$(blkid -s PARTUUID -o value -- "${root_partition}")" = \
-        "${expected_partition_uuid}" ]] \
+        "${expected_filesystem_uuid}" ]] \
     || fail "release root partition identity differs from locked layout"
 mount_directory="$(mktemp -d /tmp/ecobin-image-release.XXXXXXXX)"
 [[ "$(stat -c '%u:%g:%a' -- "${mount_directory}")" = 0:0:700 ]] \

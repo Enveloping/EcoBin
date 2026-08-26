@@ -153,7 +153,7 @@ done
     || fail "software payload SHA-256 is malformed"
 [[ "$(id -u)" = 0 ]] || fail "candidate sanitization requires root"
 for command_name in \
-    python3 losetup lsblk blkid mount umount mountpoint readlink stat flock sync \
+    python3 losetup blkid mount umount mountpoint readlink stat flock sync \
     grep sed awk; do
     command -v "${command_name}" >/dev/null 2>&1 \
         || fail "required command is missing: ${command_name}"
@@ -188,6 +188,18 @@ expected_filesystem_uuid="$(json_value \
     "${config_directory}/image-layout.json" rootFilesystem.filesystemUuid)"
 expected_partition_uuid="$(json_value \
     "${config_directory}/image-layout.json" rootFilesystem.partitionUuid)"
+partition_table_type="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.partitionTableType)"
+expected_disk_identifier="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.diskIdentifier)"
+logical_sector_bytes="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.logicalSectorBytes)"
+expected_root_start="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.rootPartition.startSector)"
+expected_root_sectors="$(json_value \
+    "${config_directory}/image-layout.json" sourceGeometry.rootPartition.sectorCount)"
+[[ "${logical_sector_bytes}" = 512 ]] \
+    || fail "only locked 512-byte image sectors are supported"
 [[ "$(stat -c '%s' -- "${image_path}")" = "${expected_size}" ]] \
     || fail "raw image size does not match image-layout.json"
 
@@ -199,35 +211,36 @@ backing_file="$(losetup -nO BACK-FILE -- "${loop_device}" | sed -e 's/^[[:space:
     || fail "loop device is not backed by the candidate image"
 udevadm settle 2>/dev/null || true
 
-partition_rows_output="$(ecobin_list_direct_partitions "${loop_device}")" \
-    || fail "cannot resolve candidate partitions through sysfs"
-[[ -n "${partition_rows_output}" ]] || fail "candidate image has no partitions"
-mapfile -t partition_rows <<< "${partition_rows_output}"
-root_partition=""
-highest_partition=0
-for row in "${partition_rows[@]}"; do
-    partition_name="${row% *}"
-    partition_number="${row##* }"
-    [[ "${partition_number}" =~ ^[0-9]+$ ]] \
-        || fail "candidate contains a non-numeric sysfs partition number"
-    (( partition_number > highest_partition )) && highest_partition="${partition_number}"
-    if [[ "${partition_number}" = "${root_partition_number}" ]]; then
-        root_partition="${partition_name}"
-    fi
-done
-[[ -n "${root_partition}" && -b "${root_partition}" ]] \
-    || fail "locked root partition is absent"
-[[ "${root_partition_number}" = "${highest_partition}" ]] \
-    || fail "locked root partition is not the final image partition"
-
+root_geometry="$(ecobin_final_partition_geometry \
+    "${loop_device}" "${root_partition_number}")" \
+    || fail "locked root partition is absent or root partition is not the final image partition"
+read -r root_start root_sectors unexpected <<< "${root_geometry}"
+[[ -z "${unexpected}" && "${root_start}" = "${expected_root_start}" \
+    && "${root_sectors}" = "${expected_root_sectors}" ]] \
+    || fail "root partition sysfs geometry differs from image-layout.json"
+ecobin_verify_dos_partition_identity \
+    "${loop_device}" "${partition_table_type}" "${expected_disk_identifier}" \
+    "${root_partition_number}" "${expected_partition_uuid}" \
+    || fail "root partition UUID does not match image-layout.json"
+losetup -d "${loop_device}"
+loop_device=""
+root_offset_bytes="$((root_start * logical_sector_bytes))"
+root_size_bytes="$((root_sectors * logical_sector_bytes))"
+loop_device="$(losetup --find --show \
+    --offset "${root_offset_bytes}" --sizelimit "${root_size_bytes}" \
+    -- "${image_path}")"
+[[ -b "${loop_device}" ]] || fail "failed to attach candidate root slice"
+backing_file="$(losetup -nO BACK-FILE -- "${loop_device}" \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+[[ -n "${backing_file}" \
+    && "$(readlink -f -- "${backing_file}")" = "${image_path}" ]] \
+    || fail "root slice is not backed by the candidate image"
+root_partition="${loop_device}"
 actual_type="$(blkid -s TYPE -o value -- "${root_partition}")"
 actual_uuid="$(blkid -s UUID -o value -- "${root_partition}")"
-actual_partuuid="$(blkid -s PARTUUID -o value -- "${root_partition}")"
 [[ "${actual_type}" = ext4 ]] || fail "locked root partition is not ext4"
 [[ "${actual_uuid,,}" = "${expected_filesystem_uuid,,}" ]] \
     || fail "root filesystem UUID does not match image-layout.json"
-[[ "${actual_partuuid,,}" = "${expected_partition_uuid,,}" ]] \
-    || fail "root partition UUID does not match image-layout.json"
 
 mount_directory="$(mktemp -d /tmp/ecobin-image-sanitize.XXXXXXXX)"
 [[ "$(stat -c '%u:%g:%a' -- "${mount_directory}")" = 0:0:700 ]] \

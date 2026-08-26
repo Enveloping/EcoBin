@@ -17,6 +17,7 @@ VALIDATOR = TOOL_ROOT / "lib" / "validate_inputs.py"
 MANIFEST_GENERATOR = TOOL_ROOT / "lib" / "generate_manifest.py"
 ROOTFS_SANITIZER = TOOL_ROOT / "lib" / "sanitize_rootfs.py"
 RAW_ASSEMBLER = TOOL_ROOT / "lib" / "assemble_raw_image.py"
+EXT4_NORMALIZER = TOOL_ROOT / "lib" / "normalize_ext4_metadata.py"
 
 
 def run_command(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -892,6 +893,46 @@ class ImageToolingTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("getty or serial-getty", result.stderr)
 
+    def test_local_login_audit_accepts_only_exact_getty_masks(self) -> None:
+        root = pathlib.Path(self.temporary_directory.name) / "candidate-getty-mask"
+        unit_directory = root / "etc/systemd/system"
+        unit_directory.mkdir(parents=True)
+        (root / "var").mkdir()
+        (root / "etc/shadow").write_text(
+            "root:!:1:2:3:4:5:6:7\norangepi:!:1:2:3:4:5:6:7\n",
+            encoding="utf-8",
+        )
+        mask = unit_directory / "serial-getty@ttyS5.service"
+        try:
+            mask.symlink_to("/dev/null")
+        except OSError as error:
+            self.skipTest(f"host does not permit symbolic-link fixtures: {error}")
+
+        accepted = run_command(
+            sys.executable,
+            str(ROOTFS_SANITIZER),
+            "--root",
+            str(root),
+            "--confirm-root",
+            str(root),
+            "--audit-local-login-only",
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+        mask.unlink()
+        mask.symlink_to("/usr/lib/systemd/system/serial-getty@.service")
+        rejected = run_command(
+            sys.executable,
+            str(ROOTFS_SANITIZER),
+            "--root",
+            str(root),
+            "--confirm-root",
+            str(root),
+            "--audit-local-login-only",
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("not an exact systemd mask", rejected.stderr)
+
     def test_local_login_audit_rejects_display_manager_automatic_login(self) -> None:
         root = pathlib.Path(self.temporary_directory.name) / "candidate-gdm-autologin"
         (root / "etc/gdm3").mkdir(parents=True)
@@ -1002,6 +1043,83 @@ class ImageToolingTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("crosses a symbolic link", result.stderr)
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "must-survive")
+
+    def test_rootfs_sanitizer_removes_all_git_metadata_without_following_links(self) -> None:
+        root = pathlib.Path(self.temporary_directory.name) / "candidate-git-metadata"
+        external = pathlib.Path(self.temporary_directory.name) / "outside-git-target"
+        (root / "etc").mkdir(parents=True)
+        (root / "var").mkdir()
+        (root / "usr/src/vendor/.git").mkdir(parents=True)
+        (root / "opt/worktree").mkdir(parents=True)
+        (root / "srv/symlinked").mkdir(parents=True)
+        external.mkdir()
+        (root / "etc/shadow").write_text(
+            "root:x:1:2:3:4:5:6:7\norangepi:x:1:2:3:4:5:6:7\n",
+            encoding="utf-8",
+        )
+        (root / "usr/src/vendor/.git/config").write_text(
+            "[core]\nrepositoryformatversion = 0\n", encoding="utf-8"
+        )
+        (root / "opt/worktree/.git").write_text(
+            "gitdir: /forbidden/external/path\n", encoding="utf-8"
+        )
+        sentinel = external / "sentinel"
+        sentinel.write_text("must-survive", encoding="utf-8")
+        try:
+            (root / "srv/symlinked/.git").symlink_to(
+                external, target_is_directory=True
+            )
+        except OSError as error:
+            self.skipTest(f"host does not permit symbolic-link fixtures: {error}")
+
+        result = run_command(
+            sys.executable,
+            str(ROOTFS_SANITIZER),
+            "--root",
+            str(root),
+            "--confirm-root",
+            str(root),
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((root / "usr/src/vendor/.git").exists())
+        self.assertFalse((root / "opt/worktree/.git").exists())
+        self.assertFalse(os.path.lexists(root / "srv/symlinked/.git"))
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "must-survive")
+
+    @unittest.skipIf(sys.platform == "win32", "ext4 tooling runs on Linux")
+    def test_ext4_timestamp_normalizer_uses_unambiguous_epoch_values(self) -> None:
+        for command in ("debugfs", "mke2fs"):
+            if shutil.which(command) is None:
+                self.skipTest(f"{command} is unavailable")
+        image = pathlib.Path(self.temporary_directory.name) / "timestamps.img"
+        with image.open("wb") as stream:
+            stream.truncate(16 * 1024 * 1024)
+        formatted = run_command("mke2fs", "-q", "-F", "-t", "ext4", str(image))
+        self.assertEqual(formatted.returncode, 0, formatted.stderr)
+        inventory = pathlib.Path(self.temporary_directory.name) / "inventory.json"
+        inventory.write_text(
+            json.dumps({"entries": [{"inode": 2}]}),
+            encoding="utf-8",
+            newline="\n",
+        )
+        epoch = 1_783_765_141
+        normalized = run_command(
+            sys.executable,
+            str(EXT4_NORMALIZER),
+            "--device",
+            str(image),
+            "--inventory",
+            str(inventory),
+            "--epoch",
+            str(epoch),
+        )
+        self.assertEqual(normalized.returncode, 0, normalized.stderr)
+        inspected = run_command("debugfs", "-R", "stat <2>", str(image))
+        self.assertEqual(inspected.returncode, 0, inspected.stderr)
+        expected = f"0x{epoch:08x}:00000000"
+        for field in ("atime", "mtime", "ctime", "crtime"):
+            self.assertIn(f"{field}: {expected}", inspected.stdout)
 
     @unittest.skipIf(sys.platform == "win32", "Linux Bash integration runs in WSL/Linux")
     @unittest.skipUnless(shutil.which("bash"), "bash is not installed")
@@ -1115,9 +1233,12 @@ class ImageToolingTest(unittest.TestCase):
 
     def test_block_device_queries_are_compatible_with_locked_debian_12(self) -> None:
         helper = (TOOL_ROOT / "lib" / "block_device.sh").read_text(encoding="utf-8")
-        self.assertIn("lsblk -nrpo NAME,TYPE", helper)
         self.assertIn("/sys/class/block/", helper)
         self.assertIn('/partition")', helper)
+        self.assertIn('/start")', helper)
+        self.assertIn('/size")', helper)
+        self.assertIn("blkid -s PTUUID", helper)
+        self.assertNotIn("lsblk -", helper)
 
         partition_scripts = (
             "sanitize-candidate.sh",
@@ -1129,13 +1250,25 @@ class ImageToolingTest(unittest.TestCase):
             script = (TOOL_ROOT / name).read_text(encoding="utf-8")
             with self.subTest(script=name):
                 self.assertNotIn("NAME,TYPE,PARTN", script)
-                self.assertIn("ecobin_list_direct_partitions", script)
+                self.assertIn("ecobin_final_partition_geometry", script)
+                self.assertIn("ecobin_verify_dos_partition_identity", script)
+                self.assertIn("--offset", script)
+                self.assertIn("--sizelimit", script)
 
         detach_scripts = (*partition_scripts, "rebuild-rootfs.sh")
         for name in detach_scripts:
             script = (TOOL_ROOT / name).read_text(encoding="utf-8")
             with self.subTest(script=name):
                 self.assertNotIn("losetup -d --", script)
+
+    def test_rootfs_rebuild_pins_directory_hash_signedness(self) -> None:
+        rebuild = (TOOL_ROOT / "rebuild-rootfs.sh").read_text(encoding="utf-8")
+        flag_write = 'debugfs -w -R "set_super_value flags ${filesystem_flag_value}"'
+        self.assertIn('("signed_directory_hash",): "0x1"', rebuild)
+        self.assertIn('("unsigned_directory_hash",): "0x2"', rebuild)
+        self.assertIn(flag_write, rebuild)
+        self.assertLess(rebuild.index("mke2fs -q"), rebuild.index(flag_write))
+        self.assertLess(rebuild.index(flag_write), rebuild.index("tune2fs -E hash_alg"))
 
     @unittest.skipIf(sys.platform == "win32", "release verification runs on Linux")
     def test_signed_release_inventory_rejects_manifest_and_sbom_tampering(self) -> None:
