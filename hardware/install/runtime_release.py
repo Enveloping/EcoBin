@@ -763,6 +763,132 @@ def _require_safe_owner_and_mode(
         raise ReleaseValidationError("installed runtime is not grouped by root")
 
 
+def _harden_regular_venv_entry(
+    path: Path,
+    details: os.stat_result,
+    *,
+    expected_uid: int | None,
+    expected_gid: int | None,
+) -> None:
+    is_directory = stat.S_ISDIR(details.st_mode)
+    is_regular = stat.S_ISREG(details.st_mode)
+    if not is_directory and not is_regular:
+        raise ReleaseValidationError(
+            "installed venv contains a special filesystem entry"
+        )
+    if is_regular and details.st_nlink != 1:
+        raise ReleaseValidationError("installed venv contains a hard-linked file")
+    if expected_uid is not None and details.st_uid != expected_uid:
+        raise ReleaseValidationError("installed runtime is not owned by root")
+    if expected_gid is not None and details.st_gid != expected_gid:
+        raise ReleaseValidationError("installed runtime is not grouped by root")
+
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    if is_directory:
+        flags |= getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ReleaseValidationError(
+            "cannot securely open installed venv entry"
+        ) from error
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            not os.path.samestat(details, opened)
+            or stat.S_ISDIR(opened.st_mode) != is_directory
+            or stat.S_ISREG(opened.st_mode) != is_regular
+            or (is_regular and opened.st_nlink != 1)
+        ):
+            raise ReleaseValidationError(
+                "installed venv changed while hardening permissions"
+            )
+        if expected_uid is not None and opened.st_uid != expected_uid:
+            raise ReleaseValidationError("installed runtime is not owned by root")
+        if expected_gid is not None and opened.st_gid != expected_gid:
+            raise ReleaseValidationError("installed runtime is not grouped by root")
+        safe_mode = stat.S_IMODE(opened.st_mode) & ~(
+            stat.S_IWGRP | stat.S_IWOTH
+        )
+        os.fchmod(descriptor, safe_mode)
+        hardened = os.fstat(descriptor)
+        if not os.path.samestat(opened, hardened):
+            raise ReleaseValidationError(
+                "installed venv changed while hardening permissions"
+            )
+        _require_safe_owner_and_mode(
+            hardened.st_mode,
+            hardened.st_uid,
+            hardened.st_gid,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
+        )
+    except OSError as error:
+        raise ReleaseValidationError(
+            "cannot harden installed venv permissions"
+        ) from error
+    finally:
+        os.close(descriptor)
+
+
+def harden_installed_venv_permissions(
+    release: str | os.PathLike[str],
+    *,
+    expected_uid: int | None = 0,
+    expected_gid: int | None = 0,
+) -> None:
+    """Remove wide write bits without following or mutating venv links."""
+
+    venv = Path(release) / ".venv"
+    try:
+        root_details = venv.lstat()
+    except OSError as error:
+        raise ReleaseValidationError("installed release has no regular venv") from error
+    if stat.S_ISLNK(root_details.st_mode) or not stat.S_ISDIR(root_details.st_mode):
+        raise ReleaseValidationError("installed release has no regular venv")
+    _harden_regular_venv_entry(
+        venv,
+        root_details,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
+
+    pending = [venv]
+    while pending:
+        directory = pending.pop()
+        try:
+            entries = list(os.scandir(directory))
+        except OSError as error:
+            raise ReleaseValidationError("cannot inspect installed venv") from error
+        for entry in entries:
+            path = Path(entry.path)
+            details = path.lstat()
+            mode = details.st_mode
+            if stat.S_ISLNK(mode):
+                if details.st_nlink != 1:
+                    raise ReleaseValidationError(
+                        "installed venv contains a hard-linked symbolic link"
+                    )
+                if expected_uid is not None and details.st_uid != expected_uid:
+                    raise ReleaseValidationError(
+                        "installed venv link is not owned by root"
+                    )
+                if expected_gid is not None and details.st_gid != expected_gid:
+                    raise ReleaseValidationError(
+                        "installed venv link is not grouped by root"
+                    )
+                continue
+            _harden_regular_venv_entry(
+                path,
+                details,
+                expected_uid=expected_uid,
+                expected_gid=expected_gid,
+            )
+            if stat.S_ISDIR(mode):
+                pending.append(path)
+
+
 def _validate_private_parent(
     parent: Path,
     *,

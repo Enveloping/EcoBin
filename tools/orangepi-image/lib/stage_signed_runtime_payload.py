@@ -17,6 +17,7 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "hardware/install"))
 from runtime_release import (  # noqa: E402
     ReleaseValidationError,
     audit_installed_venv,
+    harden_installed_venv_permissions,
     safe_extract_archive_stream,
     validate_release_tree,
     verified_archive_stream,
@@ -97,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
                     str(args.destination / "requirements-offline.txt"),
                 ]
             )
+            harden_installed_venv_permissions(args.destination)
             _run(
                 [
                     str(args.destination / ".venv/bin/python"),

@@ -26,6 +26,7 @@ try:
         audit_installed_venv,
         create_incoming_directory,
         fsync_release_tree,
+        harden_installed_venv_permissions,
         installed_current_release,
         nonblocking_install_lock,
         recover_pending_activation,
@@ -44,6 +45,7 @@ except ImportError:  # pragma: no cover - direct execution on the device
         audit_installed_venv,
         create_incoming_directory,
         fsync_release_tree,
+        harden_installed_venv_permissions,
         installed_current_release,
         nonblocking_install_lock,
         recover_pending_activation,
@@ -167,6 +169,7 @@ def _prepare_offline_environment(release: Path) -> None:
         timeout_seconds=PIP_INSTALL_TIMEOUT_SECONDS,
         operation="offline dependency installation",
     )
+    harden_installed_venv_permissions(release)
     _pip_check_installed_release(release)
 
 

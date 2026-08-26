@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import os
+import stat
 import subprocess
 import sys
 import tarfile
@@ -37,6 +38,7 @@ from install.runtime_release import (
     activate_with_rollback,
     activation_journal_path,
     audit_installed_venv,
+    harden_installed_venv_permissions,
     nonblocking_install_lock,
     recover_pending_activation,
     runtime_allowlist_sha256,
@@ -868,6 +870,54 @@ def test_venv_audit_rejects_group_writable_and_hardlinked_files(tmp_path):
         )
 
 
+def test_venv_permission_hardening_removes_wide_write_bits(tmp_path):
+    uid, gid = _posix_owner()
+    release = tmp_path / "release"
+    trusted = tmp_path / "trusted-python-3.11"
+    venv = _make_test_venv(release, trusted)
+    package = venv / "lib" / "package"
+    package.mkdir(parents=True)
+    module = package / "module.py"
+    module.write_text("value = 1\n", encoding="utf-8")
+    os.chmod(package, 0o775)
+    os.chmod(module, 0o664)
+
+    harden_installed_venv_permissions(
+        release,
+        expected_uid=uid,
+        expected_gid=gid,
+    )
+
+    assert stat.S_IMODE(package.stat().st_mode) == 0o755
+    assert stat.S_IMODE(module.stat().st_mode) == 0o644
+    audit_installed_venv(
+        release,
+        trusted_python_targets=[trusted],
+        expected_uid=uid,
+        expected_gid=gid,
+    )
+
+
+def test_venv_permission_hardening_rejects_hardlinks_before_chmod(tmp_path):
+    uid, gid = _posix_owner()
+    release = tmp_path / "release"
+    trusted = tmp_path / "trusted-python-3.11"
+    venv = _make_test_venv(release, trusted)
+    outside = tmp_path / "outside.py"
+    outside.write_text("must not be chmodded\n", encoding="utf-8")
+    os.chmod(outside, 0o664)
+    os.link(outside, venv / "hardlink.py")
+
+    with pytest.raises(ReleaseValidationError, match="hard-linked"):
+        harden_installed_venv_permissions(
+            release,
+            expected_uid=uid,
+            expected_gid=gid,
+        )
+
+    assert stat.S_IMODE(outside.stat().st_mode) == 0o664
+
+
 def test_venv_audit_rejects_special_and_unexpected_link_entries(tmp_path):
     uid, gid = _posix_owner()
     if not hasattr(os, "mkfifo"):
@@ -1424,6 +1474,42 @@ def test_existing_complete_release_is_audited_and_smoked_from_final_path(
         ("audit", final),
         ("pip", final),
         ("smoke", final),
+    ]
+
+
+@pytest.mark.skipif(
+    sys.version_info[:2] != (3, 11),
+    reason="runtime installer targets Python 3.11",
+)
+def test_offline_install_hardens_permissions_before_dependency_check(
+    monkeypatch,
+    tmp_path,
+):
+    release = tmp_path / "release"
+    calls: list[str] = []
+    monkeypatch.setattr(
+        install_runtime_release,
+        "_run",
+        lambda *_args, **kwargs: calls.append(kwargs["operation"]),
+    )
+    monkeypatch.setattr(
+        install_runtime_release,
+        "harden_installed_venv_permissions",
+        lambda path: calls.append(f"harden:{path.name}"),
+    )
+    monkeypatch.setattr(
+        install_runtime_release,
+        "_pip_check_installed_release",
+        lambda path: calls.append(f"check:{path.name}"),
+    )
+
+    install_runtime_release._prepare_offline_environment(release)
+
+    assert calls == [
+        "Python virtual environment creation",
+        "offline dependency installation",
+        "harden:release",
+        "check:release",
     ]
 
 
