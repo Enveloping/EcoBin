@@ -39,6 +39,7 @@ from install.runtime_release import (
     activation_journal_path,
     audit_installed_venv,
     harden_installed_venv_permissions,
+    harden_venv_permissions,
     nonblocking_install_lock,
     recover_pending_activation,
     runtime_allowlist_sha256,
@@ -882,8 +883,8 @@ def test_venv_permission_hardening_removes_wide_write_bits(tmp_path):
     os.chmod(package, 0o775)
     os.chmod(module, 0o664)
 
-    harden_installed_venv_permissions(
-        release,
+    harden_venv_permissions(
+        venv,
         expected_uid=uid,
         expected_gid=gid,
     )

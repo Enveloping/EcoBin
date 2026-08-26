@@ -409,6 +409,8 @@ class ImageToolingTest(unittest.TestCase):
         self.assertIn("uv sync", builder)
         self.assertIn("--frozen", builder)
         self.assertIn("--only-group", builder)
+        self.assertIn("lib/harden_venv.py", builder)
+        self.assertLess(builder.index("uv sync"), builder.index("lib/harden_venv.py"))
         self.assertIn('"uv ${expected_uv}"|"uv ${expected_uv} "*', builder)
         self.assertNotIn(
             '[[ "$(uv --version)" = "uv ${expected_uv}" ]]', builder

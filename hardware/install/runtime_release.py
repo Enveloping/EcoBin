@@ -832,15 +832,15 @@ def _harden_regular_venv_entry(
         os.close(descriptor)
 
 
-def harden_installed_venv_permissions(
-    release: str | os.PathLike[str],
+def harden_venv_permissions(
+    venv: str | os.PathLike[str],
     *,
     expected_uid: int | None = 0,
     expected_gid: int | None = 0,
 ) -> None:
     """Remove wide write bits without following or mutating venv links."""
 
-    venv = Path(release) / ".venv"
+    venv = Path(venv)
     try:
         root_details = venv.lstat()
     except OSError as error:
@@ -887,6 +887,21 @@ def harden_installed_venv_permissions(
             )
             if stat.S_ISDIR(mode):
                 pending.append(path)
+
+
+def harden_installed_venv_permissions(
+    release: str | os.PathLike[str],
+    *,
+    expected_uid: int | None = 0,
+    expected_gid: int | None = 0,
+) -> None:
+    """Harden the conventional ``.venv`` inside an installed release."""
+
+    harden_venv_permissions(
+        Path(release) / ".venv",
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
 
 
 def _validate_private_parent(

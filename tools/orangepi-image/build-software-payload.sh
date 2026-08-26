@@ -107,6 +107,7 @@ make_locked_venv() {
         PYTHONDONTWRITEBYTECODE=1 \
         uv sync --project "${repository_root}/hardware" --active --frozen \
         --only-group "${dependency_group}" --no-install-project
+    python3 "${script_directory}/lib/harden_venv.py" --venv "${destination}"
     "${destination}/bin/python" -c 'import sys; assert sys.version_info[:2] == (3, 11)'
 }
 
