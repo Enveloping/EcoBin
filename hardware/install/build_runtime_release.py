@@ -97,11 +97,22 @@ def _require_arm64_python311_builder() -> None:
 
 
 def _git_metadata(source_root: Path) -> tuple[str, int]:
+    source_root = source_root.resolve(strict=True)
+    expected_repository = source_root.parent
+    git_prefix = [
+        "git",
+        "-c",
+        f"safe.directory={expected_repository}",
+        "-C",
+        str(expected_repository),
+    ]
     repository = Path(
         _run(
-            ["git", "-C", str(source_root), "rev-parse", "--show-toplevel"]
+            [*git_prefix, "rev-parse", "--show-toplevel"]
         ).stdout.strip()
-    )
+    ).resolve(strict=True)
+    if repository != expected_repository:
+        raise RuntimeError("hardware source root must be directly inside its repository")
     scoped = [
         str((source_root / name).relative_to(repository))
         for name in RUNTIME_APP_FILES
@@ -115,17 +126,17 @@ def _git_metadata(source_root: Path) -> tuple[str, int]:
         )
     )
     dirty = _run(
-        ["git", "-C", str(repository), "status", "--porcelain", "--", *scoped]
+        [*git_prefix, "status", "--porcelain", "--", *scoped]
     ).stdout.strip()
     if dirty:
         raise RuntimeError(
             "runtime sources or dependency locks are not committed; refusing build"
         )
     commit = _run(
-        ["git", "-C", str(repository), "rev-parse", "HEAD"]
+        [*git_prefix, "rev-parse", "HEAD"]
     ).stdout.strip()
     epoch_text = _run(
-        ["git", "-C", str(repository), "show", "-s", "--format=%ct", commit]
+        [*git_prefix, "show", "-s", "--format=%ct", commit]
     ).stdout.strip()
     if not re.fullmatch(r"[0-9a-f]{40}", commit) or not epoch_text.isdigit():
         raise RuntimeError("cannot resolve deterministic Git release metadata")

@@ -267,6 +267,10 @@ def test_builder_git_identity_tracks_release_manifest_and_tooling(
 
     assert build_runtime_release._git_metadata(hardware_root) == ("a" * 40, 1)
     status_command = calls[1]
+    exact_safe_directory = f"safe.directory={repository.resolve()}"
+    for command in calls:
+        assert exact_safe_directory in command
+        assert "safe.directory=*" not in command
     for name in build_runtime_release.RUNTIME_RELEASE_BUILD_FILES:
         assert str((hardware_root / name).relative_to(repository)) in status_command
 
