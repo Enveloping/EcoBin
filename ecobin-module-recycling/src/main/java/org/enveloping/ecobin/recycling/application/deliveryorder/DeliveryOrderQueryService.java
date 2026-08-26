@@ -936,7 +936,9 @@ public class DeliveryOrderQueryService {
                 decimal(root.finalWeightKg()),
                 money(root.finalAmountCent()),
                 instant(root.firstApprovedAt()),
-                null);
+                DeliveryReviewReasonVisibilityPolicy.userVisibleReason(
+                        root.currentReviewerKind(),
+                        root.currentReviewReason()));
     }
 
     private static MiniappDeliveryAnomaly miniappAnomaly(

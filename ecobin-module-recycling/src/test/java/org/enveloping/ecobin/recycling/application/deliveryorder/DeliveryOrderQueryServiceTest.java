@@ -231,7 +231,33 @@ class DeliveryOrderQueryServiceTest {
         assertThat(recordComponentNames(
                 MiniappDeliveryReviewProjection.class))
                 .doesNotContain("currentRevisionNo");
+        assertThat(detail.review().reason())
+                .isEqualTo("工作人员已现场核对");
         verify(repository, never()).findPhotos(anyLong());
+    }
+
+    @Test
+    void miniappDetailHidesSystemAutomaticReviewReason() {
+        answerMiniappIdentityScope();
+        answerResolvedDeviceFacts();
+        DeliveryOrderRootRow root = approvedRoot(
+                101L,
+                "DO2026072900101",
+                "SYSTEM",
+                "机构投递规则自动审核通过");
+        when(repository.findDetail(
+                new DeliveryOrderScope(
+                        TENANT_ID,
+                        ORGANIZATION_ID,
+                        ORGANIZATION_USER_ID),
+                root.deliveryOrderNo()))
+                .thenReturn(Optional.of(root));
+        when(repository.findAnomalies(root.id()))
+                .thenReturn(List.of());
+
+        var detail = service.miniappOrder(root.deliveryOrderNo());
+
+        assertThat(detail.review().reason()).isNull();
     }
 
     @Test
@@ -871,6 +897,18 @@ class DeliveryOrderQueryServiceTest {
     private static DeliveryOrderRootRow approvedRoot(
             long id,
             String orderNo) {
+        return approvedRoot(
+                id,
+                orderNo,
+                "STAFF",
+                "工作人员已现场核对");
+    }
+
+    private static DeliveryOrderRootRow approvedRoot(
+            long id,
+            String orderNo,
+            String reviewerKind,
+            String reason) {
         return new DeliveryOrderRootRow(
                 id,
                 orderNo,
@@ -894,6 +932,8 @@ class DeliveryOrderQueryServiceTest {
                 false,
                 "APPROVED",
                 1L,
+                reviewerKind,
+                reason,
                 100_000L,
                 new BigDecimal("1.25"),
                 100L,

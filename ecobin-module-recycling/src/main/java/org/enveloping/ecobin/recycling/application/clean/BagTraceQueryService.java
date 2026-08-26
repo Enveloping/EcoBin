@@ -11,6 +11,7 @@ import org.enveloping.ecobin.device.api.persistence.BagTraceSessionSelectionRef;
 import org.enveloping.ecobin.recycling.application.devicefacts.RecyclingDeviceRelationBatch;
 import org.enveloping.ecobin.recycling.application.devicefacts.RecyclingDeviceRelationBatch.Entry;
 import org.enveloping.ecobin.recycling.application.devicefacts.RecyclingDeviceRelationBatch.Kind;
+import org.enveloping.ecobin.recycling.application.deliveryorder.DeliveryReviewReasonVisibilityPolicy;
 import org.enveloping.ecobin.recycling.web.v1.BagTraceModels.BagTraceDeliveryOrderDetail;
 import org.enveloping.ecobin.recycling.web.v1.BagTraceModels.BagTraceDeliveryOrderItem;
 import org.enveloping.ecobin.recycling.web.v1.BagTraceModels.BagTraceDeliveryOrderPage;
@@ -315,6 +316,7 @@ public class BagTraceQueryService {
                        delivery_order.final_business_weight_kg,
                        delivery_order.final_amount_cent,
                        delivery_order.review_status,
+                       revision.reviewer_kind,
                        revision.reason,
                        selected_session.created_at AS session_created_at,
                        (
@@ -329,6 +331,12 @@ public class BagTraceQueryService {
                      delivery_order.delivery_session_id
                 LEFT JOIN rec_delivery_revision revision
                   ON revision.id = delivery_order.current_revision_id
+                 AND revision.tenant_id = delivery_order.tenant_id
+                 AND revision.organization_id =
+                     delivery_order.organization_id
+                 AND revision.delivery_order_id = delivery_order.id
+                 AND revision.revision_no =
+                     delivery_order.current_revision_no
                 WHERE delivery_order.tenant_id = ?
                   AND delivery_order.organization_id = ?
                   AND delivery_order.bag_id = ?
@@ -406,7 +414,9 @@ public class BagTraceQueryService {
                 decimal(row.finalWeight()),
                 yuan(row.finalAmountCent()),
                 row.reviewStatus(),
-                row.reason(),
+                DeliveryReviewReasonVisibilityPolicy.userVisibleReason(
+                        row.reviewerKind(),
+                        row.reason()),
                 row.availablePhotoCount() == 4
                         ? "COMPLETE" : "INCOMPLETE");
     }
@@ -527,6 +537,7 @@ public class BagTraceQueryService {
                 rs.getBigDecimal("final_business_weight_kg"),
                 (Long) rs.getObject("final_amount_cent"),
                 rs.getString("review_status"),
+                rs.getString("reviewer_kind"),
                 rs.getString("reason"),
                 rs.getObject("session_created_at", LocalDateTime.class),
                 rs.getInt("available_photo_count"));
@@ -680,6 +691,7 @@ public class BagTraceQueryService {
             BigDecimal finalWeight,
             Long finalAmountCent,
             String reviewStatus,
+            String reviewerKind,
             String reason,
             LocalDateTime sessionCreatedAt,
             int availablePhotoCount) { }

@@ -339,7 +339,7 @@ export interface MiniappDeliveryReviewProjection {
   finalWeightKg: string | null
   finalAmountYuan: string | null
   firstApprovedAt: string | null
-  /** 当前审核或纠正说明；会向订单所属用户展示。 */
+  /** 当前人工审核或纠正时填写的用户可见说明；未填写或系统自动审核时为 null。 */
   reason: string | null
 }
 

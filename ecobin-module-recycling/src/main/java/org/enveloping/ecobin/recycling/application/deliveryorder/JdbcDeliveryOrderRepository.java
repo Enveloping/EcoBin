@@ -245,6 +245,10 @@ class JdbcDeliveryOrderRepository {
                                o.negative_weight_anomaly,
                                o.review_status,
                                o.current_revision_no,
+                               current_revision.reviewer_kind
+                                   AS current_reviewer_kind,
+                               current_revision.reason
+                                   AS current_review_reason,
                                o.max_review_abs_weight_g,
                                o.final_business_weight_kg,
                                o.final_amount_cent,
@@ -257,6 +261,14 @@ class JdbcDeliveryOrderRepository {
                                          'DELIVERY_NET_WEIGHT_MISMATCH'
                                ) AS net_weight_inconsistent
                         FROM rec_delivery_order o
+                        LEFT JOIN rec_delivery_revision current_revision
+                          ON current_revision.id = o.current_revision_id
+                         AND current_revision.tenant_id = o.tenant_id
+                         AND current_revision.organization_id =
+                             o.organization_id
+                         AND current_revision.delivery_order_id = o.id
+                         AND current_revision.revision_no =
+                             o.current_revision_no
                         WHERE o.tenant_id = ?
                           AND o.organization_id = ?
                           AND o.delivery_order_no = ?
@@ -698,6 +710,8 @@ class JdbcDeliveryOrderRepository {
                 rs.getBoolean("negative_weight_anomaly"),
                 rs.getString("review_status"),
                 rs.getLong("current_revision_no"),
+                rs.getString("current_reviewer_kind"),
+                rs.getString("current_review_reason"),
                 rs.getLong("max_review_abs_weight_g"),
                 rs.getBigDecimal("final_business_weight_kg"),
                 nullableLong(rs, "final_amount_cent"),
@@ -879,6 +893,8 @@ record DeliveryOrderRootRow(
         boolean negativeWeightAnomaly,
         String reviewStatus,
         long currentRevisionNo,
+        String currentReviewerKind,
+        String currentReviewReason,
         long maxReviewAbsWeightGram,
         BigDecimal finalWeightKg,
         Long finalAmountCent,

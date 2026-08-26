@@ -76,4 +76,35 @@ class JdbcDeliveryOrderRepositoryTest {
                 .contains("FROM rec_delivery_order")
                 .doesNotContain("FOR UPDATE");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void detailReadLoadsTheCurrentRevisionReviewerAndReason() {
+        ArgumentCaptor<String> sql =
+                ArgumentCaptor.forClass(String.class);
+        when(jdbc.query(
+                sql.capture(),
+                any(RowMapper.class),
+                eq(TENANT_ID),
+                eq(ORGANIZATION_ID),
+                eq("DO-DETAIL")))
+                .thenReturn(List.of());
+
+        repository.findDetail(
+                new DeliveryOrderScope(
+                        TENANT_ID,
+                        ORGANIZATION_ID,
+                        null),
+                "DO-DETAIL");
+
+        assertThat(sql.getValue())
+                .contains(
+                        "current_revision.reviewer_kind",
+                        "current_revision.reason",
+                        "LEFT JOIN rec_delivery_revision current_revision",
+                        "current_revision.id = o.current_revision_id",
+                        "current_revision.delivery_order_id = o.id",
+                        "current_revision.revision_no =")
+                .doesNotContain("FOR UPDATE");
+    }
 }
