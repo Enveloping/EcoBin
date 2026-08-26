@@ -20,6 +20,9 @@ fail() {
     exit 1
 }
 
+# shellcheck source=lib/block_device.sh
+source "${script_directory}/lib/block_device.sh"
+
 usage() {
     cat <<'EOF'
 Usage: sanitize-candidate.sh --image FILE --target-deb-dir DIR
@@ -59,7 +62,7 @@ cleanup() {
             && mountpoint -q -- "${mount_directory}"; then
             printf 'candidate-sanitization=FAIL: refusing to detach a still-mounted loop device\n' >&2
             cleanup_status=1
-        elif ! losetup -d -- "${loop_device}"; then
+        elif ! losetup -d "${loop_device}"; then
             printf 'candidate-sanitization=FAIL: unable to detach candidate loop device\n' >&2
             cleanup_status=1
         fi
@@ -196,16 +199,17 @@ backing_file="$(losetup -nO BACK-FILE -- "${loop_device}" | sed -e 's/^[[:space:
     || fail "loop device is not backed by the candidate image"
 udevadm settle 2>/dev/null || true
 
-mapfile -t partition_rows < <(lsblk -nrpo NAME,TYPE,PARTN -- "${loop_device}" \
-    | awk '$2 == "part" {print $1 " " $3}')
-[[ ${#partition_rows[@]} -gt 0 ]] || fail "candidate image has no partitions"
+partition_rows_output="$(ecobin_list_direct_partitions "${loop_device}")" \
+    || fail "cannot resolve candidate partitions through sysfs"
+[[ -n "${partition_rows_output}" ]] || fail "candidate image has no partitions"
+mapfile -t partition_rows <<< "${partition_rows_output}"
 root_partition=""
 highest_partition=0
 for row in "${partition_rows[@]}"; do
     partition_name="${row% *}"
     partition_number="${row##* }"
     [[ "${partition_number}" =~ ^[0-9]+$ ]] \
-        || fail "candidate contains a partition without a numeric PARTN"
+        || fail "candidate contains a non-numeric sysfs partition number"
     (( partition_number > highest_partition )) && highest_partition="${partition_number}"
     if [[ "${partition_number}" = "${root_partition_number}" ]]; then
         root_partition="${partition_name}"
@@ -259,7 +263,7 @@ python3 "${repository_root}/hardware/system/image_software_installer.py" install
     --git-commit "${git_commit}"
 sync -f -- "${mount_directory}"
 umount -- "${mount_directory}"
-losetup -d -- "${loop_device}"
+losetup -d "${loop_device}"
 loop_device=""
 rmdir -- "${mount_directory}"
 mount_directory=""

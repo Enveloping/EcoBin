@@ -32,6 +32,9 @@ seal_complete=false
 
 fail() { printf 'image-seal=FAIL: %s\n' "$1" >&2; exit 1; }
 
+# shellcheck source=lib/block_device.sh
+source "${script_directory}/lib/block_device.sh"
+
 usage() {
     cat <<'EOF'
 Usage: seal-image.sh --candidate FILE --output FILE
@@ -73,7 +76,7 @@ cleanup() {
             && mountpoint -q -- "${mount_directory}"; then
             cleanup_failed=true
         else
-            losetup -d -- "${loop_device}" || cleanup_failed=true
+            losetup -d "${loop_device}" || cleanup_failed=true
         fi
     fi
     if [[ -n "${mount_directory}" && -d "${mount_directory}" ]]; then
@@ -279,14 +282,17 @@ loop_device="$(losetup --find --show --partscan -- "${output_image}")"
 udevadm settle 2>/dev/null || true
 root_partition=""
 highest_partition=0
-while read -r partition_name partition_type partition_number; do
-    [[ "${partition_type}" = part ]] || continue
+partition_rows_output="$(ecobin_list_direct_partitions "${loop_device}")" \
+    || fail "cannot resolve candidate partitions through sysfs"
+[[ -n "${partition_rows_output}" ]] || fail "candidate has no partitions"
+while read -r partition_name partition_number; do
+    [[ -n "${partition_name}" ]] || continue
     [[ "${partition_number}" =~ ^[0-9]+$ ]] \
-        || fail "candidate has a partition without numeric PARTN"
+        || fail "candidate has a non-numeric sysfs partition number"
     (( partition_number > highest_partition )) && highest_partition="${partition_number}"
     [[ "${partition_number}" = "${root_partition_number}" ]] \
         && root_partition="${partition_name}"
-done < <(lsblk -nrpo NAME,TYPE,PARTN -- "${loop_device}")
+done <<< "${partition_rows_output}"
 [[ -n "${root_partition}" && -b "${root_partition}" \
     && "${root_partition_number}" = "${highest_partition}" ]] \
     || fail "locked root partition is absent or not final"
@@ -306,7 +312,7 @@ python3 "${script_directory}/lib/inject_factory_secrets.py" \
     --setup-ap-key-file "${setup_ap_key_file}"
 sync -f -- "${mount_directory}"
 umount -- "${mount_directory}"
-losetup -d -- "${loop_device}"
+losetup -d "${loop_device}"
 loop_device=""
 rmdir -- "${mount_directory}"
 mount_directory=""

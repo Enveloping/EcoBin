@@ -20,6 +20,9 @@ fail() {
     exit 1
 }
 
+# shellcheck source=lib/block_device.sh
+source "${script_directory}/lib/block_device.sh"
+
 usage() {
     cat <<'EOF'
 Usage: verify-image.sh --image FILE [--config-dir DIR] [--candidate|--sealed]
@@ -45,7 +48,7 @@ cleanup() {
         esac
     fi
     if [[ -n "${loop_device}" ]]; then
-        losetup -d -- "${loop_device}" 2>/dev/null || true
+        losetup -d "${loop_device}" 2>/dev/null || true
     fi
 }
 trap cleanup EXIT
@@ -163,16 +166,17 @@ loop_device="$(losetup --find --show --partscan --read-only -- "${image_path}")"
 [[ -b "${loop_device}" ]] || fail "failed to attach a read-only loop device"
 udevadm settle 2>/dev/null || true
 
-mapfile -t partition_rows < <(lsblk -nrpo NAME,TYPE,PARTN -- "${loop_device}" \
-    | awk '$2 == "part" {print $1 " " $3}')
-[[ ${#partition_rows[@]} -gt 0 ]] || fail "image has no partitions"
+partition_rows_output="$(ecobin_list_direct_partitions "${loop_device}")" \
+    || fail "cannot resolve image partitions through sysfs"
+[[ -n "${partition_rows_output}" ]] || fail "image has no partitions"
+mapfile -t partition_rows <<< "${partition_rows_output}"
 root_partition=""
 highest_partition=0
 for row in "${partition_rows[@]}"; do
     partition_name="${row% *}"
     partition_number="${row##* }"
     [[ "${partition_number}" =~ ^[0-9]+$ ]] \
-        || fail "image contains a partition without a numeric PARTN"
+        || fail "image contains a non-numeric sysfs partition number"
     (( partition_number > highest_partition )) && highest_partition="${partition_number}"
     if [[ "${partition_number}" = "${root_partition_number}" ]]; then
         root_partition="${partition_name}"

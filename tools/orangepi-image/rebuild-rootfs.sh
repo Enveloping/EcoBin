@@ -27,8 +27,8 @@ cleanup() {
         mountpoint -q -- "${directory}" && umount -- "${directory}" || true
         rmdir -- "${directory}" 2>/dev/null || true
     done
-    [[ -z "${target_loop}" ]] || losetup -d -- "${target_loop}" 2>/dev/null || true
-    [[ -z "${source_loop}" ]] || losetup -d -- "${source_loop}" 2>/dev/null || true
+    [[ -z "${target_loop}" ]] || losetup -d "${target_loop}" 2>/dev/null || true
+    [[ -z "${source_loop}" ]] || losetup -d "${source_loop}" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -92,7 +92,7 @@ mount -t ext4 -o ro,noload,noatime,nodev,nosuid,noexec -- "${target_loop}" "${ta
 python3 "${script_directory}/lib/rootfs_tree_inventory.py" capture --root "${target_mount}" --output "${target_inventory}"
 python3 "${script_directory}/lib/rootfs_tree_inventory.py" compare --expected "${source_inventory}" --actual "${target_inventory}"
 umount -- "${target_mount}"
-losetup -d -- "${target_loop}"
+losetup -d "${target_loop}"
 target_loop=""
 python3 "${script_directory}/lib/normalize_ext4_metadata.py" --device "${output_partition}" --inventory "${target_inventory}" --epoch "${epoch}"
 set +e

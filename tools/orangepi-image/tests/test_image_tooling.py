@@ -1021,12 +1021,17 @@ class ImageToolingTest(unittest.TestCase):
             "flash-and-verify.sh",
             "trusted-flash-entry.sh",
         )
-        parse = run_command("bash", "-n", *(str(TOOL_ROOT / name) for name in scripts))
+        parse = run_command(
+            "bash",
+            "-n",
+            *(str(TOOL_ROOT / name) for name in scripts),
+            str(TOOL_ROOT / "lib" / "block_device.sh"),
+        )
         self.assertEqual(parse.returncode, 0, parse.stderr)
 
         blocked = run_command("bash", str(TOOL_ROOT / "build-image.sh"), "--validate-only")
         self.assertNotEqual(blocked.returncode, 0)
-        self.assertIn("not locked", blocked.stderr)
+        self.assertIn("target media qualification evidence is required", blocked.stderr)
 
         accepted = run_command(
             "bash",
@@ -1107,6 +1112,30 @@ class ImageToolingTest(unittest.TestCase):
             payload_builder.index("validate-trust"),
             payload_builder.index("stage_signed_runtime_payload.py"),
         )
+
+    def test_block_device_queries_are_compatible_with_locked_debian_12(self) -> None:
+        helper = (TOOL_ROOT / "lib" / "block_device.sh").read_text(encoding="utf-8")
+        self.assertIn("lsblk -nrpo NAME,TYPE", helper)
+        self.assertIn("/sys/class/block/", helper)
+        self.assertIn('/partition")', helper)
+
+        partition_scripts = (
+            "sanitize-candidate.sh",
+            "verify-image.sh",
+            "seal-image.sh",
+            "release-image.sh",
+        )
+        for name in partition_scripts:
+            script = (TOOL_ROOT / name).read_text(encoding="utf-8")
+            with self.subTest(script=name):
+                self.assertNotIn("NAME,TYPE,PARTN", script)
+                self.assertIn("ecobin_list_direct_partitions", script)
+
+        detach_scripts = (*partition_scripts, "rebuild-rootfs.sh")
+        for name in detach_scripts:
+            script = (TOOL_ROOT / name).read_text(encoding="utf-8")
+            with self.subTest(script=name):
+                self.assertNotIn("losetup -d --", script)
 
     @unittest.skipIf(sys.platform == "win32", "release verification runs on Linux")
     def test_signed_release_inventory_rejects_manifest_and_sbom_tampering(self) -> None:
