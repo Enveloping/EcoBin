@@ -80,7 +80,10 @@ expected_uv="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["
 expected_builder_digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["container"]["digest"])' "${script_directory}/builder.lock")"
 [[ "${ECOBIN_BUILDER_DIGEST:-}" = "${expected_builder_digest}" ]] \
     || fail "payload build is not running in the locked builder"
-[[ "$(uv --version)" = "uv ${expected_uv}" ]] || fail "uv differs from builder.lock"
+case "$(uv --version)" in
+    "uv ${expected_uv}"|"uv ${expected_uv} "*) ;;
+    *) fail "uv differs from builder.lock" ;;
+esac
 git_commit="$(git -c safe.directory="${repository_root}" \
     -C "${repository_root}" rev-parse HEAD)"
 [[ "${git_commit}" =~ ^[0-9a-f]{40}$ ]] || fail "repository commit is unavailable"

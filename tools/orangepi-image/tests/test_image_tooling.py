@@ -409,6 +409,10 @@ class ImageToolingTest(unittest.TestCase):
         self.assertIn("uv sync", builder)
         self.assertIn("--frozen", builder)
         self.assertIn("--only-group", builder)
+        self.assertIn('"uv ${expected_uv}"|"uv ${expected_uv} "*', builder)
+        self.assertNotIn(
+            '[[ "$(uv --version)" = "uv ${expected_uv}" ]]', builder
+        )
         self.assertIn("stage_signed_runtime_payload.py", builder)
         self.assertIn("verified_archive_stream", stage)
         self.assertIn("safe_extract_archive_stream", stage)
