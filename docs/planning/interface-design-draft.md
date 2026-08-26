@@ -1,6 +1,12 @@
 # EcoBin P0 目标接口设计基线
 
 > [!IMPORTANT]
+> 2026-08-25 已实施 V59 袋码界面增补：既有批次创建和明细 HTTP 接口的数量上限统一为
+> 500，不增加文件下载接口；Web 从批次明细在浏览器中按需生成袋码内容 Excel 或纯二维码
+> Excel，相关依赖仅在点击导出时加载。详见
+> [`../architecture/authenticated-bag-labels-v43.md`](../architecture/authenticated-bag-labels-v43.md)。
+
+> [!IMPORTANT]
 > 2026-08-14 已前向修订 I-056：免确认收款授权创建被明确拒绝时，旧不可变请求停止且
 > 对外为 `FAILED`；用户排除原因后以新幂等操作和新商户授权单号重新申请。不确定结果仍
 > 使用原单查证，禁止换号。详见

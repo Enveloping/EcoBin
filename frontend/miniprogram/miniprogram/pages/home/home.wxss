@@ -100,10 +100,10 @@
 .wallet-card {
   display: grid;
   min-height: 200rpx;
+  align-content: center;
   grid-template-columns: 96rpx 1fr 32rpx;
-  grid-template-rows: 36rpx 96rpx;
+  grid-template-rows: 96rpx;
   column-gap: 24rpx;
-  row-gap: 4rpx;
   padding: 30rpx 32rpx;
 }
 .card-icon {
@@ -120,31 +120,22 @@
   width: 64rpx;
   height: 64rpx;
 }
-.card-label {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: end;
-  color: #333c34;
-  font-size: 28rpx;
-  font-weight: 650;
-}
 .wallet-icon {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 1;
 }
 .wallet-value {
   display: flex;
   height: 96rpx;
   min-width: 0;
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 1;
   align-items: center;
   align-self: stretch;
   color: #10a625;
   font-size: 48rpx;
   font-weight: 760;
   font-variant-numeric: tabular-nums;
-  transform: translateY(-24rpx);
 }
 .wallet-value-text {
   display: block;
@@ -158,7 +149,7 @@
 .wallet-chevron {
   display: flex;
   grid-column: 3;
-  grid-row: 1 / span 2;
+  grid-row: 1;
   align-items: center;
   justify-content: center;
 }

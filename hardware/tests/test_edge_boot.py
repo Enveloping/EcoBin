@@ -772,6 +772,77 @@ def test_boot_restart_aborts_clean_and_requires_a_new_complete_clean(
     store.close()
 
 
+def test_boot_restart_appends_edge_restart_after_clean_window_expiry(
+    tmp_path,
+    monkeypatch,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    store.set_edge_boot_id("123")
+    mark_configuration_applied(store)
+    operation_uid = "70000000-0000-4000-8000-000000000011"
+    start_command_uid = "71000000-0000-4000-8000-000000000011"
+    start_command = {
+        "commandUid": start_command_uid,
+        "commandType": "START_CLEAN_OPERATION",
+        "targetDeviceName": "SN-DEMO-0001",
+    }
+    store.receive_command(
+        start_command_uid,
+        start_command["commandType"],
+        start_command,
+    )
+    assert store.claim_next_command()["command_uid"] == start_command_uid
+    assert store.acquire_work_slot(
+        "CLEAN",
+        operation_uid,
+        1,
+        {
+            "operation_uid": operation_uid,
+            "port_no": 1,
+            "config": {"version": 8, "contentSha256": "a" * 64},
+            "start_command_uid": start_command_uid,
+            "start_mcu_command_uid": start_command_uid,
+            "operation_deadline": "2026-08-25T00:30:00.000Z",
+            "recovery_generation": 0,
+            "action_sequence": 4,
+            "phase": "ACTIVE",
+        },
+    )
+    assert store.mark_clean_window_expired_for_recovery(
+        operation_uid
+    ) == "RECOVERY_REQUIRED"
+    assert store.get_work_slot()["context"]["phase"] == (
+        "CLEAN_RECOVERY_REQUIRED"
+    )
+    uart = BootRecoveryUart()
+    mqtt = FakeMqttClient()
+    monkeypatch.setattr("edge_boot.time.sleep", lambda _: None)
+
+    result = boot_sequence(store, uart, mqtt, None, None)
+
+    assert result["status"] == "READY"
+    assert store.get_work_slot() is None
+    assert store.clean_restart_interlock_active(1) is True
+    assert store.get_command(start_command_uid)["last_error"] == (
+        "EDGE_RESTARTED"
+    )
+    failed = [
+        json.loads(row["payload_json"])
+        for row in store.list_pending_events()
+        if row["event_type"] == "DEVICE_COMMAND_OBSERVED"
+    ]
+    assert [event["payload"]["errorCode"] for event in failed] == [
+        "COMMAND_EXPIRED",
+        "EDGE_RESTARTED",
+    ]
+    assert [event["payload"]["stage"] for event in failed] == [
+        "FAILED",
+        "FAILED",
+    ]
+    store.close()
+
+
 def test_boot_restart_aborts_delivery_without_fake_completion(
     tmp_path, monkeypatch
 ):

@@ -21,9 +21,11 @@ import {
 import {
   CopyOutlined,
   DeleteOutlined,
+  FileExcelOutlined,
   FilePdfOutlined,
   KeyOutlined,
   PrinterOutlined,
+  QrcodeOutlined,
   SafetyCertificateOutlined,
   TagsOutlined,
   ThunderboltOutlined,
@@ -41,6 +43,7 @@ import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { formatShanghaiTime } from '@/utils/decimal';
 import { pageHeader, proTableConfig } from '@/utils/pageStyle';
+import { MAX_BAG_LABEL_BATCH_QUANTITY } from './bagLabelLimits.ts';
 import './bag-labels.css';
 
 interface PrintableLabel {
@@ -53,6 +56,13 @@ interface PrintJob {
   batchUid: string;
   keyId: string;
   labels: PrintableLabel[];
+}
+
+type ExcelExportKind = 'bag-code' | 'qr-code';
+
+interface ExcelExportJob {
+  batchUid: string;
+  kind: ExcelExportKind;
 }
 
 function errorMessage(error: unknown): string {
@@ -82,6 +92,7 @@ export default function BagLabelsPage() {
   const [expanded, setExpanded] = useState<readonly string[]>([]);
   const [printingUid, setPrintingUid] = useState<string>();
   const [printJob, setPrintJob] = useState<PrintJob>();
+  const [excelExportJob, setExcelExportJob] = useState<ExcelExportJob>();
 
   const loadDetail = async (batchUid: string): Promise<BagLabelBatch> => {
     const cached = details[batchUid];
@@ -104,8 +115,12 @@ export default function BagLabelsPage() {
   };
 
   const generate = async () => {
-    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) {
-      message.warning('每批只能生成 1 到 100 个袋码');
+    if (!Number.isInteger(quantity)
+        || quantity < 1
+        || quantity > MAX_BAG_LABEL_BATCH_QUANTITY) {
+      message.warning(
+        `每批只能生成 1 到 ${MAX_BAG_LABEL_BATCH_QUANTITY} 个袋码`,
+      );
       return;
     }
     const payload = { quantity };
@@ -173,6 +188,31 @@ export default function BagLabelsPage() {
     }
   };
 
+  const exportExcel = async (
+    batchUid: string,
+    kind: ExcelExportKind,
+  ) => {
+    setExcelExportJob({ batchUid, kind });
+    try {
+      const detail = await loadDetail(batchUid);
+      // ExcelJS 体积较大，低频导出时才加载，不进入页面常规代码包。
+      const exporter = await import('./excelExport.ts');
+      if (kind === 'bag-code') {
+        await exporter.downloadBagCodeExcel(detail);
+        message.success('袋码内容 Excel 已导出');
+      } else {
+        await exporter.downloadBagQrExcel(detail);
+        message.success('二维码 Excel 已导出');
+      }
+    } catch (error) {
+      if (!(error instanceof ApiProblem)) {
+        message.error(errorMessage(error));
+      }
+    } finally {
+      setExcelExportJob(undefined);
+    }
+  };
+
   useEffect(() => {
     if (!printJob) return undefined;
     const timer = window.setTimeout(() => {
@@ -218,7 +258,7 @@ export default function BagLabelsPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 240,
+      width: 510,
       render: (_, row) => [
         <Button
           key="print"
@@ -228,6 +268,26 @@ export default function BagLabelsPage() {
           onClick={() => void printBatch(row.batchUid)}
         >
           打印 / 保存 PDF
+        </Button>,
+        <Button
+          key="bag-code-excel"
+          type="link"
+          icon={<FileExcelOutlined />}
+          loading={excelExportJob?.batchUid === row.batchUid
+            && excelExportJob.kind === 'bag-code'}
+          onClick={() => void exportExcel(row.batchUid, 'bag-code')}
+        >
+          导出袋码 Excel
+        </Button>,
+        <Button
+          key="qr-code-excel"
+          type="link"
+          icon={<QrcodeOutlined />}
+          loading={excelExportJob?.batchUid === row.batchUid
+            && excelExportJob.kind === 'qr-code'}
+          onClick={() => void exportExcel(row.batchUid, 'qr-code')}
+        >
+          导出二维码 Excel
         </Button>,
         <Popconfirm
           key="delete"
@@ -296,7 +356,7 @@ export default function BagLabelsPage() {
     <PageContainer
       header={pageHeader(
         '袋码管理',
-        '签发可验真的实体清运袋标签，并按批次打印或保存为 PDF。',
+        '签发可验真的实体清运袋标签，并按批次打印、保存 PDF 或导出 Excel。',
       )}
     >
       <section className="bag-label-workbench">
@@ -310,7 +370,9 @@ export default function BagLabelsPage() {
             仅仿造相同文字格式不能通过。
           </Typography.Paragraph>
           <Space wrap size={18} className="bag-label-facts">
-            <span><TagsOutlined /> 每批 1–100 张</span>
+            <span>
+              <TagsOutlined /> 每批 1–{MAX_BAG_LABEL_BATCH_QUANTITY} 张
+            </span>
             <span><FilePdfOutlined /> A4 · 3 × 8</span>
             <span><KeyOutlined /> 后端活动密钥签发</span>
           </Space>
@@ -321,7 +383,7 @@ export default function BagLabelsPage() {
             <InputNumber
               aria-label="本批标签数量"
               min={1}
-              max={100}
+              max={MAX_BAG_LABEL_BATCH_QUANTITY}
               precision={0}
               value={quantity}
               onChange={(value) => setQuantity(Number(value) || 1)}

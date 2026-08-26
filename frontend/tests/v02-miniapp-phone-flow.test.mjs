@@ -310,19 +310,19 @@ test('miniapp orders and wallet use the target read contracts', () => {
   assert.doesNotMatch(walletApiSource, /\/api\/app\/wallet/);
   assert.match(
     homeSource,
-    /wx\.navigateTo\(\{ url: '\/pages\/wallet\/wallet' \}\)/,
+    /onWalletTap\(\)[\s\S]*?wx\.navigateTo\(\{ url: '\/pages\/withdrawals\/withdrawals' \}\)/,
   );
+  assert.doesNotMatch(homeMarkup, /我的钱包|class="card-label"/);
   assert.match(homeMarkup, /class="card-icon wallet-icon"/);
   assert.match(homeMarkup, /class="wallet-value-text"/);
   assert.match(homeStyles, /\.wallet-card\s*\{[^}]*display:\s*grid;/);
-  assert.match(homeStyles, /\.wallet-icon\s*\{[^}]*grid-row:\s*2;/);
-  assert.match(homeStyles, /\.wallet-value\s*\{[^}]*grid-row:\s*2;/);
+  assert.match(homeStyles, /\.wallet-card\s*\{[^}]*grid-template-rows:\s*96rpx;/s);
+  assert.doesNotMatch(homeStyles, /\.card-label\s*\{/);
+  assert.match(homeStyles, /\.wallet-icon\s*\{[^}]*grid-row:\s*1;/);
+  assert.match(homeStyles, /\.wallet-value\s*\{[^}]*grid-row:\s*1;/);
   assert.match(homeStyles, /\.wallet-value\s*\{[^}]*height:\s*96rpx;/);
   assert.match(homeStyles, /\.wallet-value\s*\{[^}]*align-items:\s*center;/);
-  assert.match(
-    homeStyles,
-    /\.wallet-value\s*\{[^}]*transform:\s*translateY\(-24rpx\);/,
-  );
+  assert.doesNotMatch(homeStyles, /\.wallet-value\s*\{[^}]*transform:/s);
   assert.match(homeStyles, /\.wallet-value-text\s*\{[^}]*line-height:\s*1;/);
   assert.match(profileSource, /\/pages\/wallet\/wallet/);
   assert.match(

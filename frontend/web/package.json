@@ -13,6 +13,7 @@
     "test:e2e": "playwright test",
     "test:http-foundation": "node --no-warnings --experimental-strip-types --test ../tests/http-foundation.test.mjs",
     "test:funds-money": "node --no-warnings --experimental-strip-types --test ../tests/funds-money-input.test.mjs",
+    "test:bag-label-excel": "node --no-warnings --experimental-strip-types --test ../tests/bag-label-excel.test.mjs",
     "test:operations-governance": "node --no-warnings --experimental-strip-types --test ../tests/operations-governance.test.mjs",
     "test:permission-tree": "node --no-warnings --experimental-strip-types --test ../tests/permission-tree.test.mjs",
     "test:bundle-budget": "node scripts/check-bundle-budget.mjs",
@@ -24,6 +25,7 @@
     "antd": "^5.22.5",
     "axios": "^1.7.9",
     "dayjs": "^1.11.13",
+    "exceljs": "^4.4.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -40,5 +42,13 @@
     "openapi-typescript": "^7.9.1",
     "typescript": "~5.6.3",
     "vite": "^6.0.5"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    },
+    "minimatch@5.1.9": {
+      "brace-expansion": "2.1.4"
+    }
   }
 }

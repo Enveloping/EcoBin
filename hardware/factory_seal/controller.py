@@ -202,6 +202,7 @@ class FactorySealController:
                 self._stop_factory()
                 self._apply_emergency_firewall()
                 return "SEALED_FACT_INVALID"
+            sealed = self._upgrade_legacy_sealed_marker(sealed, row)
             self._mark_sealing(sealed)
             if not self._stop_factory():
                 return "FACTORY_SERVICES_STOP_FAILED"
@@ -551,6 +552,35 @@ class FactorySealController:
             return self._sealed_file.read_object()
         except (OSError, ValueError):
             return {"invalid": True}
+
+    def _upgrade_legacy_sealed_marker(
+        self,
+        sealed: dict[str, object],
+        row: sqlite3.Row,
+    ) -> dict[str, object]:
+        """Upgrade only a v1 marker whose completion is not yet durable."""
+
+        if sealed.get("schemaVersion") != 1:
+            return sealed
+        if (
+            row["cleanup_completed_at"] is not None
+            or row["completion_event_uid"] is not None
+        ):
+            # A completed v1 outbox row is an immutable reliable fact.  Its
+            # canonical payload intentionally lacks the v2 clock-quality
+            # field, so rewriting only the marker would make restart
+            # validation compare two different schema versions.
+            return sealed
+        upgraded = dict(sealed)
+        upgraded["schemaVersion"] = 2
+        # Schema v1 defined both persisted device instants as trusted.  Keep
+        # that historical meaning explicit; the later cleanup sample can then
+        # lower the combined completion quality without producing a v1 event
+        # that illegally carries an absent occurrence time.
+        upgraded["sealedClockQuality"] = "SYNCED"
+        self._sealed_file.write_object(upgraded)
+        self._fault("after_legacy_seal_v2_upgrade")
+        return upgraded
 
     @staticmethod
     def _sealed_matches_authorization(

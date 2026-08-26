@@ -17,6 +17,11 @@
 > 本地冻结请求一致。旧版本因可选字段缺失误清空 `packageInfo` 的记录，只能从同一授权单
 > 的可信创建响应观察中恢复，禁止拼造或使用过期参数。
 >
+> 2026-08-25 前向修订：`createTime` 缺失时，授权投影的 `channelCreatedAt` 保持为空，
+> 只在微信真实返回该字段时保存原值。24 小时确认期限必须锚定已经持久化的后端
+> `submittedAt`；历史记录或外调后崩溃使其缺失时使用不可变的 `createdAt`。不得把延迟恢复
+> 查单或回调的处理时间写成微信创建时间，也不得从该处理时间重新起算确认期限。
+>
 > 说明：I-056 扩展 I-033/I-035。历史 `USER_CONFIRM` 提现继续使用原确认接口；所有新提现必须先完成一次微信官方授权，之后采用授权后自动收款。
 
 ## 1. 统一业务边界
@@ -155,8 +160,11 @@ POST /api/v1/wechat-pay/notifications/merchant-transfer-authorizations
 误判为身份冲突。普通查单的规则是：
 
 - `outAuthorizationNo + appId + openId + userDisplayName + state` 必须存在并与原请求一致；
-- `transferSceneId + userRecvPerception + createTime` 是可选回显：微信未返回时沿用本地冻结
-  请求和可信创建响应，微信返回时必须一致；
+- `transferSceneId + userRecvPerception + createTime` 是可选回显：场景和收款感知未返回时
+  沿用本地冻结请求；`createTime` 未返回时保持渠道创建时间为空，首次返回时保存原始值；同一
+  商户授权单号后续返回不同的非空 `createTime` 时只保留观察，不改写主记录，并按独立证据冲突
+  处理；后续缺失该可选字段不能解除冲突，只有再次返回首次值才能自动解除。`CLOSED` 终态可以
+  正常收敛，但未获相同时间佐证时仍保留该对账问题；
 - `TAKING_EFFECT` 必须同时返回 `authorizationId + authorizeTime`；
 - `CLOSED` 必须同时返回 `closeReason + closeTime`；
 - 只有证据校验通过的查询才记录为“最近成功查询”，HTTP 200 但证据矛盾的观察不算成功。

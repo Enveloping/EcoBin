@@ -1,0 +1,1 @@
+export const MAX_BAG_LABEL_BATCH_QUANTITY = 500;

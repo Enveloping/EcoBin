@@ -253,9 +253,37 @@ public class ReliableFundsTaskJdbcRepository {
                 SET external_call_may_have_started_at = UTC_TIMESTAMP(3)
                 WHERE id = ? AND lease_token = ?
                   AND external_call_may_have_started_at IS NULL
+                  AND reclaimed_at IS NULL
                   AND result_recorded_at IS NULL
                 """, task.attemptId(), task.leaseToken().toString()),
                 "mark funds call boundary");
+    }
+
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            isolation = Isolation.READ_COMMITTED,
+            readOnly = true)
+    public boolean taskExternalCallMayHaveStarted(
+            UUID taskUid,
+            UUID currentAttemptUid) {
+        Integer crossed = jdbc.queryForObject("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM ops_task_attempt observed_attempt
+                    JOIN ops_task_attempt current_attempt
+                      ON current_attempt.attempt_uid = ?
+                     AND current_attempt.task_id = observed_attempt.task_id
+                    JOIN ops_reliable_task task_row
+                      ON task_row.id = current_attempt.task_id
+                     AND task_row.task_uid = ?
+                    WHERE observed_attempt.attempt_no <=
+                          current_attempt.attempt_no
+                      AND observed_attempt.external_call_may_have_started_at
+                          IS NOT NULL
+                )
+                """, Integer.class,
+                currentAttemptUid.toString(), taskUid.toString());
+        return crossed != null && crossed == 1;
     }
 
     @Transactional(
@@ -267,6 +295,7 @@ public class ReliableFundsTaskJdbcRepository {
                 SET external_call_may_have_started_at = UTC_TIMESTAMP(3)
                 WHERE attempt_uid = ?
                   AND external_call_may_have_started_at IS NULL
+                  AND reclaimed_at IS NULL
                   AND result_recorded_at IS NULL
                 """, attemptUid.toString()),
                 "mark funds call boundary");

@@ -18,7 +18,7 @@ from onenet_wire import (
     encode_event_post,
 )
 from uart_link import compute_mcu_payload_sha256
-from work_manager import WorkManager
+from work_manager import WorkManager, _remaining_operation_window_ms
 
 
 class FakeUart:
@@ -1126,7 +1126,20 @@ def test_delivery_complete_reports_latched_command_without_pulse_duration(
     store.close()
 
 
-def test_clean_preunlock_failure_is_reported_but_does_not_block_unlock(tmp_path):
+def test_clean_preunlock_failure_is_reported_but_does_not_block_unlock(
+    tmp_path,
+    monkeypatch,
+):
+    ticks = {"milliseconds": 1_000}
+    monkeypatch.setattr(
+        "work_manager.local_deadline_reference",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "work_manager._monotonic_ms",
+        lambda: ticks["milliseconds"],
+        raising=False,
+    )
     store = make_store(tmp_path)
     mark_configuration_applied(store)
     trace = []
@@ -1172,7 +1185,7 @@ def test_clean_preunlock_failure_is_reported_but_does_not_block_unlock(tmp_path)
     assert values["cleanActionSequence"] == 0
     assert values["recoveryGeneration"] == 0
     assert values["unlockPulseMs"] == 1000
-    assert values["remainingOperationWindowMs"] > 0
+    assert 1_799_000 <= values["remainingOperationWindowMs"] <= 1_800_000
     assert values["parentCommandUid"] == start_mcu_command_uid
     assert trace[-2:] == [
         ("photo", "clean_open"),
@@ -1523,6 +1536,171 @@ def test_real_smoke_alarm_is_recorded_and_blocks_new_delivery(tmp_path):
         "SAFETY_SMOKE_ALARM"
     )
     assert uart.calls == []
+    store.close()
+
+
+def test_clean_window_expiry_before_unlock_preserves_work_for_recovery(
+    tmp_path,
+    monkeypatch,
+):
+    ticks = {"milliseconds": 1_000}
+    monkeypatch.setattr(
+        "work_manager.local_deadline_reference",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "work_manager._monotonic_ms",
+        lambda: ticks["milliseconds"],
+        raising=False,
+    )
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeUart()
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_service_command("start-clean-operation.service-wire.json")
+    store.receive_command(
+        command["commandUid"], command["commandType"], command
+    )
+    processor.process_next()
+    start_mcu_command_uid = store.get_command(
+        command["commandUid"]
+    )["mcu_command_uid"]
+    ticks["milliseconds"] += command["payload"]["operationWindowMs"] + 1
+
+    processor.process_mcu_event({
+        "message_name": "WORK_PREUNLOCK_WEIGHT_READY",
+        "message_type": 52,
+        "source_tx_sequence": 10,
+        "payload": {
+            "mcuBootId": 42,
+            "mcuEventSequence": 2,
+            "uptimeMs": 2000,
+            "mcuCommandUid": start_mcu_command_uid,
+            "operationUid": command["payload"]["operationUid"],
+            "portNo": command["payload"]["portNo"],
+            "measurementUid": "53100000-0000-4000-8000-000000000001",
+            "measurementStatus": "STABLE",
+            "weightValuePresent": True,
+            "reportedWeightGrams": 1000,
+            "weightValueKind": "STABLE_WINDOW_MEAN",
+            "measurementElapsedMs": 500,
+            "sampleCount": 10,
+            "calibrationVersion": 1,
+            "weightSensorHealth": "OK",
+            "faultCode": "NONE",
+        },
+    })
+
+    slot = store.get_work_slot()
+    assert slot["work_uid"] == command["payload"]["operationUid"]
+    assert slot["work_state"] == "RECOVERY_REQUIRED"
+    assert slot["context"]["phase"] == "CLEAN_RECOVERY_REQUIRED"
+    assert slot["context"]["recovery_error_code"] == "COMMAND_EXPIRED"
+    inbox = store.get_command(command["commandUid"])
+    assert inbox["state"] == "FAILED"
+    assert inbox["last_error"] == "COMMAND_EXPIRED"
+    assert not store.clean_restart_interlock_active(
+        command["payload"]["portNo"]
+    )
+    assert [call[0] for call in uart.calls] == ["START_CLEAN_OPERATION"]
+    store.close()
+
+
+def test_clean_reunlock_expiry_preserves_original_work_for_cloud_resume(
+    tmp_path,
+    monkeypatch,
+):
+    ticks = {"milliseconds": 1_000}
+    monkeypatch.setattr(
+        "work_manager.local_deadline_reference",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "work_manager._monotonic_ms",
+        lambda: ticks["milliseconds"],
+        raising=False,
+    )
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeUart()
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_service_command("start-clean-operation.service-wire.json")
+    operation_uid = command["payload"]["operationUid"]
+    port_no = command["payload"]["portNo"]
+    store.receive_command(
+        command["commandUid"], command["commandType"], command
+    )
+    processor.process_next()
+    start_mcu_command_uid = store.get_command(
+        command["commandUid"]
+    )["mcu_command_uid"]
+
+    processor.process_mcu_event({
+        "message_name": "WORK_PREUNLOCK_WEIGHT_READY",
+        "message_type": 52,
+        "source_tx_sequence": 10,
+        "payload": {
+            "mcuBootId": 42,
+            "mcuEventSequence": 2,
+            "uptimeMs": 2000,
+            "mcuCommandUid": start_mcu_command_uid,
+            "operationUid": operation_uid,
+            "portNo": port_no,
+            "measurementUid": "53100000-0000-4000-8000-000000000002",
+            "measurementStatus": "STABLE",
+            "weightValuePresent": True,
+            "reportedWeightGrams": 1000,
+            "weightValueKind": "STABLE_WINDOW_MEAN",
+            "measurementElapsedMs": 500,
+            "sampleCount": 10,
+            "calibrationVersion": 1,
+            "weightSensorHealth": "OK",
+            "faultCode": "NONE",
+        },
+    })
+    assert [call[0] for call in uart.calls] == [
+        "START_CLEAN_OPERATION",
+        "UNLOCK_CLEAN_DOOR",
+    ]
+
+    ticks["milliseconds"] += command["payload"]["operationWindowMs"] + 1
+    processor.process_mcu_event({
+        "message_name": "CLEAN_UNLOCK_REQUESTED",
+        "message_type": 54,
+        "source_tx_sequence": 11,
+        "payload": {
+            "mcuBootId": 42,
+            "mcuEventSequence": 3,
+            "uptimeMs": 1_802_001,
+            "operationUid": operation_uid,
+            "portNo": port_no,
+            "cleanActionSequence": 1,
+        },
+    })
+
+    slot = store.get_work_slot()
+    assert slot["work_uid"] == operation_uid
+    assert slot["work_state"] == "RECOVERY_REQUIRED"
+    assert slot["context"]["phase"] == "CLEAN_RECOVERY_REQUIRED"
+    assert [call[0] for call in uart.calls] == [
+        "START_CLEAN_OPERATION",
+        "UNLOCK_CLEAN_DOOR",
+    ]
+
+    resume = valid_service_command("resume-clean-operation.service-wire.json")
+    assert resume["payload"]["operationUid"] == operation_uid
+    store.receive_command(
+        resume["commandUid"], resume["commandType"], resume
+    )
+    processor.process_next()
+
+    assert store.get_command(resume["commandUid"])["state"] == (
+        "WAITING_MCU_RESULT"
+    )
+    assert uart.calls[-1][0] == "RESUME_CLEAN_OPERATION"
+    assert uart.calls[-1][1]["operationUid"] == operation_uid
     store.close()
 
 
@@ -2371,3 +2549,108 @@ def test_compat_baseline_never_reuses_old_flow_weight_after_restart(
     assert uart.calls == []
     assert uart.self_test_calls == [3_000]
     store.close()
+
+
+def test_compat_clean_relative_window_expires_without_trusted_wall_clock(
+    tmp_path,
+    monkeypatch,
+):
+    ticks = {"milliseconds": 10_000}
+    monkeypatch.setattr(
+        "work_manager.local_deadline_reference",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "work_manager._monotonic_ms",
+        lambda: ticks["milliseconds"],
+        raising=False,
+    )
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeCompatUart()
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "start-clean-operation.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+
+    slot = store.get_work_slot()
+    assert slot["context"]["operation_window_ms"] == 1_800_000
+    assert slot["context"]["operation_started_monotonic_ms"] == 10_000
+    ticks["milliseconds"] += 1_800_001
+
+    assert work.expire_fixed_frame_work()
+    slot = store.get_work_slot()
+    assert slot["work_uid"] == command["payload"]["operationUid"]
+    assert slot["work_state"] == "RECOVERY_REQUIRED"
+    assert slot["context"]["phase"] == "CLEAN_RECOVERY_REQUIRED"
+    assert store.get_command(command["commandUid"])["last_error"] == (
+        "COMMAND_EXPIRED"
+    )
+    assert not work.expire_fixed_frame_work()
+
+    delivery = valid_compat_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(
+        delivery["commandUid"],
+        delivery["commandType"],
+        delivery,
+    )
+    processor.process_next()
+
+    assert store.get_command(delivery["commandUid"])["state"] == "FAILED"
+    assert store.get_command(delivery["commandUid"])["last_error"] == (
+        "DEVICE_BUSY"
+    )
+    assert [call[0] for call in uart.calls] == ["START_CLEAN_OPERATION"]
+
+    processor.process_mcu_event({
+        "message_name": "COMPAT_CLEAN_RESULT",
+        "message_type": 241,
+        "source_tx_sequence": 2,
+        "payload": {
+            "mcuBootId": 42,
+            "mcuEventSequence": 2,
+            "uptimeMs": 2_000,
+            "preWeightGrams": 50_000,
+            "postWeightGrams": 2_000,
+            "infraredBlocked": False,
+            "rawFrameHex": "ef00c3500007d000ef",
+        },
+    })
+
+    assert store.get_work_slot() is None
+    assert store.get_command(command["commandUid"])["state"] == "COMPLETED"
+    clean_events = [
+        row for row in store.list_pending_events(limit=100)
+        if row["event_type"] == "CLEAN_COMPLETE"
+    ]
+    assert len(clean_events) == 1
+    store.close()
+
+
+def test_legacy_clean_window_uses_single_trusted_clock_sample(monkeypatch):
+    references = iter(
+        [
+            datetime(2026, 8, 25, tzinfo=timezone.utc),
+            None,
+        ]
+    )
+    monkeypatch.setattr(
+        "work_manager.local_deadline_reference",
+        lambda: next(references),
+    )
+
+    remaining_ms = _remaining_operation_window_ms(
+        {"operation_deadline": "2026-08-25T00:30:00.000Z"}
+    )
+
+    assert remaining_ms == 1_800_000

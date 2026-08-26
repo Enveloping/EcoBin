@@ -216,7 +216,7 @@ Page({
     ) {
       return
     }
-    wx.navigateTo({ url: '/pages/wallet/wallet' })
+    wx.navigateTo({ url: '/pages/withdrawals/withdrawals' })
   },
 
   onOpenOrders() {

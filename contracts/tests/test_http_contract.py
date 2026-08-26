@@ -20,6 +20,26 @@ from http_contract import (  # noqa: E402
 
 
 class HttpContractTests(unittest.TestCase):
+    def test_bag_label_batch_limit_is_five_hundred_everywhere(self) -> None:
+        schemas = load_openapi()["components"]["schemas"]
+
+        self.assertEqual(
+            schemas["CreateBagLabelBatchRequest"]["properties"]["quantity"],
+            {"type": "integer", "minimum": 1, "maximum": 500},
+        )
+        self.assertEqual(
+            schemas["BagLabelBatchSummary"]["properties"]["quantity"]
+            ["maximum"],
+            500,
+        )
+        self.assertEqual(
+            schemas["BagLabelItem"]["properties"]["sequenceNo"]["maximum"],
+            500,
+        )
+        batch = schemas["BagLabelBatch"]
+        self.assertEqual(batch["properties"]["quantity"]["maximum"], 500)
+        self.assertEqual(batch["properties"]["labels"]["maxItems"], 500)
+
     def test_authoritative_contract_and_examples_validate(self) -> None:
         checks = validate_http_contract()
         self.assertGreaterEqual(len(checks), 5)

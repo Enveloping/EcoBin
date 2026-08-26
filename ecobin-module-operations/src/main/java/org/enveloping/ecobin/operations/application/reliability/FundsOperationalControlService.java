@@ -685,6 +685,103 @@ public class FundsOperationalControlService
     }
 
     @Override
+    @Transactional(
+            propagation = Propagation.MANDATORY,
+            readOnly = true)
+    public boolean hasUnresolvedMerchantTransferAuthorizationCreateTimeMismatch(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo) {
+        Integer present = jdbc.queryForObject("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM ops_reconciliation_issue
+                    WHERE scope_kind = 'ORGANIZATION'
+                      AND tenant_id = ? AND organization_id = ?
+                      AND issue_code =
+                        'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_CREATE_TIME_MISMATCH'
+                      AND subject_type = 'WECHAT_TRANSFER_AUTHORIZATION'
+                      AND subject_stable_key = ?
+                      AND state = 'UNRESOLVED'
+                )
+                """, Integer.class, tenantId, organizationId,
+                outAuthorizationNo);
+        return present != null && present == 1;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void resolveMerchantTransferAuthorizationCreateTimeMismatch(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime resolvedAt) {
+        jdbc.update("""
+                UPDATE ops_reconciliation_issue
+                SET state = 'RESOLVED',
+                    system_verified_resolved_at = ?,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE scope_kind = 'ORGANIZATION'
+                  AND tenant_id = ? AND organization_id = ?
+                  AND issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_CREATE_TIME_MISMATCH'
+                  AND subject_type = 'WECHAT_TRANSFER_AUTHORIZATION'
+                  AND subject_stable_key = ?
+                  AND state = 'UNRESOLVED'
+                """, resolvedAt, resolvedAt, tenantId, organizationId,
+                outAuthorizationNo);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void resolveMerchantTransferAuthorizationQueryRecoveryMissing(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime resolvedAt) {
+        jdbc.update("""
+                UPDATE ops_reconciliation_issue
+                SET state = 'RESOLVED',
+                    system_verified_resolved_at = ?,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE scope_kind = 'ORGANIZATION'
+                  AND tenant_id = ? AND organization_id = ?
+                  AND issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_QUERY_RECOVERY_MISSING'
+                  AND subject_type = 'WECHAT_TRANSFER_AUTHORIZATION'
+                  AND subject_stable_key = ?
+                  AND state = 'UNRESOLVED'
+                """, resolvedAt, resolvedAt, tenantId, organizationId,
+                outAuthorizationNo);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void resolveMerchantTransferAuthorizationUnknownState(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime resolvedAt) {
+        jdbc.update("""
+                UPDATE ops_reconciliation_issue
+                SET state = 'RESOLVED',
+                    system_verified_resolved_at = ?,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE scope_kind = 'ORGANIZATION'
+                  AND tenant_id = ? AND organization_id = ?
+                  AND issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_UNKNOWN_STATE'
+                  AND subject_type = 'WECHAT_TRANSFER_AUTHORIZATION'
+                  AND subject_stable_key = ?
+                  AND state = 'UNRESOLVED'
+                """, resolvedAt, resolvedAt, tenantId, organizationId,
+                outAuthorizationNo);
+    }
+
+    @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void resolveMerchantTransferEvidenceMismatch(
             long tenantId,

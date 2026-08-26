@@ -1,45 +1,22 @@
 <view class="withdrawal-page">
-  <view class="create-card">
-    <view class="create-kicker">MANUAL WITHDRAWAL</view>
-    <view class="create-title">申请提现</view>
-    <view class="create-copy">首次使用需完成一次微信自动收款授权。提现是否需要工作人员审核，由机构当前规则和本次金额共同决定。</view>
+  <view class="background-shape background-shape--mint"></view>
+  <view class="background-shape background-shape--cream"></view>
 
-    <view class="authorization-panel authorization-panel--{{authorization && authorization.status === 'ACTIVE' ? 'active' : 'pending'}}">
+  <view class="create-card">
+    <view
+      wx:if="{{!authorizationLoading && (!authorization || authorization.status !== 'ACTIVE')}}"
+      class="authorization-panel"
+    >
       <view class="authorization-main">
-        <view class="authorization-label">微信自动收款</view>
-        <view wx:if="{{authorizationLoading}}" class="authorization-state">正在读取授权状态…</view>
-        <block wx:elif="{{authorization}}">
-          <view wx:if="{{authorization.status === 'ACTIVE'}}" class="authorization-state authorization-state--active">已开通</view>
-          <view wx:elif="{{authorization.status === 'PREPARING'}}" class="authorization-state">正在准备授权申请</view>
-          <view wx:elif="{{authorization.status === 'FAILED'}}" class="authorization-state authorization-state--warning">授权申请未被微信受理</view>
-          <view wx:elif="{{authorization.status === 'WAIT_USER_CONFIRM'}}" class="authorization-state">等待你完成一次授权</view>
-          <view wx:elif="{{authorization.status === 'UNKNOWN'}}" class="authorization-state authorization-state--warning">授权状态需要核对</view>
-          <view wx:else class="authorization-state">尚未开通</view>
-        </block>
-        <view wx:else class="authorization-state authorization-state--warning">授权状态读取失败</view>
-        <view class="authorization-copy" wx:if="{{authorization && authorization.status === 'ACTIVE'}}">新提现审核通过后无需逐笔确认收款</view>
-        <view class="authorization-copy" wx:else>完成微信官方授权前，系统不会创建或冻结新的提现</view>
+        <view class="authorization-state">提现前需完成微信收款授权</view>
         <view class="authorization-error" wx:if="{{authorizationError}}">{{authorizationError}}</view>
       </view>
       <button
-        wx:if="{{!authorizationLoading && (!authorization || authorization.status !== 'ACTIVE')}}"
         class="authorization-button"
         loading="{{authorizationSubmitting}}"
         disabled="{{authorizationSubmitting}}"
         bindtap="onAuthorizationAction"
-      >{{authorization && authorization.status === 'WAIT_USER_CONFIRM' ? '继续授权' : (authorization && authorization.status === 'FAILED' ? '重新申请' : (authorization && (authorization.status === 'PREPARING' || authorization.status === 'UNKNOWN') ? '核对状态' : '立即开通'))}}</button>
-    </view>
-
-    <view class="balance-panel">
-      <view class="balance-item">
-        <text class="balance-label">当前可用余额</text>
-        <text class="balance-value">{{eligibilityLoading ? '读取中…' : availableBalanceText}}</text>
-      </view>
-      <view class="balance-divider"></view>
-      <view class="balance-item balance-item--right">
-        <text class="balance-label">单笔提现范围</text>
-        <text class="range-value">{{eligibilityLoading ? '读取中…' : (minimumText + ' — ' + maximumText)}}</text>
-      </view>
+      >{{authorizationSubmitting ? '处理中…' : '去授权'}}</button>
     </view>
 
     <view class="eligibility-error" wx:if="{{eligibilityError}}">
@@ -60,21 +37,21 @@
         bindblur="onAmountBlur"
       />
     </view>
-    <view class="amount-help {{amountError ? 'amount-help--error' : ''}}">
-      {{amountError || '可输入 4、0.4 或 4.56，最多两位小数'}}
+    <view wx:if="{{amountError}}" class="amount-error">{{amountError}}</view>
+    <view class="amount-balance">
+      <text class="amount-balance-label">可用</text>
+      <text class="amount-balance-value">{{eligibilityLoading ? '读取中…' : availableBalanceText}}</text>
     </view>
     <button
-      class="submit-button"
+      class="submit-button {{amountError ? 'submit-button--with-error' : ''}}"
       loading="{{submitting}}"
       disabled="{{submitting || authorizationSubmitting || !canSubmit}}"
       bindtap="onCreate"
     >{{submitting ? '正在提交…' : '申请提现'}}</button>
-    <view class="submit-note">提交后不可由用户取消；未超过免审阈值时会直接进入微信转账流程</view>
   </view>
 
   <view class="section-head">
     <text class="section-title">提现记录</text>
-    <text class="section-note">最终结果以后端查单状态为准</text>
   </view>
 
   <view wx:if="{{listLoading}}" class="state-card">
@@ -101,11 +78,9 @@
       <view class="status status--{{item.statusTone}}">{{item.statusText}}</view>
     </view>
     <view class="order-meta">
-      <text>{{item.sourceText}}</text>
       <text>{{item.createdText}}</text>
       <text wx:if="{{item.channelState}}">{{item.channelStateText}}</text>
     </view>
-    <view class="risk-note" wx:if="{{item.sourceDeliveryOrderNo}}">来源投递单：{{item.sourceDeliveryOrderNo}}</view>
     <view class="risk-note" wx:if="{{item.channelStatusMessage}}">
       {{item.channelStatusMessage}}<text wx:if="{{item.channelErrorCode}}">（{{item.channelErrorCode}}）</text>
     </view>

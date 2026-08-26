@@ -69,6 +69,10 @@ public class MerchantTransferAuthorizationApplicationService {
             "merchant-transfer-authorization.create";
     private static final String QUERY_ACTION =
             "merchant-transfer-authorization.query";
+    private static final String EVIDENCE_MISMATCH_ISSUE =
+            "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_EVIDENCE_MISMATCH";
+    private static final String CREATE_TIME_MISMATCH_ISSUE =
+            "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_CREATE_TIME_MISMATCH";
     private static final Set<String> DEFINITIVE_CREATE_REJECTION_CODES =
             Set.of("PARAM_ERROR", "NO_AUTH", "SIGN_ERROR",
                     "MCHID_MISMATCH");
@@ -267,6 +271,30 @@ public class MerchantTransferAuthorizationApplicationService {
         if (!"CREATED".equals(row.localState())) {
             return done("authorization creation already converged");
         }
+        if (attemptBoundary.taskExternalCallMayHaveStarted(
+                command.taskUid(), command.attemptUid())) {
+            return transactions.execute(status -> {
+                AuthorizationRow locked = requiredById(row.id(), true);
+                if ("CREATE_REJECTED".equals(locked.localState())) {
+                    return blocked(
+                            "permanently rejected authorization request "
+                                    + "cannot be replayed; a new user "
+                                    + "request is required");
+                }
+                if (!"CREATED".equals(locked.localState())) {
+                    return done(
+                            "authorization creation already converged");
+                }
+                LocalDateTime now = databaseNow();
+                wakeQueryAfterUncertainCreate(
+                        command, locked, null, now,
+                        "QUERY_TASK_NOT_WAKEABLE_AFTER_RECLAIMED_CREATE");
+                return blocked(
+                        "an earlier create attempt may have reached WeChat; "
+                                + "the original authorization number must "
+                                + "be queried instead of replaying create");
+            });
+        }
         AuthorizationRequest request = originalRequest(row);
         if (request == null) {
             return transactions.execute(status -> {
@@ -280,10 +308,44 @@ public class MerchantTransferAuthorizationApplicationService {
                         "original authorization request cannot be reproduced");
             });
         }
+        LocalDateTime submittedAt = databaseNow();
+        Boolean createStillAllowed = transactions.execute(status -> {
+            AuthorizationRow locked = requiredById(row.id(), true);
+            if (!"CREATED".equals(locked.localState())) {
+                return false;
+            }
+            jdbc.update("""
+                    UPDATE fund_wechat_transfer_authorization
+                    SET submitted_at = COALESCE(submitted_at, ?),
+                        lock_version = lock_version + 1,
+                        updated_at = ?
+                    WHERE id = ?
+                    """, submittedAt, submittedAt, row.id());
+            return true;
+        });
+        if (!Boolean.TRUE.equals(createStillAllowed)) {
+            return createCallNoLongerAllowed(row.id());
+        }
         attemptBoundary.markExternalCallMayHaveStarted(command.attemptUid());
+        String stateBeforeCall = transactions.execute(status ->
+                requiredById(row.id(), true).localState());
+        if (!"CREATED".equals(stateBeforeCall)) {
+            return createCallNoLongerAllowed(row.id());
+        }
         AuthorizationResult result = channel.create(request);
         return transactions.execute(status -> mergeTaskResult(
                 command, row.id(), "CREATE_RESPONSE", result));
+    }
+
+    private ReliableFundsTaskExecutorPort.Result createCallNoLongerAllowed(
+            long authorizationId) {
+        AuthorizationRow latest = requiredById(authorizationId, false);
+        if ("CREATE_REJECTED".equals(latest.localState())) {
+            return blocked(
+                    "permanently rejected authorization request cannot be "
+                            + "replayed; a new user request is required");
+        }
+        return done("authorization creation already converged");
     }
 
     private ReliableFundsTaskExecutorPort.Result executeQuery(
@@ -359,6 +421,8 @@ public class MerchantTransferAuthorizationApplicationService {
                             "QUERY_TASK_NOT_CONVERGENT_AFTER_CREATE_REJECTION",
                             result, now);
                 }
+                resolveQueryRecoveryMissing(row, now);
+                resolveUnknownState(row, now);
             } else {
                 jdbc.update("""
                         UPDATE fund_wechat_transfer_authorization
@@ -424,14 +488,37 @@ public class MerchantTransferAuthorizationApplicationService {
                 observationType)
                 ? validateCreateEvidence(row, result)
                 : validateQueryEvidence(row, result);
-        if (!validation.trusted()) {
+        boolean closedWithOnlyCreateTimeMismatch =
+                "QUERY".equals(observationType)
+                        && result.outcome()
+                        == AuthorizationResult.Outcome.CLOSED
+                        && validation.onlyViolation(
+                                "CREATE_TIME_MISMATCH");
+        if (!validation.trusted()
+                && !closedWithOnlyCreateTimeMismatch) {
             markUnknown(row, result.channelState(), now);
+            String issueCode = validation.hasViolation(
+                    "CREATE_TIME_MISMATCH")
+                    || validation.hasViolation(
+                    "CREATE_TIME_CORROBORATION_REQUIRED")
+                    ? CREATE_TIME_MISMATCH_ISSUE
+                    : EVIDENCE_MISMATCH_ISSUE;
             observeIssue(
                     command.sourceTaskAttemptId(), row,
-                    "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_EVIDENCE_MISMATCH",
+                    issueCode,
                     "CRITICAL", validation.summary(), result, now);
             return blocked("authorization evidence mismatch: "
                     + validation.summary());
+        }
+        if (closedWithOnlyCreateTimeMismatch) {
+            // A signed terminal query is sufficient to release the current
+            // authorization slot when all identity and closure evidence
+            // matches.  Preserve the first projected create_time and keep the
+            // contradictory provider timestamp open for reconciliation.
+            observeIssue(
+                    command.sourceTaskAttemptId(), row,
+                    CREATE_TIME_MISMATCH_ISSUE,
+                    "CRITICAL", "CREATE_TIME_MISMATCH", result, now);
         }
         if ("CREATE_RESPONSE".equals(observationType)) {
             return mergeCreateResponse(command, row, result, now);
@@ -449,7 +536,8 @@ public class MerchantTransferAuthorizationApplicationService {
         }
         LocalDateTime channelCreated = databaseTime(
                 result.channelCreatedAt());
-        LocalDateTime confirmationDeadline = channelCreated.plusHours(24);
+        LocalDateTime confirmationDeadline = confirmationDeadlineAt(
+                row, channelCreated);
         LocalDateTime packageExpiresAt = earlier(
                 now.plusMinutes(10), confirmationDeadline);
         jdbc.update("""
@@ -461,13 +549,13 @@ public class MerchantTransferAuthorizationApplicationService {
                     last_api_error_code = NULL,
                     submitted_at = COALESCE(submitted_at, ?),
                     channel_created_at = ?,
-                    confirmation_deadline_at = DATE_ADD(?, INTERVAL 24 HOUR),
+                    confirmation_deadline_at = ?,
                     channel_updated_at = ?,
                     lock_version = lock_version + 1, updated_at = ?
                 WHERE id = ? AND local_state = 'CREATED'
                 """, result.packageInfo(), packageExpiresAt,
                 now, channelCreated,
-                channelCreated, now, now, row.id());
+                confirmationDeadline, now, now, row.id());
         AuthorizationQueryTaskWakeResult wake = operationalControl
                 .wakeMerchantTransferAuthorizationQuery(
                         row.tenantId(), row.organizationId(),
@@ -513,7 +601,7 @@ public class MerchantTransferAuthorizationApplicationService {
             case WAIT_USER_CONFIRM -> mergeWaiting(
                     command, row, result, now);
             case ACTIVE -> mergeActive(command, row, result, now);
-            case CLOSED -> mergeClosed(row, result, now);
+            case CLOSED -> mergeClosed(command, row, result, now);
             default -> throw new IllegalStateException(
                     "unexpected successful authorization outcome");
         };
@@ -524,7 +612,16 @@ public class MerchantTransferAuthorizationApplicationService {
             AuthorizationRow row,
             AuthorizationResult result,
             LocalDateTime now) {
-        if (isTerminal(row.localState())) {
+        if ("CREATE_REJECTED".equals(row.localState())) {
+            handleTerminalConflict(
+                    command.sourceTaskAttemptId(), row, result, now,
+                    "CREATE_REJECTED_AUTHORIZATION_REPORTED_WAITING");
+            return blocked(
+                    "rejected authorization conflicts with waiting evidence");
+        }
+        if ("CLOSED".equals(row.localState())
+                || "EXPIRED".equals(row.localState())) {
+            resolveUnknownState(row, now);
             return done("late waiting observation preserved");
         }
         if ("ACTIVE".equals(row.localState())) {
@@ -538,7 +635,8 @@ public class MerchantTransferAuthorizationApplicationService {
                     "active authorization unexpectedly returned to waiting state");
         }
         LocalDateTime channelCreated = channelCreatedAt(row, result);
-        LocalDateTime confirmationDeadline = channelCreated.plusHours(24);
+        LocalDateTime confirmationDeadline = confirmationDeadlineAt(
+                row, channelCreated);
         String packageInfo = blankToNull(result.packageInfo());
         LocalDateTime packageExpiresAt = null;
         if (packageInfo != null) {
@@ -561,14 +659,15 @@ public class MerchantTransferAuthorizationApplicationService {
                         state_conflict = 1,
                         submitted_at = COALESCE(submitted_at, ?),
                         channel_created_at = ?,
-                        confirmation_deadline_at = DATE_ADD(?, INTERVAL 24 HOUR),
+                        confirmation_deadline_at = ?,
                         authorized_at = NULL, closed_at = NULL,
                         channel_updated_at = ?,
                         lock_version = lock_version + 1, updated_at = ?
                     WHERE id = ?
-                    """, now, channelCreated, channelCreated,
+                    """, now, channelCreated, confirmationDeadline,
                     now, now, row.id());
             resolveEvidenceMismatch(row, now);
+            resolveCreateTimeMismatchIfCorroborated(row, result, now);
             observeIssue(
                     command.sourceTaskAttemptId(), row,
                     "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_QUERY_RECOVERY_MISSING",
@@ -589,16 +688,20 @@ public class MerchantTransferAuthorizationApplicationService {
                     authorization_id = NULL,
                     last_api_error_code = NULL, close_reason = NULL,
                     state_conflict = 0,
+                    submitted_at = COALESCE(submitted_at, ?),
                     channel_created_at = ?,
-                    confirmation_deadline_at = DATE_ADD(?, INTERVAL 24 HOUR),
+                    confirmation_deadline_at = ?,
                     authorized_at = NULL, closed_at = NULL,
                     channel_updated_at = ?,
                     lock_version = lock_version + 1, updated_at = ?
                 WHERE id = ?
-                """, packageInfo, packageExpiresAt,
-                channelCreated, channelCreated,
+                """, packageInfo, packageExpiresAt, now,
+                channelCreated, confirmationDeadline,
                 now, now, row.id());
         resolveEvidenceMismatch(row, now);
+        resolveCreateTimeMismatchIfCorroborated(row, result, now);
+        resolveQueryRecoveryMissing(row, now);
+        resolveUnknownState(row, now);
         AuthorizationRow updated = requiredById(row.id(), false);
         return waiting(
                 "authorization remains waiting for user confirmation",
@@ -612,7 +715,8 @@ public class MerchantTransferAuthorizationApplicationService {
             LocalDateTime now) {
         if (isTerminal(row.localState())) {
             handleTerminalConflict(
-                    command.sourceTaskAttemptId(), row, result, now);
+                    command.sourceTaskAttemptId(), row, result, now,
+                    "TERMINAL_AUTHORIZATION_REPORTED_ACTIVE");
             return blocked(
                     "terminal authorization conflicts with active evidence");
         }
@@ -627,6 +731,8 @@ public class MerchantTransferAuthorizationApplicationService {
             return blocked("authorization ID belongs to another record");
         }
         LocalDateTime channelCreated = channelCreatedAt(row, result);
+        LocalDateTime confirmationDeadline = confirmationDeadlineAt(
+                row, channelCreated);
         jdbc.update("""
                 UPDATE fund_wechat_transfer_authorization
                 SET local_state = 'ACTIVE', channel_state = 'TAKING_EFFECT',
@@ -634,32 +740,52 @@ public class MerchantTransferAuthorizationApplicationService {
                     package_expires_at = NULL,
                     last_api_error_code = NULL, close_reason = NULL,
                     state_conflict = 0,
+                    submitted_at = COALESCE(submitted_at, ?),
                     channel_created_at = ?,
-                    confirmation_deadline_at = DATE_ADD(?, INTERVAL 24 HOUR),
+                    confirmation_deadline_at = ?,
                     authorized_at = COALESCE(authorized_at, ?),
                     closed_at = NULL, channel_updated_at = ?,
                     lock_version = lock_version + 1, updated_at = ?
                 WHERE id = ?
-                """, result.authorizationId(), channelCreated,
-                channelCreated, databaseTime(result.authorizedAt()),
+                """, result.authorizationId(), now, channelCreated,
+                confirmationDeadline, databaseTime(result.authorizedAt()),
                 now, now, row.id());
         resolveEvidenceMismatch(row, now);
+        resolveCreateTimeMismatchIfCorroborated(row, result, now);
+        resolveQueryRecoveryMissing(row, now);
+        resolveUnknownState(row, now);
         return waiting(
                 "authorization is active; periodic closure query retained",
                 Duration.ofDays(1));
     }
 
     private ReliableFundsTaskExecutorPort.Result mergeClosed(
+            ReliableFundsTaskExecutorPort.Command command,
             AuthorizationRow row,
             AuthorizationResult result,
             LocalDateTime now) {
         if ("CLOSED".equals(row.localState())) {
+            resolveCreateTimeMismatchIfCorroborated(row, result, now);
+            resolveQueryRecoveryMissing(row, now);
+            resolveUnknownState(row, now);
             return done("authorization is already closed");
         }
         if ("EXPIRED".equals(row.localState())) {
+            resolveCreateTimeMismatchIfCorroborated(row, result, now);
+            resolveQueryRecoveryMissing(row, now);
+            resolveUnknownState(row, now);
             return done("late closed observation preserved after expiry");
         }
+        if ("CREATE_REJECTED".equals(row.localState())) {
+            handleTerminalConflict(
+                    command.sourceTaskAttemptId(), row, result, now,
+                    "CREATE_REJECTED_AUTHORIZATION_REPORTED_CLOSED");
+            return blocked(
+                    "rejected authorization conflicts with closed evidence");
+        }
         LocalDateTime channelCreated = channelCreatedAt(row, result);
+        LocalDateTime confirmationDeadline = confirmationDeadlineAt(
+                row, channelCreated);
         LocalDateTime closedAt = databaseTime(result.closedAt());
         jdbc.update("""
                 UPDATE fund_wechat_transfer_authorization
@@ -668,17 +794,21 @@ public class MerchantTransferAuthorizationApplicationService {
                     package_info = NULL, package_expires_at = NULL,
                     last_api_error_code = NULL,
                     close_reason = ?, state_conflict = 0,
+                    submitted_at = COALESCE(submitted_at, ?),
                     channel_created_at = ?,
-                    confirmation_deadline_at = DATE_ADD(?, INTERVAL 24 HOUR),
+                    confirmation_deadline_at = ?,
                     authorized_at = COALESCE(authorized_at, ?),
                     closed_at = ?, channel_updated_at = ?,
                     lock_version = lock_version + 1, updated_at = ?
                 WHERE id = ?
-                """, result.authorizationId(), result.closeReason(),
-                channelCreated, channelCreated,
+                """, result.authorizationId(), result.closeReason(), now,
+                channelCreated, confirmationDeadline,
                 databaseTime(result.authorizedAt()), closedAt,
                 now, now, row.id());
         resolveEvidenceMismatch(row, now);
+        resolveCreateTimeMismatchIfCorroborated(row, result, now);
+        resolveQueryRecoveryMissing(row, now);
+        resolveUnknownState(row, now);
         return done("authorization closed");
     }
 
@@ -688,6 +818,37 @@ public class MerchantTransferAuthorizationApplicationService {
         operationalControl.resolveMerchantTransferAuthorizationEvidenceMismatch(
                 row.tenantId(), row.organizationId(),
                 row.outAuthorizationNo(), now);
+    }
+
+    private void resolveQueryRecoveryMissing(
+            AuthorizationRow row,
+            LocalDateTime now) {
+        operationalControl
+                .resolveMerchantTransferAuthorizationQueryRecoveryMissing(
+                        row.tenantId(), row.organizationId(),
+                        row.outAuthorizationNo(), now);
+    }
+
+    private void resolveUnknownState(
+            AuthorizationRow row,
+            LocalDateTime now) {
+        operationalControl.resolveMerchantTransferAuthorizationUnknownState(
+                row.tenantId(), row.organizationId(),
+                row.outAuthorizationNo(), now);
+    }
+
+    private void resolveCreateTimeMismatchIfCorroborated(
+            AuthorizationRow row,
+            AuthorizationResult result,
+            LocalDateTime now) {
+        LocalDateTime observed = databaseTime(result.channelCreatedAt());
+        if (row.channelCreatedAt() != null
+                && row.channelCreatedAt().equals(observed)) {
+            operationalControl
+                    .resolveMerchantTransferAuthorizationCreateTimeMismatch(
+                            row.tenantId(), row.organizationId(),
+                            row.outAuthorizationNo(), now);
+        }
     }
 
     private ReliableFundsTaskExecutorPort.Result mergeNotFound(
@@ -713,6 +874,8 @@ public class MerchantTransferAuthorizationApplicationService {
                                 row.tenantId(), row.organizationId(),
                                 row.outAuthorizationNo(), now);
                 resolveEvidenceMismatch(row, now);
+                resolveQueryRecoveryMissing(row, now);
+                resolveUnknownState(row, now);
                 return done(
                         "original authorization number was not accepted by WeChat");
             }
@@ -735,9 +898,13 @@ public class MerchantTransferAuthorizationApplicationService {
                         lock_version = lock_version + 1, updated_at = ?
                     WHERE id = ?
                     """, now, now, now, row.id());
+            resolveQueryRecoveryMissing(row, now);
+            resolveUnknownState(row, now);
             return done("unconfirmed authorization expired after retention");
         }
         if (isTerminal(row.localState())) {
+            resolveQueryRecoveryMissing(row, now);
+            resolveUnknownState(row, now);
             return done("late not-found observation preserved");
         }
         markUnknown(row, "NOT_FOUND", now);
@@ -787,31 +954,57 @@ public class MerchantTransferAuthorizationApplicationService {
                 && isTerminal(row.localState())) {
             handleTerminalConflict(
                     sourceTaskAttemptId, row,
-                    callbackActiveResult(row, payload, now), now);
+                    callbackActiveResult(row, payload, now), now,
+                    "TERMINAL_AUTHORIZATION_REPORTED_ACTIVE");
         }
         if ("CLOSED".equals(state)
-                && row.channelCreatedAt() != null
-                && !"EXPIRED".equals(row.localState())) {
+                && "CREATE_REJECTED".equals(row.localState())) {
+            handleTerminalConflict(
+                    sourceTaskAttemptId, row,
+                    callbackClosedResult(row, payload, now), now,
+                    "CREATE_REJECTED_AUTHORIZATION_REPORTED_CLOSED");
+        }
+        if ("CLOSED".equals(state)
+                && !isTerminal(row.localState())) {
             String closeReason = requiredText(
                     payload.path("close_info"), "close_reason");
             LocalDateTime authorizedAt = databaseTime(parseInstant(
                     requiredText(payload, "authorize_time")));
             LocalDateTime closedAt = databaseTime(parseInstant(
                     requiredText(payload.path("close_info"), "close_time")));
+            LocalDateTime confirmationDeadline = confirmationDeadlineAt(
+                    row, row.channelCreatedAt());
             jdbc.update("""
                     UPDATE fund_wechat_transfer_authorization
                     SET local_state = 'CLOSED', channel_state = 'CLOSED',
                         authorization_id = COALESCE(authorization_id, ?),
                         package_info = NULL, package_expires_at = NULL,
-                        close_reason = ?,
+                        close_reason = ?, state_conflict = 0,
+                        submitted_at = COALESCE(submitted_at, ?),
+                        confirmation_deadline_at = ?,
                         authorized_at = COALESCE(authorized_at, ?),
                         closed_at = ?,
                         last_api_error_code = NULL, channel_updated_at = ?,
                         lock_version = lock_version + 1, updated_at = ?
                     WHERE id = ?
-                    """, requiredText(payload, "authorization_id"),
-                    closeReason, authorizedAt, closedAt,
+                """, requiredText(payload, "authorization_id"),
+                    closeReason, now, confirmationDeadline,
+                    authorizedAt, closedAt,
                     now, now, row.id());
+            resolveEvidenceMismatch(row, now);
+            resolveQueryRecoveryMissing(row, now);
+            resolveUnknownState(row, now);
+        }
+        if ("CLOSED".equals(state)) {
+            operationalControl
+                    .convergeTerminalMerchantTransferAuthorizationQuery(
+                            row.tenantId(), row.organizationId(),
+                            row.outAuthorizationNo(), now);
+            resolveQueryRecoveryMissing(row, now);
+            if (!"CREATE_REJECTED".equals(row.localState())) {
+                resolveUnknownState(row, now);
+            }
+            return true;
         }
         AuthorizationRow queryTarget = findCurrentScope(
                 row.merchantId(), row.miniappId(), row.subjectId(),
@@ -847,6 +1040,29 @@ public class MerchantTransferAuthorizationApplicationService {
                 null, null,
                 instant(row.channelCreatedAt()),
                 parseInstant(requiredText(payload, "authorize_time")),
+                null, null, "TRUSTED_CALLBACK", instant(observedAt));
+    }
+
+    private static AuthorizationResult callbackClosedResult(
+            AuthorizationRow row,
+            JsonNode payload,
+            LocalDateTime observedAt) {
+        return new AuthorizationResult(
+                AuthorizationResult.Outcome.CLOSED,
+                "CLOSED",
+                requiredText(payload, "out_authorization_no"),
+                requiredText(payload, "authorization_id"),
+                requiredText(payload, "appid"),
+                requiredText(payload, "openid"),
+                row.sceneId(),
+                requiredText(payload, "user_display_name"),
+                row.userRecvPerception(),
+                null,
+                requiredText(payload.path("close_info"), "close_reason"),
+                instant(row.channelCreatedAt()),
+                parseInstant(requiredText(payload, "authorize_time")),
+                parseInstant(requiredText(
+                        payload.path("close_info"), "close_time")),
                 null, null, "TRUSTED_CALLBACK", instant(observedAt));
     }
 
@@ -1023,9 +1239,28 @@ public class MerchantTransferAuthorizationApplicationService {
                 row.userDisplayName(), "USER_DISPLAY_NAME");
         validation.equalIfPresent(result.userRecvPerception(),
                 row.userRecvPerception(), "USER_RECV_PERCEPTION");
-        // WeChat timestamps are optional diagnostic evidence. They are kept in
-        // observations, but an estimated local fallback must not turn a later
-        // authoritative timestamp into an identity/evidence mismatch.
+        // Query create_time is optional, but once WeChat has supplied the
+        // provider-side creation time for this immutable authorization number,
+        // a different non-null value is contradictory evidence.  Compare the
+        // database precision so sub-millisecond transport precision cannot
+        // create a false mismatch.
+        LocalDateTime observedChannelCreatedAt = databaseTime(
+                result.channelCreatedAt());
+        if (row.channelCreatedAt() != null
+                && observedChannelCreatedAt != null
+                && !row.channelCreatedAt().equals(observedChannelCreatedAt)) {
+            validation.violation("CREATE_TIME_MISMATCH");
+        }
+        if (result.outcome() != AuthorizationResult.Outcome.CLOSED
+                && observedChannelCreatedAt == null
+                && row.channelCreatedAt() != null
+                && row.stateConflict()
+                && operationalControl
+                .hasUnresolvedMerchantTransferAuthorizationCreateTimeMismatch(
+                        row.tenantId(), row.organizationId(),
+                        row.outAuthorizationNo())) {
+            validation.violation("CREATE_TIME_CORROBORATION_REQUIRED");
+        }
         if (result.outcome() == AuthorizationResult.Outcome.ACTIVE) {
             validation.present(result.authorizationId(), "AUTHORIZATION_ID");
             validation.present(result.authorizedAt(), "AUTHORIZE_TIME");
@@ -1084,7 +1319,8 @@ public class MerchantTransferAuthorizationApplicationService {
             long sourceTaskAttemptId,
             AuthorizationRow terminal,
             AuthorizationResult result,
-            LocalDateTime now) {
+            LocalDateTime now,
+            String reason) {
         AuthorizationRow newer = findCurrentScopeExcluding(
                 terminal, true);
         if (newer == null) {
@@ -1114,7 +1350,7 @@ public class MerchantTransferAuthorizationApplicationService {
         observeIssue(
                 sourceTaskAttemptId, terminal,
                 "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_TERMINAL_CONFLICT",
-                "CRITICAL", "TERMINAL_AUTHORIZATION_REPORTED_ACTIVE",
+                "CRITICAL", reason,
                 result, now);
     }
 
@@ -1765,10 +2001,29 @@ public class MerchantTransferAuthorizationApplicationService {
     private static LocalDateTime channelCreatedAt(
             AuthorizationRow row,
             AuthorizationResult result) {
-        LocalDateTime observed = databaseTime(result.channelCreatedAt());
-        if (observed != null) return observed;
-        if (row.channelCreatedAt() != null) return row.channelCreatedAt();
-        return row.createdAt();
+        // create_time describes the provider-side creation of one immutable
+        // authorization number.  Preserve the first provider fact projected
+        // for that number; later query values remain in the observation table
+        // but must not rewrite the aggregate or detach its already-fixed
+        // confirmation deadline from the timestamp that established it.
+        if (row.channelCreatedAt() != null) {
+            return row.channelCreatedAt();
+        }
+        return databaseTime(result.channelCreatedAt());
+    }
+
+    private static LocalDateTime confirmationDeadlineAt(
+            AuthorizationRow row,
+            LocalDateTime channelCreatedAt) {
+        if (row.confirmationDeadlineAt() != null) {
+            return row.confirmationDeadlineAt();
+        }
+        if (channelCreatedAt != null) {
+            return channelCreatedAt.plusHours(24);
+        }
+        LocalDateTime backendStart = row.submittedAt() == null
+                ? row.createdAt() : row.submittedAt();
+        return backendStart.plusHours(24);
     }
 
     private static String expectedChannelState(
@@ -1861,6 +2116,15 @@ public class MerchantTransferAuthorizationApplicationService {
 
         boolean trusted() {
             return violations.isEmpty();
+        }
+
+        boolean hasViolation(String code) {
+            return violations.contains(code);
+        }
+
+        boolean onlyViolation(String code) {
+            return violations.size() == 1
+                    && violations.contains(code);
         }
 
         String summary() {

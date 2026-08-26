@@ -114,6 +114,9 @@ class TargetWebIdentityMysqlIntegrationTest {
     private FundsOperationalControlPort fundsOperationalControl;
 
     @Autowired
+    private ReliableFundsAttemptBoundaryPort reliableFundsAttemptBoundary;
+
+    @Autowired
     private AuditPort auditPort;
 
     @Autowired
@@ -1917,6 +1920,12 @@ class TargetWebIdentityMysqlIntegrationTest {
                 waitingBeforeQuery.packageInfo());
         assertTrue(waitingBeforeQuery.confirmationRequired());
         assertNull(waitingBeforeQuery.lastSuccessfulQueryAt());
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT confirmation_deadline_at = DATE_ADD(
+                           channel_created_at, INTERVAL 24 HOUR)
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, Integer.class, accepted.authorizationNo()));
 
         assertEquals(1, jdbc.update("""
                 UPDATE fund_wechat_transfer_authorization
@@ -1958,16 +1967,34 @@ class TargetWebIdentityMysqlIntegrationTest {
         LocalDateTime legacyIssueAt = jdbc.queryForObject(
                 "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
         new TransactionTemplate(transactionManager).executeWithoutResult(
-                status -> fundsOperationalControl.observeReconciliationIssue(
-                        new FundsOperationalControlPort.ReconciliationIssue(
-                                fixture.tenantId(), fixture.organizationId(),
-                                waitingQueryCommand.sourceTaskAttemptId(),
-                                "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_EVIDENCE_MISMATCH",
-                                "CRITICAL", "WECHAT_TRANSFER_AUTHORIZATION",
-                                accepted.authorizationNo(),
-                                RechargeApplicationService.sha256(
-                                        "legacy-scene-id-missing"),
-                                "reason=SCENE_ID_MISSING", legacyIssueAt)));
+                status -> {
+                    fundsOperationalControl.observeReconciliationIssue(
+                            new FundsOperationalControlPort.ReconciliationIssue(
+                                    fixture.tenantId(),
+                                    fixture.organizationId(),
+                                    waitingQueryCommand.sourceTaskAttemptId(),
+                                    "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_EVIDENCE_MISMATCH",
+                                    "CRITICAL",
+                                    "WECHAT_TRANSFER_AUTHORIZATION",
+                                    accepted.authorizationNo(),
+                                    RechargeApplicationService.sha256(
+                                            "legacy-scene-id-missing"),
+                                    "reason=SCENE_ID_MISSING",
+                                    legacyIssueAt));
+                    fundsOperationalControl.observeReconciliationIssue(
+                            new FundsOperationalControlPort.ReconciliationIssue(
+                                    fixture.tenantId(),
+                                    fixture.organizationId(),
+                                    waitingQueryCommand.sourceTaskAttemptId(),
+                                    "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_UNKNOWN_STATE",
+                                    "CRITICAL",
+                                    "WECHAT_TRANSFER_AUTHORIZATION",
+                                    accepted.authorizationNo(),
+                                    RechargeApplicationService.sha256(
+                                            "legacy-unknown-state"),
+                                    "reason=UNKNOWN_CHANNEL_STATE",
+                                    legacyIssueAt));
+                });
         var waitingQueryResult = service.executeTask(waitingQueryCommand);
         assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
                 waitingQueryResult.outcome());
@@ -1980,6 +2007,25 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertNull(waitingAfterQuery.mchId());
         assertNotNull(waitingAfterQuery.confirmationExpiresAt());
         assertNotNull(waitingAfterQuery.lastSuccessfulQueryAt());
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT channel_created_at IS NULL
+                       AND confirmation_deadline_at =
+                           DATE_ADD(created_at, INTERVAL 24 HOUR)
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, Integer.class, accepted.authorizationNo()));
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_reconciliation_issue
+                WHERE issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_UNKNOWN_STATE'
+                  AND subject_stable_key = ? AND state = 'UNRESOLVED'
+                """, Integer.class, accepted.authorizationNo()));
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_reconciliation_issue
+                WHERE issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_QUERY_RECOVERY_MISSING'
+                  AND subject_stable_key = ? AND state = 'UNRESOLVED'
+                """, Integer.class, accepted.authorizationNo()));
         assertEquals("1|-|DONE", jdbc.queryForObject("""
                 SELECT CONCAT(auth.state_conflict, '|',
                               COALESCE(auth.last_api_error_code, '-'), '|',
@@ -1997,7 +2043,6 @@ class TargetWebIdentityMysqlIntegrationTest {
                     'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_EVIDENCE_MISMATCH'
                   AND subject_stable_key = ?
                 """, String.class, accepted.authorizationNo()));
-
         var mismatchedQueryCommand = fundsCommand(
                 queryTask.taskUid(), queryTask.taskId(), 2, fixture,
                 MerchantTransferAuthorizationApplicationService.QUERY_TASK,
@@ -2034,6 +2079,27 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
                 activeQueryResult.outcome());
         assertEquals("ACTIVE", service.current().status());
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT channel_created_at IS NULL
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, Integer.class, accepted.authorizationNo()));
+        assertEquals("RESOLVED|1", jdbc.queryForObject("""
+                SELECT CONCAT(state, '|',
+                              system_verified_resolved_at IS NOT NULL)
+                FROM ops_reconciliation_issue
+                WHERE issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_QUERY_RECOVERY_MISSING'
+                  AND subject_stable_key = ?
+                """, String.class, accepted.authorizationNo()));
+        assertEquals("RESOLVED|1", jdbc.queryForObject("""
+                SELECT CONCAT(state, '|',
+                              system_verified_resolved_at IS NOT NULL)
+                FROM ops_reconciliation_issue
+                WHERE issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_UNKNOWN_STATE'
+                  AND subject_stable_key = ?
+                """, String.class, accepted.authorizationNo()));
 
         String sharedOrganizationCode = code("ob");
         createAndActivateOrganization(
@@ -2148,7 +2214,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 FROM fund_wechat_transfer_authorization
                 WHERE out_authorization_no = ?
                 """, String.class, accepted.authorizationNo());
-        Instant closedAt = Instant.now().plusSeconds(1);
+        Instant closedAt = active.authorizedAt().plusSeconds(1);
         JsonNode closed = objectMapper.valueToTree(Map.of(
                 "out_authorization_no", accepted.authorizationNo(),
                 "authorization_id", authorizationId,
@@ -2223,6 +2289,673 @@ class TargetWebIdentityMysqlIntegrationTest {
                     'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_TERMINAL_CONFLICT'
                   AND subject_stable_key = ? AND state = 'UNRESOLVED'
                 """, Integer.class, accepted.authorizationNo()));
+    }
+
+    @Test
+    void authorizationWithoutWechatCreateTimeClosesDirectlyFromCallback()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("tc");
+        String organizationCode = code("oc");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Direct authorization closure");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_wechat_transfer_authorization
+                SET local_state = 'CLOSED', channel_state = 'CLOSED',
+                    package_info = NULL, package_expires_at = NULL,
+                    close_reason = 'TEST_FIXTURE_REPLACED',
+                    closed_at = UTC_TIMESTAMP(3),
+                    channel_updated_at = UTC_TIMESTAMP(3),
+                    lock_version = lock_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE tenant_id = ? AND organization_id = ?
+                  AND organization_user_id = ?
+                """, fixture.tenantId(), fixture.organizationId(),
+                fixture.userId()));
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(),
+                UUID.randomUUID(), "direct-close-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.currentMiniapp(false)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
+        ScriptedAuthorizationChannel authorizationChannel =
+                new ScriptedAuthorizationChannel();
+        MerchantTransferAuthorizationApplicationService service =
+                new MerchantTransferAuthorizationApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class),
+                        authorizationChannel, fundsOperationalControl,
+                        new TransactionTemplate(transactionManager), auditPort,
+                        "https://callback.example");
+
+        var accepted = new TransactionTemplate(transactionManager).execute(
+                status -> service.create(UUID.randomUUID()));
+        assertNotNull(accepted);
+        FundsTaskRef createTask = fundsTask(
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo());
+        var createCommand = fundsCommand(
+                createTask.taskUid(), createTask.taskId(), 1, fixture,
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo());
+        var createResult = service.executeTask(createCommand);
+        recordFundsAttemptResult(createCommand, createResult);
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_wechat_transfer_authorization
+                SET local_state = 'CREATED', channel_state = NULL,
+                    package_info = NULL, package_expires_at = NULL,
+                    last_api_error_code = 'INVALID_REQUEST',
+                    state_conflict = 0, submitted_at = NULL,
+                    channel_created_at = NULL,
+                    confirmation_deadline_at = NULL,
+                    lock_version = lock_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE out_authorization_no = ?
+                """, accepted.authorizationNo()));
+
+        FundsTaskRef queryTask = fundsTask(
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var queryCommand = fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 1, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var queryResult = service.executeTask(queryCommand);
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
+                queryResult.outcome());
+        recordFundsAttemptResult(queryCommand, queryResult);
+        assertEquals("UNKNOWN|1|1|1", jdbc.queryForObject("""
+                SELECT CONCAT(local_state, '|', state_conflict, '|',
+                              channel_created_at IS NULL, '|',
+                              confirmation_deadline_at =
+                                  DATE_ADD(created_at, INTERVAL 24 HOUR))
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo()));
+
+        String userDisplayName = jdbc.queryForObject("""
+                SELECT user_display_name_snapshot
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo());
+        Instant authorizedAt = Instant.parse("2020-01-01T00:00:00Z");
+        Instant closedAt = authorizedAt.plusSeconds(1);
+        JsonNode closed = objectMapper.valueToTree(Map.of(
+                "out_authorization_no", accepted.authorizationNo(),
+                "authorization_id", "WXAUTHDIRECTCLOSE000000000001",
+                "appid", fixture.appid(),
+                "openid", fixture.openid(),
+                "user_display_name", userDisplayName,
+                "state", "CLOSED",
+                "authorize_time", authorizedAt.toString(),
+                "close_info", Map.of(
+                        "close_reason", "USER_CLOSE",
+                        "close_time", closedAt.toString())));
+        long sourceInboxId = insertSyntheticWechatInbox(
+                fixture, "WECHAT_TRANSFER_AUTHORIZATION_NOTIFICATION",
+                closed.toString());
+        var callbackSource = fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 2, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+
+        Boolean applied = new TransactionTemplate(transactionManager).execute(
+                status -> service.applyTrustedNotification(
+                        sourceInboxId,
+                        callbackSource.sourceTaskAttemptId(),
+                        fixture.tenantId(), fixture.organizationId(), closed));
+
+        assertTrue(Boolean.TRUE.equals(applied));
+        assertEquals("CLOSED|0|1|1", jdbc.queryForObject("""
+                SELECT CONCAT(local_state, '|', state_conflict, '|',
+                              channel_created_at IS NULL, '|',
+                              confirmation_deadline_at IS NOT NULL)
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo()));
+        assertEquals("RESOLVED|1", jdbc.queryForObject("""
+                SELECT CONCAT(state, '|',
+                              system_verified_resolved_at IS NOT NULL)
+                FROM ops_reconciliation_issue
+                WHERE issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_QUERY_RECOVERY_MISSING'
+                  AND subject_stable_key = ?
+                """, String.class, accepted.authorizationNo()));
+
+    }
+
+    @Test
+    void changedWechatCreateTimeIsQuarantinedWithoutRewritingProjection()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("tt");
+        String organizationCode = code("ot");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Contradictory authorization create time");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_wechat_transfer_authorization
+                SET local_state = 'CLOSED', channel_state = 'CLOSED',
+                    package_info = NULL, package_expires_at = NULL,
+                    close_reason = 'TEST_FIXTURE_REPLACED',
+                    closed_at = UTC_TIMESTAMP(3),
+                    channel_updated_at = UTC_TIMESTAMP(3),
+                    lock_version = lock_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE tenant_id = ? AND organization_id = ?
+                  AND organization_user_id = ?
+                """, fixture.tenantId(), fixture.organizationId(),
+                fixture.userId()));
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(),
+                UUID.randomUUID(), "create-time-mismatch-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.currentMiniapp(false)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
+        ScriptedAuthorizationChannel authorizationChannel =
+                new ScriptedAuthorizationChannel();
+        MerchantTransferAuthorizationApplicationService service =
+                new MerchantTransferAuthorizationApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class),
+                        authorizationChannel, fundsOperationalControl,
+                        new TransactionTemplate(transactionManager), auditPort,
+                        "https://callback.example");
+
+        var accepted = new TransactionTemplate(transactionManager).execute(
+                status -> service.create(UUID.randomUUID()));
+        assertNotNull(accepted);
+        FundsTaskRef createTask = fundsTask(
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo());
+        var createCommand = fundsCommand(
+                createTask.taskUid(), createTask.taskId(), 1, fixture,
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo());
+        var createResult = service.executeTask(createCommand);
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                createResult.outcome());
+        recordFundsAttemptResult(createCommand, createResult);
+
+        LocalDateTime originalChannelCreatedAt = jdbc.queryForObject("""
+                SELECT channel_created_at
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, LocalDateTime.class, accepted.authorizationNo());
+        LocalDateTime originalDeadlineAt = jdbc.queryForObject("""
+                SELECT confirmation_deadline_at
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, LocalDateTime.class, accepted.authorizationNo());
+        assertNotNull(originalChannelCreatedAt);
+        assertEquals(originalChannelCreatedAt.plusHours(24),
+                originalDeadlineAt);
+        authorizationChannel.reportDifferentCreateTimeOnNextQuery();
+
+        FundsTaskRef queryTask = fundsTask(
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var queryCommand = fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 1, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var queryResult = service.executeTask(queryCommand);
+
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                queryResult.outcome());
+        recordFundsAttemptResult(queryCommand, queryResult);
+        assertEquals("UNKNOWN|1", jdbc.queryForObject("""
+                SELECT CONCAT(local_state, '|', state_conflict)
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo()));
+        assertEquals(originalChannelCreatedAt, jdbc.queryForObject("""
+                SELECT channel_created_at
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, LocalDateTime.class, accepted.authorizationNo()));
+        assertEquals(originalDeadlineAt, jdbc.queryForObject("""
+                SELECT confirmation_deadline_at
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, LocalDateTime.class, accepted.authorizationNo()));
+        assertEquals(originalChannelCreatedAt.plusSeconds(1),
+                jdbc.queryForObject("""
+                        SELECT observed_channel_created_at
+                        FROM fund_wechat_transfer_authorization_observation
+                        WHERE transfer_authorization_id = (
+                            SELECT id
+                            FROM fund_wechat_transfer_authorization
+                            WHERE out_authorization_no = ?
+                        )
+                          AND observation_type = 'QUERY'
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """, LocalDateTime.class,
+                        accepted.authorizationNo()));
+        assertEquals("UNRESOLVED|1", jdbc.queryForObject("""
+                SELECT CONCAT(state, '|',
+                              redacted_evidence_summary LIKE
+                                  '%reason=CREATE_TIME_MISMATCH;%')
+                FROM ops_reconciliation_issue
+                WHERE issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_CREATE_TIME_MISMATCH'
+                  AND subject_stable_key = ?
+                """, String.class, accepted.authorizationNo()));
+
+        authorizationChannel.reportActiveWithoutCreateTimeOnNextQuery();
+        var uncorroboratedCommand = fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 2, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var uncorroboratedResult = service.executeTask(
+                uncorroboratedCommand);
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                uncorroboratedResult.outcome());
+        recordFundsAttemptResult(
+                uncorroboratedCommand, uncorroboratedResult);
+        assertEquals("UNKNOWN|1", jdbc.queryForObject("""
+                SELECT CONCAT(local_state, '|', state_conflict)
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo()));
+        assertEquals("UNRESOLVED|2", jdbc.queryForObject("""
+                SELECT CONCAT(state, '|', discovery_count)
+                FROM ops_reconciliation_issue
+                WHERE issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_CREATE_TIME_MISMATCH'
+                  AND subject_stable_key = ?
+                """, String.class, accepted.authorizationNo()));
+
+        authorizationChannel.reportActiveWithOriginalCreateTimeOnNextQuery();
+        var corroboratedCommand = fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 3, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var corroboratedResult = service.executeTask(corroboratedCommand);
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
+                corroboratedResult.outcome());
+        recordFundsAttemptResult(corroboratedCommand, corroboratedResult);
+        assertEquals("ACTIVE|0", jdbc.queryForObject("""
+                SELECT CONCAT(local_state, '|', state_conflict)
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo()));
+        assertEquals("RESOLVED|1", jdbc.queryForObject("""
+                SELECT CONCAT(state, '|',
+                              system_verified_resolved_at IS NOT NULL)
+                FROM ops_reconciliation_issue
+                WHERE issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_CREATE_TIME_MISMATCH'
+                  AND subject_stable_key = ?
+                """, String.class, accepted.authorizationNo()));
+
+        authorizationChannel
+                .reportClosedWithDifferentCreateTimeAndAppidMismatchOnNextQuery();
+        var mismatchedIdentityCommand = fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 4, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var mismatchedIdentityResult = service.executeTask(
+                mismatchedIdentityCommand);
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                mismatchedIdentityResult.outcome());
+        recordFundsAttemptResult(
+                mismatchedIdentityCommand, mismatchedIdentityResult);
+        assertEquals("UNKNOWN|1", jdbc.queryForObject("""
+                SELECT CONCAT(local_state, '|', state_conflict)
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo()));
+
+        authorizationChannel.reportClosedWithDifferentCreateTimeOnNextQuery();
+        var closedCommand = fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 5, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var closedResult = service.executeTask(closedCommand);
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                closedResult.outcome());
+        recordFundsAttemptResult(closedCommand, closedResult);
+        assertEquals("CLOSED|0|1|1", jdbc.queryForObject("""
+                SELECT CONCAT(local_state, '|', state_conflict, '|',
+                              channel_created_at = ?, '|',
+                              confirmation_deadline_at = ?)
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, originalChannelCreatedAt,
+                originalDeadlineAt, accepted.authorizationNo()));
+        assertEquals(originalChannelCreatedAt.plusSeconds(10),
+                jdbc.queryForObject("""
+                        SELECT observed_channel_created_at
+                        FROM fund_wechat_transfer_authorization_observation
+                        WHERE source_task_attempt_id = ?
+                        """, LocalDateTime.class,
+                        closedCommand.sourceTaskAttemptId()));
+        assertEquals("UNRESOLVED|1", jdbc.queryForObject("""
+                SELECT CONCAT(state, '|',
+                              system_verified_resolved_at IS NULL)
+                FROM ops_reconciliation_issue
+                WHERE issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_CREATE_TIME_MISMATCH'
+                  AND subject_stable_key = ?
+                  AND state = 'UNRESOLVED'
+                """, String.class, accepted.authorizationNo()));
+
+        var replacement = new TransactionTemplate(transactionManager).execute(
+                status -> service.create(UUID.randomUUID()));
+        assertNotNull(replacement);
+        assertEquals("PREPARING", replacement.status());
+        assertFalse(accepted.authorizationNo().equals(
+                replacement.authorizationNo()));
+    }
+
+    @Test
+    void crossedAuthorizationCreateAttemptQueriesWithoutRepostingOnReentry()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("tb");
+        String organizationCode = code("ob");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Reclaimed authorization create");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_wechat_transfer_authorization
+                SET local_state = 'CLOSED', channel_state = 'CLOSED',
+                    package_info = NULL, package_expires_at = NULL,
+                    close_reason = 'TEST_FIXTURE_REPLACED',
+                    closed_at = UTC_TIMESTAMP(3),
+                    channel_updated_at = UTC_TIMESTAMP(3),
+                    lock_version = lock_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE tenant_id = ? AND organization_id = ?
+                  AND organization_user_id = ?
+                """, fixture.tenantId(), fixture.organizationId(),
+                fixture.userId()));
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(),
+                UUID.randomUUID(), "reclaimed-create-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.currentMiniapp(false)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
+        PermanentFailureAuthorizationChannel channel =
+                new PermanentFailureAuthorizationChannel();
+        MerchantTransferAuthorizationApplicationService service =
+                new MerchantTransferAuthorizationApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks, reliableFundsAttemptBoundary,
+                        channel, fundsOperationalControl,
+                        new TransactionTemplate(transactionManager), auditPort,
+                        "https://callback.example");
+
+        var accepted = new TransactionTemplate(transactionManager).execute(
+                status -> service.create(UUID.randomUUID()));
+        assertNotNull(accepted);
+        FundsTaskRef createTask = fundsTask(
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo());
+        FundsTaskRef queryTask = fundsTask(
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var abandonedAttempt = fundsCommand(
+                createTask.taskUid(), createTask.taskId(), 1, fixture,
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo());
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_wechat_transfer_authorization
+                SET submitted_at = UTC_TIMESTAMP(3),
+                    lock_version = lock_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE out_authorization_no = ?
+                  AND local_state = 'CREATED'
+                  AND submitted_at IS NULL
+                """, accepted.authorizationNo()));
+        reliableFundsAttemptBoundary.markExternalCallMayHaveStarted(
+                abandonedAttempt.attemptUid());
+
+        var sameAttemptResult = service.executeTask(abandonedAttempt);
+
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                sameAttemptResult.outcome());
+        assertEquals(0, channel.createCount,
+                "a re-entered create attempt must query the original "
+                        + "number instead of posting create again");
+        assertEquals(1L, jdbc.queryForObject("""
+                SELECT wake_version FROM ops_reliable_task
+                WHERE id = ?
+                """, Long.class, queryTask.taskId()));
+
+        var reclaimedAttempt = fundsCommand(
+                createTask.taskUid(), createTask.taskId(), 2, fixture,
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo());
+        var result = service.executeTask(reclaimedAttempt);
+
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                result.outcome());
+        assertEquals(0, channel.createCount,
+                "a reclaimed create task must query the original number "
+                        + "instead of posting create again");
+        assertEquals("CREATED|1|2", jdbc.queryForObject("""
+                SELECT CONCAT(auth.local_state, '|',
+                              auth.submitted_at IS NOT NULL, '|',
+                              query_task.wake_version)
+                FROM fund_wechat_transfer_authorization auth
+                JOIN ops_reliable_task query_task
+                  ON query_task.id = ?
+                WHERE auth.out_authorization_no = ?
+                """, String.class, queryTask.taskId(),
+                accepted.authorizationNo()));
+        assertEquals(0, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_task_attempt
+                WHERE attempt_uid = ?
+                  AND external_call_may_have_started_at IS NOT NULL
+                """, Integer.class, reclaimedAttempt.attemptUid().toString()));
+    }
+
+    @Test
+    void authorizationCreateRechecksStateAfterAttemptBoundary()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("tc");
+        String organizationCode = code("oc");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Authorization pre-call convergence");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_wechat_transfer_authorization
+                SET local_state = 'CLOSED', channel_state = 'CLOSED',
+                    package_info = NULL, package_expires_at = NULL,
+                    close_reason = 'TEST_FIXTURE_REPLACED',
+                    closed_at = UTC_TIMESTAMP(3),
+                    channel_updated_at = UTC_TIMESTAMP(3),
+                    lock_version = lock_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE tenant_id = ? AND organization_id = ?
+                  AND organization_user_id = ?
+                """, fixture.tenantId(), fixture.organizationId(),
+                fixture.userId()));
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(),
+                UUID.randomUUID(), "pre-call-convergence-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.currentMiniapp(false)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
+        ReliableFundsAttemptBoundaryPort boundary =
+                mock(ReliableFundsAttemptBoundaryPort.class);
+        PermanentFailureAuthorizationChannel channel =
+                new PermanentFailureAuthorizationChannel();
+        MerchantTransferAuthorizationApplicationService service =
+                new MerchantTransferAuthorizationApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks, boundary, channel,
+                        fundsOperationalControl,
+                        new TransactionTemplate(transactionManager), auditPort,
+                        "https://callback.example");
+
+        var accepted = new TransactionTemplate(transactionManager).execute(
+                status -> service.create(UUID.randomUUID()));
+        assertNotNull(accepted);
+        FundsTaskRef createTask = fundsTask(
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo());
+        org.mockito.Mockito.doAnswer(invocation -> {
+            assertEquals(1, jdbc.update("""
+                    UPDATE fund_wechat_transfer_authorization
+                    SET local_state = 'CREATE_REJECTED',
+                        last_api_error_code = 'PARAM_ERROR',
+                        channel_updated_at = UTC_TIMESTAMP(3),
+                        lock_version = lock_version + 1,
+                        updated_at = UTC_TIMESTAMP(3)
+                    WHERE out_authorization_no = ?
+                      AND local_state = 'CREATED'
+                      AND submitted_at IS NOT NULL
+                    """, accepted.authorizationNo()));
+            return null;
+        }).when(boundary).markExternalCallMayHaveStarted(any());
+        var command = fundsCommand(
+                createTask.taskUid(), createTask.taskId(), 1, fixture,
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo());
+
+        var result = service.executeTask(command);
+
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                result.outcome());
+        assertEquals(0, channel.createCount,
+                "a terminal fact observed at the call boundary must prevent "
+                        + "the create POST");
+        assertEquals("CREATE_REJECTED|1", jdbc.queryForObject("""
+                SELECT CONCAT(local_state, '|', submitted_at IS NOT NULL)
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo()));
+        org.mockito.Mockito.verify(boundary)
+                .markExternalCallMayHaveStarted(command.attemptUid());
+    }
+
+    @Test
+    void rejectedAuthorizationConflictsWithConcurrentTrustedQueryFacts()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("tr");
+        String organizationCode = code("or");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Rejected authorization query conflict");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_wechat_transfer_authorization
+                SET local_state = 'CLOSED', channel_state = 'CLOSED',
+                    package_info = NULL, package_expires_at = NULL,
+                    close_reason = 'TEST_FIXTURE_REPLACED',
+                    closed_at = UTC_TIMESTAMP(3),
+                    channel_updated_at = UTC_TIMESTAMP(3),
+                    lock_version = lock_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE tenant_id = ? AND organization_id = ?
+                  AND organization_user_id = ?
+                """, fixture.tenantId(), fixture.organizationId(),
+                fixture.userId()));
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(),
+                UUID.randomUUID(), "rejected-query-conflict-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.currentMiniapp(false)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
+        ConcurrentRejectedQueryChannel channel =
+                new ConcurrentRejectedQueryChannel(jdbc);
+        MerchantTransferAuthorizationApplicationService service =
+                new MerchantTransferAuthorizationApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class),
+                        channel, fundsOperationalControl,
+                        new TransactionTemplate(transactionManager), auditPort,
+                        "https://callback.example");
+
+        var accepted = new TransactionTemplate(transactionManager).execute(
+                status -> service.create(UUID.randomUUID()));
+        assertNotNull(accepted);
+        FundsTaskRef queryTask = fundsTask(
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+
+        var waitingCommand = fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 1, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var waitingResult = service.executeTask(waitingCommand);
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                waitingResult.outcome());
+        assertEquals("UNKNOWN|1", jdbc.queryForObject("""
+                SELECT CONCAT(local_state, '|', state_conflict)
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo()));
+
+        var closedCommand = fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 2, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var closedResult = service.executeTask(closedCommand);
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                closedResult.outcome());
+        assertEquals("UNKNOWN|CLOSED|1", jdbc.queryForObject("""
+                SELECT CONCAT(local_state, '|', channel_state, '|',
+                              state_conflict)
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo()));
+        assertEquals("1|2", jdbc.queryForObject("""
+                SELECT CONCAT(COUNT(*), '|', MAX(discovery_count))
+                FROM ops_reconciliation_issue
+                WHERE issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_TERMINAL_CONFLICT'
+                  AND subject_stable_key = ? AND state = 'UNRESOLVED'
+                """, String.class, accepted.authorizationNo()));
     }
 
     @Test
@@ -2366,6 +3099,53 @@ class TargetWebIdentityMysqlIntegrationTest {
                   AND current_authorization_slot = 1
                 """, Integer.class,
                 fixture.miniappId(), fixture.subjectId()));
+
+        Instant authorizedAt = Instant.parse("2020-01-01T00:00:00Z");
+        Instant closedAt = authorizedAt.plusSeconds(1);
+        JsonNode contradictoryClosed = objectMapper.valueToTree(Map.of(
+                "out_authorization_no", accepted.authorizationNo(),
+                "authorization_id", "WXAUTHREJECTCONFLICT00000000001",
+                "appid", fixture.appid(),
+                "openid", fixture.openid(),
+                "user_display_name",
+                channel.createRequest.userDisplayName(),
+                "state", "CLOSED",
+                "authorize_time", authorizedAt.toString(),
+                "close_info", Map.of(
+                        "close_reason", "USER_CLOSE",
+                        "close_time", closedAt.toString())));
+        long sourceInboxId = insertSyntheticWechatInbox(
+                fixture, "WECHAT_TRANSFER_AUTHORIZATION_NOTIFICATION",
+                contradictoryClosed.toString());
+        var callbackSource = fundsCommand(
+                createTask.taskUid(), createTask.taskId(), 3, fixture,
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo());
+        Boolean applied = new TransactionTemplate(transactionManager).execute(
+                status -> service.applyTrustedNotification(
+                        sourceInboxId,
+                        callbackSource.sourceTaskAttemptId(),
+                        fixture.tenantId(), fixture.organizationId(),
+                        contradictoryClosed));
+
+        assertTrue(Boolean.TRUE.equals(applied));
+        assertEquals("CREATE_REJECTED|1", jdbc.queryForObject("""
+                SELECT CONCAT(local_state, '|', state_conflict)
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo()));
+        assertEquals("UNKNOWN|1", jdbc.queryForObject("""
+                SELECT CONCAT(local_state, '|', state_conflict)
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, replacement.authorizationNo()));
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_reconciliation_issue
+                WHERE issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_TERMINAL_CONFLICT'
+                  AND subject_stable_key = ?
+                  AND state = 'UNRESOLVED'
+                """, Integer.class, accepted.authorizationNo()));
     }
 
     @Test
@@ -5209,12 +5989,17 @@ class TargetWebIdentityMysqlIntegrationTest {
 
         private AuthorizationRequest request;
         private Instant channelCreatedAt;
+        private boolean scriptedQueryPending;
+        private boolean scriptedQueryActive;
+        private boolean scriptedQueryClosed;
+        private boolean scriptedQueryAppidMismatch;
+        private Instant scriptedQueryChannelCreatedAt;
         private int queryCount;
 
         @Override
         public AuthorizationResult create(AuthorizationRequest request) {
             this.request = request;
-            channelCreatedAt = Instant.now();
+            channelCreatedAt = Instant.now().minusSeconds(60);
             return new AuthorizationResult(
                     AuthorizationResult.Outcome.WAIT_USER_CONFIRM,
                     "WAIT_USER_CONFIRM", request.outAuthorizationNo(),
@@ -5235,6 +6020,61 @@ class TargetWebIdentityMysqlIntegrationTest {
                     query.outAuthorizationNo());
             Instant observedAt = Instant.now();
             queryCount++;
+            if (scriptedQueryPending) {
+                boolean reportActive = scriptedQueryActive;
+                boolean reportClosed = scriptedQueryClosed;
+                boolean reportAppidMismatch =
+                        scriptedQueryAppidMismatch;
+                Instant reportedChannelCreatedAt =
+                        scriptedQueryChannelCreatedAt;
+                scriptedQueryPending = false;
+                scriptedQueryActive = false;
+                scriptedQueryClosed = false;
+                scriptedQueryAppidMismatch = false;
+                scriptedQueryChannelCreatedAt = null;
+                if (reportClosed) {
+                    String authorizationId = ("WXAUTH"
+                            + request.outAuthorizationNo()).substring(0, 32);
+                    Instant providerAuthorizedAt =
+                            reportedChannelCreatedAt.plusSeconds(1);
+                    Instant providerClosedAt =
+                            reportedChannelCreatedAt.plusSeconds(2);
+                    return new AuthorizationResult(
+                            AuthorizationResult.Outcome.CLOSED,
+                            "CLOSED", request.outAuthorizationNo(),
+                            authorizationId,
+                            reportAppidMismatch
+                                    ? "different-appid" : request.appid(),
+                            request.openid(),
+                            request.sceneId(), request.userDisplayName(),
+                            request.userRecvPerception(), null, "USER_CLOSE",
+                            reportedChannelCreatedAt, providerAuthorizedAt,
+                            providerClosedAt, null, null, observedAt);
+                }
+                if (reportActive) {
+                    String authorizationId = ("WXAUTH"
+                            + request.outAuthorizationNo()).substring(0, 32);
+                    Instant providerAuthorizedAt =
+                            channelCreatedAt.plusSeconds(1);
+                    return new AuthorizationResult(
+                            AuthorizationResult.Outcome.ACTIVE,
+                            "TAKING_EFFECT", request.outAuthorizationNo(),
+                            authorizationId,
+                            request.appid(), request.openid(),
+                            request.sceneId(), request.userDisplayName(),
+                            request.userRecvPerception(), null, null,
+                            reportedChannelCreatedAt, providerAuthorizedAt,
+                            null, null, null, observedAt);
+                }
+                return new AuthorizationResult(
+                        AuthorizationResult.Outcome.WAIT_USER_CONFIRM,
+                        "WAIT_USER_CONFIRM", request.outAuthorizationNo(),
+                        null, request.appid(), request.openid(),
+                        request.sceneId(), request.userDisplayName(),
+                        request.userRecvPerception(), null, null,
+                        reportedChannelCreatedAt, null, null, null, null,
+                        observedAt);
+            }
             if (queryCount == 1) {
                 return new AuthorizationResult(
                         AuthorizationResult.Outcome.WAIT_USER_CONFIRM,
@@ -5268,14 +6108,47 @@ class TargetWebIdentityMysqlIntegrationTest {
             }
             String authorizationId = ("WXAUTH"
                     + request.outAuthorizationNo()).substring(0, 32);
+            Instant providerAuthorizedAt = Instant.parse(
+                    "2020-01-01T00:00:00Z");
             return new AuthorizationResult(
                     AuthorizationResult.Outcome.ACTIVE,
                     "TAKING_EFFECT", request.outAuthorizationNo(),
                     authorizationId,
                     request.appid(), request.openid(), request.sceneId(),
                     request.userDisplayName(), request.userRecvPerception(),
-                    null, null, channelCreatedAt, observedAt, null,
+                    null, null, null, providerAuthorizedAt, null,
                     null, null, observedAt);
+        }
+
+        private void reportDifferentCreateTimeOnNextQuery() {
+            assertNotNull(channelCreatedAt);
+            scriptedQueryPending = true;
+            scriptedQueryChannelCreatedAt = channelCreatedAt.plusSeconds(1);
+        }
+
+        private void reportActiveWithoutCreateTimeOnNextQuery() {
+            scriptedQueryPending = true;
+            scriptedQueryActive = true;
+            scriptedQueryChannelCreatedAt = null;
+        }
+
+        private void reportActiveWithOriginalCreateTimeOnNextQuery() {
+            assertNotNull(channelCreatedAt);
+            scriptedQueryPending = true;
+            scriptedQueryActive = true;
+            scriptedQueryChannelCreatedAt = channelCreatedAt;
+        }
+
+        private void reportClosedWithDifferentCreateTimeOnNextQuery() {
+            assertNotNull(channelCreatedAt);
+            scriptedQueryPending = true;
+            scriptedQueryClosed = true;
+            scriptedQueryChannelCreatedAt = channelCreatedAt.plusSeconds(10);
+        }
+
+        private void reportClosedWithDifferentCreateTimeAndAppidMismatchOnNextQuery() {
+            reportClosedWithDifferentCreateTimeOnNextQuery();
+            scriptedQueryAppidMismatch = true;
         }
     }
 
@@ -5305,6 +6178,63 @@ class TargetWebIdentityMysqlIntegrationTest {
                     null, null, null, null, null, null, null, null,
                     null, null, null, null, null, "NOT_FOUND",
                     "authorization does not exist", Instant.now());
+        }
+    }
+
+    private static final class ConcurrentRejectedQueryChannel
+            implements MerchantTransferAuthorizationChannelPort {
+
+        private final JdbcTemplate jdbc;
+        private int queryCount;
+
+        private ConcurrentRejectedQueryChannel(JdbcTemplate jdbc) {
+            this.jdbc = jdbc;
+        }
+
+        @Override
+        public AuthorizationResult create(AuthorizationRequest request) {
+            throw new AssertionError("create must not run in query fixture");
+        }
+
+        @Override
+        public AuthorizationResult query(AuthorizationQuery query) {
+            assertEquals(1, jdbc.update("""
+                    UPDATE fund_wechat_transfer_authorization
+                    SET local_state = 'CREATE_REJECTED',
+                        channel_state = NULL, authorization_id = NULL,
+                        package_info = NULL, package_expires_at = NULL,
+                        last_api_error_code = 'PARAM_ERROR',
+                        close_reason = NULL, state_conflict = 0,
+                        submitted_at = NULL, channel_created_at = NULL,
+                        confirmation_deadline_at = NULL,
+                        authorized_at = NULL, closed_at = NULL,
+                        channel_updated_at = UTC_TIMESTAMP(3),
+                        lock_version = lock_version + 1,
+                        updated_at = UTC_TIMESTAMP(3)
+                    WHERE out_authorization_no = ?
+                    """, query.outAuthorizationNo()));
+            queryCount++;
+            Instant observedAt = Instant.now();
+            if (queryCount == 1) {
+                return new AuthorizationResult(
+                        AuthorizationResult.Outcome.WAIT_USER_CONFIRM,
+                        "WAIT_USER_CONFIRM", query.outAuthorizationNo(),
+                        null, query.appid(), query.openid(), query.sceneId(),
+                        query.userDisplayName(), query.userRecvPerception(),
+                        "concurrent-package", null,
+                        null, null, null, null, null,
+                        "concurrent waiting fact", observedAt);
+            }
+            Instant authorizedAt = Instant.parse("2020-01-01T00:00:00Z");
+            return new AuthorizationResult(
+                    AuthorizationResult.Outcome.CLOSED,
+                    "CLOSED", query.outAuthorizationNo(),
+                    "WXAUTHQUERYCONFLICT000000000001",
+                    query.appid(), query.openid(), query.sceneId(),
+                    query.userDisplayName(), query.userRecvPerception(),
+                    null, "USER_CLOSE", null, authorizedAt,
+                    authorizedAt.plusSeconds(1), null, null,
+                    "concurrent closed fact", observedAt);
         }
     }
 

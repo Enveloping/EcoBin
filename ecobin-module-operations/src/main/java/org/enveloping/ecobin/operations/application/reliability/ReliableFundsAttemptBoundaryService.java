@@ -18,6 +18,14 @@ public class ReliableFundsAttemptBoundaryService
     }
 
     @Override
+    public boolean taskExternalCallMayHaveStarted(
+            UUID taskUid,
+            UUID currentAttemptUid) {
+        return repository.taskExternalCallMayHaveStarted(
+                taskUid, currentAttemptUid);
+    }
+
+    @Override
     public void markExternalCallMayHaveStarted(UUID attemptUid) {
         repository.markExternalCallMayHaveStarted(attemptUid);
     }

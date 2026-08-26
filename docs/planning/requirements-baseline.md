@@ -1,13 +1,20 @@
 # EcoBin 产品需求基线
 
-> 状态：**需求及全部设计基线已重新冻结；2026-08-14 已确认 V49 最近登录机构账号选择**
+> 状态：**需求及全部设计基线已重新冻结；2026-08-25 已补充 V59 袋码导出与单批上限**
 > 初次整理：2026-07-21
-> 最近同步：2026-08-14
+> 最近同步：2026-08-25
 > 确认人：项目负责人（单人确认）
 > 目标：保存本轮已经明确的产品需求，防止会话丢失后重新讨论或沿用旧实现假设。
 > 已冻结范围：[`p0-scope-baseline.md`](p0-scope-baseline.md)
 > 业务模型基线：[`business-model-baseline.md`](business-model-baseline.md)
 > 系统架构基线：[`system-architecture-draft.md`](system-architecture-draft.md)
+
+> [!IMPORTANT]
+> 2026-08-25 袋码功能由 V59 增补：平台单批生成上限由 100 调整为 500；按批导出的袋码
+> Excel 必须只有一列且无表头，每行一个完整袋码；二维码 Excel 必须只含二维码图片，
+> 不显示序号或袋码文字。低频 Excel 依赖只在用户点击导出时加载，既有验真和首次使用建袋
+> 规则不变。详见
+> [`../architecture/authenticated-bag-labels-v43.md`](../architecture/authenticated-bag-labels-v43.md)。
 
 > [!IMPORTANT]
 > 2026-08-14 普通用户多机构账号选择由 V49 补充冻结：小程序本地有效会话继续使用；

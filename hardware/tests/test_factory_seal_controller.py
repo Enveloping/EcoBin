@@ -457,6 +457,144 @@ def test_unsynced_seal_preserves_raw_local_times_but_emits_no_false_instant(
     assert event["payload"]["cleanupCompletedAt"] is None
 
 
+def test_legacy_v1_marker_is_upgraded_before_unsynced_cleanup_recovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths, _ = _authorized(tmp_path)
+    samples = iter((
+        ClockSample(
+            "SYNCED",
+            "2026-08-24T10:00:00.000Z",
+            None,
+            "2026-08-24T10:00:00.000Z",
+        ),
+        ClockSample(
+            "ESTIMATED",
+            None,
+            None,
+            "2023-11-14T22:13:21.000Z",
+        ),
+    ))
+    monkeypatch.setattr(
+        "factory_seal.controller.sample_clock",
+        lambda: next(samples),
+    )
+    interrupted_once = {"value": False}
+
+    def interrupt_after_upgrade(point: str) -> None:
+        if (
+            point == "after_legacy_seal_v2_upgrade"
+            and not interrupted_once["value"]
+        ):
+            interrupted_once["value"] = True
+            raise RuntimeError("simulated power loss after marker upgrade")
+
+    controller = _controller(
+        paths,
+        stopped=[],
+        production=[],
+        emergency=[],
+        fault_hook=interrupt_after_upgrade,
+    )
+    controller.confirm(str(uuid.uuid4()))
+    legacy = json.loads(paths.sealed.read_text(encoding="utf-8"))
+    legacy["schemaVersion"] = 1
+    legacy.pop("sealedClockQuality")
+    paths.sealed.write_text(json.dumps(legacy), encoding="utf-8")
+
+    with pytest.raises(
+        RuntimeError,
+        match="simulated power loss after marker upgrade",
+    ):
+        controller.reconcile_cleanup()
+
+    durable_upgrade = json.loads(paths.sealed.read_text(encoding="utf-8"))
+    assert durable_upgrade["schemaVersion"] == 2
+    assert durable_upgrade["sealedClockQuality"] == "SYNCED"
+
+    restarted = _controller(
+        paths,
+        stopped=[],
+        production=[],
+        emergency=[],
+    )
+    assert restarted.reconcile_cleanup() == "SEALED"
+
+    upgraded = json.loads(paths.sealed.read_text(encoding="utf-8"))
+    authorization, events = _completion_rows(paths)
+    event = json.loads(events[0]["payload_json"])
+    assert upgraded["schemaVersion"] == 2
+    assert upgraded["sealedClockQuality"] == "SYNCED"
+    assert authorization["completion_clock_quality"] == "ESTIMATED"
+    assert event["clockQuality"] == "ESTIMATED"
+    assert event["occurredAt"] is None
+    assert event["payload"]["sealCompletionSchemaVersion"] == 2
+    assert event["payload"]["completionClockQuality"] == "ESTIMATED"
+    assert event["payload"]["sealedAt"] is None
+    assert event["payload"]["cleanupCompletedAt"] is None
+
+    recovered_again = _controller(
+        paths,
+        stopped=[],
+        production=[],
+        emergency=[],
+    )
+    assert recovered_again.reconcile_cleanup() == "SEALED"
+
+
+def test_completed_legacy_v1_fact_is_not_rewritten_on_restart(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths, _ = _authorized(tmp_path)
+    monkeypatch.setattr(
+        "factory_seal.controller.sample_clock",
+        lambda: ClockSample(
+            "SYNCED",
+            "2026-08-24T10:00:00.000Z",
+            None,
+            "2026-08-24T10:00:00.000Z",
+        ),
+    )
+    legacy_writer = _controller(
+        paths,
+        stopped=[],
+        production=[],
+        emergency=[],
+    )
+    legacy_writer.confirm(str(uuid.uuid4()))
+    legacy = json.loads(paths.sealed.read_text(encoding="utf-8"))
+    legacy["schemaVersion"] = 1
+    legacy.pop("sealedClockQuality")
+    paths.sealed.write_text(json.dumps(legacy), encoding="utf-8")
+
+    legacy_writer._mark_sealing(legacy)
+    legacy_writer._mark_sealed_and_enqueue_completion(legacy)
+    completed_before, events_before = _completion_rows(paths)
+    assert completed_before["state"] == "SEALED"
+    assert len(events_before) == 1
+    payload_before = events_before[0]["payload_json"]
+
+    restarted = _controller(
+        paths,
+        stopped=[],
+        production=[],
+        emergency=[],
+    )
+    assert restarted.reconcile_cleanup() == "SEALED"
+
+    durable_marker = json.loads(paths.sealed.read_text(encoding="utf-8"))
+    completed_after, events_after = _completion_rows(paths)
+    assert durable_marker["schemaVersion"] == 1
+    assert "sealedClockQuality" not in durable_marker
+    assert completed_after["completion_event_uid"] == (
+        completed_before["completion_event_uid"]
+    )
+    assert len(events_after) == 1
+    assert events_after[0]["payload_json"] == payload_before
+
+
 @pytest.mark.parametrize(
     "fault_point",
     ["after_completion_state_written", "after_completion_event_written"],

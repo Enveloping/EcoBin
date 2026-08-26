@@ -217,6 +217,8 @@ FAILED
 
 并非每个命令都需要全部阶段；机器事件 Schema 按命令类型限制合法阶段。例如配置使用 `CONFIGURATION_PROGRESS`，满溢采样可以直接以完整可信结果越过丢失的中间观察。成功投递会话不上传开门、关门、继续、结束或本地轮次结果观察，只上传最终 `DELIVERY_COMPLETE`；清运锁通断也不得转换成虚构的 `DOOR_OPENED/DOOR_CLOSED`。
 
+`DEVICE_COMMAND_OBSERVED` 以 `commandUid + stage + errorCode` 作为可靠语义身份；没有错误码的阶段使用空错误身份。同一身份重发保持幂等且不得改变 `mcuCommandUid` 或其他载荷；同一阶段的不同稳定错误允许按 `edgeEventSequence` 追加，后端必须保存全部事实并按顺序归并。例如清运窗口到期先形成 `FAILED / COMMAND_EXPIRED`，若恢复完成前香橙派重启，再形成独立的 `FAILED / EDGE_RESTARTED`，后者触发重启中止但不覆盖前者。
+
 ### 4. 香橙派受理规则
 
 香橙派收到服务下行后必须依次：

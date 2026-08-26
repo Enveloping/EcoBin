@@ -1560,7 +1560,18 @@ public class TrustedOrangePiRuntimeFactService
                         rs.getString("error_code")),
                 command.id(),
                 stage);
-        if (!existing.isEmpty()) {
+        List<CommandStageRow> sameIdentity = existing.stream()
+                .filter(row -> sameCommandObservationIdentity(
+                        row.errorCode(), errorCode))
+                .toList();
+        if (sameIdentity.size() > 1) {
+            throw new IllegalStateException(
+                    "device command observation identity is not unique");
+        }
+        if (!sameIdentity.isEmpty()) {
+            // A real retransmission reuses eventUid and was already handled
+            // by insertEdgeEvent. Reaching this branch means a second event
+            // identity tried to claim the same semantic observation.
             return new CommandObservationResult(null, true);
         }
         requireSingle(jdbc.update("""
@@ -1855,9 +1866,14 @@ public class TrustedOrangePiRuntimeFactService
     static boolean shouldAdvanceCommand(
             String current,
             String desired) {
+        if ("PHYSICAL_FAILED".equals(current)) {
+            // A relative operation window can fail first.  A later trusted
+            // edge restart is a new terminal fact: retain both immutable
+            // observations while advancing the mutable command projection.
+            return "EDGE_RESTARTED".equals(desired);
+        }
         if (Set.of(
                 "PHYSICAL_SUCCEEDED",
-                "PHYSICAL_FAILED",
                 "PRE_START_FAILED",
                 "EDGE_RESTARTED").contains(current)) {
             return false;
@@ -1877,6 +1893,13 @@ public class TrustedOrangePiRuntimeFactService
             default -> throw new IllegalStateException(
                     "device command has an unsupported state");
         };
+    }
+
+    static boolean sameCommandObservationIdentity(
+            String acceptedErrorCode,
+            String incomingErrorCode) {
+        return java.util.Objects.equals(
+                acceptedErrorCode, incomingErrorCode);
     }
 
     private void mergePortRuntime(

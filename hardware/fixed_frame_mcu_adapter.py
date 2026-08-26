@@ -58,6 +58,7 @@ DEVICE_ENTRY_URL_FRAME_LENGTH = 195
 MAXIMUM_WEIGHT_GRAMS = 350_000
 MAXIMUM_RECEIVE_BUFFER = 4096
 FOREGROUND_IO_WAIT_WARNING_MS = 750.0
+SERIAL_READ_TIMEOUT_CAP_S = 0.05
 
 FRAME_LENGTHS = {
     DELIVERY_HEADER: RESULT_FRAME_LENGTH,
@@ -362,7 +363,7 @@ class FixedFrameMcuAdapter:
                     bytesize=8,
                     parity="N",
                     stopbits=1,
-                    timeout=self.timeout_s,
+                    timeout=min(self.timeout_s, SERIAL_READ_TIMEOUT_CAP_S),
                 )
                 if self._serial_factory is None:
                     # Production owns ttyS5 exclusively.  A second process
@@ -897,10 +898,14 @@ class FixedFrameMcuAdapter:
         self._ser.flush()
 
     def _read_chunk(self, deadline: float) -> bytes:
-        remaining = max(0.01, deadline - time.monotonic())
-        if hasattr(self._ser, "timeout"):
-            self._ser.timeout = remaining
+        if time.monotonic() >= deadline:
+            return b""
         waiting = int(getattr(self._ser, "in_waiting", 0) or 0)
+        # Changing pySerial.timeout on an open Windows COM port triggers a
+        # live driver reconfiguration.  PTD01 may then lose the rest of a
+        # fragmented frame.  Keep the timeout fixed after open; when the
+        # driver reports no buffered data, a one-byte read also gives USB VCP
+        # a pending read request so that the first fragment can be delivered.
         return bytes(self._ser.read(min(256, waiting or 1)))
 
     def _read_available_decoded(self) -> tuple[list[dict], int]:

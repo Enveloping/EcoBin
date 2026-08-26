@@ -117,6 +117,8 @@ class RemoteSupportManager:
         self._process_session_uid: str | None = None
         self._process_started_at = 0.0
         self._output: _BoundedOutputCollector | None = None
+        self._retry_session_uid: str | None = None
+        self._retry_not_before_monotonic: float | None = None
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
         self._wake_event = threading.Event()
@@ -186,7 +188,9 @@ class RemoteSupportManager:
                 self._terminate_process()
                 return
             session_uid = row["session_uid"]
-            now = self._utc_now().astimezone(timezone.utc)
+            if self._retry_session_uid != session_uid:
+                self._retry_session_uid = None
+                self._retry_not_before_monotonic = None
             expires_at = _parse_utc(row["expires_at"])
             deadline_reference = self._deadline_reference()
             if (
@@ -208,6 +212,8 @@ class RemoteSupportManager:
                 return
             if row["state"] in {"CLOSED", "FAILED", "EXPIRED"}:
                 self._terminate_process()
+                self._retry_session_uid = None
+                self._retry_not_before_monotonic = None
                 return
 
             if self._process is not None:
@@ -237,9 +243,14 @@ class RemoteSupportManager:
                     failure_code="SSH_EXITED",
                 )
                 row = self._store.get_remote_support_session()
-            next_attempt_at = row.get("next_attempt_at")
-            if next_attempt_at is not None and now.timestamp() < float(next_attempt_at):
+            if (
+                self._retry_session_uid == session_uid
+                and self._retry_not_before_monotonic is not None
+                and self._monotonic() < self._retry_not_before_monotonic
+            ):
                 return
+            self._retry_session_uid = None
+            self._retry_not_before_monotonic = None
             self._spawn(row)
 
     def build_ssh_argv(self, remote_port: int) -> list[str]:
@@ -382,17 +393,17 @@ class RemoteSupportManager:
             self._retry_base_seconds * (2 ** current_attempts),
             self._retry_max_seconds,
         )
-        attempts = self._store.record_remote_support_retry(
+        next_state = self._store.record_remote_support_retry(
             row["session_uid"],
-            next_attempt_at=self._utc_now().timestamp() + delay,
             failure_code=code,
+            max_attempts=self._max_attempts,
         )
-        if attempts >= self._max_attempts:
-            self._store.transition_remote_support_session(
-                row["session_uid"],
-                "FAILED",
-                failure_code=code,
-            )
+        if next_state == "CONNECTING":
+            self._retry_session_uid = row["session_uid"]
+            self._retry_not_before_monotonic = self._monotonic() + delay
+        else:
+            self._retry_session_uid = None
+            self._retry_not_before_monotonic = None
 
     def _prepare_runtime_material(self) -> tuple[Path, Path]:
         credentials = self._credentials

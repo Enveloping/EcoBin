@@ -54,6 +54,10 @@ class CleanCommandObservationDecisionTest {
         assertThat(decide(
                 "IN_PROGRESS", true, "FAILED", "EDGE_RESTARTED"))
                 .isEqualTo(Action.NONE);
+        assertThat(decide(
+                "RECOVERY_REQUIRED", true,
+                "FAILED", "EDGE_RESTARTED"))
+                .isEqualTo(Action.NONE);
     }
 
     @Test

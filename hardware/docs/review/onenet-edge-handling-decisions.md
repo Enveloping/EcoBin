@@ -440,9 +440,11 @@ removedNetWeightGrams     = EF.PRE - oldBaselineWeightGrams
 
 - 相同 `commandUid`、相同内容只返回既有受理结果，绝不再次发送 `EE`。
 - 同一设备同时只能存在一个活动工作槽。
-- 超过操作期限仍未收到 `EF` 时，本地操作置失败并释放工作槽，不重发 `EE`。
+- 超过操作期限仍未收到 `EF` 时，开始命令记录
+  `FAILED / COMMAND_EXPIRED`，但原清运槽进入 `CLEAN_RECOVERY_REQUIRED` 并继续占用设备；
+  不重发 `EE`，不允许新投递，迟到的合法 `EF` 仍可完成原清运。
 - 香橙派重启后不查询或恢复 MCU 清运，不重发旧 `EE`；旧操作置失败并释放工作槽。
-- 已无活动清运操作时收到迟到或重复 `EF`，直接忽略，不创建清运事实。
+- 只有重启等原因已经释放活动清运后收到迟到或重复 `EF`，才直接忽略且不创建清运事实。
 
 #### 3.3.7 当前实现判断与保留任务
 
@@ -526,9 +528,9 @@ fixed-frame MCU 没有取消清运命令，也不能向香橙派证明首次解�
 正常清运流程内由 MCU 屏幕控制的再次开门。
 
 fixed-frame MCU 没有作业身份、作业状态查询、恢复代际，也没有恢复命令帧。F0/F1
-传感器自检不提供作业恢复事实。结合已经确认的
-“超时或香橙派重启后，旧清运操作置失败并释放工作槽”规则，当前阶段不存在可以安全
-恢复的本地清运上下文。
+传感器自检不提供作业恢复事实。窗口超时后保留的本地上下文只用于阻止竞争作业并接收
+迟到 `EF`，不能据此主动恢复或重发物理命令；香橙派重启后仍按重启规则释放旧槽并建立
+清运安全联锁。
 
 项目负责人确认：
 
@@ -1169,8 +1171,11 @@ fixed-frame MCU 没有 ACK。项目负责人根据“当前必须先跑起来、
 - `MCU_ACCEPTED` 的 `mcuCommandUid` 必填且 `errorCode` 为空；
 - `PRE_START_FAILED/FAILED` 的 `errorCode` 必填，`mcuCommandUid` 按是否已经分配保留。
 
-同一 `commandUid + stage` 只能对应一个稳定 `eventUid`、一个
-`edgeEventSequence` 和一份不可变载荷。技术重发复用原事件；同阶段异内容不能覆盖。
+同一 `commandUid + stage + errorCode` 只能对应一个稳定 `eventUid`、一个
+`edgeEventSequence` 和一份不可变载荷；`errorCode=null` 使用独立的空错误身份。技术重发
+复用原事件，同一身份异内容不能覆盖。同一阶段的不同稳定错误可以按
+`edgeEventSequence` 追加，例如先有 `FAILED / COMMAND_EXPIRED`，重启后再有
+`FAILED / EDGE_RESTARTED`；两条事实都必须保留并分别取得业务确认。
 
 每条实际创建的 `deviceCommandObserved` 都是独立 `RELIABLE_FACT`，必须进入 SQLite
 发件箱持续上报。后端完成命令状态归并后，通过已确认的 `confirmEdgeEvent` 逐事件确认。
@@ -1183,7 +1188,7 @@ UART 写失败、结果超时或重启失败。
 
 后续实施需要：
 
-1. 增加事件构造器和 `(commandUid, stage)` 稳定身份约束；
+1. 增加事件构造器和 `(commandUid, stage, errorCode)` 稳定身份约束；
 2. 在命令受理、拒绝、UART 派发及失败事务中原子创建对应事件；
 3. fixed-frame 完整写出时生成兼容 `mcuCommandUid` 和 `MCU_ACCEPTED`；
 4. 确保照片失败不被误映射为命令失败；

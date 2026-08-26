@@ -38,6 +38,32 @@ def make_store() -> EdgeStore:
     return store
 
 
+def downgrade_command_observation_to_v17(store: EdgeStore) -> None:
+    store._conn.execute(
+        """CREATE TABLE command_observation_v17 (
+            command_uid TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            event_uid TEXT NOT NULL UNIQUE,
+            canonical_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (command_uid, stage)
+        )"""
+    )
+    store._conn.execute(
+        """INSERT INTO command_observation_v17
+           (command_uid, stage, event_uid,
+            canonical_sha256, created_at)
+           SELECT command_uid, stage, event_uid,
+                  canonical_sha256, created_at
+           FROM command_observation"""
+    )
+    store._conn.execute("DROP TABLE command_observation")
+    store._conn.execute(
+        "ALTER TABLE command_observation_v17 RENAME TO command_observation"
+    )
+    store._conn.execute("DELETE FROM schema_version WHERE version >= 18")
+
+
 def firmware_manifest(version_code: int = 10000) -> dict:
     return {
         "schemaVersion": 1,
@@ -97,6 +123,174 @@ class TestEdgeStoreInit:
         ).fetchone()
         assert row[0] == CURRENT_SCHEMA_VERSION
         store.close()
+
+    def test_v17_command_observation_identity_migrates_without_losing_fact(
+        self,
+        tmp_path,
+    ):
+        path = str(tmp_path / "v17-command-observation.db")
+        store = EdgeStore(path)
+        store.initialize()
+        command = {
+            "commandUid": str(uuid.uuid4()),
+            "commandType": "START_CLEAN_OPERATION",
+            "targetDeviceName": "SN-DEMO-0001",
+        }
+        mcu_command_uid = str(uuid.uuid4())
+        assert store.record_command_observation(
+            command,
+            "ACCEPTED",
+        ) == "ACCEPTED"
+        assert store.record_command_observation(
+            command,
+            "FAILED",
+            mcu_command_uid=mcu_command_uid,
+            error_code="COMMAND_EXPIRED",
+        ) == "ACCEPTED"
+        original = store._conn.execute(
+            """SELECT event_uid FROM command_observation
+               WHERE command_uid=? AND stage='FAILED'""",
+            (command["commandUid"],),
+        ).fetchone()["event_uid"]
+        downgrade_command_observation_to_v17(store)
+        store._conn.commit()
+        store.close()
+
+        migrated = EdgeStore(path)
+        migrated.initialize()
+
+        row = migrated._conn.execute(
+            """SELECT error_code, event_uid
+               FROM command_observation
+               WHERE command_uid=? AND stage='FAILED'""",
+            (command["commandUid"],),
+        ).fetchone()
+        assert row["error_code"] == "COMMAND_EXPIRED"
+        assert row["event_uid"] == original
+        accepted = migrated._conn.execute(
+            """SELECT error_code FROM command_observation
+               WHERE command_uid=? AND stage='ACCEPTED'""",
+            (command["commandUid"],),
+        ).fetchone()
+        assert accepted["error_code"] == ""
+        assert migrated.record_command_observation(
+            command,
+            "ACCEPTED",
+        ) == "DUPLICATE"
+        assert migrated.record_command_observation(
+            command,
+            "FAILED",
+            mcu_command_uid=mcu_command_uid,
+            error_code="COMMAND_EXPIRED",
+        ) == "DUPLICATE"
+        assert migrated.record_command_observation(
+            command,
+            "FAILED",
+            mcu_command_uid=mcu_command_uid,
+            error_code="EDGE_RESTARTED",
+        ) == "ACCEPTED"
+        identities = migrated._conn.execute(
+            """SELECT error_code FROM command_observation
+               WHERE command_uid=? AND stage='FAILED'
+               ORDER BY created_at, event_uid""",
+            (command["commandUid"],),
+        ).fetchall()
+        assert {row["error_code"] for row in identities} == {
+            "COMMAND_EXPIRED",
+            "EDGE_RESTARTED",
+        }
+        migrated.close()
+
+    def test_v18_command_observation_migration_rolls_back_on_power_loss(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        path = str(tmp_path / "v18-command-observation-interrupted.db")
+        store = EdgeStore(path)
+        store.initialize()
+        downgrade_command_observation_to_v17(store)
+        store._conn.commit()
+        store.close()
+
+        def interrupt_after_table_rename(interrupted_store):
+            interrupted_store._conn.execute(
+                """ALTER TABLE command_observation
+                   RENAME TO command_observation_v17"""
+            )
+            raise RuntimeError("injected v18 migration interruption")
+
+        with monkeypatch.context() as migration_patch:
+            migration_patch.setattr(
+                EdgeStore,
+                "_migrate_v18",
+                interrupt_after_table_rename,
+            )
+            interrupted = EdgeStore(path)
+            with pytest.raises(
+                RuntimeError,
+                match="injected v18 migration interruption",
+            ):
+                interrupted.initialize()
+            interrupted.close()
+
+        inspection = sqlite3.connect(path)
+        try:
+            tables = {
+                row[0]
+                for row in inspection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            version = inspection.execute(
+                "SELECT MAX(version) FROM schema_version"
+            ).fetchone()[0]
+        finally:
+            inspection.close()
+        assert "command_observation" in tables
+        assert "command_observation_v17" not in tables
+        assert version == 17
+
+        recovered = EdgeStore(path)
+        recovered.initialize()
+        assert recovered._conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0] == CURRENT_SCHEMA_VERSION
+        recovered.close()
+
+    def test_v18_recheck_rejects_missing_event_uid_uniqueness(
+        self,
+        tmp_path,
+    ):
+        path = str(tmp_path / "v18-command-event-not-unique.db")
+        store = EdgeStore(path)
+        store.initialize()
+        store._conn.execute(
+            """CREATE TABLE command_observation_invalid (
+                command_uid TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                error_code TEXT NOT NULL,
+                event_uid TEXT NOT NULL,
+                canonical_sha256 TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (command_uid, stage, error_code)
+            )"""
+        )
+        store._conn.execute("DROP TABLE command_observation")
+        store._conn.execute(
+            """ALTER TABLE command_observation_invalid
+               RENAME TO command_observation"""
+        )
+        store._conn.commit()
+        store.close()
+
+        invalid = EdgeStore(path)
+        with pytest.raises(
+            RuntimeError,
+            match="command event identity is not unique",
+        ):
+            invalid.initialize()
+        invalid.close()
 
     def test_v11_to_v12_migration_recreates_firmware_state_index(
         self,
@@ -1655,6 +1849,49 @@ class TestWorkSlotOperations:
             row for row in store.list_pending_events()
             if row["event_type"] == "DEVICE_COMMAND_OBSERVED"
         ]
+        store.close()
+
+    def test_clean_expiry_recovery_rolls_back_on_observation_conflict(self):
+        store = make_store()
+        command_uid = str(uuid.uuid4())
+        work_uid = str(uuid.uuid4())
+        mcu_command_uid = str(uuid.uuid4())
+        command = {
+            "commandUid": command_uid,
+            "commandType": "START_CLEAN_OPERATION",
+            "targetDeviceName": "SN-DEMO-0001",
+        }
+        store.receive_command(
+            command_uid,
+            command["commandType"],
+            command,
+        )
+        store.claim_next_command()
+        assert store.acquire_work_slot(
+            WORK_TYPE_CLEAN,
+            work_uid,
+            1,
+            {
+                "phase": "WAITING_PREUNLOCK_WEIGHT",
+                "start_command_uid": command_uid,
+                "start_mcu_command_uid": mcu_command_uid,
+            },
+            observed_command=command,
+        )
+        assert store.record_command_observation(
+            command,
+            "FAILED",
+            mcu_command_uid=str(uuid.uuid4()),
+            error_code="COMMAND_EXPIRED",
+        ) == "ACCEPTED"
+
+        with pytest.raises(ValueError, match="observation conflict"):
+            store.mark_clean_window_expired_for_recovery(work_uid)
+
+        slot = store.get_work_slot()
+        assert slot["work_state"] == "ACTIVE"
+        assert slot["context"]["phase"] == "WAITING_PREUNLOCK_WEIGHT"
+        assert store.get_command(command_uid)["state"] == "PROCESSING"
         store.close()
 
 

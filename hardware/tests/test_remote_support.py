@@ -359,6 +359,108 @@ def test_expiry_and_bounded_start_failures_are_terminal(tmp_path: Path):
     edge.close()
 
 
+def test_final_retry_persists_failed_without_second_transition(
+    tmp_path: Path,
+    monkeypatch,
+):
+    edge = store(tmp_path)
+    clock = Clock()
+
+    def unavailable(*_args, **_kwargs):
+        raise FileNotFoundError("ssh")
+
+    original_transition = edge.transition_remote_support_session
+
+    def reject_split_failed_transition(session_uid, state, **kwargs):
+        if state == "FAILED":
+            raise AssertionError("FAILED must be committed with final retry")
+        return original_transition(session_uid, state, **kwargs)
+
+    monkeypatch.setattr(
+        edge,
+        "transition_remote_support_session",
+        reject_split_failed_transition,
+    )
+    manager = RemoteSupportManager(
+        edge,
+        credentials(),
+        runtime_dir=tmp_path / "run-atomic-final-retry",
+        popen_factory=unavailable,
+        utc_now=clock.utc_now,
+        monotonic=clock.monotonic,
+        max_consecutive_attempts=1,
+    )
+    manager.open_session(
+        session_uid=_uid(),
+        command_uid=_uid(),
+        device_name="ECM0-TEST",
+        remote_port=22011,
+        expires_at="2099-01-01T00:00:00.000Z",
+    )
+
+    manager.poll_once()
+
+    row = edge.get_remote_support_session()
+    assert row["state"] == "FAILED"
+    assert row["attempt_count"] == 1
+    assert [
+        event["state"] for event in edge.list_status_events()
+    ] == ["CONNECTING", "FAILED"]
+    edge.close()
+
+
+def test_retry_uses_monotonic_time_across_wall_clock_correction(
+    tmp_path: Path,
+):
+    edge = store(tmp_path)
+    clock = Clock()
+    clock.now = datetime(2100, 1, 1, tzinfo=timezone.utc)
+    trusted = {"value": False}
+    process = FakeProcess()
+    calls = []
+
+    def fail_once(argv, **kwargs):
+        calls.append((argv, kwargs))
+        if len(calls) == 1:
+            raise FileNotFoundError("ssh")
+        return process
+
+    manager = RemoteSupportManager(
+        edge,
+        credentials(),
+        runtime_dir=tmp_path / "run-clock-correction",
+        popen_factory=fail_once,
+        utc_now=clock.utc_now,
+        deadline_reference=(
+            lambda: clock.now if trusted["value"] else None
+        ),
+        monotonic=clock.monotonic,
+        retry_base_seconds=1,
+        retry_max_seconds=2,
+    )
+    manager.open_session(
+        session_uid=_uid(),
+        command_uid=_uid(),
+        device_name="ECM0-TEST",
+        remote_port=22011,
+        expires_at="2030-01-01T01:00:00.000Z",
+    )
+
+    manager.poll_once()
+    assert len(calls) == 1
+
+    clock.now = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    trusted["value"] = True
+    manager.poll_once()
+    assert len(calls) == 1
+
+    clock.advance(1)
+    manager.poll_once()
+    assert len(calls) == 2
+    assert manager._process is process
+    edge.close()
+
+
 def test_child_output_collector_keeps_only_bounded_tail():
     collector = _BoundedOutputCollector(io.BytesIO(b"x" * 10_000), limit=128)
     if collector._thread is not None:

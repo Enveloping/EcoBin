@@ -76,7 +76,9 @@ class RuntimeSafetyConfigurationTest {
             "V54__delivery_auto_review_amount_limit.sql",
             "V55__mcu_firmware_remote_rollout.sql",
             "V56__factory_seal_authorization.sql",
-            "V57__external_clock_tolerance_and_authorization_recovery.sql"
+            "V57__external_clock_tolerance_and_authorization_recovery.sql",
+            "V58__clock_recovery_invariants.sql",
+            "V59__bag_label_batch_limit_500.sql"
     };
 
     @Test

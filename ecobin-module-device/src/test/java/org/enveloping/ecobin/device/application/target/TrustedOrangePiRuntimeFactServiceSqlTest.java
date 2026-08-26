@@ -52,8 +52,25 @@ class TrustedOrangePiRuntimeFactServiceSqlTest {
                 .toUpperCase(Locale.ROOT);
 
         assertThat(sql)
-                .contains("FROM DEV_DEVICE_COMMAND_EVENT")
+                .contains(
+                        "FROM DEV_DEVICE_COMMAND_EVENT",
+                        "ERROR_CODE")
                 .doesNotContain("FOR UPDATE");
+    }
+
+    @Test
+    void commandObservationIdentityIncludesTheQualifiedFailureReason() {
+        assertThat(TrustedOrangePiRuntimeFactService
+                .sameCommandObservationIdentity(
+                        "COMMAND_EXPIRED", "COMMAND_EXPIRED"))
+                .isTrue();
+        assertThat(TrustedOrangePiRuntimeFactService
+                .sameCommandObservationIdentity(
+                        "COMMAND_EXPIRED", "EDGE_RESTARTED"))
+                .isFalse();
+        assertThat(TrustedOrangePiRuntimeFactService
+                .sameCommandObservationIdentity(null, null))
+                .isTrue();
     }
 
     @Test
@@ -64,6 +81,12 @@ class TrustedOrangePiRuntimeFactServiceSqlTest {
                 "PHYSICAL_STARTED", "PRE_START_FAILED")).isFalse();
         assertThat(TrustedOrangePiRuntimeFactService.shouldAdvanceCommand(
                 "PHYSICAL_STARTED", "PHYSICAL_FAILED")).isTrue();
+        assertThat(TrustedOrangePiRuntimeFactService.shouldAdvanceCommand(
+                "PHYSICAL_FAILED", "EDGE_RESTARTED")).isTrue();
+        assertThat(TrustedOrangePiRuntimeFactService.shouldAdvanceCommand(
+                "PHYSICAL_FAILED", "PHYSICAL_FAILED")).isFalse();
+        assertThat(TrustedOrangePiRuntimeFactService.shouldAdvanceCommand(
+                "EDGE_RESTARTED", "PHYSICAL_FAILED")).isFalse();
     }
 
     @Test

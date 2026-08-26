@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import sqlite3
 import uuid
 from pathlib import Path
+
+import pytest
 
 from edge_store import EdgeStore
 from remote_support_store import RemoteSupportStore
@@ -113,6 +116,176 @@ def test_untrusted_clock_does_not_reject_deadline_or_emit_false_instant(
     assert event["occurredAt"] is None
     assert event["clockQuality"] == "UNAVAILABLE"
     store.close()
+
+
+def _create_interrupted_v1_migration(
+    path: Path,
+    *,
+    current_shape: str,
+    schema_version: int = 1,
+) -> str:
+    event_uid = _uid()
+    legacy_table = """
+        CREATE TABLE {table_name} (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_uid TEXT NOT NULL UNIQUE,
+            session_uid TEXT NOT NULL,
+            command_uid TEXT NOT NULL,
+            device_name TEXT NOT NULL,
+            remote_port INTEGER NOT NULL,
+            state TEXT NOT NULL,
+            failure_code TEXT,
+            occurred_at TEXT NOT NULL
+        )
+    """
+    required_table = """
+        CREATE TABLE status_outbox (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_uid TEXT NOT NULL UNIQUE,
+            session_uid TEXT NOT NULL,
+            command_uid TEXT NOT NULL,
+            device_name TEXT NOT NULL,
+            remote_port INTEGER NOT NULL,
+            state TEXT NOT NULL,
+            failure_code TEXT,
+            occurred_at TEXT,
+            raw_occurred_at TEXT NOT NULL,
+            clock_quality TEXT NOT NULL
+        )
+    """
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE schema_version (version INTEGER PRIMARY KEY)"
+        )
+        connection.execute(
+            "INSERT INTO schema_version VALUES (?)",
+            (schema_version,),
+        )
+        connection.execute(
+            legacy_table.format(table_name="status_outbox_v1")
+        )
+        if current_shape == "required":
+            connection.execute(required_table)
+        connection.execute(
+            """INSERT INTO status_outbox_v1 (
+                   event_uid, session_uid, command_uid, device_name,
+                   remote_port, state, failure_code, occurred_at
+               ) VALUES (?, ?, ?, 'ECM0-TEST', 22011,
+                         'CONNECTING', NULL, ?)""",
+            (
+                event_uid,
+                _uid(),
+                _uid(),
+                "2026-08-24T10:00:00.000Z",
+            ),
+        )
+    return event_uid
+
+
+def test_v2_migration_recovers_backup_when_new_table_already_exists(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "remote-support.db"
+    event_uid = _create_interrupted_v1_migration(
+        path,
+        current_shape="required",
+        schema_version=2,
+    )
+    post_upgrade_event_uid = _uid()
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """INSERT INTO status_outbox (
+                   event_uid, session_uid, command_uid, device_name,
+                   remote_port, state, failure_code, occurred_at,
+                   raw_occurred_at, clock_quality
+               ) VALUES (?, ?, ?, 'ECM0-TEST', 22011,
+                         'OPEN', NULL, ?, ?, 'SYNCED')""",
+            (
+                post_upgrade_event_uid,
+                _uid(),
+                _uid(),
+                "2026-08-24T10:01:00.000Z",
+                "2026-08-24T10:01:00.000Z",
+            ),
+        )
+
+    store = RemoteSupportStore(path)
+    store.initialize()
+
+    assert [event["eventUid"] for event in store.list_status_events()] == [
+        event_uid,
+        post_upgrade_event_uid,
+    ]
+    assert store._require_connection().execute(
+        "SELECT name FROM sqlite_master WHERE name='status_outbox_v1'"
+    ).fetchone() is None
+    assert store._require_connection().execute(
+        "SELECT MAX(version) FROM schema_version"
+    ).fetchone()[0] == 2
+    store.close()
+
+
+def test_v2_migration_recovers_when_only_legacy_rename_was_durable(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "remote-support.db"
+    event_uid = _create_interrupted_v1_migration(
+        path,
+        current_shape="missing",
+    )
+
+    store = RemoteSupportStore(path)
+    store.initialize()
+
+    assert [event["eventUid"] for event in store.list_status_events()] == [
+        event_uid
+    ]
+    assert store._require_connection().execute(
+        "SELECT name FROM sqlite_master WHERE name='status_outbox_v1'"
+    ).fetchone() is None
+    store.close()
+
+
+def test_v2_migration_rejects_conflicting_durable_event_facts(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "remote-support.db"
+    event_uid = _create_interrupted_v1_migration(
+        path,
+        current_shape="required",
+        schema_version=2,
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """INSERT INTO status_outbox (
+                   event_uid, session_uid, command_uid, device_name,
+                   remote_port, state, failure_code, occurred_at,
+                   raw_occurred_at, clock_quality
+               ) VALUES (?, ?, ?, 'ECM0-TEST', 22011,
+                         'OPEN', NULL, ?, ?, 'SYNCED')""",
+            (
+                event_uid,
+                _uid(),
+                _uid(),
+                "2026-08-24T10:01:00.000Z",
+                "2026-08-24T10:01:00.000Z",
+            ),
+        )
+
+    store = RemoteSupportStore(path)
+    with pytest.raises(
+        RuntimeError,
+        match="status outbox facts conflict",
+    ):
+        store.initialize()
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM status_outbox_v1"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM status_outbox"
+        ).fetchone()[0] == 1
 
 
 def test_nonexpired_legacy_session_is_imported_once_for_cutover(

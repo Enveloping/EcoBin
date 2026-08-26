@@ -111,38 +111,114 @@ class RemoteSupportStore:
             );
             """
         )
+        connection.commit()
         version = connection.execute(
             "SELECT MAX(version) FROM schema_version"
         ).fetchone()[0]
-        if version == 1:
-            self._migrate_v2(connection)
-            connection.execute(
-                "INSERT INTO schema_version(version) VALUES (2)"
-            )
-        elif version != 2:
+        if version not in {1, 2}:
             connection.close()
             raise RuntimeError(
                 "remote support database schema is incompatible"
             )
-        connection.commit()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            # Run the repair for v2 as well: an older process could have
+            # recorded version 2 after overlooking a durable backup table.
+            self._migrate_v2(connection)
+            if version == 1:
+                connection.execute(
+                    "INSERT INTO schema_version(version) VALUES (2)"
+                )
+            # Retry backoff is process-relative as of v2 repair.  Absolute
+            # values written by older code are unsafe after NTP correction.
+            connection.execute(
+                """UPDATE remote_support_session
+                   SET next_attempt_at=NULL
+                   WHERE next_attempt_at IS NOT NULL"""
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            connection.close()
+            raise
         self._connection = connection
 
     @staticmethod
     def _migrate_v2(connection: sqlite3.Connection) -> None:
-        columns = {
-            row[1]
-            for row in connection.execute(
-                "PRAGMA table_info('status_outbox')"
-            ).fetchall()
-        }
         required = {
             "sequence", "event_uid", "session_uid", "command_uid",
             "device_name", "remote_port", "state", "failure_code",
             "occurred_at", "raw_occurred_at", "clock_quality",
         }
+        legacy = required - {"raw_occurred_at", "clock_quality"}
+        columns = RemoteSupportStore._table_columns(
+            connection,
+            "status_outbox",
+        )
+        backup_columns = RemoteSupportStore._table_columns(
+            connection,
+            "status_outbox_v1",
+        )
+        if backup_columns:
+            if backup_columns != legacy:
+                raise RuntimeError(
+                    "remote support status outbox backup is incompatible"
+                )
+            if columns == required:
+                RemoteSupportStore._create_v2_status_outbox(
+                    connection,
+                    "status_outbox_v2_recovery",
+                )
+                RemoteSupportStore._copy_legacy_statuses(
+                    connection,
+                    source="status_outbox_v1",
+                    target="status_outbox_v2_recovery",
+                    preserve_sequence=True,
+                )
+                # The current table can contain events emitted after an old
+                # migration incorrectly marked v2 while leaving the backup
+                # behind.  Append those after the older durable facts instead
+                # of assigning recovered v1 rows newer sequence numbers.
+                RemoteSupportStore._copy_v2_statuses(
+                    connection,
+                    source="status_outbox",
+                    target="status_outbox_v2_recovery",
+                )
+                connection.execute("DROP TABLE status_outbox")
+                connection.execute("DROP TABLE status_outbox_v1")
+                connection.execute(
+                    """ALTER TABLE status_outbox_v2_recovery
+                       RENAME TO status_outbox"""
+                )
+                return
+            if columns == legacy:
+                RemoteSupportStore._create_v2_status_outbox(
+                    connection,
+                    "status_outbox_v2_recovery",
+                )
+                RemoteSupportStore._copy_legacy_statuses(
+                    connection,
+                    source="status_outbox_v1",
+                    target="status_outbox_v2_recovery",
+                    preserve_sequence=True,
+                )
+                RemoteSupportStore._copy_legacy_statuses(
+                    connection,
+                    source="status_outbox",
+                    target="status_outbox_v2_recovery",
+                )
+                connection.execute("DROP TABLE status_outbox")
+                connection.execute("DROP TABLE status_outbox_v1")
+                connection.execute(
+                    """ALTER TABLE status_outbox_v2_recovery
+                       RENAME TO status_outbox"""
+                )
+                return
+            raise RuntimeError(
+                "remote support status outbox shape is incompatible"
+            )
         if columns == required:
             return
-        legacy = required - {"raw_occurred_at", "clock_quality"}
         if columns != legacy:
             raise RuntimeError(
                 "remote support status outbox shape is incompatible"
@@ -150,8 +226,39 @@ class RemoteSupportStore:
         connection.execute(
             "ALTER TABLE status_outbox RENAME TO status_outbox_v1"
         )
+        RemoteSupportStore._create_v2_status_outbox(
+            connection,
+            "status_outbox",
+        )
+        RemoteSupportStore._copy_legacy_statuses(
+            connection,
+            source="status_outbox_v1",
+            target="status_outbox",
+            preserve_sequence=True,
+        )
+        connection.execute("DROP TABLE status_outbox_v1")
+
+    @staticmethod
+    def _table_columns(
+        connection: sqlite3.Connection,
+        table_name: str,
+    ) -> set[str]:
+        return {
+            row[1]
+            for row in connection.execute(
+                f"PRAGMA table_info('{table_name}')"
+            ).fetchall()
+        }
+
+    @staticmethod
+    def _create_v2_status_outbox(
+        connection: sqlite3.Connection,
+        table_name: str,
+    ) -> None:
+        if table_name not in {"status_outbox", "status_outbox_v2_recovery"}:
+            raise ValueError("invalid status outbox migration table")
         connection.execute(
-            """CREATE TABLE status_outbox (
+            f"""CREATE TABLE {table_name} (
                 sequence INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_uid TEXT NOT NULL UNIQUE,
                 session_uid TEXT NOT NULL,
@@ -170,17 +277,104 @@ class RemoteSupportStore:
                 ))
             )"""
         )
+
+    @staticmethod
+    def _copy_legacy_statuses(
+        connection: sqlite3.Connection,
+        *,
+        source: str,
+        target: str,
+        preserve_sequence: bool = False,
+    ) -> None:
+        allowed = {
+            "status_outbox",
+            "status_outbox_v1",
+            "status_outbox_v2_recovery",
+        }
+        if source not in allowed or target not in allowed:
+            raise ValueError("invalid status outbox migration copy")
+        target_columns = ""
+        source_columns = ""
+        if preserve_sequence:
+            target_columns = "sequence, "
+            source_columns = "sequence, "
         connection.execute(
-            """INSERT INTO status_outbox
-               (sequence, event_uid, session_uid, command_uid,
+            f"""INSERT INTO {target}
+               ({target_columns}event_uid, session_uid, command_uid,
                 device_name, remote_port, state, failure_code,
                 occurred_at, raw_occurred_at, clock_quality)
-               SELECT sequence, event_uid, session_uid, command_uid,
-                      device_name, remote_port, state, failure_code,
-                      occurred_at, occurred_at, 'SYNCED'
-               FROM status_outbox_v1"""
+               SELECT {source_columns}event_uid, session_uid, command_uid,
+                       device_name, remote_port, state, failure_code,
+                       occurred_at, occurred_at, 'SYNCED'
+               FROM {source}
+               WHERE 1
+               ORDER BY sequence
+               ON CONFLICT(event_uid) DO NOTHING"""
         )
-        connection.execute("DROP TABLE status_outbox_v1")
+        conflicts = connection.execute(
+            f"""SELECT COUNT(*)
+                FROM {source} source_row
+                LEFT JOIN {target} target_row
+                  ON target_row.event_uid = source_row.event_uid
+                WHERE target_row.event_uid IS NULL
+                   OR target_row.session_uid IS NOT source_row.session_uid
+                   OR target_row.command_uid IS NOT source_row.command_uid
+                   OR target_row.device_name IS NOT source_row.device_name
+                   OR target_row.remote_port IS NOT source_row.remote_port
+                   OR target_row.state IS NOT source_row.state
+                   OR target_row.failure_code IS NOT source_row.failure_code
+                   OR target_row.occurred_at IS NOT source_row.occurred_at
+                   OR target_row.raw_occurred_at IS NOT source_row.occurred_at
+                   OR target_row.clock_quality != 'SYNCED'"""
+        ).fetchone()[0]
+        if conflicts:
+            raise RuntimeError(
+                "remote support legacy status outbox facts conflict"
+            )
+
+    @staticmethod
+    def _copy_v2_statuses(
+        connection: sqlite3.Connection,
+        *,
+        source: str,
+        target: str,
+    ) -> None:
+        allowed = {"status_outbox", "status_outbox_v2_recovery"}
+        if source not in allowed or target not in allowed:
+            raise ValueError("invalid v2 status outbox migration copy")
+        connection.execute(
+            f"""INSERT INTO {target}
+               (event_uid, session_uid, command_uid,
+                device_name, remote_port, state, failure_code,
+                occurred_at, raw_occurred_at, clock_quality)
+               SELECT event_uid, session_uid, command_uid,
+                      device_name, remote_port, state, failure_code,
+                      occurred_at, raw_occurred_at, clock_quality
+               FROM {source}
+               WHERE 1
+               ORDER BY sequence
+               ON CONFLICT(event_uid) DO NOTHING"""
+        )
+        conflicts = connection.execute(
+            f"""SELECT COUNT(*)
+                FROM {source} source_row
+                LEFT JOIN {target} target_row
+                  ON target_row.event_uid = source_row.event_uid
+                WHERE target_row.event_uid IS NULL
+                   OR target_row.session_uid IS NOT source_row.session_uid
+                   OR target_row.command_uid IS NOT source_row.command_uid
+                   OR target_row.device_name IS NOT source_row.device_name
+                   OR target_row.remote_port IS NOT source_row.remote_port
+                   OR target_row.state IS NOT source_row.state
+                   OR target_row.failure_code IS NOT source_row.failure_code
+                   OR target_row.occurred_at IS NOT source_row.occurred_at
+                   OR target_row.raw_occurred_at IS NOT source_row.raw_occurred_at
+                   OR target_row.clock_quality IS NOT source_row.clock_quality"""
+        ).fetchone()[0]
+        if conflicts:
+            raise RuntimeError(
+                "remote support v2 status outbox facts conflict"
+            )
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
@@ -353,11 +547,13 @@ class RemoteSupportStore:
         self,
         session_uid: str,
         *,
-        next_attempt_at: float,
         failure_code: str,
-    ) -> int:
+        max_attempts: int,
+    ) -> str:
         if failure_code not in FAILURE_CODES:
             raise ValueError("invalid remote support failure code")
+        if max_attempts <= 0:
+            raise ValueError("max_attempts must be positive")
         with self.transaction() as connection:
             row = connection.execute(
                 "SELECT * FROM remote_support_session WHERE singleton_id=1"
@@ -368,32 +564,35 @@ class RemoteSupportStore:
                 or row["state"] in TERMINAL_STATES
                 or row["state"] == "CLOSING"
             ):
-                return 0
+                return "STALE"
             attempts = int(row["attempt_count"]) + 1
+            next_state = (
+                "FAILED" if attempts >= max_attempts else "CONNECTING"
+            )
             connection.execute(
                 """UPDATE remote_support_session
-                   SET state='CONNECTING', failure_code=?, attempt_count=?,
-                       next_attempt_at=?, updated_at=?
+                   SET state=?, failure_code=?, attempt_count=?,
+                        next_attempt_at=NULL, updated_at=?
                    WHERE singleton_id=1 AND session_uid=?""",
                 (
+                    next_state,
                     failure_code,
                     attempts,
-                    float(next_attempt_at),
                     self._now_text(),
                     session_uid,
                 ),
             )
-            if row["state"] != "CONNECTING" or row["failure_code"] != failure_code:
+            if row["state"] != next_state or row["failure_code"] != failure_code:
                 self._append_status(
                     connection,
                     session_uid=session_uid,
                     command_uid=row["command_uid"],
                     device_name=row["device_name"],
                     remote_port=row["remote_port"],
-                    state="CONNECTING",
+                    state=next_state,
                     failure_code=failure_code,
                 )
-            return attempts
+            return next_state
 
     def list_status_events(self, *, limit: int = 100) -> list[dict[str, Any]]:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:

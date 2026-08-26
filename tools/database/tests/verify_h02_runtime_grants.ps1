@@ -12,7 +12,7 @@ $f07BootstrapPath = Join-Path $PSScriptRoot "../verify-f07-bootstrap.ps1"
 $f07BootstrapSource = Get-Content -LiteralPath $f07BootstrapPath -Raw
 
 if ($catalog.CatalogVersion -ne 30) {
-    throw "H-02 runtime grant catalog must be V30 for V57 clock tolerance"
+    throw "H-02 runtime grant catalog must remain V30 for the V59 target"
 }
 
 if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
@@ -23,33 +23,41 @@ if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
 
 if ($provisionSource -notmatch '\$tables\.Count -ne 119' -or
         $provisionSource -notmatch 'Expected 119 domain tables') {
-    throw "H-02 provisioning must enforce the V57 119-table shape"
+    throw "H-02 provisioning must enforce the V59 119-table shape"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 57') {
-    throw "H-02 provisioning must migrate through V57"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 59') {
+    throw "H-02 provisioning must migrate through V59"
 }
-if ($provisionSource -notmatch '\$historyCount -ne 57' -or
+if ($provisionSource -notmatch '\$historyCount -ne 59' -or
         $provisionSource -notmatch
-            'Expected fifty-seven successful Flyway migrations') {
-    throw "H-02 provisioning must verify all 57 migrations"
+            'Expected fifty-nine successful Flyway migrations') {
+    throw "H-02 provisioning must verify all 59 migrations"
 }
 if ($provisionSource -notmatch
         '\$existingDomainTableCount -eq 119\s+-and\s+' +
-        '\$existingHistoryCount -eq 57\s+-and\s+' +
-        '\$existingMaxVersion -eq 57' -or
-        $provisionSource -notmatch '\$existingMaxVersion -lt 57') {
-    throw "H-02 migrated resume must recognize and target V57"
+        '\$existingHistoryCount -eq 59\s+-and\s+' +
+        '\$existingMaxVersion -eq 59' -or
+        $provisionSource -notmatch '\$existingMaxVersion -lt 59') {
+    throw "H-02 migrated resume must recognize and target V59"
 }
 if ($f07BootstrapSource -notmatch '\$tableCount -ne 120' -or
         $f07BootstrapSource -notmatch
             'correct target must contain 119 domain tables plus Flyway history' -or
-        $f07BootstrapSource -notmatch 'targetVersion\s*=\s*57' -or
+        $f07BootstrapSource -notmatch 'targetVersion\s*=\s*59' -or
         $f07BootstrapSource -notmatch 'domainTables\s*=\s*119' -or
         $f07BootstrapSource -notmatch
-            'correctV57Ready\s*=\s*\$true' -or
+            'correctV59Ready\s*=\s*\$true' -or
+        $f07BootstrapSource -notmatch
+            'bagLabelBatchLimit500\s*=\s*\$true' -or
+        $f07BootstrapSource -notmatch
+            'clockRecoveryV57UpgradeConverged\s*=\s*\$true' -or
+        $f07BootstrapSource -notmatch
+            'authorizationNullableStateFactsRejected\s*=\s*\$true' -or
+        $f07BootstrapSource -notmatch
+            'sealedClockQualityRequired\s*=\s*\$true' -or
         $f07BootstrapSource -match 'correct V56|correctV56Ready') {
     throw (
-        "F-07 bootstrap verification must report the V57 shape: " +
+        "F-07 bootstrap verification must report the V59 shape: " +
         "119 domain tables plus Flyway history"
     )
 }
@@ -355,7 +363,7 @@ $assetRequiredColumns = @(
 )
 $assetColumns = @($catalog.UpdateColumns.dev_device_asset)
 if (@(Compare-Object $assetRequiredColumns $assetColumns).Count -ne 0) {
-    throw "dev_device_asset runtime UPDATE grants do not match V57"
+    throw "dev_device_asset runtime UPDATE grants do not match V58"
 }
 
 $factorySealAuthorizationRequiredColumns = @(

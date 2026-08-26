@@ -3,6 +3,7 @@ package org.enveloping.ecobin.recycling.web.v1;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import org.enveloping.ecobin.recycling.application.bag.BagLabelBatchPolicy;
 
 import java.time.Instant;
 import java.util.List;
@@ -14,7 +15,10 @@ public final class BagLabelModels {
     }
 
     public record CreateBagLabelBatchRequest(
-            @NotNull @Min(1) @Max(100) Integer quantity) {
+            @NotNull
+            @Min(BagLabelBatchPolicy.MIN_QUANTITY)
+            @Max(BagLabelBatchPolicy.MAX_QUANTITY)
+            Integer quantity) {
     }
 
     public record PlatformAdminSummary(

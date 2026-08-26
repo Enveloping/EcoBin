@@ -89,6 +89,70 @@ class FirmwareRespondingSerial(FakeSerial):
         return written
 
 
+class FragmentedTimeoutSensitiveSerial(FakeSerial):
+    """Model a VCP that loses later fragments if timeout changes mid-frame."""
+
+    def __init__(self, responses=None):
+        self._timeout = 0.5
+        self._response_active = False
+        self._pending_fragments = []
+        self._drop_pending_fragments = False
+        self.timeout_mutations_during_response = []
+        self.responses = {
+            bytes(request): tuple(bytes(fragment) for fragment in fragments)
+            for request, fragments in (responses or {}).items()
+        }
+        super().__init__()
+
+    @property
+    def timeout(self):
+        return self._timeout
+
+    @timeout.setter
+    def timeout(self, value):
+        if self._response_active:
+            self.timeout_mutations_during_response.append(
+                (self._timeout, value)
+            )
+            self._drop_pending_fragments = True
+            self._pending_fragments.clear()
+        self._timeout = value
+
+    @property
+    def in_waiting(self):
+        return len(self.received)
+
+    def inject_fragmented(self, *fragments):
+        if not fragments or any(not fragment for fragment in fragments):
+            raise ValueError("fragmented response requires non-empty fragments")
+        self.received.clear()
+        self._pending_fragments = [bytes(fragment) for fragment in fragments]
+        self._drop_pending_fragments = False
+        self._response_active = True
+
+    def read(self, size):
+        self._promote_next_fragment()
+        chunk = super().read(size)
+        if not self.received and not self._pending_fragments:
+            self._response_active = False
+        return chunk
+
+    def write(self, data):
+        written = super().write(data)
+        fragments = self.responses.get(bytes(data))
+        if fragments is not None:
+            self.inject_fragmented(*fragments)
+        return written
+
+    def _promote_next_fragment(self):
+        if (
+            not self.received
+            and self._pending_fragments
+            and not self._drop_pending_fragments
+        ):
+            self.received.extend(self._pending_fragments.pop(0))
+
+
 def firmware_status_frame(
     *,
     mode=1,
@@ -178,6 +242,7 @@ def test_production_serial_open_requests_posix_exclusive_ownership(monkeypatch):
 
     assert adapter.open()
     assert captured["exclusive"] is True
+    assert captured["timeout"] == 0.05
 
 
 def test_parser_handles_partial_joined_and_payload_marker_bytes():
@@ -544,6 +609,99 @@ def test_firmware_identity_query_updates_handshake_identity():
         "firmwareVersion": "1.2.3",
         "firmwareIdentityHex": "0102030405060708",
     }
+
+
+def test_firmware_identity_query_keeps_timeout_stable_across_fragments():
+    response = firmware_status_frame(mode=1, safe_flags=0x0F)
+    fake = FragmentedTimeoutSensitiveSerial(
+        {
+            bytes.fromhex("F2 01 F2"): (
+                response[:7],
+                response[7:29],
+                response[29:],
+            )
+        }
+    )
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        timeout_s=0.01,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    result = adapter.query_firmware_identity(timeout_ms=100)
+
+    assert result["queryStatus"] == "OK"
+    assert result["rawFrameHex"] == response.hex()
+    assert fake.timeout_mutations_during_response == []
+
+
+def test_self_test_query_keeps_timeout_stable_across_fragments():
+    response = bytes.fromhex("F1 02 00 00 00 00 01 F1")
+    fake = FragmentedTimeoutSensitiveSerial(
+        {
+            bytes.fromhex("F0 01 F0"): (
+                response[:2],
+                response[2:5],
+                response[5:],
+            )
+        }
+    )
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        timeout_s=0.01,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    result = adapter.query_self_test(timeout_ms=100)
+
+    assert result["queryStatus"] == "OK"
+    assert result["rawFrameHex"] == response.hex()
+    assert fake.timeout_mutations_during_response == []
+
+
+@pytest.mark.parametrize(
+    ("response", "message_name"),
+    [
+        (
+            bytes.fromhex("DD 00 00 01 00 00 02 00 DD"),
+            "COMPAT_DELIVERY_RESULT",
+        ),
+        (
+            bytes.fromhex("EF 00 00 01 00 00 02 00 EF"),
+            "COMPAT_CLEAN_RESULT",
+        ),
+        (bytes.fromhex("CC 01 CC"), "SAFETY_SENSOR_EVENT"),
+    ],
+)
+def test_background_event_read_keeps_timeout_stable_across_fragments(
+    response,
+    message_name,
+):
+    fake = FragmentedTimeoutSensitiveSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        timeout_s=0.01,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    first_cut = max(1, len(response) // 3)
+    second_cut = max(first_cut + 1, len(response) * 2 // 3)
+    fake.inject_fragmented(
+        response[:first_cut],
+        response[first_cut:second_cut],
+        response[second_cut:],
+    )
+
+    event = adapter.read_mcu_event(timeout_ms=100)
+
+    assert event["message_name"] == message_name
+    assert event["payload"]["rawFrameHex"] == response.hex()
+    assert fake.timeout_mutations_during_response == []
 
 
 def test_short_firmware_version_is_not_exposed_as_registration_fact():

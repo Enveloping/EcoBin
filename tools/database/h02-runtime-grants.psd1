@@ -182,7 +182,7 @@
             "control_version"
             "updated_at"
         )
-        # V57 keeps the authorization identity, accepted evidence, command,
+        # V58 keeps the authorization identity, accepted evidence, command,
         # reliable task, and immutable creation fact fixed after INSERT.  The
         # runtime may only acknowledge/cancel the issued authorization or
         # atomically project the device's trusted terminal seal fact.

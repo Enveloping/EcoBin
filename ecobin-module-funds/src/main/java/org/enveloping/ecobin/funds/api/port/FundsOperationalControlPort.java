@@ -98,6 +98,29 @@ public interface FundsOperationalControlPort {
             String outAuthorizationNo,
             LocalDateTime resolvedAt);
 
+    boolean hasUnresolvedMerchantTransferAuthorizationCreateTimeMismatch(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo);
+
+    void resolveMerchantTransferAuthorizationCreateTimeMismatch(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime resolvedAt);
+
+    void resolveMerchantTransferAuthorizationQueryRecoveryMissing(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime resolvedAt);
+
+    void resolveMerchantTransferAuthorizationUnknownState(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime resolvedAt);
+
     void resolveMerchantTransferEvidenceMismatch(
             long tenantId,
             long organizationId,

@@ -60,6 +60,9 @@ test('withdrawal page keeps backend authority and never treats the WeChat page a
   const markup = source(
     '../miniprogram/miniprogram/pages/withdrawals/withdrawals.wxml',
   );
+  const styles = source(
+    '../miniprogram/miniprogram/pages/withdrawals/withdrawals.wxss',
+  );
 
   assert.match(
     validation,
@@ -74,6 +77,39 @@ test('withdrawal page keeps backend authority and never treats the WeChat page a
   assert.match(page, /TERMINAL_STATUSES\.has\(detail\.status\)/);
   assert.doesNotMatch(page, /parseFloat|toFixed/);
   assert.doesNotMatch(markup, /取消提现|cancelWithdrawal/);
+  assert.ok(markup.includes(
+    'wx:if="{{!authorizationLoading && (!authorization || authorization.status !== \'ACTIVE\')}}"',
+  ));
+  assert.match(markup, /wx:if="\{\{amountError\}\}" class="amount-error"/);
+  assert.match(markup, /class="amount-balance"/);
+  assert.ok(
+    markup.indexOf('class="amount-box') < markup.indexOf('class="amount-balance"')
+      && markup.indexOf('class="amount-balance"') < markup.indexOf('class="submit-button'),
+  );
+  assert.doesNotMatch(markup, /class="balance-panel"|可用余额/);
+  assert.match(markup, /background-shape background-shape--mint/);
+  assert.match(markup, /background-shape background-shape--cream/);
+  assert.match(styles, /\.background-shape--mint/);
+  assert.match(styles, /\.background-shape--cream/);
+  assert.doesNotMatch(markup, /create-card-accent/);
+  assert.doesNotMatch(styles, /\.create-card-accent/);
+  assert.match(
+    styles,
+    /\.amount-balance-label\s*\{[^}]*font-size:\s*24rpx;/s,
+  );
+  assert.match(
+    styles,
+    /\.amount-balance-value\s*\{[^}]*font-size:\s*32rpx;/s,
+  );
+  assert.match(styles, /\.submit-button\s*\{[^}]*background:\s*#2b7f45;/s);
+  assert.match(
+    styles,
+    /\.create-card button\.submit-button\[disabled\]\s*\{[^}]*background:\s*#dce2dc;[^}]*opacity:\s*1;/s,
+  );
+  assert.doesNotMatch(
+    markup,
+    /MANUAL WITHDRAWAL|已开通|单笔提现范围|最多两位小数|提交后不可由用户取消|最终结果以后端查单状态为准|item\.sourceText|来源投递单/,
+  );
 });
 
 test('funds clients normalize money before building command payloads', () => {

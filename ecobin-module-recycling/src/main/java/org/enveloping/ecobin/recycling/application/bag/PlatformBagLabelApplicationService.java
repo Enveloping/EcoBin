@@ -122,8 +122,8 @@ public class PlatformBagLabelApplicationService {
             UUID operationUid,
             CreateBagLabelBatchRequest request) {
         requireUuidV4(operationUid);
-        if (request == null || request.quantity() == null
-                || request.quantity() < 1 || request.quantity() > 100) {
+        if (request == null
+                || !BagLabelBatchPolicy.supports(request.quantity())) {
             throw invalidQuantity();
         }
         TargetWebAuditRequestContext.describe(
@@ -455,7 +455,11 @@ public class PlatformBagLabelApplicationService {
         return new TargetApiException(
                 400,
                 "BAG_LABEL.QUANTITY_INVALID",
-                "每批只能生成 1 到 100 个袋码");
+                "每批只能生成 "
+                        + BagLabelBatchPolicy.MIN_QUANTITY
+                        + " 到 "
+                        + BagLabelBatchPolicy.MAX_QUANTITY
+                        + " 个袋码");
     }
 
     private static TargetApiException notFound() {

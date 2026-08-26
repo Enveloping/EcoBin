@@ -53,7 +53,6 @@ interface WithdrawalListItem extends WithdrawalView {
   statusText: string
   statusTone: string
   channelStateText: string
-  sourceText: string
 }
 
 interface MerchantTransferOptions {
@@ -118,9 +117,6 @@ function listItem(item: WithdrawalView): WithdrawalListItem {
     channelStateText: item.channelState
       ? CHANNEL_STATE[item.channelState] ?? item.channelState
       : '',
-    sourceText: item.sourceType === 'DELIVERY_AUTO'
-      ? '投递返现自动提现'
-      : '手动申请提现',
   }
 }
 
@@ -192,8 +188,6 @@ Page({
     canSubmit: false,
     availableBalanceYuan: null as string | null,
     availableBalanceText: '—',
-    minimumText: '—',
-    maximumText: '—',
     configuration: null as WithdrawalConfigurationView | null,
     authorization: null as MerchantTransferAuthorizationView | null,
     authorizationLoading: true,
@@ -296,8 +290,6 @@ Page({
         availableBalanceYuan: wallet.availableBalanceYuan,
         availableBalanceText: displayMoney(wallet.availableBalanceYuan),
         configuration,
-        minimumText: displayMoney(configuration.manualMinimumYuan),
-        maximumText: displayMoney(configuration.manualMaximumYuan),
         eligibilityError: '',
       })
     } catch (error) {
@@ -306,8 +298,6 @@ Page({
         availableBalanceYuan: null,
         availableBalanceText: '—',
         configuration: null,
-        minimumText: '—',
-        maximumText: '—',
         eligibilityError: errorText(error),
         canSubmit: false,
       })
@@ -407,7 +397,7 @@ Page({
   },
 
   refreshAmountValidation() {
-    if (!this.data.amountYuan) {
+    if (!this.data.amountYuan || this.data.eligibilityLoading) {
       this.setData({ amountError: '', canSubmit: false })
       return
     }
@@ -486,7 +476,7 @@ Page({
         )
       }
       if (current.status === 'ACTIVE') {
-        wx.showToast({ title: '自动收款已开通', icon: 'success' })
+        wx.showToast({ title: '授权已完成', icon: 'success' })
         return
       }
       if (current.status === 'PREPARING') {
@@ -509,7 +499,7 @@ Page({
       }
       if (current.status !== 'WAIT_USER_CONFIRM') {
         if (current.status === 'ACTIVE') {
-          wx.showToast({ title: '自动收款已开通', icon: 'success' })
+          wx.showToast({ title: '授权已完成', icon: 'success' })
           return
         }
         throw new Error('当前授权已结束，请重新发起授权')
@@ -539,7 +529,7 @@ Page({
       '微信授权参数刷新超时，请稍后重试',
     )
     if (refreshed.status === 'ACTIVE') {
-      wx.showToast({ title: '自动收款已开通', icon: 'success' })
+      wx.showToast({ title: '授权已完成', icon: 'success' })
       return
     }
     if (
@@ -574,7 +564,7 @@ Page({
       '微信授权结果仍在核对，请稍后下拉刷新',
     )
     if (confirmed.status === 'ACTIVE') {
-      wx.showToast({ title: '自动收款已开通', icon: 'success' })
+      wx.showToast({ title: '授权已完成', icon: 'success' })
     } else if (confirmed.status === 'WAIT_USER_CONFIRM') {
       wx.showToast({ title: '尚未确认授权，可稍后继续', icon: 'none' })
     } else {
@@ -641,7 +631,7 @@ Page({
   onCreate() {
     if (this.data.submitting) return
     if (this.data.authorization?.status !== 'ACTIVE') {
-      wx.showToast({ title: '请先开通微信自动收款', icon: 'none' })
+      wx.showToast({ title: '请先完成收款授权', icon: 'none' })
       return
     }
     const result = validateWithdrawalAmount(
@@ -709,7 +699,7 @@ Page({
       this.createIntent = null
       clearPendingWithdrawalIntent()
       this.setData({ amountYuan: '', amountError: '', canSubmit: false })
-      wx.showToast({ title: '提现已提交审核', icon: 'success' })
+      wx.showToast({ title: '提现申请已提交', icon: 'success' })
       await this.reload()
     } catch (error) {
       wx.showToast({ title: errorText(error), icon: 'none' })

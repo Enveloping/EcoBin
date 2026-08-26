@@ -1,6 +1,11 @@
 # EcoBin P0 目标数据库设计草案
 
 > [!IMPORTANT]
+> 2026-08-25 已推进 V59：不新增表或列，只把 `rec_bag_label_batch.label_count` 和
+> `rec_bag_label_item.sequence_no` 的既有检查范围从 1～100 扩大为 1～500。袋码批次仍然
+> 只是可删除的打印历史，不成为租户或机构库存。
+
+> [!IMPORTANT]
 > 2026-08-14 已推进 V51：微信免确认收款授权创建被可信渠道响应明确拒绝时进入
 > `CREATE_REJECTED`，保留旧单和证据但释放当前槽；不确定结果进入 `UNKNOWN`，禁止换单。
 > 当前目标为 V51、99 张领域表、76 条有效权限定义。详见
@@ -45,7 +50,7 @@
 > 状态：**数据库设计基线已确认，D-001～D-049 均已确认**
 > 整理日期：2026-07-24
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)、[`system-architecture-draft.md`](system-architecture-draft.md)
-> 当前目标结构：独立目标迁移已推进到 V51，共 99 张领域表；V49 增加最近成功登录机构账号投影，V50 增加平台管理员治理约束，V51 增加微信授权创建明确拒绝终态，既有表族数量不变
+> 当前目标结构：独立目标迁移已推进到 V59，共 119 张领域表；V59 只扩大袋码数量检查约束，表族数量和 76 条有效权限定义不变
 > 历史字段讨论：[`../architecture/database-refactor-fields-draft.md`](../architecture/database-refactor-fields-draft.md)
 > 目的：把冻结的业务事实和架构边界落实为目标表、字段、约束、索引、事务锁根及迁移方案；F-04～F-06 已把 V1～V10 落为独立迁移，F-07 已验证只读纪元门禁，V-01、V-02 已使用目标身份和钱包表完成纵切；H-02 已完成本地开发演练和服务器整改阶段 0～3，目标数据库、加密备份和隔离恢复已通过，V-09 已 ready 但尚未授权，其他纵向业务仍不能当作已经实施。
 > 文档结构：本文件保存总状态、审计、表族概览、分章导航和后续顺序；各决策正文位于 [`database-design/`](database-design/) 下。

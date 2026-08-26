@@ -30,7 +30,7 @@ from trusted_clock import local_deadline_reference, sample_clock
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 17
+CURRENT_SCHEMA_VERSION = 18
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -278,13 +278,14 @@ class EdgeStore:
         row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         current = row[0] or 0
         if current == CURRENT_SCHEMA_VERSION:
-            # Re-check the v17 shape even when its version row is present.
-            # This turns a copied or historically partially-applied database
-            # into a fail-closed startup error instead of silently running
-            # without the seal-completion durability columns or index.
+            # Re-check the latest durable shapes even when their version rows
+            # are present.  A copied or historically partially-applied
+            # database must fail closed instead of silently weakening either
+            # clock evidence or command-observation identity.
             self._migrate_v17()
+            self._migrate_v18()
             return
-        if current not in {0, 9, 10, 11, 12, 13, 14, 15, 16}:
+        if current not in {0, 9, 10, 11, 12, 13, 14, 15, 16, 17}:
             raise RuntimeError(
                 "EdgeStore 数据库时代不兼容；永久资产 v9 不读取旧设备数据库"
             )
@@ -355,6 +356,10 @@ class EdgeStore:
         if current < 17:
             self._migrate_v17()
             conn.execute("INSERT INTO schema_version (version) VALUES (17)")
+            current = 17
+        if current < 18:
+            self._migrate_v18()
+            conn.execute("INSERT INTO schema_version (version) VALUES (18)")
 
     def _migrate_v10(self) -> None:
         """Add the independent, reboot-safe remote-support control slot."""
@@ -876,6 +881,151 @@ class EdgeStore:
                 raise RuntimeError(
                     f"EdgeStore v17 {table} shape is incompatible"
                 )
+
+    def _migrate_v18(self) -> None:
+        """Qualify one command stage by its stable error identity.
+
+        A clean operation can first time out and later be interrupted by an
+        edge restart.  Both are reliable facts with stage ``FAILED``; the
+        second fact must not overwrite the first.  Empty ``error_code`` is
+        the durable identity for stages whose wire ``errorCode`` is null.
+        """
+
+        table_info = self._conn.execute(
+            "PRAGMA table_info('command_observation')"
+        ).fetchall()
+        columns = {row["name"] for row in table_info}
+        primary_key = [
+            row["name"]
+            for row in sorted(
+                (row for row in table_info if row["pk"]),
+                key=lambda row: row["pk"],
+            )
+        ]
+        v18_columns = {
+            "command_uid",
+            "stage",
+            "error_code",
+            "event_uid",
+            "canonical_sha256",
+            "created_at",
+        }
+        if columns == v18_columns:
+            if primary_key != ["command_uid", "stage", "error_code"]:
+                raise RuntimeError(
+                    "EdgeStore v18 command observation key is incompatible"
+                )
+            event_uid_unique = any(
+                index["unique"] == 1
+                and [
+                    row["name"]
+                    for row in self._conn.execute(
+                        f"PRAGMA index_info('{index['name']}')"
+                    ).fetchall()
+                ] == ["event_uid"]
+                for index in self._conn.execute(
+                    "PRAGMA index_list('command_observation')"
+                ).fetchall()
+            )
+            if not event_uid_unique:
+                raise RuntimeError(
+                    "EdgeStore v18 command event identity is not unique"
+                )
+            return
+
+        v17_columns = v18_columns - {"error_code"}
+        if (
+            columns != v17_columns
+            or primary_key != ["command_uid", "stage"]
+        ):
+            raise RuntimeError(
+                "EdgeStore v17 command observation shape is incompatible"
+            )
+        temporary = self._conn.execute(
+            """SELECT name FROM sqlite_master
+               WHERE type='table' AND name IN (
+                   'command_observation_v17',
+                   'command_observation_v18'
+               )"""
+        ).fetchall()
+        if temporary:
+            raise RuntimeError(
+                "EdgeStore v18 command observation migration is incomplete"
+            )
+
+        rows = self._conn.execute(
+            """SELECT observation.command_uid, observation.stage,
+                      observation.event_uid,
+                      observation.canonical_sha256,
+                      observation.created_at,
+                      event_row.payload_json
+               FROM command_observation observation
+               LEFT JOIN event_outbox event_row
+                 ON event_row.event_uid = observation.event_uid
+               ORDER BY observation.created_at, observation.event_uid"""
+        ).fetchall()
+        migrated_rows: list[tuple[str, str, str, str, str, str]] = []
+        for row in rows:
+            try:
+                event = _json.loads(row["payload_json"])
+                payload = event["payload"]
+                error_code = payload.get("errorCode")
+            except (KeyError, TypeError, _json.JSONDecodeError) as error:
+                raise RuntimeError(
+                    "EdgeStore v18 command observation event is invalid"
+                ) from error
+            if (
+                event.get("eventType") != "DEVICE_COMMAND_OBSERVED"
+                or event.get("commandUid") != row["command_uid"]
+                or payload.get("stage") != row["stage"]
+                or (
+                    error_code is not None
+                    and (
+                        not isinstance(error_code, str)
+                        or not error_code
+                    )
+                )
+                or canonical_payload_sha256(payload)
+                != row["canonical_sha256"]
+            ):
+                raise RuntimeError(
+                    "EdgeStore v18 command observation event conflicts "
+                    "with its identity"
+                )
+            migrated_rows.append((
+                row["command_uid"],
+                row["stage"],
+                error_code if error_code is not None else "",
+                row["event_uid"],
+                row["canonical_sha256"],
+                row["created_at"],
+            ))
+
+        self._conn.execute(
+            """CREATE TABLE command_observation_v18 (
+                command_uid TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                error_code TEXT NOT NULL,
+                event_uid TEXT NOT NULL UNIQUE,
+                canonical_sha256 TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (command_uid, stage, error_code)
+            )"""
+        )
+        self._conn.executemany(
+            """INSERT INTO command_observation_v18
+               (command_uid, stage, error_code, event_uid,
+                canonical_sha256, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            migrated_rows,
+        )
+        self._conn.execute(
+            "ALTER TABLE command_observation RENAME TO command_observation_v17"
+        )
+        self._conn.execute(
+            "ALTER TABLE command_observation_v18 RENAME TO command_observation"
+        )
+        self._conn.execute("DROP TABLE command_observation_v17")
 
     def _create_tables(self) -> None:
         conn = self._conn
@@ -2946,11 +3096,12 @@ class EdgeStore:
             "errorCode": error_code,
         }
         canonical_sha256 = canonical_payload_sha256(payload)
+        error_identity = error_code if error_code is not None else ""
         existing = conn.execute(
             """SELECT event_uid, canonical_sha256
                FROM command_observation
-               WHERE command_uid=? AND stage=?""",
-            (command["commandUid"], stage),
+               WHERE command_uid=? AND stage=? AND error_code=?""",
+            (command["commandUid"], stage, error_identity),
         ).fetchone()
         if existing:
             return (
@@ -2977,11 +3128,13 @@ class EdgeStore:
         )
         conn.execute(
             """INSERT INTO command_observation
-               (command_uid, stage, event_uid, canonical_sha256)
-               VALUES (?, ?, ?, ?)""",
+               (command_uid, stage, error_code, event_uid,
+                canonical_sha256)
+               VALUES (?, ?, ?, ?, ?)""",
             (
                 command["commandUid"],
                 stage,
+                error_identity,
                 event_uid,
                 canonical_sha256,
             ),
@@ -5346,11 +5499,13 @@ class EdgeStore:
         self,
         session_uid: str,
         *,
-        next_attempt_at: float,
         failure_code: str,
-    ) -> int:
+        max_attempts: int,
+    ) -> str:
         if failure_code not in REMOTE_SUPPORT_FAILURE_CODES:
             raise ValueError("invalid remote support failure code")
+        if max_attempts <= 0:
+            raise ValueError("max_attempts must be positive")
         with self.transaction():
             row = self._conn.execute(
                 "SELECT * FROM remote_support_session WHERE singleton_id=1"
@@ -5361,32 +5516,35 @@ class EdgeStore:
                 or row["state"] in REMOTE_SUPPORT_TERMINAL_STATES
                 or row["state"] == "CLOSING"
             ):
-                return 0
+                return "STALE"
             attempts = int(row["attempt_count"]) + 1
+            next_state = (
+                "FAILED" if attempts >= max_attempts else "CONNECTING"
+            )
             self._conn.execute(
                 """UPDATE remote_support_session
-                   SET state='CONNECTING', failure_code=?, attempt_count=?,
-                       next_attempt_at=?, updated_at=?
+                   SET state=?, failure_code=?, attempt_count=?,
+                        next_attempt_at=NULL, updated_at=?
                    WHERE singleton_id=1 AND session_uid=?""",
                 (
+                    next_state,
                     failure_code,
                     attempts,
-                    float(next_attempt_at),
                     self._now(),
                     session_uid,
                 ),
             )
-            if row["state"] != "CONNECTING" or row["failure_code"] != failure_code:
+            if row["state"] != next_state or row["failure_code"] != failure_code:
                 self._create_remote_support_status_event_in_tx(
                     self._conn,
                     session_uid=session_uid,
                     command_uid=row["command_uid"],
                     device_name=row["device_name"],
                     remote_port=row["remote_port"],
-                    state="CONNECTING",
+                    state=next_state,
                     failure_code=failure_code,
                 )
-            return attempts
+            return next_state
 
     def _create_remote_support_status_event_in_tx(
         self,
@@ -6145,6 +6303,88 @@ class EdgeStore:
                 (self._now(),),
             )
             return True
+
+    def mark_clean_window_expired_for_recovery(
+        self,
+        work_uid: str,
+    ) -> str:
+        """Atomically retain an expired clean for the original recovery flow."""
+
+        error_code = "COMMAND_EXPIRED"
+        with self.transaction():
+            slot = self._conn.execute(
+                "SELECT * FROM work_slot WHERE slot_id=1"
+            ).fetchone()
+            if (
+                slot is None
+                or slot["work_type"] != WORK_TYPE_CLEAN
+                or slot["work_uid"] != work_uid
+            ):
+                return "STALE"
+            context = (
+                _json.loads(slot["context_json"])
+                if slot["context_json"]
+                else {}
+            )
+            command_uid = context.get("start_command_uid")
+            if not command_uid:
+                raise ValueError(
+                    "active clean has no persisted start command"
+                )
+            row = self._conn.execute(
+                """SELECT payload_json FROM command_inbox
+                   WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(
+                    "active clean start command is not persisted"
+                )
+            command = _json.loads(row["payload_json"])
+            if (
+                command.get("commandUid") != command_uid
+                or command.get("commandType") != "START_CLEAN_OPERATION"
+            ):
+                raise ValueError(
+                    "active clean start command identity is invalid"
+                )
+
+            context["phase"] = "CLEAN_RECOVERY_REQUIRED"
+            context["recovery_error_code"] = error_code
+            now = self._now()
+            self._conn.execute(
+                """UPDATE work_slot
+                   SET work_state='RECOVERY_REQUIRED', context_json=?,
+                       updated_at=?
+                   WHERE slot_id=1 AND work_type=? AND work_uid=?""",
+                (
+                    _json.dumps(context, ensure_ascii=False),
+                    now,
+                    WORK_TYPE_CLEAN,
+                    work_uid,
+                ),
+            )
+            updated = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='FAILED', processed_at=?,
+                       processing_started_at=NULL, last_error=?
+                   WHERE command_uid=?""",
+                (now, error_code, command_uid),
+            )
+            if updated.rowcount != 1:
+                raise ValueError(
+                    "active clean start command state could not be updated"
+                )
+            observation = self._record_command_observation_in_tx(
+                self._conn,
+                command,
+                "FAILED",
+                mcu_command_uid=context.get("start_mcu_command_uid"),
+                error_code=error_code,
+            )
+            if observation == "CONFLICT":
+                raise ValueError("command observation conflict")
+            return "RECOVERY_REQUIRED"
 
     def abort_interrupted_work(self) -> dict[str, Any]:
         """Cancel one non-durable physical work slot after edge restart.

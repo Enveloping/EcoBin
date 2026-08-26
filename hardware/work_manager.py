@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import logging
+import time
 import uuid as _uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -18,6 +19,10 @@ from edge_store import (
 logger = logging.getLogger("work-manager")
 def _new_uid() -> str:
     return str(_uuid.uuid4())
+
+
+def _monotonic_ms() -> int:
+    return time.monotonic_ns() // 1_000_000
 
 
 def _compat_uid(work_uid: str, label: str) -> str:
@@ -143,18 +148,58 @@ def _remaining_until(
     *,
     fallback_ms: int = 4_294_967_295,
 ) -> int:
-    expires_at = datetime.fromisoformat(
-        str(expires_at_value).replace("Z", "+00:00")
-    )
     deadline_reference = local_deadline_reference()
     if deadline_reference is None:
         return min(max(1, int(fallback_ms)), 4_294_967_295)
+    return _remaining_until_reference(expires_at_value, deadline_reference)
+
+
+def _remaining_until_reference(
+    expires_at_value: str,
+    deadline_reference: datetime,
+) -> int:
+    expires_at = datetime.fromisoformat(
+        str(expires_at_value).replace("Z", "+00:00")
+    )
     remaining = int(
         (expires_at - deadline_reference).total_seconds() * 1000
     )
     if remaining <= 0:
         raise ValueError("command expired")
     return min(remaining, 4294967295)
+
+
+def _remaining_operation_window_ms(context: dict[str, Any]) -> int:
+    """Deduct a local relative clean window without trusting wall time."""
+
+    duration_ms = context.get("operation_window_ms")
+    started_ms = context.get("operation_started_monotonic_ms")
+    if (
+        type(duration_ms) is int
+        and type(started_ms) is int
+        and duration_ms > 0
+        and started_ms >= 0
+    ):
+        elapsed_ms = _monotonic_ms() - started_ms
+        if elapsed_ms < 0:
+            # CLOCK_MONOTONIC reset implies a device reboot.  In-flight work
+            # is not recoverable across that boundary, so never grant a fresh
+            # window from an incomparable reference.
+            raise ValueError("operation window reference reset")
+        remaining_ms = duration_ms - elapsed_ms
+        if remaining_ms <= 0:
+            raise ValueError("operation window expired")
+        return min(remaining_ms, 4_294_967_295)
+
+    # A pre-upgrade context has no trustworthy relative reference.  It may be
+    # evaluated only while the wall clock is trusted; an untrusted device must
+    # not silently replace an old 30-minute window with a new full window.
+    deadline_reference = local_deadline_reference()
+    if deadline_reference is None:
+        raise ValueError("operation window reference unavailable")
+    return _remaining_until_reference(
+        context["operation_deadline"], deadline_reference
+    )
 
 
 def _deadline_after_ms(duration_ms: int) -> str:
@@ -175,6 +220,26 @@ class WorkManager:
         self._uart = uart_link
         self._mqtt = mqtt_client
         self._photo = photo_manager
+
+    def _remaining_clean_window_or_recovery(
+        self,
+        context: dict[str, Any],
+        work_uid: str,
+    ) -> Optional[int]:
+        try:
+            return _remaining_operation_window_ms(context)
+        except ValueError as error:
+            outcome = self._store.mark_clean_window_expired_for_recovery(
+                work_uid
+            )
+            logger.warning(
+                "clean operation window expired; preserving work for "
+                "recovery: work=%s outcome=%s detail=%s",
+                work_uid,
+                outcome,
+                error,
+            )
+            return None
 
     def _capture_photos(self, method_name: str, work_uid: str) -> bool:
         if self._photo is None:
@@ -336,7 +401,12 @@ class WorkManager:
         return None
 
     def expire_fixed_frame_work(self) -> bool:
-        """Fail an expired DD/EF wait without replaying its physical command."""
+        """Resolve an expired DD/EF wait without replaying its physical command.
+
+        Delivery remains a terminal timeout.  Clean work is retained in the
+        recovery state because the legacy EE frame may already have unlocked
+        the physical door and a late EF result can still close the operation.
+        """
         if not getattr(self._uart, "compatibility_mode", False):
             return False
         slot = self._store.get_work_slot()
@@ -346,6 +416,11 @@ class WorkManager:
         }:
             return False
         context = slot["context"]
+        if (
+            slot["work_type"] == WORK_TYPE_CLEAN
+            and context.get("phase") == "CLEAN_RECOVERY_REQUIRED"
+        ):
+            return False
         deadline = (
             context.get("expires_at")
             if slot["work_type"] == WORK_TYPE_DELIVERY
@@ -354,10 +429,22 @@ class WorkManager:
         if not deadline:
             return False
         try:
-            if _remaining_until(deadline) > 0:
+            remaining_ms = (
+                _remaining_operation_window_ms(context)
+                if slot["work_type"] == WORK_TYPE_CLEAN
+                else _remaining_until(deadline)
+            )
+            if remaining_ms > 0:
                 return False
         except ValueError:
             pass
+        if slot["work_type"] == WORK_TYPE_CLEAN:
+            return (
+                self._store.mark_clean_window_expired_for_recovery(
+                    slot["work_uid"]
+                )
+                == "RECOVERY_REQUIRED"
+            )
         command_uid = context.get("start_command_uid")
         command_row = (
             self._store.get_command(command_uid)
@@ -556,6 +643,7 @@ class WorkManager:
             )
         operation_uid = payload["operationUid"]
         mcu_command_uid = _new_uid()
+        operation_window_ms = int(payload["operationWindowMs"])
         ctx = {
             "operation_uid": operation_uid,
             "port_no": payload["portNo"],
@@ -571,8 +659,10 @@ class WorkManager:
             "recovery_generation": 0,
             "action_sequence": 0,
             "operation_deadline": _deadline_after_ms(
-                payload["operationWindowMs"]
+                operation_window_ms
             ),
+            "operation_window_ms": operation_window_ms,
+            "operation_started_monotonic_ms": _monotonic_ms(),
             "phase": "STARTING",
             "preunlock_weight_grams": None,
             "preunlock_measurement_uid": None,
@@ -2078,6 +2168,8 @@ class WorkManager:
             or payload.get("mcuCommandUid") != ctx.get("start_mcu_command_uid")
         ):
             raise ValueError("preunlock measurement does not match active clean")
+        if self._remaining_clean_window_or_recovery(ctx, work_uid) is None:
+            return
         measurement_uid = payload.get("measurementUid", "")
         ctx["preunlock_measurement_uid"] = measurement_uid
         ctx["preunlock_weight_grams"] = _reported_weight(payload)
@@ -2103,6 +2195,11 @@ class WorkManager:
             ctx["phase"] = "PREUNLOCK_PHOTO_BLOCKED"
             self._store.update_work_context(work_uid, ctx)
             return
+        remaining_window_ms = self._remaining_clean_window_or_recovery(
+            ctx, work_uid
+        )
+        if remaining_window_ms is None:
+            return
         unlock_uid = ctx.get("unlock_mcu_command_uid") or _new_uid()
         ctx["unlock_mcu_command_uid"] = unlock_uid
         ctx["phase"] = "UNLOCKING"
@@ -2117,9 +2214,7 @@ class WorkManager:
                 "unlockPulseMs": applied["payload"]["deviceConfig"][
                     "cleanSolenoidPulseMs"
                 ],
-                "remainingOperationWindowMs": _remaining_until(
-                    ctx["operation_deadline"]
-                ),
+                "remainingOperationWindowMs": remaining_window_ms,
                 "parentCommandUid": ctx["start_mcu_command_uid"],
             },
             mcu_command_uid=unlock_uid,
@@ -2140,6 +2235,11 @@ class WorkManager:
             or action_sequence <= ctx.get("action_sequence", 0)
         ):
             raise ValueError("clean action sequence did not advance")
+        remaining_window_ms = self._remaining_clean_window_or_recovery(
+            ctx, work_uid
+        )
+        if remaining_window_ms is None:
+            return
         ctx["action_sequence"] = action_sequence
         ctx["final_weight_grams"] = None
         ctx["final_measurement_uid"] = None
@@ -2165,9 +2265,7 @@ class WorkManager:
                 "unlockPulseMs": applied["payload"]["deviceConfig"][
                     "cleanSolenoidPulseMs"
                 ],
-                "remainingOperationWindowMs": _remaining_until(
-                    ctx["operation_deadline"]
-                ),
+                "remainingOperationWindowMs": remaining_window_ms,
                 "parentCommandUid": parent_uid,
             },
             mcu_command_uid=unlock_uid,

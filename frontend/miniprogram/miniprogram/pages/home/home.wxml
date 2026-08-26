@@ -33,7 +33,6 @@
   </view>
 
   <view class="wallet-card home-card" bindtap="onWalletTap" hover-class="home-card--pressed">
-    <text class="card-label">我的钱包</text>
     <view class="card-icon wallet-icon">
       <t-icon name="wallet" size="52rpx" color="#10b927" />
     </view>

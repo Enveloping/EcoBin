@@ -7,7 +7,7 @@ release tooling and the immutable image builder.
 from __future__ import annotations
 
 
-EDGE_SCHEMA_VERSION = "17"
+EDGE_SCHEMA_VERSION = "18"
 
 RUNTIME_APP_FILES = (
     "camera_capture.py",
