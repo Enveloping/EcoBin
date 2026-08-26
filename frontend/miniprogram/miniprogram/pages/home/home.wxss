@@ -140,6 +140,8 @@
 .wallet-value-text {
   display: block;
   line-height: 1;
+  font-size: xx-large;
+  transform: translateY(-30rpx);
 }
 .wallet-value--error {
   color: #9a743d;
