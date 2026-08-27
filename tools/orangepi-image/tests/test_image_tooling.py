@@ -18,6 +18,7 @@ MANIFEST_GENERATOR = TOOL_ROOT / "lib" / "generate_manifest.py"
 ROOTFS_SANITIZER = TOOL_ROOT / "lib" / "sanitize_rootfs.py"
 RAW_ASSEMBLER = TOOL_ROOT / "lib" / "assemble_raw_image.py"
 EXT4_NORMALIZER = TOOL_ROOT / "lib" / "normalize_ext4_metadata.py"
+EXT4_INODE_INVENTORY = TOOL_ROOT / "lib" / "capture_ext4_inode_inventory.py"
 
 
 def run_command(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -1121,6 +1122,35 @@ class ImageToolingTest(unittest.TestCase):
         for field in ("atime", "mtime", "ctime", "crtime"):
             self.assertIn(f"{field}: {expected}", inspected.stdout)
 
+    def test_sealing_inode_inventory_contains_no_paths_or_file_digests(self) -> None:
+        root = pathlib.Path(self.temporary_directory.name) / "mounted-root"
+        (root / "etc/ecobin").mkdir(parents=True)
+        secret = root / "etc/ecobin/enrollment.key"
+        secret.write_text("must-not-enter-inventory\n", encoding="ascii")
+        output = pathlib.Path(self.temporary_directory.name) / "inodes.json"
+
+        captured = run_command(
+            sys.executable,
+            str(EXT4_INODE_INVENTORY),
+            "--root",
+            str(root),
+            "--output",
+            str(output),
+        )
+
+        self.assertEqual(captured.returncode, 0, captured.stderr)
+        payload = output.read_text(encoding="utf-8")
+        inventory = json.loads(payload)
+        self.assertEqual(set(inventory), {"entries"})
+        self.assertEqual(
+            [entry["inode"] for entry in inventory["entries"]],
+            sorted({entry["inode"] for entry in inventory["entries"]}),
+        )
+        self.assertGreaterEqual(len(inventory["entries"]), 4)
+        self.assertNotIn("enrollment.key", payload)
+        self.assertNotIn("must-not-enter-inventory", payload)
+        self.assertNotIn("sha256", payload.lower())
+
     @unittest.skipIf(sys.platform == "win32", "Linux Bash integration runs in WSL/Linux")
     @unittest.skipUnless(shutil.which("bash"), "bash is not installed")
     def test_bash_scripts_parse_and_validation_entry_is_fail_closed(self) -> None:
@@ -1213,6 +1243,9 @@ class ImageToolingTest(unittest.TestCase):
         self.assertIn("--build-attestation", seal)
         self.assertIn("--trust-policy", seal)
         self.assertIn("--evidence-signature", seal)
+        self.assertIn("capture_ext4_inode_inventory.py", seal)
+        self.assertIn("normalize_ext4_metadata.py", seal)
+        self.assertIn("--allow-block-device", seal)
         self.assertIn("verify-image.sh\" --candidate", seal)
         self.assertIn("verify-image.sh\" --sealed", seal)
         self.assertLess(

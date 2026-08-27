@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import pathlib
+import stat
 import subprocess
 import sys
 
@@ -19,17 +20,23 @@ def main() -> int:
     parser.add_argument("--device", type=pathlib.Path, required=True)
     parser.add_argument("--inventory", type=pathlib.Path, required=True)
     parser.add_argument("--epoch", type=int, required=True)
+    parser.add_argument("--allow-block-device", action="store_true")
     args = parser.parse_args()
     try:
+        device_stat = args.device.lstat()
+        supported_device = stat.S_ISREG(device_stat.st_mode) or (
+            args.allow_block_device and stat.S_ISBLK(device_stat.st_mode)
+        )
         if (
             args.epoch < 0
             or args.epoch > 0x7FFFFFFF
-            or not args.device.is_file()
             or args.device.is_symlink()
+            or not supported_device
         ):
             raise ValueError(
-                "device must be a regular non-symlink partition image and "
-                "epoch must fit ext4 epoch-zero timestamps"
+                "device must be a regular non-symlink partition image (or an "
+                "explicitly allowed block device) and epoch must fit ext4 "
+                "epoch-zero timestamps"
             )
         inventory = json.loads(args.inventory.read_text(encoding="utf-8"))
         inodes = sorted({int(entry["inode"]) for entry in inventory["entries"]})

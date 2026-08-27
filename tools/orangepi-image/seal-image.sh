@@ -25,6 +25,7 @@ evidence_signature_path=""
 loop_device=""
 mount_directory=""
 temporary_evidence_directory=""
+sealed_inode_inventory=""
 output_created=false
 evidence_created=false
 evidence_signature_created=false
@@ -324,8 +325,19 @@ python3 "${script_directory}/lib/inject_factory_secrets.py" \
     --rootfs "${mount_directory}" \
     --enrollment-key-file "${enrollment_key_file}" \
     --setup-ap-key-file "${setup_ap_key_file}"
+sealed_inode_inventory="${temporary_evidence_directory}/sealed-inodes.json"
+python3 "${script_directory}/lib/capture_ext4_inode_inventory.py" \
+    --root "${mount_directory}" --output "${sealed_inode_inventory}"
 sync -f -- "${mount_directory}"
 umount -- "${mount_directory}"
+source_date_epoch="$(json_value \
+    "${config_directory}/image-layout.json" \
+    rootFilesystem.buildProfile.sourceDateEpoch)"
+python3 "${script_directory}/lib/normalize_ext4_metadata.py" \
+    --device "${root_partition}" --inventory "${sealed_inode_inventory}" \
+    --epoch "${source_date_epoch}" --allow-block-device
+rm -f -- "${sealed_inode_inventory}"
+sealed_inode_inventory=""
 losetup -d "${loop_device}"
 loop_device=""
 rmdir -- "${mount_directory}"
