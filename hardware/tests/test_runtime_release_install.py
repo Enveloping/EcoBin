@@ -899,6 +899,58 @@ def test_venv_permission_hardening_removes_wide_write_bits(tmp_path):
     )
 
 
+def test_venv_permission_hardening_repairs_restrictive_builder_umask(tmp_path):
+    uid, gid = _posix_owner()
+    release = tmp_path / "release"
+    trusted = tmp_path / "trusted-python-3.11"
+    venv = _make_test_venv(release, trusted)
+    package = venv / "lib" / "package"
+    package.mkdir(parents=True)
+    module = package / "module.py"
+    module.write_text("value = 1\n", encoding="utf-8")
+    executable = venv / "bin" / "helper"
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    os.chmod(venv, 0o700)
+    os.chmod(venv / "bin", 0o700)
+    os.chmod(package, 0o700)
+    os.chmod(module, 0o600)
+    os.chmod(executable, 0o700)
+
+    harden_venv_permissions(
+        venv,
+        expected_uid=uid,
+        expected_gid=gid,
+    )
+
+    assert stat.S_IMODE(venv.stat().st_mode) == 0o755
+    assert stat.S_IMODE((venv / "bin").stat().st_mode) == 0o755
+    assert stat.S_IMODE(package.stat().st_mode) == 0o755
+    assert stat.S_IMODE(module.stat().st_mode) == 0o644
+    assert stat.S_IMODE(executable.stat().st_mode) == 0o755
+    audit_installed_venv(
+        release,
+        trusted_python_targets=[trusted],
+        expected_uid=uid,
+        expected_gid=gid,
+    )
+
+
+def test_venv_audit_rejects_restrictive_builder_umask(tmp_path):
+    uid, gid = _posix_owner()
+    release = tmp_path / "release"
+    trusted = tmp_path / "trusted-python-3.11"
+    venv = _make_test_venv(release, trusted)
+    os.chmod(venv, 0o700)
+
+    with pytest.raises(ReleaseValidationError, match="not canonical"):
+        audit_installed_venv(
+            release,
+            trusted_python_targets=[trusted],
+            expected_uid=uid,
+            expected_gid=gid,
+        )
+
+
 def test_venv_permission_hardening_rejects_hardlinks_before_chmod(tmp_path):
     uid, gid = _posix_owner()
     release = tmp_path / "release"

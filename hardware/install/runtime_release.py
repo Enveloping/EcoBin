@@ -808,9 +808,17 @@ def _harden_regular_venv_entry(
             raise ReleaseValidationError("installed runtime is not owned by root")
         if expected_gid is not None and opened.st_gid != expected_gid:
             raise ReleaseValidationError("installed runtime is not grouped by root")
-        safe_mode = stat.S_IMODE(opened.st_mode) & ~(
-            stat.S_IWGRP | stat.S_IWOTH
-        )
+        # Payload builders run with a restrictive umask because they also
+        # handle trust material.  A code-only venv must nevertheless remain
+        # traversable and readable by the dedicated unprivileged service
+        # account.  Canonical modes also make the signed payload inventory
+        # independent of the builder's ambient umask.
+        if is_directory:
+            safe_mode = 0o755
+        elif stat.S_IMODE(opened.st_mode) & 0o111:
+            safe_mode = 0o755
+        else:
+            safe_mode = 0o644
         os.fchmod(descriptor, safe_mode)
         hardened = os.fstat(descriptor)
         if not os.path.samestat(opened, hardened):
@@ -838,7 +846,7 @@ def harden_venv_permissions(
     expected_uid: int | None = 0,
     expected_gid: int | None = 0,
 ) -> None:
-    """Remove wide write bits without following or mutating venv links."""
+    """Apply canonical read-only code modes without following venv links."""
 
     venv = Path(venv)
     try:
@@ -902,6 +910,21 @@ def harden_installed_venv_permissions(
         expected_uid=expected_uid,
         expected_gid=expected_gid,
     )
+
+
+def _require_canonical_venv_mode(mode: int) -> None:
+    if stat.S_ISDIR(mode):
+        expected = 0o755
+    elif stat.S_ISREG(mode):
+        expected = 0o755 if stat.S_IMODE(mode) & 0o111 else 0o644
+    else:
+        raise ReleaseValidationError(
+            "installed venv contains a special filesystem entry"
+        )
+    if stat.S_IMODE(mode) != expected:
+        raise ReleaseValidationError(
+            "installed venv mode is not canonical for service execution"
+        )
 
 
 def _validate_private_parent(
@@ -968,6 +991,7 @@ def audit_installed_venv(
         expected_uid=expected_uid,
         expected_gid=expected_gid,
     )
+    _require_canonical_venv_mode(root_details.st_mode)
 
     pending = [venv]
     while pending:
@@ -1018,6 +1042,7 @@ def audit_installed_venv(
                 expected_uid=expected_uid,
                 expected_gid=expected_gid,
             )
+            _require_canonical_venv_mode(mode)
             if stat.S_ISDIR(mode):
                 pending.append(path)
             elif stat.S_ISREG(mode):
