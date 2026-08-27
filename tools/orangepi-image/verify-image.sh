@@ -141,8 +141,17 @@ for command_name in \
         || fail "required command is missing: ${command_name}"
 done
 
-python3 "${script_directory}/lib/validate_inputs.py" \
-    --config-dir "${config_directory}" --require-locked >/dev/null
+input_validation=(
+    python3 "${script_directory}/lib/validate_inputs.py"
+    --config-dir "${config_directory}" --require-locked
+)
+target_media_evidence="${config_directory}/target-media-qualification-evidence.json"
+if [[ -f "${target_media_evidence}" ]]; then
+    input_validation+=(
+        --target-media-qualification-evidence "${target_media_evidence}"
+    )
+fi
+"${input_validation[@]}" >/dev/null
 [[ -f "${image_path}" && ! -L "${image_path}" ]] \
     || fail "image must be a regular non-symlink file"
 config_directory="$(readlink -f -- "${config_directory}")"

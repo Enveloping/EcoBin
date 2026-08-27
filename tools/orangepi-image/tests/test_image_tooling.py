@@ -1216,6 +1216,7 @@ class ImageToolingTest(unittest.TestCase):
         self.assertIn("ro,noload,nodev,nosuid,noexec", verify)
         self.assertIn("root and orangepi password authentication must be locked", verify)
         self.assertIn("--audit-local-login-only", verify)
+        self.assertIn("--target-media-qualification-evidence", verify)
         self.assertIn("automatic login is enabled", verify)
         self.assertIn("var/lib/ecobin/factory-test", verify)
         self.assertIn("root/EcoBin/hardware/data", verify)
