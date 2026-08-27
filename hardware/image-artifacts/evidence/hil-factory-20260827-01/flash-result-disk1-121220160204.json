@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "artifactClass": "HIL_FACTORY_IMAGE_FLASH_RESULT",
+  "completedAt": "2026-08-27T05:05:26Z",
+  "diskNumber": 1,
+  "diskSerialNumber": "121220160204",
+  "diskBytes": 31268536320,
+  "physicalDevice": "\\\\.\\PHYSICALDRIVE1",
+  "imageFileName": "ecobin-orangepi-zero3-0.1.0-single-card.20260827.1-hil-factory.img",
+  "imageBytes": 2571108352,
+  "expectedImageSha256": "ef6f5664ce5ca58bf424335a8d88891e23f50434f639bf4a24d05662c43dd3cc",
+  "writtenBytes": 2571108352,
+  "fullReadbackBytes": 2571108352,
+  "fullReadbackSha256": "ef6f5664ce5ca58bf424335a8d88891e23f50434f639bf4a24d05662c43dd3cc",
+  "result": "PASS"
+}

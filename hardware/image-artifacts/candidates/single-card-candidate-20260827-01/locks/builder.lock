@@ -1,0 +1,47 @@
+{
+  "$schema": "./schemas/builder-lock.schema.json",
+  "schemaVersion": 1,
+  "lockState": "LOCKED",
+  "reason": "Docker Official Image manifest and Debian 20260803 snapshot package identities were independently resolved and signature-checked on 2026-08-22; runtime-release tool identities were resolved from the same signed snapshot on 2026-08-26.",
+  "container": {
+    "reference": "docker.io/library/debian:bookworm-20260803-slim@sha256:817e6cf99d6fc127ff4ffe8580049b60deba0adfbbb2bd65ddc3ef8fbb7aade0",
+    "digest": "sha256:817e6cf99d6fc127ff4ffe8580049b60deba0adfbbb2bd65ddc3ef8fbb7aade0",
+    "platform": "linux/arm64"
+  },
+  "sourceDateEpoch": 1783765141,
+  "uvArtifact": {
+    "version": "0.12.5",
+    "url": "https://github.com/astral-sh/uv/releases/download/0.12.5/uv-aarch64-unknown-linux-gnu.tar.gz",
+    "fileName": "uv-aarch64-unknown-linux-gnu.tar.gz",
+    "downloadBytes": 21478307,
+    "sha256": "9bf43b4d1a07665bf64d4c4e710930b382321a785e0eb10aac07f46471f86a31"
+  },
+  "tools": {
+    "bash": "5.2.15-2+b13",
+    "caCertificates": "20230311+deb12u1",
+    "coreutils": "9.1-1",
+    "debianArchiveKeyring": "2023.3+deb12u2",
+    "e2fsprogs": "1.47.0-2+b2",
+    "fdisk": "2.38.1-5+deb12u3",
+    "findutils": "4.9.0-4",
+    "git": "1:2.39.5-0+deb12u3",
+    "grep": "3.8-5",
+    "gzip": "1.12-1",
+    "jq": "1.6-2.1+deb12u2",
+    "mawk": "1.3.4.20200120-3.1",
+    "mount": "2.38.1-5+deb12u3",
+    "openssl": "3.0.20-1~deb12u2",
+    "p7zip": "16.02+really26.01+dfsg-0+deb12u1",
+    "python": "3.11.2-1+b1",
+    "python311Venv": "3.11.2-6+deb12u8",
+    "pythonCryptography": "38.0.4-3+deb12u1",
+    "pythonPip": "23.0.1+dfsg-1",
+    "pythonVenv": "3.11.2-1+b1",
+    "qemuUserStatic": "1:7.2+dfsg-7+deb12u18+b3",
+    "sed": "4.9-1+deb12u1",
+    "utilLinux": "2.38.1-5+deb12u3",
+    "uv": "0.12.5",
+    "xz": "5.4.1-1+deb12u1",
+    "zstd": "1.5.4+dfsg2-5"
+  }
+}

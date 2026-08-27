@@ -1,0 +1,51 @@
+{
+  "artifactClass": "HIL_SECRET_BEARING_FACTORY_IMAGE_WITH_LOCAL_LOGIN",
+  "createdAt": "2026-08-27T05:29:15Z",
+  "factoryImageId": "hil-factory-login-20260827-01",
+  "formalReleaseEligible": false,
+  "imageToolGitCommit": "a5052a8a7ed00fff997840b9afe7e3e4abbbae16",
+  "operatorLogin": {
+    "account": "orangepi",
+    "automaticLoginEnabled": false,
+    "passwordAuthenticationEnabled": true,
+    "passwordDigestDisclosed": false,
+    "passwordValueDisclosed": false,
+    "rootPasswordLocked": true,
+    "sudoMember": true
+  },
+  "protectedInputs": {
+    "contentDigestsDisclosed": false,
+    "enrollmentKeyPresent": true,
+    "setupAccessPointKeyPresent": true
+  },
+  "qualificationBoundary": "SAME_WORKSTATION_HIL_ONLY_NOT_FORMAL_PRODUCTION_RELEASE",
+  "qualificationState": "HIL_ONLY",
+  "rawImageBytes": 2571108352,
+  "schemaVersion": 1,
+  "sealedRawImageSha256": "a016e2d6416a9679b2bda3a46d1d9b7e73470e4097308ab2ed5266db6a73c3f5",
+  "securityModel": {
+    "compromiseImpact": "ALL_CARDS_FLASHED_FROM_THIS_IMAGE",
+    "imageMustRemainConfidential": true,
+    "sharedBatchSecrets": true,
+    "sharedOperatorPassword": true
+  },
+  "signing": {
+    "algorithm": "Ed25519",
+    "keyId": "hil-factory-evidence-20260827-01",
+    "publicKeySha256": "ea0d8b449afeefba202c1c9f82d74f7e2b67fd04c0fa23d9e9b19d6ab8825b02"
+  },
+  "sourceCandidate": {
+    "gitCommit": "6fbe074abe6070150879e6ba7fb30d0f452e6c8f",
+    "releaseId": "single-card-candidate-20260827-01",
+    "softwarePayloadLockSha256": "50764bb731a8a3051fc8833597753b69f4bedc62555dab9bc9824348fd39638c",
+    "version": "0.1.0-single-card.20260827.1"
+  },
+  "sourceFactoryImageSha256": "ef6f5664ce5ca58bf424335a8d88891e23f50434f639bf4a24d05662c43dd3cc",
+  "verification": {
+    "automaticLoginAuditPassed": true,
+    "ext4ProfilePassed": true,
+    "operatorLoginAuditPassed": true,
+    "rawLayoutPassed": true,
+    "softwareAuditPassed": true
+  }
+}

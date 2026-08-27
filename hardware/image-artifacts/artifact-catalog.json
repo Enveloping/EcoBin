@@ -1,0 +1,314 @@
+{
+  "schemaVersion": 1,
+  "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
+  "catalogedAt": "2026-08-27T07:47:41.094Z",
+  "policy": {
+    "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
+    "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
+    "secretInputDigestsRecorded": false,
+    "rawImagesTrackedByGit": false
+  },
+  "trackedArtifacts": [
+    {
+      "path": "candidates/single-card-candidate-20260827-01/ecobin-orangepi-zero3-0.1.0-single-card.20260827.1.img.sha256",
+      "bytes": 121,
+      "sha256": "aafabeb6095f75abc0dc1804d4af275871c41c3079144a748c09451e61281792"
+    },
+    {
+      "path": "candidates/single-card-candidate-20260827-01/image-manifest.json",
+      "bytes": 8756,
+      "sha256": "f03e47ab71129128f95830294ad87327bed6856907eb301e501f81b5cf953bbd"
+    },
+    {
+      "path": "candidates/single-card-candidate-20260827-01/locks/apt-packages.lock",
+      "bytes": 1663,
+      "sha256": "b937e7d8a95e10211cc57f617286d67933ec72d6dbb2cd49dba7dc290e78e410"
+    },
+    {
+      "path": "candidates/single-card-candidate-20260827-01/locks/builder.lock",
+      "bytes": 1871,
+      "sha256": "da6b71eed4f3bc0d9563883e750c760c79da7864016f04edcd0b74f9bf79d5aa"
+    },
+    {
+      "path": "candidates/single-card-candidate-20260827-01/locks/image-layout.json",
+      "bytes": 2740,
+      "sha256": "3bc5ca7191bb88b813edb66f7677660aa16f38e117f8dfaeeba80f2fa1fb4389"
+    },
+    {
+      "path": "candidates/single-card-candidate-20260827-01/locks/software-payload.lock.json",
+      "bytes": 1286908,
+      "sha256": "50764bb731a8a3051fc8833597753b69f4bedc62555dab9bc9824348fd39638c"
+    },
+    {
+      "path": "candidates/single-card-candidate-20260827-01/locks/source.lock.json",
+      "bytes": 1152,
+      "sha256": "3b6a72a2bc2870d713c0835cab8d9c5bc8b8809f1952c2b65c39a19dc6eb605f"
+    },
+    {
+      "path": "candidates/single-card-candidate-20260827-01/schemas/image-manifest.schema.json",
+      "bytes": 3100,
+      "sha256": "dcb5829e5c36b5788cdc752dfdec479fbce95ceaf5fb9d52c191a5c9b7b3600b"
+    },
+    {
+      "path": "candidates/single-card-candidate-20260827-01/schemas/software-payload-lock.schema.json",
+      "bytes": 3480,
+      "sha256": "f15cad2e3224f6a1f97e1f08afd0b82cc9b72c6c6de784d61d1a84e355329ca7"
+    },
+    {
+      "path": "candidates/single-card-candidate-20260827-01/schemas/target-media-qualification-evidence.schema.json",
+      "bytes": 3174,
+      "sha256": "673809b668f83974409852f7c45ce49bb06df8384ae2c39df7fbe743400491e7"
+    },
+    {
+      "path": "candidates/single-card-candidate-20260827-01/target-media-qualification-evidence.json",
+      "bytes": 649,
+      "sha256": "e048967cbd8f19d50eeed30905915119a814e397c60c364c24532c9bfcc1f2ad"
+    },
+    {
+      "path": "evidence/hil-factory-20260827-01/ecobin-orangepi-zero3-0.1.0-single-card.20260827.1-hil-factory.img.sha256",
+      "bytes": 133,
+      "sha256": "a42b9782781d7c2cf11c0a1209b0ca0fd13776180fd2ec5ce9dce931e88b0e71"
+    },
+    {
+      "path": "evidence/hil-factory-20260827-01/flash-result-disk1-121220160204.json",
+      "bytes": 652,
+      "sha256": "6edea8d6af0bfae65f69b9ecc170a758629f65c20fdb7502310625a374e5b5a0"
+    },
+    {
+      "path": "evidence/hil-factory-20260827-01/hil-factory-evidence-public.pem",
+      "bytes": 113,
+      "sha256": "ea0d8b449afeefba202c1c9f82d74f7e2b67fd04c0fa23d9e9b19d6ab8825b02"
+    },
+    {
+      "path": "evidence/hil-factory-20260827-01/hil-factory-evidence.json",
+      "bytes": 1908,
+      "sha256": "30d83862cfd55fb39529663c40c31a16e6e072673bd68b64ff63e61e64906196"
+    },
+    {
+      "path": "evidence/hil-factory-20260827-01/hil-factory-evidence.sig",
+      "bytes": 64,
+      "sha256": "1e0e54b78479c7695a78d30da29656515fc33ff0ec94c2c3a205ba65e4dbd893"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260827-01/ecobin-orangepi-zero3-0.1.0-single-card.20260827.1-hil-factory-login.img.sha256",
+      "bytes": 139,
+      "sha256": "956ae18e3c78550b9f9e56437329e4cd8925cdab0b9961e3bb18c3ae6b58f5e9"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260827-01/flash-result-disk1-121220160204.json",
+      "bytes": 688,
+      "sha256": "bb1d46b55324eb686033ce2b70532ea9ea41282d3abb2b52223bc7ce76cc1a94"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260827-01/hil-factory-login-evidence-public.pem",
+      "bytes": 113,
+      "sha256": "ea0d8b449afeefba202c1c9f82d74f7e2b67fd04c0fa23d9e9b19d6ab8825b02"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260827-01/hil-factory-login-evidence.json",
+      "bytes": 1903,
+      "sha256": "061dcf651bc592ebc78e1f8ad00203a8bba5e804b9f1ac1de5618744373752fb"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260827-01/hil-factory-login-evidence.sig",
+      "bytes": 64,
+      "sha256": "5a6252a3d6c238370a668dd2bfb9dc8a3e275841c25ccc00c13a8f659d2860a6"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260827-02-hotfix/ecobin-orangepi-zero3-0.1.0-single-card.20260827.2-hil-factory-login.img.sha256",
+      "bytes": 186,
+      "sha256": "c320c80449524f9be780772ff3bf887f51cbc0be32e63cb2a688509f2441f19c"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260827-02-hotfix/flash-result-disk1-121220160204-v2.json",
+      "bytes": 745,
+      "sha256": "5029b1be273c431f85dddda4b5e6f3892326499ed6ba91493e41e3bea8b13c85"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260827-02-hotfix/flash-result-disk1-121220160204-v2.sig",
+      "bytes": 64,
+      "sha256": "01417c94699eaf89add8f0ae328e75d41a24b1f4ea66be81f583d744bc9afd49"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260827-02-hotfix/hil-factory-login-hotfix-evidence-public.pem",
+      "bytes": 113,
+      "sha256": "ea0d8b449afeefba202c1c9f82d74f7e2b67fd04c0fa23d9e9b19d6ab8825b02"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260827-02-hotfix/hil-factory-login-hotfix-evidence.json",
+      "bytes": 2750,
+      "sha256": "64c05abf93e05815cf160f5e83f32550b71722c3115895ade8f495715faab912"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260827-02-hotfix/hil-factory-login-hotfix-evidence.sig",
+      "bytes": 64,
+      "sha256": "6856d1f4e323d19ffc9c4192b09bef08b6390690d8db987d136d4d4c932d8074"
+    },
+    {
+      "path": "evidence/target-media-qualification-evidence-20260827.json",
+      "bytes": 649,
+      "sha256": "e048967cbd8f19d50eeed30905915119a814e397c60c364c24532c9bfcc1f2ad"
+    }
+  ],
+  "localArtifacts": [
+    {
+      "path": "local/candidates/single-card-candidate-20260827-01/ecobin-orangepi-zero3-0.1.0-single-card.20260827.1.img",
+      "bytes": 2571108352,
+      "classification": "NO_SECRET_CANDIDATE_IMAGE",
+      "digestRecorded": true,
+      "sha256": "957023d1dacf894ec87b27ec1bf8fd00250a168b1d71e705b78e9af8e7a37f4f"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-20260827-01/ecobin-orangepi-zero3-0.1.0-single-card.20260827.1-hil-factory.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "ef6f5664ce5ca58bf424335a8d88891e23f50434f639bf4a24d05662c43dd3cc"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260827-01/ecobin-orangepi-zero3-0.1.0-single-card.20260827.1-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "a016e2d6416a9679b2bda3a46d1d9b7e73470e4097308ab2ed5266db6a73c3f5"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260827-02-hotfix/ecobin-orangepi-zero3-0.1.0-single-card.20260827.2-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "f6974e07c367f65dce5b8726d8a26559371e58e4101f3b8852c3216312af9190"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260827-02-hotfix/flash-disk1-progress.log",
+      "bytes": 3331,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "afa3a03fed9c0816cf5e082c887fea70a638931a4ef0e115e1c1d8cf42aac05d"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260827-02-hotfix/wsl-mount-disk1.log",
+      "bytes": 262,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "bf8382e43d0a51e504f3c43b2add307f4db06575ff6cb5726b04924f0a72810e"
+    },
+    {
+      "path": "local/factory-secret/config/cellular.env",
+      "bytes": 464,
+      "classification": "SECRET_INPUT",
+      "digestRecorded": false
+    },
+    {
+      "path": "local/factory-secret/config/enrollment.env",
+      "bytes": 124,
+      "classification": "SECRET_INPUT",
+      "digestRecorded": false
+    },
+    {
+      "path": "local/source-bundles/repository-2c2965e5.bundle",
+      "bytes": 52130059,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "356fa6bc60007824ad716e3c3deebc58138ded3913997282cfdda498f0aeed76"
+    },
+    {
+      "path": "local/source-bundles/repository-31c49747.bundle",
+      "bytes": 52132909,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "de0e5e0f91dd470a0e881743da37df3df306d8db685cc4fe360191dbafd9fbc6"
+    },
+    {
+      "path": "local/source-bundles/repository-5cc27d5c.bundle",
+      "bytes": 67161505,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "3b7877247ddfa6270c7a403a374015cadb02b99edf0951a7e3af85fd142d0438"
+    },
+    {
+      "path": "local/source-bundles/repository-6725aaa7.bundle",
+      "bytes": 52120342,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "cd0455007242d82a4fbf0aec9bfa30bc4445aa1324a96dc239fa826fd53e57c4"
+    },
+    {
+      "path": "local/source-bundles/repository-6e0e8710.bundle",
+      "bytes": 52116565,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "4f548a067653b0592a514db7b55de3662efb0f3d72bc11b37b0165428206d7c9"
+    },
+    {
+      "path": "local/source-bundles/repository-6fbe074a.bundle",
+      "bytes": 52140244,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "89686273a4be1814167cf84aefd52d8a59ee7bde0c62d592063042399b4198d2"
+    },
+    {
+      "path": "local/source-bundles/repository-a4e384fb.bundle",
+      "bytes": 52127798,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "2ed28ebe00378cfac358f2211223db4bec9472b290ed2d33d3bcec575a840d25"
+    },
+    {
+      "path": "local/source-bundles/repository-a5052a8a.bundle",
+      "bytes": 52144345,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "92d3f92bfa694655fcfaa8349f39b8f125295fd2580300278d5e854b21dbf828"
+    },
+    {
+      "path": "local/source-bundles/repository-ba7b8552.bundle",
+      "bytes": 52128211,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "b3afacbb0e9154e9080282aa8c28a4ae7dbff45805877e567b9826c7c176143f"
+    },
+    {
+      "path": "local/source-bundles/repository-cee50ce9.bundle",
+      "bytes": 52122940,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "44ea870f0ae9c6d5ef6aef50c1c4e5c0949be7cb2a104ededa9097d7ca5de2b9"
+    },
+    {
+      "path": "local/upstream-cache/Armbian_25.5.1_Orangepizero3_bookworm_current_6.12.23_minimal.img.xz",
+      "bytes": 252811660,
+      "classification": "UPSTREAM_SOURCE_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "34f76f8266b56e714644610bb792e8932726330b044f15f21505191b8062cf07"
+    },
+    {
+      "path": "local/upstream-cache/Armbian_25.5.1_Orangepizero3_bookworm_current_6.12.23_minimal.img/Armbian_25.5.1_Orangepizero3_bookworm_current_6.12.23_minimal.img",
+      "bytes": 1354760192,
+      "classification": "UPSTREAM_SOURCE_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "0591049597b7edcaca49abe26684fde1b13cf71c6d487f118a446fa0d13655f8"
+    },
+    {
+      "path": "local/upstream-cache/Orangepizero3_1.0.4_debian_bookworm_server_linux6.1.31.7z",
+      "bytes": 531858607,
+      "classification": "UPSTREAM_SOURCE_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "bfbe35d89164329402990e8ceb93c94cdff69020f89a44b7cfbfefb73bfb7249"
+    },
+    {
+      "path": "local/upstream-cache/Orangepizero3_1.0.4_debian_bookworm_server_linux6.1.31/Orangepizero3_1.0.4_debian_bookworm_server_linux6.1.31.img",
+      "bytes": 2571108352,
+      "classification": "UPSTREAM_SOURCE_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "dda562f0ce9c3fc2be656f816b8f3aea466a3f9ace9fdf87d97ebdc72aeada40"
+    },
+    {
+      "path": "local/upstream-cache/Orangepizero3_1.0.4_debian_bookworm_server_linux6.1.31/Orangepizero3_1.0.4_debian_bookworm_server_linux6.1.31.img.sha",
+      "bytes": 125,
+      "classification": "UPSTREAM_SOURCE_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c764b9bdd25e16c7457b63da4b8cf20a9cb571a0d94ae25d98e44e9cf631ea31"
+    }
+  ]
+}

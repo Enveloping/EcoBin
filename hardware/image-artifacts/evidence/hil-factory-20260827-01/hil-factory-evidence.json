@@ -1,0 +1,55 @@
+{
+  "artifactClass": "HIL_SECRET_BEARING_FACTORY_IMAGE",
+  "createdAt": "2026-08-27T04:53:40Z",
+  "factoryImageId": "hil-factory-20260827-01",
+  "formalReleaseEligible": false,
+  "protectedFiles": [
+    {
+      "contentDigestDisclosed": false,
+      "gid": 0,
+      "mode": "0600",
+      "path": "/etc/ecobin/enrollment.key",
+      "present": true,
+      "uid": 0
+    },
+    {
+      "contentDigestDisclosed": false,
+      "gid": 0,
+      "mode": "0600",
+      "path": "/etc/ecobin/setup-ap.key",
+      "present": true,
+      "uid": 0
+    }
+  ],
+  "qualificationBoundary": "SAME_WORKSTATION_HIL_ONLY_NOT_FORMAL_PRODUCTION_RELEASE",
+  "qualificationState": "HIL_ONLY",
+  "rawImageBytes": 2571108352,
+  "schemaVersion": 1,
+  "sealedRawImageSha256": "ef6f5664ce5ca58bf424335a8d88891e23f50434f639bf4a24d05662c43dd3cc",
+  "sealingToolGitCommit": "a5052a8a7ed00fff997840b9afe7e3e4abbbae16",
+  "securityModel": {
+    "compromiseImpact": "ALL_CARDS_FLASHED_FROM_THIS_IMAGE",
+    "imageMustRemainConfidential": true,
+    "sharedBatchSecrets": true
+  },
+  "signing": {
+    "algorithm": "Ed25519",
+    "keyId": "hil-factory-evidence-20260827-01",
+    "publicKeySha256": "ea0d8b449afeefba202c1c9f82d74f7e2b67fd04c0fa23d9e9b19d6ab8825b02"
+  },
+  "sourceCandidate": {
+    "gitCommit": "6fbe074abe6070150879e6ba7fb30d0f452e6c8f",
+    "rawImageBytes": 2571108352,
+    "rawImageSha256": "957023d1dacf894ec87b27ec1bf8fd00250a168b1d71e705b78e9af8e7a37f4f",
+    "releaseId": "single-card-candidate-20260827-01",
+    "softwarePayloadLockSha256": "50764bb731a8a3051fc8833597753b69f4bedc62555dab9bc9824348fd39638c",
+    "version": "0.1.0-single-card.20260827.1"
+  },
+  "targetMediaEvidenceSha256": "e048967cbd8f19d50eeed30905915119a814e397c60c364c24532c9bfcc1f2ad",
+  "verification": {
+    "candidateAuditPassed": true,
+    "ext4ProfileNormalized": true,
+    "onlyDeclaredSecretsInjected": true,
+    "sealedAuditPassed": true
+  }
+}

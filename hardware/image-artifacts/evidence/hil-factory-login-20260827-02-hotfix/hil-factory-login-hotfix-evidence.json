@@ -1,0 +1,73 @@
+{
+  "artifactClass": "HIL_SECRET_BEARING_FACTORY_IMAGE_WITH_LOCAL_LOGIN_HOTFIXED",
+  "createdAt": "2026-08-27T06:41:45Z",
+  "factoryAccessPointHotfixGitCommit": "36429963bb867831fa22a8af5d83d79a9b7fd675",
+  "factoryImageId": "hil-factory-login-20260827-02",
+  "formalReleaseEligible": false,
+  "imageToolGitCommit": "b2b6c41c14fc8e48ca913ced226725a6c93e0377",
+  "liveDeviceValidation": {
+    "assignedClientIpv4": "10.42.0.82",
+    "basis": "PREVIOUS_IMAGE_PLUS_BYTE_EQUIVALENT_FACTORY_AP_HOTFIX",
+    "coldRebootPassed": true,
+    "dhcpClientPassed": true,
+    "factoryServiceChainActive": true,
+    "observedBssid": "30:4f:6e:84:ab:f3",
+    "observedSignalPercent": 93,
+    "observedSsid": "EcoBin-Factory-BFAA07EC",
+    "originalWifiRestored": true,
+    "portalHttpPassed": true,
+    "portalHttpStatus": 200,
+    "portalListeningAt": "10.42.0.1:80",
+    "serialLoginPassed": true,
+    "sudoPassed": true,
+    "temporaryClientProfileRemoved": true,
+    "windowsWirelessScanPassed": true
+  },
+  "operatorLogin": {
+    "account": "orangepi",
+    "automaticLoginEnabled": false,
+    "passwordAuthenticationEnabled": true,
+    "passwordDigestDisclosed": false,
+    "passwordValueDisclosed": false,
+    "rootPasswordLocked": true,
+    "sudoMember": true
+  },
+  "protectedInputs": {
+    "contentDigestsDisclosed": false,
+    "enrollmentKeyPresent": true,
+    "setupAccessPointKeyPresent": true
+  },
+  "qualificationBoundary": "SAME_WORKSTATION_SINGLE_CARD_HIL_NOT_FORMAL_PRODUCTION_RELEASE",
+  "qualificationState": "HIL_ONLY",
+  "rawImageBytes": 2571108352,
+  "schemaVersion": 1,
+  "sealedRawImageSha256": "f6974e07c367f65dce5b8726d8a26559371e58e4101f3b8852c3216312af9190",
+  "securityModel": {
+    "compromiseImpact": "ALL_CARDS_FLASHED_FROM_THIS_IMAGE",
+    "imageMustRemainConfidential": true,
+    "sharedBatchSecrets": true,
+    "sharedOperatorPassword": true
+  },
+  "signing": {
+    "algorithm": "Ed25519",
+    "keyId": "hil-factory-evidence-20260827-01",
+    "publicKeySha256": "ea0d8b449afeefba202c1c9f82d74f7e2b67fd04c0fa23d9e9b19d6ab8825b02"
+  },
+  "sourceCandidate": {
+    "gitCommit": "6fbe074abe6070150879e6ba7fb30d0f452e6c8f",
+    "releaseId": "single-card-candidate-20260827-01",
+    "softwarePayloadLockSha256": "50764bb731a8a3051fc8833597753b69f4bedc62555dab9bc9824348fd39638c",
+    "version": "0.1.0-single-card.20260827.1"
+  },
+  "sourceFactoryImageSha256": "a016e2d6416a9679b2bda3a46d1d9b7e73470e4097308ab2ed5266db6a73c3f5",
+  "verification": {
+    "automaticLoginAuditPassed": true,
+    "endToEndClientPathPassed": true,
+    "exactFinalImageBooted": false,
+    "ext4ProfilePassed": true,
+    "imageSha256SelfCheckPassed": true,
+    "operatorLoginAuditPassed": true,
+    "rawLayoutPassed": true,
+    "softwareAuditPassed": true
+  }
+}

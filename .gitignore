@@ -50,6 +50,18 @@ secrets/
 *.age
 *.gpg
 
+### 香橙派镜像本地制品 ###
+# 原始/候选/含密钥镜像、上游压缩包、环境配置与源码快照只允许放在
+# hardware/image-artifacts/local/，不得进入 Git；Git 仅跟踪清单和脱敏证据。
+/hardware/image-artifacts/local/**
+!/hardware/image-artifacts/local/.gitkeep
+/hardware/image-artifacts/**/*.img
+/hardware/image-artifacts/**/*.img.xz
+/hardware/image-artifacts/**/*.7z
+/hardware/image-artifacts/**/*.bundle
+/hardware/image-artifacts/**/*.env
+!hardware/image-artifacts/evidence/**/*-public.pem
+
 ### 前端小程序（纳入版本管理）###
 #frontend/miniprogram/
 

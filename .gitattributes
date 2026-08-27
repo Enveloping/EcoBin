@@ -20,6 +20,11 @@
 *.woff binary
 *.woff2 binary
 *.zip binary
+*.sig binary
+*.sha256 text eol=lf
+hardware/image-artifacts/evidence/**/*-public.pem text eol=lf
+# Detached signatures cover the exact evidence bytes; never normalize them.
+hardware/image-artifacts/evidence/**/*.json -text whitespace=cr-at-eol
 
 # Generated/special files with intentional handling.
 hardware/docs/onenet(物模型格式判断).js -text

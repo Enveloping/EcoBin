@@ -1,0 +1,74 @@
+{
+  "$schema": "./schemas/image-layout.schema.json",
+  "schemaVersion": 2,
+  "lockState": "LOCKED",
+  "reason": "Source geometry, deterministic ext4 profile, and the project-owner-accepted single 32 GB TF card capacity are measured and locked; this target-media qualification covers only the identified card.",
+  "sourceGeometry": {
+    "lockState": "LOCKED",
+    "rawImageBytes": 2571108352,
+    "rawImageSha256": "dda562f0ce9c3fc2be656f816b8f3aea466a3f9ace9fdf87d97ebdc72aeada40",
+    "partitionTableType": "dos",
+    "diskIdentifier": "da1827ff",
+    "logicalSectorBytes": 512,
+    "bootPrefixBytes": 4194304,
+    "bootPrefixSha256": "11e09612854d5c9c038b74c73631377b9028a78726aff0363f841d47887aa698",
+    "rootPartition": {
+      "number": 1,
+      "startSector": 8192,
+      "sectorCount": 5013504,
+      "typeCode": "83",
+      "mustBeFinalPartition": true
+    }
+  },
+  "targetMedia": {
+    "marketedCapacityGB": 32,
+    "marketedCapacityBytes": 32000000000,
+    "qualificationState": "QUALIFIED",
+    "minimumQualifiedMediaBytes": 31268536320,
+    "evidenceSha256": "e048967cbd8f19d50eeed30905915119a814e397c60c364c24532c9bfcc1f2ad"
+  },
+  "compactImage": {
+    "fixedRawImageBytes": 2571108352,
+    "alignmentBytes": 1048576,
+    "tailSafetyBytes": 67108864,
+    "partitionTablePolicy": "locked-prefix-and-rebuilt-root"
+  },
+  "rootFilesystem": {
+    "partitionNumber": 1,
+    "filesystemType": "ext4",
+    "filesystemLabel": "opi_root",
+    "filesystemUuid": "535922e7-511d-46ea-82e6-573f913006af",
+    "partitionUuid": "da1827ff-01",
+    "mustBeFinalPartition": true,
+    "buildProfile": {
+      "sourceDateEpoch": 1783765141,
+      "blockSize": 4096,
+      "blockCount": 626688,
+      "inodeCount": 156800,
+      "inodeSize": 256,
+      "blocksPerGroup": 32768,
+      "inodesPerGroup": 7840,
+      "inodeBlocksPerGroup": 490,
+      "flexBlockGroupSize": 16,
+      "reservedBlockCount": 12533,
+      "reservedPercent": 2,
+      "journalSizeBytes": 67108864,
+      "features": ["has_journal", "ext_attr", "resize_inode", "dir_index", "filetype", "extent", "flex_bg", "sparse_super", "large_file", "huge_file", "dir_nlink", "extra_isize"],
+      "defaultMountOptions": ["journal_data_writeback", "user_xattr", "acl"],
+      "directoryHashAlgorithm": "half_md4",
+      "directoryHashSeed": "95e5d17c-7d9b-48c9-88a5-616dab33efd4",
+      "filesystemFlags": ["signed_directory_hash"],
+      "errorBehavior": "Continue",
+      "maximumMountCount": -1,
+      "checkIntervalSeconds": 0
+    }
+  },
+  "firstBootExpansion": {
+    "schemaVersion": 2,
+    "strategy": "growpart-resize2fs",
+    "minimumGrowthBytes": 16777216,
+    "failurePolicy": "fail-closed",
+    "idempotent": true,
+    "identityBinding": "mounted-root-maj-min-sysfs"
+  }
+}

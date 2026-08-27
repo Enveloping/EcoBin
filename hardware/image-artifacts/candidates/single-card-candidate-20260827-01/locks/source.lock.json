@@ -1,0 +1,29 @@
+{
+  "$schema": "./schemas/source-lock.schema.json",
+  "schemaVersion": 1,
+  "lockState": "LOCKED",
+  "reason": "Official Orange Pi artifact identity was downloaded and byte-for-byte verified on 2026-08-22; board and 32 GB media qualification remain separate layout gates.",
+  "board": {
+    "vendor": "Orange Pi",
+    "model": "Orange Pi Zero 3",
+    "hardwareRevision": "v1.2",
+    "soc": "Allwinner H618",
+    "architecture": "arm64"
+  },
+  "operatingSystem": {
+    "distribution": "Debian",
+    "majorVersion": 12,
+    "variant": "Server",
+    "kernelSeries": "6.1"
+  },
+  "artifact": {
+    "url": "https://drive.usercontent.google.com/download?id=1xbSmrUu0uffnFkDvZduvzV1oUilZIWL5&export=download&confirm=t",
+    "fileName": "Orangepizero3_1.0.4_debian_bookworm_server_linux6.1.31.7z",
+    "sha256": "bfbe35d89164329402990e8ceb93c94cdff69020f89a44b7cfbfefb73bfb7249",
+    "downloadBytes": 531858607,
+    "archiveFormat": "7z",
+    "imageMember": "Orangepizero3_1.0.4_debian_bookworm_server_linux6.1.31.img",
+    "extractedImageBytes": 2571108352,
+    "extractedImageSha256": "dda562f0ce9c3fc2be656f816b8f3aea466a3f9ace9fdf87d97ebdc72aeada40"
+  }
+}

@@ -1,0 +1,20 @@
+# ecobin-apt-packages-lock-v2
+# lock-state: LOCKED
+# reason: Missing production packages were resolved from the signed immutable Debian 20260803 Bookworm snapshot after auditing the fixed Orange Pi base image.
+# repository-snapshot: https://snapshot.debian.org/archive/debian/20260803T000000Z/
+# repository-key-fingerprint: 4D64FEC119C2029067D6E791F8D2585B8783D481
+#
+# LOCKED entries use one package per line:
+# package-name:arm64=exact-debian-version sha256=archive-sha256
+
+cloud-guest-utils:all=0.33-1 sha256=d41d092d2bbf1edc6f44f3999f62f1cca7ec79e149e684c2bb86fb9765638c11
+libpython3.11-minimal:arm64=3.11.2-6+deb12u8 sha256=c48bac178c0fc43a2bf8ace784c762b5ee83e2b981894a991dc3ccfd3ec7cd4b
+libpython3.11-stdlib:arm64=3.11.2-6+deb12u8 sha256=e79876de55c6c2dca10d044b2fa69ccd863950ea01714220c1982d16008105f9
+nftables:arm64=1.0.6-2+deb12u2 sha256=f5906f44fffdb190f84e3fdd6c07cba399205de5173f67e8742876a7865e2fc9
+python3-pip-whl:all=23.0.1+dfsg-1 sha256=cc373690a1cb469fb301b9fe0125048e3102f2e365d1b2d27cab091ec89fccdc
+python3-setuptools-whl:all=66.1.1-1+deb12u2 sha256=0eb54da9f3d47e42a1be5dd8285def8bbc6e2556131b9c4ce3bd781dfc4b425a
+python3-venv:arm64=3.11.2-1+b1 sha256=9e56023bb7ea5f65b6c491cf6efeee17fc26d2bd25dae58a1845262e134d0010
+python3.11-minimal:arm64=3.11.2-6+deb12u8 sha256=6a07dd571f1a15af2f855d64571766fe44b73a57cc3b5ca79502bc89156a5e12
+python3.11-venv:arm64=3.11.2-6+deb12u8 sha256=afd3964d369a12c365ed52b7da4b5d7ea3c4ddc1302f98ac4756224d396e7cbd
+python3.11:arm64=3.11.2-6+deb12u8 sha256=76b445c9428db92fb8f17a322a99e3e54b3f8d0eeac76d80d5d6fff95f5dd526
+stm32flash:arm64=0.7-1 sha256=6cae6003613714f98075f15b4ec7c3683e13ea81896e050e710ee47966afef6c
