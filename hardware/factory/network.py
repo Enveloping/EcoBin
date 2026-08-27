@@ -232,7 +232,9 @@ def render_dnsmasq(config: FactoryNetworkConfig) -> str:
             "except-interface=lo",
             "bind-interfaces",
             f"listen-address={config.address}",
-            f"no-dhcpv6-interface={config.interface}",
+            # IPv6 is disabled on the factory interface by configure_interface().
+            # Do not emit no-dhcpv6-interface: Debian Bookworm's dnsmasq 2.89
+            # rejects that option and would prevent DHCP/DNS from starting.
             "no-resolv",
             "no-hosts",
             "no-poll",

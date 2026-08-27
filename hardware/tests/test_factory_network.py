@@ -65,7 +65,7 @@ def test_hostapd_is_wpa2_ccmp_only_and_dnsmasq_has_no_upstream() -> None:
     assert "no-resolv" in dnsmasq
     assert "except-interface=lo" in dnsmasq
     assert "pid-file=" not in dnsmasq
-    assert "no-dhcpv6-interface=wlan0" in dnsmasq
+    assert "no-dhcpv6-interface" not in dnsmasq
     assert "dhcp-broadcast" in dnsmasq
     assert "no-ping" in dnsmasq
     assert "dhcp-option=option:router\n" in dnsmasq

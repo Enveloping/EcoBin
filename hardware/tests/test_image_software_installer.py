@@ -430,6 +430,12 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
     payload, git_commit, digest = _make_payload(tmp_path)
     rootfs = tmp_path / "rootfs"
     systemd = rootfs / "etc/systemd/system"
+    ecobin_root = rootfs / "opt/ecobin"
+    ecobin_root.mkdir(parents=True)
+    os.chmod(ecobin_root, 0o700)
+    factory_test_root = ecobin_root / "factory-test"
+    factory_test_root.mkdir()
+    os.chmod(factory_test_root, 0o700)
     (rootfs / "usr/sbin").mkdir(parents=True)
     systemd.mkdir(parents=True)
     for name in ("hostapd", "dnsmasq"):
@@ -458,9 +464,22 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
         git_commit=git_commit,
     )
 
+    if os.name == "posix":
+        assert stat.S_IMODE(ecobin_root.stat().st_mode) == 0o755
+        assert stat.S_IMODE(factory_test_root.stat().st_mode) == 0o755
+
     factory_app = (
         rootfs / "opt/ecobin/factory-test/releases/factory-001/app"
     )
+    if os.name == "posix":
+        assert stat.S_IMODE(factory_app.parent.stat().st_mode) == 0o755
+        assert all(
+            stat.S_IMODE(path.stat().st_mode) == 0o755
+            for path in (
+                factory_app,
+                *(item for item in factory_app.rglob("*") if item.is_dir()),
+            )
+        )
     _assert_isolated_app_imports(
         factory_app,
         "first_boot.orchestrator",

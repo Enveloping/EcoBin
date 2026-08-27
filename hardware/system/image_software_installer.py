@@ -692,6 +692,20 @@ def _copy_repository_tree(source: Path, destination: Path) -> None:
         os.chmod(target, 0o644)
         if os.name == "posix":
             os.chown(target, 0, 0)
+    # mkdir() is affected by the image builder's restrictive umask. Normalize
+    # every source directory explicitly so dedicated read-only service users
+    # can traverse the installed application tree.
+    for current, directories, _files in os.walk(destination, followlinks=False):
+        current_path = Path(current)
+        os.chmod(current_path, 0o755)
+        if os.name == "posix":
+            os.chown(current_path, 0, 0)
+        for name in directories:
+            directory = current_path / name
+            if not directory.is_symlink():
+                os.chmod(directory, 0o755)
+                if os.name == "posix":
+                    os.chown(directory, 0, 0)
 
 
 def _copy_selected(repository_hardware: Path, names: Iterable[str], destination: Path) -> None:
@@ -700,10 +714,16 @@ def _copy_selected(repository_hardware: Path, names: Iterable[str], destination:
             raise ImageSoftwareError("selected-file destination is unsafe")
     else:
         destination.mkdir(mode=0o755)
+    os.chmod(destination, 0o755)
+    if os.name == "posix":
+        os.chown(destination, 0, 0)
     for name in names:
         source = repository_hardware / name
         target = destination / name
         target.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(target.parent, 0o755)
+        if os.name == "posix":
+            os.chown(target.parent, 0, 0)
         _install_regular(source, target, 0o644)
 
 
@@ -711,6 +731,9 @@ def _stage_factory_app(repository_hardware: Path, app: Path) -> None:
     if _lexists(app):
         raise ImageSoftwareError("factory application destination already exists")
     app.mkdir(mode=0o755)
+    os.chmod(app, 0o755)
+    if os.name == "posix":
+        os.chown(app, 0, 0)
     for package in FACTORY_APP_PACKAGES:
         _copy_repository_tree(repository_hardware / package, app / package)
     _copy_selected(repository_hardware, FACTORY_APP_RUNTIME_FILES, app)
@@ -859,6 +882,11 @@ def install_image_software(
     _assert_target_programs(rootfs)
     components = lock["components"]
 
+    # Some vendor images ship /opt/ecobin as 0700. Factory daemons deliberately
+    # run as dedicated unprivileged users, so the shared code root must be
+    # traversable while all mutable credentials remain protected under /etc.
+    _mkdir(rootfs, "opt/ecobin", 0o755)
+    _mkdir(rootfs, "opt/ecobin/factory-test", 0o755)
     hardware_parent = _mkdir(rootfs, "opt/ecobin/hardware/releases")
     hardware_release = hardware_parent / components["hardwareRuntime"]["releaseId"]
     _copy_tree(payload_root / components["hardwareRuntime"]["root"], hardware_release)
@@ -868,6 +896,9 @@ def install_image_software(
     factory_parent = _mkdir(rootfs, "opt/ecobin/factory-test/releases")
     factory_release = factory_parent / components["factoryTest"]["releaseId"]
     factory_release.mkdir(mode=0o755)
+    os.chmod(factory_release, 0o755)
+    if os.name == "posix":
+        os.chown(factory_release, 0, 0)
     _copy_tree(payload_root / components["factoryTest"]["venv"], factory_release / ".venv")
     app = factory_release / "app"
     _stage_factory_app(repository_hardware, app)
@@ -940,6 +971,21 @@ def _assert_same_file(installed: Path, source: Path, mode: int | None = None) ->
         raise ImageSoftwareError(f"installed file is not owned by root: {installed}")
 
 
+def _assert_root_owned_directory(installed: Path, mode: int = 0o755) -> None:
+    try:
+        details = installed.lstat()
+    except OSError as exc:
+        raise ImageSoftwareError(f"installed directory is absent: {installed}") from exc
+    if (
+        not stat.S_ISDIR(details.st_mode)
+        or (os.name == "posix" and stat.S_IMODE(details.st_mode) != mode)
+        or (os.name == "posix" and (details.st_uid != 0 or details.st_gid != 0))
+    ):
+        raise ImageSoftwareError(
+            f"installed directory is not root-owned {mode:04o}: {installed}"
+        )
+
+
 def _assert_tree_matches(installed: Path, source: Path) -> None:
     installed_scan = _scan_tree(installed)
     source_scan = _scan_tree(source)
@@ -1010,6 +1056,9 @@ def _assert_repository_tree(installed: Path, source: Path) -> None:
 
 
 def _audit_factory_app(app: Path, repository_hardware: Path) -> None:
+    _assert_root_owned_directory(app)
+    for directory in (path for path in app.rglob("*") if path.is_dir()):
+        _assert_root_owned_directory(directory)
     for package in FACTORY_APP_PACKAGES:
         _assert_repository_tree(app / package, repository_hardware / package)
     for name in FACTORY_APP_RUNTIME_FILES:
@@ -1077,6 +1126,11 @@ def audit_image_software(
     rootfs = _require_root(rootfs)
     repository_root = repository_root.resolve(strict=True)
     repository_hardware = repository_root / "hardware"
+    for shared_code_root in (
+        rootfs / "opt/ecobin",
+        rootfs / "opt/ecobin/factory-test",
+    ):
+        _assert_root_owned_directory(shared_code_root)
     image_release = _load_json(rootfs / "etc/ecobin/image-release.json")
     required = {
         "schemaVersion",
@@ -1150,6 +1204,7 @@ def audit_image_software(
     )
 
     factory_release = rootfs / "opt/ecobin/factory-test/releases" / components["factoryTest"]["releaseId"]
+    _assert_root_owned_directory(factory_release)
     _audit_factory_app(factory_release / "app", repository_hardware)
     if payload_root is not None:
         _assert_tree_matches(factory_release / ".venv", payload_root / components["factoryTest"]["venv"])

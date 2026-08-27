@@ -37,7 +37,8 @@
   持有 dnsmasq 的 `0700` 状态目录并原子写入租约文件，落盘后才把目录移交给专用账号，
   因此不需要 `CAP_DAC_OVERRIDE` 或 `CAP_FOWNER`；
   `ecobin-factory-hostapd.service` 只持有 `CAP_NET_ADMIN/CAP_NET_RAW`；
-  `ecobin-factory-dnsmasq.service` 只持有 `CAP_NET_BIND_SERVICE`；长驻就绪监控无任何能力。
+  `ecobin-factory-dnsmasq.service` 只持有提供非 root DHCP 所需的
+  `CAP_NET_BIND_SERVICE/CAP_NET_ADMIN`；长驻就绪监控无任何能力。
   dnsmasq 已由 systemd 直接以目标账号启动，因此不需要 `CAP_SETUID/CAP_SETGID`。
 - `ap_supervisor monitor` 只有在 `wlan0` 同时为 UP、具有精确的 `10.42.0.1/24`、无线类型为
   AP，且 `10.42.0.1:53` 的 TCP DNS 连续通过三次探测后，才向 systemd 上报 `READY=1`。

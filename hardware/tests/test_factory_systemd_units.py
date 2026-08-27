@@ -48,10 +48,16 @@ def test_ap_daemons_are_split_from_short_lived_root_preparation() -> None:
     assert "User=root" in prepare
     assert "CapabilityBoundingSet=CAP_CHOWN CAP_NET_ADMIN" in prepare
     assert "AmbientCapabilities=CAP_CHOWN CAP_NET_ADMIN" in prepare
+    # The preparer writes fixed forwarding/IPv6 sysctls. ProcSubset=pid hides
+    # /proc/sys and makes AP preparation fail before hostapd can start.
+    assert "ProcSubset=all" in prepare
     assert "CAP_DAC_OVERRIDE" not in prepare
     assert "CAP_FOWNER" not in prepare
     assert "RemainAfterExit=yes" in prepare
     assert "RuntimeDirectory=ecobin/factory-network" in prepare
+    # first-boot also bind-mounts this path into its private filesystem. Keep it
+    # across AP prepare stops/restarts so first-boot cannot fail at NAMESPACE.
+    assert "RuntimeDirectoryPreserve=yes" in prepare
     assert "-m factory.ap_supervisor prepare" in prepare
     assert "-m factory.ap_supervisor cleanup" in prepare
     assert "hostapd.service" in prepare
@@ -67,8 +73,8 @@ def test_ap_daemons_are_split_from_short_lived_root_preparation() -> None:
     assert "User=ecobin-factory-dns" in dnsmasq
     assert "--keep-in-foreground" in dnsmasq
     assert "--pid-file=" in dnsmasq
-    assert "CapabilityBoundingSet=CAP_NET_BIND_SERVICE\n" in dnsmasq
-    assert "CAP_NET_ADMIN" not in dnsmasq
+    assert "CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_ADMIN" in dnsmasq
+    assert "AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN" in dnsmasq
     assert "CAP_NET_RAW" not in dnsmasq
     assert "CAP_SETUID" not in dnsmasq
     assert "CAP_SETGID" not in dnsmasq
