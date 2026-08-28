@@ -110,7 +110,7 @@ class BoundedHeaderReader:
 
 @dataclass(frozen=True, slots=True)
 class SnapshotPaths:
-    image_release: Path = Path("/etc/ecobin/image-release.json")
+    image_release: Path = Path("/usr/share/ecobin/image-release.json")
     public_status: Path = Path("/run/ecobin/factory-portal/status.json")
     machine_id: Path = Path("/etc/machine-id")
     disk_root: Path = Path("/")

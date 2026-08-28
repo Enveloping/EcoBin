@@ -926,11 +926,8 @@ def install_image_software(
     _install_regular(payload_root / "config/cellular.env", etc_ecobin / "cellular.env", 0o600)
     for trust_name in ("mcu-release-keys", "runtime-release-keys"):
         _copy_tree(payload_root / "trust" / trust_name, etc_ecobin / trust_name)
-    _install_regular(
-        payload_root / LOCK_NAME,
-        _mkdir(rootfs, "usr/share/ecobin") / LOCK_NAME,
-        0o644,
-    )
+    share_ecobin = _mkdir(rootfs, "usr/share/ecobin")
+    _install_regular(payload_root / LOCK_NAME, share_ecobin / LOCK_NAME, 0o644)
     image_release = {
         "schemaVersion": 1,
         "releaseId": release_id,
@@ -945,6 +942,10 @@ def install_image_software(
         "contracts": contract_facts,
     }
     _write_json(etc_ecobin / "image-release.json", image_release)
+    # /etc/ecobin remains non-traversable to unprivileged services because it
+    # also carries K1, setup access and device credentials.  The factory portal
+    # receives only this immutable, non-secret release identity projection.
+    _write_json(share_ecobin / "image-release.json", image_release)
     _install_units(rootfs, repository_hardware)
     audit_image_software(
         rootfs,
@@ -1131,7 +1132,11 @@ def audit_image_software(
         rootfs / "opt/ecobin/factory-test",
     ):
         _assert_root_owned_directory(shared_code_root)
-    image_release = _load_json(rootfs / "etc/ecobin/image-release.json")
+    private_image_release = rootfs / "etc/ecobin/image-release.json"
+    public_image_release = rootfs / "usr/share/ecobin/image-release.json"
+    _assert_root_owned_directory(public_image_release.parent)
+    _assert_same_file(public_image_release, private_image_release, 0o644)
+    image_release = _load_json(private_image_release)
     required = {
         "schemaVersion",
         "releaseId",

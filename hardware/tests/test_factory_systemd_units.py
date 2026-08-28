@@ -161,6 +161,8 @@ def test_portal_is_low_privilege_local_only_and_cannot_read_secrets() -> None:
     assert "InaccessiblePaths=-/etc/ecobin/device-credentials.json" in portal
     assert "InaccessiblePaths=-/var/lib/ecobin" in portal
     assert "InaccessiblePaths=-/run/ecobin/factory-network" in portal
+    assert "ReadOnlyPaths=-/usr/share/ecobin/image-release.json" in portal
+    assert "ReadOnlyPaths=-/etc/ecobin/image-release.json" not in portal
     assert "EnvironmentFile=" not in portal
     assert "0.0.0.0" not in portal
 

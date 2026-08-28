@@ -488,6 +488,11 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
     )
 
     assert metadata["components"]["firstBoot"]["releaseId"] == "first-boot-001"
+    private_release = rootfs / "etc/ecobin/image-release.json"
+    public_release = rootfs / "usr/share/ecobin/image-release.json"
+    assert public_release.read_bytes() == private_release.read_bytes()
+    if os.name == "posix":
+        assert stat.S_IMODE(public_release.stat().st_mode) == 0o644
     assert (systemd / "network-pre.target.requires/ecobin-first-boot.service").is_symlink()
     assert (systemd / "sysinit.target.wants/ecobin-factory-egress-lock.service").is_symlink()
     assert not os.path.lexists(

@@ -77,6 +77,14 @@ class FakeSealPortal:
         }
 
 
+def test_portal_reads_release_identity_from_the_public_projection() -> None:
+    paths = SnapshotPaths()
+
+    assert paths.image_release == Path(
+        "/usr/share/ecobin/image-release.json"
+    )
+
+
 def _headers(**overrides: str) -> dict[str, str]:
     result = {"Host": FACTORY_ADDRESS, "Sec-Fetch-Site": "same-origin"}
     result.update(overrides)
