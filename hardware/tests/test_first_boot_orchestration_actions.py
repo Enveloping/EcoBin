@@ -13,13 +13,25 @@ from first_boot.status_projection import PortalStatusProjector
 
 
 class RecordingRunner:
-    def __init__(self, *, return_code: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        return_code: int = 0,
+        active_units: set[str] | None = None,
+    ) -> None:
         self.return_code = return_code
+        self.active_units = active_units or set()
         self.calls: list[tuple[str, ...]] = []
 
     def run(self, argv: tuple[str, ...], *, timeout_seconds: float) -> CommandResult:
         self.calls.append(tuple(argv))
+        if argv[1:3] == ("is-active", "--quiet"):
+            return CommandResult(0 if argv[-1] in self.active_units else 3, "")
         return CommandResult(self.return_code, "")
+
+
+def _start_calls(runner: RecordingRunner) -> list[tuple[str, ...]]:
+    return [call for call in runner.calls if call[1] == "start"]
 
 
 def _passed(**overrides: object) -> FirstBootFacts:
@@ -68,7 +80,7 @@ def test_unsealed_factory_to_runtime_sequence_keeps_ap_target_running() -> None:
         _passed(handoff_safe=True),
     ) == "NONE"
 
-    assert [call[-1] for call in runner.calls] == [
+    assert [call[-1] for call in _start_calls(runner)] == [
         "ecobin-factory.target",
         "ecobin-factory-test.service",
         "ecobin-cellular-uplink.service",
@@ -77,6 +89,24 @@ def test_unsealed_factory_to_runtime_sequence_keeps_ap_target_running() -> None:
         "ecobin-runtime.target",
     ]
     assert all("stop" not in call for call in runner.calls)
+
+
+def test_repeated_factory_stage_does_not_resubmit_active_service_dependencies() -> None:
+    runner = RecordingRunner(active_units={"ecobin-factory-test.service"})
+    actions = SystemdStageActions(runner)
+    facts = FirstBootFacts(
+        system_prepared=True,
+        factory_portal_ready=True,
+    )
+
+    assert actions.apply(FirstBootStage.FACTORY_TEST_REQUIRED, facts) == "NONE"
+    assert actions.apply(FirstBootStage.FACTORY_TEST_REQUIRED, facts) == "NONE"
+
+    assert _start_calls(runner) == []
+    assert [call[-1] for call in runner.calls] == [
+        "ecobin-factory-test.service",
+        "ecobin-factory-test.service",
+    ]
 
 
 def test_sealed_cold_boot_starts_only_cellular_then_runtime_never_factory() -> None:
@@ -102,7 +132,7 @@ def test_sealed_cold_boot_starts_only_cellular_then_runtime_never_factory() -> N
         ),
     ) == "NONE"
 
-    assert [call[-1] for call in runner.calls] == [
+    assert [call[-1] for call in _start_calls(runner)] == [
         "ecobin-cellular-uplink.service",
         "ecobin-runtime.target",
     ]

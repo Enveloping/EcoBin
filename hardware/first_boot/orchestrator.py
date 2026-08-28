@@ -68,6 +68,17 @@ class SystemdStageActions:
                 unit = "ecobin-runtime.target"
         if unit is None:
             return "NONE"
+        active = self._runner.run(
+            ("/usr/bin/systemctl", "is-active", "--quiet", unit),
+            timeout_seconds=5,
+        )
+        if active.return_code == 0:
+            # Re-submitting an already-active unit still starts any inactive
+            # Requires= dependencies in the new systemd transaction.  The
+            # coordinator polls every few seconds, so skipping the redundant
+            # transaction is required to keep boot-only prerequisites from
+            # being executed on every reconciliation pass.
+            return "NONE"
         result = self._runner.run(
             ("/usr/bin/systemctl", "start", unit),
             timeout_seconds=30,

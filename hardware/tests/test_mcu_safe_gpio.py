@@ -194,4 +194,4 @@ def test_safe_gpio_systemd_unit_is_an_early_strict_oneshot():
     assert "RuntimeDirectoryPreserve=yes" in unit
     assert "/opt/ecobin/hardware/current" not in unit
     assert "ConditionPathExists" not in unit
-    assert "RemainAfterExit=yes" not in unit
+    assert "RemainAfterExit=yes" in unit

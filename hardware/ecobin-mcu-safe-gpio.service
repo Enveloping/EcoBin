@@ -6,6 +6,7 @@ Before=network-pre.target ecobin-enrollment.service ecobin-hardware.service
 
 [Service]
 Type=oneshot
+RemainAfterExit=yes
 User=root
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
