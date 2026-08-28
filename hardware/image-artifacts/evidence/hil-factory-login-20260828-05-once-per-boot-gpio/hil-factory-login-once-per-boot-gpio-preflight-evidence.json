@@ -1,0 +1,137 @@
+{
+  "artifactClass": "HIL_SECRET_BEARING_FACTORY_IMAGE_BOOT_PREFLIGHT",
+  "createdAt": "2026-08-28T05:33:09Z",
+  "factoryImageId": "hil-factory-login-20260828-05",
+  "formalReleaseEligible": false,
+  "hardwareInventoryObserved": {
+    "cellularNetworkInterfacePresent": true,
+    "cellularTtyNodes": [
+      "/dev/ttyACM0",
+      "/dev/ttyACM1",
+      "/dev/ttyACM2"
+    ],
+    "cellularUsbId": "19d1:0001",
+    "expectedCameraPathsPresent": false,
+    "factoryAcceptanceStarted": false,
+    "uart5DevicePresent": true,
+    "uart5ExclusiveOwnerCount": 1,
+    "videoDevices": [
+      {
+        "node": "/dev/video0",
+        "product": "cedrus",
+        "usbCamera": false
+      }
+    ]
+  },
+  "mediaWrite": {
+    "diskBytes": 31268536320,
+    "diskNumber": 1,
+    "diskSerialNumber": "121220160204",
+    "fullReadbackBytes": 2571108352,
+    "fullReadbackPassed": true,
+    "fullReadbackSha256": "5bde12201cb49c1da028f07fb10538cc7c3fcad267f85716222ac472e213e554"
+  },
+  "pendingGates": [
+    {
+      "code": "DUAL_USB_CAMERAS_NOT_CONNECTED",
+      "required": [
+        "/dev/v4l/by-id/usb-DECXIN_CAMERA_DECXIN_CAMERA_01.00.00-video-index0",
+        "/dev/v4l/by-id/usb-icSpring_icspring_camera-video-index0"
+      ]
+    },
+    {
+      "code": "PHYSICAL_FACTORY_ACCEPTANCE_NOT_STARTED",
+      "required": [
+        "MCU revision 2 and F3/F1",
+        "operator declaration for BOOT0/NRST update-line installation",
+        "empty-scale and 500 g stable-weight sequence",
+        "outside and inside camera role confirmation",
+        "delivery action and post-action area safety confirmation",
+        "clean action and post-action door-closed confirmation"
+      ]
+    },
+    {
+      "code": "POST_ACCEPTANCE_FORMAL_TRUST_CHAIN_NOT_STARTED",
+      "required": [
+        "cellular uplink and trusted time",
+        "one-time enrollment and K1 cleanup",
+        "OneNet/COS/backend machine acceptance",
+        "current-generation factory-seal authorization and completion"
+      ]
+    }
+  ],
+  "qualificationBoundary": "SAME_WORKSTATION_SINGLE_CARD_BOOT_PREFLIGHT_NOT_FORMAL_PRODUCTION_RELEASE",
+  "qualificationState": "PENDING_PHYSICAL_HIL",
+  "rawImageBytes": 2571108352,
+  "safeGpioRegression": {
+    "bootFact": {
+      "boot0Level": 0,
+      "resetGateLevel": 0,
+      "status": "SAFE_APPLICATION"
+    },
+    "bootId": "bc69ba4b-0cf8-4b23-8110-0b0b8bd2f745",
+    "gpioServiceActiveState": "active",
+    "gpioServiceExecStatus": 0,
+    "gpioServiceRestartCount": 0,
+    "gpioServiceStartCountBeforeObservation": 1,
+    "gpioServiceStartCountAfterTwelveSeconds": 1,
+    "originalV4FailureNoLongerReproduces": true,
+    "remainAfterExitLoaded": true,
+    "rootCauseConfirmed": "the first-boot coordinator previously resubmitted systemd start transactions for an already-active factory-test stage, reactivating its inactive boot-only Requires dependency",
+    "softwareFixGitCommit": "e67e3bbda87216c68d569f639d5ea23d0d9a248e"
+  },
+  "sealedRawImageSha256": "5bde12201cb49c1da028f07fb10538cc7c3fcad267f85716222ac472e213e554",
+  "securityModel": {
+    "compromiseImpact": "ALL_CARDS_FLASHED_FROM_THIS_IMAGE",
+    "imageMustRemainConfidential": true,
+    "sharedBatchSecrets": true,
+    "sharedOperatorPassword": true
+  },
+  "signing": {
+    "algorithm": "Ed25519",
+    "keyId": "hil-factory-evidence-20260827-01",
+    "publicKeySha256": "ea0d8b449afeefba202c1c9f82d74f7e2b67fd04c0fa23d9e9b19d6ab8825b02"
+  },
+  "sourceCandidate": {
+    "construction": "V4_RAW_IMAGE_COPY_WITH_EXACT_SOURCE_FILE_REPLACEMENTS",
+    "factoryTestReleaseId": "factory-test-20260827-01",
+    "gitSourceSnapshot": "9e8417ebc4f04355ea076f86de89893858b5c7a9",
+    "imagePatchBaseGitCommit": "023248af828cd3d6185eeb4a277acd9b488a07e5",
+    "publicImageReleaseId": "single-card-candidate-20260827-01",
+    "publicVersion": "0.1.0-single-card.20260827.1",
+    "v4BaseRawImageSha256": "7c0dd1f4455ef40b40010c49e179c659c8116e6b2f7b177c0b22df92452eaaa4",
+    "v5PatchGitCommit": "e67e3bbda87216c68d569f639d5ea23d0d9a248e"
+  },
+  "verification": {
+    "air780eUsbEnumerationPassed": true,
+    "factoryAccessPointServiceChainPassed": true,
+    "factoryPortalImageIdentityPassed": true,
+    "factoryTestExecConditionPassed": true,
+    "loginAndAutologinAuditPassed": true,
+    "protectedInputsPermissionAuditPassed": true,
+    "rootFilesystemBytes": 30720724992,
+    "rootFilesystemExpansionPassed": true,
+    "safeGpioOncePerBootPassed": true,
+    "sourceFileHashAudit": {
+      "/etc/systemd/system/ecobin-factory-portal.service": "94d6c70bf62afb82438ab7f256bbadd64ff41f4990e2252f8744a9eb6fcee37c",
+      "/etc/systemd/system/ecobin-factory-test.service": "4f86a6d7e2b787fd0d8d253a2d40e539e701c6adc4c2331922ce7162605b779c",
+      "/etc/systemd/system/ecobin-mcu-safe-gpio.service": "2c448407bab9ce7ff5403298491094e3ef2ffbe9e8a9034c3ab0659f2ceeca5d",
+      "/opt/ecobin/factory-test/releases/factory-test-20260827-01/app/factory/portal.py": "9c9badde08c3af0e8f55c0ca1c3ac749f204c02269cbee97e7243508d4e2f6c6",
+      "/opt/ecobin/factory-test/releases/factory-test-20260827-01/app/first_boot/orchestrator.py": "ded70a9dbbf5d8c82ceeda1706faaa39b42f3d9d83405fe18111f6261d1fabb5"
+    },
+    "sourceFileHashAuditPassed": true,
+    "venvPermissionAuditPassed": true,
+    "wifiClientEndToEnd": {
+      "dhcpPassed": true,
+      "dnsTcp53Reachable": true,
+      "mqttTcp1883Blocked": true,
+      "portalHttp200": true,
+      "portalIdentityPassed": true,
+      "ssid": "EcoBin-Factory-808298B2",
+      "sshTcp22Blocked": true,
+      "temporaryCredentialArtifactsRemoved": true,
+      "wanTcp443Blocked": true,
+      "windowsOriginalConnectionRestored": true
+    }
+  }
+}
