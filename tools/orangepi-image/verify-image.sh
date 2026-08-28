@@ -308,6 +308,7 @@ if [[ -s "${mount_directory}/etc/machine-id" ]]; then
 fi
 
 for clean_directory in \
+    var/lib/chrony \
     var/lib/ecobin/hardware \
     var/lib/ecobin/remote-support \
     var/lib/ecobin/first-boot \
@@ -436,7 +437,10 @@ installed_layout = root / "usr/share/ecobin/image-layout.json"
 for trusted_tool in (
     root / "usr/bin/gpio",
     root / "usr/bin/growpart",
+    root / "usr/bin/chronyc",
+    root / "usr/bin/resolvectl",
     root / "usr/bin/stm32flash",
+    root / "usr/sbin/chronyd",
     root / "usr/sbin/nft",
 ):
     metadata = trusted_tool.stat(follow_symlinks=False)
@@ -471,6 +475,67 @@ for candidate, expected_mode in (
     ):
         raise SystemExit(1)
 if not enabled.is_symlink() or os.readlink(enabled) != "../ecobin-mcu-safe-gpio.service":
+    raise SystemExit(1)
+
+resolved_unit = root / "lib/systemd/system/systemd-resolved.service"
+resolved_enabled = (
+    systemd / "sysinit.target.wants/systemd-resolved.service"
+)
+resolved_alias = systemd / "dbus-org.freedesktop.resolve1.service"
+resolv_conf = root / "etc/resolv.conf"
+resolved_metadata = resolved_unit.stat(follow_symlinks=False)
+if (
+    not stat.S_ISREG(resolved_metadata.st_mode)
+    or resolved_metadata.st_uid != 0
+    or resolved_metadata.st_gid != 0
+    or stat.S_IMODE(resolved_metadata.st_mode) != 0o644
+):
+    raise SystemExit(1)
+for link in (resolved_enabled, resolved_alias):
+    if (
+        not link.is_symlink()
+        or pathlib.PurePosixPath(os.readlink(link)).name
+        != "systemd-resolved.service"
+    ):
+        raise SystemExit(1)
+
+chrony_unit = root / "lib/systemd/system/chrony.service"
+chrony_enabled = systemd / "multi-user.target.wants/chrony.service"
+chrony_alias = systemd / "chronyd.service"
+chrony_config = root / "etc/chrony/chrony.conf"
+for candidate in (chrony_unit, chrony_config):
+    metadata = candidate.stat(follow_symlinks=False)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != 0
+        or metadata.st_gid != 0
+        or stat.S_IMODE(metadata.st_mode) != 0o644
+    ):
+        raise SystemExit(1)
+for link in (chrony_enabled, chrony_alias):
+    if (
+        not link.is_symlink()
+        or pathlib.PurePosixPath(os.readlink(link)).name != "chrony.service"
+    ):
+        raise SystemExit(1)
+chrony_lines = {
+    line.strip()
+    for line in chrony_config.read_text(encoding="utf-8").splitlines()
+    if line.strip() and not line.lstrip().startswith("#")
+}
+if "pool 2.debian.pool.ntp.org iburst" not in chrony_lines:
+    raise SystemExit(1)
+if "makestep 1 3" not in chrony_lines:
+    raise SystemExit(1)
+
+if (
+    not resolv_conf.is_symlink()
+    or os.readlink(resolv_conf)
+    not in {
+        "../run/systemd/resolve/stub-resolv.conf",
+        "/run/systemd/resolve/stub-resolv.conf",
+    }
+):
     raise SystemExit(1)
 unit_content = unit.read_text(encoding="utf-8")
 if (
@@ -513,7 +578,7 @@ if any(installed.get(package) != version for package, version in expected_packag
     raise SystemExit(1)
 PY
 then
-    fail "target packages, UART5, or immutable MCU safe-GPIO configuration is incomplete"
+    fail "target packages, interface-bound DNS, trusted time, UART5, or immutable MCU safe-GPIO configuration is incomplete"
 fi
 
 systemd_directory="${mount_directory}/etc/systemd/system"

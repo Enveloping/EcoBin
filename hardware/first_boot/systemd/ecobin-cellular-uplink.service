@@ -1,7 +1,8 @@
 [Unit]
 Description=EcoBin locked Air780E RNDIS uplink coordinator
 Requires=ecobin-first-boot.service ecobin-mcu-safe-gpio.service ecobin-factory-egress-lock.service
-After=ecobin-first-boot.service ecobin-mcu-safe-gpio.service ecobin-factory-egress-lock.service NetworkManager.service
+Wants=chrony.service
+After=ecobin-first-boot.service ecobin-mcu-safe-gpio.service ecobin-factory-egress-lock.service NetworkManager.service chrony.service
 Conflicts=ecobin-factory-test.service
 
 [Service]

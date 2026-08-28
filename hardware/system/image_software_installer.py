@@ -117,6 +117,9 @@ ENABLED_LINKS = {
     "multi-user.target.wants/ecobin-mcu-safe-gpio.service": (
         "../ecobin-mcu-safe-gpio.service"
     ),
+    "multi-user.target.wants/ecobin-first-boot.service": (
+        "../ecobin-first-boot.service"
+    ),
     "sysinit.target.wants/ecobin-factory-egress-lock.service": (
         "../ecobin-factory-egress-lock.service"
     ),
@@ -887,6 +890,7 @@ def install_image_software(
     # traversable while all mutable credentials remain protected under /etc.
     _mkdir(rootfs, "opt/ecobin", 0o755)
     _mkdir(rootfs, "opt/ecobin/factory-test", 0o755)
+    _mkdir(rootfs, "opt/ecobin/remote-support", 0o755)
     hardware_parent = _mkdir(rootfs, "opt/ecobin/hardware/releases")
     hardware_release = hardware_parent / components["hardwareRuntime"]["releaseId"]
     _copy_tree(payload_root / components["hardwareRuntime"]["root"], hardware_release)
@@ -914,6 +918,9 @@ def install_image_software(
     remote_parent = _mkdir(rootfs, "opt/ecobin/remote-support/releases")
     remote_release = remote_parent / components["remoteSupport"]["releaseId"]
     remote_release.mkdir(mode=0o755)
+    os.chmod(remote_release, 0o755)
+    if os.name == "posix":
+        os.chown(remote_release, 0, 0)
     _copy_tree(payload_root / components["remoteSupport"]["venv"], remote_release / ".venv")
     _copy_selected(repository_hardware, REMOTE_SUPPORT_FILES, remote_release / "app")
     (rootfs / "opt/ecobin/remote-support/current").symlink_to(
@@ -1130,6 +1137,7 @@ def audit_image_software(
     for shared_code_root in (
         rootfs / "opt/ecobin",
         rootfs / "opt/ecobin/factory-test",
+        rootfs / "opt/ecobin/remote-support",
     ):
         _assert_root_owned_directory(shared_code_root)
     private_image_release = rootfs / "etc/ecobin/image-release.json"
@@ -1225,6 +1233,15 @@ def audit_image_software(
         enrollment / ".venv", lock, components["enrollment"]["venv"]
     )
     remote_release = rootfs / "opt/ecobin/remote-support/releases" / components["remoteSupport"]["releaseId"]
+    remote_current = rootfs / "opt/ecobin/remote-support/current"
+    if (
+        not remote_current.is_symlink()
+        or os.readlink(remote_current)
+        != f"releases/{components['remoteSupport']['releaseId']}"
+    ):
+        raise ImageSoftwareError("remote support current link is invalid")
+    _assert_root_owned_directory(remote_release)
+    _assert_root_owned_directory(remote_release / "app")
     for name in REMOTE_SUPPORT_FILES:
         _assert_same_file(remote_release / "app" / name, repository_hardware / name, 0o644)
     if payload_root is not None:

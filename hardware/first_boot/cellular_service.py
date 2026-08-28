@@ -23,6 +23,7 @@ from .network_manager import (
     render_network_manager_profile,
 )
 from .state_machine import gate_allows
+from .time_sync import ChronyTimeSynchronizer
 from factory_seal.validation import FactorySealPaths, inspect_sealed_authorization
 
 
@@ -75,7 +76,18 @@ def run_once() -> str:
     if not activated:
         apply_emergency_uplink_lock()
         return "CELLULAR_ACTIVATION_FAILED"
-    health = CellularProbe(config, inventory).probe()
+    probe = CellularProbe(config, inventory)
+    health = probe.probe()
+    if not facts.time_trusted and health.dns_ready:
+        try:
+            time_synchronised = ChronyTimeSynchronizer().synchronize()
+        except Exception:
+            time_synchronised = False
+        if not time_synchronised:
+            apply_emergency_uplink_lock()
+            return "CELLULAR_TIME_UNTRUSTED"
+        if not health.ready:
+            health = probe.probe()
     if not health.ready:
         apply_emergency_uplink_lock()
         return health.error_code

@@ -393,6 +393,26 @@ class ImageToolingTest(unittest.TestCase):
         self.assertNotIn("https://", installer)
         self.assertNotIn("latest", installer.lower())
 
+    def test_target_image_contains_dns_and_trusted_time_runtime(self) -> None:
+        package_lock = (TOOL_ROOT / "apt-packages.lock").read_text(
+            encoding="utf-8"
+        )
+        verifier = (TOOL_ROOT / "verify-image.sh").read_text(encoding="utf-8")
+
+        self.assertRegex(
+            package_lock,
+            r"(?m)^systemd-resolved:arm64=[^\s]+ sha256=[0-9a-f]{64}$",
+        )
+        self.assertRegex(
+            package_lock,
+            r"(?m)^chrony:arm64=[^\s]+ sha256=[0-9a-f]{64}$",
+        )
+        self.assertIn("usr/bin/resolvectl", verifier)
+        self.assertIn("systemd-resolved.service", verifier)
+        self.assertIn("usr/bin/chronyc", verifier)
+        self.assertIn("usr/sbin/chronyd", verifier)
+        self.assertIn("chrony.service", verifier)
+
     def test_controlled_payload_has_a_locked_arm64_build_entry(self) -> None:
         launcher = (TOOL_ROOT / "run-payload-builder.sh").read_text(encoding="utf-8")
         builder = (TOOL_ROOT / "build-software-payload.sh").read_text(encoding="utf-8")
@@ -757,6 +777,7 @@ class ImageToolingTest(unittest.TestCase):
             "etc/systemd/system/getty@tty1.service.d",
             "etc/systemd/system/multi-user.target.wants",
             "var/lib/systemd",
+            "var/lib/chrony",
             "var/lib/cloud/instance",
             "var/lib/ecobin/hardware/photos",
             "var/lib/ecobin/factory-test",
@@ -808,6 +829,9 @@ class ImageToolingTest(unittest.TestCase):
             encoding="utf-8",
         )
         (root / "var/lib/systemd/random-seed").write_text("seed", encoding="ascii")
+        (root / "var/lib/chrony/chrony.drift").write_text(
+            "12.345 0.100\n", encoding="ascii"
+        )
         (root / "var/lib/cloud/instance/id").write_text("device", encoding="ascii")
         (root / "var/lib/ecobin/factory-test/result.json").write_text(
             "{}", encoding="ascii"
@@ -839,6 +863,7 @@ class ImageToolingTest(unittest.TestCase):
             list((root / "etc/NetworkManager/system-connections").iterdir()), []
         )
         self.assertFalse((root / "var/lib/systemd/random-seed").exists())
+        self.assertEqual(list((root / "var/lib/chrony").iterdir()), [])
         self.assertFalse(getty_autologin.exists())
         self.assertFalse((root / "swapfile").exists())
         self.assertFalse((root / "etc/dphys-swapfile").exists())

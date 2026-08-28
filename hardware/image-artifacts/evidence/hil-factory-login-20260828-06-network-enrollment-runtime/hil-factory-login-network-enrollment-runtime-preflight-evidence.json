@@ -1,0 +1,104 @@
+{
+  "artifactClass": "HIL_SECRET_BEARING_FACTORY_IMAGE_LOCAL_HOTFIX_PREFLIGHT",
+  "createdAt": "2026-08-28T10:27:46Z",
+  "factoryImageId": "hil-factory-login-20260828-06",
+  "formalReleaseEligible": false,
+  "qualificationBoundary": "SINGLE_CARD_LOCAL_HOTFIX_NOT_FORMAL_PRODUCTION_RELEASE",
+  "qualificationState": "READY_FOR_SINGLE_CARD_FLASH_AND_CLOUD_MODEL_SYNC",
+  "rawImageBytes": 2571108352,
+  "sealedRawImageSha256": "bfc1f27d843f4e4712ebc675895e26dc8e282bc405aab166c76726da152b6132",
+  "sourceCandidate": {
+    "construction": "V5_RAW_IMAGE_COPY_WITH_OFFLINE_PACKAGE_INSTALL_AND_EXACT_SOURCE_FILE_REPLACEMENTS",
+    "gitHead": "27c909ac3f4c294b72a3a14b26ecbb57ea03518e",
+    "sourceWorktreeWasModified": true,
+    "v5BaseRawImageSha256": "5bde12201cb49c1da028f07fb10538cc7c3fcad267f85716222ac472e213e554",
+    "publicImageReleaseIdRetained": "single-card-candidate-20260827-01",
+    "publicVersionRetained": "0.1.0-single-card.20260827.1"
+  },
+  "offlinePackageMutation": {
+    "removedPackage": "resolvconf:all=1.91+nmu1",
+    "installedPackage": "systemd-resolved:arm64=252.26-1~deb12u2",
+    "installedPackageSha256": "5db28733222ad74f32dd3a3b1c107242c65ba192df7cb173c3e5f5fec6882de2",
+    "matchingBasePackages": [
+      "systemd:arm64=252.26-1~deb12u2",
+      "systemd-sysv:arm64=252.26-1~deb12u2",
+      "libsystemd0:arm64=252.26-1~deb12u2",
+      "libsystemd-shared:arm64=252.26-1~deb12u2"
+    ]
+  },
+  "includedFixes": [
+    "install and enable systemd-resolved with the canonical stub resolver symlink",
+    "accept selected cellular RNDIS UDP DNS replies before invalid-packet rejection",
+    "provide the deployed Python application path to enrollment, hardware, remote-support and runtime gates",
+    "allow only credential-reading gate conditions to bypass their service filesystem namespace",
+    "make the remote-support release path traversable by its dedicated service account",
+    "raise the factory-test systemd task limit from 16 to 64"
+  ],
+  "verification": {
+    "baseImageUnchangedAfterCopy": true,
+    "cleanFirstBootStatePassed": true,
+    "dpkgAuditPassed": true,
+    "ext4ReadOnlyFsckPassed": true,
+    "gateAndTaskLimitAssertionsPassed": true,
+    "imageToolingTests": {
+      "passed": 52,
+      "skipped": 8,
+      "subtestsPassed": 24
+    },
+    "packageFileVerificationPassed": true,
+    "protectedInputsByteForBytePreserved": true,
+    "protectedInputsValuesOrDigestsDisclosed": false,
+    "rawLayoutVerificationPassed": true,
+    "remoteSupportTraversalAuditPassed": true,
+    "resolverLayoutPassed": true,
+    "sourceFileHashAuditPassed": true,
+    "hardwareTests": {
+      "passed": 963,
+      "skipped": 46,
+      "subtestsPassed": 5
+    }
+  },
+  "liveHotfixConfirmation": {
+    "cellularUplinkActive": true,
+    "deviceEnrollmentCompleted": true,
+    "factoryHandoffCompleted": true,
+    "hardwareRuntimeActive": true,
+    "mqttConnectedToOneNet": true,
+    "remoteSupportActive": true,
+    "runtimeGatePassed": true
+  },
+  "oneNetModelSync": {
+    "candidateFile": "contracts/onenet/generated/onenet-thing-model.candidate.json",
+    "candidateFileSha256": "80e98c318beea54a61488bd96b0fc201af3c80c6ee7323510d7a0071be479c75",
+    "currentCloudDeviceRuntimeSnapshotOutputCount": 31,
+    "candidateDeviceRuntimeSnapshotOutputCount": 35,
+    "missingCloudFields": [
+      "clockOffsetMillisPresent",
+      "clockOffsetMillis",
+      "clockRepairStatePresent",
+      "clockRepairState"
+    ],
+    "observedReplyCodeBeforeCloudSync": 2308,
+    "syncCompleted": false
+  },
+  "pendingGates": [
+    {
+      "code": "ONENET_THING_MODEL_IMPORT_PENDING",
+      "required": "import and save the tracked candidate thing model in the target OneNet product"
+    },
+    {
+      "code": "SINGLE_CARD_FLASH_AND_FULL_READBACK_PENDING",
+      "required": "write this candidate to the confirmed TF card and compare a full-image readback"
+    },
+    {
+      "code": "FRESH_IMAGE_END_TO_END_RETEST_PENDING",
+      "required": "boot the written card and repeat cellular, enrollment, handoff, runtime, remote-support and simulated-MCU acceptance checks"
+    }
+  ],
+  "securityModel": {
+    "compromiseImpact": "ALL_CARDS_FLASHED_FROM_THIS_IMAGE",
+    "imageMustRemainConfidential": true,
+    "sharedBatchSecrets": true,
+    "sharedOperatorPasswordEnabled": true
+  }
+}

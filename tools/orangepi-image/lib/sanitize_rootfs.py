@@ -78,6 +78,7 @@ REMOVE_EXACT_PATHS = (
 
 CLEAR_DIRECTORY_CONTENTS = (
     "etc/NetworkManager/system-connections",
+    "var/lib/chrony",
     "var/lib/NetworkManager",
     "var/lib/dhcp",
     "var/lib/dhcpcd5",

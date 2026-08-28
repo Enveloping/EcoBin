@@ -280,3 +280,58 @@ def test_nm_activation_is_impossible_before_factory_pass() -> None:
             factory_recovery_required=True,
         )
     assert runner.calls == []
+
+
+def test_nm_activation_reuses_an_already_active_target_connection() -> None:
+    class ActiveConnectionRunner:
+        def __init__(self) -> None:
+            self.calls: list[tuple[tuple[str, ...], float]] = []
+
+        def run(
+            self, argv: tuple[str, ...], *, timeout_seconds: float
+        ) -> CommandResult:
+            command = tuple(argv)
+            self.calls.append((command, timeout_seconds))
+            if command[1:3] == ("connection", "load"):
+                return CommandResult(0, "")
+            if command[1:] == (
+                "-g",
+                "GENERAL.CONNECTION,GENERAL.STATE",
+                "device",
+                "show",
+                "enxcell0",
+            ):
+                return CommandResult(0, "ecobin-air780e-rndis\n100 (connected)\n")
+            raise AssertionError(f"active cellular link must not be restarted: {command}")
+
+    runner = ActiveConnectionRunner()
+    activated = NetworkManagerActivator(runner).activate(
+        profile_path=Path(
+            "/etc/NetworkManager/system-connections/air780e.nmconnection"
+        ),
+        connection_id="ecobin-air780e-rndis",
+        interface="enxcell0",
+        factory_test_passed=True,
+        factory_recovery_required=False,
+    )
+
+    assert activated
+    assert [call[0][1] for call in runner.calls] == ["-g"]
+
+
+def test_nm_activation_loads_and_starts_target_when_it_is_not_active() -> None:
+    runner = _Runner()
+
+    activated = NetworkManagerActivator(runner).activate(
+        profile_path=Path(
+            "/etc/NetworkManager/system-connections/air780e.nmconnection"
+        ),
+        connection_id="ecobin-air780e-rndis",
+        interface="enxcell0",
+        factory_test_passed=True,
+        factory_recovery_required=False,
+    )
+
+    assert activated
+    assert [call[0][1] for call in runner.calls] == ["-g", "connection", "connection"]
+    assert runner.calls[-1][0][1:3] == ("connection", "up")

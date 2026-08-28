@@ -31,6 +31,8 @@ FIREWALL_TRANSITION_LOCK = Path(
 )
 CELLULAR_RULE_MARKERS = frozenset(
     {
+        "ecobin-cellular:dns-udp-input",
+        "ecobin-cellular:ntp-input",
         "ecobin-cellular:invalid-input",
         "ecobin-cellular:invalid-output",
         "ecobin-cellular:dhcp-output",
@@ -64,6 +66,20 @@ def _validate_interface(interface: str) -> str:
 
 def _cellular_rules(interface: str) -> list[str]:
     return [
+        # The qualified H616 kernel does not consistently classify Air780E
+        # UDP DNS replies as established.  Keep the exception narrow and
+        # ahead of the invalid-state drop: only source port 53 on the one
+        # USB-parent-verified RNDIS interface is admitted.
+        _rule(
+            "input",
+            f'iifname "{interface}" udp sport 53 accept',
+            "ecobin-cellular:dns-udp-input",
+        ),
+        _rule(
+            "input",
+            f'iifname "{interface}" udp sport 123 accept',
+            "ecobin-cellular:ntp-input",
+        ),
         _rule("input", "ct state invalid drop", "ecobin-cellular:invalid-input"),
         _rule("output", "ct state invalid drop", "ecobin-cellular:invalid-output"),
         _rule(

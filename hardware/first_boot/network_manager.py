@@ -108,6 +108,27 @@ class NetworkManagerActivator:
             raise PermissionError("FACTORY_TEST_GATE_CLOSED")
         if not _SAFE_VALUE.fullmatch(connection_id) or not _SAFE_VALUE.fullmatch(interface):
             raise ValueError("CELLULAR_ACTIVATION_ARGUMENT_INVALID")
+        status = self._runner.run(
+            (
+                "/usr/bin/nmcli",
+                "-g",
+                "GENERAL.CONNECTION,GENERAL.STATE",
+                "device",
+                "show",
+                interface,
+            ),
+            timeout_seconds=5,
+        )
+        status_lines = status.stdout.splitlines()
+        state_fields = status_lines[1].split(maxsplit=1) if len(status_lines) > 1 else []
+        if (
+            status.return_code == 0
+            and status_lines
+            and status_lines[0].strip() == connection_id
+            and state_fields
+            and state_fields[0] == "100"
+        ):
+            return True
         loaded = self._runner.run(
             ("/usr/bin/nmcli", "connection", "load", str(profile_path)),
             timeout_seconds=10,

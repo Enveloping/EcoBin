@@ -1,0 +1,101 @@
+{
+  "artifactClass": "HIL_SECRET_BEARING_FACTORY_IMAGE_LOCAL_HOTFIX_PREFLIGHT",
+  "createdAt": "2026-08-28T11:18:49Z",
+  "factoryImageId": "hil-factory-login-20260828-07",
+  "formalReleaseEligible": false,
+  "qualificationBoundary": "SINGLE_CARD_LOCAL_HOTFIX_NOT_FORMAL_PRODUCTION_RELEASE",
+  "qualificationState": "SINGLE_CARD_FLASH_AND_FULL_READBACK_PASSED_FRESH_BOOT_PENDING",
+  "rawImageBytes": 2571108352,
+  "sealedRawImageSha256": "ff5d49cde692c508a12934ab60c56aa079380421a05764a0d47f604ceb1f3ab4",
+  "sourceCandidate": {
+    "construction": "V6_RAW_IMAGE_COPY_WITH_EXACT_SOURCE_FILE_REPLACEMENTS",
+    "gitHead": "27c909ac3f4c294b72a3a14b26ecbb57ea03518e",
+    "sourceWorktreeWasModified": true,
+    "v6BaseRawImageSha256": "bfc1f27d843f4e4712ebc675895e26dc8e282bc405aab166c76726da152b6132",
+    "publicImageReleaseIdRetained": "single-card-candidate-20260827-01",
+    "publicVersionRetained": "0.1.0-single-card.20260827.1"
+  },
+  "trustedTimeRuntime": {
+    "provider": "chrony",
+    "installedPackage": "chrony:arm64=4.3-2+deb12u1",
+    "packageArchiveSha256": "d6cebc2b0d6180d7337ddf17f3638d3290f1e12c70fc6571740ee389d6700a0e",
+    "packageSource": "https://snapshot.debian.org/",
+    "packageMutation": "INHERITED_FROM_V6_AND_VERIFIED_NOT_REINSTALLED",
+    "bootstrapSequence": [
+      "chronyc online",
+      "chronyc refresh",
+      "chronyc burst 2/4",
+      "chronyc waitsync 25 0 0 1",
+      "timedatectl NTPSynchronized confirmation"
+    ],
+    "maximumWaitSeconds": 30,
+    "failurePosture": "RESTORE_EMERGENCY_UPLINK_LOCK"
+  },
+  "includedFixes": [
+    "enable ecobin-first-boot.service from multi-user.target while retaining the early network-pre requirement",
+    "actively synchronize the existing chrony daemon only after the selected RNDIS route and bound DNS probe pass",
+    "retry HTTPS only after the canonical NTPSynchronized fact becomes trusted",
+    "accept only selected-cellular-interface UDP source-port 123 replies before invalid conntrack rejection",
+    "make the cellular coordinator want and order after chrony.service",
+    "clear chrony drift history when future candidates are sanitized"
+  ],
+  "verification": {
+    "baseImageUnchangedAfterCopy": true,
+    "cleanFirstBootStatePassed": true,
+    "chronyInstalledPackageIdentityPassed": true,
+    "chronyRuntimeLayoutAndEnableLinksPassed": true,
+    "chronyStateDirectoryEmpty": true,
+    "ext4ReadOnlyFsckPassed": true,
+    "rawLayoutVerificationPassed": true,
+    "sourceFileByteComparisonPassed": true,
+    "protectedInputsByteForBytePreserved": true,
+    "protectedInputsPermissionAuditPassed": true,
+    "protectedInputsValuesOrDigestsDisclosed": false,
+    "deterministicExt4ProfileClaimed": false,
+    "deterministicExt4ProfileReason": "local hotfix image; formal deterministic rebuild is a separate release gate",
+    "hardwareTests": {
+      "passed": 971,
+      "skipped": 46,
+      "subtestsPassed": 5
+    },
+    "imageToolingTestsWindows": {
+      "passed": 52,
+      "skipped": 8,
+      "subtestsPassed": 24
+    },
+    "imageToolingTestsLinuxRoot": {
+      "passed": 59,
+      "skipped": 1,
+      "deterministicExt4TestPassed": true
+    }
+  },
+  "singleCardFlash": {
+    "completedAt": "2026-08-28T11:53:01.6918766Z",
+    "diskNumberAtQualification": 1,
+    "diskSerialNumber": "121220160204",
+    "diskBytes": 31268536320,
+    "writtenBytes": 2571108352,
+    "fullReadbackBytes": 2571108352,
+    "fullReadbackSha256": "ff5d49cde692c508a12934ab60c56aa079380421a05764a0d47f604ceb1f3ab4",
+    "sourceAndFullReadbackMatched": true,
+    "result": "PASS",
+    "resultEvidence": "flash-result-disk1-121220160204-v7.json",
+    "progressEvidence": "flash-progress-disk1-121220160204-v7.log"
+  },
+  "pendingGates": [
+    {
+      "code": "FRESH_IMAGE_END_TO_END_RETEST_PENDING",
+      "required": "boot v7 from clean state and prove automatic first boot, chrony time trust, HTTPS, enrollment, handoff, runtime and simulated-MCU acceptance"
+    },
+    {
+      "code": "ONENET_THING_MODEL_IMPORT_PENDING",
+      "required": "import and save contracts/onenet/generated/onenet-thing-model.candidate.json in the target OneNet product"
+    }
+  ],
+  "securityModel": {
+    "compromiseImpact": "ALL_CARDS_FLASHED_FROM_THIS_IMAGE",
+    "imageMustRemainConfidential": true,
+    "sharedBatchSecrets": true,
+    "sharedOperatorPasswordEnabled": true
+  }
+}

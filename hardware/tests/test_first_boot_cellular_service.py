@@ -59,8 +59,18 @@ def _install_happy_path(
         cellular_service,
         "CellularProbe",
         lambda _config, _inventory: SimpleNamespace(
-            probe=lambda: SimpleNamespace(ready=True, error_code="NONE")
+            probe=lambda: SimpleNamespace(
+                ready=True,
+                error_code="NONE",
+                dns_ready=True,
+            )
         ),
+    )
+    monkeypatch.setattr(
+        cellular_service,
+        "ChronyTimeSynchronizer",
+        lambda: SimpleNamespace(synchronize=lambda: True),
+        raising=False,
     )
 
     def apply(interface: str, inspector) -> str:
@@ -172,4 +182,130 @@ def test_lost_p7_gate_replaces_any_old_uplink_profile_with_emergency(
     result = cellular_service.run_once()
 
     assert result == "FACTORY_TEST_GATE_CLOSED"
+    assert emergency == [True]
+
+
+def test_dns_ready_untrusted_clock_is_synchronised_before_https_is_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cellular_service,
+        "inspect_sealed_authorization",
+        lambda _paths: SimpleNamespace(exists=False, valid=False),
+    )
+    modes: list[str] = []
+    _install_happy_path(monkeypatch, _accepted(time_trusted=False), modes)
+    health = iter(
+        (
+            SimpleNamespace(
+                ready=False,
+                error_code="CELLULAR_HTTPS_UNAVAILABLE",
+                dns_ready=True,
+            ),
+            SimpleNamespace(ready=True, error_code="NONE", dns_ready=True),
+        )
+    )
+    probe_calls: list[bool] = []
+    monkeypatch.setattr(
+        cellular_service,
+        "CellularProbe",
+        lambda _config, _inventory: SimpleNamespace(
+            probe=lambda: probe_calls.append(True) or next(health)
+        ),
+    )
+    sync_calls: list[bool] = []
+    monkeypatch.setattr(
+        cellular_service,
+        "ChronyTimeSynchronizer",
+        lambda: SimpleNamespace(
+            synchronize=lambda: sync_calls.append(True) or True
+        ),
+        raising=False,
+    )
+    emergency: list[bool] = []
+    monkeypatch.setattr(
+        cellular_service,
+        "apply_emergency_uplink_lock",
+        lambda: emergency.append(True) or True,
+    )
+
+    assert cellular_service.run_once() == "NONE"
+    assert sync_calls == [True]
+    assert probe_calls == [True, True]
+    assert emergency == []
+
+
+def test_failed_clock_synchronisation_restores_emergency_uplink_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cellular_service,
+        "inspect_sealed_authorization",
+        lambda _paths: SimpleNamespace(exists=False, valid=False),
+    )
+    modes: list[str] = []
+    _install_happy_path(monkeypatch, _accepted(time_trusted=False), modes)
+    monkeypatch.setattr(
+        cellular_service,
+        "CellularProbe",
+        lambda _config, _inventory: SimpleNamespace(
+            probe=lambda: SimpleNamespace(
+                ready=False,
+                error_code="CELLULAR_HTTPS_UNAVAILABLE",
+                dns_ready=True,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        cellular_service,
+        "ChronyTimeSynchronizer",
+        lambda: SimpleNamespace(synchronize=lambda: False),
+        raising=False,
+    )
+    emergency: list[bool] = []
+    monkeypatch.setattr(
+        cellular_service,
+        "apply_emergency_uplink_lock",
+        lambda: emergency.append(True) or True,
+    )
+
+    assert cellular_service.run_once() == "CELLULAR_TIME_UNTRUSTED"
+    assert emergency == [True]
+
+
+def test_dns_failure_does_not_attempt_clock_synchronisation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cellular_service,
+        "inspect_sealed_authorization",
+        lambda _paths: SimpleNamespace(exists=False, valid=False),
+    )
+    modes: list[str] = []
+    _install_happy_path(monkeypatch, _accepted(time_trusted=False), modes)
+    monkeypatch.setattr(
+        cellular_service,
+        "CellularProbe",
+        lambda _config, _inventory: SimpleNamespace(
+            probe=lambda: SimpleNamespace(
+                ready=False,
+                error_code="CELLULAR_DNS_UNAVAILABLE",
+                dns_ready=False,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        cellular_service,
+        "ChronyTimeSynchronizer",
+        lambda: pytest.fail("chrony must not run before bound DNS passes"),
+        raising=False,
+    )
+    emergency: list[bool] = []
+    monkeypatch.setattr(
+        cellular_service,
+        "apply_emergency_uplink_lock",
+        lambda: emergency.append(True) or True,
+    )
+
+    assert cellular_service.run_once() == "CELLULAR_DNS_UNAVAILABLE"
     assert emergency == [True]

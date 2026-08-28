@@ -1,0 +1,129 @@
+{
+  "artifactClass": "HIL_SECRET_BEARING_FACTORY_IMAGE_LOCAL_HOTFIX_PREFLIGHT",
+  "createdAt": "2026-08-28T15:03:24Z",
+  "factoryImageId": "hil-factory-login-20260828-08",
+  "formalReleaseEligible": false,
+  "qualificationBoundary": "SINGLE_CARD_LOCAL_HOTFIX_NOT_FORMAL_PRODUCTION_RELEASE",
+  "qualificationState": "READY_FOR_SINGLE_CARD_FLASH_AND_FRESH_BOOT_RETEST",
+  "rawImageBytes": 2571108352,
+  "sealedRawImageSha256": "4c95087f512f0fb3f1b995aea20200f8a617788b7019a69ea98ff18d0d463ae8",
+  "sourceCandidate": {
+    "construction": "V7_RAW_IMAGE_COPY_WITH_EXACT_SOURCE_FILE_REPLACEMENTS",
+    "gitHead": "27c909ac3f4c294b72a3a14b26ecbb57ea03518e",
+    "sourceWorktreeWasModified": true,
+    "v7BaseRawImageSha256": "ff5d49cde692c508a12934ab60c56aa079380421a05764a0d47f604ceb1f3ab4",
+    "publicImageReleaseIdRetained": "single-card-candidate-20260827-01",
+    "publicVersionRetained": "0.1.0-single-card.20260827.1",
+    "identityRetentionReason": "The local hotfix retains the installed payload and release identity; the external factoryImageId and full raw-image SHA-256 identify v8."
+  },
+  "controlledChanges": [
+    {
+      "installedPath": "/opt/ecobin/factory-test/releases/factory-test-20260827-01/app/first_boot/network_manager.py",
+      "sourcePath": "hardware/first_boot/network_manager.py",
+      "sourceSha256": "74b771caa5535566876fd1ae1b8c12fcbb31d2c43f58bc48a4a880fb9bb44d35",
+      "behavior": "Reuse an already active selected RNDIS connection at NetworkManager state 100 instead of reloading and bringing it up again."
+    },
+    {
+      "installedPath": "/opt/ecobin/factory-test/releases/factory-test-20260827-01/app/first_boot/time_sync.py",
+      "sourcePath": "hardware/first_boot/time_sync.py",
+      "sourceSha256": "807f85df3cdd8e5ddbac46e91f202f2357589d781980b64526087bf66b340cfd",
+      "behavior": "Keep one fixed chrony source set and allow up to three bounded burst-and-wait rounds before failing closed."
+    }
+  ],
+  "inheritedCapabilitiesFromV7": [
+    "ecobin-first-boot.service is enabled from multi-user.target while retaining the early network-pre requirement",
+    "selected-interface DNS and NTP UDP replies are narrowly admitted before invalid conntrack rejection",
+    "DNS readiness precedes chrony time synchronization and HTTPS enrollment retries",
+    "time synchronization failure restores the emergency deny-all uplink policy",
+    "orangepi password login remains enabled for development while root password login remains locked"
+  ],
+  "packageState": {
+    "packageMutation": "NONE_INHERITED_FROM_V7",
+    "chronyInstalled": "chrony:arm64=4.3-2+deb12u1",
+    "systemdInstalled": "systemd:arm64=252.26-1~deb12u2",
+    "systemdResolvedInstalled": "systemd-resolved:arm64=252.26-1~deb12u2",
+    "currentCanonicalLockMatchesImage": false,
+    "currentCanonicalLock": "chrony:arm64=4.3-2+deb12u3 and systemd/systemd-resolved:arm64=252.39-1~deb12u2",
+    "reason": "v8 is an offline two-file HIL hotfix; locked package upgrades require a clean full candidate rebuild and fresh qualification."
+  },
+  "verification": {
+    "baseImageUnchangedAfterCopy": true,
+    "rawLayoutVerificationPassed": true,
+    "ext4ReadOnlyFsckPassed": true,
+    "currentFirstBootSourceAndInstalledUnitsPassed": true,
+    "sourceFileByteComparisonPassed": true,
+    "installedSourceMetadataRootOwned0644Passed": true,
+    "onlyTwoControlledFilesDifferFromV7": true,
+    "filesystemContentPermissionsOwnershipAclXattrAndLinksCompared": true,
+    "protectedInputsByteForBytePreserved": true,
+    "protectedInputsPermissionAuditPassed": true,
+    "protectedInputsValuesOrDigestsDisclosed": false,
+    "cleanFirstBootStatePassed": true,
+    "machineIdEmpty": true,
+    "perDeviceCredentialsAbsent": true,
+    "sshHostKeysAbsent": true,
+    "chronyAndNetworkManagerStateEmpty": true,
+    "developmentLoginPolicyPassed": true,
+    "publicImageIdentityRetainedFromV7": true,
+    "deterministicExt4ProfileClaimed": false,
+    "deterministicExt4ProfileReason": "local hotfix image; formal deterministic rebuild is a separate release gate",
+    "wholeRepositoryImageAudit": {
+      "status": "NOT_APPLICABLE_TO_V7_DERIVED_LOCAL_HOTFIX",
+      "reason": "The inherited v7 runtime and factory application predate unrelated current repository changes, including command_processor.py; v7 and v8 were proven identical outside the two controlled files.",
+      "differenceIntroducedByV8": false
+    },
+    "hardwareTests": {
+      "passed": 974,
+      "skipped": 46,
+      "subtestsPassed": 5
+    },
+    "imageToolingTestsWindows": {
+      "passed": 60,
+      "skipped": 8
+    },
+    "imageToolingTestsLinuxRoot": {
+      "passed": 60,
+      "skipped": 1,
+      "deterministicExt4TestPassed": true,
+      "skipReason": "zstd is not installed in this WSL environment"
+    }
+  },
+  "evidenceIntegrity": {
+    "signatureState": "UNSIGNED_LOCAL_DIAGNOSTIC",
+    "containsProtectedInputValues": false,
+    "containsProtectedInputDigests": false
+  },
+  "singleCardFlash": {
+    "completed": false,
+    "expectedDiskSerialNumber": "121220160204",
+    "requiredEvidenceName": "flash-result-disk1-121220160204-v8.json"
+  },
+  "pendingGates": [
+    {
+      "code": "SINGLE_CARD_FLASH_AND_FULL_READBACK_PENDING",
+      "required": "write v8 to the confirmed card with serial 121220160204 and compare the full written range SHA-256"
+    },
+    {
+      "code": "FRESH_IMAGE_END_TO_END_RETEST_PENDING",
+      "required": "cold boot from clean state and prove automatic first boot, trusted time, HTTPS enrollment, factory handoff, runtime start, both current cameras and simulated-MCU success acceptance"
+    },
+    {
+      "code": "AIR780E_REPLUG_RECOVERY_RETEST_PENDING",
+      "required": "unplug and reconnect Air780E, then prove the selected RNDIS connection recovers without an unnecessary NetworkManager restart loop"
+    },
+    {
+      "code": "ONENET_THING_MODEL_IMPORT_PENDING",
+      "required": "import and save contracts/onenet/generated/onenet-thing-model.candidate.json in the target OneNet product"
+    },
+    {
+      "code": "FORMAL_RELEASE_TRUST_POLICY_PENDING",
+      "required": "perform a clean full rebuild with the current package lock, unique release identity, clean source snapshot and independent signed release evidence before production release"
+    }
+  ],
+  "securityModel": {
+    "compromiseImpact": "ALL_CARDS_FLASHED_FROM_THIS_IMAGE",
+    "imageMustRemainConfidential": true,
+    "sharedBatchSecrets": true,
+    "sharedOperatorPasswordEnabled": true
+  }
+}

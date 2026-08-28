@@ -25,6 +25,7 @@ def test_first_boot_requires_immutable_gpio_and_early_egress_lock() -> None:
     assert "Requires=ecobin-expand-rootfs.service ecobin-mcu-safe-gpio.service ecobin-edge-store-prepare.service ecobin-factory-egress-lock.service" in unit
     assert "After=local-fs.target ecobin-expand-rootfs.service ecobin-mcu-safe-gpio.service ecobin-edge-store-prepare.service ecobin-factory-egress-lock.service" in unit
     assert "Before=network-pre.target ecobin-enrollment.service ecobin-remote-support.service ecobin-hardware.service" in unit
+    assert "WantedBy=multi-user.target" in unit
     assert "RequiredBy=network-pre.target" in unit
     assert "-m first_boot.orchestrator" in unit
     assert "ReadWritePaths=/var/lib/ecobin/first-boot" in unit
@@ -60,6 +61,11 @@ def test_every_phase_unit_is_static_and_rechecks_a_fact_gate() -> None:
         unit = _read(name)
         assert "[Install]" not in unit
         assert gate in unit
+    runtime_gate = _read("ecobin-runtime-gate.service")
+    assert (
+        "Environment=PYTHONPATH=/opt/ecobin/factory-test/current/app"
+        in runtime_gate
+    )
     assert "[Install]" not in _read("ecobin-runtime.target")
 
 
@@ -67,6 +73,11 @@ def test_cellular_uplink_can_update_the_seal_aware_firewall_lock() -> None:
     unit_lines = _read("ecobin-cellular-uplink.service").splitlines()
 
     assert "ReadWritePaths=/run/lock/ecobin" in unit_lines
+    assert "Wants=chrony.service" in unit_lines
+    assert any(
+        line.startswith("After=") and "chrony.service" in line
+        for line in unit_lines
+    )
 
 
 def test_first_boot_can_finish_all_seal_firewall_and_artifact_cleanup() -> None:
@@ -96,12 +107,25 @@ def test_existing_production_units_receive_non_persistent_fact_gates() -> None:
     hardware = _read("ecobin-hardware.service.d/20-first-boot-gate.conf")
     support = _read("ecobin-remote-support.service.d/20-first-boot-gate.conf")
 
+    for unit in (enrollment, hardware, support):
+        assert (
+            "Environment=PYTHONPATH=/opt/ecobin/factory-test/current/app"
+            in unit
+        )
     assert "--require enrollment" in enrollment
     assert "Conflicts=ecobin-factory-test.service" in enrollment
     assert "--require runtime" in hardware
     assert "--require runtime" in support
     assert "Requires=ecobin-runtime-gate.service" in hardware
     assert "Requires=ecobin-runtime-gate.service" in support
+    # The support service runs as ecobin-remote and therefore cannot read the
+    # root-only facts used by first_boot.gate.  Only the short-lived condition
+    # gets full privileges; the tunnel agent itself remains sandboxed.
+    assert (
+        "ExecCondition=+/opt/ecobin/factory-test/current/.venv/bin/python "
+        "-m first_boot.gate --require runtime"
+        in support
+    )
 
 
 def test_p7_real_executor_and_handoff_are_static_fail_closed_units() -> None:
@@ -111,6 +135,14 @@ def test_p7_real_executor_and_handoff_are_static_fail_closed_units() -> None:
     assert "ExecStart=/usr/bin/false" not in executor + handoff
     assert "-m factory.acceptance_service" in executor
     assert "-m factory.acceptance_handoff" in handoff
+    # InaccessiblePaths keeps credentials away from the UART handoff process.
+    # The fact gate must bypass that namespace or enrollment can never be
+    # observed as complete.
+    assert (
+        "ExecCondition=+/opt/ecobin/factory-test/current/.venv/bin/python "
+        "-m first_boot.gate --require handoff"
+        in handoff
+    )
     assert "Restart=no" in executor
     assert "RestrictAddressFamilies=AF_UNIX" in executor
     assert "RestrictAddressFamilies=AF_UNIX" in handoff

@@ -454,19 +454,35 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
     except OSError as exc:
         pytest.skip(f"host does not permit symbolic-link fixtures: {exc}")
 
-    metadata = install_image_software(
-        rootfs,
-        REPOSITORY_ROOT,
-        payload,
-        payload_sha256=digest,
-        release_id="image-001",
-        version="1.0.0",
-        git_commit=git_commit,
-    )
+    previous_umask = os.umask(0o077) if os.name == "posix" else None
+    try:
+        metadata = install_image_software(
+            rootfs,
+            REPOSITORY_ROOT,
+            payload,
+            payload_sha256=digest,
+            release_id="image-001",
+            version="1.0.0",
+            git_commit=git_commit,
+        )
+    finally:
+        if previous_umask is not None:
+            os.umask(previous_umask)
 
     if os.name == "posix":
         assert stat.S_IMODE(ecobin_root.stat().st_mode) == 0o755
         assert stat.S_IMODE(factory_test_root.stat().st_mode) == 0o755
+        remote_support_root = ecobin_root / "remote-support"
+        remote_release = remote_support_root / "releases/remote-001"
+        assert all(
+            stat.S_IMODE(path.stat().st_mode) == 0o755
+            for path in (
+                remote_support_root,
+                remote_support_root / "releases",
+                remote_release,
+                remote_release / "app",
+            )
+        )
 
     factory_app = (
         rootfs / "opt/ecobin/factory-test/releases/factory-001/app"
@@ -493,6 +509,9 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
     assert public_release.read_bytes() == private_release.read_bytes()
     if os.name == "posix":
         assert stat.S_IMODE(public_release.stat().st_mode) == 0o644
+    assert (
+        systemd / "multi-user.target.wants/ecobin-first-boot.service"
+    ).is_symlink()
     assert (systemd / "network-pre.target.requires/ecobin-first-boot.service").is_symlink()
     assert (systemd / "sysinit.target.wants/ecobin-factory-egress-lock.service").is_symlink()
     assert not os.path.lexists(

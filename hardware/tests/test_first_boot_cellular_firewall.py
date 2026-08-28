@@ -137,6 +137,7 @@ def test_factory_uplink_keeps_ap_local_and_binds_all_wan_to_rndis() -> None:
     assert "priority -150" in rules
     assert 'oifname "enxcell0"' in rules
     assert 'iifname "enxcell0" ct state established,related accept' in rules
+    assert 'iifname "enxcell0" udp sport 53 accept' in rules
     assert (
         'iifname "wlan0" ip saddr 10.42.0.0/24 ip daddr 10.42.0.1 '
         "tcp dport 80 accept"
@@ -145,6 +146,30 @@ def test_factory_uplink_keeps_ap_local_and_binds_all_wan_to_rndis() -> None:
     assert 'oifname "eth0"' not in rules
     assert "masquerade" not in rules.lower()
     assert "policy accept" not in rules.lower()
+
+
+def test_rndis_udp_dns_replies_do_not_depend_on_conntrack_classification() -> None:
+    for rules in (
+        render_factory_uplink_gate("enxcell0"),
+        render_production_uplink_gate("enxcell0"),
+    ):
+        assert rules.count('iifname "enxcell0" udp sport 53 accept') == 1
+        assert rules.index('iifname "enxcell0" udp sport 53 accept') < rules.index(
+            "ct state invalid drop"
+        )
+        assert 'iifname "wlan0" udp sport 53 accept' not in rules
+
+
+def test_rndis_udp_ntp_replies_do_not_depend_on_conntrack_classification() -> None:
+    for rules in (
+        render_factory_uplink_gate("enxcell0"),
+        render_production_uplink_gate("enxcell0"),
+    ):
+        assert rules.count('iifname "enxcell0" udp sport 123 accept') == 1
+        assert rules.index('iifname "enxcell0" udp sport 123 accept') < rules.index(
+            "ct state invalid drop"
+        )
+        assert 'iifname "wlan0" udp sport 123 accept' not in rules
 
 
 def test_production_uplink_removes_every_factory_ap_allow_rule() -> None:

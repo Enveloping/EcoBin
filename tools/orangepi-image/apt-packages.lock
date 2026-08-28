@@ -7,9 +7,13 @@
 # LOCKED entries use one package per line:
 # package-name:arm64=exact-debian-version sha256=archive-sha256
 
+chrony:arm64=4.3-2+deb12u3 sha256=79fd0f373e20d16ff2db113161261b7de608ab68c6ebb8112a1a956c52296e5b
 cloud-guest-utils:all=0.33-1 sha256=d41d092d2bbf1edc6f44f3999f62f1cca7ec79e149e684c2bb86fb9765638c11
+libpam-systemd:arm64=252.39-1~deb12u2 sha256=826e78c49e49507bf115f65256fc9673519fd073b77ca2611a565cca5ecb048e
 libpython3.11-minimal:arm64=3.11.2-6+deb12u8 sha256=c48bac178c0fc43a2bf8ace784c762b5ee83e2b981894a991dc3ccfd3ec7cd4b
 libpython3.11-stdlib:arm64=3.11.2-6+deb12u8 sha256=e79876de55c6c2dca10d044b2fa69ccd863950ea01714220c1982d16008105f9
+libsystemd-shared:arm64=252.39-1~deb12u2 sha256=becce3a94bbe97bec11e19aa267f6a99674898e018df56d1f523a3e202b33d8c
+libsystemd0:arm64=252.39-1~deb12u2 sha256=293ab474b90276dae9ebc03ed01e622e0c1f2578e83ed3aa926ae1eaf84dda9c
 nftables:arm64=1.0.6-2+deb12u2 sha256=f5906f44fffdb190f84e3fdd6c07cba399205de5173f67e8742876a7865e2fc9
 python3-pip-whl:all=23.0.1+dfsg-1 sha256=cc373690a1cb469fb301b9fe0125048e3102f2e365d1b2d27cab091ec89fccdc
 python3-setuptools-whl:all=66.1.1-1+deb12u2 sha256=0eb54da9f3d47e42a1be5dd8285def8bbc6e2556131b9c4ce3bd781dfc4b425a
@@ -18,3 +22,6 @@ python3.11-minimal:arm64=3.11.2-6+deb12u8 sha256=6a07dd571f1a15af2f855d64571766f
 python3.11-venv:arm64=3.11.2-6+deb12u8 sha256=afd3964d369a12c365ed52b7da4b5d7ea3c4ddc1302f98ac4756224d396e7cbd
 python3.11:arm64=3.11.2-6+deb12u8 sha256=76b445c9428db92fb8f17a322a99e3e54b3f8d0eeac76d80d5d6fff95f5dd526
 stm32flash:arm64=0.7-1 sha256=6cae6003613714f98075f15b4ec7c3683e13ea81896e050e710ee47966afef6c
+systemd:arm64=252.39-1~deb12u2 sha256=df5a67c54ed1aaa70f7f862628e4aced7dd32f33cf470629f3cef2ab27460a2d
+systemd-resolved:arm64=252.39-1~deb12u2 sha256=ba02bffe7dadef3dc68e725a3fea30b6b44529e4a7105f0d94223379d319bf5b
+systemd-sysv:arm64=252.39-1~deb12u2 sha256=a54e6735c2fb5171981b3aa47892f0c76ed0f1e3bd2a89e90ddf3bb72fe083c5

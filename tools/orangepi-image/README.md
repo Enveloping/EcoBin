@@ -245,8 +245,16 @@ automatic-resize unit.
 
 The candidate installs the hardware runtime, factory/first-boot portal,
 enrollment and remote-support environments, all EcoBin units, sysusers,
-tmpfiles, NetworkManager policy, trust roots and batch configuration. Exactly
-three safety/coordinator units are enabled: MCU safe GPIO, the whole-machine
+tmpfiles, NetworkManager policy, the enabled `systemd-resolved` interface-bound
+DNS probe runtime, the enabled `chrony` trusted-time runtime, trust roots and
+batch configuration. The read-only image
+audit requires `/usr/bin/resolvectl`, the resolver unit and enable links, and
+the resolver-owned `/etc/resolv.conf`. It also requires the locked `chrony`
+package, client, daemon, configuration and enable links so a factory-fresh
+board can correct the image build time before its first successful HTTPS
+certificate check. This prevents a candidate from reaching the Air780E gate
+with lease data but without executable DNS and trusted-time prerequisites.
+Exactly three EcoBin safety/coordinator units are enabled: MCU safe GPIO, the whole-machine
 early egress lock, and the first-boot coordinator. Enrollment, cellular,
 factory stages, remote support and normal runtime remain static and are reached
 only through the fact-driven first-boot state machine. Generic nftables, ufw,

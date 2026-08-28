@@ -204,7 +204,7 @@ def test_factory_hardware_executor_has_narrow_devices_and_no_network() -> None:
     assert "DeviceAllow=/dev/gpiomem rw" in executor
     assert "DeviceAllow=/dev/mem rw" in executor
     assert "DeviceAllow=char-video4linux rw" in executor
-    assert "TasksMax=16" in executor
+    assert "TasksMax=64" in executor
     assert "MemoryMax=192M" in executor
     assert "RestrictAddressFamilies=AF_UNIX" in executor
     assert "IPAddressDeny=any" in executor
