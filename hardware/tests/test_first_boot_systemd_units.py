@@ -121,3 +121,15 @@ def test_p7_real_executor_and_handoff_are_static_fail_closed_units() -> None:
         assert "DeviceAllow=/dev/mem rw" in unit
     assert "DeviceAllow=char-video4linux rw" in executor
     assert "DeviceAllow=char-video4linux rw" not in handoff
+
+
+def test_factory_acceptance_gate_can_read_the_current_boot_id() -> None:
+    executor = _read("ecobin-factory-test.service")
+
+    assert "ProtectProc=invisible" in executor
+    # first_boot.gate validates the current-boot GPIO safety fact against
+    # /proc/sys/kernel/random/boot_id. ProcSubset=pid hides that kernel path
+    # and makes systemd skip the executor even though the same gate succeeds
+    # outside the service sandbox.
+    assert "ProcSubset=all" in executor
+    assert "ProcSubset=pid" not in executor
