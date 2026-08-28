@@ -1,0 +1,82 @@
+{
+  "artifactClass": "HIL_SECRET_BEARING_FACTORY_IMAGE_FUNCTIONAL_FAILURE",
+  "createdAt": "2026-08-28T04:51:22Z",
+  "factoryImageId": "hil-factory-login-20260828-04",
+  "formalReleaseEligible": false,
+  "hardwareInventoryObserved": {
+    "cellularUsbId": "19d1:0001",
+    "cellularTtyNodes": [
+      "/dev/ttyACM0",
+      "/dev/ttyACM1",
+      "/dev/ttyACM2"
+    ],
+    "factoryAcceptanceStarted": false,
+    "videoNodes": [
+      "/dev/video0"
+    ]
+  },
+  "liveDiagnosticOnly": {
+    "coordinatorStoppedAfterExactFailure": true,
+    "filePatchesAppliedToBootedCard": false,
+    "gpioStartCountAfterCoordinatorStopObservation": 182,
+    "gpioStartsAddedDuringStableTwelveSecondWindow": 0,
+    "notExactImageEvidence": true,
+    "softwareFixGitCommit": "e67e3bbda87216c68d569f639d5ea23d0d9a248e"
+  },
+  "mediaWrite": {
+    "diskBytes": 31268536320,
+    "diskNumber": 1,
+    "diskSerialNumber": "121220160204",
+    "fullReadbackBytes": 2571108352,
+    "fullReadbackPassed": true,
+    "fullReadbackSha256": "7c0dd1f4455ef40b40010c49e179c659c8116e6b2f7b177c0b22df92452eaaa4"
+  },
+  "qualificationBoundary": "SAME_WORKSTATION_SINGLE_CARD_HIL_REJECTED_NOT_FORMAL_PRODUCTION_RELEASE",
+  "qualificationState": "REJECTED",
+  "rawImageBytes": 2571108352,
+  "rejectedReasons": [
+    {
+      "code": "ACTIVE_STAGE_RESUBMISSION_REEXECUTES_BOOT_ONLY_GPIO_DEPENDENCY",
+      "effect": "the first-boot coordinator resubmitted the active factory-test service every three seconds, causing ecobin-mcu-safe-gpio.service to rewrite BOOT0/reset-gate safe levels and its current-boot fact repeatedly",
+      "observedOnExactImage": true
+    }
+  ],
+  "rootCause": {
+    "coordinatorIntervalSeconds": 3,
+    "dependency": "ecobin-mcu-safe-gpio.service",
+    "reproduction": "repeated every three to four seconds while ecobin-first-boot.service was active and stopped after that coordinator was stopped",
+    "stageUnit": "ecobin-factory-test.service"
+  },
+  "schemaVersion": 1,
+  "sealedRawImageSha256": "7c0dd1f4455ef40b40010c49e179c659c8116e6b2f7b177c0b22df92452eaaa4",
+  "securityModel": {
+    "compromiseImpact": "ALL_CARDS_FLASHED_FROM_THIS_IMAGE",
+    "imageMustRemainConfidential": true,
+    "sharedBatchSecrets": true,
+    "sharedOperatorPassword": true
+  },
+  "signing": {
+    "algorithm": "Ed25519",
+    "keyId": "hil-factory-evidence-20260827-01",
+    "publicKeySha256": "ea0d8b449afeefba202c1c9f82d74f7e2b67fd04c0fa23d9e9b19d6ab8825b02"
+  },
+  "sourceCandidate": {
+    "gitCommit": "6fbe074abe6070150879e6ba7fb30d0f452e6c8f",
+    "imagePatchSourceGitCommit": "023248af828cd3d6185eeb4a277acd9b488a07e5",
+    "releaseId": "single-card-candidate-20260827-01",
+    "softwarePayloadLockSha256": "50764bb731a8a3051fc8833597753b69f4bedc62555dab9bc9824348fd39638c",
+    "version": "0.1.0-single-card.20260827.1"
+  },
+  "verification": {
+    "exactFinalImageBooted": true,
+    "factoryAccessPointServiceChainPassed": true,
+    "factoryPortalImageIdentityPassed": true,
+    "factoryTestExecConditionPassed": true,
+    "operatorLoginAuditPassed": true,
+    "protectedInputsPermissionAuditPassed": true,
+    "rootFilesystemExpansionPassed": true,
+    "safeGpioOncePerBootPassed": false,
+    "sourceFileHashAuditPassed": true,
+    "venvPermissionAuditPassed": true
+  }
+}
