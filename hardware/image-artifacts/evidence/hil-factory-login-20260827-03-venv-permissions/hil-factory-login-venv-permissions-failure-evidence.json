@@ -1,0 +1,71 @@
+{
+  "artifactClass": "HIL_SECRET_BEARING_FACTORY_IMAGE_FUNCTIONAL_FAILURE",
+  "createdAt": "2026-08-28T04:08:53Z",
+  "factoryImageId": "hil-factory-login-20260827-03",
+  "formalReleaseEligible": false,
+  "imageConstruction": {
+    "venvPermissionFixGitCommit": "4aa44f99f3dbc1e8e3a9de94fd2733725c30aa28"
+  },
+  "liveDiagnosticOnly": {
+    "deviceModifiedAfterExactImageFailure": true,
+    "factoryGateFixGitCommit": "0f7aeded3bdd5cf4080701cbd2c10acf10e92548",
+    "factoryGateFixValidated": true,
+    "imageIdentityProjectionFixGitCommit": "032ccf33da5e5eb38e3b9337c4d51f517e16c27e",
+    "imageIdentityProjectionFixValidated": true,
+    "notExactImageEvidence": true
+  },
+  "mediaWrite": {
+    "diskBytes": 31268536320,
+    "diskNumber": 1,
+    "diskSerialNumber": "121220160204",
+    "fullReadbackBytes": 2571108352,
+    "fullReadbackPassed": true,
+    "fullReadbackSha256": "78a266fdc1962820692c80d93340dfe21d8dffd656033e76a1c143d61b0cd0ec"
+  },
+  "qualificationBoundary": "SAME_WORKSTATION_SINGLE_CARD_HIL_REJECTED_NOT_FORMAL_PRODUCTION_RELEASE",
+  "qualificationState": "REJECTED",
+  "rawImageBytes": 2571108352,
+  "rejectedReasons": [
+    {
+      "code": "FACTORY_GATE_PROC_SUBSET_HIDES_BOOT_ID",
+      "effect": "ecobin-factory-test.service ExecCondition skipped the factory-test executor",
+      "observedOnExactImage": true
+    },
+    {
+      "code": "FACTORY_PORTAL_CANNOT_TRAVERSE_PRIVATE_IMAGE_IDENTITY_DIRECTORY",
+      "effect": "factory portal reported UNKNOWN image release and version",
+      "observedOnExactImage": true
+    }
+  ],
+  "schemaVersion": 1,
+  "sealedRawImageSha256": "78a266fdc1962820692c80d93340dfe21d8dffd656033e76a1c143d61b0cd0ec",
+  "securityModel": {
+    "compromiseImpact": "ALL_CARDS_FLASHED_FROM_THIS_IMAGE",
+    "imageMustRemainConfidential": true,
+    "sharedBatchSecrets": true,
+    "sharedOperatorPassword": true
+  },
+  "signing": {
+    "algorithm": "Ed25519",
+    "keyId": "hil-factory-evidence-20260827-01",
+    "publicKeySha256": "ea0d8b449afeefba202c1c9f82d74f7e2b67fd04c0fa23d9e9b19d6ab8825b02"
+  },
+  "sourceCandidate": {
+    "gitCommit": "6fbe074abe6070150879e6ba7fb30d0f452e6c8f",
+    "releaseId": "single-card-candidate-20260827-01",
+    "softwarePayloadLockSha256": "50764bb731a8a3051fc8833597753b69f4bedc62555dab9bc9824348fd39638c",
+    "version": "0.1.0-single-card.20260827.1"
+  },
+  "verification": {
+    "automaticLoginAuditPassed": true,
+    "exactFinalImageBooted": true,
+    "ext4ProfilePassed": true,
+    "factoryAccessPointEndToEndPassed": true,
+    "factoryPortalImageIdentityPassed": false,
+    "factoryTestExecConditionPassed": false,
+    "operatorLoginAuditPassed": true,
+    "protectedInputsPermissionAuditPassed": true,
+    "rootFilesystemExpansionPassed": true,
+    "venvPermissionAuditPassed": true
+  }
+}
