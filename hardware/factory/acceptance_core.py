@@ -501,6 +501,68 @@ class FactoryAcceptanceExecutor:
         self._require_open()
         return copy.deepcopy(self._load_state())
 
+    def invalidate_if_hardware_config_changed(
+        self, current_hardware_config_digest: str
+    ) -> dict:
+        """Fail a non-recovery run whose loaded hardware config has changed.
+
+        The accepted digest remains untouched so historical checks can never be
+        rebound to a new camera, UART or GPIO configuration.  A pending
+        physical recovery is stricter: the caller must restore the accepted
+        configuration before recovery can continue.
+        """
+
+        self._require_open()
+        if (
+            not isinstance(current_hardware_config_digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", current_hardware_config_digest)
+            is None
+        ):
+            raise ValueError("hardware config digest is invalid")
+        state = self._load_state()
+        accepted_digest = state.get("hardwareConfigDigest")
+        if (
+            state.get("status") == "NOT_RUN"
+            or accepted_digest == current_hardware_config_digest
+        ):
+            return copy.deepcopy(state)
+        existing_change = state.get("configurationChange")
+        if (
+            state.get("status") == "FAILED"
+            and state.get("phase") == "HARDWARE_CONFIG_CHANGED"
+            and isinstance(existing_change, dict)
+            and existing_change.get("observedHardwareConfigDigest")
+            == current_hardware_config_digest
+        ):
+            return copy.deepcopy(state)
+        if (
+            state.get("status") == "RECOVERY_REQUIRED"
+            or state.get("recovery") is not None
+            or state.get("activeAction") is not None
+        ):
+            raise AcceptanceError(
+                "HARDWARE_CONFIG_CHANGED_DURING_RECOVERY",
+                recovery_required=True,
+            )
+        if state.get("phase") == "WAITING_FOR_CAMERA_ROLE_CONFIRMATION":
+            self.cameras.discard_all_pending()
+        state["status"] = "FAILED"
+        state["phase"] = "HARDWARE_CONFIG_CHANGED"
+        state["recovery"] = None
+        state["activeAction"] = None
+        state.pop("pendingFinalStatus", None)
+        state.pop("pendingFinishedMonotonicMs", None)
+        state["configurationChange"] = {
+            "acceptedHardwareConfigDigest": (
+                accepted_digest
+                if isinstance(accepted_digest, str)
+                and re.fullmatch(r"[0-9a-f]{64}", accepted_digest)
+                else None
+            ),
+            "observedHardwareConfigDigest": current_hardware_config_digest,
+        }
+        return self._save_state(state)
+
     def begin_run(
         self,
         *,

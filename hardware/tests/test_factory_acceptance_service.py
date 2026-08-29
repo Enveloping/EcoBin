@@ -38,6 +38,13 @@ class FakeExecutor:
             "secret": "must-not-be-projected",
         }
         self.calls: list[tuple[str, object]] = []
+        self.configuration_binding_checks: list[str] = []
+
+    def invalidate_if_hardware_config_changed(
+        self, hardware_config_digest: str
+    ) -> dict[str, object]:
+        self.configuration_binding_checks.append(hardware_config_digest)
+        return self.snapshot()
 
     def snapshot(self) -> dict[str, object]:
         return copy.deepcopy(self.state)
@@ -185,6 +192,15 @@ def test_start_requires_explicit_confirmation_and_binds_release_and_config() -> 
     assert begin_values["hardware_config_digest"] == (
         AcceptanceConfiguration.from_mapping({}).digest()
     )
+
+
+def test_controller_checks_persisted_run_against_loaded_configuration() -> None:
+    controller, executor = _controller()
+
+    assert controller.projection()["status"] == "NOT_RUN"
+    assert executor.configuration_binding_checks == [
+        AcceptanceConfiguration.from_mapping({}).digest()
+    ]
 
 
 def test_start_requires_explicit_update_line_choice_and_binds_false() -> None:

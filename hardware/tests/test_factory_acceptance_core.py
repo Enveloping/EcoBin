@@ -193,6 +193,103 @@ def _begin(executor: FactoryAcceptanceExecutor) -> None:
     )
 
 
+def test_hardware_config_change_invalidates_pending_camera_review(
+    tmp_path: Path,
+) -> None:
+    executor, _model, _factory = _build_executor(tmp_path)
+
+    with executor:
+        _begin(executor)
+        pending = executor.capture_cameras()
+        before_revision = pending["revision"]
+        assert len(list((tmp_path / "camera-temp").glob("*.jpg"))) == 2
+
+        invalidated = executor.invalidate_if_hardware_config_changed("b" * 64)
+        repeated = executor.invalidate_if_hardware_config_changed("b" * 64)
+
+    assert invalidated["status"] == "FAILED"
+    assert invalidated["phase"] == "HARDWARE_CONFIG_CHANGED"
+    assert invalidated["revision"] == before_revision + 1
+    assert invalidated["configurationChange"] == {
+        "acceptedHardwareConfigDigest": "a" * 64,
+        "observedHardwareConfigDigest": "b" * 64,
+    }
+    assert repeated == invalidated
+    assert list((tmp_path / "camera-temp").glob("*.jpg")) == []
+
+
+def test_hardware_config_change_invalidates_passed_run_and_allows_restart(
+    tmp_path: Path,
+) -> None:
+    state_file = AtomicJsonFile(_paths(tmp_path)["state_path"])
+    report_file = AtomicJsonFile(_paths(tmp_path)["report_path"])
+    state_file.write(
+        {
+            "schemaVersion": STATE_SCHEMA_VERSION,
+            "revision": 23,
+            "status": "PASSED",
+            "phase": "COMPLETE",
+            "imageReleaseId": "ecobin-zero3-1.0.0",
+            "bootId": "11111111-2222-3333-4444-555555555555",
+            "hardwareConfigDigest": "a" * 64,
+            "mcuUpdateLineInstalled": False,
+            "checks": {},
+            "recovery": None,
+            "activeAction": None,
+        }
+    )
+    report_file.write({"sentinel": "preserve-invalid-report"})
+    executor, _model, _factory = _build_executor(tmp_path)
+
+    with executor:
+        invalidated = executor.invalidate_if_hardware_config_changed("b" * 64)
+        restarted = executor.begin_run(
+            image_release_id="ecobin-zero3-1.0.0",
+            boot_id="11111111-2222-3333-4444-555555555555",
+            wall_time_trusted=False,
+            hardware_config_digest="b" * 64,
+            mcu_update_line_installed=False,
+            restart_terminal=True,
+        )
+
+    assert invalidated["status"] == "FAILED"
+    assert invalidated["phase"] == "HARDWARE_CONFIG_CHANGED"
+    assert restarted["status"] == "RUNNING"
+    assert restarted["hardwareConfigDigest"] == "b" * 64
+    assert "configurationChange" not in restarted
+    assert report_file.read() == {"sentinel": "preserve-invalid-report"}
+
+
+def test_hardware_config_change_does_not_clear_physical_recovery_lock(
+    tmp_path: Path,
+) -> None:
+    state_file = AtomicJsonFile(_paths(tmp_path)["state_path"])
+    original = {
+        "schemaVersion": STATE_SCHEMA_VERSION,
+        "revision": 9,
+        "status": "RECOVERY_REQUIRED",
+        "phase": "DELIVERY_RECOVERY_REQUIRED",
+        "imageReleaseId": "ecobin-zero3-1.0.0",
+        "bootId": "11111111-2222-3333-4444-555555555555",
+        "hardwareConfigDigest": "a" * 64,
+        "mcuUpdateLineInstalled": False,
+        "checks": {},
+        "recovery": {"context": "DELIVERY"},
+        "activeAction": {"type": "DELIVERY"},
+    }
+    state_file.write(original)
+    executor, _model, _factory = _build_executor(tmp_path)
+
+    with executor:
+        with pytest.raises(AcceptanceError) as changed:
+            executor.invalidate_if_hardware_config_changed("b" * 64)
+        persisted = executor.snapshot()
+
+    assert changed.value.code == "HARDWARE_CONFIG_CHANGED_DURING_RECOVERY"
+    assert changed.value.recovery_required is True
+    assert persisted == original
+
+
 def _set_weight(model: VirtualFixedFrameMcu, value: int) -> None:
     object.__setattr__(model.config, "self_test_weight_grams", value)
 

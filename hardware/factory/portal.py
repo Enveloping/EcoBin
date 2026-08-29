@@ -425,7 +425,7 @@ class PortalSnapshotProvider:
                 },
                 {
                     "id": "dual-camera",
-                    "label": "箱外 DECXIN / 箱内 icspring",
+                    "label": "箱外摄像头 / 箱内摄像头",
                     "state": capability_state("cameras"),
                 },
                 {

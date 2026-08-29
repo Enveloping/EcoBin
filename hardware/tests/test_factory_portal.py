@@ -527,6 +527,16 @@ def test_static_assets_are_self_contained_and_make_no_external_requests() -> Non
     assert "<script>" not in combined.lower()
 
 
+def test_camera_review_labels_follow_roles_instead_of_one_camera_model() -> None:
+    web = Path(__file__).parents[1] / "factory" / "web"
+    index = (web / "index.html").read_text(encoding="utf-8")
+
+    assert "箱外摄像头" in index
+    assert "箱内摄像头" in index
+    assert "DECXIN" not in index
+    assert "icspring" not in index
+
+
 def test_web_exposes_a_distinct_post_delivery_safety_confirmation() -> None:
     app = (
         Path(__file__).parents[1] / "factory" / "web" / "app.js"

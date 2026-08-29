@@ -192,6 +192,9 @@ class AcceptanceCommandController:
         self._projection_writer = projection_writer
         self._action_lock = threading.Lock()
         self._projection_lock = threading.Lock()
+        self._executor.invalidate_if_hardware_config_changed(
+            self._config.digest()
+        )
 
     def projection(self, *, idempotent: bool = False) -> dict[str, Any]:
         state = self._executor.snapshot()
