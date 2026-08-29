@@ -86,6 +86,9 @@
 ### `operations/` — 操作与恢复证据
 
 - [H-01 旧栈恢复单元与所有权证据](operations/h-01-legacy-recovery-evidence.md)
+- [H-02 目标数据库供应证据](operations/h-02-target-database-evidence.md)：包含 2026-08-29
+  腾讯云 CDB V60 空库、初始超级管理员、账号级 TLS、未切换旧 V59 后端和待迁移 COS 的
+  当前接力状态。
 - [投递全链路联调复盘与复跑手册](operations/delivery-e2e-integration-retrospective-2026-08-02.md)：V25 真实云链路、模拟 MCU/双摄的故障分层、复跑顺序和证据清单。
 
 ### `flows/` — 流程图与可视化说明

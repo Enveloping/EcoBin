@@ -6,9 +6,17 @@
 >
 > 当前用途：Windows 本地开发演练与服务器阶段 3 供应手册；两处均已验证独立
 > MySQL 8.4.10 容器/卷、五类身份、V1～V31 和脱敏权限探针。当前脚本目标已推进到
-> V60；服务器目标库须现场核对并用续跑模式升级；
+> V60。2026-08-29 已另在全新腾讯云 CDB 正式空库完成 V1～V60、运行/备份账号和
+> 初始超级管理员供应，但尚未切换当前后端，也未迁移旧业务数据；
 > 服务器既有执行结果另见
-> [单机试验期生产整改计划](single-host-production-remediation-plan.md)。
+> [单机试验期生产整改计划](single-host-production-remediation-plan.md)，最新 CDB 现场事实见
+> [H-02 目标数据库供应证据](../operations/h-02-target-database-evidence.md)。
+
+> [!NOTE]
+> 腾讯云 CDB 不是本手册第 2 节的本地 Docker 固定对象，不能把容器创建/删卷命令直接
+> 套到托管实例。项目负责人已明确决定保持实例级 `require_secure_transport=OFF`；
+> 后续不得把它继续列为未决门。`ecobin_app`、`ecobin_backup` 仍须账号级
+> `REQUIRE SSL`，正式 JDBC URL 必须显式要求 TLS。
 
 ## 1. 本手册不会做什么
 
