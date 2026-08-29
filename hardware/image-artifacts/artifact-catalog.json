@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-08-28T15:06:52.355Z",
+  "catalogedAt": "2026-08-29T02:38:50.482Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -300,14 +300,24 @@
       "sha256": "c84c9bdf9c3dc9413ed20416d6ccdb4a6520dfc62025369d26e40f2b097a1614"
     },
     {
+      "path": "evidence/hil-factory-login-20260828-08-cellular-recovery-time-convergence/flash-progress-disk1-121220160204-v8.log",
+      "bytes": 3513,
+      "sha256": "8d94993c8ef994ce9ff766df5bfd43a2b8425c3280bdb1df4a9752c49a75b415"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260828-08-cellular-recovery-time-convergence/flash-result-disk1-121220160204-v8.json",
+      "bytes": 705,
+      "sha256": "ee31e45f0f7ecc8ab1e2ae91d2daac87e42af16f604e2ca1492e150147fd8dc3"
+    },
+    {
       "path": "evidence/hil-factory-login-20260828-08-cellular-recovery-time-convergence/hil-factory-login-cellular-recovery-time-convergence-preflight-evidence.json",
       "bytes": 6485,
       "sha256": "36327e635f4beabb613ada0079823a021227e404b9f93fc2999d4e89e5f66555"
     },
     {
       "path": "evidence/hil-factory-login-20260828-08-cellular-recovery-time-convergence/README.md",
-      "bytes": 1702,
-      "sha256": "f05bc547b7b48c451b90c3270876027e33820d1009330d218b51391ff6aea1c7"
+      "bytes": 2428,
+      "sha256": "7397c7b7160a7f4ff1cf530e7eb6341a4ff004d19c0dde07c24dbf754b19b94c"
     },
     {
       "path": "evidence/target-media-qualification-evidence-20260827.json",

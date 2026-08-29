@@ -18,8 +18,8 @@ implementation_authorized: false
 > 开发演练及服务器整改阶段 0～3 验收，项目负责人接受当前试验期使用 ACL 受限
 > `.ecobin` 保管长期凭证原件，任务已转为 `done`；
 > V-02 已按项目负责人接受的受限微信环境边界转为 `done`，设备来源归因由非阻塞的
-> P0-FOLLOWUP-01 延期跟踪；H-03、V-09 为 `ready` 但仍须单独授权；其他任务仍须
-> 逐项获得授权。
+> P0-FOLLOWUP-01 延期跟踪；H-03 已于 2026-08-29 获得单卡 HIL 恢复授权并进入
+> `in-progress`，V-09 仍为 `ready` 且未授权；其他任务仍须逐项获得授权。
 > `status: ready` 只表示任务设计和前置依赖允许领取，不构成后续任务的自动授权。
 
 ## Initiative 状态
@@ -29,8 +29,8 @@ implementation_authorized: false
 | Initiative | `p0-controlled-loop` |
 | 任务数 | 29（F-01～F-12、V-01～V-11、H-01～H-06） |
 | 设计状态 | 详细设计、任务粒度、依赖和执行分类已批准；2026-07-24 已同步投递 session/清运电子锁修订；2026-08-01 已取消清运审核与奖励，并确认清运记录可直接修改、保存即生效且完整留痕 |
-| 实施授权 | **部分授权：H-01、H-02、F-01～F-11、V-01、V-02 已授权并完成；H-02 当前试验期 `.ecobin` 凭证保管例外已接受；H-03、V-09 ready 但未授权；阶段 4 其他任务未授权** |
-| 当前状态数 | `done` 15、`ready` 2、`in-progress` 0、`blocked` 12 |
+| 实施授权 | **部分授权：H-01、H-02、F-01～F-11、V-01、V-02 已授权并完成；H-02 当前试验期 `.ecobin` 凭证保管例外已接受；H-03 已授权单卡 HIL 并执行中；V-09 ready 但未授权；阶段 4 其他任务未授权** |
+| 当前状态数 | `done` 15、`ready` 1、`in-progress` 1、`blocked` 12 |
 | 风险目标 | 2026-07-30 只用于风险排序，不构成 G1、G2 或 M0 承诺 |
 | 权威依赖来源 | [第 08 章](../../detailed-design/08-implementation-sequence.md) |
 
@@ -111,7 +111,7 @@ agent | human | mixed
 |---|---|---|---|---|
 | H-01 | [旧栈恢复单元和所有权清单](h-01-legacy-stack-recovery-baseline.md) | `done` | `human` | 无 |
 | H-02 | [目标数据库身份与环境供应](h-02-target-database-identities-environment.md) | `done` | `human` | F-06 |
-| H-03 | [固定帧 MCU 线路与真机基础验收](h-03-fixed-frame-mcu-hil-acceptance.md) | `ready` | `human` | F-11 已完成；尚未授权真机验收 |
+| H-03 | [固定帧 MCU 线路与真机基础验收](h-03-fixed-frame-mcu-hil-acceptance.md) | `in-progress` | `human` | F-11 已完成；单卡 HIL 已授权并完成 v8 写卡回读，待冷启动和真机证据 |
 | H-04 | [真实 Native 充值](h-04-real-native-recharge.md) | `blocked` | `human` | V-09、`EXT-WECHAT-NATIVE-READY` |
 | H-05 | [真实商家转账与微信零钱到账](h-05-real-merchant-transfer.md) | `blocked` | `human` | V-10、H-04、`EXT-WECHAT-TRANSFER-READY` |
 | H-06 | [成对切换、回退演练与 M0 签署](h-06-paired-cutover-m0-signoff.md) | `blocked` | `human` | H-01、H-02、H-03、H-04、H-05、F-07、F-12、V-05、V-06、V-07、V-08、V-09、V-10、V-11 |
@@ -341,3 +341,8 @@ M0_COMPLETE
   限制，并裁定 P0-FOLLOWUP-01 不阻塞任何下游任务；该裁决不表示延期问题已经解决。
   V-09 的 V-02、F-08 前置因此全部解除并转为 `ready`，但仍未获得实施授权。原 29 项
   当前共 `done` 15、`ready` 2、`in-progress` 0、`blocked` 12。
+- 2026-08-29：项目负责人明确确认用 v8 覆盖磁盘 1、序列号 `121220160204`，授权恢复
+  H-03 单卡 HIL。任务转为 `in-progress`；v8 写入和完整回读均为 `2571108352` 字节，
+  回读 SHA-256 与源镜像一致并形成 `PASS` 证据。当前共 `done` 15、`ready` 1、
+  `in-progress` 1、`blocked` 12；下一步执行空白冷启动、Air780E、注册、运行时和真机
+  固定帧证据。

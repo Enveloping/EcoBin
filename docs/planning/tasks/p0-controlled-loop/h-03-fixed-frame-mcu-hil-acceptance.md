@@ -1,20 +1,20 @@
 ---
 task_id: H-03
 title: 固定帧 MCU 线路与真机基础验收
-status: ready
+status: in-progress
 executor: human
-owner: "unassigned — hardware/HIL acceptance owner"
+owner: "Codex / hardware-HIL coordinator with project owner onsite operator"
 effort_range: "2-5 person-days"
-earliest_start: "F-11 is done; execution still requires explicit real-hardware authorization"
+earliest_start: "F-11 is done; project owner resumed the single-card HIL run on 2026-08-29"
 blocked_by: []
-implementation_authorized: false
+implementation_authorized: true
 ---
 
 # H-03｜固定帧 MCU 线路与真机基础验收
 
-> `status: ready`：F-11 已于 2026-07-28 按已接受的软件范围转为 `done`，依赖已经
-> 解除。H-03 保留真实硬件强制证据职责，但 `ready` 不构成现场验收授权；开始操作
-> 真实设备前仍须项目负责人明确授权。
+> `status: in-progress`：F-11 已于 2026-07-28 按已接受的软件范围转为 `done`；项目
+> 负责人于 2026-08-29 明确确认指定单卡 v8 写入并恢复本轮 HIL。真实 MCU、称重、屏幕和
+> 物理机构证据仍必须由现场人员参与取得，单卡授权不扩展为其他介质或正式量产放行。
 
 ## 目标
 
@@ -55,7 +55,8 @@ MCU 屏幕状态机、称重、投递门机构和清运电磁阀在真实香橙�
 ## 就绪状态与授权
 
 - [F-11](f-11-edge-sqlite-onenet-cos-uart.md) 已完成，软件依赖已经解除。
-- H-03 当前为 `ready`，但 `implementation_authorized: false`；真机验收仍须单独授权。
+- H-03 当前为 `in-progress`，`implementation_authorized: true`；授权范围为指定单卡本轮
+  HIL，正式量产放行仍须独立授权。
 - F-10 已完成，不再要求现有单片机运行 UART 1.0 生成 C 黄金程序。
 - 完成后解除 V-03 的真机基础门，并为 H-06 提供真实设备证据。
 
@@ -68,6 +69,10 @@ MCU 屏幕状态机、称重、投递门机构和清运电磁阀在真实香橙�
 `ready`，恢复时仍需项目负责人再次明确授权。2026-08-29 已完成新腾讯云 CDB V60
 空库供应，但当前后端尚未切换、COS 尚未迁移，因此本暂停边界没有自动解除。
 
+2026-08-29 项目负责人随后明确确认用 v8 覆盖序列号为 `121220160204` 的磁盘 1，
+H-03 由此恢复为单卡受控执行并转为 `in-progress`。该授权覆盖当前 v8 写卡及后续逐步
+确认的单卡 HIL 复测，不把尚未确认的云端切换、正式量产放行或其他介质纳入范围。
+
 已完成的软件和离线证据：
 
 - [x] 含 K1 的 v8 单卡开发/HIL 热修镜像已从完整回读通过的 v7 构建；只替换
@@ -79,8 +84,11 @@ MCU 屏幕状态机、称重、投递门机构和清运电磁阀在真实香橙�
 
 恢复后必须按顺序完成：
 
-- [ ] 重新检测并由项目负责人确认序列号为 `121220160204` 的目标 TF 卡，写入 v8，
-  对完整写入范围做 SHA-256 回读比较并归档脱敏结果。
+- [x] 重新检测并由项目负责人确认序列号为 `121220160204` 的目标 TF 卡，写入 v8，
+  对完整写入范围做 SHA-256 回读比较并归档脱敏结果；写入和回读均为
+  `2571108352` 字节，SHA-256 均为
+  `4c95087f512f0fb3f1b995aea20200f8a617788b7019a69ea98ff18d0d463ae8`，结果为
+  `PASS`。
 - [ ] 从空白状态冷启动，证明首次启动服务自动执行、Air780E 联网、可信校时、HTTPS
   注册、工厂交接和运行时自动启动。
 - [ ] 拔插 Air780E 后验证 RNDIS 链路恢复，不出现重复 `connection up` 造成的重启循环。
@@ -130,3 +138,7 @@ MCU 屏幕状态机、称重、投递门机构和清运电磁阀在真实香橙�
   当前仍为 `ready` 且 `implementation_authorized: false`。
 - 2026-08-29：新腾讯云 CDB 正式空库已完成 V1～V60 供应，但线上后端仍连接旧 V59
   数据库，COS 迁移和数据库入口切换均未执行；H-03 继续暂停，不能据此恢复写卡或真机操作。
+- 2026-08-29：项目负责人明确确认用 v8 覆盖磁盘 1、序列号 `121220160204`，任务恢复
+  执行。受控写卡程序再次核对 USB、容量、非系统盘、序列号和源镜像摘要后，完成
+  `2571108352` 字节写入、flush 和同范围完整回读；回读 SHA-256 与源镜像一致，结果为
+  `PASS`。下一步从空白状态冷启动并验证首次启动、Air780E、注册、工厂交接和运行时。
