@@ -124,6 +124,7 @@ agent | human | mixed
 | ID | 问题 | status | executor | blocked by |
 |---|---|---|---|---|
 | P0-FOLLOWUP-01 | [真实上线环境复核微信小程序码注册来源归因](p0-followup-01-wechat-qr-registration-attribution.md) | `blocked` | `mixed` | `EXT-WECHAT-RELEASE-RUNTIME-READY` |
+| P0-FOLLOWUP-02 | [物联网卡流量计量、套餐余量与断流预警](p0-followup-02-cellular-data-usage-monitoring.md) | `needs-triage` | `mixed` | 供应商 API、套餐计费事实与后续实施授权待确认 |
 
 ## 依赖导航
 
