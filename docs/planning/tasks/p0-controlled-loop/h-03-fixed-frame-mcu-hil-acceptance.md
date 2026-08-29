@@ -130,7 +130,9 @@ H-03 由此恢复为单卡受控执行并转为 `in-progress`。该授权覆盖�
 中途修改相机配置形成的旧报告已明确归档为
 [无效证据](../../../../hardware/image-artifacts/evidence/hil-v8-camera-config-drift-20260829-01/README.md)。
 P8、单向封存、完成事实和封存后冷启动见
-[v8 单卡自动接入与封存流程证据](../../../../hardware/image-artifacts/evidence/hil-v8-flow-validation-seal-20260829-01/README.md)。
+[v8 单卡自动接入与封存流程证据](../../../../hardware/image-artifacts/evidence/hil-v8-flow-validation-seal-20260829-01/README.md)；
+封存后的 Web 按需反向 SSH、跳板实际监听、短期证书和人工登录见
+[v8 单卡远程维护全链路证据](../../../../hardware/image-artifacts/evidence/hil-v8-remote-support-end-to-end-20260829-01/README.md)。
 
 ## 排除范围
 
@@ -208,5 +210,10 @@ P8、单向封存、完成事实和封存后冷启动见
   防火墙，必须与蜂窝协调器一起重启，否则内存中的旧模块会覆盖新规则。候选正式安装后，
   四个运行服务跨多个协调周期保持 `active`，MQTT 仅在受控重启窗口重连一次，之后无新
   断线；专用账号连续读取跳板 SSH 标识成功，普通账号连接被拒绝。完整设备侧回归为
-  `993 passed, 46 skipped, 5 subtests passed`。仍需用新 Web 会话取得后端 `OPEN`、跳板
-  `actual/监听`、短期证书以及回环端口实际返回设备 SSH 标识的最终全链路证据。
+  `993 passed, 46 skipped, 5 subtests passed`。最终 Web 会话
+  `8fab7ba4-d14a-470d-a069-93a132d211d6` 于 `08:38:12 UTC` 形成跳板实际监听，后端为
+  `OPEN / device OPEN / server ACTIVE` 且短期证书存在；跳板回环端口实际返回香橙派
+  OpenSSH 标识，项目负责人使用 Web 命令成功登录。至 `08:46:06 UTC`，同一隧道进程已
+  稳定至少 477 秒，交互登录至少 419 秒，四个核心服务均为 `NRestarts=0`，MQTT 无新
+  断线。本项远程维护全链路证据由此关闭；它不改变上文独立 `PHYSICAL_HIL` 和正式发布
+  门禁。

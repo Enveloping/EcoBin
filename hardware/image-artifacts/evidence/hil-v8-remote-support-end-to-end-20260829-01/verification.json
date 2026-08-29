@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "REMOTE_SUPPORT_END_TO_END",
+  "capturedAt": "2026-08-29T08:46:06Z",
+  "result": "PASS",
+  "scope": "SINGLE_CARD_LOCAL_HOTFIX_NOT_FORMAL_PRODUCTION_RELEASE",
+  "media": {
+    "serialNumber": "121220160204",
+    "imageReleaseId": "single-card-candidate-20260827-01"
+  },
+  "device": {
+    "hardwareSn": "ECM0-PMBN59SWFXRW53761TNFKQ9D6G",
+    "firewallImplementationSha256": "2f05b1765bdeeca8890ebbd0b33d77aac2e404105f3582131939bb729ec9ac99",
+    "remoteSupportState": "OPEN",
+    "remoteSupportFailureCode": null,
+    "remoteSupportAttemptCount": 0,
+    "tunnelProcessObservedStableSeconds": 477,
+    "interactiveLoginObservedStableSeconds": 419,
+    "interactiveLoginPrincipal": "ecobin-maintenance",
+    "services": {
+      "ecobin-cellular-uplink.service": {
+        "state": "ACTIVE_RUNNING",
+        "restartCount": 0
+      },
+      "ecobin-first-boot.service": {
+        "state": "ACTIVE_RUNNING",
+        "restartCount": 0
+      },
+      "ecobin-hardware.service": {
+        "state": "ACTIVE_RUNNING",
+        "restartCount": 0
+      },
+      "ecobin-remote-support.service": {
+        "state": "ACTIVE_RUNNING",
+        "restartCount": 0
+      }
+    }
+  },
+  "firewall": {
+    "selectedInterface": "enx2089846a96ab",
+    "jumpIpv4": "115.159.67.35",
+    "jumpSshPort": 22,
+    "remoteSupportUid": 999,
+    "outputExceptionBeforeInvalidDrop": true,
+    "inputReplyExceptionBeforeInvalidDrop": true,
+    "outputPinnedToUidAddressAndPort": true,
+    "inputPinnedToInterfaceSourceAddressAndSourcePort": true,
+    "deviceSshInboundPortOpened": false,
+    "ordinaryAccountCanUseSshEgress": false,
+    "rulesPersistedAcrossBothReconcilers": true
+  },
+  "session": {
+    "sessionUid": "8fab7ba4-d14a-470d-a069-93a132d211d6",
+    "listenHost": "127.0.0.1",
+    "listenPort": 22011,
+    "desiredCreatedAt": "2026-08-29T08:38:08Z",
+    "actualConnectedAt": "2026-08-29T08:38:12Z",
+    "backendOpenedAt": "2026-08-29T08:38:13.328Z",
+    "expiresAt": "2026-08-29T08:53:08Z",
+    "backendState": "OPEN",
+    "deviceReportedState": "OPEN",
+    "serverLeaseState": "ACTIVE",
+    "failureCode": null,
+    "certificateTextPresent": true,
+    "certificateSerialPresent": true,
+    "desiredActualIdentityMatched": true,
+    "loopbackListenerPresent": true
+  },
+  "dataPlane": {
+    "operatorInteractiveLoginSucceeded": true,
+    "forwardedBannerProbeSucceeded": true,
+    "forwardedBannerProduct": "OpenSSH_9.2p1 Debian-2+deb12u3",
+    "serverBoundaryVerifierPassed": true
+  },
+  "runtimeContinuity": {
+    "controlledDeploymentMqttReconnectAt": "2026-08-29T08:24:14.518Z",
+    "newMqttDisconnectAfterControlledRestart": false,
+    "tunnelPidChangedDuringObservation": false,
+    "sessionExpiryExtendedForAcceptance": false
+  },
+  "verification": {
+    "focusedFirewallTestsPassed": 29,
+    "hardwareTestsPassed": 993,
+    "hardwareTestsSkipped": 46,
+    "hardwareSubtestsPassed": 5,
+    "fixCommit": "a1d4136f"
+  },
+  "pendingIndependentGates": [
+    "PHYSICAL_HIL",
+    "LONG_DURATION_CARRIER_RELIABILITY",
+    "CLEAN_FULL_REBUILD_WITH_CURRENT_PACKAGE_LOCK",
+    "INDEPENDENT_SIGNED_RELEASE_TRUST_POLICY",
+    "FORMAL_PRODUCTION_MEDIA_QUALIFICATION"
+  ],
+  "evidenceIntegrity": {
+    "signatureState": "UNSIGNED_LOCAL_DIAGNOSTIC",
+    "containsProtectedInputValues": false,
+    "containsProtectedInputDigests": false,
+    "containsCertificateText": false,
+    "containsPrivateKeyMaterial": false
+  }
+}
