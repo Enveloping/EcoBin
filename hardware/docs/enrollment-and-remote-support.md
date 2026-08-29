@@ -101,6 +101,11 @@ Host Key、维护 CA 和设备 principal。旧设备迁移期间仍允许完整�
 - 启动失败采用 1、2、4、8、15 秒封顶退避，连续六次失败进入 FAILED；代理进程或整机重启
   后，未到期的 OPEN 行恢复为 CONNECTING 并重连，到期或 close 后绝不重连。
 
+封版后的 nftables 出站链保持默认拒绝。只有远程维护凭据和 `ecobin-remote` 系统账号同时
+存在时，蜂窝协调器才按该账号 UID 放行凭据中配置的 SSH 端口；这条例外不适用于
+`orangepi`、普通硬件进程或其他本机账号，也不开放任何入站 SSH。服务器地址和 Host Key
+仍由受保护凭据固定，因此防火墙账号约束不能替代 OpenSSH 的主机身份校验。
+
 普通硬件进程是 OneNet 命令和状态上报的唯一入口，但不再持有 OpenSSH 子进程。只更新代码并
 执行 `systemctl restart ecobin-hardware.service` 时，现有 SSH 连接和反向监听保持不变，因而
 可以继续通过该连接完成检查或回滚；重启 `ecobin-remote-support.service`、停止注册依赖、

@@ -194,3 +194,14 @@ P8、单向封存、完成事实和封存后冷启动见
   `06:36:51.072 UTC` 收到新的 `ONLINE` 生命周期事实。由此 `FLOW_VALIDATION` 已完整通过；
   OneNet 目标产品物模型导入、正式发布信任与 `PHYSICAL_HIL` 仍分别保持未完成，H-03
   继续为 `in-progress`。
+- 2026-08-29：封存后的 Web 远程维护请求能够经 OneNet 到达设备，但前两次会话最终均为
+  `FAILED / CONNECT_TIMEOUT`；设备侧反向 SSH 进程以 255 退出，跳板没有形成回环监听。
+  真机排查确认封版 nftables 出站链默认拒绝，原规则只允许 TCP 53/443/1883/8883，因而
+  SSH SYN 无法离开设备。修复只在受保护远程维护凭据和 `ecobin-remote` 低权限账号同时
+  存在时，按该账号 UID 放行凭据中的 SSH 端口；普通 `orangepi` 和其他进程不获得例外，
+  入站链不增加 SSH 权限。进一步 A/B 计数试验证明 H616/Air780E 路径会把新 SSH SYN 判为
+  `invalid`，所以该精确例外必须位于 `invalid-output` 丢弃规则之前。最终真机规则顺序为
+  SSH 例外第 18 行、异常丢弃第 19 行；专用账号连接跳板 22 返回 0，普通账号仍超时返回
+  124，蜂窝、远程维护和硬件服务均保持 `active`。完整设备侧回归为
+  `989 passed, 46 skipped, 5 subtests passed`。旧 Web 会话已经过期，仍需新建一次会话来
+  取得后端 `OPEN`、跳板 `actual/监听` 和短期证书的最终全链路证据。

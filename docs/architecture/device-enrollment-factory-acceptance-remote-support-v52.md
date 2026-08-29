@@ -205,7 +205,8 @@ SHA-256 指纹、所有者、状态和版本；不接受也不保存私钥。管
    在自己的 SQLite 中保存会话，使用只包含隧道身份的 systemd 临时凭证、严格固定的跳板
    Host Key 和 `ExitOnForwardFailure` 发起反向 SSH；状态事实先在代理队列持久化，再由
    普通硬件进程幂等转存并上报 `CONNECTING/OPEN/FAILED/EXPIRED`。代理不接入 OneNet，
-   也不与普通硬件进程共同写同一个 SQLite 文件。
+   也不与普通硬件进程共同写同一个 SQLite 文件。封版出站防火墙只对该代理的低权限系统
+   账号放行注册凭据中配置的 SSH 端口；普通账号和其他进程不获得这一例外。
 6. 跳板 `ecobin-tunnel` 账号没有普通 `authorized_keys`。`AuthorizedKeysCommand` 只在
    当前 desired 租约与设备公钥、端口和期限完全匹配时临时授权；强制命令确认回环监听
    真实存在后才写入 `actual` 标记，并持续检查租约。

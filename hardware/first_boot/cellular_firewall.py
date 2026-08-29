@@ -10,6 +10,13 @@ import subprocess
 import time
 from typing import Callable, Sequence
 
+try:
+    import pwd
+except ImportError:  # pragma: no cover - production target is Linux
+    pwd = None
+
+from device_credentials import load_remote_support_credentials
+
 from factory.firewall import (
     EMERGENCY_RULE_MARKERS,
     FILTER_PRIORITY,
@@ -26,6 +33,8 @@ from factory.firewall import (
 
 
 _INTERFACE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,31}$")
+REMOTE_SUPPORT_USER = "ecobin-remote"
+REMOTE_SUPPORT_RULE_MARKER = "ecobin-cellular:remote-support-output"
 FIREWALL_TRANSITION_LOCK = Path(
     "/run/lock/ecobin/cellular-firewall.lock"
 )
@@ -64,8 +73,68 @@ def _validate_interface(interface: str) -> str:
     return interface
 
 
-def _cellular_rules(interface: str) -> list[str]:
-    return [
+def _validate_remote_support_egress(
+    uid: int | None,
+    port: int | None,
+) -> tuple[int, int] | None:
+    if uid is None and port is None:
+        return None
+    if uid is None or port is None:
+        raise ValueError("REMOTE_SUPPORT_EGRESS_INCOMPLETE")
+    if isinstance(uid, bool) or not isinstance(uid, int) or not 1 <= uid < 2**32:
+        raise ValueError("REMOTE_SUPPORT_UID_INVALID")
+    if (
+        isinstance(port, bool)
+        or not isinstance(port, int)
+        or not 1 <= port <= 65535
+    ):
+        raise ValueError("REMOTE_SUPPORT_PORT_INVALID")
+    return uid, port
+
+
+def discover_remote_support_egress(
+    *,
+    credentials_loader=load_remote_support_credentials,
+    user_lookup=None,
+) -> tuple[int, int] | None:
+    """Return the dedicated tunnel account and configured SSH port if ready.
+
+    Before enrollment neither the projected credential nor the service account
+    is guaranteed to exist.  Omitting the exception in that state preserves the
+    factory fail-closed boundary while the next cellular reconciliation adds it
+    after enrollment has installed both facts.
+    """
+
+    if user_lookup is None:
+        if pwd is None:
+            return None
+        user_lookup = pwd.getpwnam
+    try:
+        credentials = credentials_loader()
+        if credentials is None:
+            return None
+        account = user_lookup(REMOTE_SUPPORT_USER)
+        return _validate_remote_support_egress(
+            int(account.pw_uid),
+            credentials.server_port,
+        )
+    except (KeyError, OSError, TypeError, ValueError):
+        # Invalid or incomplete remote-maintenance setup must never broaden
+        # egress and must not take unrelated MQTT/COS traffic offline.
+        return None
+
+
+def _cellular_rules(
+    interface: str,
+    *,
+    remote_support_uid: int | None = None,
+    remote_support_port: int | None = None,
+) -> list[str]:
+    remote_support_egress = _validate_remote_support_egress(
+        remote_support_uid,
+        remote_support_port,
+    )
+    rules = [
         # The qualified H616 kernel does not consistently classify Air780E
         # UDP DNS replies as established.  Keep the exception narrow and
         # ahead of the invalid-state drop: only source port 53 on the one
@@ -81,7 +150,6 @@ def _cellular_rules(interface: str) -> list[str]:
             "ecobin-cellular:ntp-input",
         ),
         _rule("input", "ct state invalid drop", "ecobin-cellular:invalid-input"),
-        _rule("output", "ct state invalid drop", "ecobin-cellular:invalid-output"),
         _rule(
             "output",
             f'oifname "{interface}" udp sport 68 udp dport 67 accept',
@@ -102,20 +170,53 @@ def _cellular_rules(interface: str) -> list[str]:
             f'oifname "{interface}" udp dport 123 accept',
             "ecobin-cellular:ntp-output",
         ),
-        _rule(
-            "output",
-            f'oifname "{interface}" tcp dport {{ 53, 443, 1883, 8883 }} accept',
-            "ecobin-cellular:tcp-output",
-        ),
-        _rule(
-            "input",
-            f'iifname "{interface}" ct state established,related accept',
-            "ecobin-cellular:established-input",
-        ),
     ]
+    if remote_support_egress is not None:
+        uid, port = remote_support_egress
+        # The qualified H616/Air780E path can classify a new SSH SYN as
+        # invalid.  Keep this account- and port-scoped exception ahead of the
+        # invalid-state drop, just like the qualified DNS/NTP reply rules.
+        rules.append(
+            _rule(
+                "output",
+                (
+                    f'oifname "{interface}" meta skuid {uid} '
+                    f"tcp dport {port} accept"
+                ),
+                REMOTE_SUPPORT_RULE_MARKER,
+            )
+        )
+    rules.append(
+        _rule("output", "ct state invalid drop", "ecobin-cellular:invalid-output")
+    )
+    rules.extend(
+        [
+            _rule(
+                "output",
+                (
+                    f'oifname "{interface}" tcp dport '
+                    "{ 53, 443, 1883, 8883 } accept"
+                ),
+                "ecobin-cellular:tcp-output",
+            ),
+            _rule(
+                "input",
+                f'iifname "{interface}" ct state established,related accept',
+                "ecobin-cellular:established-input",
+            ),
+        ]
+    )
+    return rules
 
 
-def _base_rules(interface: str, *, keep_factory_portal: bool, table_exists: bool) -> str:
+def _base_rules(
+    interface: str,
+    *,
+    keep_factory_portal: bool,
+    table_exists: bool,
+    remote_support_uid: int | None,
+    remote_support_port: int | None,
+) -> str:
     interface = _validate_interface(interface)
     lines = _table_prefix(table_exists)
     lines.extend(
@@ -169,28 +270,50 @@ def _base_rules(interface: str, *, keep_factory_portal: bool, table_exists: bool
                 ),
             )
         )
-    lines.extend(_cellular_rules(interface))
+    lines.extend(
+        _cellular_rules(
+            interface,
+            remote_support_uid=remote_support_uid,
+            remote_support_port=remote_support_port,
+        )
+    )
     return "\n".join(lines) + "\n"
 
 
 def render_factory_uplink_gate(
     interface: str,
     *,
+    remote_support_uid: int | None = None,
+    remote_support_port: int | None = None,
     table_exists: bool = True,
 ) -> str:
     """Keep AP local while allowing device-originated traffic only on RNDIS."""
 
-    return _base_rules(interface, keep_factory_portal=True, table_exists=table_exists)
+    return _base_rules(
+        interface,
+        keep_factory_portal=True,
+        table_exists=table_exists,
+        remote_support_uid=remote_support_uid,
+        remote_support_port=remote_support_port,
+    )
 
 
 def render_production_uplink_gate(
     interface: str,
     *,
+    remote_support_uid: int | None = None,
+    remote_support_port: int | None = None,
     table_exists: bool = True,
 ) -> str:
     """After SEALED, remove AP access but retain the same strict RNDIS egress."""
 
-    return _base_rules(interface, keep_factory_portal=False, table_exists=table_exists)
+    return _base_rules(
+        interface,
+        keep_factory_portal=False,
+        table_exists=table_exists,
+        remote_support_uid=remote_support_uid,
+        remote_support_port=remote_support_port,
+    )
 
 
 Runner = Callable[[Sequence[str], bytes], subprocess.CompletedProcess[bytes]]
@@ -256,6 +379,9 @@ def _apply_locked_profile(
         if keep_factory_portal
         else PRODUCTION_UPLINK_RULE_MARKERS
     )
+    remote_support_egress = discover_remote_support_egress()
+    if remote_support_egress is not None:
+        expected = expected | frozenset({REMOTE_SUPPORT_RULE_MARKER})
     renderer = (
         render_factory_uplink_gate
         if keep_factory_portal
@@ -275,7 +401,22 @@ def _apply_locked_profile(
         # a safety failure, not permission to create an unproven transition.
         if not _table_exists(execute):
             return fail_closed()
-        rules = renderer(interface, table_exists=True)
+        remote_support_uid = (
+            remote_support_egress[0]
+            if remote_support_egress is not None
+            else None
+        )
+        remote_support_port = (
+            remote_support_egress[1]
+            if remote_support_egress is not None
+            else None
+        )
+        rules = renderer(
+            interface,
+            table_exists=True,
+            remote_support_uid=remote_support_uid,
+            remote_support_port=remote_support_port,
+        )
         checked = _invoke(("-c", "-f", "-"), rules, execute)
         if checked.returncode != 0:
             return fail_closed()
