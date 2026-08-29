@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-08-29T02:38:50.482Z",
+  "catalogedAt": "2026-08-29T03:46:55.199Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -320,6 +320,31 @@
       "sha256": "7397c7b7160a7f4ff1cf530e7eb6341a4ff004d19c0dde07c24dbf754b19b94c"
     },
     {
+      "path": "evidence/hil-v8-camera-config-drift-20260829-01/invalid-report.json",
+      "bytes": 1966,
+      "sha256": "8c0214840d865fd384264ab151515a9769c489eeefbf23532d456f369aef3076"
+    },
+    {
+      "path": "evidence/hil-v8-camera-config-drift-20260829-01/README.md",
+      "bytes": 1501,
+      "sha256": "2d3bc7f39bd2bd25b3b8047cbac3a5c8b30d67e84c04fa3f6f2f7b3bcffdc87e"
+    },
+    {
+      "path": "evidence/hil-v8-simulated-acceptance-20260829-01/README.md",
+      "bytes": 2971,
+      "sha256": "4b6c6d7837bf94308c5745ffc0ae7687d2d332fd86d54a4e833f950e8f9410ff"
+    },
+    {
+      "path": "evidence/hil-v8-simulated-acceptance-20260829-01/report.json",
+      "bytes": 1967,
+      "sha256": "343231537be6e8b0124809d3d5416e9a04b2eb057b32cd153ccbc970485fd315"
+    },
+    {
+      "path": "evidence/hil-v8-simulated-acceptance-20260829-01/verification.json",
+      "bytes": 1441,
+      "sha256": "5fb492e3aef0cc27d4eee20d494db2287133ffd6062cd7329d97dd8d9303b424"
+    },
+    {
       "path": "evidence/target-media-qualification-evidence-20260827.json",
       "bytes": 649,
       "sha256": "e048967cbd8f19d50eeed30905915119a814e397c60c364c24532c9bfcc1f2ad"
@@ -526,6 +551,83 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "50aae8f09cbfd3aed5c03ec336034da67231d5b15747e0e990abc116e2922efd"
+    },
+    {
+      "path": "local/hil-v8-cold-boot-20260829-01/capture-state.json",
+      "bytes": 334,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "173409bbaa9275bb1e6731159b83e2e054f6530d698b6742de9d96e67637989b"
+    },
+    {
+      "path": "local/hil-v8-cold-boot-20260829-01/capture.ready",
+      "bytes": 28,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9422f406e1b6b3383bae9c82d943ef5c742f5703a69f8cf9c1f6420caed3cb44"
+    },
+    {
+      "path": "local/hil-v8-cold-boot-20260829-01/capture.stop",
+      "bytes": 28,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "af59f9f64985f45118f5caf23a997160f7ebdbb762ddad488e0cb96b09ccd738"
+    },
+    {
+      "path": "local/hil-v8-cold-boot-20260829-01/serial-camera-config-state.raw.log",
+      "bytes": 641,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "f4222dacf4844d7ea60e4ea967eadec17602bc729aaa1f344af9a5658cc3d1cf"
+    },
+    {
+      "path": "local/hil-v8-cold-boot-20260829-01/serial-camera-failure-facts.raw.log",
+      "bytes": 1727,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "4e15ae0393f365104d66e0ef5c81a725b8398fea39a8afbc2fa07135d519010a"
+    },
+    {
+      "path": "local/hil-v8-cold-boot-20260829-01/serial-camera-probe-loop.raw.log",
+      "bytes": 688,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "d0660b49474375964367a2e066ed630c1fd945b2bc7d5be394543355ea7b615b"
+    },
+    {
+      "path": "local/hil-v8-cold-boot-20260829-01/serial-com8.raw.log",
+      "bytes": 3370,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "e3fe02440398349579b179e3329eba6417cdd348d9d08212cee83818e3ce514c"
+    },
+    {
+      "path": "local/hil-v8-cold-boot-20260829-01/serial-factory-units.raw.log",
+      "bytes": 3109,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "87fee9b040fc26a700567e898f5e2d5a3ac5c432634fcdd86297d6c4abcd9752"
+    },
+    {
+      "path": "local/hil-v8-cold-boot-20260829-01/serial-login-diagnostics.raw.log",
+      "bytes": 2270,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "3001c56994f79a43fa89d709f159e7238d7f6109de2ce56bda3eb3334332315e"
+    },
+    {
+      "path": "local/hil-v8-cold-boot-20260829-01/serial-service-state-retry.raw.log",
+      "bytes": 742,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "7df1dfa676a625a5240bb11048dfe101a4efea4b0a530f8510558e5e5cf5a670"
+    },
+    {
+      "path": "local/hil-v8-cold-boot-20260829-01/serial-service-state.raw.log",
+      "bytes": 5382,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "0e3d6b102cd53f563eec6ead65996b887e8b8b8de88bf011d525c57477a61910"
     },
     {
       "path": "local/package-cache/chrony_4.3-2+deb12u1_arm64.deb",

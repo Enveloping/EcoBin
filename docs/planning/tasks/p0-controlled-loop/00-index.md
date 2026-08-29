@@ -111,7 +111,7 @@ agent | human | mixed
 |---|---|---|---|---|
 | H-01 | [旧栈恢复单元和所有权清单](h-01-legacy-stack-recovery-baseline.md) | `done` | `human` | 无 |
 | H-02 | [目标数据库身份与环境供应](h-02-target-database-identities-environment.md) | `done` | `human` | F-06 |
-| H-03 | [固定帧 MCU 线路与真机基础验收](h-03-fixed-frame-mcu-hil-acceptance.md) | `in-progress` | `human` | F-11 已完成；单卡 HIL 已授权并完成 v8 写卡回读，待冷启动和真机证据 |
+| H-03 | [固定帧 MCU 线路与真机基础验收](h-03-fixed-frame-mcu-hil-acceptance.md) | `in-progress` | `human` | v8 写卡、冷启动及当前双摄 + 模拟 MCU 成功流程已留证；待真实 MCU、屏幕、传感器和机构证据 |
 | H-04 | [真实 Native 充值](h-04-real-native-recharge.md) | `blocked` | `human` | V-09、`EXT-WECHAT-NATIVE-READY` |
 | H-05 | [真实商家转账与微信零钱到账](h-05-real-merchant-transfer.md) | `blocked` | `human` | V-10、H-04、`EXT-WECHAT-TRANSFER-READY` |
 | H-06 | [成对切换、回退演练与 M0 签署](h-06-paired-cutover-m0-signoff.md) | `blocked` | `human` | H-01、H-02、H-03、H-04、H-05、F-07、F-12、V-05、V-06、V-07、V-08、V-09、V-10、V-11 |

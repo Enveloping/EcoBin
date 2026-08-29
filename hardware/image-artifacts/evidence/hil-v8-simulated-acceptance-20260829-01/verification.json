@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "result": "PASS_WITH_SIMULATED_PERIPHERALS",
+  "deviceMediaSerial": "121220160204",
+  "sourceImageSha256": "4c95087f512f0fb3f1b995aea20200f8a617788b7019a69ea98ff18d0d463ae8",
+  "runtimeHotfixCommit": "dd0482b6",
+  "state": {
+    "status": "PASSED",
+    "phase": "COMPLETE",
+    "revision": 45
+  },
+  "hardwareConfig": {
+    "currentSha256": "6f7a1c838e759b841b60e555a2a3cb69f187be1b01d0541bf3b3b6e28f9894f6",
+    "stateSha256": "6f7a1c838e759b841b60e555a2a3cb69f187be1b01d0541bf3b3b6e28f9894f6",
+    "reportSha256": "6f7a1c838e759b841b60e555a2a3cb69f187be1b01d0541bf3b3b6e28f9894f6",
+    "allMatch": true
+  },
+  "report": {
+    "bytes": 1967,
+    "sha256": "343231537be6e8b0124809d3d5416e9a04b2eb057b32cd153ccbc970485fd315",
+    "wallTimeTrusted": false
+  },
+  "cameraSourceFingerprints": {
+    "outside": "bb95c6ca2854",
+    "inside": "54df17bf3b4e"
+  },
+  "mcu": {
+    "firmwareVersion": "factory-sim-1.0.0",
+    "fixedFrameRevision": 2,
+    "peripheralEvidenceMode": "SIMULATED_PERIPHERALS",
+    "remoteUpdateCapable": false
+  },
+  "invalidPrecedingRun": {
+    "preserved": true,
+    "reportSha256": "8c0214840d865fd384264ab151515a9769c489eeefbf23532d456f369aef3076"
+  },
+  "postCompletionServices": {
+    "factoryTest": "INACTIVE_SUCCESS",
+    "factoryPortal": "ACTIVE_RUNNING",
+    "factoryHandoff": "INACTIVE_SUCCESS",
+    "firstBoot": "ACTIVE_RUNNING"
+  },
+  "cloudSealStatus": "CLOUD_ACCEPTANCE_REQUIRED"
+}
