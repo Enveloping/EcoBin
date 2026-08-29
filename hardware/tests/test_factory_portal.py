@@ -547,6 +547,19 @@ def test_web_exposes_a_distinct_post_delivery_safety_confirmation() -> None:
     assert "operatorAreaSafeConfirmed: true" in app
 
 
+def test_factory_seal_confirmation_does_not_require_a_secure_http_context() -> None:
+    """The isolated factory AP is plain HTTP, so randomUUID is unavailable."""
+
+    app = (
+        Path(__file__).parents[1] / "factory" / "web" / "app.js"
+    ).read_text(encoding="utf-8")
+
+    assert "crypto.randomUUID()" not in app
+    assert "crypto.getRandomValues" in app
+    assert "const uid = createUuidV4();" in app
+    assert "BROWSER_RANDOM_UNAVAILABLE" in app
+
+
 def test_server_builder_uses_only_the_fixed_ap_address() -> None:
     captured: dict[str, object] = {}
 

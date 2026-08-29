@@ -4,6 +4,25 @@ const byId = (id) => document.getElementById(id);
 let currentStatus = null;
 let requestRunning = false;
 
+function createUuidV4() {
+  if (!window.crypto || typeof window.crypto.getRandomValues !== "function") {
+    throw new Error("BROWSER_RANDOM_UNAVAILABLE");
+  }
+  const bytes = new Uint8Array(16);
+  window.crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+  const groups = [
+    hex.slice(0, 4),
+    hex.slice(4, 6),
+    hex.slice(6, 8),
+    hex.slice(8, 10),
+    hex.slice(10),
+  ];
+  return groups.map((group) => group.join("")).join("-");
+}
+
 function selectedUpdateLineState() {
   const value = byId("mcu-update-line-installed").value;
   if (value === "true") return true;
@@ -294,10 +313,10 @@ async function performPrimaryAction() {
 async function confirmSeal() {
   if (!currentStatus || requestRunning) return;
   if (!window.confirm("这是单向离厂封存：成功后热点不会重新开放。确认当前设备可以离开工厂？")) return;
-  const uid = crypto.randomUUID();
   requestRunning = true;
   byId("seal-result").textContent = "正在核对当前代次授权并执行封存……";
   try {
+    const uid = createUuidV4();
     const response = await fetch("/api/v1/acceptance/action", {
       method: "POST",
       cache: "no-store",
@@ -317,7 +336,10 @@ async function confirmSeal() {
     if (!response.ok) throw new Error(result.error || `HTTP_${response.status}`);
     byId("seal-result").textContent = "封存事实已可靠保存，热点将按状态机关闭。";
   } catch (error) {
-    byId("seal-result").textContent = `封存未完成：${error.message || "UNKNOWN"}`;
+    const message = error.message === "BROWSER_RANDOM_UNAVAILABLE"
+      ? "当前浏览器无法生成安全请求标识，请更换浏览器后重试"
+      : error.message || "UNKNOWN";
+    byId("seal-result").textContent = `封存未完成：${message}`;
   } finally {
     requestRunning = false;
     await refreshStatus();
