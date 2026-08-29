@@ -1,0 +1,98 @@
+{
+  "schema": "ecobin.hil.flow-evidence.v1",
+  "capturedAt": "2026-08-29T11:05:14.038Z",
+  "environment": "current-test",
+  "release": {
+    "releaseId": "20260829102341-71eba405a04e",
+    "gitCommit": "71eba405a04e55575d36fea2c66184c76fbaef6f"
+  },
+  "target": {
+    "assetId": 10,
+    "tfCardSerial": "121220160204"
+  },
+  "configuration": {
+    "versionNo": 1,
+    "contentSha256": "5B9F86C56B6FBA93A6B71652D4E9C8D9546C6F4938613DAC31A976A14B48D2F3",
+    "mcuPayloadSha256": "730EC94C090E1B256EEC8FB42292EAFF9C96724A8251F13BFEA622D7C6BF6546",
+    "reliableApplicationStatus": "APPLIED",
+    "runtimeAppliedProjectionMatches": true,
+    "latestDeviceReportMatches": true,
+    "miniappAdmission": "PASS"
+  },
+  "runtime": {
+    "acceptedSnapshotCountAfterRelease": 9,
+    "latestTrustedEdgeEventId": 12938,
+    "latestTrustedSequence": 1663,
+    "latestTrustedReceivedAt": "2026-08-29T11:01:10.147Z",
+    "uartProtocolMajor": null,
+    "uartProtocolMinor": null,
+    "newQuarantineCountAfterHistoricalId5675": 0
+  },
+  "delivery": {
+    "edgeEventId": 12919,
+    "edgeEventSequence": 1638,
+    "session": {
+      "id": 21,
+      "uid": "42e3ccc0-528f-4ec7-a8f2-6e5b07e772e6",
+      "status": "BUSINESS_CONFIRMED",
+      "endReason": "USER_ENDED",
+      "deviceCompletedAt": "2026-08-29T10:58:49.084Z"
+    },
+    "physicalResult": {
+      "id": 31,
+      "preStatus": "STABLE",
+      "preWeightG": 0,
+      "postStatus": "STABLE",
+      "postWeightG": 500,
+      "netWeightG": 500,
+      "manualReviewRequired": false,
+      "negativeWeightAnomaly": false
+    },
+    "order": {
+      "id": 17,
+      "reviewStatus": "APPROVED",
+      "finalBusinessWeightKg": 0.50,
+      "finalAmountCent": 23
+    },
+    "activeOccupancyCountAfterCompletion": 0
+  },
+  "remoteSupport": {
+    "sessionId": 25,
+    "sessionUid": "6f19630f-fd3c-4cf4-99cf-fbcd0ae698bc",
+    "portNo": 22011,
+    "observedStateSequence": [
+      "CONNECTING",
+      "OPEN",
+      "CLOSED"
+    ],
+    "openedAt": "2026-08-29T11:00:41.153Z",
+    "closedAt": "2026-08-29T11:01:04.944Z",
+    "failureCode": null,
+    "serverLeaseStateAfterClose": "ABSENT"
+  },
+  "historicalQuarantine": [
+    {
+      "id": 5673,
+      "reasonCode": "PERMANENT_FORMAT_ERROR",
+      "status": "OPEN"
+    },
+    {
+      "id": 5674,
+      "reasonCode": "PERMANENT_FORMAT_ERROR",
+      "status": "OPEN"
+    },
+    {
+      "id": 5675,
+      "reasonCode": "PERMANENT_FORMAT_ERROR",
+      "status": "OPEN"
+    }
+  ],
+  "regression": {
+    "onenetDispatcherTestsPassed": 11,
+    "miniappAdmissionTestsPassed": 8,
+    "hardwareEdgeBootTestsPassed": 15,
+    "mavenTestsPassed": 138,
+    "mavenTestsSkipped": 49,
+    "mavenModulesSucceeded": 9
+  }
+}
