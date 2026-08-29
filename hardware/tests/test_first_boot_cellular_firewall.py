@@ -12,7 +12,9 @@ from factory.firewall import EMERGENCY_RULE_MARKERS, FILTER_PRIORITY
 from first_boot.cellular_firewall import (
     FACTORY_UPLINK_RULE_MARKERS,
     PRODUCTION_UPLINK_RULE_MARKERS,
+    REMOTE_SUPPORT_INPUT_RULE_MARKER,
     REMOTE_SUPPORT_RULE_MARKER,
+    REMOTE_SUPPORT_RULE_MARKERS,
     apply_emergency_uplink_lock,
     apply_factory_uplink_gate,
     apply_production_uplink_gate,
@@ -104,7 +106,7 @@ class StatefulCellularNftRunner:
             if markers is None:
                 return _completed(command, 1)
             if self.remote_support and self.profile in {"factory", "production"}:
-                markers = markers | frozenset({REMOTE_SUPPORT_RULE_MARKER})
+                markers = markers | REMOTE_SUPPORT_RULE_MARKERS
             if (
                 self.profile in {"factory", "production"}
                 and self.tamper_candidate_verification
@@ -190,15 +192,17 @@ def test_production_uplink_removes_every_factory_ap_allow_rule() -> None:
     assert "policy accept" not in rules.lower()
 
 
-def test_production_uplink_allows_configured_ssh_only_for_remote_support_uid() -> None:
+def test_production_uplink_pins_ssh_to_remote_support_uid_and_server() -> None:
     rules = render_production_uplink_gate(
         "enxcell0",
         remote_support_uid=987,
         remote_support_port=22,
+        remote_support_ipv4_addresses=("203.0.113.7",),
     )
 
     assert (
-        'oifname "enxcell0" meta skuid 987 tcp dport 22 accept '
+        'oifname "enxcell0" meta skuid 987 ip daddr 203.0.113.7 '
+        'tcp dport 22 accept '
         'comment "ecobin-cellular:remote-support-output"'
     ) in rules
     assert rules.count("tcp dport 22 accept") == 1
@@ -207,32 +211,60 @@ def test_production_uplink_allows_configured_ssh_only_for_remote_support_uid() -
     assert rules.index(
         "ecobin-cellular:remote-support-output"
     ) < rules.index("ecobin-cellular:invalid-output")
+    assert (
+        'iifname "enxcell0" ip saddr 203.0.113.7 tcp sport 22 accept '
+        'comment "ecobin-cellular:remote-support-input"'
+    ) in rules
+    assert rules.index(
+        "ecobin-cellular:remote-support-input"
+    ) < rules.index("ecobin-cellular:invalid-input")
 
 
 def test_remote_support_egress_is_discovered_from_projected_credentials() -> None:
-    credentials = SimpleNamespace(server_port=2222)
+    credentials = SimpleNamespace(
+        server_host="support.example",
+        server_port=2222,
+    )
 
     assert discover_remote_support_egress(
         credentials_loader=lambda: credentials,
         user_lookup=lambda user: SimpleNamespace(
             pw_uid=987 if user == "ecobin-remote" else 0
         ),
-    ) == (987, 2222)
+        address_resolver=lambda host: (
+            ("203.0.113.8", "203.0.113.7")
+            if host == "support.example"
+            else ()
+        ),
+    ) == (987, 2222, ("203.0.113.7", "203.0.113.8"))
 
 
 @pytest.mark.parametrize(
-    ("uid", "port"),
-    ((None, 22), (987, None), (0, 22), (True, 22), (987, 0), (987, True)),
+    ("uid", "port", "ipv4_addresses"),
+    (
+        (None, 22, ("203.0.113.7",)),
+        (987, None, ("203.0.113.7",)),
+        (987, 22, None),
+        (0, 22, ("203.0.113.7",)),
+        (True, 22, ("203.0.113.7",)),
+        (987, 0, ("203.0.113.7",)),
+        (987, True, ("203.0.113.7",)),
+        (987, 22, ()),
+        (987, 22, ("not-an-address",)),
+        (987, 22, "203.0.113.7"),
+    ),
 )
 def test_render_rejects_incomplete_or_privileged_remote_support_egress(
     uid: int | None,
     port: int | None,
+    ipv4_addresses: tuple[str, ...] | str | None,
 ) -> None:
     with pytest.raises(ValueError, match="REMOTE_SUPPORT_"):
         render_production_uplink_gate(
             "enxcell0",
             remote_support_uid=uid,
             remote_support_port=port,
+            remote_support_ipv4_addresses=ipv4_addresses,
         )
 
 
@@ -244,7 +276,7 @@ def test_applied_profile_verifies_remote_support_exception(
     monkeypatch.setattr(
         cellular_firewall,
         "discover_remote_support_egress",
-        lambda: (987, 22),
+        lambda: (987, 22, ("203.0.113.7",)),
     )
 
     assert apply_production_uplink_gate(
@@ -255,9 +287,14 @@ def test_applied_profile_verifies_remote_support_exception(
     assert runner.profile == "production"
     assert runner.remote_support
     assert any(
-        b"meta skuid 987 tcp dport 22 accept" in payload
+        b"meta skuid 987 ip daddr 203.0.113.7 tcp dport 22 accept" in payload
         for _command, payload in runner.calls
     )
+    assert any(
+        b"ip saddr 203.0.113.7 tcp sport 22 accept" in payload
+        for _command, payload in runner.calls
+    )
+    assert REMOTE_SUPPORT_INPUT_RULE_MARKER in REMOTE_SUPPORT_RULE_MARKERS
 
 
 @pytest.mark.parametrize(

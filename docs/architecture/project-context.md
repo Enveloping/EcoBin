@@ -95,6 +95,14 @@
 > [`../deployment/device-enrollment-and-remote-support-rollout.md`](../deployment/device-enrollment-and-remote-support-rollout.md)。
 
 > [!IMPORTANT]
+> 2026-08-29 真机确认 H616/Air780E 会把反向 SSH 的部分 SYN 和返回数据误判为 conntrack
+> `invalid`。封版防火墙因此仅为 `ecobin-remote` UID、受保护凭据解析出的跳板 IPv4 和
+> SSH 端口增加双向精确例外，并把它们分别放在 `invalid-output`、`invalid-input` 之前；
+> 返回例外匹配的是跳板 SSH **源端口**，不开放设备 22 端口。生产防火墙同时由蜂窝协调器
+> 和首次启动封存清理协调，更新规则实现时必须重启两者并跨协调周期复核，避免常驻进程用
+> 内存中的旧模块覆盖新规则。
+
+> [!IMPORTANT]
 > 2026-08-17 已重新冻结并实施 V53 投递自动审核与审核后自动提现。机构可选择全部
 > 人工、正常订单立即自动审核、收到后 24 小时或 48 小时自动审核；负重量、不可可靠计算
 > 或带用户/系统异常的订单仍由人工处理。首次审核形成正返现后，只有机构已启用、金额在

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import ipaddress
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import time
 from typing import Callable, Sequence
@@ -35,6 +37,10 @@ from factory.firewall import (
 _INTERFACE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,31}$")
 REMOTE_SUPPORT_USER = "ecobin-remote"
 REMOTE_SUPPORT_RULE_MARKER = "ecobin-cellular:remote-support-output"
+REMOTE_SUPPORT_INPUT_RULE_MARKER = "ecobin-cellular:remote-support-input"
+REMOTE_SUPPORT_RULE_MARKERS = frozenset(
+    {REMOTE_SUPPORT_RULE_MARKER, REMOTE_SUPPORT_INPUT_RULE_MARKER}
+)
 FIREWALL_TRANSITION_LOCK = Path(
     "/run/lock/ecobin/cellular-firewall.lock"
 )
@@ -73,14 +79,15 @@ def _validate_interface(interface: str) -> str:
     return interface
 
 
-def _validate_remote_support_egress(
+def _validate_remote_support_access(
     uid: int | None,
     port: int | None,
-) -> tuple[int, int] | None:
-    if uid is None and port is None:
+    ipv4_addresses: Sequence[str] | None,
+) -> tuple[int, int, tuple[str, ...]] | None:
+    if uid is None and port is None and ipv4_addresses is None:
         return None
-    if uid is None or port is None:
-        raise ValueError("REMOTE_SUPPORT_EGRESS_INCOMPLETE")
+    if uid is None or port is None or ipv4_addresses is None:
+        raise ValueError("REMOTE_SUPPORT_ACCESS_INCOMPLETE")
     if isinstance(uid, bool) or not isinstance(uid, int) or not 1 <= uid < 2**32:
         raise ValueError("REMOTE_SUPPORT_UID_INVALID")
     if (
@@ -89,15 +96,54 @@ def _validate_remote_support_egress(
         or not 1 <= port <= 65535
     ):
         raise ValueError("REMOTE_SUPPORT_PORT_INVALID")
-    return uid, port
+    if isinstance(ipv4_addresses, (str, bytes)):
+        raise ValueError("REMOTE_SUPPORT_IPV4_ADDRESSES_INVALID")
+    canonical: set[str] = set()
+    try:
+        candidates = tuple(ipv4_addresses)
+    except TypeError as error:
+        raise ValueError("REMOTE_SUPPORT_IPV4_ADDRESSES_INVALID") from error
+    if not 1 <= len(candidates) <= 8:
+        raise ValueError("REMOTE_SUPPORT_IPV4_ADDRESSES_INVALID")
+    for candidate in candidates:
+        if not isinstance(candidate, str):
+            raise ValueError("REMOTE_SUPPORT_IPV4_ADDRESS_INVALID")
+        try:
+            address = ipaddress.IPv4Address(candidate)
+        except ipaddress.AddressValueError as error:
+            raise ValueError("REMOTE_SUPPORT_IPV4_ADDRESS_INVALID") from error
+        if address.is_unspecified or address.is_multicast:
+            raise ValueError("REMOTE_SUPPORT_IPV4_ADDRESS_INVALID")
+        canonical.add(str(address))
+    return uid, port, tuple(
+        sorted(canonical, key=lambda value: int(ipaddress.IPv4Address(value)))
+    )
+
+
+def _resolve_remote_support_ipv4_addresses(host: str) -> tuple[str, ...]:
+    resolved = {
+        sockaddr[0]
+        for (
+            family,
+            _type,
+            _protocol,
+            _canonical_name,
+            sockaddr,
+        ) in socket.getaddrinfo(
+            host, None, family=socket.AF_INET, type=socket.SOCK_STREAM
+        )
+        if family == socket.AF_INET
+    }
+    return tuple(sorted(resolved, key=lambda value: int(ipaddress.IPv4Address(value))))
 
 
 def discover_remote_support_egress(
     *,
     credentials_loader=load_remote_support_credentials,
     user_lookup=None,
-) -> tuple[int, int] | None:
-    """Return the dedicated tunnel account and configured SSH port if ready.
+    address_resolver=None,
+) -> tuple[int, int, tuple[str, ...]] | None:
+    """Return the tunnel account, configured SSH port and resolved server IPs.
 
     Before enrollment neither the projected credential nor the service account
     is guaranteed to exist.  Omitting the exception in that state preserves the
@@ -109,16 +155,19 @@ def discover_remote_support_egress(
         if pwd is None:
             return None
         user_lookup = pwd.getpwnam
+    if address_resolver is None:
+        address_resolver = _resolve_remote_support_ipv4_addresses
     try:
         credentials = credentials_loader()
         if credentials is None:
             return None
         account = user_lookup(REMOTE_SUPPORT_USER)
-        return _validate_remote_support_egress(
-            int(account.pw_uid),
+        return _validate_remote_support_access(
+            account.pw_uid,
             credentials.server_port,
+            address_resolver(credentials.server_host),
         )
-    except (KeyError, OSError, TypeError, ValueError):
+    except (AttributeError, KeyError, OSError, TypeError, ValueError):
         # Invalid or incomplete remote-maintenance setup must never broaden
         # egress and must not take unrelated MQTT/COS traffic offline.
         return None
@@ -129,10 +178,12 @@ def _cellular_rules(
     *,
     remote_support_uid: int | None = None,
     remote_support_port: int | None = None,
+    remote_support_ipv4_addresses: Sequence[str] | None = None,
 ) -> list[str]:
-    remote_support_egress = _validate_remote_support_egress(
+    remote_support_access = _validate_remote_support_access(
         remote_support_uid,
         remote_support_port,
+        remote_support_ipv4_addresses,
     )
     rules = [
         # The qualified H616 kernel does not consistently classify Air780E
@@ -149,30 +200,60 @@ def _cellular_rules(
             f'iifname "{interface}" udp sport 123 accept',
             "ecobin-cellular:ntp-input",
         ),
-        _rule("input", "ct state invalid drop", "ecobin-cellular:invalid-input"),
-        _rule(
-            "output",
-            f'oifname "{interface}" udp sport 68 udp dport 67 accept',
-            "ecobin-cellular:dhcp-output",
-        ),
-        _rule(
-            "input",
-            f'iifname "{interface}" udp sport 67 udp dport 68 accept',
-            "ecobin-cellular:dhcp-input",
-        ),
-        _rule(
-            "output",
-            f'oifname "{interface}" udp dport 53 accept',
-            "ecobin-cellular:dns-udp-output",
-        ),
-        _rule(
-            "output",
-            f'oifname "{interface}" udp dport 123 accept',
-            "ecobin-cellular:ntp-output",
-        ),
     ]
-    if remote_support_egress is not None:
-        uid, port = remote_support_egress
+    if remote_support_access is not None:
+        _uid, port, ipv4_addresses = remote_support_access
+        source = (
+            ipv4_addresses[0]
+            if len(ipv4_addresses) == 1
+            else "{ " + ", ".join(ipv4_addresses) + " }"
+        )
+        rules.append(
+            _rule(
+                "input",
+                (
+                    f'iifname "{interface}" ip saddr {source} '
+                    f"tcp sport {port} accept"
+                ),
+                REMOTE_SUPPORT_INPUT_RULE_MARKER,
+            )
+        )
+    rules.extend(
+        [
+            _rule(
+                "input",
+                "ct state invalid drop",
+                "ecobin-cellular:invalid-input",
+            ),
+            _rule(
+                "output",
+                f'oifname "{interface}" udp sport 68 udp dport 67 accept',
+                "ecobin-cellular:dhcp-output",
+            ),
+            _rule(
+                "input",
+                f'iifname "{interface}" udp sport 67 udp dport 68 accept',
+                "ecobin-cellular:dhcp-input",
+            ),
+            _rule(
+                "output",
+                f'oifname "{interface}" udp dport 53 accept',
+                "ecobin-cellular:dns-udp-output",
+            ),
+            _rule(
+                "output",
+                f'oifname "{interface}" udp dport 123 accept',
+                "ecobin-cellular:ntp-output",
+            ),
+        ]
+    )
+    if remote_support_access is not None:
+        uid, port, ipv4_addresses = remote_support_access
+        destination = (
+            ipv4_addresses[0]
+            if len(ipv4_addresses) == 1
+            else "{ " + ", ".join(ipv4_addresses) + " }"
+        )
         # The qualified H616/Air780E path can classify a new SSH SYN as
         # invalid.  Keep this account- and port-scoped exception ahead of the
         # invalid-state drop, just like the qualified DNS/NTP reply rules.
@@ -181,7 +262,7 @@ def _cellular_rules(
                 "output",
                 (
                     f'oifname "{interface}" meta skuid {uid} '
-                    f"tcp dport {port} accept"
+                    f"ip daddr {destination} tcp dport {port} accept"
                 ),
                 REMOTE_SUPPORT_RULE_MARKER,
             )
@@ -216,6 +297,7 @@ def _base_rules(
     table_exists: bool,
     remote_support_uid: int | None,
     remote_support_port: int | None,
+    remote_support_ipv4_addresses: Sequence[str] | None,
 ) -> str:
     interface = _validate_interface(interface)
     lines = _table_prefix(table_exists)
@@ -275,6 +357,7 @@ def _base_rules(
             interface,
             remote_support_uid=remote_support_uid,
             remote_support_port=remote_support_port,
+            remote_support_ipv4_addresses=remote_support_ipv4_addresses,
         )
     )
     return "\n".join(lines) + "\n"
@@ -285,6 +368,7 @@ def render_factory_uplink_gate(
     *,
     remote_support_uid: int | None = None,
     remote_support_port: int | None = None,
+    remote_support_ipv4_addresses: Sequence[str] | None = None,
     table_exists: bool = True,
 ) -> str:
     """Keep AP local while allowing device-originated traffic only on RNDIS."""
@@ -295,6 +379,7 @@ def render_factory_uplink_gate(
         table_exists=table_exists,
         remote_support_uid=remote_support_uid,
         remote_support_port=remote_support_port,
+        remote_support_ipv4_addresses=remote_support_ipv4_addresses,
     )
 
 
@@ -303,6 +388,7 @@ def render_production_uplink_gate(
     *,
     remote_support_uid: int | None = None,
     remote_support_port: int | None = None,
+    remote_support_ipv4_addresses: Sequence[str] | None = None,
     table_exists: bool = True,
 ) -> str:
     """After SEALED, remove AP access but retain the same strict RNDIS egress."""
@@ -313,6 +399,7 @@ def render_production_uplink_gate(
         table_exists=table_exists,
         remote_support_uid=remote_support_uid,
         remote_support_port=remote_support_port,
+        remote_support_ipv4_addresses=remote_support_ipv4_addresses,
     )
 
 
@@ -381,7 +468,7 @@ def _apply_locked_profile(
     )
     remote_support_egress = discover_remote_support_egress()
     if remote_support_egress is not None:
-        expected = expected | frozenset({REMOTE_SUPPORT_RULE_MARKER})
+        expected = expected | REMOTE_SUPPORT_RULE_MARKERS
     renderer = (
         render_factory_uplink_gate
         if keep_factory_portal
@@ -411,11 +498,17 @@ def _apply_locked_profile(
             if remote_support_egress is not None
             else None
         )
+        remote_support_ipv4_addresses = (
+            remote_support_egress[2]
+            if remote_support_egress is not None
+            else None
+        )
         rules = renderer(
             interface,
             table_exists=True,
             remote_support_uid=remote_support_uid,
             remote_support_port=remote_support_port,
+            remote_support_ipv4_addresses=remote_support_ipv4_addresses,
         )
         checked = _invoke(("-c", "-f", "-"), rules, execute)
         if checked.returncode != 0:
