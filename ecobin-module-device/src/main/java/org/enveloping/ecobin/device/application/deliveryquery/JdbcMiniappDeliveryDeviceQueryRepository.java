@@ -15,10 +15,10 @@ class JdbcMiniappDeliveryDeviceQueryRepository
         implements MiniappDeliveryDeviceQueryRepository {
 
     /*
-     * Runtime eligibility comes from the authenticated Orange Pi projection.
-     * MCU-link and UART transport diagnostics are intentionally not selected.
-     * The mcu-payload digest below is only part of immutable configuration
-     * identity; it is not a live Orange Pi-to-MCU health check.
+     * Configuration eligibility comes from the trusted configuration-progress
+     * projection. MCU-link and UART transport diagnostics are intentionally
+     * not selected. The mcu-payload digest below is only part of immutable
+     * configuration identity; it is not a live Orange Pi-to-MCU health check.
      */
     static final String FIND_CURRENT_ASSET_SQL = """
             SELECT asset.id AS asset_id,
@@ -59,12 +59,12 @@ class JdbcMiniappDeliveryDeviceQueryRepository
                    runtime.trusted_runtime_edge_event_type,
                    runtime.trusted_runtime_sequence,
                    runtime.trusted_runtime_received_at,
-                   runtime.orange_pi_reported_config_version_no
-                       AS orange_pi_reported_configuration_version,
-                   runtime.orange_pi_reported_config_content_sha256
-                       AS orange_pi_reported_configuration_content_sha256,
-                   runtime.orange_pi_reported_config_mcu_payload_sha256
-                       AS orange_pi_reported_configuration_mcu_payload_sha256
+                   runtime.applied_config_version_no
+                       AS progress_applied_configuration_version,
+                   runtime.applied_config_content_sha256
+                       AS progress_applied_configuration_content_sha256,
+                   runtime.applied_mcu_payload_sha256
+                       AS progress_applied_configuration_mcu_payload_sha256
             FROM dev_device_asset asset
             JOIN iam_tenant tenant
               ON tenant.id = asset.tenant_id
@@ -298,11 +298,11 @@ class JdbcMiniappDeliveryDeviceQueryRepository
                         LocalDateTime.class),
                 nullableLong(
                         rs,
-                        "orange_pi_reported_configuration_version"),
+                        "progress_applied_configuration_version"),
                 rs.getBytes(
-                        "orange_pi_reported_configuration_content_sha256"),
+                        "progress_applied_configuration_content_sha256"),
                 rs.getBytes(
-                        "orange_pi_reported_configuration_mcu_payload_sha256"));
+                        "progress_applied_configuration_mcu_payload_sha256"));
     }
 
     private static PortSnapshotRow port(ResultSet rs)

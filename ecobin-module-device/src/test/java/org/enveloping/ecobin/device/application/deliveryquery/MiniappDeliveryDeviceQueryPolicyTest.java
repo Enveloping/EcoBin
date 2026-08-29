@@ -18,7 +18,7 @@ class MiniappDeliveryDeviceQueryPolicyTest {
             java.util.HexFormat.of().parseHex("bb".repeat(32));
 
     @Test
-    void exactTrustedSnapshotLeavesHealthyPortUnblocked() {
+    void exactConfigurationProgressLeavesHealthyPortUnblocked() {
         var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
                 asset(
                         CONTENT_SHA,
@@ -64,7 +64,7 @@ class MiniappDeliveryDeviceQueryPolicyTest {
     }
 
     @Test
-    void oldTrustedSnapshotRemainsUsableWhileOccupancyStillBlocks() {
+    void oldRuntimeDiagnosticDoesNotCreateAnExpiryGate() {
         var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
                 asset(
                         CONTENT_SHA,
@@ -83,7 +83,7 @@ class MiniappDeliveryDeviceQueryPolicyTest {
     }
 
     @Test
-    void configurationReceiptMismatchBlocksAdmission() {
+    void configurationProgressProjectionMismatchBlocksAdmission() {
         var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
                 asset(
                         CONTENT_SHA,
@@ -155,7 +155,7 @@ class MiniappDeliveryDeviceQueryPolicyTest {
     private static MiniappDeliveryDeviceQueryRepository
             .AssetSnapshotRow asset(
                     byte[] applicationContentSha,
-                    byte[] orangePiContentSha,
+                    byte[] progressAppliedContentSha,
                     LocalDateTime receivedAt,
                     boolean busy) {
         return new MiniappDeliveryDeviceQueryRepository
@@ -187,7 +187,7 @@ class MiniappDeliveryDeviceQueryPolicyTest {
                 1053L,
                 receivedAt,
                 8L,
-                orangePiContentSha,
+                progressAppliedContentSha,
                 MCU_PAYLOAD_SHA);
     }
 

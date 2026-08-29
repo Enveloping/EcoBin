@@ -62,7 +62,7 @@ class JdbcMiniappDeliveryDeviceQueryRepositorySqlTest {
     }
 
     @Test
-    void optionsUseTrustedOrangePiProjectionAndLatestConfiguration() {
+    void optionsUseReliableConfigurationProgressAndLatestConfiguration() {
         String asset =
                 JdbcMiniappDeliveryDeviceQueryRepository
                         .FIND_CURRENT_ASSET_SQL
@@ -77,7 +77,10 @@ class JdbcMiniappDeliveryDeviceQueryRepositorySqlTest {
                         "order by latest.version_no desc",
                         "trusted_runtime_edge_event_id",
                         "trusted_runtime_received_at",
-                        "orange_pi_reported_config_version_no");
+                        "runtime.applied_config_version_no",
+                        "runtime.applied_config_content_sha256",
+                        "runtime.applied_mcu_payload_sha256")
+                .doesNotContain("orange_pi_reported_config");
         assertThat(ports)
                 .contains(
                         "trusted_runtime_edge_event_id",

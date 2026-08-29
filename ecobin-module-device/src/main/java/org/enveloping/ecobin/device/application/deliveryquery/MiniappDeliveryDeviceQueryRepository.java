@@ -54,9 +54,9 @@ interface MiniappDeliveryDeviceQueryRepository {
             String trustedRuntimeEdgeEventType,
             Long trustedRuntimeSequence,
             LocalDateTime trustedRuntimeReceivedAt,
-            Long orangePiReportedConfigurationVersion,
-            byte[] orangePiReportedConfigurationContentSha256,
-            byte[] orangePiReportedConfigurationMcuPayloadSha256) {
+            Long progressAppliedConfigurationVersion,
+            byte[] progressAppliedConfigurationContentSha256,
+            byte[] progressAppliedConfigurationMcuPayloadSha256) {
     }
 
     record PortSnapshotRow(

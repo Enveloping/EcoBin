@@ -283,6 +283,221 @@ class OneNetEventDispatcherTest {
     }
 
     @Test
+    void fixedFrameRuntimeWithVerifiedFirmwareIdentityIsAccepted()
+            throws Exception {
+        ObjectNode wireExample = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "device-runtime-snapshot.event-wire.json")));
+        ObjectNode wire = (ObjectNode) wireExample.path("oneJsonPayload")
+                .path("params")
+                .path("deviceRuntimeSnapshot")
+                .path("value");
+        wire.put("mcuFirmwareVersion", "1.2.3");
+        ObjectNode wireIdentity =
+                (ObjectNode) wire.path("mcuFirmwareIdentity");
+        wireIdentity.put("firmwareVersion", "1.2.3");
+        wireIdentity.put("firmwareVersionCode", 10_203);
+        wireIdentity.put(
+                "firmwareIdentityHex", "0102030405060708");
+        wire.put("uartProtocolMajorPresent", false);
+        wire.put("uartProtocolMinorPresent", false);
+        wire.path("ports").forEach(portNode -> {
+            ObjectNode port = (ObjectNode) portNode;
+            port.put("weightValueKind", 5);
+            port.put("weightSampleCount", 1);
+        });
+
+        ObjectNode semantic = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "device-runtime-snapshot.event.json")));
+        ObjectNode payload = (ObjectNode) semantic.path("payload");
+        payload.put("mcuFirmwareVersion", "1.2.3");
+        ObjectNode identity =
+                (ObjectNode) payload.path("mcuFirmwareIdentity");
+        identity.put("firmwareVersion", "1.2.3");
+        identity.put("firmwareVersionCode", 10_203);
+        identity.put("firmwareIdentityHex", "0102030405060708");
+        payload.putNull("uartProtocolMajor");
+        payload.putNull("uartProtocolMinor");
+        payload.path("ports").forEach(portNode -> {
+            ObjectNode port = (ObjectNode) portNode;
+            port.put("weightValueKind", "LAST_OBSERVED");
+            port.put("weightSampleCount", 1);
+        });
+        wire.put(
+                "payloadSha256",
+                OneNetCanonicalJson.payloadSha256(
+                        objectMapper.convertValue(payload, Map.class)));
+        String decrypted = """
+                {
+                  "msgType": "thingEvent",
+                  "subData": {
+                    "productId": "%s",
+                    "deviceName": "%s",
+                    "params": %s
+                  }
+                }
+                """.formatted(
+                PRODUCT_ID,
+                HARDWARE_SN,
+                wireExample.path("oneJsonPayload")
+                        .path("params").toString());
+
+        dispatcher.handle(
+                decrypted,
+                "mq-fixed-frame-runtime-with-f3-identity",
+                RAW_TRANSPORT);
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort).receive(captor.capture());
+        JsonNode normalized = objectMapper.readTree(
+                captor.getValue().normalizedPayload());
+        JsonNode normalizedPayload =
+                normalized.path("event").path("payload");
+        assertThat(normalizedPayload.path("mcuFirmwareVersion").asText())
+                .isEqualTo("1.2.3");
+        assertThat(normalizedPayload.path("mcuFirmwareIdentity")
+                .path("fixedFrameRevision").asInt()).isEqualTo(2);
+        assertThat(normalizedPayload.path("uartProtocolMajor").isNull())
+                .isTrue();
+        assertThat(normalizedPayload.path("uartProtocolMinor").isNull())
+                .isTrue();
+        assertThat(normalizedPayload.path("ports").get(0)
+                .path("weightValueKind").asText())
+                .isEqualTo("LAST_OBSERVED");
+    }
+
+    @Test
+    void legacyFixedFrameRuntimeWithoutFirmwareIdentityRemainsAccepted()
+            throws Exception {
+        ObjectNode wireExample = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "device-runtime-snapshot.event-wire.json")));
+        ObjectNode wire = (ObjectNode) wireExample.path("oneJsonPayload")
+                .path("params")
+                .path("deviceRuntimeSnapshot")
+                .path("value");
+        wire.put("mcuFirmwareVersion", "fixed-frame-compat");
+        wire.remove("mcuFirmwareIdentityPresent");
+        wire.remove("mcuFirmwareIdentity");
+        wire.put("uartProtocolMajorPresent", false);
+        wire.put("uartProtocolMinorPresent", false);
+        wire.path("ports").forEach(portNode -> {
+            ObjectNode port = (ObjectNode) portNode;
+            port.put("weightValueKind", 5);
+            port.put("weightSampleCount", 0);
+        });
+
+        ObjectNode semantic = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "device-runtime-snapshot.event.json")));
+        ObjectNode payload = (ObjectNode) semantic.path("payload");
+        payload.put("mcuFirmwareVersion", "fixed-frame-compat");
+        payload.remove("mcuFirmwareIdentity");
+        payload.putNull("uartProtocolMajor");
+        payload.putNull("uartProtocolMinor");
+        payload.path("ports").forEach(portNode -> {
+            ObjectNode port = (ObjectNode) portNode;
+            port.put("weightValueKind", "LAST_OBSERVED");
+            port.put("weightSampleCount", 0);
+        });
+        wire.put(
+                "payloadSha256",
+                OneNetCanonicalJson.payloadSha256(
+                        objectMapper.convertValue(payload, Map.class)));
+        String decrypted = """
+                {
+                  "msgType": "thingEvent",
+                  "subData": {
+                    "productId": "%s",
+                    "deviceName": "%s",
+                    "params": %s
+                  }
+                }
+                """.formatted(
+                PRODUCT_ID,
+                HARDWARE_SN,
+                wireExample.path("oneJsonPayload")
+                        .path("params").toString());
+
+        dispatcher.handle(
+                decrypted,
+                "mq-legacy-fixed-frame-runtime",
+                RAW_TRANSPORT);
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort).receive(captor.capture());
+        JsonNode normalized = objectMapper.readTree(
+                captor.getValue().normalizedPayload());
+        JsonNode normalizedPayload =
+                normalized.path("event").path("payload");
+        assertThat(normalizedPayload.path("mcuFirmwareVersion").asText())
+                .isEqualTo("fixed-frame-compat");
+        assertThat(normalizedPayload.has("mcuFirmwareIdentity")).isFalse();
+        assertThat(normalizedPayload.path("uartProtocolMajor").isNull())
+                .isTrue();
+        assertThat(normalizedPayload.path("ports").get(0)
+                .path("weightValueKind").asText())
+                .isEqualTo("LAST_OBSERVED");
+    }
+
+    @Test
+    void runtimeSnapshotRequiresCompleteUartProtocolVersionPair()
+            throws Exception {
+        ObjectNode wireExample = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "device-runtime-snapshot.event-wire.json")));
+        ObjectNode wire = (ObjectNode) wireExample.path("oneJsonPayload")
+                .path("params")
+                .path("deviceRuntimeSnapshot")
+                .path("value");
+        wire.put("uartProtocolMajorPresent", false);
+
+        ObjectNode semantic = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "device-runtime-snapshot.event.json")));
+        ObjectNode payload = (ObjectNode) semantic.path("payload");
+        payload.putNull("uartProtocolMajor");
+        wire.put(
+                "payloadSha256",
+                OneNetCanonicalJson.payloadSha256(
+                        objectMapper.convertValue(payload, Map.class)));
+        String decrypted = """
+                {
+                  "msgType": "thingEvent",
+                  "subData": {
+                    "productId": "%s",
+                    "deviceName": "%s",
+                    "params": %s
+                  }
+                }
+                """.formatted(
+                PRODUCT_ID,
+                HARDWARE_SN,
+                wireExample.path("oneJsonPayload")
+                        .path("params").toString());
+
+        OneNetPermanentMessageException exception = assertThrows(
+                OneNetPermanentMessageException.class,
+                () -> dispatcher.handle(
+                        decrypted,
+                        "mq-runtime-incomplete-uart-version",
+                        RAW_TRANSPORT));
+
+        assertThat(exception).hasMessage(
+                "UART protocol version fields differ");
+        verify(inboxPort, never()).receive(any());
+    }
+
+    @Test
     void deviceLifecycleNotificationBecomesPlatformScopedReliableFact()
             throws Exception {
         dispatcher.handle(

@@ -2183,20 +2183,21 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                                 4L, "INCOMPATIBLE",
                                 5L, "FAULT"),
                         "uartState"));
-        payload.put(
+        Long uartProtocolMajor = nullablePresenceInteger(
+                wire,
+                "uartProtocolMajorPresent",
                 "uartProtocolMajor",
-                nullablePresenceInteger(
-                        wire,
-                        "uartProtocolMajorPresent",
-                        "uartProtocolMajor",
-                        false));
-        payload.put(
+                false);
+        Long uartProtocolMinor = nullablePresenceInteger(
+                wire,
+                "uartProtocolMinorPresent",
                 "uartProtocolMinor",
-                nullablePresenceInteger(
-                        wire,
-                        "uartProtocolMinorPresent",
-                        "uartProtocolMinor",
-                        false));
+                false);
+        if ((uartProtocolMajor == null) != (uartProtocolMinor == null)) {
+            throw permanent("UART protocol version fields differ");
+        }
+        payload.put("uartProtocolMajor", uartProtocolMajor);
+        payload.put("uartProtocolMinor", uartProtocolMinor);
         payload.put(
                 "capabilityBitmapHex",
                 pattern(
@@ -2283,7 +2284,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         }
         List<Map<String, Object>> normalizedPorts = new ArrayList<>();
         boolean fixedFrameCompatibility =
-                "fixed-frame-compat".equals(mcuFirmwareVersion);
+                uartProtocolMajor == null && uartProtocolMinor == null;
         for (JsonNode port : ports) {
             normalizedPorts.add(runtimePort(
                     port, fixedFrameCompatibility));

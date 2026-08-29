@@ -96,13 +96,13 @@ final class MiniappDeliveryDeviceQueryPolicy {
                 && asset.configurationAppliedAt() != null
                 && java.util.Objects.equals(
                         asset.configurationVersion(),
-                        asset.orangePiReportedConfigurationVersion())
+                        asset.progressAppliedConfigurationVersion())
                 && java.util.Arrays.equals(
                         asset.configurationContentSha256(),
-                        asset.orangePiReportedConfigurationContentSha256())
+                        asset.progressAppliedConfigurationContentSha256())
                 && java.util.Arrays.equals(
                         asset.configurationMcuPayloadSha256(),
-                        asset.orangePiReportedConfigurationMcuPayloadSha256());
+                        asset.progressAppliedConfigurationMcuPayloadSha256());
     }
 
     record Evaluation(

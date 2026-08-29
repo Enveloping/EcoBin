@@ -1300,6 +1300,13 @@ fixed-frame 释放和禁止重放规则。
 每个阶段完成业务归并后，后端都创建该 `eventUid` 对应的唯一
 `confirmEdgeEvent`。
 
+面向小程序的“配置是否已经生效”和开始投递事务必须使用同一组可靠事实：当前最高配置、
+该配置应用记录精确为 `APPLIED`，并且 `configurationProgress` 形成的当前应用版本和双
+摘要与配置完全一致。`deviceRuntimeSnapshot.appliedConfig` 及其
+`orange_pi_reported_config_*` 投影只是可丢弃、可合并的诊断快照，允许为空或暂时落后；
+它不能替代可靠 `APPLIED`，也不能在可靠配置事实已齐全时继续返回
+`CONFIGURATION_NOT_APPLIED`、阻止扫码或阻止创建投递会话。
+
 #### 4.2.8 当前实现判断与保留任务
 
 香橙派当前 fixed-frame 正常路径已经实现：
@@ -3557,14 +3564,16 @@ outcome
 
 #### 4.13.4 fixed-frame 设备级兼容投影
 
-冻结 MCU 无法提供 HELLO、启动身份、固件版本、能力位或状态查询。项目负责人基于
-“当前首要目标是跑起来，无法取得的 MCU 状态按正常兼容投影”的原则确认：
+fixed-frame MCU 不提供 UART v1 的 HELLO、启动身份、协议版本、能力位或通用状态查询；
+revision 2 的 `F3` 只额外提供可校验的固件发布身份。项目负责人基于“当前首要目标是
+跑起来，无法取得的 MCU 状态按正常兼容投影”的原则确认：
 
 ```text
 edgeBootId          = 香橙派真实、持久的启动代次
 edgeVersion         = 香橙派实际软件版本
 mcuBootId           = edgeBootId
-mcuFirmwareVersion  = fixed-frame-compat
+mcuFirmwareVersion  = F3 校验成功时的真实版本，否则为 fixed-frame-compat
+mcuFirmwareIdentity = F3 校验成功时的完整 revision 2 身份，否则不携带
 uartProtocolMajor   = null
 uartProtocolMinor   = null
 capabilityBitmapHex = 0000000000000000
@@ -3573,9 +3582,18 @@ capabilityBitmapHex = 0000000000000000
 `mcuBootId=edgeBootId` 是 fixed-frame 适配层的兼容身份，只允许用于运行快照和本地兼容
 关联，不能放进真实 MCU 安全事件或故障事件中冒充 MCU 证据。
 
-协议版本为空、能力位为 0，明确表示没有原生 UART v1 协议和能力声明。后端识别
-`fixed-frame-compat + null protocol version` 后，不得因为能力位为 0 阻断业务；香橙派
-已经按照本文各服务确认的兼容语义承接实际控制。
+协议版本为空、能力位为 0，明确表示没有原生 UART v1 协议和能力声明。固件版本和
+`mcuFirmwareIdentity` 只用于发布追溯，不能作为 fixed-frame / UART v1 模式开关。
+后端必须只按协议版本对判断：
+
+- `uartProtocolMajor/uartProtocolMinor` 同时为空：fixed-frame；
+- 两者同时存在：按声明的 UART v1 语义校验；
+- 只有一个存在：报文形状永久错误，不能进入运行投影。
+
+因此 F3 查询成功、`mcuFirmwareVersion` 已变为真实版本时，仍须按 fixed-frame 接受
+`STABLE + LAST_OBSERVED + weightSampleCount=0..1`；只有无法取得可信 F3 身份时才使用
+`fixed-frame-compat` 兜底。后端不得因为能力位为 0 阻断业务；香橙派已经按照本文各服务
+确认的兼容语义承接实际控制。
 
 `uartState` 按香橙派直接可观测的串口链路填写：
 
