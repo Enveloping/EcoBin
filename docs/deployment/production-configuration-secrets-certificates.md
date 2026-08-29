@@ -117,6 +117,7 @@ defaultPlatformAdminEnabled=true
 externalMode=fake
 ecobinLogPath=/var/log/ecobin/backend
 miniappDeviceEntryBaseUrl=https://www.jinshoubao.com/device-entry/
+ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01
 onenetSubscriptionEnabled=false
 deviceEnrollmentEnabled=false
 remoteSupportEnabled=false
@@ -142,6 +143,7 @@ defaultPlatformAdminEnabled=true
 externalMode=real
 ecobinLogPath=/var/log/ecobin/backend
 miniappDeviceEntryBaseUrl=https://www.jinshoubao.com/device-entry/
+ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01
 TZ=UTC
 
 iotSubscriptionName=<OneNet北向订阅名称>
@@ -163,6 +165,11 @@ wechatPayPublicKeyPath=/run/secrets/wechatpay/pub_key.pem
 wechatPayNotifyBaseUrl=https://www.jinshoubao.com
 wechatPayTransferSceneId=1010
 ```
+
+`ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS` 是以英文逗号分隔的边缘软件
+允许列表。发布新香橙派运行时前，应保留仍在服役的旧版本并追加候选版本；设备提交的
+`edgeSoftwareVersion` 不在该列表时，机器验收会明确失败为
+`UNSUPPORTED_EDGE_SOFTWARE`，不能通过人工修改验收结果绕过。
 
 这里不允许出现 `wechatAppid`、`wechatSecret`、`miniappSecretStoreDirectory`、
 `wechatPayApiV3Key`、数据库密码或任何 COS/OneNet Secret。前面三项已经从当前设计中

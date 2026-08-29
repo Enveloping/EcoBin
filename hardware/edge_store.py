@@ -91,6 +91,7 @@ FACTORY_SEAL_TERMINAL_ERROR_CODES = frozenset({
     "FACTORY_SEAL_GENERATION_CONFLICT",
     "FACTORY_SEAL_OBSERVATION_CONFLICT",
 })
+FACTORY_SEAL_ACCEPTANCE_EVIDENCE_SCHEMA_VERSIONS = frozenset({3, 4})
 MCU_UPDATE_ACTIVE_STATES = frozenset({
     "QUEUED",
     "PACKAGE_FETCH_FAILED",
@@ -1939,7 +1940,8 @@ class EdgeStore:
                 != payload["acceptanceEvidenceSha256"]
                 or evidence_event.get("target")
                 != {"type": "DEVICE_ASSET", "uid": payload["hardwareSn"]}
-                or evidence.get("evidenceSchemaVersion") != 3
+                or evidence.get("evidenceSchemaVersion")
+                not in FACTORY_SEAL_ACCEPTANCE_EVIDENCE_SCHEMA_VERSIONS
                 or evidence.get("challengeUid")
                 != payload["acceptanceChallengeUid"]
                 or evidence.get("factoryBagRevision")
