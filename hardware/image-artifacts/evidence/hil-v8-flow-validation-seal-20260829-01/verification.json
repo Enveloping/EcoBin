@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "FLOW_VALIDATION",
+  "capturedAt": "2026-08-29T06:50:24Z",
+  "result": "PASS",
+  "scope": "SINGLE_CARD_LOCAL_HOTFIX_NOT_FORMAL_PRODUCTION_RELEASE",
+  "media": {
+    "serialNumber": "121220160204",
+    "writtenBytes": 2571108352,
+    "rawImageSha256": "4c95087f512f0fb3f1b995aea20200f8a617788b7019a69ea98ff18d0d463ae8",
+    "fullReadbackMatched": true
+  },
+  "device": {
+    "hardwareSn": "ECM0-PMBN59SWFXRW53761TNFKQ9D6G",
+    "assetId": 10,
+    "imageReleaseId": "single-card-candidate-20260827-01",
+    "tenantId": null,
+    "organizationId": null
+  },
+  "localAcceptance": {
+    "status": "PASSED",
+    "phase": "COMPLETE",
+    "revision": 45,
+    "factoryReportSha256": "343231537be6e8b0124809d3d5416e9a04b2eb057b32cd153ccbc970485fd315",
+    "hardwareConfigSha256": "6f7a1c838e759b841b60e555a2a3cb69f187be1b01d0541bf3b3b6e28f9894f6"
+  },
+  "cloudAcceptance": {
+    "status": "PASSED",
+    "generation": 2,
+    "evidenceSchemaVersion": 4,
+    "evidenceUid": "271ffe2a-cc0b-49cb-87f1-d88438899961"
+  },
+  "factorySeal": {
+    "status": "SEALED",
+    "localSchemaVersion": 2,
+    "authorizationCommandUid": "5383d4d3-de3e-4833-95ba-8707e2b2a63d",
+    "authorizationBindingSha256": "c7c067758acfe429a1f83c0ad12d3cc9c2ebcef487816934f79978b29d23c523",
+    "operatorConfirmationUid": "846c3138-d410-4009-868f-ddf9d27e10af",
+    "sealedAt": "2026-08-29T06:20:08.567Z",
+    "cleanupCompletedAt": "2026-08-29T06:20:09.036Z",
+    "completionClockQuality": "SYNCED",
+    "completionEventUid": "09bb369e-014d-4f39-a662-22fc379d428c",
+    "localCompletionEventState": "CONFIRMED",
+    "localPlatformCode": 200,
+    "backendAuthorizationStatus": "SEALED",
+    "backendCompletionReceivedAt": "2026-08-29T06:20:10.128Z"
+  },
+  "sealedColdBoot": {
+    "bootId": "de5b4ef1-4a31-42b5-95aa-f53f671beddf",
+    "runtimeStartedAt": "2026-08-29T06:36:51Z",
+    "hardwareServiceState": "ACTIVE_RUNNING",
+    "hardwareServiceMainPid": 1843,
+    "hardwareServiceRestartCount": 0,
+    "factoryPortalState": "INACTIVE",
+    "factoryAccessPointState": "INACTIVE",
+    "wlan0State": "DOWN",
+    "hostapdRunning": false,
+    "dnsmasqRunning": false,
+    "cellularIpv4": "192.168.10.2/24",
+    "ntpSynchronized": true,
+    "chronyStratum": 3,
+    "chronyLeapStatus": "NORMAL",
+    "mqttConnected": true,
+    "mqttSubscriptionsAcknowledged": true,
+    "oneNetPostRepliesObserved": true,
+    "backendTransportStatus": "ONLINE",
+    "backendTransportEvidenceSource": "LIFECYCLE_EVENT",
+    "backendTransportReceivedAt": "2026-08-29T06:36:51.072Z"
+  },
+  "resolvedIncidents": [
+    {
+      "code": "ACCEPTANCE_EVIDENCE_SCHEMA_V4_REJECTED",
+      "deviceFixCommit": "00af96dc",
+      "backendRecoveryFixCommit": "cb9952c0",
+      "firstGenerationPreservedAs": "CANCELLED"
+    },
+    {
+      "code": "PLAIN_HTTP_CRYPTO_RANDOM_UUID_UNAVAILABLE",
+      "portalFixCommit": "8e83f997",
+      "deployedPortalAppSha256": "70ed85f40d3ac3862f1d0d4cc274585f4cc027bd7f4d5d19b4806c6ff498e959"
+    }
+  ],
+  "verification": {
+    "hardwareTestsPassed": 980,
+    "hardwareTestsSkipped": 46,
+    "hardwareSubtestsPassed": 5,
+    "localSealAndSqliteAuthorizationMatched": true,
+    "completionEventAndBackendAuthorizationMatched": true,
+    "sealPersistedAcrossColdBoot": true,
+    "factoryNetworkDidNotReopen": true,
+    "formalRuntimeAutomaticallyRecovered": true,
+    "oneNetOnlineFactObservedByBackend": true
+  },
+  "pendingIndependentGates": [
+    "PHYSICAL_HIL",
+    "ONENET_THING_MODEL_TARGET_PRODUCT_IMPORT",
+    "CLEAN_FULL_REBUILD_WITH_CURRENT_PACKAGE_LOCK",
+    "INDEPENDENT_SIGNED_RELEASE_TRUST_POLICY",
+    "FORMAL_PRODUCTION_MEDIA_QUALIFICATION"
+  ],
+  "evidenceIntegrity": {
+    "signatureState": "UNSIGNED_LOCAL_DIAGNOSTIC",
+    "containsProtectedInputValues": false,
+    "containsProtectedInputDigests": false
+  }
+}
