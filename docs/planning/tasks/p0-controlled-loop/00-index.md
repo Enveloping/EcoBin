@@ -34,6 +34,23 @@ implementation_authorized: false
 | 风险目标 | 2026-07-30 只用于风险排序，不构成 G1、G2 或 M0 承诺 |
 | 权威依赖来源 | [第 08 章](../../detailed-design/08-implementation-sequence.md) |
 
+## 当前正常续作顺序（2026-08-29）
+
+以下只是根据现状整理执行顺序，不自动授权尚未授权的代码、外部配置或切换操作：
+
+1. 先将 `contracts/onenet/generated/onenet-thing-model.candidate.json` 导入目标 OneNet
+   产品并保存，核对结果为 15 个服务、18 个事件、0 个属性、33 个功能点，再验证设备
+   上报字段。这是 H-03 当前唯一紧邻的人工控制台动作。
+2. 然后恢复 COS 配置迁移和 V60 新后端/CDB 的正式连接、TLS 与 readiness 准备。当前
+   后端仍在旧 V59 数据库写入，新 CDB 按既定决定不迁移旧业务数据；在明确切换授权前，
+   不停止旧入口，也不把当前设备的永久归属只写进即将退出的旧库。
+3. V60 新域正式启用后，按新空库重新建立必要的租户、机构、渠道与设备事实，再重定基线
+   已过时的 V-03 任务并取得实施授权。正常业务接入是平台一次性永久分配租户、租户一次性
+   永久分配机构、配置可靠落盘并激活、初始空袋基准可用；反向 SSH 只是按需维护手段，不是
+   每台设备正常接入的必经步骤。
+4. `PHYSICAL_HIL`、量产介质资格和正式发布信任仍是独立放行门，不因流程验证通过而自动
+   完成。
+
 ## 初始工作量审查
 
 | executor | 任务数 | 工作量 |
@@ -111,7 +128,7 @@ agent | human | mixed
 |---|---|---|---|---|
 | H-01 | [旧栈恢复单元和所有权清单](h-01-legacy-stack-recovery-baseline.md) | `done` | `human` | 无 |
 | H-02 | [目标数据库身份与环境供应](h-02-target-database-identities-environment.md) | `done` | `human` | F-06 |
-| H-03 | [固定帧 MCU 线路与真机基础验收](h-03-fixed-frame-mcu-hil-acceptance.md) | `in-progress` | `human` | v8 写卡和 P7 流程正确性验证已留证，MCU 数据来源不改变后续接入路径；继续验证联网、注册、P8 与封存，真实硬件资格另行验收 |
+| H-03 | [固定帧 MCU 线路与真机基础验收](h-03-fixed-frame-mcu-hil-acceptance.md) | `in-progress` | `human` | v8 写卡、P7/P8、联网注册、封存冷启和远程维护完整生命周期均已留证；下一步导入 OneNet 15 服务 / 18 事件候选，独立量产放行门另行验收 |
 | H-04 | [真实 Native 充值](h-04-real-native-recharge.md) | `blocked` | `human` | V-09、`EXT-WECHAT-NATIVE-READY` |
 | H-05 | [真实商家转账与微信零钱到账](h-05-real-merchant-transfer.md) | `blocked` | `human` | V-10、H-04、`EXT-WECHAT-TRANSFER-READY` |
 | H-06 | [成对切换、回退演练与 M0 签署](h-06-paired-cutover-m0-signoff.md) | `blocked` | `human` | H-01、H-02、H-03、H-04、H-05、F-07、F-12、V-05、V-06、V-07、V-08、V-09、V-10、V-11 |
@@ -347,3 +364,8 @@ M0_COMPLETE
   回读 SHA-256 与源镜像一致并形成 `PASS` 证据。当前共 `done` 15、`ready` 1、
   `in-progress` 1、`blocked` 12；下一步执行空白冷启动、Air780E、注册、运行时和真机
   固定帧证据。
+- 2026-08-29：H-03 的空白冷启动、Air780E、注册、P7/P8、单向封存、封存后冷启动和
+  Web 反向 SSH 已走完成功流程；远程会话又自然到期并完整清理租约、监听和设备进程。
+  当前候选已复核为 15 服务 / 18 事件 / 33 个功能点，下一项紧邻人工动作是导入 OneNet
+  目标产品并保存验证。随后项目级顺序回到 COS 与 V60 空库切换准备；V-03 在重定基线并
+  获得授权前仍保持 `blocked`。

@@ -154,3 +154,8 @@ journalctl -u ecobin-hardware.service -n 200 --no-pager
 
 OneNet 端必须先导入包含以上两项服务和一项事件的候选物模型。服务器租约和
 AuthorizedKeysCommand 不是设备侧职责；在服务器闭环未部署前不得开启后端远程维护功能开关。
+
+真机部署若出现 `CONNECT_TIMEOUT`、控制面已经 `OPEN` 但跳板回环端口没有 SSH 标识，
+或规则生效后又被覆盖，使用
+[反向 SSH 远程维护排障与验收手册](../../docs/operations/remote-support-reverse-ssh-troubleshooting.md)
+核对精确防火墙例外、两个规则写入者、真实数据面和自然到期清理。

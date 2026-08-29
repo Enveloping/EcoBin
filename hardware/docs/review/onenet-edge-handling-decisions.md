@@ -1,8 +1,8 @@
-# OneNet 11 服务 / 15 事件处理决策记录
+# OneNet 15 服务 / 18 事件处理决策记录
 
 > 状态：持续更新
 > 建立日期：2026-07-29
-> 适用范围：当前 OneNet v2 的 11 服务 / 15 事件物模型、香橙派 `fixed-frame`
+> 适用范围：当前 OneNet v2 的 15 服务 / 18 事件物模型、香橙派 `fixed-frame`
 > 现行设备资产链路及其后端闭环
 > 决策方式：项目负责人逐项确认；未标记“已确认”的条目不得从讨论稿推导实现要求
 
@@ -58,7 +58,7 @@
 
 ## 1. 已确认的共同前提
 
-1. 当前机器契约是 OneNet v2 的 11 服务 / 15 事件模型；旧模型和旧部署身份不提供
+1. 当前机器契约是 OneNet v2 的 15 服务 / 18 事件模型；旧模型和旧部署身份不提供
    兼容入口。
 2. 当前 MCU 已冻结，无法增加协议能力，也无法取得协议没有提供的其他物理状态。
 3. 当前首要目标是先让现有硬件和三端业务跑起来。为适配冻结 MCU，香橙派可以在
@@ -85,7 +85,11 @@
 | 8 | `confirmEdgeEvent` | 已确认 |
 | 9 | `providePhotoUploadGrant` | 已确认 |
 | 10 | `requestDeviceAcceptance` | 已确认并于 V36 实现 |
-| 11 | `syncDeviceEntryUrl` | 已确认，V42 新增 |
+| 11 | `authorizeFactorySeal` | 已确认并实现 |
+| 12 | `syncDeviceEntryUrl` | 已确认，V42 新增 |
+| 13 | `startMcuFirmwareUpdate` | 已确认并于 V55 实现 |
+| 14 | `openRemoteSupportTunnel` | 已确认并于 V52 实现 |
+| 15 | `closeRemoteSupportTunnel` | 已确认并于 V52 实现 |
 
 ### 2.2 事件
 
@@ -106,6 +110,9 @@
 | 13 | `businessConfirmationReceipt` | 已确认 |
 | 14 | `deviceRuntimeSnapshot` | 已确认 |
 | 15 | `deviceAcceptanceEvidence` | 已确认并于 V36 实现 |
+| 16 | `remoteSupportTunnelStatus` | 已确认并于 V52 实现 |
+| 17 | `mcuFirmwareUpdateProgress` | 已确认并于 V55 实现 |
+| 18 | `factorySealCompleted` | 已确认并实现 |
 
 ### 2.3 V36 自动机器验收
 

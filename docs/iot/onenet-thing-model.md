@@ -1,8 +1,9 @@
 # EcoBin OneNet 物模型设计
 
-> 面向中国移动 OneNet 平台的设备物模型定义，供 OneNet 控制台导入与设备固件、后端对接共同遵循。
-> 本文是「物模型字段口径」的单一来源：物模型功能点标识符与后端 `/api/iot/**` DTO 字段一一对齐，避免数据转发时再做字段映射。
-> 初版：2026-06-09。**物模型结构以 `docs/iot/onenet-thing-model.json` 为单一来源**（已导入 OneNet 控制台）；本文表格仅用于「功能点 ↔ 后端字段」口径对齐，dataType/specs 细节一律以 .json 为准。
+> 面向中国移动 OneNet 平台的设备物模型说明，保留早期联调字段和历史演进背景。
+> 当前机器契约的单一来源是 `contracts/onenet/thing-model.mapping.yaml`，控制台导入件是
+> `contracts/onenet/generated/onenet-thing-model.candidate.json`；本文和
+> `docs/iot/onenet-thing-model.json` 均不得覆盖该机器来源。初版：2026-06-09。
 > 下行真实接入已打通（2026-06-13）：凭证（product_id / access_key）现保存在 Git
 > 忽略的本地 secrets YAML，服务调用 API 与鉴权已据官方文档确认（见 §3.5 /
 > `docs/references/设备服务调用.md`、`安全鉴权.md`）。
@@ -182,10 +183,11 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 
 ### 3.6 当前在线状态与下发结果口径（2026-08-02）
 
-当前 9 服务 / 13 事件目标契约以
-`contracts/onenet/generated/onenet-thing-model.candidate.json` 为机器生成候选，控制台已确认
-包含 `confirmEdgeEvent`。本文件前述 3 服务表格保留早期联调历史，不应再用于缩减当前
-控制台物模型。
+当前目标契约为 **15 个服务、18 个事件、0 个属性，共 33 个功能点**，以
+`contracts/onenet/generated/onenet-thing-model.candidate.json` 为机器生成候选。
+2026-08-29 已通过生成一致性、平台边界、三语言向量和全部线级样例的本地验证；目标
+OneNet 产品仍需实际导入、保存并复核上报字段。本文件前述 3 服务表格保留早期联调历史，
+不应再用于缩减当前控制台物模型。
 
 - OneNet 北向 `deviceOnline` / `deviceOffline` 是资产级传输状态的唯一事实来源，通过
   已有 Pulsar 订阅进入后端，不需要公网 HTTP 回调。
@@ -267,7 +269,11 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 
 ## 5. OneNet 物模型导入 JSON
 
-> **导入文件**：**`docs/iot/onenet-thing-model.json`**（已按 OneNet 控制台格式校验，可直接上传）。本文不再内嵌 JSON 副本以免脱节，功能点结构以 §2/§3/§4 表格为准。
+> **当前导入文件**：
+> **`contracts/onenet/generated/onenet-thing-model.candidate.json`**。2026-08-29 候选为
+> 15 个服务、18 个事件、0 个属性，共 33 个功能点，大小 `260285` bytes、LF 换行，已通过
+> 本地平台边界校验。`docs/iot/onenet-thing-model.json` 是早期联调快照，不得再导入为
+> 当前模型。详细操作和验收项见 `contracts/MANUAL-VALIDATION.md`。
 >
 > OneNet 格式要点（实测踩坑）：
 > - 每个功能点（属性/服务/事件）必须带 `functionType`（自定义填 `"u"`）；事件输出字段用 `outputData`（非 `output`）。
@@ -313,7 +319,9 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 3. **清运 `userId` 来源**：已定为**小程序扫码登录态**——`openCleanDoor` 创建记录时由后端 `SecurityUtils` 取登录清运员写入清运记录，设备不再上报 `userId`（现仅支持小程序扫码登录）。
 4. **`cleanOrderId` 幂等**：清运毛重以历史字段 `cleanOrderId` 为幂等键（每条清运记录只接受一次毛重，重复上报不覆盖），取代原设备生成的 `reportSn`。设备只需原样回传开门下发的 `cleanOrderId`。
 5. ~~**下发 API 规格**~~ ✅ **已确认并接通（2026-06-13）**：AIoT 融合平台「设备服务调用」`POST https://iot-api.heclouds.com/thingmodel/call-service`，token `res=products/{productId}`+sha256，详见 §3.5。凭证已填本地 secrets YAML。剩：平台 `code=0` 受理后，命令到设备需设备在线，端到端待真实设备/模拟器确认。
-6. ~~**物模型 schema 校验**~~ ✅ 已导入 OneNet 控制台（`docs/iot/onenet-thing-model.json` 为单一来源）。
+6. **当前物模型生效**：15 服务 / 18 事件候选的本地 schema 与平台边界校验已经通过；
+   仍需把生成候选实际导入目标 OneNet 产品、保存并复核上报字段，不能用早期
+   `docs/iot/onenet-thing-model.json` 的历史导入代替。
 
 ---
 

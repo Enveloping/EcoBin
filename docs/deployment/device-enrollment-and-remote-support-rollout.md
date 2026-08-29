@@ -316,7 +316,10 @@ ssh-keygen -t ed25519 -f ~/.ssh/ecobin-maintenance
 8. 再测试独立代理重启、服务器重启、证书过期、错误 principal、错误 Host Key、撤销管理员公钥和第五个
    并发会话；关闭离线设备时也应在 actual 消失后及时释放端口。
 
-真实验收详细安全项见 `tools/remote-support/README.md`。
+真实验收详细安全项见 `tools/remote-support/README.md`。H616/Air780E 上已经复现过的
+conntrack `invalid`、双防火墙写入者覆盖和“控制面 OPEN 但数据面未通”等问题，按
+[反向 SSH 远程维护排障与验收手册](../operations/remote-support-reverse-ssh-troubleshooting.md)
+的固定顺序检查。
 
 ## 10. 回退和故障处理
 

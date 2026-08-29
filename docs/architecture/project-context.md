@@ -100,7 +100,8 @@
 > SSH 端口增加双向精确例外，并把它们分别放在 `invalid-output`、`invalid-input` 之前；
 > 返回例外匹配的是跳板 SSH **源端口**，不开放设备 22 端口。生产防火墙同时由蜂窝协调器
 > 和首次启动封存清理协调，更新规则实现时必须重启两者并跨协调周期复核，避免常驻进程用
-> 内存中的旧模块覆盖新规则。
+> 内存中的旧模块覆盖新规则。完整故障矩阵、诊断顺序和安全部署边界见
+> [`反向 SSH 远程维护排障与验收手册`](../operations/remote-support-reverse-ssh-troubleshooting.md)。
 
 > [!IMPORTANT]
 > 2026-08-17 已重新冻结并实施 V53 投递自动审核与审核后自动提现。机构可选择全部
@@ -212,7 +213,7 @@
 > 2026-08-02：满溢准入已切换到 V25“设备被动上报、只有当前袋明确 `FULL` 才阻止下一次投递”。后端不再为投递/清运创建检测 gate 或主动下发 `SAMPLE_FULLNESS`；无上报、失败或旧袋结果不新增阻断，新袋默认 `NOT_FULL`。投递选项与开始接口使用同一当前袋 `FULL` 事实。完整裁决见 [`fullness-reporting-v25.md`](fullness-reporting-v25.md)，本文及旧规划中相反描述均由该裁决覆盖。
 
 > [!IMPORTANT]
-> 2026-07-28：需求、P0 范围、业务模型、系统架构、数据库设计、接口设计和详细设计修订已确认。H-01、H-02、F-01～F-11、V-01、V-02 已完成；V-02 的个人主体和开发版微信限制已由项目负责人接受，设备来源归因由非阻塞 P0-FOLLOWUP-01 延期跟踪。H-03、V-09 为 `ready` 但尚未授权。F-11 的 SQLite v4、OneNet 命令受理、固定帧 MCU 适配、照片/COS 和故障自动测试已按负责人接受的当前范围转为 `done`。后续真实双摄验证发现数字索引会重复选择 DECXIN，现已改用稳定 `by-id` 路径并通过真实 STS 上传和 URL 下载验收；项目负责人决定暂不继续处理香橙派当时的默认路由/DNS 波动。项目负责人确认现有 MCU 使用协商后的固定帧协议，香橙派保留云端契约；对 MCU 不支持的能力，按逐项决策采用香橙派本地保存、fixed-frame 正常兼容投影或明确拒绝/失败，不增加物理命令重发、MCU 作业重启恢复或双事实安全锁；真实线路和执行器验收归 H-03。2026-07-29 又确认当前 OneNet 控制台已经是 9 服务 / 13 事件版本，并以“先跑起来”为首要目标：冻结 MCU 无法提供的状态允许由 fixed-frame 兼容层构造；`applyConfiguration` 只要由香橙派可靠保存并设为活动配置即可返回成功和 `APPLIED`，不要求真实下发 MCU。逐项决策持续记录在 [`onenet-edge-handling-decisions.md`](../../hardware/docs/review/onenet-edge-handling-decisions.md)。其他任务仍须逐项授权，`ready` 只表示依赖允许领取。正式上游依次为
+> 2026-07-28：需求、P0 范围、业务模型、系统架构、数据库设计、接口设计和详细设计修订已确认。H-01、H-02、F-01～F-11、V-01、V-02 已完成；V-02 的个人主体和开发版微信限制已由项目负责人接受，设备来源归因由非阻塞 P0-FOLLOWUP-01 延期跟踪。H-03、V-09 为 `ready` 但尚未授权。F-11 的 SQLite v4、OneNet 命令受理、固定帧 MCU 适配、照片/COS 和故障自动测试已按负责人接受的当前范围转为 `done`。后续真实双摄验证发现数字索引会重复选择 DECXIN，现已改用稳定 `by-id` 路径并通过真实 STS 上传和 URL 下载验收；项目负责人决定暂不继续处理香橙派当时的默认路由/DNS 波动。项目负责人确认现有 MCU 使用协商后的固定帧协议，香橙派保留云端契约；对 MCU 不支持的能力，按逐项决策采用香橙派本地保存、fixed-frame 正常兼容投影或明确拒绝/失败，不增加物理命令重发、MCU 作业重启恢复或双事实安全锁；真实线路和执行器验收归 H-03。2026-07-29 又确认当时 OneNet 控制台为 9 服务 / 13 事件版本，并以“先跑起来”为首要目标：冻结 MCU 无法提供的状态允许由 fixed-frame 兼容层构造；`applyConfiguration` 只要由香橙派可靠保存并设为活动配置即可返回成功和 `APPLIED`，不要求真实下发 MCU。该数量仅是历史快照；当前候选已经演进为 15 服务 / 18 事件。逐项决策持续记录在 [`onenet-edge-handling-decisions.md`](../../hardware/docs/review/onenet-edge-handling-decisions.md)。其他任务仍须逐项授权，`ready` 只表示依赖允许领取。正式上游依次为
 > [`requirements-baseline.md`](../planning/requirements-baseline.md)、
 > [`p0-scope-baseline.md`](../planning/p0-scope-baseline.md) 和
 > [`business-model-baseline.md`](../planning/business-model-baseline.md)，冻结的系统结构见
@@ -336,7 +337,11 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
 - 2026-07-23 已正式确认 [`I-046～I-050`](../planning/interface-design/10-uart-protocol-i046-i050.md)：UART 1.0 使用 `0xEC42`、最大 256 字节、big-endian 和 CRC-16/CCITT-FALSE 的有界二进制帧；启动先 HELLO/QUERY_STATE，命令 ACK 与物理结果分层，关键 MCU 事件提交边缘 SQLite 后才 ACK。`txSequence`、`mcuCommandUid`、`mcuBootId + mcuEventSequence` 和云端作业身份互不替代，任一端重启都禁止自动重放旧开门。
 - 投递和清运照片统一为设备直传 COS。对象 key 由设备在 `ecobin/{workType}/{workUid}/` 授权前缀内生成，不放入永久公开码或任何设备凭证；临时凭证只在发送时附加且不进入稳定摘要/日志。完成事件回传四个槽位状态，尚未上传完成的槽位 URL 为空；上传完成后再由照片状态事件回传可信 URL。
 - Jackson 使用 Spring Boot 4 的 Jackson 3 包 `tools.jackson.databind`；不要在 framework 模块误用 `com.fasterxml.jackson.databind`。
-- 当前物模型与消息结构见 `docs/iot/onenet-thing-model.md` 和 `docs/iot/onenet-thing-model.json`，但它们是待替换的运行现状，不是目标契约。实施 I-041～I-045 时必须同步修改代码、JSON、Markdown 与 OneNet 控制台模型，禁止保留旧写协议作为生产兼容层。
+- 当前物模型机器来源是 `contracts/onenet/thing-model.mapping.yaml`，控制台导入件是
+  `contracts/onenet/generated/onenet-thing-model.candidate.json`，现为 15 服务 / 18 事件 / 0
+  属性。`docs/iot/onenet-thing-model.md` 和同目录 JSON 只保留早期联调背景，不能作为当前
+  导入源。修改契约时必须同步生成物、代码、说明和 OneNet 控制台模型，禁止保留旧写协议
+  作为生产兼容层。
 - I-019/I-020 的目标契约要求配置以版本和摘要分别证明“香橙派已可靠落盘”和“必要 MCU 项已同步”。当前 fixed-frame 阶段采用 2026-07-29 确认的运行优先例外：`applyConfiguration` 可靠保存并成为香橙派活动配置后即可返回成功及 `APPLIED`，允许构造兼容 `mcuCommandUid`；这不表示 MCU 已真实接收配置。具体边界见 [`onenet-edge-handling-decisions.md`](../../hardware/docs/review/onenet-edge-handling-decisions.md)。
 
 ## 4. 硬件侧当前上下文
@@ -383,7 +388,7 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
 - 固定帧实施记录和能力降级矩阵见
   `hardware/docs/review/fixed-frame-mcu-adapter-2026-07-27.md`；真实线路、屏幕和执行器
   行为仍由 H-03 验收，软件测试不得冒充真机能力。
-- 当前 OneNet v2 的 10 服务 / 15 事件逐项处理结论见
+- 当前 OneNet v2 的 15 服务 / 18 事件逐项处理结论见
   `hardware/docs/review/onenet-edge-handling-decisions.md`；后续讨论结果统一增量写入该文档。
 - 2026-07-11 迁移记忆时工作区已有用户修改：`hardware/main.py`、`hardware/pyproject.toml`，以及未跟踪的 `hardware/docs/`。这些不是 Codex 创建的，必须保留。
 

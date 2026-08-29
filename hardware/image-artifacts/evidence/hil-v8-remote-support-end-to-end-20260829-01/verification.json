@@ -78,6 +78,20 @@
     "tunnelPidChangedDuringObservation": false,
     "sessionExpiryExtendedForAcceptance": false
   },
+  "expiryCleanup": {
+    "observedAt": "2026-08-29T08:53:17Z",
+    "backendState": "EXPIRED",
+    "deviceReportedState": "EXPIRED",
+    "serverLeaseState": "ABSENT",
+    "failureCode": null,
+    "desiredPresent": false,
+    "actualPresent": false,
+    "loopbackListenerPresent": false,
+    "deviceTunnelProcessPresent": false,
+    "maintenanceLoginProcessPresent": false,
+    "portLeaseReleased": true,
+    "coreServicesActive": true
+  },
   "verification": {
     "focusedFirewallTestsPassed": 29,
     "hardwareTestsPassed": 993,
