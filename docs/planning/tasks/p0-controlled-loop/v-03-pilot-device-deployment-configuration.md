@@ -31,6 +31,10 @@ implementation_authorized: false
 > 可靠保存并激活配置即可形成当前阶段 `APPLIED`、按当前权威事实自动计算业务资格”，并
 > 同步验收标准和依赖。本提示不改变 `status: blocked` 或
 > `implementation_authorized: false`。
+>
+> 2026-08-29 当前现场只是在现用测试数据库/COS 上验证已经实现的永久归属和自动启用
+> 流程：平台分配测试租户，租户分配测试机构，随后观察配置 v1、`APPLIED` 和初始袋皮重。
+> 这项测试不需要等待生产 CDB/COS 迁移，也不表示按下方旧正文领取或完成 V-03。
 
 ## 目标
 

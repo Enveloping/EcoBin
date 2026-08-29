@@ -91,9 +91,24 @@
     "formalRuntimeAutomaticallyRecovered": true,
     "oneNetOnlineFactObservedByBackend": true
   },
+  "postCaptureConfirmations": {
+    "confirmedOn": "2026-08-29",
+    "oneNetThingModelTargetProductImport": {
+      "status": "CONFIRMED_COMPLETE_BY_PROJECT_OWNER",
+      "services": 15,
+      "events": 18,
+      "properties": 0,
+      "functionPoints": 33
+    },
+    "environmentClassification": {
+      "currentDatabase": "TEST",
+      "currentCos": "TEST",
+      "productionTreatmentBeginsAfterMigration": true,
+      "testBusinessDataWillBeMigrated": false
+    }
+  },
   "pendingIndependentGates": [
     "PHYSICAL_HIL",
-    "ONENET_THING_MODEL_TARGET_PRODUCT_IMPORT",
     "CLEAN_FULL_REBUILD_WITH_CURRENT_PACKAGE_LOCK",
     "INDEPENDENT_SIGNED_RELEASE_TRUST_POLICY",
     "FORMAL_PRODUCTION_MEDIA_QUALIFICATION"
