@@ -2171,6 +2171,16 @@ public class TargetDeviceApplication {
     private CommandResult<DeviceAssetView> reevaluateAcceptance(
             String hardwareSn) {
         Asset asset = asset(hardwareSn, true);
+        LocalDateTime now = databaseNow();
+        if (factorySealAuthorizations
+                .restartAcceptanceAfterRejectedAuthorization(
+                        asset.id(), now)) {
+            // A terminal device rejection proves that the old authorization
+            // was not accepted.  Keep that command cancelled and wait for a
+            // fresh device fact; never immediately reuse its bound evidence.
+            DeviceAssetView response = platformView(hardwareSn);
+            return changed(asset, response, null);
+        }
         // Acceptance evidence is append-only and the trusted ingest path locks
         // this same asset before inserting.  The asset lock therefore provides
         // the required serialization; locking the evidence row would also
@@ -2190,7 +2200,6 @@ public class TargetDeviceApplication {
                         rs.getString("failure_reasons_json"),
                         rs.getObject("received_at", LocalDateTime.class)),
                 asset.id()).stream().findFirst().orElse(null);
-        LocalDateTime now = databaseNow();
         if (evidence == null) {
             if (!"PASSED".equals(asset.acceptanceStatus())) {
                 jdbc.update("""

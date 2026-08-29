@@ -245,6 +245,83 @@ class FactorySealAuthorizationServiceTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void rejectedAuthorizationStartsAFreshAcceptanceCycle() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        var assetRow = mock(java.sql.ResultSet.class);
+        stubAsset(assetRow, "PASSED", 1L, 2L);
+        when(jdbc.query(
+                contains("FROM dev_device_asset"),
+                any(RowMapper.class),
+                any(Object[].class)))
+                .thenAnswer(invocation -> List.of(
+                        invocation.<RowMapper<Object>>getArgument(1)
+                                .mapRow(assetRow, 0)));
+        when(jdbc.query(
+                contains("factory-seal-reacceptance"),
+                any(RowMapper.class),
+                any(Object[].class))).thenReturn(List.of(51L));
+        when(jdbc.query(
+                contains("ORDER BY id"),
+                any(RowMapper.class),
+                any(Object[].class))).thenReturn(List.of());
+        when(jdbc.update(
+                contains("acceptance_status = 'PENDING'"),
+                any(Object[].class))).thenReturn(1);
+        FactorySealAuthorizationService service = service(
+                jdbc,
+                mock(PlatformDeviceAssetTaskRefFactory.class),
+                mock(ReliablePlatformDeviceControlTaskRegistrationPort.class),
+                mock(FactorySealReliableTaskPort.class));
+        LocalDateTime requestedAt = LocalDateTime.of(
+                2026, 8, 29, 5, 40);
+
+        assertThat(service.restartAcceptanceAfterRejectedAuthorization(
+                41L, requestedAt)).isTrue();
+
+        verify(jdbc).update(
+                contains("acceptance_status = 'PENDING'"),
+                eq(requestedAt),
+                eq(FactorySealAuthorizationService.REACCEPTANCE_REQUIRED),
+                eq(requestedAt),
+                eq(41L),
+                eq(1L),
+                any(byte[].class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void repeatedReacceptanceRequestWaitsForFreshDeviceEvidence()
+            throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        var assetRow = mock(java.sql.ResultSet.class);
+        stubAsset(assetRow, "PENDING", 1L, 2L);
+        when(jdbc.query(
+                contains("FROM dev_device_asset"),
+                any(RowMapper.class),
+                any(Object[].class)))
+                .thenAnswer(invocation -> List.of(
+                        invocation.<RowMapper<Object>>getArgument(1)
+                                .mapRow(assetRow, 0)));
+        when(jdbc.queryForObject(
+                contains("JSON_CONTAINS"),
+                eq(Integer.class),
+                any(Object[].class))).thenReturn(1);
+        FactorySealAuthorizationService service = service(
+                jdbc,
+                mock(PlatformDeviceAssetTaskRefFactory.class),
+                mock(ReliablePlatformDeviceControlTaskRegistrationPort.class),
+                mock(FactorySealReliableTaskPort.class));
+
+        assertThat(service.restartAcceptanceAfterRejectedAuthorization(
+                41L, LocalDateTime.of(2026, 8, 29, 5, 41))).isTrue();
+
+        verify(jdbc, never()).update(
+                contains("acceptance_status = 'PENDING'"),
+                any(Object[].class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void trustedReceivedObservationOnlyConfirmsTransportDelivery()
             throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);

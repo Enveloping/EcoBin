@@ -40,6 +40,10 @@ public class FactorySealAuthorizationService
     public static final String COMMAND_TYPE = "AUTHORIZE_FACTORY_SEAL";
     static final String EVIDENCE_NOT_LATEST =
             "ACCEPTANCE_EVIDENCE_NOT_LATEST";
+    static final String DEVICE_REJECTED_AUTHORIZATION =
+            "DEVICE_REJECTED_AUTHORIZATION";
+    static final String REACCEPTANCE_REQUIRED =
+            "FACTORY_SEAL_AUTHORIZATION_REJECTED";
     private static final String TARGET_TYPE = "DEVICE_ASSET";
     private static final String SHA256 = "^[0-9a-f]{64}$";
     private static final String UUID_V4 =
@@ -242,20 +246,117 @@ public class FactorySealAuthorizationService
                         WHERE asset_id = ?
                           AND NOT (
                               authorization_status = 'CANCELLED'
-                              AND cancellation_reason = ?
+                              AND cancellation_reason IN (?, ?)
                           )
                         ORDER BY id
                         FOR UPDATE
                         """,
                 (rs, ignored) -> rs.getLong("id"),
                 assetId,
-                EVIDENCE_NOT_LATEST);
+                EVIDENCE_NOT_LATEST,
+                DEVICE_REJECTED_AUTHORIZATION);
         if (!authorizations.isEmpty()) {
             throw new TargetApiException(
                     409,
                     "DEVICE.FACTORY_SEAL_AUTHORITY_ISSUED",
                     "封存授权已签发，不能再修改设备身份、验收事实或厂家袋；返工需先走显式撤销流程");
         }
+    }
+
+    /**
+     * Starts a new machine-acceptance cycle after the device durably rejected
+     * a pre-seal authorization.  The rejected command remains immutable and
+     * cancelled; a fresh device fact will advance the generation and create a
+     * different authorization command.  Repeated operator requests stay
+     * PENDING instead of reusing the evidence bound to the rejected command.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean restartAcceptanceAfterRejectedAuthorization(
+            long assetId,
+            LocalDateTime requestedAt) {
+        if (requestedAt == null) {
+            throw new IllegalArgumentException(
+                    "factory seal reacceptance time is required");
+        }
+        AssetSnapshot asset = lockAsset(assetId);
+        if ("PENDING".equals(asset.acceptanceStatus())) {
+            Integer waiting = jdbc.queryForObject("""
+                            SELECT COUNT(*)
+                            FROM dev_device_asset
+                            WHERE id = ?
+                              AND acceptance_status = 'PENDING'
+                              AND JSON_CONTAINS(
+                                  acceptance_failure_json,
+                                  JSON_QUOTE(?),
+                                  '$'
+                              )
+                            """,
+                    Integer.class,
+                    assetId,
+                    REACCEPTANCE_REQUIRED);
+            return waiting != null && waiting == 1;
+        }
+        if (!"PASSED".equals(asset.acceptanceStatus())
+                || asset.acceptanceGeneration() <= 0
+                || asset.acceptanceEvidenceSha256() == null
+                || asset.factoryBagSetSha256() == null) {
+            return false;
+        }
+
+        List<Long> rejected = jdbc.query("""
+                        /* factory-seal-reacceptance:terminal-rejection */
+                        SELECT id
+                        FROM dev_factory_seal_authorization
+                        WHERE asset_id = ?
+                          AND hardware_sn_snapshot = ?
+                          AND acceptance_generation = ?
+                          AND acceptance_evidence_sha256 = ?
+                          AND factory_bag_revision = ?
+                          AND factory_bag_set_sha256 = ?
+                          AND authorization_status = 'CANCELLED'
+                          AND cancellation_reason = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> rs.getLong("id"),
+                asset.id(),
+                asset.hardwareSn(),
+                asset.acceptanceGeneration(),
+                asset.acceptanceEvidenceSha256(),
+                asset.factoryBagRevision(),
+                asset.factoryBagSetSha256(),
+                DEVICE_REJECTED_AUTHORIZATION);
+        if (rejected.isEmpty()) {
+            return false;
+        }
+        if (rejected.size() != 1) {
+            throw new IllegalStateException(
+                    "current acceptance generation has multiple rejected "
+                            + "factory seal authorizations");
+        }
+
+        requireAcceptanceSnapshotMutable(assetId);
+        requireSingle(jdbc.update("""
+                        UPDATE dev_device_asset
+                        SET acceptance_status = 'PENDING',
+                            accepted_at = NULL,
+                            acceptance_evidence_sha256 = NULL,
+                            last_acceptance_evaluated_at = ?,
+                            acceptance_failure_json = JSON_ARRAY(?),
+                            control_version = control_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                          AND acceptance_status = 'PASSED'
+                          AND acceptance_generation = ?
+                          AND acceptance_evidence_sha256 = ?
+                        """,
+                requestedAt,
+                REACCEPTANCE_REQUIRED,
+                requestedAt,
+                asset.id(),
+                asset.acceptanceGeneration(),
+                asset.acceptanceEvidenceSha256()),
+                "restart acceptance after rejected factory seal authorization");
+        return true;
     }
 
     @Override
@@ -453,7 +554,7 @@ public class FactorySealAuthorizationService
             String reason = recoverLatestEvidence
                     ? EVIDENCE_NOT_LATEST
                     : "REJECTED".equals(stage)
-                            ? "DEVICE_REJECTED_AUTHORIZATION"
+                            ? DEVICE_REJECTED_AUTHORIZATION
                             : "ACCEPTANCE_SNAPSHOT_CHANGED";
             cancelAuthorization(
                     authorization.id(), reason, receivedAt);
