@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-08-30T10:02:56Z",
+  "imageReleaseId": "single-card-hil-20260830-10",
+  "scope": "single-card-v10-chrony-permission-and-observability-hotfix",
+  "sourceCommit": "58c885dcc5cec2f4e16dcef0de1fadf969807d63",
+  "preDeploy": {
+    "factoryTestStatus": "PASSED",
+    "firstBootStage": "ENROLLMENT_COMPLETE",
+    "timeTrusted": true,
+    "enrollmentAlreadyComplete": true,
+    "cellularCapabilityEffectiveHex": "0000000000001000",
+    "restrictedChronycOnline": "501 Not authorised",
+    "fullRootChronycOnline": "200 OK"
+  },
+  "postDeploy": {
+    "cellularCapabilityEffectiveHex": "0000000000001002",
+    "capabilityBoundingSet": [
+      "CAP_DAC_OVERRIDE",
+      "CAP_NET_ADMIN"
+    ],
+    "ambientCapabilities": [
+      "CAP_DAC_OVERRIDE",
+      "CAP_NET_ADMIN"
+    ],
+    "exactSandboxChronycOnline": "200 OK",
+    "cellularStatusProjection": {
+      "schemaVersion": 1,
+      "resultCode": "NONE",
+      "directoryMode": "0700",
+      "fileMode": "0600"
+    },
+    "portalTimeTrustFieldPresent": true,
+    "portalLastErrorFieldPresent": true,
+    "timeTrusted": true,
+    "firstBootStage": "ENROLLMENT_COMPLETE",
+    "lastErrorCode": "NONE",
+    "mqttEstablishedCount": 1,
+    "stableSamplesUtc": [
+      "2026-08-30T10:02:23Z",
+      "2026-08-30T10:02:39Z",
+      "2026-08-30T10:02:56Z"
+    ],
+    "stableServiceCount": 5,
+    "stableServiceRestarts": 0
+  },
+  "controlledPortalReload": {
+    "failClosedStopObserved": true,
+    "stopAt": "2026-08-30T10:00:47Z",
+    "fullRuntimeRecoveryBy": "2026-08-30T10:01:16Z",
+    "crashObserved": false,
+    "mqttReconnected": true
+  },
+  "cleanup": {
+    "rollbackDirectory": "/run/ecobin/codex-chrony-hotfix-58c885dc",
+    "stagingDirectory": "/tmp/ecobin-chrony-hotfix-58c885dc",
+    "canonicalPathsVerified": true,
+    "removed": true,
+    "transientProofUnitCollected": true
+  },
+  "remainingGate": "V11_BLANK_COLD_BOOT_AUTONOMOUS_ENROLLMENT",
+  "result": "PASS"
+}

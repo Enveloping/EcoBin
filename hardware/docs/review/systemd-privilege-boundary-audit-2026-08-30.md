@@ -2,9 +2,9 @@
 
 ## 结论
 
-v10 在 P7 本地硬件验收通过后不能自动注册 OneNet 的直接原因，不是 Air780E、NTP
-服务器或状态机顺序，而是 `ecobin-cellular-uplink.service` 的真实 systemd 权限上下文
-无法访问 Chrony 控制套接字：
+v10 在 P7 本地硬件验收通过后的现场等待中，暴露出一个会阻断冷时钟主动收敛分支的确定性
+权限缺口：`ecobin-cellular-uplink.service` 的真实 systemd 权限上下文无法访问 Chrony
+控制套接字：
 
 - `/run/chrony` 为 `_chrony:_chrony 0700`；
 - 服务虽然声明 `User=root`，但能力边界只保留 `CAP_NET_ADMIN`；
@@ -33,8 +33,11 @@ systemd 文件系统命名空间、Linux capabilities（进程能力）、设备
 | P7 本地命令套接字 | 低权限网页向 root 验收执行器发送窄命令 | 双方允许 `AF_UNIX`；运行目录和套接字组权限匹配 | `root:ecobin-factory-web` 与 `0660` 契约一致，网页没有获得硬件或密钥权限 |
 | 蜂窝结果投影 | 蜂窝协调器每轮写入本次启动的结果，首启协调器和网页只读 | root 私有运行目录、`0600` 原子 JSON、固定字段和有界大小 | 新增 `/run/ecobin/cellular-uplink/status.json` 与专用 `RuntimeDirectory`；写失败不改变网络门禁 |
 
-本轮静态审计没有发现第二个与 Chrony 同类、已能触发的权限错配。这个结论表示现有声明与
-当前调用边界一致，不替代 v10 热修后的真实 systemd 上下文验证和 v11 冷启动验收。
+本轮静态审计没有发现第二个与 Chrony 同类、已能触发的权限错配。v10 热修后的真实 systemd
+上下文已证明实际进程能力为 `0x1002`，完整服务沙箱执行 `chronyc online` 返回 `200 OK`；
+状态投影、网页诊断和重协调后的 OneNet MQTT 也已通过。重新取得串口时设备在热修前已经完成
+注册，因此这些事实不能替代 v11 从空白冷启动验证自主注册。现场记录见
+[v10 Chrony 权限与可观测性热修证据](../../image-artifacts/evidence/hil-v10-chrony-permission-hotfix-20260830-01/README.md)。
 
 ## 结果可见性与放行边界
 
