@@ -109,6 +109,29 @@ def test_repeated_factory_stage_does_not_resubmit_active_service_dependencies() 
     ]
 
 
+def test_active_runtime_target_restarts_an_inactive_hardware_gateway() -> None:
+    runner = RecordingRunner(
+        active_units={
+            "ecobin-runtime.target",
+            "ecobin-remote-support.service",
+        }
+    )
+    actions = SystemdStageActions(runner)
+
+    assert actions.apply(
+        FirstBootStage.COMPLETE,
+        _passed(
+            sealed_exists=True,
+            sealed_valid=True,
+            sealed_cleanup_complete=True,
+        ),
+    ) == "NONE"
+
+    assert [call[-1] for call in _start_calls(runner)] == [
+        "ecobin-hardware.service",
+    ]
+
+
 def test_sealed_cold_boot_starts_only_cellular_then_runtime_never_factory() -> None:
     runner = RecordingRunner()
     actions = SystemdStageActions(runner)

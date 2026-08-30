@@ -24,6 +24,12 @@ class StageActions(Protocol):
 
 
 class SystemdStageActions:
+    _RUNTIME_TARGET = "ecobin-runtime.target"
+    _RUNTIME_MEMBERS = (
+        "ecobin-hardware.service",
+        "ecobin-remote-support.service",
+    )
+
     def __init__(self, runner: CommandRunner | None = None) -> None:
         self._runner = runner or CommandRunner()
 
@@ -52,7 +58,7 @@ class SystemdStageActions:
                     return "HANDOFF_GATE_CLOSED"
                 unit = "ecobin-factory-handoff.service"
             elif gate_allows("runtime", facts):
-                unit = "ecobin-runtime.target"
+                unit = self._RUNTIME_TARGET
         elif stage in {FirstBootStage.SEALED, FirstBootStage.COMPLETE}:
             if not facts.sealed_valid:
                 return "SEALED_FACT_INVALID"
@@ -65,20 +71,42 @@ class SystemdStageActions:
                     return "HANDOFF_GATE_CLOSED"
                 unit = "ecobin-factory-handoff.service"
             elif gate_allows("runtime", facts):
-                unit = "ecobin-runtime.target"
+                unit = self._RUNTIME_TARGET
         if unit is None:
             return "NONE"
+        if unit == self._RUNTIME_TARGET:
+            return self._ensure_runtime_members()
+        return self._start_if_inactive(unit)
+
+    def _ensure_runtime_members(self) -> str:
+        if not self._is_active(self._RUNTIME_TARGET):
+            return self._start(self._RUNTIME_TARGET)
+
+        failed = False
+        for unit in self._RUNTIME_MEMBERS:
+            if self._is_active(unit):
+                continue
+            if self._start(unit) != "NONE":
+                failed = True
+        return "STAGE_SERVICE_FAILED" if failed else "NONE"
+
+    def _start_if_inactive(self, unit: str) -> str:
+        if self._is_active(unit):
+            # Re-submitting an already-active unit also starts inactive
+            # Requires= dependencies in a new systemd transaction.  Most
+            # stage services are boot-only prerequisites, so avoid replaying
+            # those transactions on every reconciliation pass.
+            return "NONE"
+        return self._start(unit)
+
+    def _is_active(self, unit: str) -> bool:
         active = self._runner.run(
             ("/usr/bin/systemctl", "is-active", "--quiet", unit),
             timeout_seconds=5,
         )
-        if active.return_code == 0:
-            # Re-submitting an already-active unit still starts any inactive
-            # Requires= dependencies in the new systemd transaction.  The
-            # coordinator polls every few seconds, so skipping the redundant
-            # transaction is required to keep boot-only prerequisites from
-            # being executed on every reconciliation pass.
-            return "NONE"
+        return active.return_code == 0
+
+    def _start(self, unit: str) -> str:
         result = self._runner.run(
             ("/usr/bin/systemctl", "start", unit),
             timeout_seconds=30,
