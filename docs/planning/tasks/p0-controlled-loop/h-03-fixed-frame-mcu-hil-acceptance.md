@@ -276,3 +276,14 @@ P8、单向封存、完成事实和封存后冷启动见
   负载、首次启动空白状态、开发登录和 HSK/icSpring 配置离线验收均通过。项目负责人随后
   明确确认磁盘 1、序列号 `121220160204`；受控工具写入并完整回读 `2571108352` 字节，回读
   SHA-256 与镜像一致。下一步是将卡装回香橙派并从空白状态重走接入、封存和分配流程。
+- 2026-08-30：v9 空白启动完成局域网页 P7 后，Air780E、DNS 和外部 TCP/TLS 探针正常，
+  设备却因墙上时间仍在 4 月而无法继续 HTTPS 注册。真机受控 SNTP 证明四个 NTP 来源均可达；
+  根因是旧协调器把异步 `chronyc burst` 的暂未同步当成硬失败并立即恢复紧急防火墙，同时每轮
+  `refresh` 丢弃已有样本，阻断大幅校时后的确认样本。新增 `SYNCED / PENDING / FAILED`
+  三态、保留已解析来源和进行中的 burst，并只在 `PENDING` 期间保留严格 NTP 出口；注册和
+  正式运行仍等待 `timedatectl NTPSynchronized=yes`。完整 Python 3.11 回归为
+  `1000 passed, 46 skipped, 5 subtests passed`。候选原子部署后，真机时间可信、K1 清理、
+  正式凭据、运行目标和 OneNet/MQTT 全部自动收敛；后端新资产已登记且 OneNet 为 `ONLINE`。
+  当前热点仍保留是因为唯一投口尚未登记厂家初始袋，机器验收第 0 代仍为 `PENDING`，尚未进入
+  P8 封存。脱敏现场证据见
+  [v9 可信校时与自动接入恢复证据](../../../../hardware/image-artifacts/evidence/hil-v9-time-sync-enrollment-recovery-20260830-01/README.md)。

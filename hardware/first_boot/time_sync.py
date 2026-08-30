@@ -1,6 +1,46 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum
+import re
+
 from .command import CommandRunner
+
+
+class TimeSyncResult(str, Enum):
+    SYNCED = "SYNCED"
+    PENDING = "PENDING"
+    FAILED = "FAILED"
+
+
+@dataclass(frozen=True)
+class _ChronyActivity:
+    online: int
+    offline: int
+    burst_to_online: int
+    burst_to_offline: int
+    unknown: int
+
+    @property
+    def resolved(self) -> int:
+        return self.online + self.offline + self.bursting
+
+    @property
+    def bursting(self) -> int:
+        return self.burst_to_online + self.burst_to_offline
+
+
+_ACTIVITY_LINES = {
+    "online": re.compile(r"^(\d+) sources? online$"),
+    "offline": re.compile(r"^(\d+) sources? offline$"),
+    "burst_to_online": re.compile(
+        r"^(\d+) sources? doing burst \(return to online\)$"
+    ),
+    "burst_to_offline": re.compile(
+        r"^(\d+) sources? doing burst \(return to offline\)$"
+    ),
+    "unknown": re.compile(r"^(\d+) sources? with unknown address$"),
+}
 
 
 class ChronyTimeSynchronizer:
@@ -9,30 +49,50 @@ class ChronyTimeSynchronizer:
     def __init__(self, runner: CommandRunner | None = None) -> None:
         self._runner = runner or CommandRunner()
 
-    def synchronize(self) -> bool:
-        if self._time_trusted():
-            return True
-        setup_commands = (
-            (("/usr/bin/chronyc", "online"), 5),
-            (("/usr/bin/chronyc", "refresh"), 5),
+    def synchronize(self) -> TimeSyncResult:
+        trusted = self._time_trusted()
+        if trusted is None:
+            return TimeSyncResult.FAILED
+        if trusted:
+            return TimeSyncResult.SYNCED
+
+        online = self._runner.run(
+            ("/usr/bin/chronyc", "online"), timeout_seconds=5
         )
-        for command, timeout in setup_commands:
-            result = self._runner.run(command, timeout_seconds=timeout)
-            if result.return_code != 0:
-                return False
-        # Cold-boot HIL showed that a weak initial packet window can leave
-        # every source with only one measurement.  Re-resolving the pool on
-        # the next service loop then replaces those sources and loses the
-        # samples.  Keep one resolved source set and allow three bounded
-        # bursts to accumulate enough measurements for source selection.
-        for _attempt in range(3):
-            burst = self._runner.run(
-                ("/usr/bin/chronyc", "burst", "4/8"),
-                timeout_seconds=5,
+        if online.return_code != 0:
+            return TimeSyncResult.FAILED
+
+        activity = self._activity()
+        if activity is None:
+            return TimeSyncResult.FAILED
+        if activity.resolved == 0:
+            if activity.unknown == 0:
+                # chronyd has no configured source at all.  Refresh cannot
+                # create one, so keeping any uplink open would not converge.
+                return TimeSyncResult.FAILED
+            # DNS is intentionally unavailable under the early emergency
+            # firewall.  Refresh only when chronyd still has no resolved
+            # source after the proven cellular DNS window opens.  Repeating
+            # refresh for an already-resolved pool discards cold-boot samples.
+            refresh = self._runner.run(
+                ("/usr/bin/chronyc", "refresh"), timeout_seconds=5
             )
-            if burst.return_code != 0:
-                return False
-            self._runner.run(
+            if refresh.return_code != 0:
+                return TimeSyncResult.FAILED
+
+        # A burst is asynchronous.  Do not stack another one while chronyd is
+        # still completing the previous coordinator cycle.  Three bounded
+        # observation windows keep this service responsive; PENDING tells the
+        # caller to retain the restricted NTP egress window between cycles.
+        for attempt in range(3):
+            if activity.bursting == 0:
+                burst = self._runner.run(
+                    ("/usr/bin/chronyc", "burst", "4/8"),
+                    timeout_seconds=5,
+                )
+                if burst.return_code != 0:
+                    return TimeSyncResult.FAILED
+            wait = self._runner.run(
                 (
                     "/usr/bin/chronyc",
                     "waitsync",
@@ -43,11 +103,23 @@ class ChronyTimeSynchronizer:
                 ),
                 timeout_seconds=20,
             )
-            if self._time_trusted():
-                return True
-        return False
+            # chronyc returns 1 when max-tries is reached without sync.  That
+            # is a normal pending result; launch/IPC failures remain terminal
+            # for this coordinator cycle.
+            if wait.return_code not in {0, 1}:
+                return TimeSyncResult.FAILED
+            trusted = self._time_trusted()
+            if trusted is None:
+                return TimeSyncResult.FAILED
+            if trusted:
+                return TimeSyncResult.SYNCED
+            if attempt < 2:
+                activity = self._activity()
+                if activity is None:
+                    return TimeSyncResult.FAILED
+        return TimeSyncResult.PENDING
 
-    def _time_trusted(self) -> bool:
+    def _time_trusted(self) -> bool | None:
         result = self._runner.run(
             (
                 "/usr/bin/timedatectl",
@@ -57,4 +129,27 @@ class ChronyTimeSynchronizer:
             ),
             timeout_seconds=5,
         )
-        return result.return_code == 0 and result.stdout.strip().lower() == "yes"
+        if result.return_code != 0:
+            return None
+        value = result.stdout.strip().lower()
+        if value not in {"yes", "no"}:
+            return None
+        return value == "yes"
+
+    def _activity(self) -> _ChronyActivity | None:
+        result = self._runner.run(
+            ("/usr/bin/chronyc", "activity"), timeout_seconds=5
+        )
+        if result.return_code != 0:
+            return None
+        counts: dict[str, int] = {}
+        for raw_line in result.stdout.splitlines():
+            line = raw_line.strip()
+            for name, pattern in _ACTIVITY_LINES.items():
+                match = pattern.fullmatch(line)
+                if match is not None:
+                    counts[name] = int(match.group(1))
+                    break
+        if counts.keys() != _ACTIVITY_LINES.keys():
+            return None
+        return _ChronyActivity(**counts)

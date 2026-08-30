@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from first_boot.model import FactoryTestStatus, FirstBootFacts
+from first_boot.time_sync import TimeSyncResult
 import first_boot.cellular_service as cellular_service
 
 
@@ -69,7 +70,7 @@ def _install_happy_path(
     monkeypatch.setattr(
         cellular_service,
         "ChronyTimeSynchronizer",
-        lambda: SimpleNamespace(synchronize=lambda: True),
+        lambda: SimpleNamespace(synchronize=lambda: TimeSyncResult.SYNCED),
         raising=False,
     )
 
@@ -218,7 +219,7 @@ def test_dns_ready_untrusted_clock_is_synchronised_before_https_is_retried(
         cellular_service,
         "ChronyTimeSynchronizer",
         lambda: SimpleNamespace(
-            synchronize=lambda: sync_calls.append(True) or True
+            synchronize=lambda: sync_calls.append(True) or TimeSyncResult.SYNCED
         ),
         raising=False,
     )
@@ -259,7 +260,7 @@ def test_failed_clock_synchronisation_restores_emergency_uplink_lock(
     monkeypatch.setattr(
         cellular_service,
         "ChronyTimeSynchronizer",
-        lambda: SimpleNamespace(synchronize=lambda: False),
+        lambda: SimpleNamespace(synchronize=lambda: TimeSyncResult.FAILED),
         raising=False,
     )
     emergency: list[bool] = []
@@ -271,6 +272,47 @@ def test_failed_clock_synchronisation_restores_emergency_uplink_lock(
 
     assert cellular_service.run_once() == "CELLULAR_TIME_UNTRUSTED"
     assert emergency == [True]
+
+
+def test_pending_clock_sync_keeps_restricted_uplink_open_for_chronyd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An asynchronous chrony burst must retain its NTP egress window."""
+
+    monkeypatch.setattr(
+        cellular_service,
+        "inspect_sealed_authorization",
+        lambda _paths: SimpleNamespace(exists=False, valid=False),
+    )
+    modes: list[str] = []
+    _install_happy_path(monkeypatch, _accepted(time_trusted=False), modes)
+    monkeypatch.setattr(
+        cellular_service,
+        "CellularProbe",
+        lambda _config, _inventory: SimpleNamespace(
+            probe=lambda: SimpleNamespace(
+                ready=False,
+                error_code="CELLULAR_HTTPS_UNAVAILABLE",
+                dns_ready=True,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        cellular_service,
+        "ChronyTimeSynchronizer",
+        lambda: SimpleNamespace(synchronize=lambda: TimeSyncResult.PENDING),
+        raising=False,
+    )
+    emergency: list[bool] = []
+    monkeypatch.setattr(
+        cellular_service,
+        "apply_emergency_uplink_lock",
+        lambda: emergency.append(True) or True,
+    )
+
+    assert cellular_service.run_once() == "CELLULAR_TIME_UNTRUSTED"
+    assert modes == ["enxcell0:FACTORY"]
+    assert emergency == []
 
 
 def test_dns_failure_does_not_attempt_clock_synchronisation(

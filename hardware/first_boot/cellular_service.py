@@ -23,7 +23,7 @@ from .network_manager import (
     render_network_manager_profile,
 )
 from .state_machine import gate_allows
-from .time_sync import ChronyTimeSynchronizer
+from .time_sync import ChronyTimeSynchronizer, TimeSyncResult
 from factory_seal.validation import FactorySealPaths, inspect_sealed_authorization
 
 
@@ -80,11 +80,17 @@ def run_once() -> str:
     health = probe.probe()
     if not facts.time_trusted and health.dns_ready:
         try:
-            time_synchronised = ChronyTimeSynchronizer().synchronize()
+            time_sync = ChronyTimeSynchronizer().synchronize()
         except Exception:
-            time_synchronised = False
-        if not time_synchronised:
-            apply_emergency_uplink_lock()
+            time_sync = TimeSyncResult.FAILED
+        if time_sync is not TimeSyncResult.SYNCED:
+            if time_sync is TimeSyncResult.FAILED:
+                apply_emergency_uplink_lock()
+            # PENDING means chronyd accepted a bounded asynchronous sync but
+            # has not yet supplied the operating-system trust fact.  Keep the
+            # already-restricted RNDIS gate in place so its NTP packets can
+            # finish between coordinator loops.  Enrollment and runtime stay
+            # blocked until the canonical fact becomes trusted.
             return "CELLULAR_TIME_UNTRUSTED"
         if not health.ready:
             health = probe.probe()

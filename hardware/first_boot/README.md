@@ -50,6 +50,15 @@ SSH 入口。规则检查、应用或事后 JSON 验证任一步失败，都会�
 `ecobin-first-boot.service` 和 `ecobin-cellular-uplink.service`：二者都会协调生产防火墙，
 只替换磁盘文件而不重启常驻的首次启动协调器，会被其内存中的旧规则再次覆盖。
 
+可信校时使用同一套严格 RNDIS 规则形成有界收敛窗口。`chronyc burst` 只表示 chronyd
+接受了异步测量任务，不表示操作系统已经确认同步；初始墙上时间偏差很大时，第一次样本可先
+触发系统时间跳变，之后仍需新的有效样本才能令
+`timedatectl NTPSynchronized=yes`。因此校时器把结果区分为 `SYNCED`、`PENDING` 和
+`FAILED`：`PENDING` 时保留当前严格规则供 NTP 在协调周期之间完成，但注册、UART 交接和
+正式运行仍继续阻塞；命令执行失败、chronyd 没有配置任何时间源、DNS 不可用或其他蜂窝事实
+失败时立即恢复紧急全拒绝。已有解析完成的时间源或仍在执行的 burst 必须保留，只有全部时间源
+仍是未知地址时才执行一次 `chronyc refresh`，避免每轮替换来源并丢失已经取得的样本。
+
 ## P7 真实验收与 UART 交接
 
 `ecobin-factory-test.service` 已不是占位服务。它以 root 运行

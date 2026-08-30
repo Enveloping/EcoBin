@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-08-30T06:04:00Z",
+  "imageReleaseId": "single-card-hil-20260830-09",
+  "scope": "single-card-v9-time-sync-and-enrollment-recovery",
+  "sourceVerification": {
+    "focusedTests": "18 passed",
+    "fullPythonVersion": "3.11",
+    "fullTests": "1000 passed, 46 skipped, 5 subtests passed",
+    "timeSyncSha256": "7b055e3f4cf826570cea333c0542344f26e9d36fc9c2d5d4cd5fa296bdf5e6ee",
+    "cellularServiceSha256": "540907383665d88f90a9c90c90784b348f05e96dfda64474f78dbd02c7534281"
+  },
+  "device": {
+    "hardwareSn": "ECM0-BRCRJFPSZHXTPFM5KGVT73Q7DH",
+    "factoryTestStatus": "PASSED",
+    "firstBootStage": "ENROLLMENT_COMPLETE",
+    "timeTrusted": true,
+    "ntpSynchronized": true,
+    "factoryFirewallProfile": "FACTORY",
+    "enrollmentCredentialPresent": false,
+    "formalCredentialPresent": true,
+    "k1Present": false,
+    "unsealedMarkerPresent": false,
+    "mqttConnection": "ESTABLISHED",
+    "mqttEndpoint": "183.230.102.116:1883"
+  },
+  "backend": {
+    "enrollmentStatus": "READY",
+    "oneNetDevicePresent": true,
+    "oneNetConnectionStatus": "ONLINE",
+    "acceptanceStatus": "PENDING",
+    "acceptanceGeneration": 0,
+    "factoryInstalledBagCount": 0,
+    "acceptanceEvidenceCount": 0,
+    "factorySealAuthorizationCount": 0
+  },
+  "cleanup": {
+    "temporaryRollbackDirectory": "/run/ecobin/codex-time-sync-hotfix-20260830",
+    "canonicalPathVerified": true,
+    "removed": true,
+    "recoverableFromTemporaryDirectory": false
+  },
+  "result": "PASS_WITH_EXPECTED_FACTORY_BAG_AND_P8_PENDING"
+}
