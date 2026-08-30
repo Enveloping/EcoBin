@@ -104,6 +104,9 @@ H-03 由此恢复为单卡受控执行并转为 `in-progress`。该授权覆盖�
   它已固化当前 HSK/icSpring 摄像头配置和 v8 写卡后形成的已提交修复。
 - [x] 项目负责人确认磁盘 1、序列号 `121220160204` 后，受控工具完成 v9 的
   `2571108352` 字节写入、flush 和同范围完整回读；回读摘要与源镜像一致，结果为 `PASS`。
+- [x] v9 现场发现的可信校时收敛问题已在提交 `6c278433` 修复，并从锁定上游镜像、当前
+  包锁和软件负载锁完整重建 v10。无密钥候选和含 K1 的单卡开发/HIL 镜像均完成离线只读
+  预检，成品中的两处校时源码与该提交逐字节一致；本轮尚未写卡。
 
 恢复后必须按顺序完成：
 
@@ -134,8 +137,10 @@ H-03 由此恢复为单卡受控执行并转为 `in-progress`。该授权覆盖�
 
 当前 v8 离线证据见
 [HIL 工厂母镜像 v8 离线预检证据](../../../../hardware/image-artifacts/evidence/hil-factory-login-20260828-08-cellular-recovery-time-convergence/README.md)。
-下一轮待写卡的完整重建镜像见
-[HIL 工厂母镜像 v9 完整重建离线预检证据](../../../../hardware/image-artifacts/evidence/hil-factory-login-20260830-09-full-rebuild/README.md)。
+v9 完整重建、写卡和回读记录见
+[HIL 工厂母镜像 v9 完整重建离线预检证据](../../../../hardware/image-artifacts/evidence/hil-factory-login-20260830-09-full-rebuild/README.md)；
+当前待写卡的 v10 完整重建镜像见
+[HIL 工厂母镜像 v10 可信校时收敛预检证据](../../../../hardware/image-artifacts/evidence/hil-factory-login-20260830-10-time-sync-convergence/README.md)。
 配置绑定正确的模拟外设成功流程见
 [v8 单卡模拟外设验收证据](../../../../hardware/image-artifacts/evidence/hil-v8-simulated-acceptance-20260829-01/README.md)；
 中途修改相机配置形成的旧报告已明确归档为
@@ -287,3 +292,11 @@ P8、单向封存、完成事实和封存后冷启动见
   当前热点仍保留是因为唯一投口尚未登记厂家初始袋，机器验收第 0 代仍为 `PENDING`，尚未进入
   P8 封存。脱敏现场证据见
   [v9 可信校时与自动接入恢复证据](../../../../hardware/image-artifacts/evidence/hil-v9-time-sync-enrollment-recovery-20260830-01/README.md)。
+- 2026-08-30：提交 `6c278433` 后，从锁定的 Orange Pi Debian 1.0.4 原始镜像、当前包锁、
+  软件负载锁和该干净提交完整重建 v10。无密钥候选 SHA-256 为
+  `c84c23436d1fdba4695b97c534cbcdbb6065e54b2a01051878b53fd86263295e`；仅从已验收 v9
+  逐字节继承 K1、设置热点密钥和开发登录密码散列后，成品 SHA-256 为
+  `62cd40004f3cc5667f7350b04deace958bc755c8f34e7a98b7f98a5d49c9ff57`。分区、ext4、
+  软件负载、空白首次启动状态、开发登录、摄像头配置和受保护输入继承均通过离线只读验收；
+  镜像内 `time_sync.py`、`cellular_service.py` 与提交逐字节一致。本轮未写 TF 卡，下一步仍须
+  重新识别介质并取得磁盘号和序列号明确确认后再写入及完整回读。

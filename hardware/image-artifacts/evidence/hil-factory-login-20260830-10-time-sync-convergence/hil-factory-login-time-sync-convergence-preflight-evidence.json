@@ -1,0 +1,137 @@
+{
+  "artifactClass": "HIL_SECRET_BEARING_FACTORY_IMAGE_FULL_REBUILD_PREFLIGHT",
+  "createdAt": "2026-08-30T07:10:14Z",
+  "factoryImageId": "hil-factory-login-20260830-10",
+  "formalReleaseEligible": false,
+  "qualificationBoundary": "SINGLE_CARD_DEVELOPMENT_HIL_FULL_REBUILD_NOT_FORMAL_PRODUCTION_RELEASE",
+  "qualificationState": "OFFLINE_PREFLIGHT_PASSED_SINGLE_CARD_FLASH_PENDING",
+  "rawImageBytes": 2571108352,
+  "sealedRawImageSha256": "62cd40004f3cc5667f7350b04deace958bc755c8f34e7a98b7f98a5d49c9ff57",
+  "sourceCandidate": {
+    "construction": "LOCKED_UPSTREAM_FULL_DETERMINISTIC_REBUILD_PLUS_CONTROLLED_HIL_OVERLAY",
+    "releaseId": "single-card-hil-20260830-10",
+    "version": "0.1.0-single-card.20260830.10",
+    "gitCommit": "6c2784332b1d8c81285b1df5544afa61243bc093",
+    "sourceDirty": false,
+    "rawImageBytes": 2571108352,
+    "rawImageSha256": "c84c23436d1fdba4695b97c534cbcdbb6065e54b2a01051878b53fd86263295e",
+    "rootfsDeterministic": true,
+    "candidateReleaseEligible": true,
+    "k1Injected": false,
+    "setupApKeyInjected": false,
+    "deviceCredentialsPresent": false
+  },
+  "lockedInputs": {
+    "upstreamArchive": "Orangepizero3_1.0.4_debian_bookworm_server_linux6.1.31.7z",
+    "upstreamArchiveSha256": "bfbe35d89164329402990e8ceb93c94cdff69020f89a44b7cfbfefb73bfb7249",
+    "upstreamExtractedImageSha256": "dda562f0ce9c3fc2be656f816b8f3aea466a3f9ace9fdf87d97ebdc72aeada40",
+    "builderDigest": "sha256:817e6cf99d6fc127ff4ffe8580049b60deba0adfbbb2bd65ddc3ef8fbb7aade0",
+    "aptPackagesLockSha256": "65969460a6f4a9c05ed56c53f1d054dda689e6496fd1878daa5f4000997aa53c",
+    "imageLayoutSha256": "3bc5ca7191bb88b813edb66f7677660aa16f38e117f8dfaeeba80f2fa1fb4389",
+    "softwarePayloadLockSha256": "2c99b528ba03e0d5e41af1458a3ca27a849f34d6f12dd8b3b637cd57ea25db53",
+    "sourceLockSha256": "3b6a72a2bc2870d713c0835cab8d9c5bc8b8809f1952c2b65c39a19dc6eb605f"
+  },
+  "software": {
+    "components": {
+      "hardwareRuntime": "hardware-runtime-20260830-10",
+      "enrollment": "enrollment-20260830-10",
+      "remoteSupport": "remote-support-20260830-10",
+      "factoryTest": "factory-test-20260830-10",
+      "firstBoot": "first-boot-20260830-10"
+    },
+    "runtimeArchiveBytes": 58275320,
+    "runtimeArchiveSha256": "7ab99f00ca2ebf270fe470c8100e826e708984e3ffa39ea46a36231a67191bc0",
+    "runtimeSigningKeyId": "hil_factory_20260830",
+    "runtimeSignatureVerified": true,
+    "softwarePayloadArchiveBytes": 183786667,
+    "softwarePayloadArchiveSha256": "b5d03aaf32f4868192a4622d1f27bb14867b637acba1430fbc14aac9733d01e0",
+    "cameraOutside": "/dev/v4l/by-id/usb-HSK-260323-J_UNIQUESKY_CAR_CAMERA-video-index0",
+    "cameraInside": "/dev/v4l/by-id/usb-icSpring_icspring_camera-video-index0"
+  },
+  "controlledHilOverlay": {
+    "source": "QUALIFIED_HIL_V9_READ_ONLY_IMAGE",
+    "sourceRawImageSha256": "d5b9bac39d2d1e130656efeaf49ffbb0678719241b06fb00d36ca2301dbac52f",
+    "inheritedItems": [
+      "K1 enrollment key",
+      "factory setup access-point key",
+      "orangepi development password hash"
+    ],
+    "rootPasswordLocked": true,
+    "orangepiDefaultPasswordEnabled": true,
+    "protectedInputValuesDisclosed": false,
+    "protectedInputDigestsDisclosed": false
+  },
+  "sourceContentAssertions": {
+    "factoryTestRelease": "factory-test-20260830-10",
+    "first_boot/time_sync.py": "7b055e3f4cf826570cea333c0542344f26e9d36fc9c2d5d4cd5fa296bdf5e6ee",
+    "first_boot/cellular_service.py": "540907383665d88f90a9c90c90784b348f05e96dfda64474f78dbd02c7534281",
+    "byteForByteComparedWithBuildCommit": true
+  },
+  "verification": {
+    "rawLayoutVerificationPassed": true,
+    "ext4ReadOnlyFsckPassed": true,
+    "ext4ProfileVerificationPassed": true,
+    "imageSoftwareAuditPassed": true,
+    "currentSourceAndSystemdUnitsPassed": true,
+    "protectedInputsByteForByteInherited": true,
+    "protectedInputsPermissionAuditPassed": true,
+    "cleanFirstBootStatePassed": true,
+    "machineIdEmpty": true,
+    "perDeviceCredentialsAbsent": true,
+    "sshHostKeysAbsent": true,
+    "chronyAndNetworkManagerStateEmpty": true,
+    "hardwareAndRemoteSupportStateEmpty": true,
+    "cameraConfigurationPassed": true,
+    "developmentLoginPolicyPassed": true,
+    "candidateUnchangedAfterOverlayBuild": true,
+    "v9ProtectedInputSourceUnchanged": true,
+    "finalImageChecksumSidecarMatched": true,
+    "hardwareTestsPython311": {
+      "passed": 1000,
+      "skipped": 46,
+      "subtestsPassed": 5
+    },
+    "imageToolingTestsWindows": {
+      "testsRun": 60,
+      "skipped": 8,
+      "status": "PASS"
+    },
+    "imageToolingTestsLinuxRoot": {
+      "testsRun": 60,
+      "skipped": 1,
+      "deterministicExt4TestPassed": true,
+      "status": "PASS"
+    }
+  },
+  "evidenceIntegrity": {
+    "signatureState": "UNSIGNED_LOCAL_DEVELOPMENT_HIL_EVIDENCE",
+    "containsProtectedInputValues": false,
+    "containsProtectedInputDigests": false
+  },
+  "singleCardFlash": {
+    "completed": false,
+    "authorizationRequired": true,
+    "diskIdentityConfirmationRequired": true,
+    "fullReadbackRequired": true
+  },
+  "pendingGates": [
+    {
+      "code": "SINGLE_CARD_FLASH_AND_FULL_READBACK_PENDING",
+      "required": "re-detect the target media, obtain explicit disk number and serial confirmation, write the image and compare the full written range by SHA-256"
+    },
+    {
+      "code": "FRESH_BOOT_ACCESS_AND_ASSIGNMENT_RETEST_PENDING",
+      "required": "boot from clean state and repeat local acceptance, enrollment, machine acceptance and sealing, tenant assignment, organization assignment and business admission"
+    },
+    {
+      "code": "FORMAL_RELEASE_TRUST_POLICY_PENDING",
+      "required": "remove development credentials and perform formal release signing and approval"
+    }
+  ],
+  "securityModel": {
+    "compromiseImpact": "ALL_CARDS_FLASHED_FROM_THIS_IMAGE",
+    "imageMustRemainConfidential": true,
+    "sharedBatchSecrets": true,
+    "sharedOperatorPasswordEnabled": true
+  }
+}
