@@ -44,6 +44,13 @@
 > 预烧 revision 2。当前仓库内实现已经收口；真实 32 GB 介质资格、正式外部信任策略、K1 注入、
 > Orange Pi/MCU/Air780E/双摄/500 g 砝码的整机 HIL（hardware-in-the-loop，硬件在环）验收仍保持
 > 失败关闭，取得并复核这些现场证据前不得量产放行。
+
+> [!IMPORTANT]
+> 2026-08-30 单卡冷启动证明：`ecobin-runtime.target` 为 active 不等于它的 Wants 成员都在
+> 运行；成员自己的瞬时 `ExecCondition` 失败会让 systemd 成功到达 target，却把成员留在
+> inactive。首次启动协调器现在在运行门禁满足后持续核对 `ecobin-hardware.service` 和
+> `ecobin-remote-support.service`，只补启动缺失成员，不重复启动健康成员。现场修复提交为
+> `fbc6c471`；当前卡已热修，旧 v8 镜像二进制仍须由下一版重建后才能携带该修复。
 > 2026-08-26 调整为逐台能力：BOOT0/NRST 线可不安装，操作员在离线验收开始时必须
 > 显式选择。未安装时不发 F2 mode 02、不进入 ROM，仍可 PASSED/封存/运行业务，但设备能力
 > 和平台资产均记为不具备 MCU 远程升级，所有升级命令终态拒绝。独立的

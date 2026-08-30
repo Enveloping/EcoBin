@@ -1,0 +1,56 @@
+{
+  "schema": "ecobin.hil.runtime-member-recovery.v1",
+  "capturedAt": "2026-08-30T03:12:27.853Z",
+  "target": {
+    "assetId": 10,
+    "tfCardSerial": "121220160204",
+    "serialPort": "COM3"
+  },
+  "failure": {
+    "runtimeTargetState": "active",
+    "hardwareServiceState": "inactive",
+    "hardwareServiceResult": "exec-condition",
+    "hardwareServiceRestarts": 0,
+    "onenetState": "OFFLINE",
+    "runtimeGateFirstFailureAt": "2026-08-30T02:31:22Z",
+    "runtimeGateSucceededAt": "2026-08-30T02:31:55Z",
+    "hardwareConditionSkippedAt": "2026-08-30T02:32:02Z"
+  },
+  "cellular": {
+    "usbIdentity": "19d1:0001",
+    "interface": "enx2089846a96ab",
+    "carrier": 1,
+    "address": "192.168.10.2/24",
+    "defaultGateway": "192.168.10.1",
+    "uplinkReady": true,
+    "cellularProfileActive": true,
+    "timeTrusted": true
+  },
+  "fix": {
+    "gitCommit": "fbc6c471",
+    "deployedSha256": "596e03b4e1dd35debcef81c7dac8e94f649692b2e93aaa237f54c63871230c69",
+    "hardwareTestsPassed": 994,
+    "hardwareTestsSkipped": 46,
+    "hardwareSubtestsPassed": 5
+  },
+  "fieldValidation": {
+    "firstBootCoordinatorRestartedAt": "2026-08-30T03:10:44Z",
+    "remoteSupportStartRequestedAt": "2026-08-30T03:10:49Z",
+    "hardwareStartRequestedAt": "2026-08-30T03:10:52Z",
+    "hardwareActiveAt": "2026-08-30T03:10:56Z",
+    "onenetOnlineReceivedAt": "2026-08-30T03:10:56.630Z",
+    "trustedRuntimeEdgeEventIds": [12964, 12965],
+    "latestTrustedSequence": 1686,
+    "newQuarantineCount": 0,
+    "activeDeviceOccupancyCount": 0,
+    "finalStates": {
+      "firstBootCoordinator": "active",
+      "runtimeTarget": "active",
+      "hardwareGateway": "active",
+      "remoteSupportAgent": "active",
+      "edgeConnection": "ONLINE",
+      "safety": "SAFE",
+      "uart": "READY"
+    }
+  }
+}

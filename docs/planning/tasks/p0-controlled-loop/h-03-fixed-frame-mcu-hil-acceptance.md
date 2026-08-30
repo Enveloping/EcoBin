@@ -139,6 +139,8 @@ P8、单向封存、完成事实和封存后冷启动见
 [v8 单卡远程维护全链路证据](../../../../hardware/image-artifacts/evidence/hil-v8-remote-support-end-to-end-20260829-01/README.md)。
 永久归属与机构配置后的扫码准入、运行快照、投递建单、幂等重投和设备占用释放见
 [v8 单卡扫码、投递与运行快照准入闭环证据](../../../../hardware/image-artifacts/evidence/hil-v8-miniapp-delivery-runtime-admission-20260829-01/README.md)。
+冷启动时运行目标遗漏硬件服务的复现、自动补启动修复和现场验证见
+[v8 运行目标成员自动恢复证据](../../../../hardware/image-artifacts/evidence/hil-v8-runtime-member-recovery-20260830-01/README.md)。
 
 ## 排除范围
 
@@ -250,3 +252,12 @@ P8、单向封存、完成事实和封存后冷启动见
   开启反向 SSH，会话 25 完整经过 `CONNECTING → OPEN → CLOSED` 且无失败码，证明该修复未
   破坏远程维护链路。历史隔离记录 5673～5675 作为发布前审计事实保留，不删除、不重放，且
   不阻止后续业务。
+- 2026-08-30：指定卡冷启动后 Air780E USB/RNDIS、地址、默认路由和蜂窝探测均正常，后端
+  却保持 OFFLINE。串口确认运行门禁先失败后通过，硬件服务自己的瞬时门禁随后失败并被跳过，
+  但 `ecobin-runtime.target` 已经 active；旧协调器因此不再重试 inactive 的硬件网关。先手动
+  启动服务恢复 OneNet，再以失败测试锁定“active target + inactive member”现场模式。提交
+  `fbc6c471` 让协调器持续核对硬件网关和远程维护代理，只补启动缺失成员。完整回归为
+  `994 passed, 46 skipped, 5 subtests passed`。候选原子部署后，重启协调器自然再次形成
+  运行目标 active、两个成员 inactive 的状态；新版于约 5 秒后开始补启动，13 秒内恢复 MQTT、
+  UART 自检和运行快照。后端重新 ONLINE，可信事件为 12964/12965、最新序列 1686，新增隔离
+  和设备占用均为 0。当前卡已持久热修；下一版镜像仍须从含该提交的源码重新构建。
