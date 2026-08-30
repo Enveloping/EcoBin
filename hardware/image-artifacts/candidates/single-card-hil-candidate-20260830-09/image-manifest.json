@@ -1,0 +1,248 @@
+{
+  "$schema": "./schemas/image-manifest.schema.json",
+  "artifactClass": "UNSIGNED_NO_SECRET_CANDIDATE",
+  "artifacts": {
+    "rawImageBytes": 2571108352,
+    "rawImageFile": "ecobin-orangepi-zero3-0.1.0-single-card.20260830.9.img",
+    "rawImageSha256": "d9972cbe34f36e175173cbcbef72b8a13fbf07324a8a5d9104efd49015958e78",
+    "targetMediaQualificationEvidenceFile": "target-media-qualification-evidence.json",
+    "targetMediaQualificationEvidenceSha256": "e048967cbd8f19d50eeed30905915119a814e397c60c364c24532c9bfcc1f2ad"
+  },
+  "baseImage": {
+    "downloadBytes": 531858607,
+    "extractedImageBytes": 2571108352,
+    "extractedImageSha256": "dda562f0ce9c3fc2be656f816b8f3aea466a3f9ace9fdf87d97ebdc72aeada40",
+    "fileName": "Orangepizero3_1.0.4_debian_bookworm_server_linux6.1.31.7z",
+    "sha256": "bfbe35d89164329402990e8ceb93c94cdff69020f89a44b7cfbfefb73bfb7249",
+    "url": "https://drive.usercontent.google.com/download?id=1xbSmrUu0uffnFkDvZduvzV1oUilZIWL5&export=download&confirm=t"
+  },
+  "builder": {
+    "digest": "sha256:817e6cf99d6fc127ff4ffe8580049b60deba0adfbbb2bd65ddc3ef8fbb7aade0",
+    "platform": "linux/arm64",
+    "reference": "docker.io/library/debian:bookworm-20260803-slim@sha256:817e6cf99d6fc127ff4ffe8580049b60deba0adfbbb2bd65ddc3ef8fbb7aade0",
+    "tools": {
+      "bash": "5.2.15-2+b13",
+      "caCertificates": "20230311+deb12u1",
+      "coreutils": "9.1-1",
+      "debianArchiveKeyring": "2023.3+deb12u2",
+      "e2fsprogs": "1.47.0-2+b2",
+      "fdisk": "2.38.1-5+deb12u3",
+      "findutils": "4.9.0-4",
+      "git": "1:2.39.5-0+deb12u3",
+      "grep": "3.8-5",
+      "gzip": "1.12-1",
+      "jq": "1.6-2.1+deb12u2",
+      "mawk": "1.3.4.20200120-3.1",
+      "mount": "2.38.1-5+deb12u3",
+      "openssl": "3.0.20-1~deb12u2",
+      "p7zip": "16.02+really26.01+dfsg-0+deb12u1",
+      "python": "3.11.2-1+b1",
+      "python311Venv": "3.11.2-6+deb12u8",
+      "pythonCryptography": "38.0.4-3+deb12u1",
+      "pythonPip": "23.0.1+dfsg-1",
+      "pythonVenv": "3.11.2-1+b1",
+      "qemuUserStatic": "1:7.2+dfsg-7+deb12u18+b3",
+      "sed": "4.9-1+deb12u1",
+      "utilLinux": "2.38.1-5+deb12u3",
+      "uv": "0.12.5",
+      "xz": "5.4.1-1+deb12u1",
+      "zstd": "1.5.4+dfsg2-5"
+    },
+    "uvArtifact": {
+      "downloadBytes": 21478307,
+      "fileName": "uv-aarch64-unknown-linux-gnu.tar.gz",
+      "sha256": "9bf43b4d1a07665bf64d4c4e710930b382321a785e0eb10aac07f46471f86a31",
+      "url": "https://github.com/astral-sh/uv/releases/download/0.12.5/uv-aarch64-unknown-linux-gnu.tar.gz",
+      "version": "0.12.5"
+    }
+  },
+  "factory": {
+    "commandEnvelopeSchemaVersion": 2,
+    "databaseMigration": "V56",
+    "firstBootExpansionSchemaVersion": 2,
+    "sealContractVersion": 1,
+    "stateSchemaVersion": 1,
+    "targetMedia": "32 GB TF"
+  },
+  "gitCommit": "e3455c848ecd9b6471b16143351219e439d3997e",
+  "layout": {
+    "$schema": "./schemas/image-layout.schema.json",
+    "compactImage": {
+      "alignmentBytes": 1048576,
+      "fixedRawImageBytes": 2571108352,
+      "partitionTablePolicy": "locked-prefix-and-rebuilt-root",
+      "tailSafetyBytes": 67108864
+    },
+    "firstBootExpansion": {
+      "failurePolicy": "fail-closed",
+      "idempotent": true,
+      "identityBinding": "mounted-root-maj-min-sysfs",
+      "minimumGrowthBytes": 16777216,
+      "schemaVersion": 2,
+      "strategy": "growpart-resize2fs"
+    },
+    "lockState": "LOCKED",
+    "reason": "Source geometry, deterministic ext4 profile, and the project-owner-accepted single 32 GB TF card capacity are measured and locked; this target-media qualification covers only the identified card.",
+    "rootFilesystem": {
+      "buildProfile": {
+        "blockCount": 626688,
+        "blockSize": 4096,
+        "blocksPerGroup": 32768,
+        "checkIntervalSeconds": 0,
+        "defaultMountOptions": [
+          "journal_data_writeback",
+          "user_xattr",
+          "acl"
+        ],
+        "directoryHashAlgorithm": "half_md4",
+        "directoryHashSeed": "95e5d17c-7d9b-48c9-88a5-616dab33efd4",
+        "errorBehavior": "Continue",
+        "features": [
+          "has_journal",
+          "ext_attr",
+          "resize_inode",
+          "dir_index",
+          "filetype",
+          "extent",
+          "flex_bg",
+          "sparse_super",
+          "large_file",
+          "huge_file",
+          "dir_nlink",
+          "extra_isize"
+        ],
+        "filesystemFlags": [
+          "signed_directory_hash"
+        ],
+        "flexBlockGroupSize": 16,
+        "inodeBlocksPerGroup": 490,
+        "inodeCount": 156800,
+        "inodeSize": 256,
+        "inodesPerGroup": 7840,
+        "journalSizeBytes": 67108864,
+        "maximumMountCount": -1,
+        "reservedBlockCount": 12533,
+        "reservedPercent": 2,
+        "sourceDateEpoch": 1783765141
+      },
+      "filesystemLabel": "opi_root",
+      "filesystemType": "ext4",
+      "filesystemUuid": "535922e7-511d-46ea-82e6-573f913006af",
+      "mustBeFinalPartition": true,
+      "partitionNumber": 1,
+      "partitionUuid": "da1827ff-01"
+    },
+    "schemaVersion": 2,
+    "sourceGeometry": {
+      "bootPrefixBytes": 4194304,
+      "bootPrefixSha256": "11e09612854d5c9c038b74c73631377b9028a78726aff0363f841d47887aa698",
+      "diskIdentifier": "da1827ff",
+      "lockState": "LOCKED",
+      "logicalSectorBytes": 512,
+      "partitionTableType": "dos",
+      "rawImageBytes": 2571108352,
+      "rawImageSha256": "dda562f0ce9c3fc2be656f816b8f3aea466a3f9ace9fdf87d97ebdc72aeada40",
+      "rootPartition": {
+        "mustBeFinalPartition": true,
+        "number": 1,
+        "sectorCount": 5013504,
+        "startSector": 8192,
+        "typeCode": "83"
+      }
+    },
+    "targetMedia": {
+      "evidenceSha256": "e048967cbd8f19d50eeed30905915119a814e397c60c364c24532c9bfcc1f2ad",
+      "marketedCapacityBytes": 32000000000,
+      "marketedCapacityGB": 32,
+      "minimumQualifiedMediaBytes": 31268536320,
+      "qualificationState": "QUALIFIED"
+    }
+  },
+  "locks": {
+    "aptPackagesLockSha256": "65969460a6f4a9c05ed56c53f1d054dda689e6496fd1878daa5f4000997aa53c",
+    "builderLockSha256": "da6b71eed4f3bc0d9563883e750c760c79da7864016f04edcd0b74f9bf79d5aa",
+    "imageLayoutSha256": "3bc5ca7191bb88b813edb66f7677660aa16f38e117f8dfaeeba80f2fa1fb4389",
+    "softwarePayloadLockSha256": "fb0a3768e6b40f871a4a77523c5fd2c6dd0596a7120a096f2854b8a3b309fc0b",
+    "sourceLockSha256": "3b6a72a2bc2870d713c0835cab8d9c5bc8b8809f1952c2b65c39a19dc6eb605f"
+  },
+  "platform": {
+    "board": {
+      "architecture": "arm64",
+      "hardwareRevision": "v1.2",
+      "model": "Orange Pi Zero 3",
+      "soc": "Allwinner H618",
+      "vendor": "Orange Pi"
+    },
+    "operatingSystem": {
+      "distribution": "Debian",
+      "kernelSeries": "6.1",
+      "majorVersion": 12,
+      "variant": "Server"
+    },
+    "pythonTarget": "3.11"
+  },
+  "releaseId": "single-card-hil-20260830-09",
+  "schemaVersion": 1,
+  "security": {
+    "deviceCredentialsPresent": false,
+    "enrollmentKeyId": "K1",
+    "k1Injected": false,
+    "persistentSwapDisabled": true,
+    "setupApKeyInjected": false,
+    "signingState": "UNSIGNED"
+  },
+  "software": {
+    "buildReproducibility": {
+      "releaseEligible": true,
+      "rootfsDeterministic": true
+    },
+    "components": {
+      "enrollment": "enrollment-20260830-09",
+      "factoryTest": "factory-test-20260830-09",
+      "firstBoot": "first-boot-20260830-09",
+      "hardwareRuntime": "hardware-runtime-20260830-09",
+      "remoteSupport": "remote-support-20260830-09"
+    },
+    "factoryPortalInstalled": true,
+    "implementedSlices": [
+      "P1",
+      "P2",
+      "P3",
+      "P4",
+      "P5",
+      "P6",
+      "P7",
+      "P8"
+    ],
+    "mcuBootControl": {
+      "boot0ActiveLevel": 1,
+      "boot0Wpi": 2,
+      "gpioExecutable": "/usr/bin/gpio",
+      "resetGateActiveLevel": 1,
+      "resetGateWpi": 5,
+      "safeHelperSha256": "5bbf9470f7ba64aad755a984c5e8fcf1bcfc8b7029a0e935e4bfe61dccf592bc",
+      "safeUnitSha256": "2c448407bab9ce7ff5403298491094e3ef2ffbe9e8a9034c3ab0659f2ceeca5d"
+    },
+    "rootfsExpansion": {
+      "enabledIndirectlyBy": "ecobin-first-boot.service",
+      "helperSha256": "7bc35d80f70f517538744d71ee400dc28d267c53a0980383e48fe4f15cdb67d0",
+      "installed": true,
+      "strategy": "growpart-resize2fs",
+      "unitSha256": "a9c9d4bfab904bab0ad33bfe4531b984510252de297fcb2c1a1c0279d4e07485"
+    },
+    "runtimeInstalled": true,
+    "uart5": {
+      "applicationSerial": "115200/8N1",
+      "configured": true,
+      "conflictingOverlay": "ph-pwm12",
+      "device": "/dev/ttyS5",
+      "gettyMasked": true,
+      "linuxConsoleDisabled": true,
+      "overlay": "ph-uart5",
+      "romSerial": "115200/8E1"
+    }
+  },
+  "sourceDateEpoch": 1783765141,
+  "sourceDirty": false,
+  "version": "0.1.0-single-card.20260830.9"
+}

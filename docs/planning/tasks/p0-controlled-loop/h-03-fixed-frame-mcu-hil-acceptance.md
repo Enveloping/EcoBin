@@ -99,6 +99,9 @@ H-03 由此恢复为单卡受控执行并转为 `in-progress`。该授权覆盖�
   开发登录策略和受保护输入静默字节比较均通过。
 - [x] v8 原始镜像 SHA-256、公开校验文件和本地制品目录三方一致；镜像二进制继续
   仅保存在 Git 忽略的机密制品目录。
+- [x] v9 已从锁定上游镜像、当前包锁、当前软件负载锁和干净提交 `e3455c84` 完整重建；
+  无密钥候选的确定性根文件系统资格通过，含 K1 的开发/HIL 镜像也已通过离线只读预检。
+  它已固化当前 HSK/icSpring 摄像头配置和 v8 写卡后形成的已提交修复，本次构建没有写卡。
 
 恢复后必须按顺序完成：
 
@@ -129,6 +132,8 @@ H-03 由此恢复为单卡受控执行并转为 `in-progress`。该授权覆盖�
 
 当前 v8 离线证据见
 [HIL 工厂母镜像 v8 离线预检证据](../../../../hardware/image-artifacts/evidence/hil-factory-login-20260828-08-cellular-recovery-time-convergence/README.md)。
+下一轮待写卡的完整重建镜像见
+[HIL 工厂母镜像 v9 完整重建离线预检证据](../../../../hardware/image-artifacts/evidence/hil-factory-login-20260830-09-full-rebuild/README.md)。
 配置绑定正确的模拟外设成功流程见
 [v8 单卡模拟外设验收证据](../../../../hardware/image-artifacts/evidence/hil-v8-simulated-acceptance-20260829-01/README.md)；
 中途修改相机配置形成的旧报告已明确归档为
@@ -260,4 +265,11 @@ P8、单向封存、完成事实和封存后冷启动见
   `994 passed, 46 skipped, 5 subtests passed`。候选原子部署后，重启协调器自然再次形成
   运行目标 active、两个成员 inactive 的状态；新版于约 5 秒后开始补启动，13 秒内恢复 MQTT、
   UART 自检和运行快照。后端重新 ONLINE，可信事件为 12964/12965、最新序列 1686，新增隔离
-  和设备占用均为 0。当前卡已持久热修；下一版镜像仍须从含该提交的源码重新构建。
+  和设备占用均为 0。当前卡已持久热修。
+- 2026-08-30：从锁定的 Orange Pi Debian 1.0.4 原始镜像、当前包锁、软件负载锁和干净
+  提交 `e3455c84` 完整重建 v9。无密钥候选 SHA-256 为
+  `d9972cbe34f36e175173cbcbef72b8a13fbf07324a8a5d9104efd49015958e78`；只继承 v8 的 K1、
+  设置热点密钥和开发登录密码散列后，单卡开发/HIL 镜像 SHA-256 为
+  `d5b9bac39d2d1e130656efeaf49ffbb0678719241b06fb00d36ca2301dbac52f`。分区、ext4、软件
+  负载、首次启动空白状态、开发登录和 HSK/icSpring 配置离线验收均通过。下一步不是继续
+  修改镜像，而是重新检测并确认指定 TF 卡，写入后完整回读，再从空白状态重走接入和分配。
