@@ -20,6 +20,7 @@ from runtime_release import (  # noqa: E402
     harden_installed_venv_permissions,
     safe_extract_archive_stream,
     validate_release_tree,
+    validate_install_complete_marker,
     verified_archive_stream,
     write_install_complete_marker,
 )
@@ -107,11 +108,12 @@ def main(argv: list[str] | None = None) -> int:
                     "assert sys.version_info[:2] == (3, 11)",
                 ]
             )
-            write_install_complete_marker(args.destination, args.release_id)
             audit_installed_venv(
                 args.destination,
                 trusted_python_targets=(pathlib.Path("/usr/bin/python3.11"),),
             )
+            write_install_complete_marker(args.destination, args.release_id)
+            validate_install_complete_marker(args.destination, args.release_id)
         except Exception:
             shutil.rmtree(args.destination)
             raise
