@@ -81,9 +81,21 @@ class ReliableDeviceCommandCompletionServiceTest {
                         null,
                         200,
                         null,
+                        "a25087f46df04b69b29e90ef0acfd115",
                         null),
                 12);
 
+        verify(repository).recordDeviceAttemptResult(
+                51L,
+                "TECHNICAL_SUCCESS",
+                12L,
+                null,
+                null,
+                200,
+                null,
+                "a25087f46df04b69b29e90ef0acfd115",
+                null,
+                now);
         verify(repository).scheduleAwaitingDeviceEvidence(
                 41L, now.plusSeconds(36), now);
     }

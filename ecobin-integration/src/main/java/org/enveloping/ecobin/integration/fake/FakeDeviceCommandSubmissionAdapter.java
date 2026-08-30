@@ -29,6 +29,7 @@ public final class FakeDeviceCommandSubmissionAdapter
                 null,
                 null,
                 "FAKE_CHANNEL_BLOCKED",
+                null,
                 "fake external mode blocks OneNet submission");
     }
 }

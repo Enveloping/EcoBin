@@ -193,7 +193,7 @@ OneNet/Pulsar 的消息 ID 只保存在 `ops_inbox_message` 传输元数据中�
 
 ### 3. OneNet 服务调用与分层结果
 
-可靠执行器按当前本地官方快照 [`设备服务调用.md`](../../references/设备服务调用.md) 调用 OneNet `thingmodel/call-service`，使用环境注入的产品级鉴权材料；设备名由硬件 SN 确定。每次调用形成新的技术 attempt，可以有不同 OneNet `request_id`，但命令身份和稳定摘要不变。
+可靠执行器按当前本地官方快照 [`设备服务调用.md`](../../references/设备服务调用.md) 调用 OneNet `thingmodel/call-service`，使用环境注入的产品级鉴权材料；设备名由硬件 SN 确定。每次调用形成新的技术 attempt，可以有不同 OneNet `request_id`，但命令身份和稳定摘要不变。后端只在请求号满足安全 ASCII 字符集且不超过 128 字符时保存它，用于关联 OneNet 渠道日志；它不是命令、事件或业务身份，不参与幂等、唯一约束或自动重试判断。OneNet 返回的 `msg` 只在脱敏并限长后进入诊断摘要，不保存响应原文或其中的秘密。
 
 ```text
 OneNet HTTP code=0
@@ -204,6 +204,8 @@ OneNet HTTP code=0
   ≠ 本地结果已保存
   ≠ 后端业务已完成
 ```
+
+HTTP 200 只表示 OneNet 返回了可解析的业务响应。当前仅 `code=10500` 被列为可自动重试的临时平台错误；`code=10415` 和其他未列入白名单的非零码仍是永久技术失败，不能因为补录了 `request_id` 而自动重放可能触发物理动作的命令。控制消息 `CONFIRM_EDGE_EVENT` 是否继续投递仍由其原有可靠任务语义决定，本次诊断字段不改变重试分类。
 
 OneNet 返回值和服务回复只保存为传输证据。设备按命令类型通过 I-041 的 `DEVICE_COMMAND_OBSERVED` 或对应更强完成事件报告规范事实：
 

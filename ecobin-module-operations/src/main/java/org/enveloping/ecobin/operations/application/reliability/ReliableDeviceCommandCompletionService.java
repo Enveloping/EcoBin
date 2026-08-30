@@ -92,6 +92,7 @@ public class ReliableDeviceCommandCompletionService {
                     result.responseSha256(),
                     result.httpStatus(),
                     result.externalErrorCode(),
+                    result.externalRequestId(),
                     result.redactedDiagnostic(),
                     repository.databaseNow());
         } else if (!technicalResult.equals(execution.technicalResult())) {

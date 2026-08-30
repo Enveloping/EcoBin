@@ -69,6 +69,7 @@ public final class OperationsModels {
             Instant resultRecordedAt,
             Integer httpStatus,
             String externalApiErrorCode,
+            String externalRequestId,
             Long durationMs,
             String diagnostic) { }
 

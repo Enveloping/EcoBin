@@ -98,6 +98,7 @@ public class ReliableDeviceCommandTaskRunner
                         null,
                         null,
                         "DEVICE_ADAPTER_FAILURE",
+                        null,
                         "device submission Adapter raised "
                                 + safeClassName(failure));
             }

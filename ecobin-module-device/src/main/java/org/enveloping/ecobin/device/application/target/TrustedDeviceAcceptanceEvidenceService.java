@@ -2,6 +2,7 @@ package org.enveloping.ecobin.device.application.target;
 
 import org.enveloping.ecobin.device.api.port.TrustedDeviceAcceptanceEvidencePort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceAcceptanceChallengePort;
+import org.enveloping.ecobin.device.api.result.DeviceAcceptanceChallengeConsumeResult;
 import org.enveloping.ecobin.device.api.result.DeviceAcceptanceEvidenceApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceAcceptanceEvent;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
@@ -165,11 +166,24 @@ public class TrustedDeviceAcceptanceEvidenceService
                         "acceptance evidence uses a stale factory bag generation");
             }
 
-            challengePort.consume(
-                    asset.id(), commandUid, challengeUid,
-                    facts.factoryBagRevision(),
-                    asset.factoryBagSetSha256(),
-                    receivedAt);
+            DeviceAcceptanceChallengeConsumeResult challengeResult =
+                    challengePort.consume(
+                            asset.id(), commandUid, challengeUid,
+                            facts.factoryBagRevision(),
+                            asset.factoryBagSetSha256(),
+                            receivedAt);
+            if (challengeResult
+                    == DeviceAcceptanceChallengeConsumeResult.CANCELLED) {
+                confirmationService.ensureApplied(
+                        asset.id(),
+                        hardwareSn,
+                        eventUid,
+                        payloadSha256,
+                        "NO_ACTION_REQUIRED",
+                        receivedAt);
+                return new DeviceAcceptanceEvidenceApplyResult(
+                        asset.id(), asset.acceptanceStatus(), false);
+            }
 
             List<String> failures = failures(
                     asset,

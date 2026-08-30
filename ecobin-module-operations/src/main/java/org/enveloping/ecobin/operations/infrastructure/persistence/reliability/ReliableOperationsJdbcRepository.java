@@ -1338,6 +1338,7 @@ public class ReliableOperationsJdbcRepository {
             byte[] responseSha256,
             Integer httpStatus,
             String externalApiErrorCode,
+            String externalRequestId,
             String redactedDiagnostic,
             LocalDateTime now) {
         int updated = jdbcTemplate.update("""
@@ -1348,6 +1349,7 @@ public class ReliableOperationsJdbcRepository {
                     response_sha256 = ?,
                     http_status = ?,
                     external_api_error_code = ?,
+                    external_request_id = ?,
                     duration_ms = ?,
                     redacted_diagnostic = ?
                 WHERE id = ?
@@ -1359,6 +1361,7 @@ public class ReliableOperationsJdbcRepository {
                 responseSha256,
                 httpStatus,
                 externalApiErrorCode,
+                externalRequestId,
                 Math.max(0, durationMillis),
                 redactedDiagnostic,
                 attemptId);

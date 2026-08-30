@@ -58,6 +58,7 @@ class ReliableDeviceCommandAttemptServiceTest {
                 any(),
                 any(),
                 any(),
+                any(),
                 eq("ACCEPTANCE_SNAPSHOT_CHANGED"),
                 eq(now));
         verify(repository).markTaskCancelled(61L, 3L, now);

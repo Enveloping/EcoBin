@@ -8,6 +8,7 @@ import org.enveloping.ecobin.identity.api.port.ManagementScopeAuthorizationPort;
 import org.enveloping.ecobin.identity.api.result.AuthorizedManagementScope;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.QuarantineView;
 import org.enveloping.ecobin.operations.web.v1.OperationsModels.ReliableTaskView;
+import org.enveloping.ecobin.operations.web.v1.OperationsModels.TaskAttemptView;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -26,6 +27,32 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TechnicalOperationsServiceSqlTest {
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void taskAttemptTimelineSelectsExternalRequestIdentity() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        TechnicalOperationsService service = service(jdbc);
+        ReliableTaskView task = mock(ReliableTaskView.class);
+        when(jdbc.query(anyString(),
+                org.mockito.ArgumentMatchers.<RowMapper<Object>>any(),
+                any(Object[].class)))
+                .thenAnswer(invocation -> invocation
+                        .getArgument(0, String.class)
+                        .contains("FROM ops_task_attempt")
+                        ? List.<Object>of()
+                        : List.of(task));
+
+        service.attempts(UUID.randomUUID(), null, 20);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc, times(2)).query(
+                sql.capture(),
+                org.mockito.ArgumentMatchers.<RowMapper<TaskAttemptView>>any(),
+                any(Object[].class));
+        assertThat(sql.getAllValues().getLast())
+                .contains("attempt.external_request_id");
+    }
 
     @Test
     void reliableTaskListKeepsWhereAndOrderBySeparatedWithoutFilters() {

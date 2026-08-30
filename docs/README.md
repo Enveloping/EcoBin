@@ -30,7 +30,7 @@
 24. [P0 详细设计与任务拆分](planning/detailed-design-draft.md)：已批准的施工方案、跨端责任、任务依赖与目标窗口。
 25. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：历史任务入口；设备相关旧部署步骤由 V36 裁决覆盖。
 26. [权限与角色设计](architecture/permission-design.md)：三类登录主体、多租户隔离和接口鉴权。
-27. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构；新栈目标迁移已推进到 V60，并由只读 epoch guard 校验，运行制品不携带 Flyway 或迁移脚本。
+27. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构；新栈目标迁移已推进到 V61，并由只读 epoch guard 校验，运行制品不携带 Flyway 或迁移脚本。
 
 ## 目录说明
 

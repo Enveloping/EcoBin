@@ -69,6 +69,7 @@ public class ReliableDeviceCommandAttemptService {
                     null,
                     null,
                     null,
+                    null,
                     decision.reasonCode(),
                     now);
         }

@@ -178,6 +178,18 @@ public final class OneNetDiagnosticLogger {
         return sanitizer.throwable(failure, 2_048);
     }
 
+    /**
+     * Sanitizes bounded text before it is persisted as technical evidence.
+     * A missing message stays absent instead of becoming the log-only
+     * {@code <none>} marker.
+     */
+    public String sanitizedText(String value, int maxLength) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return sanitizer.text(value, maxLength);
+    }
+
     private boolean enabled() {
         return properties.getOneNet().isEnabled();
     }

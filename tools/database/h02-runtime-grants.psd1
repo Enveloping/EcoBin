@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 30
+    CatalogVersion = 31
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -778,6 +778,7 @@
             "response_sha256"
             "http_status"
             "external_api_error_code"
+            "external_request_id"
             "duration_ms"
             "redacted_diagnostic"
         )

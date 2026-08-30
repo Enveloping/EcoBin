@@ -403,7 +403,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V60 application exited before readiness`n$diagnostic"
+            throw "correct V61 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -441,7 +441,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V60 application did not become ready; " +
+    throw "correct V61 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -1178,6 +1178,12 @@ WHERE version = '1';
     ) {
         throw "Flyway V1 marker differs from the fixed P0 epoch identity"
     }
+    $historyCount = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
+    if ($historyCount -ne 61) {
+        throw "correct target must contain 61 successful Flyway migrations"
+    }
 
     Invoke-MySql -Database "" -Sql @"
 CREATE TABLE ``$($databaseNames.Legacy)``.flyway_schema_history
@@ -1322,6 +1328,51 @@ WHERE constraint_schema = '$($databaseNames.Correct)'
 "@)
     if ($mcuRemoteUpdateConstraints -ne 2) {
         throw "V60 MCU remote-update capability constraints are incomplete"
+    }
+    $externalRequestIdColumns = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT COUNT(*)
+FROM information_schema.columns
+WHERE table_schema = '$($databaseNames.Correct)'
+  AND table_name = 'ops_task_attempt'
+  AND column_name = 'external_request_id'
+  AND is_nullable = 'YES'
+  AND data_type = 'varchar'
+  AND character_maximum_length = 128
+  AND character_set_name = 'ascii'
+  AND collation_name = 'ascii_bin'
+  AND column_default IS NULL;
+"@)
+    if ($externalRequestIdColumns -ne 1) {
+        throw "V61 OneNet external request identity column is incomplete"
+    }
+    $externalRequestIdConstraints = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT COUNT(*)
+FROM information_schema.check_constraints
+WHERE constraint_schema = '$($databaseNames.Correct)'
+  AND constraint_name = 'ck_ops_attempt_external_request_v61'
+  AND REPLACE(LOWER(check_clause), CHAR(96), '')
+      LIKE '%external_request_id%'
+  AND REPLACE(LOWER(check_clause), CHAR(96), '')
+      LIKE '%result_recorded_at is not null%';
+"@)
+    if ($externalRequestIdConstraints -ne 1) {
+        throw "V61 OneNet external request identity constraint is incomplete"
+    }
+    $externalRequestIdIndexes = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT COUNT(*)
+FROM information_schema.statistics
+WHERE table_schema = '$($databaseNames.Correct)'
+  AND table_name = 'ops_task_attempt'
+  AND column_name = 'external_request_id';
+"@)
+    if ($externalRequestIdIndexes -ne 0) {
+        throw "V61 diagnostic request identity must not be indexed as a business key"
     }
     $businessRowsBefore = Get-BusinessRowCount `
         -Database $databaseNames.Correct
@@ -1501,7 +1552,7 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 60
+        targetVersion = 61
         domainTables = 119
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
@@ -1510,9 +1561,10 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV60Ready = $true
+        correctV61Ready = $true
         bagLabelBatchLimit500 = $true
         mcuRemoteUpdateCapabilityV60 = $true
+        externalRequestIdV61 = $true
         clockRecoveryV57UpgradeConverged = $true
         qualifiedCommandFailuresRetained = $true
         authorizationNullableStateFactsRejected = $true

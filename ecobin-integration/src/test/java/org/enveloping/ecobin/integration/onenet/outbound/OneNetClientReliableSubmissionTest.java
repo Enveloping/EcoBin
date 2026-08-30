@@ -28,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -496,7 +497,11 @@ class OneNetClientReliableSubmissionTest {
                 any(HttpEntity.class),
                 eq(String.class)))
                 .thenReturn(ResponseEntity.ok(
-                        "{\"code\":10415,\"msg\":\"required value\"}"));
+                        """
+                                {"code":10415,
+                                 "msg":"required value; access_token=DO_NOT_STORE; https://example.test/a?token=VISIBLE",
+                                 "request_id":"a25087f46df04b69b29e90ef0acfd115"}
+                                """));
 
         DeviceCommandSubmissionResult result = client.submit(
                 submission(
@@ -508,6 +513,94 @@ class OneNetClientReliableSubmissionTest {
                 DeviceCommandSubmissionResult.Outcome.PERMANENT_FAILURE,
                 result.outcome());
         assertEquals("ONENET_10415", result.externalErrorCode());
+        assertEquals(
+                "a25087f46df04b69b29e90ef0acfd115",
+                result.externalRequestId());
+        assertTrue(result.redactedDiagnostic().contains("required value"));
+        assertTrue(result.redactedDiagnostic().contains("<redacted>"));
+        assertFalse(result.redactedDiagnostic().contains("DO_NOT_STORE"));
+        assertFalse(result.redactedDiagnostic().contains("VISIBLE"));
+        assertTrue(result.redactedDiagnostic().length() <= 1000);
+    }
+
+    @Test
+    void acceptsCamelCaseRequestIdButDropsUnsafeRequestIdentity()
+            throws Exception {
+        String envelope = Files.readString(contractPath(
+                "contracts/examples/onenet/"
+                        + "confirm-edge-event.command.json"));
+        UUID commandUid = UUID.fromString(
+                "60000000-0000-4000-8000-000000000002");
+        when(restTemplate.postForEntity(
+                anyString(),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(
+                        ResponseEntity.ok(
+                                """
+                                        {"code":10415,"msg":"bad model",
+                                         "requestId":"camelCase-req_01"}
+                                        """),
+                        ResponseEntity.ok(
+                                """
+                                        {"code":10415,"msg":"bad model",
+                                         "request_id":"unsafe request id"}
+                                        """));
+
+        DeviceCommandSubmissionResult camelCase = client.submit(
+                submission(
+                        envelope,
+                        commandUid,
+                        "CONFIRM_EDGE_EVENT"));
+        DeviceCommandSubmissionResult unsafe = client.submit(
+                submission(
+                        envelope,
+                        commandUid,
+                        "CONFIRM_EDGE_EVENT"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PERMANENT_FAILURE,
+                camelCase.outcome());
+        assertEquals("camelCase-req_01", camelCase.externalRequestId());
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PERMANENT_FAILURE,
+                unsafe.outcome());
+        assertNull(unsafe.externalRequestId());
+    }
+
+    @Test
+    void boundsAnOversizedOneNetMessageAfterSanitization()
+            throws Exception {
+        String envelope = Files.readString(contractPath(
+                "contracts/examples/onenet/"
+                        + "confirm-edge-event.command.json"));
+        when(restTemplate.postForEntity(
+                anyString(),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok(
+                        objectMapper.writeValueAsString(Map.of(
+                                "code", 10415,
+                                "msg", "x".repeat(2_000),
+                                "request_id",
+                                "long-message-request-01"))));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(
+                        envelope,
+                        UUID.fromString(
+                                "60000000-0000-4000-8000-000000000002"),
+                        "CONFIRM_EDGE_EVENT"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PERMANENT_FAILURE,
+                result.outcome());
+        assertEquals("ONENET_10415", result.externalErrorCode());
+        assertEquals(
+                "long-message-request-01",
+                result.externalRequestId());
+        assertTrue(result.redactedDiagnostic().length() <= 1000);
+        assertTrue(result.redactedDiagnostic().contains("<truncated"));
     }
 
     @Test
@@ -522,7 +615,11 @@ class OneNetClientReliableSubmissionTest {
                 any(HttpEntity.class),
                 eq(String.class)))
                 .thenReturn(ResponseEntity.ok(
-                        "{\"code\":10500,\"msg\":\"internal service error\"}"));
+                        """
+                                {"code":10500,
+                                 "msg":"internal service error",
+                                 "requestId":"temporary-failure-req-01"}
+                                """));
 
         DeviceCommandSubmissionResult result = client.submit(
                 submission(
@@ -534,6 +631,11 @@ class OneNetClientReliableSubmissionTest {
                 DeviceCommandSubmissionResult.Outcome.RETRYABLE_FAILURE,
                 result.outcome());
         assertEquals("ONENET_10500", result.externalErrorCode());
+        assertEquals(
+                "temporary-failure-req-01",
+                result.externalRequestId());
+        assertTrue(result.redactedDiagnostic().contains(
+                "internal service error"));
     }
 
     @Test

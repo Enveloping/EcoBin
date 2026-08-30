@@ -26,6 +26,36 @@ import static org.mockito.Mockito.when;
 class ReliableOperationsJdbcRepositorySqlTest {
 
     @Test
+    void persistsExternalRequestIdentityWithTheAttemptResult() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
+        ReliableOperationsJdbcRepository repository =
+                new ReliableOperationsJdbcRepository(jdbc);
+        LocalDateTime now = LocalDateTime.of(2026, 8, 30, 12, 0);
+
+        repository.recordDeviceAttemptResult(
+                7L,
+                "PERMANENT_TECHNICAL_FAILURE",
+                25L,
+                new byte[32],
+                new byte[32],
+                200,
+                "ONENET_10415",
+                "a25087f46df04b69b29e90ef0acfd115",
+                "required value",
+                now);
+
+        var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        var argumentsCaptor = org.mockito.ArgumentCaptor
+                .forClass(Object[].class);
+        verify(jdbc).update(sqlCaptor.capture(), argumentsCaptor.capture());
+        assertTrue(normalize(sqlCaptor.getValue()).contains(
+                "external_request_id = ?"));
+        assertTrue(Arrays.asList(argumentsCaptor.getValue()).contains(
+                "a25087f46df04b69b29e90ef0acfd115"));
+    }
+
+    @Test
     void bindsExpiredEvidenceBlockUpdateInSqlPlaceholderOrder() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);

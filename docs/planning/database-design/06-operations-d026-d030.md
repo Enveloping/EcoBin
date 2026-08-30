@@ -35,7 +35,7 @@
 | 表 | M0 核心字段与约束 |
 |---|---|
 | `ops_reliable_task` | `id`、全局唯一 `task_uid`、不可变作用域、`BUSINESS_INTENT/INBOX_PROCESSING/TIMER/RECONCILIATION`、稳定任务类型、`DEVICE/FUNDS` 执行通道、全局唯一 ASCII `task_key`、目标类型/稳定业务键、可空且唯一来源 inbox、可空且唯一设备命令、载荷 schema/脱敏执行快照/摘要、关联/因果 ID和可空发起审计、优先级/重试策略版本/自动尝试上限、`PENDING/DONE/CANCELLED/BLOCKED`、下次执行时间、租约 token/worker/截止时间、尝试序号/连续失败数、单调 `wake_version/handled_wake_version`、完成或阻断信息、时间列和锁版本。 |
-| `ops_task_attempt` | `id`、全局唯一 `attempt_uid`、任务、单调尝试号、全局唯一租约 token、领取时 `claimed_wake_version`、worker、领取/租约截止/外部调用可能开始/租约被接管/结果记录时间、本次 `PROCESS/SUBMIT/QUERY/CLOSE/CANCEL`、技术结果分类、请求/响应摘要、HTTP 状态、外部 API 错误码、耗时和限长脱敏诊断；唯一 `(task_id, attempt_no)`，身份与领取字段不可改，调用、接管和结果字段各自最多从空补写一次。 |
+| `ops_task_attempt` | `id`、全局唯一 `attempt_uid`、任务、单调尝试号、全局唯一租约 token、领取时 `claimed_wake_version`、worker、领取/租约截止/外部调用可能开始/租约被接管/结果记录时间、本次 `PROCESS/SUBMIT/QUERY/CLOSE/CANCEL`、技术结果分类、请求/响应摘要、HTTP 状态、外部 API 错误码、可空且限长的外部技术请求号、耗时和限长脱敏诊断；唯一 `(task_id, attempt_no)`，身份与领取字段不可改，调用、接管和结果字段各自最多从空补写一次。外部技术请求号只用于关联渠道日志，不是业务身份，不建立唯一约束或索引。 |
 
 - `task_key` 由任务类型、作用域哨兵、稳定业务身份和动作版本规范生成，例如 `PROCESS_INBOX:<inbox_uid>`、`ENSURE_DEVICE_COMMAND:<command_uid>`、`CONFIRM_EDGE_EVENT:<event_uid>`、`PROVIDE_PHOTO_UPLOAD_GRANT:<grant_request_event_uid>`、`POST_RECHARGE:<recharge_order_no>`、`CONVERGE_WECHAT_TRANSFER:<out_bill_no>`、`DAILY_RECONCILIATION:<merchant>:<business_date>`。会话内继续投递是边缘本地动作，不创建任何按轮次执行的中心任务。命中同键时必须比较作用域、目标和载荷摘要；完全一致返回原任务，不一致则生产者事务失败并产生不变量告警，不能覆盖或换键规避。
 - `PROCESS_INBOX` 必须且只能引用一个 inbox，任务复制其不可变作用域；其他任务不得占用该字段。任何可执行任务都不允许 `UNRESOLVED`。任务的作用域、类型、通道、目标、稳定键和执行快照创建后不可修改；OneNet/APIv3/COS 密钥、签名、nonce 和临时凭证不进入任务，执行时从外部秘密设施加载或即时生成。

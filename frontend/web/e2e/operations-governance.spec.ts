@@ -96,6 +96,9 @@ function attempt(
     resultRecordedAt,
     httpStatus: resultRecordedAt ? 200 : null,
     externalApiErrorCode: null,
+    externalRequestId: resultRecordedAt
+      ? 'a25087f46df04b69b29e90ef0acfd115'
+      : null,
     durationMs: resultRecordedAt ? 120 : null,
     diagnostic: null,
   };
@@ -353,5 +356,8 @@ test('尝试时间线分开任务领取、可能外调和结果落库', async ({
   await expect(drawer.getByRole('columnheader', { name: '任务领取' })).toBeVisible();
   await expect(drawer.getByRole('columnheader', { name: '可能开始外调' })).toBeVisible();
   await expect(drawer.getByRole('columnheader', { name: '结果落库' })).toBeVisible();
+  await expect(drawer.getByText(
+    '请求 a25087f46df04b69b29e90ef0acfd115',
+  )).toBeVisible();
   await expect(drawer.getByRole('columnheader', { name: '发起时间' })).toHaveCount(0);
 });

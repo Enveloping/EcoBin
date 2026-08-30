@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.device.application.target;
 
 import org.enveloping.ecobin.device.api.port.TrustedDeviceAcceptanceChallengePort;
+import org.enveloping.ecobin.device.api.result.DeviceAcceptanceChallengeConsumeResult;
 import org.enveloping.ecobin.device.api.result.DeviceAcceptanceEvidenceApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceAcceptanceEvent;
 import org.enveloping.ecobin.framework.reliability.PlatformDeviceAssetTaskRef;
@@ -18,10 +19,12 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -227,6 +230,59 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
     }
 
     @Test
+    void cancelledMatchingChallengeConvergesWithoutChangingAcceptance() {
+        AcceptanceApplyFixture fixture = acceptanceApplyFixture();
+        when(fixture.challengePort().consume(
+                eq(13L),
+                eq(UUID.fromString(
+                        "40000000-0000-4000-8000-000000000001")),
+                eq(UUID.fromString(
+                        "50000000-0000-4000-8000-000000000001")),
+                eq(7L),
+                any(byte[].class),
+                any(LocalDateTime.class)))
+                .thenReturn(DeviceAcceptanceChallengeConsumeResult.CANCELLED);
+
+        DeviceAcceptanceEvidenceApplyResult first = fixture.service().apply(
+                acceptanceEvent(7L, "0".repeat(64), 4, false));
+        DeviceAcceptanceEvidenceApplyResult duplicate = fixture.service().apply(
+                acceptanceEvent(7L, "0".repeat(64), 4, false));
+
+        assertThat(first).isEqualTo(
+                new DeviceAcceptanceEvidenceApplyResult(
+                        13L, "PASSED", false));
+        assertThat(duplicate).isEqualTo(first);
+        verify(fixture.challengePort(), times(2)).consume(
+                eq(13L),
+                eq(UUID.fromString(
+                        "40000000-0000-4000-8000-000000000001")),
+                eq(UUID.fromString(
+                        "50000000-0000-4000-8000-000000000001")),
+                eq(7L),
+                any(byte[].class),
+                any(LocalDateTime.class));
+        verify(fixture.acceptanceJdbc(), never()).update(
+                anyString(), any(Object[].class));
+
+        ArgumentCaptor<ReliablePlatformDeviceControlTaskRegistration> captor =
+                ArgumentCaptor.forClass(
+                        ReliablePlatformDeviceControlTaskRegistration.class);
+        verify(fixture.registrationPort(), times(1)).register(
+                captor.capture());
+        ReliablePlatformDeviceControlTaskRegistration registration =
+                captor.getValue();
+        assertThat(registration.taskKey()).isEqualTo(
+                "CONFIRM_EDGE_EVENT:"
+                        + "30000000-0000-4000-8000-000000000001");
+        JsonNode envelope = JsonMapper.builder().build().readTree(
+                registration.executionEnvelope());
+        assertThat(envelope.path("payload").path("outcome").asText())
+                .isEqualTo("BUSINESS_APPLIED");
+        assertThat(envelope.path("payload").path("effectKind").asText())
+                .isEqualTo("NO_ACTION_REQUIRED");
+    }
+
+    @Test
     void currentFactoryBagRevisionWithDifferentDigestIsRejected() {
         AcceptanceApplyFixture fixture = acceptanceApplyFixture();
 
@@ -381,6 +437,14 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                         registrationPort);
         TrustedDeviceAcceptanceChallengePort challengePort =
                 mock(TrustedDeviceAcceptanceChallengePort.class);
+        when(challengePort.consume(
+                anyLong(),
+                any(UUID.class),
+                any(UUID.class),
+                anyLong(),
+                any(byte[].class),
+                any(LocalDateTime.class)))
+                .thenReturn(DeviceAcceptanceChallengeConsumeResult.CONSUMED);
         TrustedDeviceAcceptanceEvidenceService service =
                 new TrustedDeviceAcceptanceEvidenceService(
                         acceptanceJdbc,

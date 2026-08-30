@@ -9,12 +9,14 @@ import org.enveloping.ecobin.device.application.delivery.DeliveryCommandObservat
 import org.enveloping.ecobin.device.application.target.AutomaticDeviceActivationScheduler;
 import org.enveloping.ecobin.device.application.target.TargetDeviceApplication;
 import org.enveloping.ecobin.framework.reliability.TrustedInboxScopeResolver;
+import org.enveloping.ecobin.integration.onenet.inbound.OneNetCanonicalJson;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxExecutionLane;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxMessage;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxPort;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxReceipt;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxReceiptState;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceInboxWorkerPort;
+import org.enveloping.ecobin.operations.api.reliability.ReliableWorkerBatchResult;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository;
 import org.enveloping.ecobin.recycling.application.bag.Eb1BagCodeService;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,7 +41,10 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -252,6 +257,269 @@ class TargetDeviceMysqlIntegrationTest {
                 .path("latestPublishedVersion").isNull());
         assertFalse(onlineRuntime.path("occupied").asBoolean());
         assertFalse(onlineRuntime.path("fetchedAt").isNull());
+    }
+
+    @Test
+    void cancelledAcceptanceChallengeLateV4EvidenceConvergesWithoutChangingAcceptanceOrSealAuthorization()
+            throws Exception {
+        BrowserClient platform = new BrowserClient();
+        login(platform, "/api/v1/web/platform/auth/sessions",
+                platformLogin, PLATFORM_PASSWORD, 201);
+
+        String hardwareSn = "HW-LATE-ACCEPTANCE-" + run;
+        data(write(
+                platform,
+                post("/api/v1/web/platform/device-assets"),
+                UUID.randomUUID(),
+                Map.of(
+                        "hardwareSn", hardwareSn,
+                        "modelCode", "EC-M0",
+                        "productionBatch", "LATE-ACCEPTANCE-" + run,
+                        "expectedPortCount", 1),
+                201));
+        long assetId = assetId(hardwareSn);
+        long factoryBagRevision = 7L;
+        String factoryBagSetSha256 = "7".repeat(64);
+        assertEquals(1, jdbc.update("""
+                        UPDATE dev_device_asset
+                        SET factory_bag_revision = ?,
+                            factory_bag_set_sha256 = UNHEX(?),
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE id = ?
+                        """,
+                factoryBagRevision,
+                factoryBagSetSha256,
+                assetId));
+        seedCurrentAcceptedEvidenceFixture(
+                assetId, factoryBagRevision, factoryBagSetSha256);
+        JsonNode accepted = data(write(
+                platform,
+                post("/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/acceptance-evaluations"),
+                UUID.randomUUID(),
+                Map.of(),
+                200));
+        assertEquals("PASSED", accepted.path("acceptanceStatus").asText());
+        assertEquals(1L, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_factory_seal_authorization
+                        WHERE asset_id = ?
+                        """,
+                Long.class,
+                assetId));
+
+        AssetAcceptanceSnapshot assetBefore =
+                assetAcceptanceSnapshot(assetId);
+        long evidenceCountBefore = jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_device_acceptance_evidence
+                        WHERE asset_id = ?
+                        """,
+                Long.class,
+                assetId);
+        FactorySealSnapshot sealBefore = factorySealSnapshot(assetId);
+
+        UUID challengeUid = UUID.randomUUID();
+        UUID commandUid = UUID.randomUUID();
+        LocalDateTime taskTime = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        Map<String, Object> challengePayload = new LinkedHashMap<>();
+        challengePayload.put("challengeUid", challengeUid.toString());
+        challengePayload.put("expectedPortCount", 1);
+        challengePayload.put("factoryBagRevision", factoryBagRevision);
+        challengePayload.put(
+                "factoryBagSetSha256", factoryBagSetSha256);
+        Map<String, Object> challengeEnvelope = new LinkedHashMap<>();
+        challengeEnvelope.put("schemaVersion", 2);
+        challengeEnvelope.put("commandUid", commandUid.toString());
+        challengeEnvelope.put(
+                "commandType", "REQUEST_DEVICE_ACCEPTANCE");
+        challengeEnvelope.put("targetDeviceName", hardwareSn);
+        challengeEnvelope.put("target", Map.of(
+                "type", "DEVICE_ASSET",
+                "uid", hardwareSn));
+        challengeEnvelope.put(
+                "issuedAt", taskTime.toInstant(ZoneOffset.UTC).toString());
+        challengeEnvelope.put(
+                "expiresAt",
+                taskTime.plusMinutes(10)
+                        .toInstant(ZoneOffset.UTC)
+                        .toString());
+        challengeEnvelope.put("payloadSchemaVersion", 2);
+        challengeEnvelope.put(
+                "payloadSha256",
+                OneNetCanonicalJson.payloadSha256(challengePayload));
+        challengeEnvelope.put("payload", challengePayload);
+        challengeEnvelope.put("cosGrant", null);
+        UUID challengeTaskUid =
+                reliableOperationsRepository.insertPlatformDeviceControlTask(
+                        assetId,
+                        "REQUEST_DEVICE_ACCEPTANCE",
+                        "REQUEST_DEVICE_ACCEPTANCE:"
+                                + challengeUid.toString().toUpperCase(),
+                        "DEVICE_ASSET",
+                        challengeUid.toString(),
+                        2,
+                        objectMapper.writeValueAsString(challengeEnvelope),
+                        HexFormat.of().parseHex(
+                                OneNetCanonicalJson.payloadSha256(
+                                        challengeEnvelope)),
+                        challengeUid,
+                        commandUid,
+                        1000,
+                        null,
+                        taskTime);
+        assertEquals(1, jdbc.update("""
+                        UPDATE ops_reliable_task
+                        SET state = 'CANCELLED',
+                            next_run_at = NULL,
+                            lease_token = NULL,
+                            lease_worker = NULL,
+                            lease_until = NULL,
+                            dispatch_wait_reason = NULL,
+                            handled_wake_version = wake_version,
+                            completed_at = UTC_TIMESTAMP(3),
+                            blocked_reason_code = NULL,
+                            blocked_diagnostic = NULL,
+                            lock_version = lock_version + 1,
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE task_uid = ?
+                          AND state = 'PENDING'
+                        """,
+                challengeTaskUid.toString()));
+
+        UUID eventUid = UUID.randomUUID();
+        TrustedInboxMessage message = new TrustedInboxMessage(
+                "onenet.device-event",
+                "onenet-product:" + hardwareSn,
+                eventUid.toString(),
+                "DEVICE_ACCEPTANCE_EVIDENCE",
+                2,
+                "cancelled-acceptance-v4"
+                        .getBytes(StandardCharsets.UTF_8),
+                acceptanceEvidencePayload(
+                        hardwareSn,
+                        eventUid,
+                        commandUid,
+                        challengeUid,
+                        factoryBagRevision,
+                        factoryBagSetSha256),
+                "ONENET_MQ",
+                "onenet:cancelled-acceptance-v4",
+                eventUid,
+                commandUid,
+                TrustedInboxExecutionLane.DEVICE);
+        TrustedInboxReceipt receipt = trustedInbox.receive(message);
+        assertEquals(TrustedInboxReceiptState.ACCEPTED, receipt.state());
+
+        ReliableWorkerBatchResult applied = deviceInboxWorker.runBatch(
+                "cancelled-acceptance-worker-" + run);
+        assertEquals(1, applied.claimed());
+        assertEquals(1, applied.accepted());
+        assertEquals(0, applied.failed());
+        assertEquals("PROCESSED", jdbc.queryForObject("""
+                        SELECT processing_state
+                        FROM ops_inbox_message
+                        WHERE inbox_uid = ?
+                        """,
+                String.class,
+                receipt.inboxUid().toString()));
+        assertEquals("DONE", jdbc.queryForObject("""
+                        SELECT state
+                        FROM ops_reliable_task
+                        WHERE task_uid = ?
+                        """,
+                String.class,
+                receipt.taskUid().toString()));
+        assertEquals("NO_ACTION_REQUIRED", jdbc.queryForObject("""
+                        SELECT attempt.technical_result
+                        FROM ops_task_attempt attempt
+                        JOIN ops_reliable_task task
+                          ON task.id = attempt.task_id
+                        WHERE task.task_uid = ?
+                        """,
+                String.class,
+                receipt.taskUid().toString()));
+
+        String confirmationTaskKey = "CONFIRM_EDGE_EVENT:"
+                + eventUid.toString().toUpperCase();
+        assertEquals(1L, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM ops_reliable_task
+                        WHERE task_key = ?
+                          AND task_type = 'CONFIRM_EDGE_EVENT'
+                        """,
+                Long.class,
+                confirmationTaskKey));
+        assertEquals("BUSINESS_APPLIED|NO_ACTION_REQUIRED", jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            JSON_UNQUOTE(JSON_EXTRACT(
+                                redacted_execution_snapshot,
+                                '$.payload.outcome')),
+                            '|',
+                            JSON_UNQUOTE(JSON_EXTRACT(
+                                redacted_execution_snapshot,
+                                '$.payload.effectKind')))
+                        FROM ops_reliable_task
+                        WHERE task_key = ?
+                        """,
+                String.class,
+                confirmationTaskKey));
+
+        TrustedInboxReceipt duplicate = trustedInbox.receive(message);
+        assertEquals(
+                TrustedInboxReceiptState.DUPLICATE_ACCEPTED,
+                duplicate.state());
+        assertEquals(receipt.inboxUid(), duplicate.inboxUid());
+        assertEquals(receipt.taskUid(), duplicate.taskUid());
+        ReliableWorkerBatchResult duplicateRun = deviceInboxWorker.runBatch(
+                "cancelled-acceptance-duplicate-worker-" + run);
+        assertEquals(1, duplicateRun.claimed());
+        assertEquals(1, duplicateRun.accepted());
+        assertEquals(0, duplicateRun.failed());
+        assertEquals("DONE", jdbc.queryForObject("""
+                        SELECT state
+                        FROM ops_reliable_task
+                        WHERE task_uid = ?
+                        """,
+                String.class,
+                receipt.taskUid().toString()));
+        assertEquals(2L, jdbc.queryForObject("""
+                        SELECT delivery_count
+                        FROM ops_inbox_message
+                        WHERE inbox_uid = ?
+                        """,
+                Long.class,
+                receipt.inboxUid().toString()));
+        assertEquals(1L, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM ops_reliable_task
+                        WHERE task_key = ?
+                          AND task_type = 'CONFIRM_EDGE_EVENT'
+                        """,
+                Long.class,
+                confirmationTaskKey));
+        assertEquals(2L, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM ops_task_attempt attempt
+                        JOIN ops_reliable_task task
+                          ON task.id = attempt.task_id
+                        WHERE task.task_uid = ?
+                          AND attempt.technical_result =
+                              'NO_ACTION_REQUIRED'
+                        """,
+                Long.class,
+                receipt.taskUid().toString()));
+
+        assertEquals(assetBefore, assetAcceptanceSnapshot(assetId));
+        assertEquals(evidenceCountBefore, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_device_acceptance_evidence
+                        WHERE asset_id = ?
+                        """,
+                Long.class,
+                assetId));
+        assertEquals(sealBefore, factorySealSnapshot(assetId));
     }
 
     @Test
@@ -864,6 +1132,192 @@ class TargetDeviceMysqlIntegrationTest {
                 assetId));
     }
 
+    private void seedCurrentAcceptedEvidenceFixture(
+            long assetId,
+            long factoryBagRevision,
+            String factoryBagSetSha256) {
+        UUID evidenceUid = UUID.randomUUID();
+        UUID challengeUid = UUID.randomUUID();
+        UUID commandUid = UUID.randomUUID();
+        UUID edgeStoreInstanceUid = UUID.randomUUID();
+        String evidenceSha256 = OneNetCanonicalJson.payloadSha256(Map.of(
+                "fixture", "current-accepted-evidence",
+                "evidenceUid", evidenceUid.toString()));
+        assertEquals(1, jdbc.update("""
+                        INSERT INTO dev_device_acceptance_evidence (
+                            evidence_uid, asset_id,
+                            challenge_uid, command_uid,
+                            factory_bag_revision,
+                            factory_bag_set_sha256,
+                            evidence_schema_version,
+                            edge_store_instance_uid,
+                            edge_software_version,
+                            edge_protocol_version,
+                            mcu_firmware_version,
+                            onenet_online,
+                            persistent_store_healthy,
+                            trusted_time_healthy,
+                            clock_quality,
+                            configuration_persistence_healthy,
+                            mcu_communication_healthy,
+                            mcu_remote_update_capable,
+                            sensors_healthy,
+                            cameras_capture_healthy,
+                            camera_upload_healthy,
+                            device_entry_url_stored,
+                            device_entry_url_sha256,
+                            mcu_simulated, cameras_simulated,
+                            evaluation_status,
+                            failure_reasons_json, evidence_json,
+                            evidence_sha256,
+                            observed_at, received_at, created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, UNHEX(?), 4, ?,
+                            '0.1.0', '2', 'fixed-frame-1.0.0',
+                            1, 1, 1, 'SYNCED', 1, 1, 0,
+                            1, 1, 1, 1, UNHEX(?), 0, 0,
+                            'PASSED', JSON_ARRAY(),
+                            JSON_OBJECT(
+                                'evidenceSchemaVersion', 4,
+                                'factoryBagRevision', ?,
+                                'factoryBagSetSha256', ?
+                            ),
+                            UNHEX(?),
+                            UTC_TIMESTAMP(3),
+                            UTC_TIMESTAMP(3),
+                            UTC_TIMESTAMP(3)
+                        )
+                        """,
+                evidenceUid.toString(),
+                assetId,
+                challengeUid.toString(),
+                commandUid.toString(),
+                factoryBagRevision,
+                factoryBagSetSha256,
+                edgeStoreInstanceUid.toString(),
+                "4".repeat(64),
+                factoryBagRevision,
+                factoryBagSetSha256,
+                evidenceSha256));
+    }
+
+    private String acceptanceEvidencePayload(
+            String hardwareSn,
+            UUID eventUid,
+            UUID commandUid,
+            UUID challengeUid,
+            long factoryBagRevision,
+            String factoryBagSetSha256) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("evidenceSchemaVersion", 4);
+        payload.put("challengeUid", challengeUid.toString());
+        payload.put("factoryBagRevision", factoryBagRevision);
+        payload.put("factoryBagSetSha256", factoryBagSetSha256);
+        payload.put("edgeSoftwareVersion", "0.1.0");
+        payload.put("edgeProtocolVersion", "2");
+        payload.put("edgeStoreInstanceUid", UUID.randomUUID().toString());
+        payload.put("mcuFirmwareVersion", "fixed-frame-1.0.0");
+        payload.put("persistentStoreHealthy", true);
+        payload.put("trustedTimeHealthy", true);
+        payload.put("configurationPersistenceHealthy", true);
+        payload.put("mcuCommunicationHealthy", true);
+        payload.put("mcuRemoteUpdateCapable", false);
+        payload.put("sensorsHealthy", true);
+        payload.put("camerasCaptureHealthy", true);
+        payload.put("cameraUploadHealthy", true);
+        payload.put("deviceEntryUrlStored", true);
+        payload.put("deviceEntryUrlSha256", "4".repeat(64));
+        payload.put("mcuSimulated", false);
+        payload.put("camerasSimulated", false);
+        payload.put("verifiedPortCount", 1);
+        payload.put("verifiedCameraCount", 2);
+        payload.put("sensorSampleSha256", "d".repeat(64));
+        payload.put("cameraCaptureSha256", "e".repeat(64));
+        payload.put("cameraUploadSha256", "f".repeat(64));
+
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("schemaVersion", 2);
+        event.put("eventUid", eventUid.toString());
+        event.put("edgeEventSequence", 1055);
+        event.put("eventType", "DEVICE_ACCEPTANCE_EVIDENCE");
+        event.put("deliveryClass", "RELIABLE_FACT");
+        event.put("target", Map.of(
+                "type", "DEVICE_ASSET",
+                "uid", hardwareSn));
+        event.put("commandUid", commandUid.toString());
+        event.put("occurredAt", Instant.now().toString());
+        event.put("clockQuality", "SYNCED");
+        event.put(
+                "payloadSha256",
+                OneNetCanonicalJson.payloadSha256(payload));
+        event.put("payload", payload);
+        return objectMapper.writeValueAsString(Map.of(
+                "trustedSource", Map.of(
+                        "productId", "mysql-integration-product",
+                        "deviceName", hardwareSn),
+                "eventCanonicalSha256", "b".repeat(64),
+                "event", event));
+    }
+
+    private AssetAcceptanceSnapshot assetAcceptanceSnapshot(long assetId) {
+        return jdbc.queryForObject("""
+                        SELECT acceptance_status,
+                               acceptance_generation,
+                               LOWER(HEX(acceptance_evidence_sha256))
+                                   AS evidence_sha256,
+                               accepted_at,
+                               last_acceptance_evaluated_at,
+                               acceptance_failure_json,
+                               mcu_remote_update_capable,
+                               control_version,
+                               updated_at
+                        FROM dev_device_asset
+                        WHERE id = ?
+                        """,
+                (rs, ignored) -> new AssetAcceptanceSnapshot(
+                        rs.getString("acceptance_status"),
+                        rs.getLong("acceptance_generation"),
+                        rs.getString("evidence_sha256"),
+                        rs.getObject("accepted_at", LocalDateTime.class),
+                        rs.getObject(
+                                "last_acceptance_evaluated_at",
+                                LocalDateTime.class),
+                        rs.getString("acceptance_failure_json"),
+                        rs.getObject(
+                                "mcu_remote_update_capable",
+                                Integer.class),
+                        rs.getLong("control_version"),
+                        rs.getObject("updated_at", LocalDateTime.class)),
+                assetId);
+    }
+
+    private FactorySealSnapshot factorySealSnapshot(long assetId) {
+        return jdbc.queryForObject("""
+                        SELECT id, authorization_status,
+                               command_uid, reliable_task_uid,
+                               acknowledged_at, cancelled_at,
+                               cancellation_reason,
+                               completion_event_uid,
+                               sealed_at, updated_at
+                        FROM dev_factory_seal_authorization
+                        WHERE asset_id = ?
+                        """,
+                (rs, ignored) -> new FactorySealSnapshot(
+                        rs.getLong("id"),
+                        rs.getString("authorization_status"),
+                        rs.getString("command_uid"),
+                        rs.getString("reliable_task_uid"),
+                        rs.getObject(
+                                "acknowledged_at", LocalDateTime.class),
+                        rs.getObject(
+                                "cancelled_at", LocalDateTime.class),
+                        rs.getString("cancellation_reason"),
+                        rs.getString("completion_event_uid"),
+                        rs.getObject("sealed_at", LocalDateTime.class),
+                        rs.getObject("updated_at", LocalDateTime.class)),
+                assetId);
+    }
+
     private void seedAcceptedEvidenceFixture(String hardwareSn) {
         long assetId = assetId(hardwareSn);
         int expectedPortCount = jdbc.queryForObject("""
@@ -1373,6 +1827,31 @@ class TargetDeviceMysqlIntegrationTest {
         return prefix + "-" + run;
     }
 
+    private record AssetAcceptanceSnapshot(
+            String acceptanceStatus,
+            long acceptanceGeneration,
+            String acceptanceEvidenceSha256,
+            LocalDateTime acceptedAt,
+            LocalDateTime lastAcceptanceEvaluatedAt,
+            String acceptanceFailureJson,
+            Integer mcuRemoteUpdateCapable,
+            long controlVersion,
+            LocalDateTime updatedAt) {
+    }
+
+    private record FactorySealSnapshot(
+            long id,
+            String authorizationStatus,
+            String commandUid,
+            String reliableTaskUid,
+            LocalDateTime acknowledgedAt,
+            LocalDateTime cancelledAt,
+            String cancellationReason,
+            String completionEventUid,
+            LocalDateTime sealedAt,
+            LocalDateTime updatedAt) {
+    }
+
     private record ReplacementBagFacts(
             long bagId,
             long baselineId) {
@@ -1420,6 +1899,7 @@ class TargetDeviceMysqlIntegrationTest {
                     outcome == DeviceCommandSubmissionResult.Outcome
                             .TARGET_OFFLINE
                             ? "ONENET_10421" : null,
+                    null,
                     outcome == DeviceCommandSubmissionResult.Outcome
                             .TARGET_OFFLINE
                             ? "isolated test target is offline"

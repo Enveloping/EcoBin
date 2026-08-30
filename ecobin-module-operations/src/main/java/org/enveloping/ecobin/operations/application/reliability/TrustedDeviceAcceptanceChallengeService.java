@@ -1,7 +1,7 @@
 package org.enveloping.ecobin.operations.application.reliability;
 
 import org.enveloping.ecobin.device.api.port.TrustedDeviceAcceptanceChallengePort;
-import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository;
+import org.enveloping.ecobin.device.api.result.DeviceAcceptanceChallengeConsumeResult;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -26,7 +26,7 @@ public class TrustedDeviceAcceptanceChallengeService
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public void consume(
+    public DeviceAcceptanceChallengeConsumeResult consume(
             long assetId,
             UUID commandUid,
             UUID challengeUid,
@@ -72,10 +72,6 @@ public class TrustedDeviceAcceptanceChallengeService
                     "acceptance evidence does not match a platform challenge");
         }
         ChallengeTask task = rows.getFirst();
-        if ("CANCELLED".equals(task.state())) {
-            throw new ReliableTaskInvariantException(
-                    "cancelled acceptance challenge cannot be consumed");
-        }
         if (!sameFactoryBagSnapshot(
                 task.factoryBagRevision(),
                 task.factoryBagSetSha256(),
@@ -84,8 +80,11 @@ public class TrustedDeviceAcceptanceChallengeService
             throw new ReliableTaskInvariantException(
                     "acceptance evidence differs from its factory bag snapshot");
         }
+        if ("CANCELLED".equals(task.state())) {
+            return DeviceAcceptanceChallengeConsumeResult.CANCELLED;
+        }
         if ("DONE".equals(task.state())) {
-            return;
+            return DeviceAcceptanceChallengeConsumeResult.CONSUMED;
         }
         int updated = jdbc.update("""
                         UPDATE ops_reliable_task
@@ -112,6 +111,7 @@ public class TrustedDeviceAcceptanceChallengeService
                     "consume acceptance challenge updated "
                             + updated + " rows");
         }
+        return DeviceAcceptanceChallengeConsumeResult.CONSUMED;
     }
 
     @Override

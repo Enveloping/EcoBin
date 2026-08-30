@@ -11,6 +11,7 @@ public record DeviceCommandSubmissionResult(
         byte[] responseSha256,
         Integer httpStatus,
         String externalErrorCode,
+        String externalRequestId,
         String redactedDiagnostic) {
 
     public DeviceCommandSubmissionResult {
@@ -26,6 +27,12 @@ public record DeviceCommandSubmissionResult(
                 && !externalErrorCode.matches("[A-Za-z0-9._:-]{1,64}")) {
             throw new IllegalArgumentException(
                     "externalErrorCode has an invalid format");
+        }
+        if (externalRequestId != null
+                && !externalRequestId.matches(
+                        "[A-Za-z0-9._:-]{1,128}")) {
+            throw new IllegalArgumentException(
+                    "externalRequestId has an invalid format");
         }
         if (redactedDiagnostic != null
                 && redactedDiagnostic.length() > 1000) {

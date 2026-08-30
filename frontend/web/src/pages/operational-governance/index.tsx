@@ -176,7 +176,7 @@ const termExplanations = {
   technicalResult:
     '技术结果记录本次尝试是否成功、无需操作、可重试、结果未知或永久失败；最终业务状态仍以任务状态和外部证据为准。',
   externalResponse:
-    '只有确实调用 OneNet、微信等外部系统时才可能有 HTTP 状态或外部错误码；为空不等于成功。',
+    '只有确实调用 OneNet、微信等外部系统时才可能有 HTTP 状态、外部错误码或外部请求编号；请求编号可用于向渠道查询该次调用，任一字段为空都不等于成功。',
   duration:
     '从本次尝试开始处理到结果写入所记录的耗时；它用于排查性能，不决定业务是否成功。',
   claimedAt:
@@ -878,7 +878,7 @@ export default function OperationalGovernancePage() {
         />
       ),
       key: 'externalResult',
-      width: 170,
+      width: 250,
       render: (_: unknown, attempt: ReliableTaskAttempt) => (
         <Space direction="vertical" size={1}>
           <Typography.Text>
@@ -887,6 +887,14 @@ export default function OperationalGovernancePage() {
           {attempt.externalApiErrorCode && (
             <Typography.Text type="danger">
               {attempt.externalApiErrorCode}
+            </Typography.Text>
+          )}
+          {attempt.externalRequestId && (
+            <Typography.Text
+              type="secondary"
+              copyable={{ text: attempt.externalRequestId }}
+            >
+              {`请求 ${attempt.externalRequestId}`}
             </Typography.Text>
           )}
         </Space>

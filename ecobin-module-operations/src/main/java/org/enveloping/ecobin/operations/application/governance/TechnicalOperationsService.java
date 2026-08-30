@@ -154,6 +154,7 @@ public class TechnicalOperationsService {
                                attempt.external_call_may_have_started_at,
                                attempt.result_recorded_at, attempt.http_status,
                                attempt.external_api_error_code,
+                               attempt.external_request_id,
                                attempt.duration_ms,
                                attempt.redacted_diagnostic
                         FROM ops_task_attempt attempt
@@ -177,6 +178,7 @@ public class TechnicalOperationsService {
                                 "result_recorded_at", LocalDateTime.class)),
                         (Integer) rs.getObject("http_status"),
                         rs.getString("external_api_error_code"),
+                        rs.getString("external_request_id"),
                         (Long) rs.getObject("duration_ms"),
                         rs.getString("redacted_diagnostic")),
                 taskUid.toString(), before, before, limit + 1);

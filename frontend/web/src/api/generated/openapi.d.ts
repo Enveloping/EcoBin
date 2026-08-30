@@ -8059,6 +8059,7 @@ export interface components {
             resultRecordedAt: string | null;
             httpStatus: number | null;
             externalApiErrorCode: string | null;
+            externalRequestId: string | null;
             /** Format: int64 */
             durationMs: number | null;
             diagnostic: string | null;

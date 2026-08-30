@@ -551,6 +551,7 @@ public class OneNetClient
                     null,
                     null,
                     "ONENET_NOT_CONFIGURED",
+                    null,
                     "real external mode lacks OneNet outbound configuration");
         }
         try {
@@ -601,6 +602,9 @@ public class OneNetClient
                         "ONENET_RESPONSE_INVALID",
                         "OneNet returned an invalid response envelope");
             }
+            OneNetResponseEvidence responseEvidence = responseEvidence(
+                    responseJson,
+                    null);
             if (responseJson.path("code").asInt(Integer.MIN_VALUE) == 0) {
                 // code=0 到此只跨过“OneNet 平台受理”这一层。可靠任务随后等待香橙派
                 // 的受理/物理证据，不允许在这里直接标记投递成功。
@@ -610,7 +614,9 @@ public class OneNetClient
                         responseSha256,
                         response.getStatusCode().value(),
                         null,
-                        "OneNet accepted the service call; device outcome pending");
+                        responseEvidence.externalRequestId(),
+                        responseEvidence.diagnosticOr(
+                                "OneNet accepted the service call; device outcome pending"));
             }
             String rawCode = responseJson.path("code").asText();
             String code = safeExternalCode(rawCode);
@@ -637,7 +643,9 @@ public class OneNetClient
                         responseSha256,
                         response.getStatusCode().value(),
                         code,
-                        "OneNet reported a temporary internal service failure");
+                        responseEvidence.externalRequestId(),
+                        responseEvidence.diagnosticOr(
+                                "OneNet reported a temporary internal service failure"));
             }
             if (businessOutcome
                     == DeviceCommandSubmissionResult.Outcome
@@ -651,11 +659,12 @@ public class OneNetClient
                         responseSha256,
                         response.getStatusCode().value(),
                         code,
-                        businessOutcome
+                        responseEvidence.externalRequestId(),
+                        responseEvidence.diagnosticOr(businessOutcome
                                 == DeviceCommandSubmissionResult.Outcome
                                         .TARGET_OFFLINE
                                 ? "OneNet reports that the device is offline"
-                                : "OneNet cannot resolve the configured device identity");
+                                : "OneNet cannot resolve the configured device identity"));
             }
             return new DeviceCommandSubmissionResult(
                     DeviceCommandSubmissionResult.Outcome.PERMANENT_FAILURE,
@@ -663,7 +672,9 @@ public class OneNetClient
                     responseSha256,
                     response.getStatusCode().value(),
                     code,
-                    "OneNet permanently rejected the service call contract");
+                    responseEvidence.externalRequestId(),
+                    responseEvidence.diagnosticOr(
+                            "OneNet permanently rejected the service call contract"));
         } catch (RestClientResponseException exception) {
             byte[] responseBody = exception.getResponseBodyAsByteArray();
             int status = exception.getStatusCode().value();
@@ -685,13 +696,18 @@ public class OneNetClient
                                     .RETRYABLE_FAILURE
                             : DeviceCommandSubmissionResult.Outcome
                                     .PERMANENT_FAILURE;
+            OneNetResponseEvidence responseEvidence = responseEvidence(
+                    responseText,
+                    "OneNet HTTP request failed");
             return new DeviceCommandSubmissionResult(
                     outcome,
                     requestSha256,
                     responseBody.length == 0 ? null : sha256(responseBody),
                     status,
                     "ONENET_HTTP_" + status,
-                    "OneNet HTTP request failed");
+                    responseEvidence.externalRequestId(),
+                    responseEvidence.diagnosticOr(
+                            "OneNet HTTP request failed"));
         } catch (RestClientException exception) {
             diagnosticLogger.outboundFailure(
                     submission.taskUid().toString(),
@@ -2426,12 +2442,29 @@ public class OneNetClient
             Integer httpStatus,
             String externalCode,
             String diagnostic) {
+        return retryable(
+                requestSha256,
+                responseSha256,
+                httpStatus,
+                externalCode,
+                null,
+                diagnostic);
+    }
+
+    private static DeviceCommandSubmissionResult retryable(
+            byte[] requestSha256,
+            byte[] responseSha256,
+            Integer httpStatus,
+            String externalCode,
+            String externalRequestId,
+            String diagnostic) {
         return new DeviceCommandSubmissionResult(
                 DeviceCommandSubmissionResult.Outcome.RETRYABLE_FAILURE,
                 requestSha256,
                 responseSha256,
                 httpStatus,
                 externalCode,
+                externalRequestId,
                 diagnostic);
     }
 
@@ -2443,6 +2476,7 @@ public class OneNetClient
                 null,
                 null,
                 externalCode,
+                null,
                 diagnostic);
     }
 
@@ -2473,6 +2507,57 @@ public class OneNetClient
             return "ONENET_" + rawCode;
         }
         return "ONENET_API_REJECTED";
+    }
+
+    private OneNetResponseEvidence responseEvidence(
+            String responseBody,
+            String fallbackDiagnostic) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return new OneNetResponseEvidence(null, fallbackDiagnostic);
+        }
+        try {
+            return responseEvidence(
+                    objectMapper.readTree(responseBody),
+                    fallbackDiagnostic);
+        } catch (RuntimeException ignored) {
+            return new OneNetResponseEvidence(null, fallbackDiagnostic);
+        }
+    }
+
+    private OneNetResponseEvidence responseEvidence(
+            JsonNode response,
+            String fallbackDiagnostic) {
+        String requestId = null;
+        for (String field : new String[]{"request_id", "requestId"}) {
+            JsonNode value = response.get(field);
+            if (value != null
+                    && value.isTextual()
+                    && value.asText().matches(
+                            "[A-Za-z0-9._:-]{1,128}")) {
+                requestId = value.asText();
+                break;
+            }
+        }
+        JsonNode message = response.get("msg");
+        String sanitizedMessage = message != null && message.isTextual()
+                ? diagnosticLogger.sanitizedText(message.asText(), 800)
+                : null;
+        return new OneNetResponseEvidence(
+                requestId,
+                sanitizedMessage == null
+                        ? fallbackDiagnostic
+                        : "OneNet response: " + sanitizedMessage);
+    }
+
+    private record OneNetResponseEvidence(
+            String externalRequestId,
+            String diagnostic) {
+
+        private String diagnosticOr(String fallback) {
+            return diagnostic == null || diagnostic.isBlank()
+                    ? fallback
+                    : diagnostic;
+        }
     }
 
     private static byte[] sha256(byte[] value) {

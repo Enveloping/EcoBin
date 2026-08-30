@@ -52,6 +52,8 @@ test('resume action trusts nextActions and requires current facts', () => {
   assert.match(page, /恢复说明至少 5 个字符/);
   assert.match(page, /commandKey\('reliable-task-resume'/);
   assert.match(page, /listReliableTaskAttempts/);
+  assert.match(page, /attempt\.externalRequestId/);
+  assert.match(page, /请求编号可用于向渠道查询该次调用/);
   assert.match(page, /加载更早记录/);
   assert.doesNotMatch(page, /fetch\(|axios\.|randomUUID|Math\.random/);
 });
