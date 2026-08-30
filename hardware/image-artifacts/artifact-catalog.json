@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-08-30T04:36:36.849Z",
+  "catalogedAt": "2026-08-30T04:54:29.481Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -385,14 +385,19 @@
       "sha256": "f9a636ff4df84885ff6ef7985e62857d91c88fac8ce1c14d25151502d7d267ad"
     },
     {
+      "path": "evidence/hil-factory-login-20260830-09-full-rebuild/flash-result-disk1-121220160204-v9.json",
+      "bytes": 705,
+      "sha256": "4271c5683f3faa31d23b5940b92a241779f3272601baea24dbbf0d709a29f143"
+    },
+    {
       "path": "evidence/hil-factory-login-20260830-09-full-rebuild/hil-factory-login-full-rebuild-preflight-evidence.json",
-      "bytes": 5717,
-      "sha256": "3647bb0a959cccfe5de528d0aa1d3ffa0073615c92cdbe8a68c1f2023aa8d5de"
+      "bytes": 5865,
+      "sha256": "340b31649e39ec5506d7d5c8c99d917c301f34c3da3865c759f76b51645c9718"
     },
     {
       "path": "evidence/hil-factory-login-20260830-09-full-rebuild/README.md",
-      "bytes": 2747,
-      "sha256": "987637d44015d2f77bfe2bbab85e5f4468849d42d1945378bd0214cef850bb83"
+      "bytes": 3358,
+      "sha256": "74bc0b56336757bc80d5198b581a968ecca45e359c9bee19da97fd5cf9db9e89"
     },
     {
       "path": "evidence/hil-v8-camera-config-drift-20260829-01/invalid-report.json",
@@ -677,6 +682,13 @@
       "sha256": "f9a636ff4df84885ff6ef7985e62857d91c88fac8ce1c14d25151502d7d267ad"
     },
     {
+      "path": "local/factory-secret/builds/hil-factory-login-20260830-09-full-rebuild/flash-progress-disk1-121220160204-v9.log",
+      "bytes": 3491,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "ab5f94fbac55fe1e360e26fa26c934582f84e3314c9de56498d4e707ae9ef17a"
+    },
+    {
       "path": "local/factory-secret/builds/hil-factory-login-20260830-09-full-rebuild/offline-verification.log",
       "bytes": 910,
       "classification": "LOCAL_DIAGNOSTIC",
@@ -750,6 +762,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "149f97f3668ff78ada89056b0f57c7942fbbce84507c2c467ed25e437abab1cb"
+    },
+    {
+      "path": "local/flash-v9-disk1.ps1",
+      "bytes": 1192,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "13b83ffae24a8d22f27a0dbddec800c027ed0d7bd88e811f531f348c427b71e7"
     },
     {
       "path": "local/hil-camera-review-20260828-v7/cold-reboot-serial.log",
