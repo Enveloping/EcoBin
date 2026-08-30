@@ -116,8 +116,10 @@ H-03 由此恢复为单卡受控执行并转为 `in-progress`。该授权覆盖�
   验证单元执行 `chronyc online` 返回 `200 OK`；可信时间、状态投影、网页诊断、OneNet
   MQTT 和运行时重协调均通过。重新取得串口时设备在热修前已完成注册，因此本项只证明权限
   修复和可观测性，不把既有注册归因于热修。
-- [ ] v11 经离线只读预检后，重新确认同一 TF 卡再写入并完整回读；装回香橙派后从空白
-  状态重走 P7、自动注册、机器验收/封存、租户与机构分配及业务准入流程。
+- [x] v11 已从锁定上游、当前包锁、软件负载锁和干净提交 `1cf3b4ae` 完整重建。无密钥
+  候选、含 K1 的单卡开发/HIL 成品、专用离线只读验证和修复内容逐字节审计均通过。
+- [ ] 重新确认同一 TF 卡后写入 v11 并完整回读；装回香橙派后从空白状态重走 P7、自动
+  注册、机器验收/封存、租户与机构分配及业务准入流程。
 
 恢复后必须按顺序完成：
 
@@ -154,6 +156,8 @@ v9 完整重建、写卡和回读记录见
 [HIL 工厂母镜像 v10 可信校时收敛预检证据](../../../../hardware/image-artifacts/evidence/hil-factory-login-20260830-10-time-sync-convergence/README.md)。
 v10 真机权限修复和可观测性验证见
 [v10 Chrony 权限与可观测性热修证据](../../../../hardware/image-artifacts/evidence/hil-v10-chrony-permission-hotfix-20260830-01/README.md)。
+v11 完整重建和离线只读预检见
+[HIL 工厂母镜像 v11 Chrony 沙箱修复预检证据](../../../../hardware/image-artifacts/evidence/hil-factory-login-20260830-11-chrony-sandbox/README.md)。
 配置绑定正确的模拟外设成功流程见
 [v8 单卡模拟外设验收证据](../../../../hardware/image-artifacts/evidence/hil-v8-simulated-acceptance-20260829-01/README.md)；
 中途修改相机配置形成的旧报告已明确归档为
@@ -335,3 +339,13 @@ P8、单向封存、完成事实和封存后冷启动见
   维护；随后三次采样 PID 不变且五项服务 `NRestarts=0`。验证临时目录和证明单元已清理。
   下一步从锁定输入完整重建 v11，再以空白冷启动独立证明 P7 后无需人工命令即可校时、注册
   并接入 OneNet。
+- 2026-08-30：从锁定的 Orange Pi Debian 1.0.4 原始镜像、当前包锁、重新生成的 v11
+  ARM64 软件负载和干净提交 `1cf3b4ae` 完整重建 v11。无密钥候选 SHA-256 为
+  `e4bb77dbc5bc6b5dcfd17bdf76049af9603aecc6d822e5f29dfce7c4616de119`；只从已资格化
+  v10 逐字节继承 K1、设置热点密钥和开发密码散列后，单卡开发/HIL 成品 SHA-256 为
+  `ba40b1e3157f95f204462ae42148450d3d4f5f81dfdaac58edaef8b063c01684`。专用 HIL
+  验证以退出码 0 完成，分区、ext4、软件负载、开发登录、受保护输入和空白首次启动状态
+  均通过；四个首次启动 Python 文件、两个网页文件和蜂窝 systemd 单元与提交逐字节一致，
+  且只有蜂窝服务拥有 `CAP_DAC_OVERRIDE`。Windows 向 WSL 流式传输 Bash 时出现的末尾
+  回车已记录，并通过执行前统一移除回车取得干净退出。v11 尚未写卡；下一步须重新检测并
+  明确确认物理介质后写入、完整回读，再执行空白冷启动自主注册验证。

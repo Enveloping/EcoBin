@@ -1,0 +1,153 @@
+{
+  "artifactClass": "HIL_SECRET_BEARING_FACTORY_IMAGE_FULL_REBUILD_PREFLIGHT",
+  "createdAt": "2026-08-30T10:45:26Z",
+  "factoryImageId": "hil-factory-login-20260830-11",
+  "formalReleaseEligible": false,
+  "qualificationBoundary": "SINGLE_CARD_DEVELOPMENT_HIL_FULL_REBUILD_NOT_FORMAL_PRODUCTION_RELEASE",
+  "qualificationState": "IMAGE_BUILD_AND_OFFLINE_PREFLIGHT_PASSED_SINGLE_CARD_FLASH_PENDING",
+  "rawImageBytes": 2571108352,
+  "sealedRawImageSha256": "ba40b1e3157f95f204462ae42148450d3d4f5f81dfdaac58edaef8b063c01684",
+  "sourceCandidate": {
+    "construction": "LOCKED_UPSTREAM_FULL_DETERMINISTIC_REBUILD_PLUS_CONTROLLED_HIL_OVERLAY",
+    "releaseId": "single-card-hil-20260830-11",
+    "version": "0.1.0-single-card.20260830.11",
+    "gitCommit": "1cf3b4aeb572281e1f2de7acf281aacaab61ada0",
+    "sourceDirty": false,
+    "rawImageBytes": 2571108352,
+    "rawImageSha256": "e4bb77dbc5bc6b5dcfd17bdf76049af9603aecc6d822e5f29dfce7c4616de119",
+    "rootfsDeterministic": true,
+    "candidateReleaseEligible": true,
+    "k1Injected": false,
+    "setupApKeyInjected": false,
+    "deviceCredentialsPresent": false
+  },
+  "lockedInputs": {
+    "upstreamArchive": "Orangepizero3_1.0.4_debian_bookworm_server_linux6.1.31.7z",
+    "upstreamArchiveSha256": "bfbe35d89164329402990e8ceb93c94cdff69020f89a44b7cfbfefb73bfb7249",
+    "upstreamExtractedImageSha256": "dda562f0ce9c3fc2be656f816b8f3aea466a3f9ace9fdf87d97ebdc72aeada40",
+    "sourceBundleSha256": "972549fb615c43924f823fd707935d4fcd6c4a920f825ef3b80a2d2e4b8beb99",
+    "builderDigest": "sha256:817e6cf99d6fc127ff4ffe8580049b60deba0adfbbb2bd65ddc3ef8fbb7aade0",
+    "builderLockSha256": "da6b71eed4f3bc0d9563883e750c760c79da7864016f04edcd0b74f9bf79d5aa",
+    "aptPackagesLockSha256": "65969460a6f4a9c05ed56c53f1d054dda689e6496fd1878daa5f4000997aa53c",
+    "imageLayoutSha256": "3bc5ca7191bb88b813edb66f7677660aa16f38e117f8dfaeeba80f2fa1fb4389",
+    "targetMediaQualificationEvidenceSha256": "e048967cbd8f19d50eeed30905915119a814e397c60c364c24532c9bfcc1f2ad",
+    "softwarePayloadLockSha256": "667eefa887221c6c5f3192563358494519d35b19b5c1fc362ab43392bace3cd0",
+    "sourceLockSha256": "3b6a72a2bc2870d713c0835cab8d9c5bc8b8809f1952c2b65c39a19dc6eb605f"
+  },
+  "software": {
+    "components": {
+      "hardwareRuntime": "hardware-runtime-20260830-11",
+      "enrollment": "enrollment-20260830-11",
+      "remoteSupport": "remote-support-20260830-11",
+      "factoryTest": "factory-test-20260830-11",
+      "firstBoot": "first-boot-20260830-11"
+    },
+    "runtimeArchiveBytes": 58275221,
+    "runtimeArchiveSha256": "7eda57a66f65e005425aba932821dd6df1e90323ed6b3cfebd3453d6056a115a",
+    "runtimeSigningKeyId": "hil_factory_20260830",
+    "runtimeSignatureVerified": true,
+    "softwarePayloadInventoryEntries": 5019,
+    "cameraOutside": "/dev/v4l/by-id/usb-HSK-260323-J_UNIQUESKY_CAR_CAMERA-video-index0",
+    "cameraInside": "/dev/v4l/by-id/usb-icSpring_icspring_camera-video-index0"
+  },
+  "controlledHilOverlay": {
+    "source": "QUALIFIED_HIL_V10_READ_ONLY_IMAGE",
+    "sourceRawImageSha256": "62cd40004f3cc5667f7350b04deace958bc755c8f34e7a98b7f98a5d49c9ff57",
+    "inheritedItems": [
+      "K1 enrollment key",
+      "factory setup access-point key",
+      "orangepi development password hash"
+    ],
+    "rootPasswordLocked": true,
+    "orangepiDefaultPasswordEnabled": true,
+    "protectedInputValuesDisclosed": false,
+    "protectedInputDigestsDisclosed": false
+  },
+  "sourceContentAssertions": {
+    "factoryTestRelease": "factory-test-20260830-11",
+    "first_boot/cellular_service.py": "c7ce3db6c3acbf4f15733592b930f40365370c5033a4a9f11186f2a3ab3988e5",
+    "first_boot/cellular_status.py": "2222cf0c896c72ea494cd407daff56efbd69427a29bf1e144928b5fc1051cdfc",
+    "first_boot/facts.py": "44ede44cd4f8e6cacbffda76365c97f05f167e0f3ac342582c21db7d27fea65a",
+    "first_boot/time_sync.py": "280333d4c2c94d0286de2fea4f247a05ae1b8c8a54b898a59d7ccdb6a22ca6d5",
+    "factory/web/app.js": "bb77cbe9f6400c03bf79a76b114a9d7ec67bfff42173e1856817a325089d4277",
+    "factory/web/index.html": "3d59d111f1c2ca453c9615cc26b522e42865761bf521f0206ba60d4146a2ac5a",
+    "ecobin-cellular-uplink.service": "273fa5de1cb2071e333ef9c006cfc389d88a75ff4d173b1bac07acf89052faae",
+    "byteForByteComparedWithBuildCommit": true,
+    "capDacOverrideExclusiveToCellularService": true
+  },
+  "verification": {
+    "rawLayoutVerificationPassed": true,
+    "ext4ReadOnlyFsckPassed": true,
+    "ext4ProfileVerificationPassed": true,
+    "imageSoftwareAuditPassed": true,
+    "candidateIndependentReadOnlyVerificationPassed": true,
+    "hilIndependentReadOnlyVerificationPassed": true,
+    "hilIndependentReadOnlyVerificationExitCode": 0,
+    "currentSourceAndSystemdUnitsPassed": true,
+    "protectedInputsByteForByteInherited": true,
+    "protectedInputsPermissionAuditPassed": true,
+    "cleanFirstBootStatePassed": true,
+    "machineIdEmpty": true,
+    "perDeviceCredentialsAbsent": true,
+    "sshHostKeysAbsent": true,
+    "chronyAndNetworkManagerStateEmpty": true,
+    "hardwareAndRemoteSupportStateEmpty": true,
+    "cameraConfigurationPassed": true,
+    "developmentLoginPolicyPassed": true,
+    "candidateUnchangedAfterOverlayBuild": true,
+    "v10ProtectedInputSourceUnchanged": true,
+    "finalImageChecksumSidecarMatched": true,
+    "formalSealedProfileRejectedAsExpectedForDevelopmentLogin": true,
+    "hardwareTestsPython311": {
+      "passed": 1018,
+      "skipped": 46,
+      "subtestsPassed": 5
+    },
+    "imageToolingTestsWindows": {
+      "testsRun": 60,
+      "skipped": 8,
+      "status": "PASS"
+    },
+    "imageToolingTestsLinuxRoot": {
+      "testsRun": 60,
+      "skipped": 1,
+      "deterministicExt4TestPassed": true,
+      "status": "PASS"
+    }
+  },
+  "orchestrationNotes": {
+    "windowsToWslTrailingCarriageReturnObserved": true,
+    "affectedOnlyPostPassTrailer": true,
+    "loopsAndMountsCleanedAfterWrapperExit": true,
+    "cleanExitVerificationAfterCrRemovalPassed": true
+  },
+  "evidenceIntegrity": {
+    "signatureState": "UNSIGNED_LOCAL_DEVELOPMENT_HIL_EVIDENCE",
+    "containsProtectedInputValues": false,
+    "containsProtectedInputDigests": false
+  },
+  "singleCardFlash": {
+    "completed": false,
+    "freshExplicitConfirmationRequired": true
+  },
+  "pendingGates": [
+    {
+      "code": "SINGLE_CARD_FLASH_AND_FULL_READBACK_PENDING",
+      "required": "re-detect media, obtain fresh disk-number and serial confirmation, write v11 and hash the complete written range"
+    },
+    {
+      "code": "V11_BLANK_COLD_BOOT_AUTONOMOUS_ENROLLMENT_PENDING",
+      "required": "from clean state complete P7, trusted time, HTTPS enrollment, OneNet registration and MQTT without manual system commands"
+    },
+    {
+      "code": "FORMAL_RELEASE_TRUST_POLICY_PENDING",
+      "required": "remove development credentials and perform formal release signing and approval"
+    }
+  ],
+  "securityModel": {
+    "compromiseImpact": "ALL_CARDS_FLASHED_FROM_THIS_IMAGE",
+    "imageMustRemainConfidential": true,
+    "sharedBatchSecrets": true,
+    "sharedOperatorPasswordEnabled": true
+  }
+}
