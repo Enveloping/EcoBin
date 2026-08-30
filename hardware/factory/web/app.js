@@ -4,6 +4,29 @@ const byId = (id) => document.getElementById(id);
 let currentStatus = null;
 let requestRunning = false;
 
+const RESULT_DESCRIPTIONS = Object.freeze({
+  NONE: "当前无错误",
+  TIME_SYNC_PENDING: "正在等待网络时间可信",
+  TIME_TRUST_QUERY_FAILED: "无法读取系统时间可信状态",
+  CHRONY_ONLINE_FAILED: "无法授权 Chrony 启用网络时间源",
+  CHRONY_ACTIVITY_FAILED: "无法读取 Chrony 时间源状态",
+  CHRONY_SOURCES_UNAVAILABLE: "Chrony 没有可用时间源",
+  CHRONY_REFRESH_FAILED: "Chrony 刷新时间源失败",
+  CHRONY_BURST_FAILED: "Chrony 发起快速校时失败",
+  CHRONY_WAITSYNC_FAILED: "Chrony 等待校时结果失败",
+  TIME_SYNC_INTERNAL_ERROR: "校时协调器内部错误",
+});
+
+function formatResultCode(value) {
+  const code = typeof value === "string" && value ? value : "UNKNOWN";
+  const description = RESULT_DESCRIPTIONS[code] || "未识别状态";
+  return `${description}（${code}）`;
+}
+
+function formatTimeTrust(value) {
+  return value === true ? "已同步（可信）" : "未同步（将阻止联网注册）";
+}
+
 function createUuidV4() {
   if (!window.crypto || typeof window.crypto.getRandomValues !== "function") {
     throw new Error("BROWSER_RANDOM_UNAVAILABLE");
@@ -216,6 +239,8 @@ function updateStatus(status) {
   byId("machine").textContent = status.system?.machineSummary || "UNAVAILABLE";
   byId("observed-at").textContent = status.system?.observedAt || "—";
   byId("disk").textContent = formatBytes(status.system?.disk?.freeBytes);
+  byId("time-trusted").textContent = formatTimeTrust(status.system?.timeTrusted);
+  byId("last-error").textContent = formatResultCode(status.lastErrorCode);
   byId("test-status").textContent = status.factoryTest?.status || "NOT_RUN";
 
   if (Array.isArray(status.capabilities)) status.capabilities.forEach(updateCapability);

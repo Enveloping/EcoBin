@@ -13,6 +13,38 @@ class TimeSyncResult(str, Enum):
     FAILED = "FAILED"
 
 
+TIME_SYNC_FAILURE_REASON_CODES = frozenset(
+    {
+        "TIME_TRUST_QUERY_FAILED",
+        "CHRONY_ONLINE_FAILED",
+        "CHRONY_ACTIVITY_FAILED",
+        "CHRONY_SOURCES_UNAVAILABLE",
+        "CHRONY_REFRESH_FAILED",
+        "CHRONY_BURST_FAILED",
+        "CHRONY_WAITSYNC_FAILED",
+        "TIME_SYNC_INTERNAL_ERROR",
+    }
+)
+TIME_SYNC_PROJECTION_CODES = TIME_SYNC_FAILURE_REASON_CODES | {
+    "TIME_SYNC_PENDING"
+}
+
+
+@dataclass(frozen=True)
+class TimeSyncOutcome:
+    state: TimeSyncResult
+    reason_code: str
+
+    def __post_init__(self) -> None:
+        allowed = {
+            TimeSyncResult.SYNCED: {"NONE"},
+            TimeSyncResult.PENDING: {"TIME_SYNC_PENDING"},
+            TimeSyncResult.FAILED: TIME_SYNC_FAILURE_REASON_CODES,
+        }.get(self.state, frozenset())
+        if self.reason_code not in allowed:
+            raise ValueError("time sync outcome state and reason are inconsistent")
+
+
 @dataclass(frozen=True)
 class _ChronyActivity:
     online: int
@@ -49,27 +81,39 @@ class ChronyTimeSynchronizer:
     def __init__(self, runner: CommandRunner | None = None) -> None:
         self._runner = runner or CommandRunner()
 
-    def synchronize(self) -> TimeSyncResult:
+    def synchronize(self) -> TimeSyncOutcome:
         trusted = self._time_trusted()
         if trusted is None:
-            return TimeSyncResult.FAILED
+            return TimeSyncOutcome(
+                TimeSyncResult.FAILED,
+                "TIME_TRUST_QUERY_FAILED",
+            )
         if trusted:
-            return TimeSyncResult.SYNCED
+            return TimeSyncOutcome(TimeSyncResult.SYNCED, "NONE")
 
         online = self._runner.run(
             ("/usr/bin/chronyc", "online"), timeout_seconds=5
         )
         if online.return_code != 0:
-            return TimeSyncResult.FAILED
+            return TimeSyncOutcome(
+                TimeSyncResult.FAILED,
+                "CHRONY_ONLINE_FAILED",
+            )
 
         activity = self._activity()
         if activity is None:
-            return TimeSyncResult.FAILED
+            return TimeSyncOutcome(
+                TimeSyncResult.FAILED,
+                "CHRONY_ACTIVITY_FAILED",
+            )
         if activity.resolved == 0:
             if activity.unknown == 0:
                 # chronyd has no configured source at all.  Refresh cannot
                 # create one, so keeping any uplink open would not converge.
-                return TimeSyncResult.FAILED
+                return TimeSyncOutcome(
+                    TimeSyncResult.FAILED,
+                    "CHRONY_SOURCES_UNAVAILABLE",
+                )
             # DNS is intentionally unavailable under the early emergency
             # firewall.  Refresh only when chronyd still has no resolved
             # source after the proven cellular DNS window opens.  Repeating
@@ -78,7 +122,10 @@ class ChronyTimeSynchronizer:
                 ("/usr/bin/chronyc", "refresh"), timeout_seconds=5
             )
             if refresh.return_code != 0:
-                return TimeSyncResult.FAILED
+                return TimeSyncOutcome(
+                    TimeSyncResult.FAILED,
+                    "CHRONY_REFRESH_FAILED",
+                )
 
         # A burst is asynchronous.  Do not stack another one while chronyd is
         # still completing the previous coordinator cycle.  Three bounded
@@ -91,7 +138,10 @@ class ChronyTimeSynchronizer:
                     timeout_seconds=5,
                 )
                 if burst.return_code != 0:
-                    return TimeSyncResult.FAILED
+                    return TimeSyncOutcome(
+                        TimeSyncResult.FAILED,
+                        "CHRONY_BURST_FAILED",
+                    )
             wait = self._runner.run(
                 (
                     "/usr/bin/chronyc",
@@ -107,17 +157,26 @@ class ChronyTimeSynchronizer:
             # is a normal pending result; launch/IPC failures remain terminal
             # for this coordinator cycle.
             if wait.return_code not in {0, 1}:
-                return TimeSyncResult.FAILED
+                return TimeSyncOutcome(
+                    TimeSyncResult.FAILED,
+                    "CHRONY_WAITSYNC_FAILED",
+                )
             trusted = self._time_trusted()
             if trusted is None:
-                return TimeSyncResult.FAILED
+                return TimeSyncOutcome(
+                    TimeSyncResult.FAILED,
+                    "TIME_TRUST_QUERY_FAILED",
+                )
             if trusted:
-                return TimeSyncResult.SYNCED
+                return TimeSyncOutcome(TimeSyncResult.SYNCED, "NONE")
             if attempt < 2:
                 activity = self._activity()
                 if activity is None:
-                    return TimeSyncResult.FAILED
-        return TimeSyncResult.PENDING
+                    return TimeSyncOutcome(
+                        TimeSyncResult.FAILED,
+                        "CHRONY_ACTIVITY_FAILED",
+                    )
+        return TimeSyncOutcome(TimeSyncResult.PENDING, "TIME_SYNC_PENDING")
 
     def _time_trusted(self) -> bool | None:
         result = self._runner.run(

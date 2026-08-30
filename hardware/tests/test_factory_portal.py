@@ -527,6 +527,31 @@ def test_static_assets_are_self_contained_and_make_no_external_requests() -> Non
     assert "<script>" not in combined.lower()
 
 
+def test_web_surfaces_time_trust_and_the_precise_uplink_result() -> None:
+    web = Path(__file__).parents[1] / "factory" / "web"
+    index = (web / "index.html").read_text(encoding="utf-8")
+    app = (web / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="time-trusted"' in index
+    assert 'id="last-error"' in index
+    assert 'byId("time-trusted")' in app
+    assert 'byId("last-error")' in app
+    assert "status.system?.timeTrusted" in app
+    assert "status.lastErrorCode" in app
+    for code in (
+        "TIME_SYNC_PENDING",
+        "TIME_TRUST_QUERY_FAILED",
+        "CHRONY_ONLINE_FAILED",
+        "CHRONY_ACTIVITY_FAILED",
+        "CHRONY_SOURCES_UNAVAILABLE",
+        "CHRONY_REFRESH_FAILED",
+        "CHRONY_BURST_FAILED",
+        "CHRONY_WAITSYNC_FAILED",
+        "TIME_SYNC_INTERNAL_ERROR",
+    ):
+        assert code in app
+
+
 def test_camera_review_labels_follow_roles_instead_of_one_camera_model() -> None:
     web = Path(__file__).parents[1] / "factory" / "web"
     index = (web / "index.html").read_text(encoding="utf-8")

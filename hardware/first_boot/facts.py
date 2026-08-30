@@ -10,8 +10,10 @@ from typing import Any, Protocol
 
 from .cellular_config import CellularConfigurationError, load_cellular_config
 from .cellular_probe import CellularProbe, SysfsUsbNetworkInventory
+from .cellular_status import CellularStatusStore
 from .command import CommandRunner
 from .model import FactoryTestStatus, FirstBootFacts
+from .time_sync import TIME_SYNC_PROJECTION_CODES
 from factory.acceptance_config import (
     AcceptanceConfiguration,
     AcceptanceConfigurationError,
@@ -62,6 +64,7 @@ class FirstBootPaths:
         "/var/lib/ecobin/device-capabilities.json"
     )
     cellular_config: Path = Path("/etc/ecobin/cellular.env")
+    cellular_status: Path = Path("/run/ecobin/cellular-uplink/status.json")
     sealed: Path = Path("/var/lib/ecobin/first-boot/sealed.json")
     setup_ap_key: Path = Path("/etc/ecobin/setup-ap.key")
     edge_store: Path = Path("/var/lib/ecobin/hardware/edge.db")
@@ -226,6 +229,20 @@ class SystemFactsProvider:
         )
         if error_code == "NONE" and factory_passed and not cellular_ready:
             error_code = cellular_error
+            # A bad wall clock normally surfaces through the independent live
+            # probe as a generic TLS/HTTPS failure.  The coordinator's
+            # boot-scoped projection can make that one symptom precise, but
+            # it must never conceal fresher facts such as a missing modem,
+            # DHCP failure, DNS failure, or invalid configuration.
+            if cellular_error == "CELLULAR_HTTPS_UNAVAILABLE":
+                try:
+                    projected_error = CellularStatusStore(
+                        self._paths.cellular_status
+                    ).read()
+                except (OSError, ValueError):
+                    projected_error = None
+                if projected_error in TIME_SYNC_PROJECTION_CODES:
+                    error_code = projected_error
         return FirstBootFacts(
             system_prepared=system_prepared,
             factory_portal_ready=portal_ready,

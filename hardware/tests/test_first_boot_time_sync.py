@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
 from first_boot.command import CommandResult
-from first_boot.time_sync import ChronyTimeSynchronizer, TimeSyncResult
+from first_boot.time_sync import (
+    ChronyTimeSynchronizer,
+    TimeSyncOutcome,
+    TimeSyncResult,
+)
 
 
 _RESOLVED_ACTIVITY = """200 OK
@@ -34,6 +40,23 @@ _EMPTY_ACTIVITY = """200 OK
 """
 
 
+@pytest.mark.parametrize(
+    ("state", "reason_code"),
+    (
+        (TimeSyncResult.SYNCED, "CHRONY_ONLINE_FAILED"),
+        (TimeSyncResult.PENDING, "NONE"),
+        (TimeSyncResult.FAILED, "NONE"),
+        (TimeSyncResult.FAILED, "UNRECOGNIZED_REASON"),
+    ),
+)
+def test_time_sync_outcome_rejects_inconsistent_states(
+    state: TimeSyncResult,
+    reason_code: str,
+) -> None:
+    with pytest.raises(ValueError, match="time sync outcome"):
+        TimeSyncOutcome(state, reason_code)
+
+
 class _Runner:
     def __init__(
         self,
@@ -41,9 +64,11 @@ class _Runner:
         clock_states: tuple[bool, ...],
         command_failures: frozenset[tuple[str, ...]] = frozenset(),
         activity_states: tuple[str, ...] = (),
+        command_failure_code: int = 1,
     ) -> None:
         self._clock_states = iter(clock_states)
         self._failures = command_failures
+        self._failure_code = command_failure_code
         self._activity_states = iter(activity_states)
         self._last_activity = (
             activity_states[-1] if activity_states else _RESOLVED_ACTIVITY
@@ -53,10 +78,10 @@ class _Runner:
     def run(self, argv: tuple[str, ...], *, timeout_seconds: float) -> CommandResult:
         command = tuple(argv)
         self.calls.append((command, timeout_seconds))
+        if command in self._failures:
+            return CommandResult(self._failure_code, "")
         if command[0] == "/usr/bin/timedatectl":
             return CommandResult(0, "yes\n" if next(self._clock_states) else "no\n")
-        if command in self._failures:
-            return CommandResult(1, "")
         if command == ("/usr/bin/chronyc", "activity"):
             try:
                 self._last_activity = next(self._activity_states)
@@ -72,7 +97,7 @@ def test_already_trusted_clock_never_mutates_chrony_state() -> None:
     runner = _Runner(clock_states=(True,))
 
     assert (
-        ChronyTimeSynchronizer(runner).synchronize()
+        ChronyTimeSynchronizer(runner).synchronize().state
         is TimeSyncResult.SYNCED
     )
     assert runner.calls == [
@@ -92,7 +117,7 @@ def test_untrusted_clock_bursts_waits_and_rechecks_canonical_fact() -> None:
     runner = _Runner(clock_states=(False, True))
 
     assert (
-        ChronyTimeSynchronizer(runner).synchronize()
+        ChronyTimeSynchronizer(runner).synchronize().state
         is TimeSyncResult.SYNCED
     )
 
@@ -129,21 +154,81 @@ def test_chrony_command_failure_stops_bootstrap_and_fails_closed() -> None:
     runner = _Runner(
         clock_states=(False,),
         command_failures=frozenset({failed}),
+        command_failure_code=2,
     )
 
-    assert (
-        ChronyTimeSynchronizer(runner).synchronize()
-        is TimeSyncResult.FAILED
-    )
+    outcome = ChronyTimeSynchronizer(runner).synchronize()
+
+    assert outcome.state is TimeSyncResult.FAILED
+    assert outcome.reason_code == "CHRONY_ONLINE_FAILED"
     assert [call[0] for call in runner.calls][-1] == failed
     assert not any("burst" in call[0] for call in runner.calls)
+
+
+def test_chrony_activity_failure_has_a_stable_reason_code() -> None:
+    failed = ("/usr/bin/chronyc", "activity")
+    runner = _Runner(
+        clock_states=(False,),
+        command_failures=frozenset({failed}),
+    )
+
+    outcome = ChronyTimeSynchronizer(runner).synchronize()
+
+    assert outcome.state is TimeSyncResult.FAILED
+    assert outcome.reason_code == "CHRONY_ACTIVITY_FAILED"
+
+
+def test_chrony_burst_failure_has_a_stable_reason_code() -> None:
+    failed = ("/usr/bin/chronyc", "burst", "4/8")
+    runner = _Runner(
+        clock_states=(False,),
+        command_failures=frozenset({failed}),
+    )
+
+    outcome = ChronyTimeSynchronizer(runner).synchronize()
+
+    assert outcome.state is TimeSyncResult.FAILED
+    assert outcome.reason_code == "CHRONY_BURST_FAILED"
+
+
+def test_chrony_waitsync_failure_has_a_stable_reason_code() -> None:
+    failed = ("/usr/bin/chronyc", "waitsync", "15", "0", "0", "1")
+    runner = _Runner(
+        clock_states=(False,),
+        command_failures=frozenset({failed}),
+        command_failure_code=2,
+    )
+
+    outcome = ChronyTimeSynchronizer(runner).synchronize()
+
+    assert outcome.state is TimeSyncResult.FAILED
+    assert outcome.reason_code == "CHRONY_WAITSYNC_FAILED"
+
+
+def test_time_trust_query_failure_has_a_stable_reason_code() -> None:
+    failed = (
+        "/usr/bin/timedatectl",
+        "show",
+        "--property=NTPSynchronized",
+        "--value",
+    )
+    runner = _Runner(
+        clock_states=(),
+        command_failures=frozenset({failed}),
+        command_failure_code=2,
+    )
+
+    outcome = ChronyTimeSynchronizer(runner).synchronize()
+
+    assert outcome.state is TimeSyncResult.FAILED
+    assert outcome.reason_code == "TIME_TRUST_QUERY_FAILED"
 
 
 def test_second_burst_can_accumulate_samples_without_refreshing_sources() -> None:
     runner = _Runner(clock_states=(False, False, True))
 
     assert (
-        ChronyTimeSynchronizer(runner).synchronize()
+        ChronyTimeSynchronizer(runner).synchronize().state
         is TimeSyncResult.SYNCED
     )
     assert [call[0] for call in runner.calls].count(
@@ -158,7 +243,7 @@ def test_all_waitsync_attempts_require_timedatectl_confirmation() -> None:
     runner = _Runner(clock_states=(False, False, False, False))
 
     assert (
-        ChronyTimeSynchronizer(runner).synchronize()
+        ChronyTimeSynchronizer(runner).synchronize().state
         is TimeSyncResult.PENDING
     )
     assert [call[0][0] for call in runner.calls].count("/usr/bin/timedatectl") == 4
@@ -182,7 +267,7 @@ def test_resolved_sources_are_not_refreshed_on_each_bounded_sync_window() -> Non
     runner = _Runner(clock_states=(False, False, False, False))
 
     assert (
-        ChronyTimeSynchronizer(runner).synchronize()
+        ChronyTimeSynchronizer(runner).synchronize().state
         is TimeSyncResult.PENDING
     )
     assert ("/usr/bin/chronyc", "refresh") not in [
@@ -197,7 +282,7 @@ def test_unresolved_pool_is_refreshed_once_before_starting_a_burst() -> None:
     )
 
     assert (
-        ChronyTimeSynchronizer(runner).synchronize()
+        ChronyTimeSynchronizer(runner).synchronize().state
         is TimeSyncResult.SYNCED
     )
     assert [call[0] for call in runner.calls].count(
@@ -213,10 +298,10 @@ def test_refresh_failure_for_unresolved_pool_fails_closed() -> None:
         command_failures=frozenset({failed}),
     )
 
-    assert (
-        ChronyTimeSynchronizer(runner).synchronize()
-        is TimeSyncResult.FAILED
-    )
+    outcome = ChronyTimeSynchronizer(runner).synchronize()
+
+    assert outcome.state is TimeSyncResult.FAILED
+    assert outcome.reason_code == "CHRONY_REFRESH_FAILED"
     assert [call[0] for call in runner.calls][-1] == failed
 
 
@@ -226,10 +311,10 @@ def test_missing_chrony_sources_fail_without_retaining_a_dead_sync_window() -> N
         activity_states=(_EMPTY_ACTIVITY,),
     )
 
-    assert (
-        ChronyTimeSynchronizer(runner).synchronize()
-        is TimeSyncResult.FAILED
-    )
+    outcome = ChronyTimeSynchronizer(runner).synchronize()
+
+    assert outcome.state is TimeSyncResult.FAILED
+    assert outcome.reason_code == "CHRONY_SOURCES_UNAVAILABLE"
     commands = [call[0] for call in runner.calls]
     assert ("/usr/bin/chronyc", "refresh") not in commands
     assert ("/usr/bin/chronyc", "burst", "4/8") not in commands
@@ -242,7 +327,7 @@ def test_existing_burst_is_observed_before_starting_another_one() -> None:
     )
 
     assert (
-        ChronyTimeSynchronizer(runner).synchronize()
+        ChronyTimeSynchronizer(runner).synchronize().state
         is TimeSyncResult.SYNCED
     )
     commands = [call[0] for call in runner.calls]

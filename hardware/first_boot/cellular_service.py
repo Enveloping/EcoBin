@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 import signal
 import time
-from typing import Sequence
+from typing import Callable, Sequence
 
 from .cellular_config import CellularConfigurationError, load_cellular_config
 from .cellular_firewall import (
@@ -16,6 +16,7 @@ from .cellular_probe import (
     SysfsUsbNetworkInventory,
     select_rndis_device,
 )
+from .cellular_status import CellularStatusStore
 from .facts import SystemFactsProvider
 from .network_manager import (
     NetworkManagerActivator,
@@ -23,11 +24,47 @@ from .network_manager import (
     render_network_manager_profile,
 )
 from .state_machine import gate_allows
-from .time_sync import ChronyTimeSynchronizer, TimeSyncResult
+from .time_sync import ChronyTimeSynchronizer, TimeSyncOutcome, TimeSyncResult
 from factory_seal.validation import FactorySealPaths, inspect_sealed_authorization
 
 
 PROFILE_PATH = Path("/etc/NetworkManager/system-connections/ecobin-air780e.nmconnection")
+
+
+def _emit_status_transition(message: str) -> None:
+    print(message, flush=True)
+
+
+class CellularResultReporter:
+    """Publish boot-scoped status and journal only observable transitions."""
+
+    def __init__(
+        self,
+        *,
+        path: Path = Path("/run/ecobin/cellular-uplink/status.json"),
+        emit: Callable[[str], None] = _emit_status_transition,
+    ) -> None:
+        self._store = CellularStatusStore(path)
+        self._emit = emit
+        self._last_observation: tuple[str, str] | None = None
+
+    def report(self, result_code: str) -> None:
+        projection = "OK"
+        try:
+            self._store.publish(result_code)
+        except Exception:
+            projection = "CELLULAR_STATUS_WRITE_FAILED"
+        observation = (result_code, projection)
+        if observation == self._last_observation:
+            return
+        self._emit(
+            f"ecobin-cellular-uplink result={result_code} "
+            f"statusProjection={projection}"
+        )
+        self._last_observation = observation
+
+    def current_result(self) -> str | None:
+        return self._store.read()
 
 
 def run_once() -> str:
@@ -82,16 +119,19 @@ def run_once() -> str:
         try:
             time_sync = ChronyTimeSynchronizer().synchronize()
         except Exception:
-            time_sync = TimeSyncResult.FAILED
-        if time_sync is not TimeSyncResult.SYNCED:
-            if time_sync is TimeSyncResult.FAILED:
+            time_sync = TimeSyncOutcome(
+                TimeSyncResult.FAILED,
+                "TIME_SYNC_INTERNAL_ERROR",
+            )
+        if time_sync.state is not TimeSyncResult.SYNCED:
+            if time_sync.state is TimeSyncResult.FAILED:
                 apply_emergency_uplink_lock()
             # PENDING means chronyd accepted a bounded asynchronous sync but
             # has not yet supplied the operating-system trust fact.  Keep the
             # already-restricted RNDIS gate in place so its NTP packets can
             # finish between coordinator loops.  Enrollment and runtime stay
             # blocked until the canonical fact becomes trusted.
-            return "CELLULAR_TIME_UNTRUSTED"
+            return time_sync.reason_code
         if not health.ready:
             health = probe.probe()
     if not health.ready:
@@ -107,8 +147,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not 5 <= args.interval_seconds <= 300:
         parser.error("--interval-seconds must be between 5 and 300")
+    reporter = CellularResultReporter()
     if args.once:
-        return 0 if run_once() == "NONE" else 1
+        result = run_once()
+        reporter.report(result)
+        return 0 if result == "NONE" else 1
     stopping = False
 
     def stop(_signal: int, _frame: object) -> None:
@@ -118,7 +161,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     while not stopping:
-        run_once()
+        reporter.report(run_once())
         end = time.monotonic() + args.interval_seconds
         while not stopping and time.monotonic() < end:
             time.sleep(min(0.5, end - time.monotonic()))

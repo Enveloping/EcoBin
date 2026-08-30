@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 SYSTEMD = Path(__file__).parents[1] / "first_boot" / "systemd"
+FACTORY_SYSTEMD = Path(__file__).parents[1] / "factory" / "systemd"
 
 
 def _read(relative: str) -> str:
@@ -73,11 +74,32 @@ def test_cellular_uplink_can_update_the_seal_aware_firewall_lock() -> None:
     unit_lines = _read("ecobin-cellular-uplink.service").splitlines()
 
     assert "ReadWritePaths=/run/lock/ecobin" in unit_lines
+    assert "ReadWritePaths=/run/ecobin/cellular-uplink" in unit_lines
+    assert "RuntimeDirectory=ecobin/cellular-uplink" in unit_lines
+    assert "RuntimeDirectoryMode=0700" in unit_lines
     assert "Wants=chrony.service" in unit_lines
     assert any(
         line.startswith("After=") and "chrony.service" in line
         for line in unit_lines
     )
+
+
+def test_only_cellular_uplink_receives_the_chrony_control_capability() -> None:
+    cellular = _read("ecobin-cellular-uplink.service").splitlines()
+
+    assert (
+        "CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_NET_ADMIN"
+        in cellular
+    )
+    assert (
+        "AmbientCapabilities=CAP_DAC_OVERRIDE CAP_NET_ADMIN"
+        in cellular
+    )
+    for root in (SYSTEMD, FACTORY_SYSTEMD):
+        for path in root.rglob("*.service"):
+            if path.name == "ecobin-cellular-uplink.service":
+                continue
+            assert "CAP_DAC_OVERRIDE" not in path.read_text(encoding="utf-8")
 
 
 def test_first_boot_can_finish_all_seal_firewall_and_artifact_cleanup() -> None:

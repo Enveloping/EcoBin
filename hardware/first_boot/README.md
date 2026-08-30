@@ -59,6 +59,20 @@ SSH 入口。规则检查、应用或事后 JSON 验证任一步失败，都会�
 失败时立即恢复紧急全拒绝。已有解析完成的时间源或仍在执行的 burst 必须保留，只有全部时间源
 仍是未知地址时才执行一次 `chronyc refresh`，避免每轮替换来源并丢失已经取得的样本。
 
+Chrony 的控制套接字位于 `_chrony:_chrony 0700` 的 `/run/chrony`。systemd 即使以
+`User=root` 启动服务，裁剪后的进程能力仍可能使 root 无法穿越该目录；因此蜂窝协调器明确
+保留 `CAP_DAC_OVERRIDE` 和原有 `CAP_NET_ADMIN`。前者只授予
+`ecobin-cellular-uplink.service`，不能复制给其他单元。权限验证必须在安装后的服务沙箱中
+执行，不能用具有完整能力的交互式 `sudo chronyc` 结果代替。完整原因、风险边界和其他系统
+接口审计见
+[首启服务权限边界审计](../docs/review/systemd-privilege-boundary-audit-2026-08-30.md)。
+
+蜂窝协调器每轮把稳定结果码原子投影到 root 私有的
+`/run/ecobin/cellular-uplink/status.json`，并只在结果发生变化时写 journal；文件缺失、损坏
+或写入失败都不改变网络和注册门禁。局域网页会显示可信时间和当前接入卡点。只有实时探测已
+表现为泛化的 HTTPS 失败时，已知校时结果才会用于解释该症状；旧投影不能遮住模块缺失、
+DHCP、DNS 或配置错误。
+
 ## P7 真实验收与 UART 交接
 
 `ecobin-factory-test.service` 已不是占位服务。它以 root 运行

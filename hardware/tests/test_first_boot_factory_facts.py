@@ -7,7 +7,11 @@ from pathlib import Path
 import sqlite3
 import stat
 
+import pytest
+
 from first_boot.command import CommandResult
+from first_boot.cellular_status import CellularStatusStore
+from first_boot.cellular_probe import UsbNetworkDevice
 from first_boot.facts import (
     FirstBootPaths,
     SystemFactsProvider,
@@ -62,12 +66,65 @@ def _paths(tmp_path: Path) -> FirstBootPaths:
         handoff_fact=tmp_path / "handoff.json",
         device_capabilities=tmp_path / "device-capabilities.json",
         cellular_config=tmp_path / "cellular.env",
+        cellular_status=tmp_path / "cellular-uplink" / "status.json",
         sealed=tmp_path / "sealed.json",
         setup_ap_key=tmp_path / "setup-ap.key",
         edge_store=tmp_path / "hardware" / "edge.db",
         gpio_safe_fact=tmp_path / "gpio-safe.json",
         boot_id=tmp_path / "boot-id",
     )
+
+
+class _SingleCellularDevice:
+    def devices(self) -> tuple[UsbNetworkDevice, ...]:
+        return (
+            UsbNetworkDevice(
+                interface="enxcell0",
+                usb_vid="19d1",
+                usb_pid="0001",
+                driver="rndis_host",
+                usb_parent_verified=True,
+            ),
+        )
+
+
+class _NoCellularDevices:
+    def devices(self) -> tuple[UsbNetworkDevice, ...]:
+        return ()
+
+
+class _HttpsUnavailableCommands:
+    def run(self, argv: tuple[str, ...], *, timeout_seconds: float) -> CommandResult:
+        command = tuple(argv)
+        if command[0] == "/usr/bin/systemctl":
+            return CommandResult(0, "")
+        if command[1:6] == ("-j", "-4", "address", "show", "dev"):
+            return CommandResult(
+                0,
+                json.dumps(
+                    [
+                        {
+                            "ifname": "enxcell0",
+                            "addr_info": [
+                                {"local": "192.168.10.2", "scope": "global"}
+                            ],
+                        }
+                    ]
+                ),
+            )
+        if command[1:] == ("-j", "-4", "route", "show", "default"):
+            return CommandResult(0, json.dumps([{"dev": "enxcell0"}]))
+        if command[1:5] == ("-j", "-4", "route", "get"):
+            return CommandResult(0, json.dumps([{"dev": "enxcell0"}]))
+        if command[0] == "/usr/bin/resolvectl":
+            return CommandResult(0, "probe.example.test: 203.0.113.10\n")
+        if command[0] == "/usr/bin/curl":
+            return CommandResult(1, "")
+        if command[0] == "/usr/bin/nmcli":
+            return CommandResult(0, "ecobin-air780e-rndis\n")
+        if command[0] == "/usr/bin/timedatectl":
+            return CommandResult(0, "no\n")
+        raise AssertionError(f"unexpected command: {command}")
 
 
 def _digest() -> str:
@@ -246,6 +303,38 @@ def _passed_report(release_id: str = "release-1") -> dict[str, object]:
             },
         },
     }
+
+
+def _write_passed_cellular_inputs(paths: FirstBootPaths) -> None:
+    paths.image_release.write_text(
+        json.dumps({"releaseId": "release-1"}), encoding="utf-8"
+    )
+    paths.hardware_config.write_text("# defaults\n", encoding="utf-8")
+    paths.machine_id.write_text("a" * 32 + "\n", encoding="ascii")
+    paths.factory_state.write_text(
+        json.dumps({"schemaVersion": STATE_SCHEMA_VERSION, "status": "PASSED"}),
+        encoding="utf-8",
+    )
+    paths.factory_report.write_text(
+        json.dumps(_passed_report()),
+        encoding="utf-8",
+    )
+    paths.cellular_config.write_text(
+        "\n".join(
+            (
+                "ECOBIN_CELLULAR_SCHEMA_VERSION=2",
+                "ECOBIN_CELLULAR_HIL_APPROVED=true",
+                "ECOBIN_CELLULAR_CONNECTION_ID=ecobin-air780e-rndis",
+                "ECOBIN_CELLULAR_USB_DRIVER=rndis_host",
+                "ECOBIN_CELLULAR_USB_PROFILE=RNDIS",
+                "ECOBIN_CELLULAR_AUTO_APN=true",
+                "ECOBIN_CELLULAR_PROBE_IPV4=203.0.113.10",
+                "ECOBIN_CELLULAR_HTTPS_PROBE_URL=https://probe.example.test/health",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_absent_p7_report_is_not_run_and_never_valid(tmp_path: Path) -> None:
@@ -488,6 +577,66 @@ def test_no_dns_https_or_nm_probe_runs_before_p7_pass(tmp_path: Path) -> None:
         command[0] in {"/usr/sbin/ip", "/usr/bin/resolvectl", "/usr/bin/curl", "/usr/bin/nmcli"}
         for command in runner.calls
     )
+
+
+def test_precise_cellular_result_overrides_only_the_generic_probe_error(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    _write_passed_cellular_inputs(paths)
+    CellularStatusStore(paths.cellular_status).publish("CHRONY_ONLINE_FAILED")
+
+    facts = SystemFactsProvider(
+        paths,
+        runner=_HttpsUnavailableCommands(),
+        inventory=_SingleCellularDevice(),
+    ).collect()
+
+    assert not facts.uplink_ready
+    assert facts.last_error_code == "CHRONY_ONLINE_FAILED"
+
+
+@pytest.mark.parametrize("projection", ("MISSING", "CORRUPT", "UNKNOWN_CODE"))
+def test_unusable_cellular_projection_falls_back_to_the_live_probe(
+    tmp_path: Path,
+    projection: str,
+) -> None:
+    paths = _paths(tmp_path)
+    _write_passed_cellular_inputs(paths)
+    if projection == "CORRUPT":
+        store = CellularStatusStore(paths.cellular_status)
+        store.publish("CHRONY_ONLINE_FAILED")
+        paths.cellular_status.write_text("{interrupted", encoding="utf-8")
+    elif projection == "UNKNOWN_CODE":
+        CellularStatusStore(paths.cellular_status).publish(
+            "UNRECOGNIZED_REASON"
+        )
+
+    facts = SystemFactsProvider(
+        paths,
+        runner=_HttpsUnavailableCommands(),
+        inventory=_SingleCellularDevice(),
+    ).collect()
+
+    assert not facts.uplink_ready
+    assert facts.last_error_code == "CELLULAR_HTTPS_UNAVAILABLE"
+
+
+def test_stale_time_result_cannot_hide_a_missing_cellular_device(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    _write_passed_cellular_inputs(paths)
+    CellularStatusStore(paths.cellular_status).publish("CHRONY_ONLINE_FAILED")
+
+    facts = SystemFactsProvider(
+        paths,
+        runner=_HttpsUnavailableCommands(),
+        inventory=_NoCellularDevices(),
+    ).collect()
+
+    assert not facts.uplink_ready
+    assert facts.last_error_code == "CELLULAR_RNDIS_UNAVAILABLE"
 
 
 def test_release_matching_but_unbound_seal_blocks_all_network_probes(

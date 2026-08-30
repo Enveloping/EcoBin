@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from first_boot.model import FactoryTestStatus, FirstBootFacts
-from first_boot.time_sync import TimeSyncResult
+from first_boot.time_sync import TimeSyncOutcome, TimeSyncResult
 import first_boot.cellular_service as cellular_service
 
 
@@ -70,7 +71,12 @@ def _install_happy_path(
     monkeypatch.setattr(
         cellular_service,
         "ChronyTimeSynchronizer",
-        lambda: SimpleNamespace(synchronize=lambda: TimeSyncResult.SYNCED),
+        lambda: SimpleNamespace(
+            synchronize=lambda: TimeSyncOutcome(
+                TimeSyncResult.SYNCED,
+                "NONE",
+            )
+        ),
         raising=False,
     )
 
@@ -219,7 +225,8 @@ def test_dns_ready_untrusted_clock_is_synchronised_before_https_is_retried(
         cellular_service,
         "ChronyTimeSynchronizer",
         lambda: SimpleNamespace(
-            synchronize=lambda: sync_calls.append(True) or TimeSyncResult.SYNCED
+            synchronize=lambda: sync_calls.append(True)
+            or TimeSyncOutcome(TimeSyncResult.SYNCED, "NONE")
         ),
         raising=False,
     )
@@ -260,7 +267,12 @@ def test_failed_clock_synchronisation_restores_emergency_uplink_lock(
     monkeypatch.setattr(
         cellular_service,
         "ChronyTimeSynchronizer",
-        lambda: SimpleNamespace(synchronize=lambda: TimeSyncResult.FAILED),
+        lambda: SimpleNamespace(
+            synchronize=lambda: TimeSyncOutcome(
+                TimeSyncResult.FAILED,
+                "CHRONY_ONLINE_FAILED",
+            )
+        ),
         raising=False,
     )
     emergency: list[bool] = []
@@ -270,7 +282,7 @@ def test_failed_clock_synchronisation_restores_emergency_uplink_lock(
         lambda: emergency.append(True) or True,
     )
 
-    assert cellular_service.run_once() == "CELLULAR_TIME_UNTRUSTED"
+    assert cellular_service.run_once() == "CHRONY_ONLINE_FAILED"
     assert emergency == [True]
 
 
@@ -300,7 +312,12 @@ def test_pending_clock_sync_keeps_restricted_uplink_open_for_chronyd(
     monkeypatch.setattr(
         cellular_service,
         "ChronyTimeSynchronizer",
-        lambda: SimpleNamespace(synchronize=lambda: TimeSyncResult.PENDING),
+        lambda: SimpleNamespace(
+            synchronize=lambda: TimeSyncOutcome(
+                TimeSyncResult.PENDING,
+                "TIME_SYNC_PENDING",
+            )
+        ),
         raising=False,
     )
     emergency: list[bool] = []
@@ -310,7 +327,7 @@ def test_pending_clock_sync_keeps_restricted_uplink_open_for_chronyd(
         lambda: emergency.append(True) or True,
     )
 
-    assert cellular_service.run_once() == "CELLULAR_TIME_UNTRUSTED"
+    assert cellular_service.run_once() == "TIME_SYNC_PENDING"
     assert modes == ["enxcell0:FACTORY"]
     assert emergency == []
 
@@ -351,3 +368,23 @@ def test_dns_failure_does_not_attempt_clock_synchronisation(
 
     assert cellular_service.run_once() == "CELLULAR_DNS_UNAVAILABLE"
     assert emergency == [True]
+
+
+def test_result_reporter_persists_every_cycle_but_logs_only_transitions(
+    tmp_path: Path,
+) -> None:
+    messages: list[str] = []
+    reporter = cellular_service.CellularResultReporter(
+        path=tmp_path / "cellular-uplink" / "status.json",
+        emit=messages.append,
+    )
+
+    reporter.report("CHRONY_ONLINE_FAILED")
+    reporter.report("CHRONY_ONLINE_FAILED")
+    reporter.report("NONE")
+
+    assert reporter.current_result() == "NONE"
+    assert messages == [
+        "ecobin-cellular-uplink result=CHRONY_ONLINE_FAILED statusProjection=OK",
+        "ecobin-cellular-uplink result=NONE statusProjection=OK",
+    ]
