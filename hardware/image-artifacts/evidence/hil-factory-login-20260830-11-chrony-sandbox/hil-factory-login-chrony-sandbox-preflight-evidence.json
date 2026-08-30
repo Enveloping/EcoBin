@@ -4,7 +4,7 @@
   "factoryImageId": "hil-factory-login-20260830-11",
   "formalReleaseEligible": false,
   "qualificationBoundary": "SINGLE_CARD_DEVELOPMENT_HIL_FULL_REBUILD_NOT_FORMAL_PRODUCTION_RELEASE",
-  "qualificationState": "IMAGE_BUILD_AND_OFFLINE_PREFLIGHT_PASSED_SINGLE_CARD_FLASH_PENDING",
+  "qualificationState": "SINGLE_CARD_FLASH_AND_FULL_READBACK_PASSED_FRESH_BOOT_ACCEPTANCE_PENDING",
   "rawImageBytes": 2571108352,
   "sealedRawImageSha256": "ba40b1e3157f95f204462ae42148450d3d4f5f81dfdaac58edaef8b063c01684",
   "sourceCandidate": {
@@ -127,14 +127,19 @@
     "containsProtectedInputDigests": false
   },
   "singleCardFlash": {
-    "completed": false,
-    "freshExplicitConfirmationRequired": true
+    "completed": true,
+    "confirmedDiskNumber": 1,
+    "expectedDiskSerialNumber": "121220160204",
+    "diskBytes": 31268536320,
+    "startedAt": "2026-08-30T10:55:32.4039382Z",
+    "completedAt": "2026-08-30T11:00:35.5731907Z",
+    "writtenBytes": 2571108352,
+    "fullReadbackBytes": 2571108352,
+    "fullReadbackSha256": "ba40b1e3157f95f204462ae42148450d3d4f5f81dfdaac58edaef8b063c01684",
+    "result": "PASS",
+    "evidenceName": "flash-result-disk1-121220160204-v11.json"
   },
   "pendingGates": [
-    {
-      "code": "SINGLE_CARD_FLASH_AND_FULL_READBACK_PENDING",
-      "required": "re-detect media, obtain fresh disk-number and serial confirmation, write v11 and hash the complete written range"
-    },
     {
       "code": "V11_BLANK_COLD_BOOT_AUTONOMOUS_ENROLLMENT_PENDING",
       "required": "from clean state complete P7, trusted time, HTTPS enrollment, OneNet registration and MQTT without manual system commands"
