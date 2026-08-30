@@ -4,7 +4,7 @@
   "factoryImageId": "hil-factory-login-20260830-10",
   "formalReleaseEligible": false,
   "qualificationBoundary": "SINGLE_CARD_DEVELOPMENT_HIL_FULL_REBUILD_NOT_FORMAL_PRODUCTION_RELEASE",
-  "qualificationState": "OFFLINE_PREFLIGHT_PASSED_SINGLE_CARD_FLASH_PENDING",
+  "qualificationState": "SINGLE_CARD_FLASH_AND_FULL_READBACK_PASSED_FRESH_BOOT_ACCEPTANCE_PENDING",
   "rawImageBytes": 2571108352,
   "sealedRawImageSha256": "62cd40004f3cc5667f7350b04deace958bc755c8f34e7a98b7f98a5d49c9ff57",
   "sourceCandidate": {
@@ -109,16 +109,19 @@
     "containsProtectedInputDigests": false
   },
   "singleCardFlash": {
-    "completed": false,
-    "authorizationRequired": true,
-    "diskIdentityConfirmationRequired": true,
-    "fullReadbackRequired": true
+    "completed": true,
+    "confirmedDiskNumber": 1,
+    "expectedDiskSerialNumber": "121220160204",
+    "diskBytes": 31268536320,
+    "startedAt": "2026-08-30T07:21:49.1032942Z",
+    "completedAt": "2026-08-30T07:26:38.8687920Z",
+    "writtenBytes": 2571108352,
+    "fullReadbackBytes": 2571108352,
+    "fullReadbackSha256": "62cd40004f3cc5667f7350b04deace958bc755c8f34e7a98b7f98a5d49c9ff57",
+    "result": "PASS",
+    "evidenceName": "flash-result-disk1-121220160204-v10.json"
   },
   "pendingGates": [
-    {
-      "code": "SINGLE_CARD_FLASH_AND_FULL_READBACK_PENDING",
-      "required": "re-detect the target media, obtain explicit disk number and serial confirmation, write the image and compare the full written range by SHA-256"
-    },
     {
       "code": "FRESH_BOOT_ACCESS_AND_ASSIGNMENT_RETEST_PENDING",
       "required": "boot from clean state and repeat local acceptance, enrollment, machine acceptance and sealing, tenant assignment, organization assignment and business admission"
