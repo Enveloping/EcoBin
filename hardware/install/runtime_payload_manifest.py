@@ -53,6 +53,7 @@ RUNTIME_APP_FILES = (
 FACTORY_APP_RUNTIME_FILES = (
     "camera_capture.py",
     "device_credentials.py",
+    "factory_progress.py",
     "fixed_frame_mcu_adapter.py",
     "onenet_projection_model.json",
     "onenet_wire.py",

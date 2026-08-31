@@ -183,6 +183,50 @@ test('a missing-evidence decision does not pretend that a P8 request was sent', 
   assert.equal(requestStep.description, '等待系统发起');
 });
 
+test('historical evidence never advances the current bag revision', () => {
+  const current = progress({
+    acceptance: {
+      ...progress().acceptance,
+      status: 'PENDING',
+      generation: 5,
+      lastEvaluatedAt: null,
+      acceptedAt: null,
+      authoritativeEvidence: null,
+      latestEvidence: {
+        evidenceUid: '10000000-0000-4000-8000-000000000001',
+        evaluationStatus: 'PASSED',
+        evidenceSha256: 'a'.repeat(64),
+        receivedAt: '2026-08-31T08:00:00Z',
+      },
+    },
+    acceptanceRequest: {
+      taskUid: null,
+      taskState: null,
+      blockedReasonCode: null,
+      blockedDiagnostic: null,
+      latestAttempt: null,
+    },
+    seal: {
+      ...progress().seal,
+      status: 'NOT_ISSUED',
+      generation: 5,
+      taskUid: null,
+      taskState: null,
+      acknowledgedAt: null,
+    },
+    currentStage: 'MACHINE_ACCEPTANCE',
+    status: 'IN_PROGRESS',
+    nextActionCodes: ['WAIT_FOR_ACCEPTANCE_REQUEST'],
+  });
+
+  const steps = buildFactoryProgressSteps(current);
+
+  assert.equal(steps[1].status, 'wait');
+  assert.equal(steps[1].description, '等待系统发起');
+  assert.equal(steps[2].status, 'wait');
+  assert.equal(steps[2].description, '等待证据');
+});
+
 test('drawer polls without overlap and keeps authoritative evidence separate', () => {
   const drawer = readFileSync(new URL(
     '../web/src/pages/device-management/DeviceAssetDrawer.tsx',

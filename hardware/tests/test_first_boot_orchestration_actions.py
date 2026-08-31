@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from first_boot.command import CommandResult
 from first_boot.model import FactoryTestStatus, FirstBootFacts, FirstBootStage
 from first_boot.orchestrator import (
     FirstBootOrchestrator,
     SystemdStageActions,
+    _reconciliation_interval_seconds,
 )
 from first_boot.state_store import FirstBootStateStore
 from first_boot.status_projection import PortalStatusProjector
@@ -185,6 +188,44 @@ class FailedSealCleanup:
         return "PRODUCTION_FIREWALL_FAILED"
 
 
+class RacingSealCleanup:
+    def __init__(self) -> None:
+        self.hold_active = False
+
+    def reconcile_cleanup(self) -> str:
+        return "NO_SEAL"
+
+    def response_hold_active(self) -> bool:
+        return self.hold_active
+
+
+class SealDuringFactsCollection:
+    def __init__(
+        self,
+        controller: RacingSealCleanup,
+        facts: FirstBootFacts,
+    ) -> None:
+        self.controller = controller
+        self.facts = facts
+
+    def collect(self) -> FirstBootFacts:
+        self.controller.hold_active = True
+        return self.facts
+
+
+class RecordingAccessPointProjector:
+    def __init__(self) -> None:
+        self.allow_sealed_response: list[bool] = []
+
+    def publish(
+        self,
+        facts: FirstBootFacts,
+        *,
+        allow_sealed_response: bool = False,
+    ) -> None:
+        self.allow_sealed_response.append(allow_sealed_response)
+
+
 class EventProjector:
     def __init__(self, events: list[str], name: str) -> None:
         self.events = events
@@ -247,6 +288,36 @@ def test_failed_seal_cleanup_is_projected_and_blocks_all_stage_actions(
     assert actions.calls == []
 
 
+def test_seal_hold_observed_after_cleanup_keeps_ap_and_blocks_actions(
+    tmp_path: Path,
+) -> None:
+    controller = RacingSealCleanup()
+    actions = RecordingActions()
+    ap = RecordingAccessPointProjector()
+
+    state = FirstBootOrchestrator(
+        SealDuringFactsCollection(
+            controller,
+            _passed(
+                sealed_exists=True,
+                sealed_valid=False,
+                sealed_cleanup_complete=False,
+            ),
+        ),
+        FirstBootStateStore(tmp_path / "race-state.json"),
+        PortalStatusProjector(
+            tmp_path / "race-status.json", owner=lambda _path: None
+        ),
+        actions,
+        controller,  # type: ignore[arg-type]
+        ap,  # type: ignore[arg-type]
+    ).run_once()
+
+    assert ap.allow_sealed_response == [True]
+    assert state.last_error_code == "SEALED_RESPONSE_PENDING"
+    assert actions.calls == []
+
+
 def test_invalid_seal_never_starts_cellular_or_runtime() -> None:
     runner = RecordingRunner()
     actions = SystemdStageActions(runner)
@@ -258,3 +329,31 @@ def test_invalid_seal_never_starts_cellular_or_runtime() -> None:
 
     assert result == "SEALED_FACT_INVALID"
     assert runner.calls == []
+
+
+@pytest.mark.parametrize(
+    "status_code",
+    ("SEALED_RESPONSE_PENDING", "SEALED_CLEANUP_PENDING"),
+)
+def test_pending_seal_never_uses_the_configured_long_interval(
+    status_code: str,
+) -> None:
+    class PendingController:
+        def status(self) -> dict[str, object]:
+            return {"statusCode": status_code}
+
+    assert _reconciliation_interval_seconds(
+        60.0,
+        PendingController(),  # type: ignore[arg-type]
+    ) == 0.25
+
+
+def test_unknown_seal_interval_fails_to_the_short_retry() -> None:
+    class UnavailableController:
+        def status(self) -> dict[str, object]:
+            raise RuntimeError("socket state unavailable")
+
+    assert _reconciliation_interval_seconds(
+        60.0,
+        UnavailableController(),  # type: ignore[arg-type]
+    ) == 0.25

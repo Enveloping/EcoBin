@@ -156,9 +156,11 @@ function progressedPastSealIssue(progress: DeviceFactoryProgress): boolean {
 export function buildFactoryProgressSteps(
   progress: DeviceFactoryProgress,
 ): FactoryProgressStep[] {
-  const hasEvidence = Boolean(progress.acceptance.latestEvidence);
+  const hasCurrentEvidence = Boolean(
+    progress.acceptance.authoritativeEvidence,
+  );
   const p8Requested = Boolean(progress.acceptanceRequest.taskUid)
-    || hasEvidence;
+    || hasCurrentEvidence;
   const p8Blocked = progress.acceptanceRequest.taskState === 'BLOCKED'
     || progress.acceptanceRequest.taskState === 'CANCELLED';
   const sealBlocked = progress.seal.taskState === 'BLOCKED'
@@ -181,7 +183,7 @@ export function buildFactoryProgressSteps(
       title: 'P8 请求',
       description: p8Blocked
         ? '可靠任务阻断'
-        : hasEvidence
+        : hasCurrentEvidence
           ? '证据已到达'
           : p8Requested
             ? '已发起'
@@ -190,7 +192,7 @@ export function buildFactoryProgressSteps(
               : '等待袋码完整',
       status: p8Blocked
         ? 'error'
-        : hasEvidence
+        : hasCurrentEvidence
           ? 'finish'
           : p8Requested
             ? 'process'
@@ -203,14 +205,14 @@ export function buildFactoryProgressSteps(
         ? 'PASSED'
         : progress.acceptance.status === 'FAILED'
           ? 'FAILED'
-          : hasEvidence
+          : hasCurrentEvidence
             ? '正在判定'
             : '等待证据',
       status: progress.acceptance.status === 'PASSED'
         ? 'finish'
         : progress.acceptance.status === 'FAILED'
           ? 'error'
-          : hasEvidence
+          : hasCurrentEvidence
             ? 'process'
             : 'wait',
     },

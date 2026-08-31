@@ -48,6 +48,7 @@ class FactorySealController:
         response_hold_seconds: float = 5.0,
         response_ack_grace_seconds: float = 0.5,
         monotonic: Callable[[], float] | None = None,
+        wake_event: threading.Event | None = None,
     ) -> None:
         if (
             isinstance(response_hold_seconds, bool)
@@ -81,6 +82,7 @@ class FactorySealController:
         self._response_ack_grace_seconds = float(
             response_ack_grace_seconds
         )
+        self._wake_event = wake_event
         # This grace is deliberately boot-scoped.  A restart after the durable
         # seal marker exists resumes cleanup immediately and can never reopen
         # the factory access point.
@@ -240,6 +242,7 @@ class FactorySealController:
                 self._response_hold_deadline or now,
                 now + self._response_ack_grace_seconds,
             )
+            self._wake_reconciler()
             return self.status()
 
     def response_hold_active(self) -> bool:
@@ -307,6 +310,11 @@ class FactorySealController:
         self._response_hold_uid = confirmation_uid
         self._response_hold_deadline = now + self._response_hold_seconds
         self._response_cleanup_not_before = None
+        self._wake_reconciler()
+
+    def _wake_reconciler(self) -> None:
+        if self._wake_event is not None:
+            self._wake_event.set()
 
     def _response_hold_active_unlocked(self) -> bool:
         if self._response_hold_uid is None or self._response_hold_deadline is None:

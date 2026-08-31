@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 import sqlite3
@@ -63,26 +64,65 @@ def _passed_facts(**overrides: object) -> FirstBootFacts:
     return FirstBootFacts(**values)
 
 
-def _write_completed_sources(paths: FactoryFlowPaths) -> None:
-    _write(
-        paths.acceptance,
-        {
-            "schemaVersion": 1,
-            "status": "PASSED",
-            "phase": "COMPLETE",
-            "checks": {
-                name: {"status": "PASSED", "resultCode": "PASSED"}
-                for name in (
-                    "mcu",
-                    "weight",
-                    "upgradeLine",
-                    "cameras",
-                    "delivery",
-                    "clean",
-                )
-            },
+def _p7_projection(
+    *,
+    status: str = "PASSED",
+    phase: str = "COMPLETE",
+) -> dict[str, object]:
+    check_status = "PASSED" if status == "PASSED" else "NOT_RUN"
+    return {
+        "schemaVersion": 1,
+        "executorAvailable": True,
+        "status": status,
+        "phase": phase,
+        "revision": 1,
+        "idempotent": False,
+        "imageReleaseId": None,
+        "hardwareConfigSummary": "A" * 12,
+        "mcuIdentity": None,
+        "mcuUpdateLineInstalled": None,
+        "mcuPeripheralEvidenceMode": None,
+        "checks": {
+            name: {"status": check_status, "resultCode": check_status}
+            for name in (
+                "mcu",
+                "weight",
+                "upgradeLine",
+                "cameras",
+                "delivery",
+                "clean",
+            )
         },
-    )
+        "recovery": None,
+        "cameraReview": None,
+        "allowedActions": ["START"] if status == "NOT_RUN" else [],
+    }
+
+
+def _create_empty_delivery_store(paths: FactoryFlowPaths) -> None:
+    with sqlite3.connect(paths.edge_store) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE command_inbox (
+                command_uid TEXT,
+                command_type TEXT,
+                state TEXT,
+                last_error TEXT
+            );
+            CREATE TABLE event_outbox (
+                event_type TEXT,
+                payload_json TEXT,
+                state TEXT,
+                confirmed_at TEXT,
+                platform_accepted_at TEXT,
+                edge_event_sequence INTEGER
+            );
+            """
+        )
+
+
+def _write_completed_sources(paths: FactoryFlowPaths) -> None:
+    _write(paths.acceptance, _p7_projection())
     _write(paths.cellular, {"schemaVersion": 1, "resultCode": "NONE"})
     _write(
         paths.enrollment,
@@ -105,27 +145,10 @@ def _write_completed_sources(paths: FactoryFlowPaths) -> None:
             "observedMonotonicMs": 100_000,
         },
     )
+    _create_empty_delivery_store(paths)
     with sqlite3.connect(paths.edge_store) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE command_inbox (
-                command_uid TEXT,
-                command_type TEXT,
-                state TEXT,
-                last_error TEXT
-            );
-            CREATE TABLE event_outbox (
-                event_type TEXT,
-                payload_json TEXT,
-                state TEXT,
-                confirmed_at TEXT,
-                platform_accepted_at TEXT,
-                edge_event_sequence INTEGER
-            );
-            """
-        )
         connection.execute(
-            "INSERT INTO command_inbox VALUES (?, 'REQUEST_DEVICE_ACCEPTANCE', 'DONE', NULL)",
+            "INSERT INTO command_inbox VALUES (?, 'REQUEST_DEVICE_ACCEPTANCE', 'COMPLETED', NULL)",
             (COMMAND_UID,),
         )
         connection.execute(
@@ -138,6 +161,10 @@ def _write_completed_sources(paths: FactoryFlowPaths) -> None:
 
 def test_projection_starts_with_the_first_operator_step(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
+    _write(
+        paths.acceptance,
+        _p7_projection(status="NOT_RUN", phase="NOT_RUN"),
+    )
     projector = FactoryFlowProjector(
         paths,
         owner=lambda _path: None,
@@ -166,6 +193,46 @@ def test_projection_starts_with_the_first_operator_step(tmp_path: Path) -> None:
     ]
     assert validate_factory_flow_projection(projection) == projection
     assert json.loads(paths.output.read_text(encoding="utf-8")) == projection
+
+
+def test_missing_p7_source_is_unknown_once_local_acceptance_is_reached(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.FACTORY_TEST_REQUIRED,
+        FirstBootFacts(system_prepared=True, factory_portal_ready=True),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    assert projection["nodes"][1]["state"] == "UNKNOWN"
+    assert projection["nodes"][1]["detailCode"] == "STATUS_UNAVAILABLE"
+
+
+def test_invalid_p7_source_is_unknown_instead_of_running(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    _write(
+        paths.acceptance,
+        {"schemaVersion": 1, "status": "RUNNING", "phase": "CHECK_MCU"},
+    )
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.FACTORY_TEST_RUNNING,
+        FirstBootFacts(system_prepared=True, factory_portal_ready=True),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    assert projection["nodes"][1]["state"] == "UNKNOWN"
 
 
 def test_projection_reaches_cloud_pass_and_waits_for_local_seal(
@@ -248,6 +315,7 @@ def test_missing_runtime_heartbeat_is_unknown_after_uart_handoff(
     tmp_path: Path,
 ) -> None:
     paths = _paths(tmp_path)
+    _write(paths.acceptance, _p7_projection())
     _write(paths.cellular, {"schemaVersion": 1, "resultCode": "NONE"})
     _write(
         paths.enrollment,
@@ -274,7 +342,151 @@ def test_missing_runtime_heartbeat_is_unknown_after_uart_handoff(
     runtime = projection["nodes"][4]
     assert runtime["id"] == "RUNTIME_AND_MQTT"
     assert runtime["state"] == "UNKNOWN"
-    assert runtime["detailCode"] == "RUNTIME_STATUS_STALE"
+    assert runtime["detailCode"] == "STATUS_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    ("source", "node_index"),
+    (
+        ("cellular", 2),
+        ("enrollment", 3),
+        ("runtime", 4),
+    ),
+)
+def test_invalid_reached_progress_source_is_unknown(
+    tmp_path: Path,
+    source: str,
+    node_index: int,
+) -> None:
+    paths = _paths(tmp_path)
+    _write(paths.acceptance, _p7_projection())
+    _write(paths.cellular, {"schemaVersion": 1, "resultCode": "NONE"})
+    _write(
+        paths.enrollment,
+        {
+            "schemaVersion": 1,
+            "phase": "COMPLETE",
+            "lastErrorCode": None,
+            "retryable": False,
+        },
+    )
+    _write(
+        paths.runtime,
+        {
+            "schemaVersion": 1,
+            "serviceState": "RUNNING",
+            "uartState": "READY",
+            "mqttState": "CONNECTED",
+            "p8Phase": "IDLE",
+            "lastErrorCode": None,
+            "observedMonotonicMs": 100_000,
+        },
+    )
+    invalid_documents = {
+        "cellular": {"schemaVersion": 1, "resultCode": "not-stable"},
+        "enrollment": {
+            "schemaVersion": 1,
+            "phase": "MADE_UP_PHASE",
+            "lastErrorCode": None,
+            "retryable": False,
+        },
+        "runtime": {
+            "schemaVersion": 1,
+            "serviceState": "MAGIC",
+            "uartState": "READY",
+            "mqttState": "CONNECTED",
+            "p8Phase": "IDLE",
+            "lastErrorCode": None,
+            "observedMonotonicMs": 100_000,
+        },
+    }
+    _write(getattr(paths, source), invalid_documents[source])
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    node = projection["nodes"][node_index]
+    assert node["state"] == "UNKNOWN"
+    assert node["detailCode"] == "STATUS_UNAVAILABLE"
+
+
+def test_healthy_store_without_p8_request_waits_for_factory_scan(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    _write_completed_sources(paths)
+    with sqlite3.connect(paths.edge_store) as connection:
+        connection.execute("DELETE FROM event_outbox")
+        connection.execute("DELETE FROM command_inbox")
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    bags = projection["nodes"][5]
+    assert bags["state"] == "WAITING_OPERATOR"
+    assert bags["detailCode"] == "SCAN_DEVICE_AND_FACTORY_BAGS"
+
+
+def test_unavailable_store_is_unknown_instead_of_waiting_for_scan(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    _write_completed_sources(paths)
+    paths = replace(paths, edge_store=tmp_path / "missing-edge.db")
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    bags = projection["nodes"][5]
+    assert bags["state"] == "UNKNOWN"
+    assert bags["detailCode"] == "STATUS_UNAVAILABLE"
+
+
+def test_unavailable_seal_source_is_unknown_after_evidence_confirmation(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    _write_completed_sources(paths)
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(status_code="FACTORY_SEAL_NOT_AVAILABLE"),
+    )
+
+    cloud = projection["nodes"][7]
+    assert cloud["state"] == "UNKNOWN"
+    assert cloud["detailCode"] == "STATUS_UNAVAILABLE"
+    assert projection["nodes"][8]["state"] == "PENDING"
 
 
 @pytest.mark.parametrize(
@@ -424,3 +636,37 @@ def test_p8_failure_surfaces_the_allowlisted_device_error(tmp_path: Path) -> Non
     evidence = projection["nodes"][6]
     assert evidence["state"] == "BLOCKED"
     assert evidence["errorCode"] == "P8_CAMERA_CAPTURE_FAILED"
+
+
+def test_missing_p8_grant_stays_at_the_request_stage(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    _write_completed_sources(paths)
+    with sqlite3.connect(paths.edge_store) as connection:
+        connection.execute("DELETE FROM event_outbox")
+    runtime = json.loads(paths.runtime.read_text(encoding="utf-8"))
+    runtime["p8Phase"] = "FAILED"
+    runtime["lastErrorCode"] = "P8_GRANT_NOT_AVAILABLE"
+    _write(paths.runtime, runtime)
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    steps = {
+        step["id"]: step
+        for step in projection["nodes"][6]["steps"]
+    }
+    assert steps["DEVICE_ENTRY_URL"]["state"] == "BLOCKED"
+    assert steps["DEVICE_ENTRY_URL"]["errorCode"] == "P8_GRANT_NOT_AVAILABLE"
+    assert steps["STORE_CHECK"]["state"] == "PENDING"
+    assert steps["CONFIG_CHECK"]["state"] == "PENDING"
+    assert steps["MCU_AND_SENSORS"]["state"] == "PENDING"
+    assert steps["CAMERA_CAPTURE"]["state"] == "PENDING"
+    assert steps["COS_UPLOAD_READBACK"]["state"] == "PENDING"

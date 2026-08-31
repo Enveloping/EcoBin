@@ -53,6 +53,21 @@ _REPORT_STATUSES = {
     "FAILED",
     "RECOVERY_REQUIRED",
 }
+_PRESEAL_FACTORY_STATUS_CODES = frozenset(
+    {
+        "CLOUD_ACCEPTANCE_REQUIRED",
+        "SEAL_READY",
+        "IMAGE_RELEASE_INVALID",
+        "FACTORY_REPORT_INVALID",
+        "FACTORY_SEAL_LOCAL_FACT_CHANGED",
+        "ENROLLMENT_CLEANUP_REQUIRED",
+        "DEVICE_CREDENTIALS_INVALID",
+        "HANDOFF_SAFE_REQUIRED",
+        "DEVICE_CAPABILITIES_INVALID",
+        "MAINTENANCE_BUSY",
+        "RUNTIME_NOT_HEALTHY",
+    }
+)
 _CAMERA_IMAGE_PATH = re.compile(
     r"^/api/v1/acceptance/camera/(outside|inside)/([0-9a-f]{32})$"
 )
@@ -246,18 +261,27 @@ class FactorySealPortalAdapter:
                 FactorySealPortalError,
                 get_factory_seal_authorization_status,
             )
-        except ImportError:
-            return self._unavailable()
+        except ImportError as error:
+            raise AcceptancePortalClientError(
+                "FACTORY_SEAL_NOT_AVAILABLE",
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            ) from error
         try:
             return self._validate(get_factory_seal_authorization_status())
-        except (FactorySealPortalError, RuntimeError) as error:
-            return self._unavailable(
+        except FactorySealPortalError as error:
+            raise AcceptancePortalClientError(
                 _safe_string(
                     getattr(error, "code", None),
                     _SAFE_CODE,
                     "FACTORY_SEAL_NOT_AVAILABLE",
-                )
-            )
+                ),
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            ) from error
+        except RuntimeError as error:
+            raise AcceptancePortalClientError(
+                "FACTORY_SEAL_RESPONSE_INVALID",
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            ) from error
 
     def confirm(self, operator_confirmation_uid: str) -> dict[str, Any]:
         try:
@@ -393,7 +417,16 @@ class PortalSnapshotProvider:
             else:
                 acceptance = dict(acceptance)
                 acceptance["executorAvailable"] = False
-        seal = self._seal_portal.status()
+        try:
+            seal = self._seal_portal.status()
+        except AcceptancePortalClientError as error:
+            seal = FactorySealPortalAdapter._unavailable(
+                _safe_string(
+                    error.code,
+                    _SAFE_CODE,
+                    "FACTORY_SEAL_NOT_AVAILABLE",
+                )
+            )
         if acceptance.get("status") != "PASSED":
             seal = dict(seal)
             seal["confirmAllowed"] = False
@@ -695,13 +728,9 @@ class PortalApplication:
             return self._ack_factory_seal_presented(request)
         try:
             seal_status = self._seal_portal.status()
-        except AcceptancePortalClientError:
-            seal_status = {}
-        if seal_status.get("statusCode") in {
-            "SEALED_RESPONSE_PENDING",
-            "SEALED_CLEANUP_PENDING",
-            "SEALED",
-        }:
+        except AcceptancePortalClientError as error:
+            return self._json(error.status, {"error": error.code})
+        if seal_status.get("statusCode") not in _PRESEAL_FACTORY_STATUS_CODES:
             return self._json(
                 HTTPStatus.LOCKED,
                 {"error": "FACTORY_SEAL_ALREADY_COMMITTED"},

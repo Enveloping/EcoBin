@@ -102,3 +102,24 @@ def test_ap_projection_is_a_three_field_one_way_gate(
     assert validate_ap_authorization_projection(document) == document
     if os.name != "nt":
         assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+def test_ap_projection_keeps_the_boot_scoped_seal_response_window(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "factory-network" / "ap-allowed.json"
+    projector = AccessPointAuthorizationProjector(
+        path,
+        owner=lambda _path: None,
+    )
+
+    projector.publish(
+        FirstBootFacts(sealed_exists=True, sealed_valid=False),
+        allow_sealed_response=True,
+    )
+
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "schemaVersion": 2,
+        "allowed": True,
+        "statusCode": "SEALED_RESPONSE_PENDING",
+    }

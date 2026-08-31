@@ -12,6 +12,7 @@ from factory.acceptance_portal_client import AcceptancePortalClientError
 from factory.network import FACTORY_ADDRESS, FACTORY_PORT
 from factory.portal import (
     BoundedHeaderReader,
+    FactorySealPortalAdapter,
     FactoryPortalServer,
     MAX_HEADER_BYTES,
     MAX_HEADER_COUNT,
@@ -25,6 +26,7 @@ from factory.portal import (
     build_server,
     security_headers,
 )
+from factory_seal.errors import FactorySealPortalError
 
 
 class FixedSnapshot:
@@ -57,9 +59,12 @@ class FakeSealPortal:
         self.allowed = allowed
         self.confirmed: list[str] = []
         self.acknowledged: list[str] = []
-        self.status_code = "AUTHORIZED" if allowed else "NOT_AUTHORIZED"
+        self.status_code = "SEAL_READY" if allowed else "CLOUD_ACCEPTANCE_REQUIRED"
+        self.error: AcceptancePortalClientError | None = None
 
     def status(self) -> dict[str, Any]:
+        if self.error is not None:
+            raise self.error
         return {
             "authorized": self.allowed,
             "confirmAllowed": self.allowed,
@@ -198,7 +203,9 @@ def test_unsupported_method_or_route_is_rejected(method: str) -> None:
 def test_exact_action_envelope_is_forwarded_to_the_root_executor() -> None:
     client = FakeActionClient()
     application = PortalApplication(
-        snapshot_provider=FixedSnapshot(), action_client=client
+        snapshot_provider=FixedSnapshot(),
+        action_client=client,
+        seal_portal=FakeSealPortal(),
     )
     request = {
         "operation": "CAPTURE_EMPTY_WEIGHT",
@@ -289,7 +296,9 @@ def test_executor_busy_error_is_preserved_at_the_http_boundary() -> None:
         "ACCEPTANCE_EXECUTOR_BUSY", HTTPStatus.CONFLICT
     )
     application = PortalApplication(
-        snapshot_provider=FixedSnapshot(), action_client=client
+        snapshot_provider=FixedSnapshot(),
+        action_client=client,
+        seal_portal=FakeSealPortal(),
     )
     body = b'{"operation":"CHECK_MCU","expectedRevision":1,"parameters":{}}'
 
@@ -477,12 +486,98 @@ def test_hardware_actions_are_blocked_after_seal_is_committed() -> None:
     assert client.requests == []
 
 
+def test_hardware_actions_fail_closed_when_seal_status_is_unavailable() -> None:
+    body = json.dumps(
+        {
+            "operation": "CHECK_MCU",
+            "expectedRevision": 3,
+            "parameters": {},
+        }
+    ).encode("utf-8")
+    client = FakeActionClient()
+    seal = FakeSealPortal()
+    seal.error = AcceptancePortalClientError(
+        "FACTORY_SEAL_NOT_AVAILABLE",
+        HTTPStatus.SERVICE_UNAVAILABLE,
+    )
+    application = PortalApplication(
+        snapshot_provider=FixedSnapshot(),
+        action_client=client,
+        seal_portal=seal,
+    )
+
+    response = application.handle(
+        "POST",
+        "/api/v1/acceptance/action",
+        _action_headers(body),
+        "10.42.0.20",
+        body,
+    )
+
+    assert response.status == HTTPStatus.SERVICE_UNAVAILABLE
+    assert json.loads(response.body)["error"] == "FACTORY_SEAL_NOT_AVAILABLE"
+    assert client.requests == []
+
+
+def test_hardware_actions_fail_closed_for_an_unrecognized_seal_status() -> None:
+    body = json.dumps(
+        {
+            "operation": "CHECK_MCU",
+            "expectedRevision": 3,
+            "parameters": {},
+        }
+    ).encode("utf-8")
+    client = FakeActionClient()
+    seal = FakeSealPortal()
+    seal.status_code = "FUTURE_SEAL_STATE"
+    application = PortalApplication(
+        snapshot_provider=FixedSnapshot(),
+        action_client=client,
+        seal_portal=seal,
+    )
+
+    response = application.handle(
+        "POST",
+        "/api/v1/acceptance/action",
+        _action_headers(body),
+        "10.42.0.20",
+        body,
+    )
+
+    assert response.status == HTTPStatus.LOCKED
+    assert json.loads(response.body)["error"] == (
+        "FACTORY_SEAL_ALREADY_COMMITTED"
+    )
+    assert client.requests == []
+
+
+def test_seal_adapter_reports_status_boundary_failures_as_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import factory_seal.portal_client as portal_client
+
+    def fail_status() -> dict[str, object]:
+        raise FactorySealPortalError("FACTORY_SEAL_RESPONSE_INVALID")
+
+    monkeypatch.setattr(
+        portal_client,
+        "get_factory_seal_authorization_status",
+        fail_status,
+    )
+
+    with pytest.raises(AcceptancePortalClientError) as captured:
+        FactorySealPortalAdapter().status()
+
+    assert captured.value.code == "FACTORY_SEAL_RESPONSE_INVALID"
+    assert captured.value.status == HTTPStatus.SERVICE_UNAVAILABLE
+
+
 @pytest.mark.parametrize(
     ("status", "revision", "seal_allowed", "error"),
     (
         ("RUNNING", 12, True, "LOCAL_ACCEPTANCE_NOT_PASSED"),
         ("PASSED", 13, True, "ACCEPTANCE_REVISION_CONFLICT"),
-        ("PASSED", 12, False, "NOT_AUTHORIZED"),
+        ("PASSED", 12, False, "CLOUD_ACCEPTANCE_REQUIRED"),
     ),
 )
 def test_factory_seal_fails_closed_before_any_confirmation(
@@ -646,6 +741,17 @@ def test_web_exposes_a_distinct_post_delivery_safety_confirmation() -> None:
     assert "CONFIRM_DELIVERY_AREA_SAFE" in app
     assert "动作结束后重新检查现场" in app
     assert "operatorAreaSafeConfirmed: true" in app
+
+
+def test_clean_recovery_requires_a_specific_physical_door_confirmation() -> None:
+    app = (
+        Path(__file__).parents[1] / "factory" / "web" / "app.js"
+    ).read_text(encoding="utf-8")
+
+    assert 'cleanRecovery: operation === "RECOVER"' in app
+    assert "清运门没有门位传感器" in app
+    assert "请现场观察并确认清运门已经完全关闭" in app
+    assert "cleanDoorClosedConfirmed: cleanRecovery" in app
 
 
 def test_factory_seal_confirmation_does_not_require_a_secure_http_context() -> None:

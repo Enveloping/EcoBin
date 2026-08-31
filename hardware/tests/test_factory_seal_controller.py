@@ -5,6 +5,7 @@ import itertools
 from pathlib import Path
 import sqlite3
 import subprocess
+import threading
 import uuid
 
 import pytest
@@ -210,6 +211,7 @@ def _controller(
     emergency: list[str],
     fault_hook=None,
     monotonic=None,
+    wake_event: threading.Event | None = None,
 ) -> FactorySealController:
     if monotonic is None:
         ticks = itertools.count(0.0, 10.0)
@@ -226,6 +228,7 @@ def _controller(
         ),
         fault_hook=fault_hook,
         monotonic=monotonic,
+        wake_event=wake_event,
     )
 
 
@@ -328,6 +331,32 @@ def test_seal_cleanup_waits_for_browser_presentation_ack(tmp_path: Path) -> None
     now[0] += 0.02
     assert controller.reconcile_cleanup() == "SEALED"
     assert stopped == ["stop"]
+
+
+def test_confirmation_and_presentation_ack_wake_the_reconciliation_loop(
+    tmp_path: Path,
+) -> None:
+    paths, _ = _authorized(tmp_path)
+    now = [100.0]
+    wake_event = threading.Event()
+    controller = _controller(
+        paths,
+        stopped=[],
+        production=[],
+        emergency=[],
+        monotonic=lambda: now[0],
+        wake_event=wake_event,
+    )
+    confirmation_uid = str(uuid.uuid4())
+
+    controller.confirm(confirmation_uid)
+
+    assert wake_event.is_set()
+    wake_event.clear()
+
+    controller.acknowledge_response_presented(confirmation_uid)
+
+    assert wake_event.is_set()
 
 
 def test_seal_response_hold_has_a_bounded_hard_timeout(tmp_path: Path) -> None:

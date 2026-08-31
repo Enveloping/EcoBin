@@ -85,7 +85,6 @@ class AccessPointAuthorizationProjector:
         response_pending = bool(
             allow_sealed_response
             and facts.sealed_exists
-            and facts.sealed_valid
         )
         allowed = not facts.sealed_exists or response_pending
         status = (

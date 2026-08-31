@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import signal
-import time
+import threading
 from typing import Protocol, Sequence
 
 from factory_seal.controller import FactorySealController
@@ -145,12 +145,21 @@ class FirstBootOrchestrator:
                 # or production while the controller is in an unknown state.
                 cleanup_result = "SEALED_CLEANUP_FAILED"
         observations = self._facts.collect()
+        response_hold = False
+        if self._seal_controller is not None:
+            try:
+                # Confirmation can commit on the portal thread after the
+                # cleanup result above was sampled.  The current boot-scoped
+                # hold is the authoritative fact for both AP projection and
+                # action suppression in this cycle.
+                response_hold = self._seal_controller.response_hold_active()
+            except Exception:
+                if cleanup_result in {"NO_SEAL", "SEALED"}:
+                    cleanup_result = "SEALED_CLEANUP_FAILED"
+        effective_cleanup_result = cleanup_result
+        if response_hold and cleanup_result in {"NO_SEAL", "SEALED"}:
+            effective_cleanup_result = "SEALED_RESPONSE_PENDING"
         if self._ap_projector is not None:
-            response_hold = bool(
-                cleanup_result == "SEALED_RESPONSE_PENDING"
-                and self._seal_controller is not None
-                and self._seal_controller.response_hold_active()
-            )
             self._ap_projector.publish(
                 observations,
                 allow_sealed_response=response_hold,
@@ -162,9 +171,12 @@ class FirstBootOrchestrator:
             previous = None
             load_error = "STATE_INDEX_INVALID"
         decision = reconcile(observations, previous)
-        cleanup_blocks_actions = cleanup_result not in {"NO_SEAL", "SEALED"}
+        cleanup_blocks_actions = effective_cleanup_result not in {
+            "NO_SEAL",
+            "SEALED",
+        }
         error_code = (
-            cleanup_result
+            effective_cleanup_result
             if cleanup_blocks_actions
             else decision.error_code
             if decision.error_code != "NONE"
@@ -229,6 +241,22 @@ class FirstBootOrchestrator:
             return
 
 
+def _reconciliation_interval_seconds(
+    configured_seconds: float,
+    seal_controller: FactorySealController,
+) -> float:
+    try:
+        status_code = seal_controller.status().get("statusCode")
+    except Exception:
+        return min(configured_seconds, 0.25)
+    if not isinstance(status_code, str) or status_code in {
+        "SEALED_RESPONSE_PENDING",
+        "SEALED_CLEANUP_PENDING",
+    }:
+        return min(configured_seconds, 0.25)
+    return configured_seconds
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="EcoBin fact-driven first boot")
     parser.add_argument("--once", action="store_true")
@@ -240,7 +268,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     import grp
 
     group_id = grp.getgrnam(args.portal_group).gr_gid
-    seal_controller = FactorySealController()
+    wake_event = threading.Event()
+    seal_controller = FactorySealController(wake_event=wake_event)
     seal_server = FactorySealPortalServer(
         seal_controller,
         group_id=group_id,
@@ -262,25 +291,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         finally:
             seal_server.close()
 
-    stopping = False
+    stopping = threading.Event()
 
     def stop(_signal: int, _frame: object) -> None:
-        nonlocal stopping
-        stopping = True
+        stopping.set()
+        wake_event.set()
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     try:
-        while not stopping:
+        while not stopping.is_set():
+            # Clear before collecting facts so a confirmation arriving during
+            # this cycle remains visible to the following wait.  If a wake was
+            # consumed between cycles, this immediate reconciliation observes
+            # the current hold directly.
+            wake_event.clear()
             orchestrator.run_once()
-            interval_seconds = (
-                min(args.interval_seconds, 0.25)
-                if seal_controller.response_hold_active()
-                else args.interval_seconds
+            if stopping.is_set():
+                break
+            interval_seconds = _reconciliation_interval_seconds(
+                args.interval_seconds,
+                seal_controller,
             )
-            end = time.monotonic() + interval_seconds
-            while not stopping and time.monotonic() < end:
-                time.sleep(min(0.25, end - time.monotonic()))
+            wake_event.wait(interval_seconds)
         return 0
     finally:
         seal_server.close()

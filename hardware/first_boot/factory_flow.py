@@ -11,6 +11,11 @@ import time
 from typing import Any, Callable
 from urllib.parse import quote
 
+from factory_progress import (
+    validate_enrollment_progress,
+    validate_runtime_progress,
+)
+
 from .atomic_json import AtomicJsonFile, OwnershipSetter, root_group_owner
 from .model import FirstBootFacts, FirstBootStage, normalize_error_code
 
@@ -38,6 +43,80 @@ _TOP_FIELDS = {"schemaVersion", "currentNode", "overallState", "nodes"}
 _NODE_FIELDS = {"id", "state", "detailCode", "errorCode", "steps"}
 _STEP_FIELDS = {"id", "state", "detailCode", "errorCode"}
 _SAFE_CODE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+_HEX_64 = re.compile(r"^[0-9a-f]{64}$")
+_P7_FIELDS = {
+    "schemaVersion",
+    "executorAvailable",
+    "status",
+    "phase",
+    "revision",
+    "idempotent",
+    "imageReleaseId",
+    "hardwareConfigSummary",
+    "mcuIdentity",
+    "mcuUpdateLineInstalled",
+    "mcuPeripheralEvidenceMode",
+    "checks",
+    "recovery",
+    "cameraReview",
+    "allowedActions",
+}
+_P7_CHECK_NAMES = {
+    "mcu",
+    "weight",
+    "upgradeLine",
+    "cameras",
+    "delivery",
+    "clean",
+}
+_P7_CHECK_OPTIONAL_FIELDS = {
+    "emptyWeightGrams",
+    "loadedWeightGrams",
+    "removedWeightGrams",
+    "deltaGrams",
+    "targetDeltaGrams",
+    "toleranceGrams",
+    "sendAttempts",
+    "prepareSendAttempts",
+    "romWritePerformed",
+    "romDeviceId",
+    "cleanDoorConfirmed",
+    "operatorAreaSafeConfirmed",
+    "result",
+}
+_P7_STATUSES = {
+    "NOT_RUN",
+    "RUNNING",
+    "PASSED",
+    "FAILED",
+    "RECOVERY_REQUIRED",
+}
+_SEAL_FIELDS = {
+    "authorized",
+    "confirmAllowed",
+    "statusCode",
+    "acceptanceGeneration",
+    "authorizationBindingSha256",
+}
+_SEAL_STATUS_CODES = {
+    "CLOUD_ACCEPTANCE_REQUIRED",
+    "SEAL_READY",
+    "IMAGE_RELEASE_INVALID",
+    "FACTORY_REPORT_INVALID",
+    "FACTORY_SEAL_LOCAL_FACT_CHANGED",
+    "ENROLLMENT_CLEANUP_REQUIRED",
+    "DEVICE_CREDENTIALS_INVALID",
+    "HANDOFF_SAFE_REQUIRED",
+    "DEVICE_CAPABILITIES_INVALID",
+    "MAINTENANCE_BUSY",
+    "RUNTIME_NOT_HEALTHY",
+    "SEALED_RESPONSE_PENDING",
+    "SEALED_CLEANUP_PENDING",
+    "SEALED",
+    "SEALED_FACT_INVALID",
+    "SEALED_FACT_MISSING",
+    "FACTORY_SEAL_NOT_AVAILABLE",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +127,12 @@ class FactoryFlowPaths:
     runtime: Path = Path("/run/ecobin/hardware/factory-progress.json")
     edge_store: Path = Path("/var/lib/ecobin/hardware/edge.db")
     output: Path = Path("/run/ecobin/factory-portal/flow.json")
+
+
+@dataclass(frozen=True, slots=True)
+class _SourceSnapshot:
+    available: bool
+    value: dict[str, Any]
 
 
 class FactoryFlowProjector:
@@ -83,39 +168,33 @@ class FactoryFlowProjector:
         error_code: str,
         seal: dict[str, object],
     ) -> dict[str, object]:
-        acceptance = _read_json(
+        acceptance = _read_validated_json(
             self._paths.acceptance,
+            _validate_acceptance_projection,
             maximum_bytes=64 * 1024,
         )
-        cellular = _read_exact_json(
+        cellular = _read_validated_json(
             self._paths.cellular,
-            {"schemaVersion", "resultCode"},
+            _validate_cellular_projection,
             maximum_bytes=512,
         )
-        enrollment = _read_exact_json(
+        enrollment = _read_validated_json(
             self._paths.enrollment,
-            {"schemaVersion", "phase", "lastErrorCode", "retryable"},
+            validate_enrollment_progress,
             maximum_bytes=2048,
         )
-        runtime = _read_exact_json(
+        runtime = _read_validated_json(
             self._paths.runtime,
-            {
-                "schemaVersion",
-                "serviceState",
-                "uartState",
-                "mqttState",
-                "p8Phase",
-                "lastErrorCode",
-                "observedMonotonicMs",
-            },
+            validate_runtime_progress,
             maximum_bytes=4096,
         )
         durable = _read_acceptance_delivery(self._paths.edge_store)
+        seal_source = _validate_seal_source(seal)
         projection = self._build(
             stage,
             facts,
             error_code=error_code,
-            seal=seal,
+            seal=seal_source,
             acceptance=acceptance,
             cellular=cellular,
             enrollment=enrollment,
@@ -132,15 +211,27 @@ class FactoryFlowProjector:
         facts: FirstBootFacts,
         *,
         error_code: str,
-        seal: dict[str, object],
-        acceptance: dict[str, Any],
-        cellular: dict[str, Any],
-        enrollment: dict[str, Any],
-        runtime: dict[str, Any],
-        durable: dict[str, Any],
+        seal: _SourceSnapshot,
+        acceptance: _SourceSnapshot,
+        cellular: _SourceSnapshot,
+        enrollment: _SourceSnapshot,
+        runtime: _SourceSnapshot,
+        durable: _SourceSnapshot,
     ) -> dict[str, object]:
         nodes: list[dict[str, object]] = []
         public_error = _code(error_code, "NONE")
+        acceptance_available = acceptance.available
+        cellular_available = cellular.available
+        enrollment_available = enrollment.available
+        runtime_available = runtime.available
+        durable_available = durable.available
+        seal_available = seal.available
+        acceptance_value = acceptance.value
+        cellular_value = cellular.value
+        enrollment_value = enrollment.value
+        runtime_value = runtime.value
+        durable_value = durable.value
+        seal_value = seal.value
 
         boot_complete = facts.system_prepared and facts.factory_portal_ready
         boot_state = "COMPLETED" if boot_complete else "BLOCKED" if public_error != "NONE" else "ACTIVE"
@@ -155,18 +246,25 @@ class FactoryFlowProjector:
             ),
         ))
 
-        p7_status = _code(acceptance.get("status"), facts.factory_test_status.value)
-        p7_phase = _code(acceptance.get("phase"), "NOT_RUN")
-        if p7_status == "PASSED" and facts.factory_report_valid:
+        p7_status = _code(
+            acceptance_value.get("status"),
+            facts.factory_test_status.value,
+        )
+        p7_phase = _code(acceptance_value.get("phase"), "NOT_RUN")
+        if not boot_complete:
+            p7_state = "PENDING"
+        elif not acceptance_available:
+            p7_state = "UNKNOWN"
+        elif p7_status == "PASSED" and facts.factory_report_valid:
             p7_state = "COMPLETED"
         elif p7_status in {"FAILED", "RECOVERY_REQUIRED"}:
             p7_state = "BLOCKED"
         elif p7_status == "RUNNING":
             p7_state = "ACTIVE"
         else:
-            p7_state = "WAITING_OPERATOR" if boot_complete else "PENDING"
+            p7_state = "WAITING_OPERATOR"
         p7_steps = []
-        checks = acceptance.get("checks")
+        checks = acceptance_value.get("checks")
         checks = checks if isinstance(checks, dict) else {}
         for check_id, source_name in (
             ("MCU", "mcu"),
@@ -176,29 +274,38 @@ class FactoryFlowProjector:
             ("DELIVERY", "delivery"),
             ("CLEAN", "clean"),
         ):
-            check = checks.get(source_name)
-            check = check if isinstance(check, dict) else {}
-            check_status = _code(check.get("status"), "NOT_RUN")
-            check_result = _code(check.get("resultCode"), "NOT_RUN")
-            p7_steps.append(_check_step(check_id, check_status, check_result))
+            if acceptance_available:
+                check = checks.get(source_name)
+                check = check if isinstance(check, dict) else {}
+                check_status = _code(check.get("status"), "NOT_RUN")
+                check_result = _code(check.get("resultCode"), "NOT_RUN")
+                p7_steps.append(
+                    _check_step(check_id, check_status, check_result)
+                )
+            else:
+                p7_steps.append(_unknown_step(check_id))
         p7_steps.append(_bool_step("REPORT", facts.factory_report_valid))
         nodes.append(_node(
             "LOCAL_HARDWARE_ACCEPTANCE",
             p7_state,
-            p7_phase,
-            _code(acceptance.get("lastErrorCode"), public_error if p7_state == "BLOCKED" else "NONE"),
+            "STATUS_UNAVAILABLE" if p7_state == "UNKNOWN" else p7_phase,
+            public_error if p7_state == "BLOCKED" else "NONE",
             tuple(p7_steps),
         ))
 
-        cellular_result = _code(cellular.get("resultCode"), "STATUS_UNAVAILABLE")
+        cellular_result = _code(
+            cellular_value.get("resultCode"),
+            "STATUS_UNAVAILABLE",
+        )
         cellular_complete = facts.uplink_ready and facts.time_trusted
-        if not (p7_state == "COMPLETED"):
+        if p7_state != "COMPLETED":
             cellular_state = "PENDING"
+        elif not cellular_available or cellular_result == "STATUS_UNAVAILABLE":
+            cellular_state = "UNKNOWN"
         elif cellular_complete:
             cellular_state = "COMPLETED"
         elif cellular_result in {
             "NONE",
-            "STATUS_UNAVAILABLE",
             "TIME_SYNC_PENDING",
             "TIME_SYNC_IN_PROGRESS",
             "FACTORY_TEST_GATE_CLOSED",
@@ -209,7 +316,11 @@ class FactoryFlowProjector:
         nodes.append(_node(
             "CELLULAR_AND_TIME",
             cellular_state,
-            "CELLULAR_AND_TIME_READY" if cellular_complete else cellular_result,
+            "STATUS_UNAVAILABLE"
+            if cellular_state == "UNKNOWN"
+            else "CELLULAR_AND_TIME_READY"
+            if cellular_complete
+            else cellular_result,
             cellular_result if cellular_state == "BLOCKED" else "NONE",
             (
                 _bool_step("AIR780E_PROFILE", facts.cellular_profile_active),
@@ -218,29 +329,59 @@ class FactoryFlowProjector:
             ),
         ))
 
-        enrollment_phase = _code(enrollment.get("phase"), "NOT_STARTED")
-        enrollment_error = _code(enrollment.get("lastErrorCode"), "NONE")
-        if not cellular_complete:
+        enrollment_phase = _code(
+            enrollment_value.get("phase"),
+            "NOT_STARTED",
+        )
+        enrollment_error = _code(
+            enrollment_value.get("lastErrorCode"),
+            "NONE",
+        )
+        if cellular_state != "COMPLETED":
             enrollment_state = "PENDING"
+        elif not enrollment_available:
+            enrollment_state = "UNKNOWN"
         elif facts.enrollment_complete:
             enrollment_state = "COMPLETED"
-        elif enrollment_phase == "FAILED" and enrollment.get("retryable") is False:
+        elif (
+            enrollment_phase == "FAILED"
+            and enrollment_value.get("retryable") is False
+        ):
             enrollment_state = "BLOCKED"
         else:
             enrollment_state = "ACTIVE"
         nodes.append(_node(
             "ENROLLMENT_AND_CREDENTIALS",
             enrollment_state,
-            "ENROLLMENT_COMPLETE" if facts.enrollment_complete else enrollment_phase,
-            enrollment_error,
+            "STATUS_UNAVAILABLE"
+            if enrollment_state == "UNKNOWN"
+            else "ENROLLMENT_COMPLETE"
+            if facts.enrollment_complete
+            else enrollment_phase,
+            enrollment_error if enrollment_state == "BLOCKED" else "NONE",
             _enrollment_steps(enrollment_phase, facts.enrollment_complete),
         ))
 
-        runtime_fresh = _runtime_is_fresh(runtime, self._monotonic())
-        service_state = _code(runtime.get("serviceState"), "STATUS_UNAVAILABLE")
-        uart_state = _code(runtime.get("uartState"), "STATUS_UNAVAILABLE")
-        mqtt_state = _code(runtime.get("mqttState"), "STATUS_UNAVAILABLE")
-        runtime_error = _code(runtime.get("lastErrorCode"), "NONE")
+        runtime_fresh = runtime_available and _runtime_is_fresh(
+            runtime_value,
+            self._monotonic(),
+        )
+        service_state = _code(
+            runtime_value.get("serviceState"),
+            "STATUS_UNAVAILABLE",
+        )
+        uart_state = _code(
+            runtime_value.get("uartState"),
+            "STATUS_UNAVAILABLE",
+        )
+        mqtt_state = _code(
+            runtime_value.get("mqttState"),
+            "STATUS_UNAVAILABLE",
+        )
+        runtime_error = _code(
+            runtime_value.get("lastErrorCode"),
+            "NONE",
+        )
         runtime_complete = bool(
             facts.handoff_safe
             and runtime_fresh
@@ -254,12 +395,14 @@ class FactoryFlowProjector:
             mqtt_state,
             runtime_error,
         )
-        if not facts.enrollment_complete:
+        if enrollment_state != "COMPLETED":
             runtime_state = "PENDING"
+        elif not runtime_available:
+            runtime_state = "UNKNOWN"
+        elif not runtime_fresh:
+            runtime_state = "UNKNOWN"
         elif runtime_complete:
             runtime_state = "COMPLETED"
-        elif facts.handoff_safe and (not runtime or not runtime_fresh):
-            runtime_state = "UNKNOWN"
         elif runtime_blocking_error is not None:
             runtime_state = "BLOCKED"
         else:
@@ -267,8 +410,10 @@ class FactoryFlowProjector:
         runtime_detail = (
             "RUNTIME_READY"
             if runtime_complete
+            else "STATUS_UNAVAILABLE"
+            if not runtime_available
             else "RUNTIME_STATUS_STALE"
-            if facts.handoff_safe and (not runtime or not runtime_fresh)
+            if not runtime_fresh
             else runtime_blocking_error
             if runtime_blocking_error is not None
             else service_state
@@ -286,12 +431,14 @@ class FactoryFlowProjector:
             ),
         ))
 
-        command = durable.get("command")
+        command = durable_value.get("command")
         command = command if isinstance(command, dict) else {}
         command_state = _code(command.get("state"), "NOT_RECEIVED")
         command_received = bool(command)
-        if not runtime_complete:
+        if runtime_state != "COMPLETED":
             bags_state = "PENDING"
+        elif not durable_available:
+            bags_state = "UNKNOWN"
         elif command_received:
             bags_state = "COMPLETED"
         else:
@@ -299,12 +446,20 @@ class FactoryFlowProjector:
         nodes.append(_node(
             "FACTORY_BAGS",
             bags_state,
-            "P8_REQUEST_RECEIVED" if command_received else "SCAN_DEVICE_AND_FACTORY_BAGS",
+            "STATUS_UNAVAILABLE"
+            if bags_state == "UNKNOWN"
+            else "P8_REQUEST_RECEIVED"
+            if command_received
+            else "SCAN_DEVICE_AND_FACTORY_BAGS",
             "NONE",
-            (_bool_step("P8_REQUEST", command_received),),
+            ((
+                _bool_step("P8_REQUEST", command_received)
+                if durable_available
+                else _unknown_step("P8_REQUEST")
+            ),),
         ))
 
-        event = durable.get("event")
+        event = durable_value.get("event")
         event = event if isinstance(event, dict) else {}
         event_state = _code(event.get("state"), "NOT_RECORDED")
         platform_accepted = bool(
@@ -317,10 +472,13 @@ class FactoryFlowProjector:
                 or event.get("confirmed") is True
             )
         )
-        p8_phase = _code(runtime.get("p8Phase"), "IDLE")
+        p8_phase = _code(runtime_value.get("p8Phase"), "IDLE")
         command_error = _code(command.get("lastError"), "NONE")
-        if not command_received:
+        p8_started = p8_phase != "IDLE"
+        if not command_received and not p8_started:
             evidence_state = "PENDING"
+        elif not durable_available:
+            evidence_state = "UNKNOWN"
         elif p8_phase == "FAILED":
             evidence_state = "BLOCKED"
         elif command_state in {"FAILED", "REJECTED", "RECOVERY_REQUIRED"}:
@@ -341,7 +499,9 @@ class FactoryFlowProjector:
             else "NONE"
         )
         evidence_detail = (
-            "EVIDENCE_CONFIRMED"
+            "STATUS_UNAVAILABLE"
+            if evidence_state == "UNKNOWN"
+            else "EVIDENCE_CONFIRMED"
             if event_confirmed
             else "FAILED"
             if p8_phase == "FAILED"
@@ -370,21 +530,31 @@ class FactoryFlowProjector:
         ))
 
         seal_authorized = bool(
-            seal.get("authorized") is True
-            and isinstance(seal.get("acceptanceGeneration"), int)
-            and not isinstance(seal.get("acceptanceGeneration"), bool)
-            and seal.get("acceptanceGeneration", 0) > 0
+            seal_available
+            and seal_value.get("authorized") is True
+            and isinstance(seal_value.get("acceptanceGeneration"), int)
+            and not isinstance(
+                seal_value.get("acceptanceGeneration"),
+                bool,
+            )
+            and seal_value.get("acceptanceGeneration", 0) > 0
         )
-        seal_code = _code(seal.get("statusCode"), "FACTORY_SEAL_NOT_AVAILABLE")
-        if seal_authorized:
-            cloud_state = "COMPLETED"
-            cloud_detail = "CLOUD_ACCEPTANCE_PASSED"
-        elif event_confirmed:
-            cloud_state = "ACTIVE"
-            cloud_detail = "WAITING_CLOUD_DECISION"
-        else:
+        seal_code = _code(
+            seal_value.get("statusCode"),
+            "FACTORY_SEAL_NOT_AVAILABLE",
+        )
+        if evidence_state != "COMPLETED":
             cloud_state = "PENDING"
             cloud_detail = "WAITING_ACCEPTANCE_EVIDENCE"
+        elif not seal_available:
+            cloud_state = "UNKNOWN"
+            cloud_detail = "STATUS_UNAVAILABLE"
+        elif seal_authorized:
+            cloud_state = "COMPLETED"
+            cloud_detail = "CLOUD_ACCEPTANCE_PASSED"
+        else:
+            cloud_state = "ACTIVE"
+            cloud_detail = "WAITING_CLOUD_DECISION"
         nodes.append(_node(
             "CLOUD_DECISION_AND_AUTHORIZATION",
             cloud_state,
@@ -392,7 +562,12 @@ class FactoryFlowProjector:
             "NONE",
             (
                 _bool_step("EVIDENCE_CONFIRMED", event_confirmed),
-                _bool_step("CURRENT_GENERATION_AUTHORIZED", seal_authorized),
+                _bool_step(
+                    "CURRENT_GENERATION_AUTHORIZED",
+                    seal_authorized,
+                )
+                if seal_available
+                else _unknown_step("CURRENT_GENERATION_AUTHORIZED"),
             ),
         ))
 
@@ -401,8 +576,10 @@ class FactoryFlowProjector:
             "SEALED_CLEANUP_PENDING",
             "SEALED",
         }
-        confirm_allowed = seal.get("confirmAllowed") is True
-        if sealing:
+        confirm_allowed = seal_value.get("confirmAllowed") is True
+        if cloud_state != "COMPLETED":
+            final_state = "PENDING"
+        elif sealing:
             final_state = "COMPLETED"
         elif confirm_allowed:
             final_state = "WAITING_OPERATOR"
@@ -508,8 +685,20 @@ def _bool_step(step_id: str, complete: bool) -> dict[str, str]:
     )
 
 
+def _unknown_step(step_id: str) -> dict[str, str]:
+    return _step(step_id, "UNKNOWN", "STATUS_UNAVAILABLE")
+
+
 def _state_step(step_id: str, observed: str, completed_value: str) -> dict[str, str]:
-    state = "COMPLETED" if observed == completed_value else "ACTIVE" if observed not in {"NOT_STARTED", "NOT_RECEIVED", "STATUS_UNAVAILABLE", "IDLE"} else "PENDING"
+    state = (
+        "COMPLETED"
+        if observed == completed_value
+        else "UNKNOWN"
+        if observed == "STATUS_UNAVAILABLE"
+        else "ACTIVE"
+        if observed not in {"NOT_STARTED", "NOT_RECEIVED", "IDLE"}
+        else "PENDING"
+    )
     return _step(step_id, state, observed)
 
 
@@ -593,7 +782,7 @@ def _p8_steps(
         "P8_MCU_SENSOR_CHECK_FAILED": "MCU_SENSOR_CHECK",
         "P8_CAMERA_CAPTURE_FAILED": "CAMERA_CAPTURE",
         "P8_COS_UPLOAD_READBACK_FAILED": "COS_UPLOAD_READBACK",
-        "P8_GRANT_NOT_AVAILABLE": "COS_UPLOAD_READBACK",
+        "P8_GRANT_NOT_AVAILABLE": "REQUEST_RECEIVED",
         "P8_EVIDENCE_PERSISTENCE_FAILED": "EVIDENCE_PERSISTENCE",
     }.get(error_code)
     observed_phase = failed_phase if phase == "FAILED" else phase
@@ -721,80 +910,335 @@ def _runtime_is_fresh(value: dict[str, Any], now: float) -> bool:
     return 0 <= age <= 15_000
 
 
-def _read_acceptance_delivery(path: Path) -> dict[str, Any]:
+def _validate_acceptance_projection(value: dict[str, Any]) -> None:
+    if set(value) != _P7_FIELDS or type(value.get("schemaVersion")) is not int:
+        raise ValueError("P7 projection fields are invalid")
+    if value["schemaVersion"] != 1 or value.get("executorAvailable") is not True:
+        raise ValueError("P7 projection source is unavailable")
+    if value.get("status") not in _P7_STATUSES or not _is_code(
+        value.get("phase")
+    ):
+        raise ValueError("P7 projection state is invalid")
+    revision = value.get("revision")
+    if type(revision) is not int or revision < 0:
+        raise ValueError("P7 projection revision is invalid")
+    if value.get("idempotent") is not False:
+        raise ValueError("persisted P7 projection cannot be idempotent")
+    release_id = value.get("imageReleaseId")
+    if release_id is not None and (
+        not isinstance(release_id, str)
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", release_id)
+        is None
+    ):
+        raise ValueError("P7 image release is invalid")
+    summary = value.get("hardwareConfigSummary")
+    if not isinstance(summary, str) or re.fullmatch(
+        r"[0-9A-F]{12}", summary
+    ) is None:
+        raise ValueError("P7 hardware summary is invalid")
+    if value.get("mcuUpdateLineInstalled") not in {None, True, False}:
+        raise ValueError("P7 update-line state is invalid")
+    if value.get("mcuPeripheralEvidenceMode") not in {
+        None,
+        "PHYSICAL",
+        "SIMULATED_PERIPHERALS",
+    }:
+        raise ValueError("P7 peripheral evidence mode is invalid")
+
+    identity = value.get("mcuIdentity")
+    if identity is not None:
+        identity_fields = {
+            "fixedFrameRevision",
+            "firmwareVersion",
+            "firmwareVersionCode",
+            "firmwareIdentityHex",
+        }
+        if not isinstance(identity, dict) or set(identity) != identity_fields:
+            raise ValueError("P7 MCU identity is invalid")
+        if any(
+            item is not None
+            and not isinstance(item, (str, int))
+            or isinstance(item, bool)
+            for item in identity.values()
+        ):
+            raise ValueError("P7 MCU identity value is invalid")
+
+    checks = value.get("checks")
+    if not isinstance(checks, dict) or set(checks) != _P7_CHECK_NAMES:
+        raise ValueError("P7 checks are invalid")
+    for check in checks.values():
+        if not isinstance(check, dict):
+            raise ValueError("P7 check is invalid")
+        fields = set(check)
+        if not {"status", "resultCode"}.issubset(fields) or not fields.issubset(
+            {"status", "resultCode"} | _P7_CHECK_OPTIONAL_FIELDS
+        ):
+            raise ValueError("P7 check fields are invalid")
+        if not _is_code(check.get("status")) or not _is_code(
+            check.get("resultCode")
+        ):
+            raise ValueError("P7 check state is invalid")
+        result = check.get("result")
+        if result is not None and (
+            not isinstance(result, dict)
+            or set(result)
+            != {
+                "preWeightGrams",
+                "postWeightGrams",
+                "weightDeltaGrams",
+                "infraredBlocked",
+            }
+        ):
+            raise ValueError("P7 action result is invalid")
+        for name, item in check.items():
+            if name in {"status", "resultCode", "result"}:
+                continue
+            if isinstance(item, (dict, list)):
+                raise ValueError("P7 check value is invalid")
+
+    recovery = value.get("recovery")
+    if recovery is not None:
+        if not isinstance(recovery, dict) or set(recovery) != {
+            "context",
+            "resultCode",
+            "hardwareVerified",
+            "awaitingDoorConfirmation",
+            "awaitingAreaSafetyConfirmation",
+        }:
+            raise ValueError("P7 recovery is invalid")
+        if not _is_code(recovery.get("context")) or not _is_code(
+            recovery.get("resultCode")
+        ):
+            raise ValueError("P7 recovery code is invalid")
+        if any(
+            not isinstance(recovery.get(name), bool)
+            for name in (
+                "hardwareVerified",
+                "awaitingDoorConfirmation",
+                "awaitingAreaSafetyConfirmation",
+            )
+        ):
+            raise ValueError("P7 recovery flags are invalid")
+
+    camera = value.get("cameraReview")
+    if camera is not None:
+        if not isinstance(camera, dict) or set(camera) != {
+            "nonce",
+            "expiresMonotonicMs",
+            "outsideImage",
+            "insideImage",
+        }:
+            raise ValueError("P7 camera review is invalid")
+        if (
+            not isinstance(camera.get("nonce"), str)
+            or re.fullmatch(r"[0-9a-f]{32}", camera["nonce"]) is None
+            or type(camera.get("expiresMonotonicMs")) is not int
+            or camera["expiresMonotonicMs"] < 0
+            or not isinstance(camera.get("outsideImage"), str)
+            or not isinstance(camera.get("insideImage"), str)
+        ):
+            raise ValueError("P7 camera review value is invalid")
+
+    actions = value.get("allowedActions")
+    if (
+        not isinstance(actions, list)
+        or len(actions) > 16
+        or len(set(actions)) != len(actions)
+        or any(not _is_code(action) for action in actions)
+    ):
+        raise ValueError("P7 allowed actions are invalid")
+
+
+def _validate_cellular_projection(value: dict[str, Any]) -> None:
+    if (
+        set(value) != {"schemaVersion", "resultCode"}
+        or type(value.get("schemaVersion")) is not int
+        or value["schemaVersion"] != 1
+        or not _is_code(value.get("resultCode"))
+    ):
+        raise ValueError("cellular projection is invalid")
+
+
+def _validate_seal_source(value: dict[str, object]) -> _SourceSnapshot:
+    candidate = dict(value) if isinstance(value, dict) else {}
+    try:
+        if set(candidate) != _SEAL_FIELDS:
+            raise ValueError("seal projection fields are invalid")
+        authorized = candidate.get("authorized")
+        confirm_allowed = candidate.get("confirmAllowed")
+        code = candidate.get("statusCode")
+        generation = candidate.get("acceptanceGeneration")
+        binding = candidate.get("authorizationBindingSha256")
+        if (
+            not isinstance(authorized, bool)
+            or not isinstance(confirm_allowed, bool)
+            or code not in _SEAL_STATUS_CODES
+            or not (
+                generation is None
+                or (
+                    type(generation) is int
+                    and generation > 0
+                )
+            )
+            or not (
+                binding is None
+                or (
+                    isinstance(binding, str)
+                    and _HEX_64.fullmatch(binding) is not None
+                )
+            )
+            or (generation is None) != (binding is None)
+            or (authorized and generation is None)
+            or (
+                confirm_allowed
+                and (not authorized or code != "SEAL_READY")
+            )
+            or (
+                code
+                in {
+                    "SEALED_RESPONSE_PENDING",
+                    "SEALED_CLEANUP_PENDING",
+                    "SEALED",
+                }
+                and not authorized
+            )
+        ):
+            raise ValueError("seal projection value is invalid")
+    except ValueError:
+        return _SourceSnapshot(False, {})
+    return _SourceSnapshot(
+        code != "FACTORY_SEAL_NOT_AVAILABLE",
+        candidate,
+    )
+
+
+def _read_acceptance_delivery(path: Path) -> _SourceSnapshot:
+    connection: sqlite3.Connection | None = None
     try:
         details = path.lstat()
         if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
-            return {}
+            return _SourceSnapshot(False, {})
         resolved = path.resolve(strict=True).as_posix()
         uri = f"file:{quote(resolved, safe='/:')}?mode=ro"
-        with sqlite3.connect(uri, uri=True, timeout=0.25) as connection:
-            connection.row_factory = sqlite3.Row
-            command = connection.execute(
-                """SELECT command_uid, state, last_error
-                   FROM command_inbox
-                   WHERE command_type='REQUEST_DEVICE_ACCEPTANCE'
-                   ORDER BY rowid DESC LIMIT 1"""
-            ).fetchone()
-            if command is None:
-                return {}
-            event = connection.execute(
-                """SELECT state, confirmed_at, platform_accepted_at
-                   FROM event_outbox
-                   WHERE event_type='DEVICE_ACCEPTANCE_EVIDENCE'
-                     AND json_extract(payload_json, '$.commandUid')=?
-                   ORDER BY edge_event_sequence DESC LIMIT 1""",
-                (command["command_uid"],),
-            ).fetchone()
+        connection = sqlite3.connect(uri, uri=True, timeout=0.25)
+        connection.row_factory = sqlite3.Row
+        command = connection.execute(
+            """SELECT command_uid, state, last_error
+               FROM command_inbox
+               WHERE command_type='REQUEST_DEVICE_ACCEPTANCE'
+               ORDER BY rowid DESC LIMIT 1"""
+        ).fetchone()
+        if command is None:
+            return _SourceSnapshot(True, {})
+        command_uid = command["command_uid"]
+        command_state = command["state"]
+        command_error = command["last_error"]
+        if (
+            not isinstance(command_uid, str)
+            or not 1 <= len(command_uid) <= 128
+            or command_state
+            not in {
+                "PENDING",
+                "PROCESSING",
+                "WAITING_MCU_RESULT",
+                "RECOVERY_REQUIRED",
+                "COMPLETED",
+                "FAILED",
+                "REJECTED",
+                "SUPERSEDED",
+            }
+            or not (command_error is None or _is_code(command_error))
+        ):
+            return _SourceSnapshot(False, {})
+        event = connection.execute(
+            """SELECT state, confirmed_at, platform_accepted_at
+               FROM event_outbox
+               WHERE event_type='DEVICE_ACCEPTANCE_EVIDENCE'
+                 AND json_extract(payload_json, '$.commandUid')=?
+               ORDER BY edge_event_sequence DESC LIMIT 1""",
+            (command_uid,),
+        ).fetchone()
     except (OSError, sqlite3.Error):
-        return {}
+        return _SourceSnapshot(False, {})
+    finally:
+        if connection is not None:
+            connection.close()
     result: dict[str, Any] = {
         "command": {
-            "state": _code(command["state"], "UNKNOWN"),
-            "lastError": _code(command["last_error"], "NONE"),
+            "state": command_state,
+            "lastError": command_error or "NONE",
         }
     }
     if event is not None:
+        event_state = event["state"]
+        confirmed_at = event["confirmed_at"]
+        platform_accepted_at = event["platform_accepted_at"]
+        if (
+            event_state not in {"PENDING", "SENDING", "CONFIRMED", "DEAD"}
+            or not _optional_text(confirmed_at)
+            or not _optional_text(platform_accepted_at)
+            or (event_state == "CONFIRMED" and confirmed_at is None)
+        ):
+            return _SourceSnapshot(False, {})
         result["event"] = {
-            "state": _code(event["state"], "UNKNOWN"),
-            "confirmed": event["confirmed_at"] is not None,
-            "platformAccepted": event["platform_accepted_at"] is not None,
+            "state": event_state,
+            "confirmed": confirmed_at is not None,
+            "platformAccepted": platform_accepted_at is not None,
         }
-    return result
+    return _SourceSnapshot(True, result)
 
 
-def _read_exact_json(
+def _read_validated_json(
     path: Path,
-    exact_fields: set[str],
+    validator: Callable[[dict[str, Any]], None],
     *,
     maximum_bytes: int,
-) -> dict[str, Any]:
+) -> _SourceSnapshot:
     value = _read_json(path, maximum_bytes=maximum_bytes)
-    if set(value) != exact_fields or value.get("schemaVersion") != 1:
-        return {}
-    return value
+    if value is None:
+        return _SourceSnapshot(False, {})
+    try:
+        validator(value)
+    except (KeyError, TypeError, ValueError):
+        return _SourceSnapshot(False, {})
+    return _SourceSnapshot(True, value)
 
 
-def _read_json(path: Path, *, maximum_bytes: int) -> dict[str, Any]:
+def _read_json(path: Path, *, maximum_bytes: int) -> dict[str, Any] | None:
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(path, flags)
     except OSError:
-        return {}
+        return None
     try:
         details = os.fstat(descriptor)
         if not stat.S_ISREG(details.st_mode) or not 1 <= details.st_size <= maximum_bytes:
-            return {}
+            return None
         content = os.read(descriptor, maximum_bytes + 1)
     finally:
         os.close(descriptor)
     if len(content) > maximum_bytes:
-        return {}
+        return None
     try:
         value = json.loads(content.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return {}
-    return value if isinstance(value, dict) else {}
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _optional_text(value: object) -> bool:
+    return value is None or (
+        isinstance(value, str) and 1 <= len(value) <= 128
+    )
+
+
+def _is_code(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and normalize_error_code(value) == value
+        and value != "INTERNAL_ERROR"
+        and _SAFE_CODE.fullmatch(value) is not None
+    )
 
 
 def _code(value: object, fallback: str) -> str:

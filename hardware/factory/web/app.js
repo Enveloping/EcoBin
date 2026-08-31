@@ -194,8 +194,10 @@ const ACTIONS = Object.freeze({
   CONFIRM_CLEAN_DOOR: { label: "确认清运门已关闭", prompt: "请现场观察并确认清运门已经完全关闭。", parameters: () => ({ cleanDoorClosedConfirmed: true }) },
   RECOVER: {
     label: "执行受控恢复",
-    prompt: "将停止继续下发、复位 MCU 并重新验证。确认执行？",
-    parameters: () => ({ confirmRecovery: true, cleanDoorClosedConfirmed: currentStatus.factoryTest.recovery?.context === "CLEAN" }),
+    prompt: ({ cleanRecovery }) => cleanRecovery
+      ? "清运门没有门位传感器。请现场观察并确认清运门已经完全关闭；确认后系统将复位 MCU 并重新验证。"
+      : "将停止继续下发、复位 MCU 并重新验证。确认执行？",
+    parameters: ({ cleanRecovery }) => ({ confirmRecovery: true, cleanDoorClosedConfirmed: cleanRecovery }),
   },
   FINALIZE: {
     label: "生成 P7 验收报告",
@@ -523,12 +525,18 @@ async function performPrimaryAction() {
     byId("action-result").textContent = "请先选择 MCU 升级线路的实际装配情况。";
     return;
   }
-  let prompt = definition.prompt;
+  const actionContext = Object.freeze({
+    cleanRecovery: operation === "RECOVER"
+      && currentStatus?.factoryTest?.recovery?.context === "CLEAN",
+  });
+  let prompt = typeof definition.prompt === "function"
+    ? definition.prompt(actionContext)
+    : definition.prompt;
   if (operation === "FINALIZE" && currentStatus.factoryTest.mcuPeripheralEvidenceMode === "SIMULATED_PERIPHERALS") {
     prompt = "当前报告会记录测试证据来源。确认生成 P7 验收报告并继续后续接入流程？";
   }
   if (!window.confirm(prompt)) return;
-  await postAction(operation, definition.parameters());
+  await postAction(operation, definition.parameters(actionContext));
 }
 
 function nextPaint() {
