@@ -10,6 +10,7 @@ import sqlite3
 import stat
 import subprocess
 import threading
+import time
 import uuid
 
 from first_boot.atomic_json import AtomicJsonFile
@@ -44,7 +45,26 @@ class FactorySealController:
         apply_production_firewall: Callable[[], bool] | None = None,
         apply_emergency_firewall: Callable[[], bool] | None = None,
         fault_hook: FaultHook | None = None,
+        response_hold_seconds: float = 5.0,
+        response_ack_grace_seconds: float = 0.5,
+        monotonic: Callable[[], float] | None = None,
     ) -> None:
+        if (
+            isinstance(response_hold_seconds, bool)
+            or not isinstance(response_hold_seconds, (int, float))
+            or not 1.0 <= response_hold_seconds <= 30.0
+        ):
+            raise ValueError("response_hold_seconds must be between 1 and 30")
+        if (
+            isinstance(response_ack_grace_seconds, bool)
+            or not isinstance(response_ack_grace_seconds, (int, float))
+            or not 0.0 <= response_ack_grace_seconds <= 5.0
+            or response_ack_grace_seconds >= response_hold_seconds
+        ):
+            raise ValueError(
+                "response_ack_grace_seconds must be non-negative and shorter "
+                "than response_hold_seconds"
+            )
         self.paths = paths
         self._runtime_healthy = runtime_healthy or _runtime_healthy
         self._stop_factory = stop_factory or _stop_factory
@@ -56,6 +76,17 @@ class FactorySealController:
         )
         self._fault_hook = fault_hook
         self._lock = threading.RLock()
+        self._monotonic = monotonic or time.monotonic
+        self._response_hold_seconds = float(response_hold_seconds)
+        self._response_ack_grace_seconds = float(
+            response_ack_grace_seconds
+        )
+        # This grace is deliberately boot-scoped.  A restart after the durable
+        # seal marker exists resumes cleanup immediately and can never reopen
+        # the factory access point.
+        self._response_hold_uid: str | None = None
+        self._response_hold_deadline: float | None = None
+        self._response_cleanup_not_before: float | None = None
         self._sealed_file = AtomicJsonFile(
             paths.sealed,
             mode=0o600,
@@ -72,14 +103,17 @@ class FactorySealController:
                 )
                 marker_valid = self._sealed_matches_authorization(sealed, row)
                 completion = inspect_sealed_authorization(self.paths)
+                status_code = (
+                    completion.status_code
+                    if marker_valid
+                    else "SEALED_FACT_INVALID"
+                )
+                if marker_valid and self._response_hold_active_unlocked():
+                    status_code = "SEALED_RESPONSE_PENDING"
                 return _public_status(
                     authorized=marker_valid,
                     confirm_allowed=False,
-                    status_code=(
-                        completion.status_code
-                        if marker_valid
-                        else "SEALED_FACT_INVALID"
-                    ),
+                    status_code=status_code,
                     generation=(
                         row["acceptance_generation"] if row is not None else None
                     ),
@@ -168,13 +202,51 @@ class FactorySealController:
             }
             self._write_seal_and_mark_sealing(row, sealed)
             self._fault("after_database_sealing")
+            self._begin_response_hold(confirmation_uid)
             return _public_status(
                 authorized=True,
                 confirm_allowed=False,
-                status_code="SEALED_CLEANUP_PENDING",
+                status_code="SEALED_RESPONSE_PENDING",
                 generation=row["acceptance_generation"],
                 binding=row["authorization_binding_sha256"],
             )
+
+    def acknowledge_response_presented(
+        self,
+        operator_confirmation_uid: str,
+    ) -> dict[str, object]:
+        """Acknowledge that the phone rendered the successful seal response.
+
+        The acknowledgement is not an authorization fact.  It only shortens a
+        bounded, in-memory delivery grace that already began after the
+        irreversible seal marker was fsynced.
+        """
+
+        confirmation_uid = _uuid4(
+            operator_confirmation_uid,
+            "FACTORY_SEAL_PRESENTATION_ACK_INVALID",
+        )
+        with self._lock:
+            if not self._response_hold_active_unlocked():
+                raise FactorySealError(
+                    "FACTORY_SEAL_PRESENTATION_ACK_NOT_PENDING"
+                )
+            if confirmation_uid != self._response_hold_uid:
+                raise FactorySealError(
+                    "FACTORY_SEAL_PRESENTATION_ACK_MISMATCH"
+                )
+            now = self._monotonic()
+            self._response_cleanup_not_before = min(
+                self._response_hold_deadline or now,
+                now + self._response_ack_grace_seconds,
+            )
+            return self.status()
+
+    def response_hold_active(self) -> bool:
+        """Whether AP/portal teardown is temporarily awaiting presentation."""
+
+        with self._lock:
+            return self._response_hold_active_unlocked()
 
     def reconcile_cleanup(self) -> str:
         """Resume only in the sealing direction after the marker exists."""
@@ -205,6 +277,8 @@ class FactorySealController:
                 return "SEALED_FACT_INVALID"
             sealed = self._upgrade_legacy_sealed_marker(sealed, row)
             self._mark_sealing(sealed)
+            if self._response_hold_active_unlocked():
+                return "SEALED_RESPONSE_PENDING"
             if not self._stop_factory():
                 return "FACTORY_SERVICES_STOP_FAILED"
             self._fault("after_factory_services_stopped")
@@ -224,8 +298,34 @@ class FactorySealController:
                 return "PRODUCTION_FIREWALL_FAILED"
             self._fault("after_production_firewall")
             self._mark_sealed_and_enqueue_completion(sealed)
+            self._clear_response_hold()
             self._fault("after_database_sealed")
             return "SEALED"
+
+    def _begin_response_hold(self, confirmation_uid: str) -> None:
+        now = self._monotonic()
+        self._response_hold_uid = confirmation_uid
+        self._response_hold_deadline = now + self._response_hold_seconds
+        self._response_cleanup_not_before = None
+
+    def _response_hold_active_unlocked(self) -> bool:
+        if self._response_hold_uid is None or self._response_hold_deadline is None:
+            return False
+        now = self._monotonic()
+        boundary = (
+            self._response_cleanup_not_before
+            if self._response_cleanup_not_before is not None
+            else self._response_hold_deadline
+        )
+        if now < boundary:
+            return True
+        self._clear_response_hold()
+        return False
+
+    def _clear_response_hold(self) -> None:
+        self._response_hold_uid = None
+        self._response_hold_deadline = None
+        self._response_cleanup_not_before = None
 
     def _eligibility_code(self, row: sqlite3.Row) -> str:
         try:

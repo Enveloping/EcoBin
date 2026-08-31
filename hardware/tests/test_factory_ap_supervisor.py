@@ -222,7 +222,7 @@ def test_low_privilege_monitor_accepts_only_root_projection_shape(
     projection = tmp_path / "ap-allowed.json"
     projection.write_text(
         json.dumps(
-            {"schemaVersion": 1, "allowed": True, "statusCode": "UNSEALED"}
+            {"schemaVersion": 2, "allowed": True, "statusCode": "UNSEALED"}
         ),
         encoding="utf-8",
     )
@@ -230,14 +230,14 @@ def test_low_privilege_monitor_accepts_only_root_projection_shape(
     assert_factory_ap_projection_allowed(projection)
 
     for value in (
-        {"schemaVersion": 1, "allowed": False, "statusCode": "SEALED"},
+        {"schemaVersion": 2, "allowed": False, "statusCode": "SEALED"},
         {
             "schemaVersion": 1,
             "allowed": True,
             "statusCode": "UNSEALED",
             "hardwareSn": "must-not-be-exposed",
         },
-        {"schemaVersion": 1, "allowed": True, "statusCode": "SEALED"},
+        {"schemaVersion": 2, "allowed": True, "statusCode": "SEALED"},
     ):
         projection.write_text(json.dumps(value), encoding="utf-8")
         with pytest.raises(AccessPointStartupError):

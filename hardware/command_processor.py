@@ -369,7 +369,15 @@ class CommandProcessor:
     def _request_device_acceptance(self, command: dict) -> None:
         if self._acceptance is None:
             raise RuntimeError("device acceptance runner is required")
-        self._persist_and_dispatch_device_entry_url(command)
+        self._acceptance.report_progress("REQUEST_RECEIVED")
+        try:
+            self._persist_and_dispatch_device_entry_url(command)
+        except Exception:
+            self._acceptance.report_progress(
+                "FAILED",
+                "P8_DEVICE_ENTRY_URL_FAILED",
+            )
+            raise
         self._acceptance.run(command)
 
     def _sync_device_entry_url(self, command: dict) -> None:

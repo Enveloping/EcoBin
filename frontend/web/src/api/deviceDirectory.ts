@@ -44,6 +44,14 @@ export type RuntimeSnapshotPolicy = Schemas['RuntimeSnapshotPolicy'];
 export type RuntimeSnapshotPolicyReleaseRequest =
   Schemas['RuntimeSnapshotPolicyReleaseRequest'];
 
+export type DeviceFactoryProgressEvidenceSummary =
+  Schemas['DeviceFactoryAcceptanceEvidenceSummary'];
+export type DeviceFactoryProgressTaskAttempt =
+  Schemas['DeviceFactoryReliableTaskAttempt'];
+export type DeviceFactoryProgressTask =
+  Schemas['DeviceFactoryReliableTaskProgress'];
+export type DeviceFactoryProgress = Schemas['DeviceFactoryProgress'];
+
 export type PlatformDeviceAssetListParams = NonNullable<
   operations['listPlatformDeviceAssets']['parameters']['query']
 >;
@@ -113,6 +121,17 @@ export function getPlatformDeviceRuntime(hardwareSn: string) {
       + '/runtime',
     method: 'GET',
     noStore: true,
+  });
+}
+
+export function getPlatformDeviceFactoryProgress(hardwareSn: string) {
+  return request<DeviceFactoryProgress>({
+    url:
+      `/api/v1/web/platform/device-assets/${encodeURIComponent(hardwareSn)}`
+      + '/factory-progress',
+    method: 'GET',
+    noStore: true,
+    silent: true,
   });
 }
 

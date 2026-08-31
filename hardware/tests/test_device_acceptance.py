@@ -3,6 +3,8 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from command_processor import CommandProcessor
 from device_acceptance import DeviceAcceptanceRunner
 from edge_store import EdgeStore
@@ -202,6 +204,7 @@ def _process(
     *,
     cameras_simulated=False,
     mcu_remote_update_capable=True,
+    progress_events=None,
 ):
     monkeypatch.setattr("device_acceptance._clock_state", lambda: "SYNCED")
     store = _store_with_stale_business_sample(tmp_path)
@@ -216,6 +219,11 @@ def _process(
         uploader,
         device_name=DEVICE_NAME,
         mcu_remote_update_capable=mcu_remote_update_capable,
+        progress_callback=(
+            (lambda phase, error: progress_events.append((phase, error)))
+            if progress_events is not None
+            else None
+        ),
     )
     command = _command(str(uuid.uuid4()))
     assert store.receive_command(
@@ -244,10 +252,12 @@ def test_real_hardware_acceptance_records_reliable_evidence(
     tmp_path,
     monkeypatch,
 ):
+    progress_events = []
     store, command, uploader, event = _process(
         tmp_path,
         monkeypatch,
         RealFixedFrameUart(),
+        progress_events=progress_events,
     )
 
     assert store.get_command(command["commandUid"])["state"] == "COMPLETED"
@@ -281,7 +291,46 @@ def test_real_hardware_acceptance_records_reliable_evidence(
     assert encode_event_post("DEVICE_ACCEPTANCE_EVIDENCE", event)
     database = (tmp_path / "edge.db").read_bytes()
     assert b"TEMPORARY_KEY_NOT_FOR_SQLITE" not in database
+    assert progress_events == [
+        ("REQUEST_RECEIVED", None),
+        ("PERSISTENT_STORE_CHECK", None),
+        ("CONFIGURATION_CHECK", None),
+        ("MCU_SENSOR_CHECK", None),
+        ("CAMERA_CAPTURE", None),
+        ("COS_UPLOAD_READBACK", None),
+        ("EVIDENCE_PERSISTENCE", None),
+        ("EVIDENCE_RECORDED", None),
+    ]
     store.close()
+
+
+def test_acceptance_failure_reports_only_stable_phase_error(tmp_path):
+    progress_events = []
+
+    class FailingStore:
+        def integrity_check(self):
+            raise RuntimeError("secret=https://cos.example/private-token")
+
+    runner = DeviceAcceptanceRunner(
+        FailingStore(),
+        RealFixedFrameUart(),
+        ProbePhotoManager(tmp_path),
+        ReadbackUploader(),
+        device_name=DEVICE_NAME,
+        mcu_remote_update_capable=False,
+        progress_callback=(
+            lambda phase, error: progress_events.append((phase, error))
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="private-token"):
+        runner.run(_command(str(uuid.uuid4())))
+
+    assert progress_events[-1] == (
+        "FAILED",
+        "P8_STORAGE_CHECK_FAILED",
+    )
+    assert "private-token" not in str(progress_events)
 
 
 def test_smoke_unavailable_keeps_mcu_communication_but_fails_sensors(

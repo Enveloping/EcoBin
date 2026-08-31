@@ -166,6 +166,7 @@ def test_enrollment_persists_exact_request_across_pending_retry_then_cleans_up(
 ):
     paths = _paths(tmp_path)
     enrollment_bodies: list[bytes] = []
+    phases: list[str] = []
 
     def post(url: str, *, data: bytes, **_kwargs):
         if url.endswith("/challenges"):
@@ -191,9 +192,16 @@ def test_enrollment_persists_exact_request_across_pending_retry_then_cleans_up(
         backend_base_url="https://backend.example.com",
         paths=paths,
         http_post=post,
+        progress_callback=phases.append,
     )
-    with pytest.raises(EnrollmentRetryableError, match="pending"):
+    with pytest.raises(EnrollmentRetryableError, match="pending") as pending:
         client.run_once()
+    assert pending.value.code == "ENROLLMENT_PENDING"
+    assert phases == [
+        "IDENTITY_PREPARATION",
+        "CHALLENGE_REQUEST",
+        "ENROLLMENT_SUBMISSION",
+    ]
 
     state = json.loads(paths.state.read_text(encoding="utf-8"))
     request = state["enrollmentRequest"]
@@ -219,6 +227,52 @@ def test_enrollment_persists_exact_request_across_pending_retry_then_cleans_up(
     assert not paths.state.exists()
     assert not paths.global_key.exists()
     assert not paths.cleanup_files[0].exists()
+    assert phases[-5:] == [
+        "IDENTITY_PREPARATION",
+        "ENROLLMENT_SUBMISSION",
+        "CREDENTIAL_INSTALLATION",
+        "K1_CLEANUP",
+        "COMPLETE",
+    ]
+
+
+def test_enrollment_network_error_has_stable_non_sensitive_code(tmp_path):
+    paths = _paths(tmp_path)
+
+    def post(_url: str, **_kwargs):
+        import requests
+
+        raise requests.ConnectionError(
+            "https://backend.example.com/private?token=do-not-project"
+        )
+
+    client = DeviceEnrollmentClient(
+        backend_base_url="https://backend.example.com",
+        paths=paths,
+        http_post=post,
+    )
+
+    with pytest.raises(EnrollmentRetryableError) as failure:
+        client.run_once()
+
+    assert failure.value.code == "ENROLLMENT_NETWORK_UNAVAILABLE"
+    assert "do-not-project" not in failure.value.code
+
+
+def test_broken_progress_observer_cannot_block_enrollment(tmp_path):
+    paths = _paths(tmp_path)
+
+    def broken(_phase: str) -> None:
+        raise OSError("diagnostic filesystem unavailable")
+
+    client = DeviceEnrollmentClient(
+        backend_base_url="https://backend.example.com",
+        paths=paths,
+        http_post=lambda *_args, **_kwargs: None,
+        progress_callback=broken,
+    )
+
+    client._report_progress("IDENTITY_PREPARATION")
 
 
 def test_authenticated_decryption_failure_never_deletes_bootstrap_material(

@@ -56,12 +56,14 @@ class FakeSealPortal:
     def __init__(self, *, allowed: bool = False) -> None:
         self.allowed = allowed
         self.confirmed: list[str] = []
+        self.acknowledged: list[str] = []
+        self.status_code = "AUTHORIZED" if allowed else "NOT_AUTHORIZED"
 
     def status(self) -> dict[str, Any]:
         return {
             "authorized": self.allowed,
             "confirmAllowed": self.allowed,
-            "statusCode": "AUTHORIZED" if self.allowed else "NOT_AUTHORIZED",
+            "statusCode": self.status_code,
             "acceptanceGeneration": 1 if self.allowed else None,
             "authorizationBindingSha256": "a" * 64 if self.allowed else None,
         }
@@ -71,7 +73,19 @@ class FakeSealPortal:
         return {
             "authorized": True,
             "confirmAllowed": False,
-            "statusCode": "SEALING",
+            "statusCode": "SEALED_RESPONSE_PENDING",
+            "acceptanceGeneration": 1,
+            "authorizationBindingSha256": "a" * 64,
+        }
+
+    def acknowledge_presented(
+        self, operator_confirmation_uid: str
+    ) -> dict[str, Any]:
+        self.acknowledged.append(operator_confirmation_uid)
+        return {
+            "authorized": True,
+            "confirmAllowed": False,
+            "statusCode": "SEALED_RESPONSE_PENDING",
             "acceptanceGeneration": 1,
             "authorizationBindingSha256": "a" * 64,
         }
@@ -398,7 +412,69 @@ def test_factory_seal_needs_current_pass_revision_and_server_authorization() -> 
 
     assert response.status == HTTPStatus.OK
     assert seal.confirmed == [uid]
-    assert json.loads(response.body)["factorySeal"]["statusCode"] == "SEALING"
+    assert (
+        json.loads(response.body)["factorySeal"]["statusCode"]
+        == "SEALED_RESPONSE_PENDING"
+    )
+
+
+def test_factory_seal_presentation_ack_bypasses_the_terminal_action_gate() -> None:
+    uid = "12345678-1234-4123-8123-123456789abc"
+    body = json.dumps(
+        {
+            "operation": "ACK_FACTORY_SEAL_PRESENTED",
+            "parameters": {"operatorConfirmationUid": uid},
+        }
+    ).encode("utf-8")
+    seal = FakeSealPortal(allowed=True)
+    seal.status_code = "SEALED_RESPONSE_PENDING"
+    application = PortalApplication(
+        snapshot_provider=FixedSnapshot(),
+        action_client=FakeActionClient(),
+        seal_portal=seal,
+    )
+
+    response = application.handle(
+        "POST",
+        "/api/v1/acceptance/action",
+        _action_headers(body),
+        "10.42.0.20",
+        body,
+    )
+
+    assert response.status == HTTPStatus.OK
+    assert seal.acknowledged == [uid]
+
+
+def test_hardware_actions_are_blocked_after_seal_is_committed() -> None:
+    request = {
+        "operation": "CHECK_MCU",
+        "expectedRevision": 3,
+        "parameters": {},
+    }
+    body = json.dumps(request).encode("utf-8")
+    client = FakeActionClient()
+    seal = FakeSealPortal(allowed=True)
+    seal.status_code = "SEALED_RESPONSE_PENDING"
+    application = PortalApplication(
+        snapshot_provider=FixedSnapshot(),
+        action_client=client,
+        seal_portal=seal,
+    )
+
+    response = application.handle(
+        "POST",
+        "/api/v1/acceptance/action",
+        _action_headers(body),
+        "10.42.0.20",
+        body,
+    )
+
+    assert response.status == HTTPStatus.LOCKED
+    assert json.loads(response.body)["error"] == (
+        "FACTORY_SEAL_ALREADY_COMMITTED"
+    )
+    assert client.requests == []
 
 
 @pytest.mark.parametrize(
@@ -568,7 +644,7 @@ def test_web_exposes_a_distinct_post_delivery_safety_confirmation() -> None:
     ).read_text(encoding="utf-8")
 
     assert "CONFIRM_DELIVERY_AREA_SAFE" in app
-    assert "投递动作后的现场安全" in app
+    assert "动作结束后重新检查现场" in app
     assert "operatorAreaSafeConfirmed: true" in app
 
 
@@ -581,8 +657,73 @@ def test_factory_seal_confirmation_does_not_require_a_secure_http_context() -> N
 
     assert "crypto.randomUUID()" not in app
     assert "crypto.getRandomValues" in app
-    assert "const uid = createUuidV4();" in app
+    assert "pendingSealUid ||= createUuidV4();" in app
     assert "BROWSER_RANDOM_UNAVAILABLE" in app
+
+
+def test_factory_web_marks_and_announces_progress_only_when_it_changes() -> None:
+    web = Path(__file__).parents[1] / "factory" / "web"
+    index = (web / "index.html").read_text(encoding="utf-8")
+    app = (web / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="progress-announcement"' in index
+    assert 'aria-live="polite"' in index
+    assert 'aria-atomic="true"' in index
+    assert '" is-current"' in app
+    assert "lastProgressAnnouncement" in app
+    assert "announcementSignature !== lastProgressAnnouncement" in app
+    assert "setTextIfChanged" in app
+
+
+def test_factory_seal_terminal_is_a_focus_isolating_modal() -> None:
+    web = Path(__file__).parents[1] / "factory" / "web"
+    index = (web / "index.html").read_text(encoding="utf-8")
+    app = (web / "app.js").read_text(encoding="utf-8")
+    css = (web / "app.css").read_text(encoding="utf-8")
+
+    assert 'id="factory-workspace"' in index
+    assert 'role="dialog"' in index
+    assert 'aria-modal="true"' in index
+    assert 'aria-describedby="terminal-description"' in index
+    assert 'document.querySelector(".topbar").inert = true;' in app
+    assert 'byId("factory-workspace").inert = true;' in app
+    assert 'event.key !== "Tab"' in app
+    assert "event.preventDefault();" in app
+    assert "body.is-terminal" in css
+    assert ".sr-only" in css
+
+
+def test_factory_web_bounds_requests_and_recovers_a_lost_seal_response() -> None:
+    app = (
+        Path(__file__).parents[1] / "factory" / "web" / "app.js"
+    ).read_text(encoding="utf-8")
+
+    assert "async function fetchWithTimeout" in app
+    assert "REQUEST_TIMEOUT_MS.status" in app
+    assert "REQUEST_TIMEOUT_MS.action" in app
+    assert "REQUEST_TIMEOUT_MS.seal" in app
+    assert 'throw new Error("REQUEST_TIMEOUT")' in app
+    assert "pendingSealUid ||= createUuidV4();" in app
+    assert 'parameters: { operatorConfirmationUid: pendingSealUid }' in app
+    assert "void refreshStatus();" in app
+
+
+def test_factory_web_describes_runtime_transport_progress_codes() -> None:
+    app = (
+        Path(__file__).parents[1] / "factory" / "web" / "app.js"
+    ).read_text(encoding="utf-8")
+
+    for code in (
+        "DEVICE_ENTRY_URL",
+        "ONENET_TRANSPORT_ACCEPTED",
+        "WAITING_ONENET_ACCEPTANCE",
+        "WAITING_BACKEND_CONFIRMATION",
+        "RUNTIME_SERVICE_STOPPED",
+        "UART_FAILED",
+        "UART_DISCONNECTED",
+        "MQTT_FAILED",
+    ):
+        assert code in app
 
 
 def test_server_builder_uses_only_the_fixed_ap_address() -> None:

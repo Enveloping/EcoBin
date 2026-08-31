@@ -69,16 +69,16 @@ def test_projection_validator_rejects_any_extra_field(extra: dict[str, object]) 
     (
         (
             FirstBootFacts(),
-            {"schemaVersion": 1, "allowed": True, "statusCode": "UNSEALED"},
+            {"schemaVersion": 2, "allowed": True, "statusCode": "UNSEALED"},
         ),
         (
             FirstBootFacts(sealed_exists=True, sealed_valid=True),
-            {"schemaVersion": 1, "allowed": False, "statusCode": "SEALED"},
+            {"schemaVersion": 2, "allowed": False, "statusCode": "SEALED"},
         ),
         (
             FirstBootFacts(sealed_exists=True, sealed_valid=False),
             {
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "allowed": False,
                 "statusCode": "SEALED_FACT_INVALID",
             },

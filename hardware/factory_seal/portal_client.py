@@ -43,6 +43,29 @@ def confirm_factory_seal(
     )
 
 
+def acknowledge_factory_seal_presented(
+    operator_confirmation_uid: str,
+    socket_path: Path | str = DEFAULT_SOCKET,
+) -> dict[str, object]:
+    try:
+        parsed = uuid.UUID(str(operator_confirmation_uid))
+    except (ValueError, TypeError, AttributeError):
+        raise FactorySealPortalError(
+            "FACTORY_SEAL_PRESENTATION_ACK_INVALID"
+        ) from None
+    if parsed.version != 4 or str(parsed) != operator_confirmation_uid:
+        raise FactorySealPortalError(
+            "FACTORY_SEAL_PRESENTATION_ACK_INVALID"
+        )
+    return _request(
+        {
+            "operation": "ACK_PRESENTED",
+            "operatorConfirmationUid": operator_confirmation_uid,
+        },
+        socket_path,
+    )
+
+
 def _request(
     document: dict[str, object],
     socket_path: Path | str,
@@ -92,6 +115,7 @@ def _request(
 
 __all__ = [
     "FactorySealPortalError",
+    "acknowledge_factory_seal_presented",
     "confirm_factory_seal",
     "get_factory_seal_authorization_status",
 ]

@@ -163,7 +163,9 @@ def test_reconnect_reuses_one_paho_network_loop(monkeypatch):
     client._start_relay_loop = lambda: None
     client._publish_online = lambda: None
     snapshots = []
+    disconnections = []
     client.on_connected = lambda: snapshots.append("snapshot")
+    client.on_disconnected = disconnections.append
 
     assert client.connect()
     client._on_disconnect(
@@ -181,6 +183,7 @@ def test_reconnect_reuses_one_paho_network_loop(monkeypatch):
     assert paho.loop_start_calls == 1
     assert paho.loop_stop_calls == 0
     assert snapshots == ["snapshot", "snapshot"]
+    assert disconnections == [7]
 
 
 def test_connect_subscribes_to_onenet_thing_topic_tree(monkeypatch):

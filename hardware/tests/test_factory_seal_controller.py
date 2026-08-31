@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import itertools
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -208,7 +209,11 @@ def _controller(
     production: list[str],
     emergency: list[str],
     fault_hook=None,
+    monotonic=None,
 ) -> FactorySealController:
+    if monotonic is None:
+        ticks = itertools.count(0.0, 10.0)
+        monotonic = lambda: next(ticks)
     return FactorySealController(
         paths,
         runtime_healthy=lambda: True,
@@ -220,6 +225,7 @@ def _controller(
             lambda: emergency.append("emergency") is None
         ),
         fault_hook=fault_hook,
+        monotonic=monotonic,
     )
 
 
@@ -287,6 +293,61 @@ def test_confirm_is_sealed_first_and_reconcile_finishes_cleanup(
     completed = inspect_sealed_authorization(paths)
     assert completed.valid
     assert completed.authorization_state == "SEALED"
+
+
+def test_seal_cleanup_waits_for_browser_presentation_ack(tmp_path: Path) -> None:
+    paths, _ = _authorized(tmp_path)
+    now = [100.0]
+    stopped: list[str] = []
+    controller = _controller(
+        paths,
+        stopped=stopped,
+        production=[],
+        emergency=[],
+        monotonic=lambda: now[0],
+    )
+    confirmation_uid = str(uuid.uuid4())
+
+    result = controller.confirm(confirmation_uid)
+
+    assert result["statusCode"] == "SEALED_RESPONSE_PENDING"
+    assert controller.reconcile_cleanup() == "SEALED_RESPONSE_PENDING"
+    assert stopped == []
+    with pytest.raises(
+        FactorySealError,
+        match="FACTORY_SEAL_PRESENTATION_ACK_MISMATCH",
+    ):
+        controller.acknowledge_response_presented(str(uuid.uuid4()))
+
+    acknowledged = controller.acknowledge_response_presented(
+        confirmation_uid
+    )
+    assert acknowledged["statusCode"] == "SEALED_RESPONSE_PENDING"
+    now[0] += 0.49
+    assert controller.reconcile_cleanup() == "SEALED_RESPONSE_PENDING"
+    now[0] += 0.02
+    assert controller.reconcile_cleanup() == "SEALED"
+    assert stopped == ["stop"]
+
+
+def test_seal_response_hold_has_a_bounded_hard_timeout(tmp_path: Path) -> None:
+    paths, _ = _authorized(tmp_path)
+    now = [100.0]
+    stopped: list[str] = []
+    controller = _controller(
+        paths,
+        stopped=stopped,
+        production=[],
+        emergency=[],
+        monotonic=lambda: now[0],
+    )
+    controller.confirm(str(uuid.uuid4()))
+
+    now[0] += 4.99
+    assert controller.reconcile_cleanup() == "SEALED_RESPONSE_PENDING"
+    now[0] += 0.02
+    assert controller.reconcile_cleanup() == "SEALED"
+    assert stopped == ["stop"]
 
 
 def test_power_loss_after_marker_is_recovered_only_toward_sealed(

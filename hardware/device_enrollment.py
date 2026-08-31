@@ -40,13 +40,27 @@ _LEGACY_PROOF_DOMAIN = b"ecobin-legacy-onenet-proof-v1\0"
 class EnrollmentRetryableError(RuntimeError):
     """A systemd restart can safely retry the persisted enrollment state."""
 
+    default_code = "ENROLLMENT_BACKEND_TEMPORARY"
+
+    def __init__(self, message: str, *, code: str | None = None):
+        super().__init__(message)
+        self.code = code or self.default_code
+
 
 class EnrollmentRejectedError(RuntimeError):
     """The backend rejected this device identity or proof permanently."""
 
+    default_code = "ENROLLMENT_RESPONSE_INVALID"
+
+    def __init__(self, message: str, *, code: str | None = None):
+        super().__init__(message)
+        self.code = code or self.default_code
+
 
 class EnrollmentChallengeExpiredError(EnrollmentRetryableError):
     """The persisted identity is retained while a fresh challenge is obtained."""
+
+    default_code = "CHALLENGE_EXPIRED"
 
 
 @dataclass(frozen=True)
@@ -77,6 +91,7 @@ class DeviceEnrollmentClient:
         legacy_onenet_secret: str | None = None,
         legacy_hardware_sn: str | None = None,
         http_post: Callable[..., Any] | None = None,
+        progress_callback: Callable[[str], Any] | None = None,
         timeout_seconds: float = 15.0,
     ):
         base = backend_base_url.rstrip("/")
@@ -111,20 +126,27 @@ class DeviceEnrollmentClient:
         self._legacy_onenet_secret = legacy_onenet_secret
         self._legacy_hardware_sn = normalized_legacy_hardware_sn
         self._post = http_post or requests.post
+        self._progress_callback = progress_callback
         self._timeout = timeout_seconds
 
     def run_once(self) -> dict[str, Any]:
+        self._report_progress("IDENTITY_PREPARATION")
         if self._paths.credentials.exists():
+            self._report_progress("CREDENTIAL_INSTALLATION")
             document = json.loads(
                 self._paths.credentials.read_text(encoding="utf-8")
             )
             validate_device_credentials(document)
+            self._report_progress("K1_CLEANUP")
             self._cleanup_after_success()
+            self._report_progress("COMPLETE")
             return document
 
         state = self._load_or_create_state()
         if not state.get("enrollmentRequest"):
+            self._report_progress("CHALLENGE_REQUEST")
             state = self._obtain_challenge_and_sign(state)
+        self._report_progress("ENROLLMENT_SUBMISSION")
         try:
             response = self._send_enrollment(state["enrollmentRequest"])
         except EnrollmentChallengeExpiredError:
@@ -132,10 +154,12 @@ class DeviceEnrollmentClient:
             state["enrollmentRequest"] = None
             atomic_write_json(self._paths.state, state)
             raise
+        self._report_progress("CREDENTIAL_INSTALLATION")
         encrypted = response.get("encryptedResponse")
         if not isinstance(encrypted, dict):
             raise EnrollmentRetryableError(
-                "READY enrollment response omitted encryptedResponse"
+                "READY enrollment response omitted encryptedResponse",
+                code="ENROLLMENT_RESPONSE_INVALID",
             )
         credentials = decrypt_enrollment_response(
             encrypted,
@@ -161,8 +185,20 @@ class DeviceEnrollmentClient:
             credentials,
             validator=validate_device_credentials,
         )
+        self._report_progress("K1_CLEANUP")
         self._cleanup_after_success()
+        self._report_progress("COMPLETE")
         return credentials
+
+    def _report_progress(self, phase: str) -> None:
+        if self._progress_callback is None:
+            return
+        try:
+            self._progress_callback(phase)
+        except Exception:
+            # This projection is diagnostic.  A broken observer must never
+            # change the persisted enrollment identity or K1 cleanup path.
+            return
 
     def _load_or_create_state(self) -> dict[str, Any]:
         try:
@@ -176,7 +212,8 @@ class DeviceEnrollmentClient:
                 and stat.S_IMODE(self._paths.state.stat().st_mode) & 0o077
             ):
                 raise EnrollmentRejectedError(
-                    "enrollment state must not be group/world accessible"
+                    "enrollment state must not be group/world accessible",
+                    code="ENROLLMENT_STATE_PERMISSIONS_INVALID",
                 )
         self._validate_state(state)
         return state
@@ -239,7 +276,8 @@ class DeviceEnrollmentClient:
         )
         if response.get("schemaVersion") != 1:
             raise EnrollmentRetryableError(
-                "challenge response schemaVersion is invalid"
+                "challenge response schemaVersion is invalid",
+                code="CHALLENGE_RESPONSE_INVALID",
             )
         challenge = {
             "challengeUid": response.get("challengeUid"),
@@ -250,7 +288,8 @@ class DeviceEnrollmentClient:
         _validate_challenge(challenge)
         if challenge["enrollmentKeyId"] != state["enrollmentKeyId"]:
             raise EnrollmentRejectedError(
-                "backend challenge selected a different enrollment key"
+                "backend challenge selected a different enrollment key",
+                code="ENROLLMENT_KEY_INVALID",
             )
         request_fields = {
             "schemaVersion": ENROLLMENT_SCHEMA_VERSION,
@@ -310,31 +349,40 @@ class DeviceEnrollmentClient:
             )
         if status in {408, 425, 429} or status >= 500:
             raise EnrollmentRetryableError(
-                f"enrollment backend temporarily returned HTTP {status}"
+                f"enrollment backend temporarily returned HTTP {status}",
+                code="ENROLLMENT_BACKEND_TEMPORARY",
             )
         if status not in {200, 202, 422}:
             raise EnrollmentRejectedError(
-                f"enrollment backend rejected the request with HTTP {status}"
+                f"enrollment backend rejected the request with HTTP {status}",
+                code="ENROLLMENT_BACKEND_REJECTED",
             )
         if body.get("schemaVersion") != 1:
             raise EnrollmentRetryableError(
-                "enrollment response schemaVersion is invalid"
+                "enrollment response schemaVersion is invalid",
+                code="ENROLLMENT_RESPONSE_INVALID",
             )
         if body.get("enrollmentUid") != request["enrollmentUid"]:
             raise EnrollmentRejectedError(
-                "enrollment response enrollmentUid does not match"
+                "enrollment response enrollmentUid does not match",
+                code="ENROLLMENT_RESPONSE_INVALID",
             )
         if status == 202 and response_status == "PENDING":
-            raise EnrollmentRetryableError("enrollment is still pending")
+            raise EnrollmentRetryableError(
+                "enrollment is still pending",
+                code="ENROLLMENT_PENDING",
+            )
         if status == 200 and response_status == "READY":
             return body
         if status == 422 and response_status == "FAILED":
             failure_code = body.get("failureCode") or "ENROLLMENT_FAILED"
             raise EnrollmentRejectedError(
-                f"enrollment backend rejected the request: {failure_code}"
+                f"enrollment backend rejected the request: {failure_code}",
+                code="ENROLLMENT_BACKEND_REJECTED",
             )
         raise EnrollmentRetryableError(
-            f"invalid enrollment response HTTP/status pair: {status}/{response_status}"
+            f"invalid enrollment response HTTP/status pair: {status}/{response_status}",
+            code="ENROLLMENT_RESPONSE_INVALID",
         )
 
     def _request_json(
@@ -349,11 +397,13 @@ class DeviceEnrollmentClient:
             )
         if status in {408, 425, 429} or status >= 500:
             raise EnrollmentRetryableError(
-                f"enrollment backend temporarily returned HTTP {status}"
+                f"enrollment backend temporarily returned HTTP {status}",
+                code="ENROLLMENT_BACKEND_TEMPORARY",
             )
         if status not in {200, 201}:
             raise EnrollmentRejectedError(
-                f"enrollment backend rejected the request with HTTP {status}"
+                f"enrollment backend rejected the request with HTTP {status}",
+                code="ENROLLMENT_BACKEND_REJECTED",
             )
         return body
 
@@ -370,40 +420,63 @@ class DeviceEnrollmentClient:
                 timeout=self._timeout,
             )
         except requests.RequestException as error:
-            raise EnrollmentRetryableError("enrollment network request failed") from error
+            raise EnrollmentRetryableError(
+                "enrollment network request failed",
+                code="ENROLLMENT_NETWORK_UNAVAILABLE",
+            ) from error
         status = int(getattr(response, "status_code", 0))
         try:
             body = response.json()
         except (ValueError, json.JSONDecodeError) as error:
             raise EnrollmentRetryableError(
-                "enrollment backend returned invalid JSON"
+                "enrollment backend returned invalid JSON",
+                code="ENROLLMENT_RESPONSE_INVALID",
             ) from error
         if not isinstance(body, dict):
-            raise EnrollmentRetryableError("enrollment response must be an object")
+            raise EnrollmentRetryableError(
+                "enrollment response must be an object",
+                code="ENROLLMENT_RESPONSE_INVALID",
+            )
         return status, body
 
     def _validate_state(self, state: dict[str, Any]) -> None:
         if state.get("schemaVersion") != ENROLLMENT_SCHEMA_VERSION:
-            raise EnrollmentRejectedError("unsupported enrollment state")
+            raise EnrollmentRejectedError(
+                "unsupported enrollment state",
+                code="ENROLLMENT_STATE_INVALID",
+            )
         if state.get("enrollmentKeyId") != self._key_id:
-            raise EnrollmentRejectedError("enrollment state key ID changed")
+            raise EnrollmentRejectedError(
+                "enrollment state key ID changed",
+                code="ENROLLMENT_STATE_INVALID",
+            )
         if state.get("enrollmentMode") != self._mode:
-            raise EnrollmentRejectedError("enrollment state mode changed")
+            raise EnrollmentRejectedError(
+                "enrollment state mode changed",
+                code="ENROLLMENT_STATE_INVALID",
+            )
         identity_public = _parse_openssh_ed25519(
             state.get("identityPublicKey"),
             "identityPublicKey",
         )
         if self._mode == "SELF_ENROLLMENT":
             if derive_hardware_sn(identity_public) != state.get("hardwareSn"):
-                raise EnrollmentRejectedError("enrollment state identity is corrupt")
+                raise EnrollmentRejectedError(
+                    "enrollment state identity is corrupt",
+                    code="ENROLLMENT_STATE_INVALID",
+                )
         elif state.get("hardwareSn") != self._legacy_hardware_sn:
             raise EnrollmentRejectedError(
-                "enrollment state does not match the legacy hardware serial number"
+                "enrollment state does not match the legacy hardware serial number",
+                code="ENROLLMENT_STATE_INVALID",
             )
         _b64decode(state.get("identityPrivateKey"), expected_length=32)
         _b64decode(state.get("responsePrivateKey"), expected_length=32)
         if not isinstance(state.get("tunnelPrivateKey"), str):
-            raise EnrollmentRejectedError("enrollment tunnel key is missing")
+            raise EnrollmentRejectedError(
+                "enrollment tunnel key is missing",
+                code="ENROLLMENT_STATE_INVALID",
+            )
 
     def _cleanup_after_success(self) -> None:
         # The credential file has already been fsynced and re-read before any
@@ -577,14 +650,21 @@ def _read_global_key(path: Path) -> bytes:
     try:
         encoded = path.read_text(encoding="ascii").strip()
     except FileNotFoundError as error:
-        raise EnrollmentRejectedError("global enrollment key is missing") from error
+        raise EnrollmentRejectedError(
+            "global enrollment key is missing",
+            code="ENROLLMENT_KEY_INVALID",
+        ) from error
     if os.name != "nt" and stat.S_IMODE(path.stat().st_mode) & 0o077:
         raise EnrollmentRejectedError(
-            "global enrollment key must not be group/world accessible"
+            "global enrollment key must not be group/world accessible",
+            code="ENROLLMENT_KEY_INVALID",
         )
     key = _b64decode(encoded, minimum_length=32)
     if len(key) > 128:
-        raise EnrollmentRejectedError("global enrollment key is too long")
+        raise EnrollmentRejectedError(
+            "global enrollment key is too long",
+            code="ENROLLMENT_KEY_INVALID",
+        )
     return key
 
 
@@ -592,20 +672,32 @@ def _validate_challenge(challenge: dict[str, Any]) -> None:
     if not isinstance(challenge.get("challengeUid"), str) or not _UUID4.fullmatch(
         challenge["challengeUid"]
     ):
-        raise EnrollmentRetryableError("challengeUid is invalid")
+        raise EnrollmentRetryableError(
+            "challengeUid is invalid",
+            code="CHALLENGE_RESPONSE_INVALID",
+        )
     if not isinstance(challenge.get("enrollmentKeyId"), str) or not re.fullmatch(
         r"[A-Z0-9_-]{1,16}",
         challenge["enrollmentKeyId"],
     ):
-        raise EnrollmentRetryableError("challenge enrollmentKeyId is invalid")
+        raise EnrollmentRetryableError(
+            "challenge enrollmentKeyId is invalid",
+            code="CHALLENGE_RESPONSE_INVALID",
+        )
     _b64decode(challenge.get("nonce"), minimum_length=16)
     expires = challenge.get("expiresAt")
     if not isinstance(expires, str) or not expires.endswith("Z"):
-        raise EnrollmentRetryableError("challenge expiresAt is invalid")
+        raise EnrollmentRetryableError(
+            "challenge expiresAt is invalid",
+            code="CHALLENGE_RESPONSE_INVALID",
+        )
     try:
         datetime.fromisoformat(expires[:-1] + "+00:00")
     except ValueError as error:
-        raise EnrollmentRetryableError("challenge expiresAt is invalid") from error
+        raise EnrollmentRetryableError(
+            "challenge expiresAt is invalid",
+            code="CHALLENGE_RESPONSE_INVALID",
+        ) from error
 
 
 def _validate_public_key(value: str, field: str) -> None:

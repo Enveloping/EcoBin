@@ -8,7 +8,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from edge_boot import _clock_state
 from onenet_wire import canonical_payload_sha256
@@ -39,6 +39,7 @@ class DeviceAcceptanceRunner:
         device_name: str,
         mcu_remote_update_capable: bool,
         edge_software_version: str = "0.1.0",
+        progress_callback: Callable[[str, str | None], Any] | None = None,
         maximum_sensor_age_seconds: int = (
             MAXIMUM_SENSOR_EVIDENCE_AGE_SECONDS
         ),
@@ -58,9 +59,39 @@ class DeviceAcceptanceRunner:
         self._device_name = device_name
         self._mcu_remote_update_capable = mcu_remote_update_capable
         self._edge_software_version = edge_software_version
+        self._progress_callback = progress_callback
+        self._current_progress_phase = "IDLE"
         self._maximum_sensor_age_seconds = maximum_sensor_age_seconds
 
     def run(self, command: dict[str, Any]) -> dict[str, Any]:
+        if self._current_progress_phase != "REQUEST_RECEIVED":
+            self.report_progress("REQUEST_RECEIVED")
+        try:
+            return self._run(command)
+        except Exception as error:
+            self.report_progress(
+                "FAILED",
+                self._progress_error_code(error),
+            )
+            raise
+
+    def report_progress(
+        self,
+        phase: str,
+        error_code: str | None = None,
+    ) -> None:
+        self._current_progress_phase = phase
+        if self._progress_callback is None:
+            return
+        try:
+            self._progress_callback(phase, error_code)
+        except Exception as error:
+            logger.error(
+                "could not update P8 progress: %s",
+                type(error).__name__,
+            )
+
+    def _run(self, command: dict[str, Any]) -> dict[str, Any]:
         payload = command["payload"]
         challenge_uid = payload["challengeUid"]
         expected_port_count = payload["expectedPortCount"]
@@ -70,9 +101,11 @@ class DeviceAcceptanceRunner:
         if not isinstance(grant, dict):
             raise ValueError("acceptance grant not available")
 
+        self.report_progress("PERSISTENT_STORE_CHECK")
         persistent_store_healthy = self._persistent_store_probe(
             challenge_uid
         )
+        self.report_progress("CONFIGURATION_CHECK")
         configuration_persistence_healthy = (
             self._configuration_persistence_probe(
                 challenge_uid,
@@ -80,6 +113,7 @@ class DeviceAcceptanceRunner:
             )
         )
         trusted_time_healthy = _clock_state() == "SYNCED"
+        self.report_progress("MCU_SENSOR_CHECK")
         # ``is_simulated`` describes the serial transport (for example a PTY
         # test double).  Factory simulation firmware runs on a real MCU/UART,
         # so its exact, verified F3 identity is a second provenance signal.
@@ -103,6 +137,7 @@ class DeviceAcceptanceRunner:
             if getattr(self._uart, "compatibility_mode", False)
             else session_communication_healthy
         )
+        self.report_progress("CAMERA_CAPTURE")
         camera_result = self._camera_evidence(
             challenge_uid,
             grant,
@@ -149,10 +184,12 @@ class DeviceAcceptanceRunner:
             "deviceEntryUrlStored": device_entry_url_stored,
             "deviceEntryUrlSha256": device_entry_url_sha256,
         }
+        self.report_progress("EVIDENCE_PERSISTENCE")
         event = self._store.complete_device_acceptance(
             command,
             evidence,
         )
+        self.report_progress("EVIDENCE_RECORDED")
         logger.info(
             "device acceptance evidence recorded: challenge=%s "
             "hardware_ok=%s",
@@ -444,6 +481,7 @@ class DeviceAcceptanceRunner:
             }
             for item in captures
         ]
+        self.report_progress("COS_UPLOAD_READBACK")
         readbacks: list[dict[str, Any]] = []
         try:
             for capture in captures:
@@ -547,3 +585,15 @@ class DeviceAcceptanceRunner:
             for character in value
         ).strip("_")
         return (normalized or type(error).__name__.upper())[:64]
+
+    def _progress_error_code(self, error: Exception) -> str:
+        if "ACCEPTANCE GRANT NOT AVAILABLE" in str(error).upper():
+            return "P8_GRANT_NOT_AVAILABLE"
+        return {
+            "PERSISTENT_STORE_CHECK": "P8_STORAGE_CHECK_FAILED",
+            "CONFIGURATION_CHECK": "P8_CONFIGURATION_CHECK_FAILED",
+            "MCU_SENSOR_CHECK": "P8_MCU_SENSOR_CHECK_FAILED",
+            "CAMERA_CAPTURE": "P8_CAMERA_CAPTURE_FAILED",
+            "COS_UPLOAD_READBACK": "P8_COS_UPLOAD_READBACK_FAILED",
+            "EVIDENCE_PERSISTENCE": "P8_EVIDENCE_PERSISTENCE_FAILED",
+        }.get(self._current_progress_phase, "P8_EXECUTION_FAILED")

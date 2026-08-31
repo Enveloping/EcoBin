@@ -2,6 +2,7 @@ package org.enveloping.ecobin.device.web.v1;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.enveloping.ecobin.device.application.target.FactoryProgressQueryService;
 import org.enveloping.ecobin.device.application.target.TargetDeviceApplication;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AcceptanceEvidenceView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignTenantRequest;
@@ -19,6 +20,7 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceRuntimeView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceTechnicalIssueView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.FactoryProgressView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.PageData;
 import org.enveloping.ecobin.framework.web.v1.TargetApiEnvelope;
 import org.enveloping.ecobin.framework.web.v1.TargetRequestIds;
@@ -42,9 +44,13 @@ import java.util.UUID;
 public class PlatformDeviceAssetController {
 
     private final TargetDeviceApplication application;
+    private final FactoryProgressQueryService factoryProgress;
 
-    public PlatformDeviceAssetController(TargetDeviceApplication application) {
+    public PlatformDeviceAssetController(
+            TargetDeviceApplication application,
+            FactoryProgressQueryService factoryProgress) {
         this.application = application;
+        this.factoryProgress = factoryProgress;
     }
 
     @GetMapping
@@ -85,6 +91,14 @@ public class PlatformDeviceAssetController {
             @PathVariable String hardwareSn,
             HttpServletRequest request) {
         return noStore(application.platformRuntime(hardwareSn), request);
+    }
+
+    @GetMapping("/{hardwareSn}/factory-progress")
+    public ResponseEntity<TargetApiEnvelope<FactoryProgressView>>
+            factoryProgress(
+                    @PathVariable String hardwareSn,
+                    HttpServletRequest request) {
+        return noStore(factoryProgress.query(hardwareSn), request);
     }
 
     @GetMapping("/{hardwareSn}/technical-issues")

@@ -59,6 +59,10 @@ from fixed_frame_health_recovery import (
     FixedFrameHealthRecoveryController,
     runtime_uart_state,
 )
+from factory_progress import (
+    DEFAULT_RUNTIME_PROGRESS_PATH,
+    RuntimeProgressWriter,
+)
 from device_entry_url_refresh import DeviceEntryUrlRefreshController
 from remote_support_control import (
     RemoteSupportControlClient,
@@ -136,7 +140,14 @@ class EcoBinEdge:
         self._next_runtime_snapshot_monotonic = 0.0
         self._remote_support_bridge_retry_at = 0.0
         self._remote_support_bridge_last_warning_at = 0.0
+        self._runtime_ready = False
         self.clock_monitor = ClockHealthMonitor()
+        self.factory_progress = RuntimeProgressWriter(
+            os.getenv(
+                "ECOBIN_FACTORY_PROGRESS_PATH",
+                str(DEFAULT_RUNTIME_PROGRESS_PATH),
+            )
+        )
 
         config_validate()
         # -- EdgeStore (SQLite) --
@@ -227,6 +238,7 @@ class EcoBinEdge:
             device_name=DEVICE_NAME,
             mcu_remote_update_capable=MCU_UPDATE_ENABLED,
             edge_software_version=EDGE_SOFTWARE_VERSION,
+            progress_callback=self._report_p8_progress,
         )
         self.remote_support = RemoteSupportControlClient(
             REMOTE_SUPPORT_CONTROL_SOCKET,
@@ -296,6 +308,8 @@ class EcoBinEdge:
         self.mqtt.on_reliable_event_count_changed = (
             self._request_runtime_snapshot
         )
+        self.mqtt.on_connected = self._on_mqtt_connected
+        self.mqtt.on_disconnected = self._on_mqtt_disconnected
 
         # -- Signal handlers --
         signal.signal(signal.SIGINT, self._on_signal)
@@ -303,6 +317,7 @@ class EcoBinEdge:
 
     def _on_signal(self, signum, frame):
         logger.info("signal %d, shutting down...", signum)
+        self._report_factory_progress(service_state="STOPPING")
         self._exit_flag.set()
         try:
             self.mqtt.disconnect()
@@ -329,8 +344,88 @@ class EcoBinEdge:
     def _on_confirmation(self, topic, payload):
         logger.debug("confirmation received: topic=%s", topic)
 
+    def _on_mqtt_connected(self):
+        values = {"mqtt_state": "CONNECTED"}
+        if self._can_clear_runtime_error():
+            values["last_error_code"] = None
+        self._report_factory_progress(**values)
+        if self._runtime_ready:
+            self._publish_runtime_snapshot_now(force=True)
+
+    def _on_mqtt_disconnected(self, _reason_code):
+        values = {}
+        if self._exit_flag.is_set():
+            values["mqtt_state"] = "DISCONNECTED"
+            if self._can_clear_runtime_error():
+                values["last_error_code"] = None
+        else:
+            values.update({
+                "mqtt_state": "FAILED",
+                "last_error_code": "MQTT_DISCONNECTED",
+            })
+        self._report_factory_progress(**values)
+
+    def _report_p8_progress(
+        self,
+        phase: str,
+        error_code: str | None = None,
+    ) -> None:
+        values = {"p8_phase": phase}
+        if error_code is not None or self.mqtt.connected:
+            values["last_error_code"] = error_code
+        self._report_factory_progress(**values)
+
+    def _report_factory_progress(self, **values) -> None:
+        try:
+            self.factory_progress.report(**values)
+        except Exception as error:
+            logger.error(
+                "could not update runtime factory progress: %s",
+                type(error).__name__,
+            )
+
+    def _can_clear_runtime_error(self) -> bool:
+        current = self.factory_progress.snapshot()
+        return bool(
+            current["serviceState"] != "FAILED"
+            and current["uartState"] != "FAILED"
+            and current["p8Phase"] != "FAILED"
+        )
+
+    def _factory_progress_loop(self):
+        logger.info("factory progress heartbeat started")
+        while not self._exit_flag.wait(5.0):
+            self._report_factory_progress(
+                uart_state=self._current_uart_progress_state(),
+                mqtt_state=(
+                    "CONNECTED" if self.mqtt.connected else "DISCONNECTED"
+                ),
+            )
+        logger.info("factory progress heartbeat stopped")
+
+    def _current_uart_progress_state(self) -> str:
+        if self._uart_recovering.is_set():
+            return "RECOVERING"
+        if not getattr(self.uart, "is_open", False):
+            return "DISCONNECTED"
+        if getattr(self.uart, "mcu_session_ready", False):
+            return "READY"
+        return "STARTING"
+
     def run(self):
         logger.info("EcoBin Edge v2 starting (boot_id=%d)", self._edge_boot_id)
+        self._report_factory_progress(
+            service_state="STARTING",
+            uart_state="STARTING",
+            mqtt_state="CONNECTING",
+            p8_phase="IDLE",
+            last_error_code=None,
+        )
+        threading.Thread(
+            target=self._factory_progress_loop,
+            daemon=True,
+            name="factory-progress",
+        ).start()
         # Clock repair starts before business recovery, but clock uncertainty
         # is diagnostic only and never blocks physical work or event creation.
         self._poll_clock_health()
@@ -385,14 +480,31 @@ class EcoBinEdge:
             )
         if result["status"] == "SAFETY_LOCKED":
             logger.critical("BOOT FAILED: %s", result.get("reason"))
+            self._report_factory_progress(
+                service_state="FAILED",
+                uart_state="FAILED",
+                mqtt_state=(
+                    "CONNECTED" if self.mqtt.connected else "DISCONNECTED"
+                ),
+                last_error_code="RUNTIME_BOOT_FAILED",
+            )
             self._shutdown()
             return
         if self._exit_flag.is_set():
             self._shutdown()
             return
         logger.info("Boot result: %s", result["status"])
-        self.mqtt.on_connected = lambda: (
-            self._publish_runtime_snapshot_now(force=True)
+        self._report_factory_progress(
+            service_state="RUNNING",
+            uart_state=self._current_uart_progress_state(),
+            mqtt_state=(
+                "CONNECTED" if self.mqtt.connected else "FAILED"
+            ),
+            last_error_code=(
+                None
+                if self.mqtt.connected
+                else "MQTT_CONNECT_FAILED"
+            ),
         )
 
         recovered = self.store.recover_interrupted_commands()
@@ -407,6 +519,7 @@ class EcoBinEdge:
             self._shutdown()
             return
         notify_systemd_ready(result["status"])
+        self._runtime_ready = True
 
         # -- Start UART event reader thread --
         threading.Thread(target=self._uart_event_loop, daemon=True, name="uart-evt").start()
@@ -467,6 +580,7 @@ class EcoBinEdge:
 
     def _recover_online_mcu(self, hello_frame):
         self._uart_recovering.set()
+        self._report_factory_progress(uart_state="RECOVERING")
         try:
             previous = getattr(self.uart, "_mcu_boot_id", None)
             result = recover_after_online_mcu_hello(
@@ -483,6 +597,12 @@ class EcoBinEdge:
             )
             self.commands.wake()
             self._request_runtime_snapshot()
+            values = {"uart_state": "READY"}
+            if not self.mqtt.connected:
+                values["last_error_code"] = "MQTT_DISCONNECTED"
+            elif self._can_clear_runtime_error():
+                values["last_error_code"] = None
+            self._report_factory_progress(**values)
         except Exception as error:
             logger.critical("online MCU recovery failed: %s", error)
             self.store.record_fault(
@@ -500,6 +620,10 @@ class EcoBinEdge:
                 self.uart.close()
             except Exception:
                 pass
+            self._report_factory_progress(
+                uart_state="FAILED",
+                last_error_code="UART_RECOVERY_FAILED",
+            )
         finally:
             self._uart_recovering.clear()
 
@@ -824,6 +948,8 @@ class EcoBinEdge:
 
     def _shutdown(self):
         logger.info("shutting down...")
+        self._runtime_ready = False
+        self._report_factory_progress(service_state="STOPPING")
         self._exit_flag.set()
         try:
             self.uart.close()
@@ -841,6 +967,11 @@ class EcoBinEdge:
             self.store.close()
         except Exception:
             pass
+        self._report_factory_progress(
+            service_state="STOPPED",
+            uart_state="DISCONNECTED",
+            mqtt_state="DISCONNECTED",
+        )
         logger.info("shutdown complete")
 
 

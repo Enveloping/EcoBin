@@ -221,6 +221,83 @@ public final class DeviceModels {
         }
     }
 
+    public record FactoryProgressView(
+            FactoryBagProgressView factoryBags,
+            FactoryAcceptanceProgressView acceptance,
+            ReliableTaskProgressView acceptanceRequest,
+            FactorySealProgressView seal,
+            String currentStage,
+            String status,
+            String blockingCode,
+            List<String> nextActionCodes,
+            Instant fetchedAt) {
+
+        public FactoryProgressView {
+            nextActionCodes = List.copyOf(nextActionCodes);
+        }
+    }
+
+    public record FactoryBagProgressView(
+            int expectedPortCount,
+            int verifiedCount,
+            boolean complete,
+            long revision) {
+    }
+
+    public record FactoryAcceptanceProgressView(
+            String status,
+            long generation,
+            List<String> currentFailureReasons,
+            Instant lastEvaluatedAt,
+            Instant acceptedAt,
+            AcceptanceEvidenceSummary authoritativeEvidence,
+            AcceptanceEvidenceSummary latestEvidence) {
+
+        public FactoryAcceptanceProgressView {
+            currentFailureReasons = List.copyOf(currentFailureReasons);
+        }
+    }
+
+    public record AcceptanceEvidenceSummary(
+            UUID evidenceUid,
+            String evaluationStatus,
+            String evidenceSha256,
+            Instant receivedAt) {
+    }
+
+    public record ReliableTaskProgressView(
+            UUID taskUid,
+            String taskState,
+            String blockedReasonCode,
+            String blockedDiagnostic,
+            ReliableTaskAttemptSummary latestAttempt) {
+    }
+
+    public record ReliableTaskAttemptSummary(
+            Long attemptNo,
+            String technicalResult,
+            Integer httpStatus,
+            String externalErrorCode,
+            String externalRequestId,
+            String diagnostic,
+            Instant recordedAt) {
+    }
+
+    public record FactorySealProgressView(
+            String status,
+            long generation,
+            String cancellationReason,
+            UUID taskUid,
+            String taskState,
+            String blockedReasonCode,
+            String blockedDiagnostic,
+            ReliableTaskAttemptSummary latestAttempt,
+            Instant acknowledgedAt,
+            Instant sealedAt,
+            Instant cleanupCompletedAt,
+            Instant completionReceivedAt) {
+    }
+
     public record PortView(
             int portNo,
             String displayName,

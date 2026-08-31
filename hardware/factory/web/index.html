@@ -4,236 +4,158 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="color-scheme" content="light">
-    <meta name="theme-color" content="#111510">
-    <title>EcoBin 出厂工位</title>
+    <meta name="theme-color" content="#152019">
+    <title>EcoBin 设备出厂接入</title>
     <link rel="stylesheet" href="/assets/app.css">
     <script defer src="/assets/app.js"></script>
   </head>
   <body>
-    <header class="masthead">
-      <div class="masthead__rail" aria-hidden="true">ECBN / LINE 01 / OFFLINE</div>
-      <div class="masthead__main">
+    <header class="topbar">
+      <div class="topbar__brand" aria-label="EcoBin">
+        <span class="brand-mark" aria-hidden="true">E</span>
         <div>
-          <p class="eyebrow">ECOBIN · FACTORY STATION</p>
-          <h1>整机验收工位</h1>
-          <p class="subtitle">设备本地隔离入口 · 真实硬件动作不会生成业务数据</p>
+          <p>EcoBin 工厂工位</p>
+          <h1>设备出厂接入</h1>
         </div>
-        <div class="link-state" role="status" aria-live="polite">
-          <span class="link-state__lamp" id="link-lamp" aria-hidden="true"></span>
-          <span id="link-state">正在读取本机状态</span>
-        </div>
+      </div>
+      <div class="connection" role="status" aria-live="polite">
+        <span id="link-lamp" class="connection__lamp" aria-hidden="true"></span>
+        <span id="link-state">正在连接设备</span>
       </div>
     </header>
 
-    <main>
-      <section class="identity-panel" aria-labelledby="identity-title">
-        <div class="section-index">00</div>
-        <div class="identity-panel__body">
-          <div class="section-heading">
-            <div>
-              <p class="kicker">LOCAL UNIT</p>
-              <h2 id="identity-title">设备与镜像</h2>
-            </div>
-            <button id="refresh" class="refresh" type="button">刷新状态</button>
+    <main id="factory-workspace" class="workspace">
+      <section class="progress-panel" aria-labelledby="progress-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">当前设备</p>
+            <h2 id="progress-title">接入进度</h2>
           </div>
-          <dl class="metric-grid">
-            <div class="metric metric--wide">
-              <dt>首启阶段</dt>
-              <dd id="stage">UNKNOWN</dd>
-            </div>
-            <div class="metric">
-              <dt>镜像发布</dt>
-              <dd id="release">UNKNOWN</dd>
-            </div>
-            <div class="metric">
-              <dt>工位识别摘要</dt>
-              <dd id="machine">UNAVAILABLE</dd>
-            </div>
-            <div class="metric">
-              <dt>存储可用</dt>
-              <dd id="disk">—</dd>
-            </div>
-            <div class="metric">
-              <dt>本机时间</dt>
-              <dd id="observed-at">—</dd>
-            </div>
-            <div class="metric">
-              <dt>网络时间可信</dt>
-              <dd id="time-trusted">UNKNOWN</dd>
-            </div>
-            <div class="metric metric--wide">
-              <dt>当前接入卡点</dt>
-              <dd id="last-error">尚未读取</dd>
-            </div>
-          </dl>
+          <button id="refresh" class="quiet-button" type="button">刷新</button>
         </div>
-      </section>
 
-      <section id="simulation-warning" class="simulation-warning" hidden aria-live="polite">
-        <div class="safety-notice__mark" aria-hidden="true">SIM</div>
-        <div>
-          <p class="kicker">SIMULATED MCU EVIDENCE</p>
-          <h2>当前 MCU 正在模拟传感器、屏幕与执行机构</h2>
-          <p>UART 协议和香橙派验收状态机仍真实执行，但称重、传感器、屏幕按钮、门锁与电机结果不代表实物质量。该来源将永久写入验收报告。</p>
-        </div>
-      </section>
-
-      <section class="safety-notice" aria-labelledby="safety-title">
-        <div class="safety-notice__mark" aria-hidden="true">!</div>
-        <div>
-          <p class="kicker">SAFETY BOUNDARY</p>
-          <h2 id="safety-title">动作测试会真实驱动设备</h2>
-          <p>
-            页面不会连接后端、OneNet、COS 或生产数据库，但投递、清运、复位和 Bootloader
-            线路测试会真实驱动 MCU、门锁和电机。每次操作前必须确认周围无人、门体无阻挡。
-          </p>
-        </div>
-      </section>
-
-      <section class="workcell" aria-labelledby="workcell-title">
-        <div class="section-index">01</div>
-        <div class="workcell__body">
-          <div class="section-heading">
-            <div>
-              <p class="kicker">HARDWARE MATRIX</p>
-              <h2 id="workcell-title">硬件能力矩阵</h2>
-            </div>
-            <span class="mode-tag">OFFLINE / REAL HARDWARE</span>
-          </div>
-
-          <div class="capability-grid">
-            <article class="capability" data-capability="uart5-mcu">
-              <div class="capability__number">A</div>
-              <div>
-                <h3>UART5 / MCU</h3>
-                <p>revision 2、F3 身份、F1 传感器与升级线路</p>
-                <p class="capability__state" data-role="state">等待开始验收</p>
-              </div>
-            </article>
-            <article class="capability" data-capability="dual-camera">
-              <div class="capability__number">B</div>
-              <div>
-                <h3>双摄像头</h3>
-                <p>按设备配置绑定箱外 / 箱内稳定路径</p>
-                <p class="capability__state" data-role="state">等待开始验收</p>
-              </div>
-            </article>
-            <article class="capability" data-capability="delivery-action">
-              <div class="capability__number">C</div>
-              <div>
-                <h3>离线投递硬件测试</h3>
-                <p>BB + AA 单次发送，最终只接受真实 DD</p>
-                <p class="capability__state" data-role="state">等待开始验收</p>
-              </div>
-            </article>
-            <article class="capability" data-capability="clean-action">
-              <div class="capability__number">D</div>
-              <div>
-                <h3>离线清运硬件测试</h3>
-                <p>EE 单次发送，最终只接受真实 EF</p>
-                <p class="capability__state" data-role="state">等待开始验收</p>
-              </div>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section class="sequence" aria-labelledby="sequence-title">
-        <div class="section-index">02</div>
-        <div class="sequence__body">
-          <div class="section-heading">
-            <div>
-              <p class="kicker">ACCEPTANCE SEQUENCE</p>
-              <h2 id="sequence-title">验收推进顺序</h2>
-            </div>
-            <span id="test-status" class="result-chip">NOT_RUN</span>
-          </div>
-          <ol class="sequence-list">
-            <li>
-              <span class="sequence-list__code">01</span>
-              <div><strong>镜像与本地系统</strong><small>签名、空间、安全 GPIO、隔离热点</small></div>
-            </li>
-            <li>
-              <span class="sequence-list__code">02</span>
-              <div><strong>MCU 与称重</strong><small>revision 2、F1、500 g ±10 g、Bootloader 探测</small></div>
-            </li>
-            <li>
-              <span class="sequence-list__code">03</span>
-              <div><strong>双摄与真实动作</strong><small>摄像头角色确认、离线投递、离线清运</small></div>
-            </li>
-            <li>
-              <span class="sequence-list__code">04</span>
-              <div><strong>蜂窝、注册与云端验收</strong><small>本地硬件通过后才允许建立上行</small></div>
-            </li>
+        <div class="progress-viewport" tabindex="0" aria-label="出厂接入进度，可左右滑动">
+          <ol id="progress-chain" class="progress-chain">
+            <li data-node="BOOT_AND_PORTAL"><span class="node-number">01</span><span class="node-label">启动准备</span><small data-role="node-state">等待</small></li>
+            <li data-node="LOCAL_HARDWARE_ACCEPTANCE"><span class="node-number">02</span><span class="node-label">P7 本地验收</span><small data-role="node-state">等待</small></li>
+            <li data-node="CELLULAR_AND_TIME"><span class="node-number">03</span><span class="node-label">联网校时</span><small data-role="node-state">等待</small></li>
+            <li data-node="ENROLLMENT_AND_CREDENTIALS"><span class="node-number">04</span><span class="node-label">设备注册</span><small data-role="node-state">等待</small></li>
+            <li data-node="RUNTIME_AND_MQTT"><span class="node-number">05</span><span class="node-label">正式服务</span><small data-role="node-state">等待</small></li>
+            <li data-node="FACTORY_BAGS"><span class="node-number">06</span><span class="node-label">扫码绑袋</span><small data-role="node-state">等待</small></li>
+            <li data-node="CLOUD_EVIDENCE"><span class="node-number">07</span><span class="node-label">P8 采集证据</span><small data-role="node-state">等待</small></li>
+            <li data-node="CLOUD_DECISION_AND_AUTHORIZATION"><span class="node-number">08</span><span class="node-label">云端判定</span><small data-role="node-state">等待</small></li>
+            <li data-node="FACTORY_SEAL"><span class="node-number">09</span><span class="node-label">结束出厂</span><small data-role="node-state">等待</small></li>
           </ol>
         </div>
+        <p class="swipe-hint">在进度链上左右滑动，可查看全部节点</p>
       </section>
 
-      <section class="action-console" aria-labelledby="action-title">
-        <div class="section-index">03</div>
-        <div class="action-console__body">
-          <div class="section-heading">
-            <div>
-              <p class="kicker">ISOLATED EXECUTOR</p>
-              <h2 id="action-title">当前验收操作</h2>
-            </div>
-            <span id="executor-state" class="result-chip">检查执行器</span>
+      <section class="current-card" aria-labelledby="current-title">
+        <div class="current-card__head">
+          <div>
+            <p id="current-index" class="section-kicker">当前节点</p>
+            <h2 id="current-title">正在读取进度</h2>
           </div>
-          <p id="action-instruction" class="action-instruction">
-            正在读取可执行步骤……
-          </p>
-          <label id="update-line-selection" class="update-line-selection" hidden>
-            <span>MCU 远程升级线路</span>
-            <select id="mcu-update-line-installed">
-              <option value="">请选择实际装配情况</option>
-              <option value="true">已安装 BOOT0 / NRST 线路</option>
-              <option value="false">未安装，验收时跳过 ROM 探测</option>
-            </select>
-          </label>
-          <div id="recovery-panel" class="recovery-panel" hidden>
-            <strong>设备处于恢复锁定</strong>
-            <p id="recovery-reason">必须完成受控恢复后才能继续。</p>
+          <span id="current-state" class="state-badge">读取中</span>
+        </div>
+        <p id="current-detail" class="current-detail">请保持手机连接 EcoBin 出厂热点。</p>
+        <p id="progress-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+        <div id="issue-panel" class="issue-panel" hidden>
+          <strong id="issue-title">当前阶段需要处理</strong>
+          <p id="issue-action"></p>
+          <code id="issue-code"></code>
+        </div>
+        <ul id="current-substeps" class="substep-list" aria-label="当前节点详细进度"></ul>
+      </section>
+
+      <section id="operator-panel" class="operator-panel" aria-labelledby="action-title">
+        <div class="section-heading section-heading--compact">
+          <div>
+            <p class="section-kicker">需要人工操作时</p>
+            <h2 id="action-title">操作指示</h2>
           </div>
-          <div id="camera-review" class="camera-review" hidden>
-            <figure>
-              <img id="camera-outside" alt="本次箱外摄像头临时画面">
-              <figcaption>箱外摄像头</figcaption>
-            </figure>
-            <figure>
-              <img id="camera-inside" alt="本次箱内摄像头临时画面">
-              <figcaption>箱内摄像头</figcaption>
-            </figure>
-            <p>请只按本次画面确认角色。画面确认后立即删除，不进入生产照片目录。</p>
+          <span id="executor-state" class="micro-state">检查中</span>
+        </div>
+
+        <p id="action-instruction" class="action-instruction">正在读取下一步操作……</p>
+
+        <div id="simulation-warning" class="inline-note" hidden>
+          当前报告会记录测试证据来源；这不改变后续接入流程。
+        </div>
+
+        <label id="update-line-selection" class="field" hidden>
+          <span>MCU 升级线路实际装配情况</span>
+          <select id="mcu-update-line-installed">
+            <option value="">请选择</option>
+            <option value="true">已安装 BOOT0 / NRST</option>
+            <option value="false">未安装，跳过 ROM 探测</option>
+          </select>
+        </label>
+
+        <div id="recovery-panel" class="issue-panel" hidden>
+          <strong>设备处于恢复锁定</strong>
+          <p id="recovery-reason">完成受控恢复后才能继续。</p>
+        </div>
+
+        <div id="camera-review" class="camera-review" hidden>
+          <figure>
+            <img id="camera-outside" alt="本次箱外摄像头临时画面">
+            <figcaption>箱外摄像头</figcaption>
+          </figure>
+          <figure>
+            <img id="camera-inside" alt="本次箱内摄像头临时画面">
+            <figcaption>箱内摄像头</figcaption>
+          </figure>
+          <p>请确认两张画面的安装角色正确。</p>
+        </div>
+
+        <button id="primary-action" class="primary-button" type="button" disabled>暂无可执行操作</button>
+        <p id="action-result" class="action-result" role="status" aria-live="polite"></p>
+
+        <div id="seal-panel" class="seal-action" hidden>
+          <div>
+            <strong>云端验收已通过</strong>
+            <p>确认后将永久结束出厂模式，热点随后关闭。</p>
           </div>
-          <div class="action-row">
-            <button id="primary-action" class="primary-action" type="button" disabled>
-              暂无可执行操作
-            </button>
-            <span id="action-result" role="status" aria-live="polite"></span>
-          </div>
+          <button id="seal-confirm" class="danger-button" type="button">确认结束出厂模式</button>
+          <p id="seal-result" class="action-result" role="status" aria-live="polite"></p>
         </div>
       </section>
 
-      <section id="seal-panel" class="seal-panel" aria-labelledby="seal-title" hidden>
-        <p class="kicker">FACTORY SEAL</p>
-        <h2 id="seal-title">云端验收授权已到达</h2>
-        <p>只有当前代次后端机器验收通过并可靠保存授权后，此处才允许进行单向封存。</p>
-        <button id="seal-confirm" class="primary-action" type="button">确认设备离厂封存</button>
-        <span id="seal-result" role="status" aria-live="polite"></span>
-      </section>
+      <details id="diagnostics" class="diagnostics">
+        <summary>查看诊断信息</summary>
+        <dl>
+          <div><dt>首次启动阶段</dt><dd id="stage">UNKNOWN</dd></div>
+          <div><dt>镜像发布</dt><dd id="release">UNKNOWN</dd></div>
+          <div><dt>P7 状态</dt><dd id="test-status">NOT_RUN</dd></div>
+          <div><dt>可信时间</dt><dd id="time-trusted">UNKNOWN</dd></div>
+          <div><dt>封存状态</dt><dd id="seal-status">UNKNOWN</dd></div>
+          <div><dt>错误码</dt><dd id="last-error">NONE</dd></div>
+          <div><dt>最近刷新</dt><dd id="last-update">尚未读取</dd></div>
+        </dl>
+      </details>
 
-      <section class="hil-gates" aria-labelledby="hil-title">
-        <p class="kicker">MANDATORY HIL</p>
-        <h2 id="hil-title">仍需真机证明</h2>
-        <ul id="hil-list">
-          <li>正在读取硬件在环门禁……</li>
-        </ul>
-      </section>
-
-      <footer>
-        <p>仅限 10.42.0.1 本地访问 · 热点客户端不提供 WAN 或 SSH</p>
-        <p id="last-update">尚未完成状态读取</p>
-      </footer>
+      <p class="local-boundary">此页面仅在设备局域网内提供，不向手机开放互联网转发。</p>
     </main>
+
+    <section
+      id="seal-terminal"
+      class="terminal"
+      hidden
+      tabindex="-1"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="terminal-title"
+      aria-describedby="terminal-description"
+    >
+      <div class="terminal__mark" aria-hidden="true">✓</div>
+      <p class="section-kicker">请求已受理</p>
+      <h2 id="terminal-title">出厂模式正在关闭</h2>
+      <p id="terminal-description">封存事实已经可靠保存。热点和本页面即将断开，这是正常现象。</p>
+      <div class="terminal__next">
+        <strong>接下来</strong>
+        <p>断电后重新开机复核：出厂热点不应再次出现，正式服务和 OneNet 应恢复。</p>
+      </div>
+    </section>
   </body>
 </html>

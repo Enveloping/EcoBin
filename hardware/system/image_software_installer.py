@@ -82,6 +82,7 @@ ENROLLMENT_FILES = (
     "enrollment_bootstrap.py",
     "device_enrollment.py",
     "device_credentials.py",
+    "factory_progress.py",
     "maintenance_ssh_setup.py",
     "remote_support_credentials.py",
     "secure_files.py",

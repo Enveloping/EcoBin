@@ -4819,6 +4819,25 @@
       }
     }
     ,
+    "/api/v1/web/platform/device-assets/{hardwareSn}/factory-progress": {
+      "parameters": [
+        {"$ref": "#/components/parameters/HardwareSn"}
+      ],
+      "get": {
+        "operationId": "getPlatformDeviceFactoryProgress",
+        "tags": ["Device management"],
+        "summary": "Read one consistent platform-side factory onboarding and seal progress snapshot",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceFactoryProgressOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    }
+    ,
     "/api/v1/web/platform/device-assets/{hardwareSn}/technical-issues": {
       "parameters": [
         {"$ref": "#/components/parameters/HardwareSn"}
@@ -7600,6 +7619,19 @@
         "content": {
           "application/json": {
             "schema": {"$ref": "#/components/schemas/DeviceRuntimeEnvelope"}
+          }
+        }
+      }
+      ,
+      "DeviceFactoryProgressOk": {
+        "description": "One repeatable-read snapshot of factory bags, authoritative acceptance, reliable tasks, and the current-generation seal",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/DeviceFactoryProgressEnvelope"}
           }
         }
       }
@@ -14120,7 +14152,7 @@
           "issueUid": {"type": "string", "minLength": 1, "maxLength": 100},
           "category": {
             "type": "string",
-            "enum": ["ACCEPTANCE", "CONFIGURATION", "DELIVERY", "CLEANING", "BASELINE"]
+            "enum": ["ACCEPTANCE", "FACTORY_SEAL", "CONFIGURATION", "DELIVERY", "CLEANING", "BASELINE"]
           },
           "state": {
             "type": "string",
@@ -14166,6 +14198,8 @@
               "enum": [
                 "WAIT",
                 "REEVALUATE_ACCEPTANCE",
+                "OPEN_RELIABLE_TASK",
+                "RESOLVE_FACTORY_SEAL_TASK_BLOCKER",
                 "RESYNCHRONIZE_CONFIGURATION",
                 "PUBLISH_NEW_CONFIGURATION",
                 "START_MANUAL_BASELINE_MEASUREMENT",
@@ -14175,6 +14209,377 @@
               ]
             }
           }
+        }
+      },
+      "DeviceFactoryProgressStage": {
+        "type": "string",
+        "enum": [
+          "DEVICE_ASSET",
+          "FACTORY_BAGS",
+          "MACHINE_ACCEPTANCE",
+          "FACTORY_SEAL_AUTHORIZATION",
+          "END_FACTORY_MODE",
+          "FACTORY_SEALED"
+        ]
+      },
+      "DeviceFactoryProgressStatus": {
+        "type": "string",
+        "enum": [
+          "WAITING_OPERATOR",
+          "IN_PROGRESS",
+          "BLOCKED",
+          "COMPLETED"
+        ]
+      },
+      "DeviceFactorySealStatus": {
+        "type": "string",
+        "enum": [
+          "NOT_ISSUED",
+          "PENDING",
+          "ACKNOWLEDGED",
+          "CANCELLED",
+          "SEALED"
+        ]
+      },
+      "DeviceFactoryProgressActionCode": {
+        "type": "string",
+        "enum": [
+          "RESTORE_DEVICE_ASSET",
+          "SCAN_FACTORY_BAGS",
+          "VIEW_ACCEPTANCE_FAILURES",
+          "REEVALUATE_ACCEPTANCE",
+          "OPEN_RELIABLE_TASK",
+          "RESOLVE_ACCEPTANCE_TASK_BLOCKER",
+          "WAIT_FOR_ACCEPTANCE_REQUEST",
+          "WAIT_FOR_ACCEPTANCE_EVIDENCE",
+          "WAIT_FOR_FACTORY_SEAL_AUTHORIZATION",
+          "RESOLVE_FACTORY_SEAL_TASK_BLOCKER",
+          "WAIT_FOR_FACTORY_SEAL_ACKNOWLEDGEMENT",
+          "CONFIRM_END_FACTORY_MODE",
+          "VIEW_FACTORY_SEAL_CANCELLATION",
+          "CONTACT_SUPPORT"
+        ]
+      },
+      "DeviceFactoryBagProgress": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedPortCount",
+          "verifiedCount",
+          "complete",
+          "revision"
+        ],
+        "properties": {
+          "expectedPortCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          },
+          "verifiedCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "complete": {"type": "boolean"},
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        }
+      },
+      "DeviceFactoryAcceptanceEvidenceSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidenceUid",
+          "evaluationStatus",
+          "evidenceSha256",
+          "receivedAt"
+        ],
+        "properties": {
+          "evidenceUid": {"$ref": "#/components/schemas/UuidV4"},
+          "evaluationStatus": {
+            "type": "string",
+            "enum": ["PASSED", "FAILED"]
+          },
+          "evidenceSha256": {"$ref": "#/components/schemas/Sha256Hex"},
+          "receivedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        }
+      },
+      "DeviceFactoryAcceptanceProgress": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "generation",
+          "currentFailureReasons",
+          "lastEvaluatedAt",
+          "acceptedAt",
+          "authoritativeEvidence",
+          "latestEvidence"
+        ],
+        "properties": {
+          "status": {"$ref": "#/components/schemas/DeviceAcceptanceStatus"},
+          "generation": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "currentFailureReasons": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[A-Z][A-Z0-9_]{0,99}$"
+            }
+          },
+          "lastEvaluatedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "acceptedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "authoritativeEvidence": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DeviceFactoryAcceptanceEvidenceSummary"},
+              {"type": "null"}
+            ],
+            "description": "The evidence resolved only by dev_device_asset.acceptance_evidence_sha256; never substituted with the latest row."
+          },
+          "latestEvidence": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DeviceFactoryAcceptanceEvidenceSummary"},
+              {"type": "null"}
+            ],
+            "description": "The latest received evidence for diagnostics; it does not replace authoritativeEvidence."
+          }
+        }
+      },
+      "DeviceFactoryReliableTaskAttempt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "attemptNo",
+          "technicalResult",
+          "httpStatus",
+          "externalErrorCode",
+          "externalRequestId",
+          "diagnostic",
+          "recordedAt"
+        ],
+        "properties": {
+          "attemptNo": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "technicalResult": {
+            "type": ["string", "null"],
+            "enum": [
+              "TECHNICAL_SUCCESS",
+              "NO_ACTION_REQUIRED",
+              "RETRYABLE_FAILURE",
+              "OUTCOME_UNKNOWN",
+              "PERMANENT_TECHNICAL_FAILURE",
+              null
+            ]
+          },
+          "httpStatus": {
+            "type": ["integer", "null"],
+            "minimum": 100,
+            "maximum": 599
+          },
+          "externalErrorCode": {
+            "type": ["string", "null"],
+            "maxLength": 64
+          },
+          "externalRequestId": {
+            "type": ["string", "null"],
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          },
+          "diagnostic": {
+            "type": ["string", "null"],
+            "maxLength": 1000,
+            "description": "Already-redacted operational diagnostic."
+          },
+          "recordedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
+      "DeviceFactoryReliableTaskProgress": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "taskUid",
+          "taskState",
+          "blockedReasonCode",
+          "blockedDiagnostic",
+          "latestAttempt"
+        ],
+        "properties": {
+          "taskUid": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UuidV4"},
+              {"type": "null"}
+            ]
+          },
+          "taskState": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/ReliableDeviceDispatchState"},
+              {"type": "null"}
+            ]
+          },
+          "blockedReasonCode": {
+            "type": ["string", "null"],
+            "maxLength": 64,
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+          },
+          "blockedDiagnostic": {
+            "type": ["string", "null"],
+            "maxLength": 500
+          },
+          "latestAttempt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DeviceFactoryReliableTaskAttempt"},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
+      "DeviceFactorySealProgress": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "generation",
+          "cancellationReason",
+          "taskUid",
+          "taskState",
+          "blockedReasonCode",
+          "blockedDiagnostic",
+          "latestAttempt",
+          "acknowledgedAt",
+          "sealedAt",
+          "cleanupCompletedAt",
+          "completionReceivedAt"
+        ],
+        "properties": {
+          "status": {"$ref": "#/components/schemas/DeviceFactorySealStatus"},
+          "generation": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "cancellationReason": {
+            "type": ["string", "null"],
+            "maxLength": 64,
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+          },
+          "taskUid": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UuidV4"},
+              {"type": "null"}
+            ]
+          },
+          "taskState": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/ReliableDeviceDispatchState"},
+              {"type": "null"}
+            ]
+          },
+          "blockedReasonCode": {
+            "type": ["string", "null"],
+            "maxLength": 64,
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+          },
+          "blockedDiagnostic": {
+            "type": ["string", "null"],
+            "maxLength": 500
+          },
+          "latestAttempt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DeviceFactoryReliableTaskAttempt"},
+              {"type": "null"}
+            ]
+          },
+          "acknowledgedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "sealedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "cleanupCompletedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "completionReceivedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
+      "DeviceFactoryProgress": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "factoryBags",
+          "acceptance",
+          "acceptanceRequest",
+          "seal",
+          "currentStage",
+          "status",
+          "blockingCode",
+          "nextActionCodes",
+          "fetchedAt"
+        ],
+        "properties": {
+          "factoryBags": {"$ref": "#/components/schemas/DeviceFactoryBagProgress"},
+          "acceptance": {"$ref": "#/components/schemas/DeviceFactoryAcceptanceProgress"},
+          "acceptanceRequest": {"$ref": "#/components/schemas/DeviceFactoryReliableTaskProgress"},
+          "seal": {"$ref": "#/components/schemas/DeviceFactorySealProgress"},
+          "currentStage": {"$ref": "#/components/schemas/DeviceFactoryProgressStage"},
+          "status": {"$ref": "#/components/schemas/DeviceFactoryProgressStatus"},
+          "blockingCode": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "^[A-Z][A-Z0-9_]{0,99}$"
+          },
+          "nextActionCodes": {
+            "type": "array",
+            "maxItems": 4,
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/DeviceFactoryProgressActionCode"}
+          },
+          "fetchedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
         }
       },
       "RegisterMcuFirmwareReleaseRequest": {
@@ -14834,6 +15239,20 @@
             "items": {"$ref": "#/components/schemas/DeviceTechnicalIssue"}
           },
           "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "DeviceFactoryProgressEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/DeviceFactoryProgress"},
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
         }
       },
       "BaselineMeasurementAcceptedEnvelope": {

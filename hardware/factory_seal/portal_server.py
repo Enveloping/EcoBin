@@ -98,18 +98,11 @@ class FactorySealPortalServer:
                     connection.settimeout(
                         self._connection_timeout_seconds
                     )
-                    confirmed = self._handle(connection)
+                    self._handle(connection)
                 except OSError:
-                    confirmed = False
-            # The HTTP process has received the response before its target is
-            # stopped.  A crash here is recovered by the first-boot loop.
-            if confirmed:
-                try:
-                    self._controller.reconcile_cleanup()
-                except Exception:
                     pass
 
-    def _handle(self, connection: socket.socket) -> bool:
+    def _handle(self, connection: socket.socket) -> None:
         try:
             request = bytearray()
             while len(request) <= 4096:
@@ -127,7 +120,6 @@ class FactorySealPortalServer:
             operation = value.get("operation")
             if operation == "GET_STATUS" and set(value) == {"operation"}:
                 data = self._controller.status()
-                confirmed = False
             elif operation == "CONFIRM" and set(value) == {
                 "operation",
                 "operatorConfirmationUid",
@@ -135,7 +127,13 @@ class FactorySealPortalServer:
                 data = self._controller.confirm(
                     value["operatorConfirmationUid"]
                 )
-                confirmed = True
+            elif operation == "ACK_PRESENTED" and set(value) == {
+                "operation",
+                "operatorConfirmationUid",
+            }:
+                data = self._controller.acknowledge_response_presented(
+                    value["operatorConfirmationUid"]
+                )
             else:
                 raise FactorySealError("FACTORY_SEAL_REQUEST_INVALID")
             response = {"ok": True, "data": data, "errorCode": None}
@@ -145,33 +143,28 @@ class FactorySealPortalServer:
                 "data": None,
                 "errorCode": "FACTORY_SEAL_REQUEST_TIMEOUT",
             }
-            confirmed = False
         except OSError:
             response = {
                 "ok": False,
                 "data": None,
                 "errorCode": "FACTORY_SEAL_IO_ERROR",
             }
-            confirmed = False
         except (UnicodeDecodeError, json.JSONDecodeError, FactorySealError) as error:
             code = getattr(error, "code", "FACTORY_SEAL_REQUEST_INVALID")
             response = {"ok": False, "data": None, "errorCode": code}
-            confirmed = False
         except Exception:
             response = {
                 "ok": False,
                 "data": None,
                 "errorCode": "FACTORY_SEAL_INTERNAL_ERROR",
             }
-            confirmed = False
         encoded = (
             json.dumps(response, sort_keys=True, separators=(",", ":")) + "\n"
         ).encode("ascii")
         try:
             connection.sendall(encoded)
         except (OSError, TimeoutError):
-            return False
-        return confirmed
+            return
 
 
 def _prepare_secure_socket_parent(parent: Path, *, group_id: int) -> None:

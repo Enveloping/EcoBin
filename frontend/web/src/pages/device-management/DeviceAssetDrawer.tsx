@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -16,6 +16,7 @@ import {
   Modal,
   Space,
   Spin,
+  Steps,
   Switch,
   Tag,
   Typography,
@@ -37,6 +38,7 @@ import {
   getOrganizationDeviceRuntime,
   getPlatformDeviceConfigurationApplication,
   getPlatformDeviceConfigurationVersion,
+  getPlatformDeviceFactoryProgress,
   getPlatformDeviceRuntime,
   getTenantDeviceRuntime,
   listDeviceAcceptanceEvidence,
@@ -53,6 +55,8 @@ import {
   type DeviceConfigurationReleaseRequest,
   type DeviceConfigurationVersion,
   type DeviceConfigurationVersionSummary,
+  type DeviceFactoryProgress,
+  type DeviceFactoryProgressEvidenceSummary,
   type DevicePortRuntime,
   type DeviceRuntime,
   type DeviceTechnicalIssue,
@@ -73,6 +77,16 @@ import {
   runtimeStatusColor,
   runtimeStatusLabel,
 } from './devicePresentation';
+import {
+  buildFactoryProgressSteps,
+  collectFactoryProgressCodes,
+  factoryActionLabel,
+  factoryFailureGuidance,
+  factoryProgressSummary,
+  factoryStageLabel,
+  sealStatusLabel,
+  taskStateLabel,
+} from './factoryProgressPresentation';
 import RemoteSupportPanel from './RemoteSupportPanel';
 
 export type DeviceManagementMode = 'platform' | 'tenant' | 'organization';
@@ -129,6 +143,13 @@ interface RuntimeLoadState {
   hasLoaded: boolean;
 }
 
+interface FactoryProgressLoadState {
+  status: TechnicalIssueLoadStatus;
+  data?: DeviceFactoryProgress;
+  error?: string;
+  hasLoaded: boolean;
+}
+
 const EMPTY_TECHNICAL_ISSUE_LOAD: TechnicalIssueLoadState = {
   status: 'idle',
   data: [],
@@ -136,6 +157,11 @@ const EMPTY_TECHNICAL_ISSUE_LOAD: TechnicalIssueLoadState = {
 };
 
 const EMPTY_RUNTIME_LOAD: RuntimeLoadState = {
+  status: 'idle',
+  hasLoaded: false,
+};
+
+const EMPTY_FACTORY_PROGRESS_LOAD: FactoryProgressLoadState = {
   status: 'idle',
   hasLoaded: false,
 };
@@ -448,6 +474,64 @@ function mergeConfiguration(
   };
 }
 
+function AcceptanceEvidenceFacts({
+  evidence,
+}: {
+  evidence: DeviceAcceptanceEvidence;
+}) {
+  const functionalFacts = [
+    ['OneNet 在线', evidence.oneNetOnline],
+    ['持久化存储', evidence.persistentStoreHealthy],
+    ['配置持久化', evidence.configurationPersistenceHealthy],
+    ['MCU 通信', evidence.mcuCommunicationHealthy],
+    ['传感器数据', evidence.sensorsHealthy],
+    ['摄像头采集', evidence.camerasCaptureHealthy],
+    ['测试图片上传', evidence.cameraUploadHealthy],
+  ] as const;
+  return (
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      {evidence.failureReasons.length > 0 && (
+        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+          {evidence.failureReasons.map((code) => (
+            <Typography.Text key={code} type="secondary">
+              {factoryFailureGuidance(code).title}（{code}）
+            </Typography.Text>
+          ))}
+        </Space>
+      )}
+      <Descriptions size="small" column={2} bordered>
+        {functionalFacts.map(([label, value]) => (
+          <Descriptions.Item key={label} label={label}>
+            <Tag color={value ? 'success' : 'error'}>
+              {booleanEvidence(value)}
+            </Tag>
+          </Descriptions.Item>
+        ))}
+        <Descriptions.Item label="可信时间（诊断）">
+          <Tag>
+            {evidence.trustedTimeHealthy ? '已同步' : '未同步，不影响验收结论'}
+          </Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label="MCU 来源（诊断）">
+          <Tag>{evidence.mcuSimulated ? '模拟来源' : '真实来源'}</Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label="摄像头来源（诊断）">
+          <Tag>{evidence.camerasSimulated ? '模拟来源' : '真实来源'}</Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label="证据观测时间">
+          {formatShanghaiTime(evidence.observedAt)}
+        </Descriptions.Item>
+        <Descriptions.Item label="后端接收时间">
+          {formatShanghaiTime(evidence.receivedAt)}
+        </Descriptions.Item>
+        <Descriptions.Item label="证据 UID" span={2}>
+          <Typography.Text copyable code>{evidence.evidenceUid}</Typography.Text>
+        </Descriptions.Item>
+      </Descriptions>
+    </Space>
+  );
+}
+
 function EvidencePanel({ rows }: { rows: DeviceAcceptanceEvidence[] }) {
   if (!rows.length) {
     return (
@@ -457,61 +541,384 @@ function EvidencePanel({ rows }: { rows: DeviceAcceptanceEvidence[] }) {
       />
     );
   }
-  const latest = rows[0];
-  const facts = [
-    ['OneNet 在线', latest.oneNetOnline],
-    ['持久化存储', latest.persistentStoreHealthy],
-    ['可信时间', latest.trustedTimeHealthy],
-    ['配置持久化', latest.configurationPersistenceHealthy],
-    ['MCU 通信', latest.mcuCommunicationHealthy],
-    ['传感器数据', latest.sensorsHealthy],
-    ['摄像头采集', latest.camerasCaptureHealthy],
-    ['测试图片上传', latest.cameraUploadHealthy],
-  ] as const;
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Alert
-        showIcon
-        type={latest.evaluationStatus === 'PASSED' ? 'success' : 'warning'}
-        message={
-          latest.evaluationStatus === 'PASSED'
-            ? '验收代次最后一份功能证据已通过'
-            : '验收代次最后一份功能证据未通过'
-        }
-        description={
-          latest.failureReasons.length
-            ? latest.failureReasons.join('、')
-            : `验收时设备软件 ${latest.edgeSoftwareVersion} · 协议 ${latest.edgeProtocolVersion}`
-        }
-      />
-      <Descriptions size="small" column={2} bordered>
-        {facts.map(([label, value]) => (
-          <Descriptions.Item key={label} label={label}>
-            <Tag color={value ? 'success' : 'error'}>
-              {booleanEvidence(value)}
+    <Collapse
+      size="small"
+      items={rows.map((evidence, index) => ({
+        key: evidence.evidenceUid,
+        label: (
+          <Space wrap>
+            <Typography.Text strong>历史证据 {index + 1}</Typography.Text>
+            <Tag color={acceptanceColors[evidence.evaluationStatus]}>
+              当次判定 {acceptanceLabels[evidence.evaluationStatus]}
+            </Tag>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              收到于 {formatShanghaiTime(evidence.receivedAt)}
+            </Typography.Text>
+          </Space>
+        ),
+        children: <AcceptanceEvidenceFacts evidence={evidence} />,
+      }))}
+    />
+  );
+}
+
+function FactoryEvidenceReference({
+  title,
+  evidence,
+  emptyText,
+}: {
+  title: string;
+  evidence: DeviceFactoryProgressEvidenceSummary | null;
+  emptyText: string;
+}) {
+  return (
+    <Card size="small" title={title} style={{ flex: '1 1 280px' }}>
+      {!evidence ? (
+        <Typography.Text type="secondary">{emptyText}</Typography.Text>
+      ) : (
+        <Descriptions size="small" column={1} colon={false}>
+          <Descriptions.Item label="当次判定">
+            <Tag color={acceptanceColors[evidence.evaluationStatus]}>
+              {acceptanceLabels[evidence.evaluationStatus]}
             </Tag>
           </Descriptions.Item>
-        ))}
-        <Descriptions.Item label="MCU 来源">
-          <Tag color={latest.mcuSimulated ? 'default' : 'success'}>
-            {latest.mcuSimulated ? '模拟器（仅诊断）' : '真实硬件'}
-          </Tag>
-        </Descriptions.Item>
-        <Descriptions.Item label="摄像头来源">
-          <Tag color={latest.camerasSimulated ? 'default' : 'success'}>
-            {latest.camerasSimulated ? '模拟器（仅诊断）' : '真实摄像头'}
-          </Tag>
-        </Descriptions.Item>
-        <Descriptions.Item label="观测时间" span={2}>
-          {formatShanghaiTime(latest.observedAt)}
-        </Descriptions.Item>
-      </Descriptions>
-      {rows.length > 1 && (
-        <Typography.Text type="secondary">
-          共保存 {rows.length} 次出厂验收证据；历史失败不会因后来通过而被删除。
-        </Typography.Text>
+          <Descriptions.Item label="证据 UID">
+            <Typography.Text copyable code>{evidence.evidenceUid}</Typography.Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="证据摘要">
+            <Typography.Text
+              copyable={{ text: evidence.evidenceSha256 }}
+              code
+              style={{ overflowWrap: 'anywhere' }}
+            >
+              {evidence.evidenceSha256}
+            </Typography.Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="后端收到">
+            {formatShanghaiTime(evidence.receivedAt)}
+          </Descriptions.Item>
+        </Descriptions>
       )}
-    </Space>
+    </Card>
+  );
+}
+
+function FactoryTaskDiagnostics({
+  title,
+  task,
+}: {
+  title: string;
+  task: DeviceFactoryProgress['acceptanceRequest'];
+}) {
+  return (
+    <Descriptions size="small" column={2} bordered>
+      <Descriptions.Item label={`${title}状态`}>
+        <Tag color={task.taskState === 'BLOCKED'
+          || task.taskState === 'CANCELLED' ? 'error' : 'default'}>
+          {taskStateLabel(task.taskState)}
+        </Tag>
+      </Descriptions.Item>
+      <Descriptions.Item label="任务 UID">
+        {task.taskUid
+          ? <Typography.Text copyable code>{task.taskUid}</Typography.Text>
+          : '尚未创建'}
+      </Descriptions.Item>
+      {task.latestAttempt && (
+        <>
+          <Descriptions.Item label="最近尝试">
+            {task.latestAttempt.attemptNo == null
+              ? '尝试次数未记录'
+              : `第 ${task.latestAttempt.attemptNo} 次`}
+            {task.latestAttempt.technicalResult
+              ? ` · ${task.latestAttempt.technicalResult}`
+              : ''}
+          </Descriptions.Item>
+          <Descriptions.Item label="外部请求编号">
+            {task.latestAttempt.externalRequestId
+              ? (
+                <Typography.Text copyable>
+                  {task.latestAttempt.externalRequestId}
+                </Typography.Text>
+              )
+              : '未记录'}
+          </Descriptions.Item>
+          <Descriptions.Item label="HTTP / 外部错误">
+            {task.latestAttempt.httpStatus ?? '-'} / {task.latestAttempt.externalErrorCode ?? '-'}
+          </Descriptions.Item>
+          <Descriptions.Item label="结果落库">
+            {optionalTime(task.latestAttempt.recordedAt)}
+          </Descriptions.Item>
+        </>
+      )}
+      {(task.blockedDiagnostic || task.latestAttempt?.diagnostic) && (
+        <Descriptions.Item label="脱敏诊断" span={2}>
+          <Typography.Text code style={{ overflowWrap: 'anywhere' }}>
+            {task.blockedDiagnostic ?? task.latestAttempt?.diagnostic}
+          </Typography.Text>
+        </Descriptions.Item>
+      )}
+    </Descriptions>
+  );
+}
+
+function FactoryProgressPanel({
+  load,
+  onRefresh,
+}: {
+  load: FactoryProgressLoadState;
+  onRefresh: () => void;
+}) {
+  const progress = load.data;
+  const loading = load.status === 'loading';
+  if (!progress) {
+    return (
+      <section aria-labelledby="factory-progress-title">
+        <Card
+          title={<span id="factory-progress-title">接入与封存进度</span>}
+          extra={(
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={loading}
+              onClick={onRefresh}
+            >
+              刷新
+            </Button>
+          )}
+        >
+          <Spin spinning={loading}>
+            {load.status === 'error' ? (
+              <Alert
+                type="error"
+                showIcon
+                message="接入进度加载失败"
+                description={load.error}
+                action={<Button size="small" onClick={onRefresh}>重试</Button>}
+              />
+            ) : (
+              <div aria-label="正在加载接入与封存进度" style={{ minHeight: 88 }} />
+            )}
+          </Spin>
+        </Card>
+      </section>
+    );
+  }
+
+  const steps = buildFactoryProgressSteps(progress);
+  const summary = factoryProgressSummary(progress);
+  const issueCodes = collectFactoryProgressCodes(progress);
+  const evidenceChanged = progress.acceptance.authoritativeEvidence
+    && progress.acceptance.latestEvidence
+    && progress.acceptance.authoritativeEvidence.evidenceUid
+      !== progress.acceptance.latestEvidence.evidenceUid;
+
+  return (
+    <section aria-labelledby="factory-progress-title">
+      <Card
+        title={(
+          <Space wrap>
+            <SafetyCertificateOutlined />
+            <Typography.Text strong id="factory-progress-title">
+              接入与封存进度
+            </Typography.Text>
+            <Tag>{factoryStageLabel(progress.currentStage)}</Tag>
+          </Space>
+        )}
+        extra={(
+          <Space size={8}>
+            {progress.seal.status !== 'SEALED' && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                前台每 5 秒刷新
+              </Typography.Text>
+            )}
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={loading}
+              onClick={onRefresh}
+            >
+              刷新
+            </Button>
+          </Space>
+        )}
+        styles={{ body: { padding: 16 } }}
+      >
+        {load.status === 'error' && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="进度刷新失败，以下为上一次成功结果"
+            description={load.error}
+          />
+        )}
+        <div
+          role="group"
+          aria-label="设备出厂接入节点链"
+          style={{ overflowX: 'auto', padding: '4px 2px 12px' }}
+        >
+          <div style={{ minWidth: 650 }}>
+            <Steps
+              size="small"
+              responsive={false}
+              items={steps.map((step) => ({
+                title: step.title,
+                description: step.description,
+                status: step.status,
+              }))}
+            />
+          </div>
+        </div>
+        <Alert
+          showIcon
+          type={summary.type}
+          message={summary.message}
+          description={summary.description}
+          style={{ marginBottom: 12 }}
+        />
+
+        {issueCodes.map((code) => {
+          const guidance = factoryFailureGuidance(code);
+          return (
+            <Alert
+              key={code}
+              type="error"
+              showIcon
+              style={{ marginBottom: 8 }}
+              message={guidance.title}
+              description={(
+                <Space direction="vertical" size={4}>
+                  <Typography.Text>{guidance.action}</Typography.Text>
+                  <Typography.Text type="secondary" code>
+                    稳定问题代码：{code}
+                  </Typography.Text>
+                </Space>
+              )}
+            />
+          );
+        })}
+
+        <Descriptions size="small" column={2} bordered style={{ marginTop: 12 }}>
+          <Descriptions.Item label="初始袋码">
+            {progress.factoryBags.verifiedCount}/{progress.factoryBags.expectedPortCount}
+            {progress.factoryBags.complete
+              ? <Tag color="success" style={{ marginLeft: 8 }}>已完整</Tag>
+              : <Tag color="warning" style={{ marginLeft: 8 }}>待补齐</Tag>}
+          </Descriptions.Item>
+          <Descriptions.Item label="袋码修订号">
+            {progress.factoryBags.revision}
+          </Descriptions.Item>
+          <Descriptions.Item label="权威验收">
+            <Tag color={acceptanceColors[progress.acceptance.status]}>
+              {acceptanceLabels[progress.acceptance.status]}
+            </Tag>
+            <Typography.Text type="secondary">
+              第 {progress.acceptance.generation} 代
+            </Typography.Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="封存状态">
+            <Tag color={progress.seal.status === 'SEALED'
+              ? 'success'
+              : progress.seal.status === 'CANCELLED'
+                ? 'error'
+                : progress.seal.status === 'ACKNOWLEDGED'
+                  ? 'warning'
+                  : 'processing'}>
+              {sealStatusLabel(progress.seal.status)}
+            </Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="最近判定">
+            {optionalTime(progress.acceptance.lastEvaluatedAt)}
+          </Descriptions.Item>
+          <Descriptions.Item label="验收通过时间">
+            {optionalTime(progress.acceptance.acceptedAt)}
+          </Descriptions.Item>
+          <Descriptions.Item label="数据读取时间" span={2}>
+            {formatShanghaiTime(progress.fetchedAt)}
+          </Descriptions.Item>
+          <Descriptions.Item label="下一步" span={2}>
+            {progress.nextActionCodes.length ? (
+              <Space wrap>
+                {progress.nextActionCodes.map((action) => (
+                  <Tag key={action}>{factoryActionLabel(action)}</Tag>
+                ))}
+              </Space>
+            ) : '等待系统继续推进'}
+          </Descriptions.Item>
+        </Descriptions>
+
+        {evidenceChanged && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginTop: 12 }}
+            message="最新历史证据不是当前权威结论绑定的证据"
+            description="下方两份证据必须分别核对；后来收到的历史证据不会自动改写已经形成的权威 PASSED 和封存绑定。"
+          />
+        )}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 12,
+            width: '100%',
+            marginTop: 12,
+          }}
+        >
+          <FactoryEvidenceReference
+            title="权威结论绑定证据"
+            evidence={progress.acceptance.authoritativeEvidence}
+            emptyText="当前尚未形成可绑定的权威证据"
+          />
+          <FactoryEvidenceReference
+            title="最新收到的历史证据"
+            evidence={progress.acceptance.latestEvidence}
+            emptyText="后端尚未收到设备验收证据"
+          />
+        </div>
+
+        <Collapse
+          size="small"
+          style={{ marginTop: 12 }}
+          items={[{
+            key: 'factory-task-diagnostics',
+            label: '可靠任务与时间诊断',
+            children: (
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <FactoryTaskDiagnostics
+                  title="P8 请求"
+                  task={progress.acceptanceRequest}
+                />
+                <FactoryTaskDiagnostics
+                  title="封存授权"
+                  task={progress.seal}
+                />
+                <Descriptions size="small" column={2} bordered>
+                  <Descriptions.Item label="授权代次">
+                    {progress.seal.status === 'NOT_ISSUED'
+                      ? '尚未签发'
+                      : progress.seal.generation}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="设备接受授权">
+                    {optionalTime(progress.seal.acknowledgedAt)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="设备封存时间">
+                    {optionalTime(progress.seal.sealedAt)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="后端收到完成事件">
+                    {optionalTime(progress.seal.completionReceivedAt)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="设备清理完成" span={2}>
+                    {optionalTime(progress.seal.cleanupCompletedAt)}
+                  </Descriptions.Item>
+                </Descriptions>
+              </Space>
+            ),
+          }]}
+        />
+      </Card>
+    </section>
   );
 }
 
@@ -536,6 +943,8 @@ export default function DeviceAssetDrawer({
   const [evidenceLoaded, setEvidenceLoaded] = useState(false);
   const [runtimeLoad, setRuntimeLoad] =
     useState<RuntimeLoadState>(EMPTY_RUNTIME_LOAD);
+  const [factoryProgressLoad, setFactoryProgressLoad] =
+    useState<FactoryProgressLoadState>(EMPTY_FACTORY_PROGRESS_LOAD);
   const [technicalIssueLoad, setTechnicalIssueLoad] =
     useState<TechnicalIssueLoadState>(EMPTY_TECHNICAL_ISSUE_LOAD);
   const [versions, setVersions] = useState<DeviceConfigurationVersionSummary[]>([]);
@@ -544,6 +953,10 @@ export default function DeviceAssetDrawer({
     useState<DeviceConfigurationApplication>();
   const [loadingEvidence, setLoadingEvidence] = useState(false);
   const runtimeRequest = useRef(0);
+  const factoryProgressRequest = useRef(0);
+  const factoryProgressInFlight = useRef<number | null>(null);
+  const factoryProgressRefreshQueued = useRef(false);
+  const factoryProgressSealed = useRef(false);
   const technicalIssueRequest = useRef(0);
   const [loadingConfiguration, setLoadingConfiguration] = useState(false);
   const [configurationModalOpen, setConfigurationModalOpen] = useState(false);
@@ -558,11 +971,53 @@ export default function DeviceAssetDrawer({
   const technicalIssues = technicalIssueLoad.data;
   const loadingTechnicalIssues = technicalIssueLoad.status === 'loading';
   const loadingRuntime = runtimeLoad.status === 'loading';
+  const hardwareSn = asset?.hardwareSn;
 
   const canConfigure = Boolean(asset) && (
     (mode === 'organization' && Boolean(organizationCode))
     || (mode === 'platform' && Boolean(asset?.organizationCode))
   );
+
+  const loadFactoryProgress = useCallback(async (
+    background = false,
+  ) => {
+    if (!hardwareSn || mode !== 'platform') return;
+    if (factoryProgressInFlight.current != null) {
+      if (!background) factoryProgressRefreshQueued.current = true;
+      return;
+    }
+    const requestId = ++factoryProgressRequest.current;
+    factoryProgressInFlight.current = requestId;
+    setFactoryProgressLoad((current) => ({
+      ...current,
+      status: background && current.hasLoaded ? current.status : 'loading',
+      error: undefined,
+    }));
+    try {
+      do {
+        factoryProgressRefreshQueued.current = false;
+        const data = await getPlatformDeviceFactoryProgress(hardwareSn);
+        if (factoryProgressRequest.current !== requestId) return;
+        factoryProgressSealed.current = data.seal.status === 'SEALED';
+        setFactoryProgressLoad({
+          status: 'loaded',
+          data,
+          hasLoaded: true,
+        });
+      } while (factoryProgressRefreshQueued.current);
+    } catch (error) {
+      if (factoryProgressRequest.current !== requestId) return;
+      setFactoryProgressLoad((current) => ({
+        ...current,
+        status: 'error',
+        error: errorMessage(error),
+      }));
+    } finally {
+      if (factoryProgressInFlight.current === requestId) {
+        factoryProgressInFlight.current = null;
+      }
+    }
+  }, [hardwareSn, mode]);
 
   const loadEvidence = async () => {
     if (!asset || mode !== 'platform') return;
@@ -690,12 +1145,17 @@ export default function DeviceAssetDrawer({
 
   useEffect(() => {
     runtimeRequest.current += 1;
+    factoryProgressRequest.current += 1;
+    factoryProgressInFlight.current = null;
+    factoryProgressRefreshQueued.current = false;
+    factoryProgressSealed.current = false;
     technicalIssueRequest.current += 1;
     if (!open) return;
     setEvidence([]);
     setEvidenceExpanded(false);
     setEvidenceLoaded(false);
     setRuntimeLoad(EMPTY_RUNTIME_LOAD);
+    setFactoryProgressLoad(EMPTY_FACTORY_PROGRESS_LOAD);
     setTechnicalIssueLoad(EMPTY_TECHNICAL_ISSUE_LOAD);
     setVersions([]);
     setLatestVersion(undefined);
@@ -713,6 +1173,48 @@ export default function DeviceAssetDrawer({
     asset?.organizationCode,
     organizationCode,
   ]);
+
+  useEffect(() => {
+    if (!open || mode !== 'platform' || !hardwareSn) return () => undefined;
+    let stopped = false;
+    let timer: number | undefined;
+
+    const schedule = () => {
+      if (
+        stopped
+        || factoryProgressSealed.current
+        || document.visibilityState !== 'visible'
+      ) return;
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        void poll();
+      }, 5_000);
+    };
+    const poll = async () => {
+      if (stopped || document.visibilityState !== 'visible') return;
+      await loadFactoryProgress(true);
+      schedule();
+    };
+    const visibilityChanged = () => {
+      if (document.visibilityState !== 'visible') {
+        if (timer != null) window.clearTimeout(timer);
+        timer = undefined;
+        return;
+      }
+      if (timer == null && !factoryProgressSealed.current) void poll();
+    };
+
+    void poll();
+    document.addEventListener('visibilitychange', visibilityChanged);
+    return () => {
+      stopped = true;
+      if (timer != null) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', visibilityChanged);
+      factoryProgressRequest.current += 1;
+      factoryProgressInFlight.current = null;
+      factoryProgressRefreshQueued.current = false;
+    };
+  }, [hardwareSn, loadFactoryProgress, mode, open]);
 
   useEffect(() => {
     if (!open || !asset) return () => undefined;
@@ -782,7 +1284,11 @@ export default function DeviceAssetDrawer({
               setReevaluating(true);
               try {
                 await onReevaluateAcceptance(asset);
-                await Promise.all([loadEvidence(), loadTechnicalIssues()]);
+                await Promise.all([
+                  loadEvidence(),
+                  loadTechnicalIssues(),
+                  loadFactoryProgress(),
+                ]);
               } finally {
                 setReevaluating(false);
               }
@@ -814,7 +1320,15 @@ export default function DeviceAssetDrawer({
       );
     }
     return null;
-  }, [asset, mode, onAssignOrganization, onAssignTenant, onControl, reevaluating]);
+  }, [
+    asset,
+    loadFactoryProgress,
+    mode,
+    onAssignOrganization,
+    onAssignTenant,
+    onControl,
+    reevaluating,
+  ]);
 
   const openConfigurationEditor = () => {
     if (!latestVersion) return;
@@ -978,7 +1492,11 @@ export default function DeviceAssetDrawer({
     setReevaluating(true);
     try {
       await onReevaluateAcceptance(asset);
-      await Promise.all([loadEvidence(), loadTechnicalIssues()]);
+      await Promise.all([
+        loadEvidence(),
+        loadTechnicalIssues(),
+        loadFactoryProgress(),
+      ]);
     } catch (error) {
       message.error(errorMessage(error));
     } finally {
@@ -1165,6 +1683,13 @@ export default function DeviceAssetDrawer({
                 </Descriptions.Item>
               </Descriptions>
             </Card>
+
+            {mode === 'platform' && (
+              <FactoryProgressPanel
+                load={factoryProgressLoad}
+                onRefresh={() => void loadFactoryProgress()}
+              />
+            )}
 
             <section>
               <Space
@@ -1389,23 +1914,9 @@ export default function DeviceAssetDrawer({
                       <Space wrap>
                         <HistoryOutlined />
                         <Typography.Text strong>
-                          出厂自动机器验收（历史证据）
+                          出厂机器验收证据（历史审计）
                         </Typography.Text>
-                        <Tag color={acceptanceColors[asset.acceptanceStatus]}>
-                          {asset.acceptanceStatus === 'PASSED'
-                            ? '验收已通过'
-                            : asset.acceptanceStatus === 'FAILED'
-                              ? '验收阻断：最近证据未通过'
-                              : '验收阻断：等待合格证据'}
-                        </Tag>
-                        {asset.acceptedAt && (
-                          <Typography.Text
-                            type="secondary"
-                            style={{ fontSize: 12 }}
-                          >
-                            通过时间 {formatShanghaiTime(asset.acceptedAt)}
-                          </Typography.Text>
-                        )}
+                        {evidenceLoaded && <Tag>{evidence.length} 份记录</Tag>}
                       </Space>
                     ),
                     children: (
@@ -1417,8 +1928,8 @@ export default function DeviceAssetDrawer({
                         <Alert
                           type="info"
                           showIcon
-                          message="这里是验收时保存的历史功能快照，不是设备当前状态"
-                          description="设备通过验收后发生的离线、MCU、摄像头或传感器故障不会改写历史验收结论；请以上方“当前联网与最近运行状态”和“设备问题与安全恢复”为准。"
+                          message="这里的每一行都是历史证据，不代表当前权威验收状态"
+                          description="请以“接入与封存进度”中的权威结论绑定证据为准；最新收到的证据和历史失败都不会自行替代权威绑定关系。可信时间和模拟来源只作中性诊断。"
                         />
                         <Spin spinning={loadingEvidence}>
                           <EvidencePanel rows={evidence} />

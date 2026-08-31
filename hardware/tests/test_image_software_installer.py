@@ -40,6 +40,8 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
     assert "camera_capture.py" in FACTORY_APP_RUNTIME_FILES
     assert "trusted_clock.py" in RUNTIME_APP_FILES
     assert "trusted_clock.py" in FACTORY_APP_RUNTIME_FILES
+    assert "factory_progress.py" in RUNTIME_APP_FILES
+    assert "factory_progress.py" in image_installer.ENROLLMENT_FILES
     assert set(FACTORY_APP_RUNTIME_FILES) < set(RUNTIME_APP_FILES)
 
 

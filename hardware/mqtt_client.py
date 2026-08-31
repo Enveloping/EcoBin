@@ -113,6 +113,7 @@ class MqttClient:
         self.on_confirmation_received: Optional[Callable] = None
         self.on_reliable_event_count_changed: Optional[Callable] = None
         self.on_connected: Optional[Callable] = None
+        self.on_disconnected: Optional[Callable[[int], None]] = None
         self._relay_thread: Optional[threading.Thread] = None
         self._exit_flag = threading.Event()
 
@@ -249,6 +250,7 @@ class MqttClient:
                 self._store.save_mqtt_persistent_state(False, rc_int)
             except Exception:
                 pass
+            self._notify_disconnected(rc_int)
         self._connect_event.set()
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties):
@@ -262,6 +264,15 @@ class MqttClient:
         except Exception:
             pass
         logger.warning("MQTT 断开: reason_code=%s", reason_code)
+        self._notify_disconnected(rc_int)
+
+    def _notify_disconnected(self, reason_code: int) -> None:
+        if self.on_disconnected is None:
+            return
+        try:
+            self.on_disconnected(reason_code)
+        except Exception:
+            logger.exception("MQTT disconnect callback failed")
 
     def _reason_code_int(self, reason_code) -> int:
         try:

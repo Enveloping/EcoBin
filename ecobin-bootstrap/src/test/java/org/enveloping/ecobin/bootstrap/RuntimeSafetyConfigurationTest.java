@@ -80,7 +80,8 @@ class RuntimeSafetyConfigurationTest {
             "V58__clock_recovery_invariants.sql",
             "V59__bag_label_batch_limit_500.sql",
             "V60__mcu_remote_update_capability.sql",
-            "V61__onenet_external_request_observability.sql"
+            "V61__onenet_external_request_observability.sql",
+            "V62__factory_progress_task_lookup.sql"
     };
 
     @Test

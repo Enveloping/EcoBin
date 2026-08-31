@@ -299,6 +299,7 @@ public class TargetDeviceApplication {
                         WHERE task.source_device_asset_id = ?
                           AND task.task_type IN (
                               'REQUEST_DEVICE_ACCEPTANCE',
+                              'AUTHORIZE_FACTORY_SEAL',
                               'ENSURE_DEVICE_CONFIGURATION',
                               'START_DELIVERY_SESSION',
                               'START_CLEAN_OPERATION'
@@ -3348,7 +3349,7 @@ public class TargetDeviceApplication {
                 instant(rs, "received_at"));
     }
 
-    private DeviceTechnicalIssueView taskIssue(TechnicalTaskRow task) {
+    static DeviceTechnicalIssueView taskIssue(TechnicalTaskRow task) {
         String reason = task.blockedReasonCode() == null
                 ? "UNKNOWN" : task.blockedReasonCode();
         String category;
@@ -3366,6 +3367,17 @@ public class TargetDeviceApplication {
                 description = reasonDescription(reason)
                         + "。排除问题后重新读取验收证据。";
                 actions = List.of("REEVALUATE_ACCEPTANCE");
+            }
+            case "AUTHORIZE_FACTORY_SEAL" -> {
+                category = "FACTORY_SEAL";
+                state = "ACTION_REQUIRED";
+                severity = "WARNING";
+                title = "厂家封存授权未能送达设备";
+                description = reasonDescription(reason)
+                        + "。不要重放原封存授权；请先打开可靠任务核对诊断并排除阻断原因，系统只会沿原任务安全恢复。";
+                actions = List.of(
+                        "OPEN_RELIABLE_TASK",
+                        "RESOLVE_FACTORY_SEAL_TASK_BLOCKER");
             }
             case "ENSURE_DEVICE_CONFIGURATION" -> {
                 category = "CONFIGURATION";
@@ -4142,7 +4154,7 @@ public class TargetDeviceApplication {
     private record FactoryBag(int portNo, String bagCode) {
     }
 
-    private record TechnicalTaskRow(
+    record TechnicalTaskRow(
             long taskId,
             UUID taskUid,
             String taskType,

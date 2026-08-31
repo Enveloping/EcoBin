@@ -12,7 +12,7 @@ $f07BootstrapPath = Join-Path $PSScriptRoot "../verify-f07-bootstrap.ps1"
 $f07BootstrapSource = Get-Content -LiteralPath $f07BootstrapPath -Raw
 
 if ($catalog.CatalogVersion -ne 31) {
-    throw "H-02 runtime grant catalog must be V31 for the V61 target"
+    throw "H-02 runtime grant catalog must be V31 for the V62 target"
 }
 
 if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
@@ -23,37 +23,44 @@ if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
 
 if ($provisionSource -notmatch '\$tables\.Count -ne 119' -or
         $provisionSource -notmatch 'Expected 119 domain tables') {
-    throw "H-02 provisioning must enforce the V61 119-table shape"
+    throw "H-02 provisioning must enforce the V62 119-table shape"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 61') {
-    throw "H-02 provisioning must migrate through V61"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 62') {
+    throw "H-02 provisioning must migrate through V62"
 }
-if ($provisionSource -notmatch '\$historyCount -ne 61' -or
+if ($provisionSource -notmatch '\$historyCount -ne 62' -or
         $provisionSource -notmatch
-            'Expected sixty-one successful Flyway migrations') {
-    throw "H-02 provisioning must verify all 61 migrations"
+            'Expected sixty-two successful Flyway migrations') {
+    throw "H-02 provisioning must verify all 62 migrations"
 }
 if ($provisionSource -notmatch
         '\$existingDomainTableCount -eq 119\s+-and\s+' +
-        '\$existingHistoryCount -eq 61\s+-and\s+' +
-        '\$existingMaxVersion -eq 61' -or
-        $provisionSource -notmatch '\$existingMaxVersion -lt 61' -or
+        '\$existingHistoryCount -eq 62\s+-and\s+' +
+        '\$existingMaxVersion -eq 62' -or
+        $provisionSource -notmatch '\$existingMaxVersion -lt 62' -or
         $provisionSource -notmatch
         '\$existingHistoryCount -eq 60\s+-and\s+' +
-        '\$existingMaxVersion -eq 60') {
-    throw "H-02 migrated resume must recognize V60 and target V61"
+        '\$existingMaxVersion -eq 60' -or
+        $provisionSource -notmatch
+        '\$existingHistoryCount -eq 61\s+-and\s+' +
+        '\$existingMaxVersion -eq 61') {
+    throw "H-02 migrated resume must recognize V60/V61 and target V62"
 }
 if ($f07BootstrapSource -notmatch '\$tableCount -ne 120' -or
         $f07BootstrapSource -notmatch
             'correct target must contain 119 domain tables plus Flyway history' -or
-        $f07BootstrapSource -notmatch 'targetVersion\s*=\s*61' -or
+        $f07BootstrapSource -notmatch 'targetVersion\s*=\s*62' -or
         $f07BootstrapSource -notmatch 'domainTables\s*=\s*119' -or
         $f07BootstrapSource -notmatch
-            'correctV61Ready\s*=\s*\$true' -or
+            'correctV62Ready\s*=\s*\$true' -or
         $f07BootstrapSource -notmatch
             'mcuRemoteUpdateCapabilityV60\s*=\s*\$true' -or
         $f07BootstrapSource -notmatch
             'externalRequestIdV61\s*=\s*\$true' -or
+        $f07BootstrapSource -notmatch
+            'factoryProgressTaskIndexV62\s*=\s*\$true' -or
+        $f07BootstrapSource -notmatch
+            'ix_ops_task_factory_progress' -or
         $f07BootstrapSource -notmatch
             'bagLabelBatchLimit500\s*=\s*\$true' -or
         $f07BootstrapSource -notmatch
@@ -64,7 +71,7 @@ if ($f07BootstrapSource -notmatch '\$tableCount -ne 120' -or
             'sealedClockQualityRequired\s*=\s*\$true' -or
         $f07BootstrapSource -match 'correct V56|correctV56Ready') {
     throw (
-        "F-07 bootstrap verification must report the V61 shape: " +
+        "F-07 bootstrap verification must report the V62 shape: " +
         "119 domain tables plus Flyway history"
     )
 }

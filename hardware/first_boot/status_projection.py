@@ -76,17 +76,29 @@ class AccessPointAuthorizationProjector:
             maximum_bytes=512,
         )
 
-    def publish(self, facts: FirstBootFacts) -> None:
-        allowed = not facts.sealed_exists
+    def publish(
+        self,
+        facts: FirstBootFacts,
+        *,
+        allow_sealed_response: bool = False,
+    ) -> None:
+        response_pending = bool(
+            allow_sealed_response
+            and facts.sealed_exists
+            and facts.sealed_valid
+        )
+        allowed = not facts.sealed_exists or response_pending
         status = (
-            "UNSEALED"
-            if allowed
+            "SEALED_RESPONSE_PENDING"
+            if response_pending
+            else "UNSEALED"
+            if not facts.sealed_exists
             else "SEALED"
             if facts.sealed_valid
             else "SEALED_FACT_INVALID"
         )
         self._file.write_object(
-            {"schemaVersion": 1, "allowed": allowed, "statusCode": status}
+            {"schemaVersion": 2, "allowed": allowed, "statusCode": status}
         )
 
 
@@ -114,13 +126,24 @@ def validate_public_projection(value: object) -> dict[str, object]:
 def validate_ap_authorization_projection(value: object) -> dict[str, object]:
     if not isinstance(value, dict) or set(value) != _AP_EXACT_FIELDS:
         raise ValueError("AP authorization projection fields are invalid")
-    if value.get("schemaVersion") != 1 or type(value.get("allowed")) is not bool:
+    if value.get("schemaVersion") != 2 or type(value.get("allowed")) is not bool:
         raise ValueError("AP authorization projection values are invalid")
-    expected = "UNSEALED" if value["allowed"] else value.get("statusCode")
-    if expected not in {"UNSEALED", "SEALED", "SEALED_FACT_INVALID"}:
+    status = value.get("statusCode")
+    if status not in {
+        "UNSEALED",
+        "SEALED_RESPONSE_PENDING",
+        "SEALED",
+        "SEALED_FACT_INVALID",
+    }:
         raise ValueError("AP authorization projection status is invalid")
-    if value["allowed"] and value.get("statusCode") != "UNSEALED":
+    if value["allowed"] and status not in {
+        "UNSEALED",
+        "SEALED_RESPONSE_PENDING",
+    }:
         raise ValueError("AP authorization projection is inconsistent")
-    if not value["allowed"] and value.get("statusCode") == "UNSEALED":
+    if not value["allowed"] and status in {
+        "UNSEALED",
+        "SEALED_RESPONSE_PENDING",
+    }:
         raise ValueError("AP authorization projection is inconsistent")
     return dict(value)

@@ -160,6 +160,235 @@ class TargetDeviceMysqlIntegrationTest {
     }
 
     @Test
+    void factoryProgressReturnsConsistentInitialAssetSnapshot()
+            throws Exception {
+        BrowserClient platform = new BrowserClient();
+        login(platform, "/api/v1/web/platform/auth/sessions",
+                platformLogin, PLATFORM_PASSWORD, 201);
+
+        String hardwareSn = "HW-FACTORY-PROGRESS-" + run;
+        data(write(
+                platform,
+                post("/api/v1/web/platform/device-assets"),
+                UUID.randomUUID(),
+                Map.of(
+                        "hardwareSn", hardwareSn,
+                        "modelCode", "EC-M0",
+                        "productionBatch", "FACTORY-PROGRESS-" + run,
+                        "expectedPortCount", 2),
+                201));
+
+        MvcResult response = read(platform,
+                "/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/factory-progress",
+                200);
+        JsonNode progress = data(response);
+        assertEquals("no-store",
+                response.getResponse().getHeader("Cache-Control"));
+        assertEquals(2,
+                progress.path("factoryBags")
+                        .path("expectedPortCount").asInt());
+        assertEquals(0,
+                progress.path("factoryBags")
+                        .path("verifiedCount").asInt());
+        assertFalse(progress.path("factoryBags")
+                .path("complete").asBoolean());
+        assertEquals("PENDING",
+                progress.path("acceptance").path("status").asText());
+        assertEquals(0,
+                progress.path("acceptance").path("generation").asLong());
+        assertTrue(progress.path("acceptance")
+                .path("currentFailureReasons").isArray());
+        assertTrue(progress.path("acceptance")
+                .path("authoritativeEvidence").isNull());
+        assertTrue(progress.path("acceptance")
+                .path("latestEvidence").isNull());
+        assertTrue(progress.path("acceptanceRequest")
+                .path("taskUid").isNull());
+        assertEquals("NOT_ISSUED",
+                progress.path("seal").path("status").asText());
+        assertEquals("FACTORY_BAGS",
+                progress.path("currentStage").asText());
+        assertEquals("WAITING_OPERATOR",
+                progress.path("status").asText());
+        assertEquals("FACTORY_BAGS_INCOMPLETE",
+                progress.path("blockingCode").asText());
+        assertEquals("SCAN_FACTORY_BAGS",
+                progress.path("nextActionCodes").path(0).asText());
+        assertTrue(progress.path("fetchedAt").isTextual());
+    }
+
+    @Test
+    void factoryProgressCountsOnlyCurrentlyVerifiedFactoryBags()
+            throws Exception {
+        BrowserClient platform = new BrowserClient();
+        login(platform, "/api/v1/web/platform/auth/sessions",
+                platformLogin, PLATFORM_PASSWORD, 201);
+
+        String hardwareSn = "HW-FACTORY-BAGS-" + run;
+        String firstBag = bagCodeService.issue().value();
+        String secondBag = bagCodeService.issue().value();
+        data(write(
+                platform,
+                post("/api/v1/web/platform/device-assets"),
+                UUID.randomUUID(),
+                Map.of(
+                        "hardwareSn", hardwareSn,
+                        "modelCode", "EC-M0",
+                        "productionBatch", "FACTORY-BAGS-" + run,
+                        "expectedPortCount", 2,
+                        "factoryBags", List.of(
+                                Map.of("portNo", 1, "bagCode", firstBag),
+                                Map.of("portNo", 2, "bagCode", secondBag))),
+                201));
+        long assetId = assetId(hardwareSn);
+
+        JsonNode placeholders = factoryProgress(platform, hardwareSn);
+        assertEquals(0, placeholders.path("factoryBags")
+                .path("verifiedCount").asInt());
+        assertFalse(placeholders.path("factoryBags")
+                .path("complete").asBoolean());
+
+        long platformAdminId = jdbc.queryForObject("""
+                        SELECT id FROM iam_platform_admin
+                        WHERE login_name = ?
+                        """, Long.class, platformLogin);
+        String operatorCode = "OP_" + UUID.randomUUID().toString()
+                .replace("-", "").substring(0, 12).toUpperCase();
+        assertEquals(1, jdbc.update("""
+                        INSERT INTO iam_factory_operator (
+                            factory_operator_uid, operator_code,
+                            display_name, enabled, auth_version,
+                            lock_version, created_by_platform_admin_id,
+                            created_at, updated_at
+                        ) VALUES (?, ?, 'Factory progress operator', 1,
+                                  0, 0, ?, UTC_TIMESTAMP(3),
+                                  UTC_TIMESTAMP(3))
+                        """,
+                UUID.randomUUID().toString(),
+                operatorCode,
+                platformAdminId));
+        long operatorId = jdbc.queryForObject("""
+                        SELECT id FROM iam_factory_operator
+                        WHERE operator_code = ?
+                        """, Long.class, operatorCode);
+
+        UUID batchUid = UUID.randomUUID();
+        assertEquals(1, jdbc.update("""
+                        INSERT INTO rec_bag_label_batch (
+                            batch_uid, operation_uid, key_id, label_count,
+                            request_sha256, created_by_platform_admin_id,
+                            created_at
+                        ) VALUES (?, ?, 'K1', 2,
+                                  UNHEX(SHA2(?, 256)), ?, UTC_TIMESTAMP(3))
+                        """,
+                batchUid.toString(),
+                UUID.randomUUID().toString(),
+                "factory-progress-" + run,
+                platformAdminId));
+        long batchId = jdbc.queryForObject("""
+                        SELECT id FROM rec_bag_label_batch
+                        WHERE batch_uid = ?
+                        """, Long.class, batchUid.toString());
+        assertEquals(1, jdbc.update("""
+                        INSERT INTO rec_bag_label_item (
+                            batch_id, sequence_no, bag_code, created_at
+                        ) VALUES (?, 1, ?, UTC_TIMESTAMP(3))
+                        """, batchId, firstBag));
+        assertEquals(1, jdbc.update("""
+                        INSERT INTO rec_bag_label_item (
+                            batch_id, sequence_no, bag_code, created_at
+                        ) VALUES (?, 2, ?, UTC_TIMESTAMP(3))
+                        """, batchId, secondBag));
+
+        long firstLabelId = jdbc.queryForObject("""
+                        SELECT id FROM rec_bag_label_item
+                        WHERE bag_code = ?
+                        """, Long.class, firstBag);
+        long secondLabelId = jdbc.queryForObject("""
+                        SELECT id FROM rec_bag_label_item
+                        WHERE bag_code = ?
+                        """, Long.class, secondBag);
+        verifyFactoryBagFixture(
+                assetId, 1, firstBag, operatorId, firstLabelId);
+        verifyFactoryBagFixture(
+                assetId, 2, secondBag, operatorId, secondLabelId);
+
+        JsonNode verified = factoryProgress(platform, hardwareSn);
+        assertEquals(2, verified.path("factoryBags")
+                .path("verifiedCount").asInt());
+        assertTrue(verified.path("factoryBags")
+                .path("complete").asBoolean());
+
+        assertEquals(1, jdbc.update("""
+                        UPDATE rec_bag_label_claim
+                        SET released_at = UTC_TIMESTAMP(3),
+                            release_reason = 'integration-test-release'
+                        WHERE label_item_id = ?
+                          AND released_at IS NULL
+                        """, secondLabelId));
+        JsonNode released = factoryProgress(platform, hardwareSn);
+        assertEquals(1, released.path("factoryBags")
+                .path("verifiedCount").asInt());
+        assertFalse(released.path("factoryBags")
+                .path("complete").asBoolean());
+    }
+
+    @Test
+    void factoryProgressReturnsOnlyTheCurrentBagSnapshotAcceptanceTask()
+            throws Exception {
+        BrowserClient platform = new BrowserClient();
+        login(platform, "/api/v1/web/platform/auth/sessions",
+                platformLogin, PLATFORM_PASSWORD, 201);
+
+        String hardwareSn = "HW-FACTORY-TASK-" + run;
+        data(write(
+                platform,
+                post("/api/v1/web/platform/device-assets"),
+                UUID.randomUUID(),
+                Map.of(
+                        "hardwareSn", hardwareSn,
+                        "modelCode", "EC-M0",
+                        "productionBatch", "FACTORY-TASK-" + run,
+                        "expectedPortCount", 1),
+                201));
+        long assetId = assetId(hardwareSn);
+        String currentDigest = "b".repeat(64);
+        assertEquals(1, jdbc.update("""
+                        UPDATE dev_device_asset
+                        SET factory_bag_revision = 9,
+                            factory_bag_set_sha256 = UNHEX(?),
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE id = ?
+                        """, currentDigest, assetId));
+
+        LocalDateTime now = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        UUID currentTask = insertAcceptanceRequestTask(
+                assetId, hardwareSn, 9, currentDigest, now);
+        UUID newerButStaleTask = insertAcceptanceRequestTask(
+                assetId, hardwareSn, 8, "a".repeat(64),
+                now.plusSeconds(1));
+
+        JsonNode current = factoryProgress(platform, hardwareSn);
+        assertEquals(currentTask.toString(), current.path("acceptanceRequest")
+                .path("taskUid").asText());
+        assertFalse(newerButStaleTask.toString().equals(current
+                .path("acceptanceRequest").path("taskUid").asText()));
+
+        assertEquals(1, jdbc.update("""
+                        UPDATE dev_device_asset
+                        SET factory_bag_revision = 10,
+                            factory_bag_set_sha256 = UNHEX(?),
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE id = ?
+                        """, "c".repeat(64), assetId));
+        JsonNode noCurrentTask = factoryProgress(platform, hardwareSn);
+        assertTrue(noCurrentTask.path("acceptanceRequest")
+                .path("taskUid").isNull());
+    }
+
+    @Test
     void runtimeViewUsesOneNetLifecycleFactWithoutInventingLiveHealth()
             throws Exception {
         BrowserClient platform = new BrowserClient();
@@ -1130,6 +1359,107 @@ class TargetDeviceMysqlIntegrationTest {
                         """,
                 Integer.class,
                 assetId));
+    }
+
+    private JsonNode factoryProgress(
+            BrowserClient platform,
+            String hardwareSn) throws Exception {
+        return data(read(platform,
+                "/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/factory-progress",
+                200));
+    }
+
+    private void verifyFactoryBagFixture(
+            long assetId,
+            int portNo,
+            String bagCode,
+            long operatorId,
+            long labelId) {
+        assertEquals(1, jdbc.update("""
+                        UPDATE dev_factory_installed_bag
+                        SET installation_source = 'FACTORY_MINIAPP',
+                            installed_by_factory_operator_id = ?,
+                            label_item_id = ?,
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE asset_id = ?
+                          AND port_no = ?
+                          AND bag_code = ?
+                          AND installation_source = 'PLATFORM_CREATE'
+                        """,
+                operatorId,
+                labelId,
+                assetId,
+                portNo,
+                bagCode));
+        assertEquals(1, jdbc.update("""
+                        INSERT INTO rec_bag_label_claim (
+                            claim_uid, label_item_id, claim_kind,
+                            asset_id, port_no,
+                            claimed_by_factory_operator_id,
+                            claimed_at, released_at, release_reason,
+                            created_at
+                        ) VALUES (?, ?, 'FACTORY_INSTALLATION', ?, ?, ?,
+                                  UTC_TIMESTAMP(3), NULL, NULL,
+                                  UTC_TIMESTAMP(3))
+                        """,
+                UUID.randomUUID().toString(),
+                labelId,
+                assetId,
+                portNo,
+                operatorId));
+    }
+
+    private UUID insertAcceptanceRequestTask(
+            long assetId,
+            String hardwareSn,
+            long factoryBagRevision,
+            String factoryBagSetSha256,
+            LocalDateTime taskTime) {
+        UUID challengeUid = UUID.randomUUID();
+        UUID commandUid = UUID.randomUUID();
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("challengeUid", challengeUid.toString());
+        payload.put("expectedPortCount", 1);
+        payload.put("factoryBagRevision", factoryBagRevision);
+        payload.put("factoryBagSetSha256", factoryBagSetSha256);
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("schemaVersion", 2);
+        envelope.put("commandUid", commandUid.toString());
+        envelope.put("commandType", "REQUEST_DEVICE_ACCEPTANCE");
+        envelope.put("targetDeviceName", hardwareSn);
+        envelope.put("target", Map.of(
+                "type", "DEVICE_ASSET",
+                "uid", hardwareSn));
+        envelope.put(
+                "issuedAt", taskTime.toInstant(ZoneOffset.UTC).toString());
+        envelope.put(
+                "expiresAt",
+                taskTime.plusMinutes(10)
+                        .toInstant(ZoneOffset.UTC)
+                        .toString());
+        envelope.put("payloadSchemaVersion", 2);
+        envelope.put(
+                "payloadSha256",
+                OneNetCanonicalJson.payloadSha256(payload));
+        envelope.put("payload", payload);
+        envelope.put("cosGrant", null);
+        return reliableOperationsRepository.insertPlatformDeviceControlTask(
+                assetId,
+                "REQUEST_DEVICE_ACCEPTANCE",
+                "REQUEST_DEVICE_ACCEPTANCE:"
+                        + challengeUid.toString().toUpperCase(),
+                "DEVICE_ASSET",
+                challengeUid.toString(),
+                2,
+                objectMapper.writeValueAsString(envelope),
+                HexFormat.of().parseHex(
+                        OneNetCanonicalJson.payloadSha256(envelope)),
+                challengeUid,
+                commandUid,
+                1000,
+                null,
+                taskTime);
     }
 
     private void seedCurrentAcceptedEvidenceFixture(

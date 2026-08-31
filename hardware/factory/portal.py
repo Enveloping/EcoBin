@@ -20,6 +20,11 @@ import time
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlsplit
 
+from first_boot.factory_flow import (
+    empty_factory_flow_projection,
+    validate_factory_flow_projection,
+)
+
 from .acceptance_portal_client import (
     AcceptancePortalClient,
     AcceptancePortalClientError,
@@ -117,6 +122,7 @@ class SnapshotPaths:
     acceptance_status: Path = Path(
         "/run/ecobin/factory-portal/acceptance.json"
     )
+    factory_flow: Path = Path("/run/ecobin/factory-portal/flow.json")
     camera_review_directory: Path = CAMERA_REVIEW_DIRECTORY
 
 
@@ -139,6 +145,9 @@ class ActionClient(Protocol):
 class SealPortal(Protocol):
     def status(self) -> dict[str, Any]: ...
     def confirm(self, operator_confirmation_uid: str) -> dict[str, Any]: ...
+    def acknowledge_presented(
+        self, operator_confirmation_uid: str
+    ) -> dict[str, Any]: ...
 
 
 def _read_regular_file(path: Path, maximum_bytes: int) -> bytes | None:
@@ -274,6 +283,35 @@ class FactorySealPortalAdapter:
                 HTTPStatus.CONFLICT,
             ) from error
 
+    def acknowledge_presented(
+        self,
+        operator_confirmation_uid: str,
+    ) -> dict[str, Any]:
+        try:
+            from factory_seal.portal_client import (
+                FactorySealPortalError,
+                acknowledge_factory_seal_presented,
+            )
+        except ImportError as error:
+            raise AcceptancePortalClientError(
+                "FACTORY_SEAL_NOT_AVAILABLE", HTTPStatus.SERVICE_UNAVAILABLE
+            ) from error
+        try:
+            return self._validate(
+                acknowledge_factory_seal_presented(
+                    operator_confirmation_uid
+                )
+            )
+        except (FactorySealPortalError, RuntimeError) as error:
+            raise AcceptancePortalClientError(
+                _safe_string(
+                    getattr(error, "code", None),
+                    _SAFE_CODE,
+                    "FACTORY_SEAL_NOT_AVAILABLE",
+                ),
+                HTTPStatus.CONFLICT,
+            ) from error
+
 
 class PortalSnapshotProvider:
     """Build a public projection from an explicit, fixed file allowlist."""
@@ -292,6 +330,12 @@ class PortalSnapshotProvider:
     def snapshot(self) -> dict[str, Any]:
         release = _read_json_object(self._paths.image_release)
         public_status = _read_json_object(self._paths.public_status)
+        try:
+            factory_flow = validate_factory_flow_projection(
+                _read_json_object(self._paths.factory_flow)
+            )
+        except ValueError:
+            factory_flow = empty_factory_flow_projection()
 
         release_id = _safe_string(
             release.get("releaseId", release.get("imageReleaseId")),
@@ -366,7 +410,7 @@ class PortalSnapshotProvider:
             return "NOT_RUN"
 
         return {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "mode": "OFFLINE_FACTORY",
             "readOnly": False,
             "stage": stage,
@@ -417,6 +461,7 @@ class PortalSnapshotProvider:
                 ),
             },
             "factorySeal": seal,
+            "factoryFlow": factory_flow,
             "capabilities": [
                 {
                     "id": "uart5-mcu",
@@ -646,6 +691,21 @@ class PortalApplication:
             return self._json(HTTPStatus.BAD_REQUEST, {"error": "ACTION_JSON_INVALID"})
         if request.get("operation") == "CONFIRM_FACTORY_SEAL":
             return self._confirm_factory_seal(request)
+        if request.get("operation") == "ACK_FACTORY_SEAL_PRESENTED":
+            return self._ack_factory_seal_presented(request)
+        try:
+            seal_status = self._seal_portal.status()
+        except AcceptancePortalClientError:
+            seal_status = {}
+        if seal_status.get("statusCode") in {
+            "SEALED_RESPONSE_PENDING",
+            "SEALED_CLEANUP_PENDING",
+            "SEALED",
+        }:
+            return self._json(
+                HTTPStatus.LOCKED,
+                {"error": "FACTORY_SEAL_ALREADY_COMMITTED"},
+            )
         try:
             result = self._action_client.execute(request)
         except AcceptancePortalClientError as error:
@@ -695,6 +755,36 @@ class PortalApplication:
                     {"error": _safe_string(seal.get("statusCode"), _SAFE_CODE, "FACTORY_SEAL_NOT_AUTHORIZED")},
                 )
             result = self._seal_portal.confirm(uid)
+        except AcceptancePortalClientError as error:
+            return self._json(error.status, {"error": error.code})
+        return self._json(HTTPStatus.OK, {"factorySeal": result})
+
+    def _ack_factory_seal_presented(
+        self,
+        request: dict[str, Any],
+    ) -> PortalResponse:
+        if set(request) != {"operation", "parameters"}:
+            return self._json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "ACTION_REQUEST_INVALID"},
+            )
+        parameters = request.get("parameters")
+        if (
+            not isinstance(parameters, dict)
+            or set(parameters) != {"operatorConfirmationUid"}
+        ):
+            return self._json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "ACTION_PARAMETERS_INVALID"},
+            )
+        uid = parameters.get("operatorConfirmationUid")
+        if not isinstance(uid, str) or _UUID_V4.fullmatch(uid) is None:
+            return self._json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "OPERATOR_CONFIRMATION_UID_INVALID"},
+            )
+        try:
+            result = self._seal_portal.acknowledge_presented(uid)
         except AcceptancePortalClientError as error:
             return self._json(error.status, {"error": error.code})
         return self._json(HTTPStatus.OK, {"factorySeal": result})

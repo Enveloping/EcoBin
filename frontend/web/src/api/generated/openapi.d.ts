@@ -4748,6 +4748,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/factory-progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        /** Read one consistent platform-side factory onboarding and seal progress snapshot */
+        get: operations["getPlatformDeviceFactoryProgress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/device-assets/{hardwareSn}/technical-issues": {
         parameters: {
             query?: never;
@@ -8541,7 +8560,7 @@ export interface components {
         DeviceTechnicalIssue: {
             issueUid: string;
             /** @enum {string} */
-            category: "ACCEPTANCE" | "CONFIGURATION" | "DELIVERY" | "CLEANING" | "BASELINE";
+            category: "ACCEPTANCE" | "FACTORY_SEAL" | "CONFIGURATION" | "DELIVERY" | "CLEANING" | "BASELINE";
             /** @enum {string} */
             state: "AUTO_RETRYING" | "ACTION_REQUIRED" | "RECOVERY_REQUIRED";
             /** @enum {string} */
@@ -8559,7 +8578,86 @@ export interface components {
             automaticAttemptNo: number | null;
             automaticAttemptLimit: number | null;
             occurredAt: components["schemas"]["UtcTimestamp"] | null;
-            nextActions: ("WAIT" | "REEVALUATE_ACCEPTANCE" | "RESYNCHRONIZE_CONFIGURATION" | "PUBLISH_NEW_CONFIGURATION" | "START_MANUAL_BASELINE_MEASUREMENT" | "USER_RESTART_REQUIRED" | "CLEANER_RESTART_REQUIRED" | "CONTACT_SUPPORT")[];
+            nextActions: ("WAIT" | "REEVALUATE_ACCEPTANCE" | "OPEN_RELIABLE_TASK" | "RESOLVE_FACTORY_SEAL_TASK_BLOCKER" | "RESYNCHRONIZE_CONFIGURATION" | "PUBLISH_NEW_CONFIGURATION" | "START_MANUAL_BASELINE_MEASUREMENT" | "USER_RESTART_REQUIRED" | "CLEANER_RESTART_REQUIRED" | "CONTACT_SUPPORT")[];
+        };
+        /** @enum {string} */
+        DeviceFactoryProgressStage: "DEVICE_ASSET" | "FACTORY_BAGS" | "MACHINE_ACCEPTANCE" | "FACTORY_SEAL_AUTHORIZATION" | "END_FACTORY_MODE" | "FACTORY_SEALED";
+        /** @enum {string} */
+        DeviceFactoryProgressStatus: "WAITING_OPERATOR" | "IN_PROGRESS" | "BLOCKED" | "COMPLETED";
+        /** @enum {string} */
+        DeviceFactorySealStatus: "NOT_ISSUED" | "PENDING" | "ACKNOWLEDGED" | "CANCELLED" | "SEALED";
+        /** @enum {string} */
+        DeviceFactoryProgressActionCode: "RESTORE_DEVICE_ASSET" | "SCAN_FACTORY_BAGS" | "VIEW_ACCEPTANCE_FAILURES" | "REEVALUATE_ACCEPTANCE" | "OPEN_RELIABLE_TASK" | "RESOLVE_ACCEPTANCE_TASK_BLOCKER" | "WAIT_FOR_ACCEPTANCE_REQUEST" | "WAIT_FOR_ACCEPTANCE_EVIDENCE" | "WAIT_FOR_FACTORY_SEAL_AUTHORIZATION" | "RESOLVE_FACTORY_SEAL_TASK_BLOCKER" | "WAIT_FOR_FACTORY_SEAL_ACKNOWLEDGEMENT" | "CONFIRM_END_FACTORY_MODE" | "VIEW_FACTORY_SEAL_CANCELLATION" | "CONTACT_SUPPORT";
+        DeviceFactoryBagProgress: {
+            expectedPortCount: number;
+            verifiedCount: number;
+            complete: boolean;
+            /** Format: int64 */
+            revision: number;
+        };
+        DeviceFactoryAcceptanceEvidenceSummary: {
+            evidenceUid: components["schemas"]["UuidV4"];
+            /** @enum {string} */
+            evaluationStatus: "PASSED" | "FAILED";
+            evidenceSha256: components["schemas"]["Sha256Hex"];
+            receivedAt: components["schemas"]["UtcTimestamp"];
+        };
+        DeviceFactoryAcceptanceProgress: {
+            status: components["schemas"]["DeviceAcceptanceStatus"];
+            /** Format: int64 */
+            generation: number;
+            currentFailureReasons: string[];
+            lastEvaluatedAt: components["schemas"]["UtcTimestamp"] | null;
+            acceptedAt: components["schemas"]["UtcTimestamp"] | null;
+            /** @description The evidence resolved only by dev_device_asset.acceptance_evidence_sha256; never substituted with the latest row. */
+            authoritativeEvidence: components["schemas"]["DeviceFactoryAcceptanceEvidenceSummary"] | null;
+            /** @description The latest received evidence for diagnostics; it does not replace authoritativeEvidence. */
+            latestEvidence: components["schemas"]["DeviceFactoryAcceptanceEvidenceSummary"] | null;
+        };
+        DeviceFactoryReliableTaskAttempt: {
+            /** Format: int64 */
+            attemptNo: number | null;
+            /** @enum {string|null} */
+            technicalResult: "TECHNICAL_SUCCESS" | "NO_ACTION_REQUIRED" | "RETRYABLE_FAILURE" | "OUTCOME_UNKNOWN" | "PERMANENT_TECHNICAL_FAILURE" | null;
+            httpStatus: number | null;
+            externalErrorCode: string | null;
+            externalRequestId: string | null;
+            /** @description Already-redacted operational diagnostic. */
+            diagnostic: string | null;
+            recordedAt: components["schemas"]["UtcTimestamp"] | null;
+        };
+        DeviceFactoryReliableTaskProgress: {
+            taskUid: components["schemas"]["UuidV4"] | null;
+            taskState: components["schemas"]["ReliableDeviceDispatchState"] | null;
+            blockedReasonCode: string | null;
+            blockedDiagnostic: string | null;
+            latestAttempt: components["schemas"]["DeviceFactoryReliableTaskAttempt"] | null;
+        };
+        DeviceFactorySealProgress: {
+            status: components["schemas"]["DeviceFactorySealStatus"];
+            /** Format: int64 */
+            generation: number;
+            cancellationReason: string | null;
+            taskUid: components["schemas"]["UuidV4"] | null;
+            taskState: components["schemas"]["ReliableDeviceDispatchState"] | null;
+            blockedReasonCode: string | null;
+            blockedDiagnostic: string | null;
+            latestAttempt: components["schemas"]["DeviceFactoryReliableTaskAttempt"] | null;
+            acknowledgedAt: components["schemas"]["UtcTimestamp"] | null;
+            sealedAt: components["schemas"]["UtcTimestamp"] | null;
+            cleanupCompletedAt: components["schemas"]["UtcTimestamp"] | null;
+            completionReceivedAt: components["schemas"]["UtcTimestamp"] | null;
+        };
+        DeviceFactoryProgress: {
+            factoryBags: components["schemas"]["DeviceFactoryBagProgress"];
+            acceptance: components["schemas"]["DeviceFactoryAcceptanceProgress"];
+            acceptanceRequest: components["schemas"]["DeviceFactoryReliableTaskProgress"];
+            seal: components["schemas"]["DeviceFactorySealProgress"];
+            currentStage: components["schemas"]["DeviceFactoryProgressStage"];
+            status: components["schemas"]["DeviceFactoryProgressStatus"];
+            blockingCode: string | null;
+            nextActionCodes: components["schemas"]["DeviceFactoryProgressActionCode"][];
+            fetchedAt: components["schemas"]["UtcTimestamp"];
         };
         RegisterMcuFirmwareReleaseRequest: {
             releaseUid: components["schemas"]["UuidV4"];
@@ -8818,6 +8916,12 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["DeviceTechnicalIssue"][];
+            requestId: string;
+        };
+        DeviceFactoryProgressEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeviceFactoryProgress"];
             requestId: string;
         };
         BaselineMeasurementAcceptedEnvelope: {
@@ -9865,6 +9969,17 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["DeviceRuntimeEnvelope"];
+            };
+        };
+        /** @description One repeatable-read snapshot of factory bags, authoritative acceptance, reliable tasks, and the current-generation seal */
+        DeviceFactoryProgressOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceFactoryProgressEnvelope"];
             };
         };
         /** @description Current permanent-asset installation profile */
@@ -16344,6 +16459,24 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["DeviceRuntimeOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getPlatformDeviceFactoryProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceFactoryProgressOk"];
             400: components["responses"]["InvalidRequest"];
             401: components["responses"]["UnauthorizedProblem"];
             403: components["responses"]["ForbiddenProblem"];

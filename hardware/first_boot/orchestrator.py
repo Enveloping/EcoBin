@@ -10,6 +10,7 @@ from factory_seal.portal_server import FactorySealPortalServer
 
 from .command import CommandRunner
 from .facts import FactsProvider, SystemFactsProvider
+from .factory_flow import FactoryFlowProjector
 from .model import FirstBootFacts, FirstBootStage
 from .state_machine import gate_allows, reconcile
 from .state_store import FirstBootState, FirstBootStateStore
@@ -123,6 +124,7 @@ class FirstBootOrchestrator:
         actions: StageActions,
         seal_controller: FactorySealController | None = None,
         ap_projector: AccessPointAuthorizationProjector | None = None,
+        flow_projector: FactoryFlowProjector | None = None,
     ) -> None:
         self._facts = facts
         self._state = state
@@ -130,6 +132,7 @@ class FirstBootOrchestrator:
         self._actions = actions
         self._seal_controller = seal_controller
         self._ap_projector = ap_projector
+        self._flow_projector = flow_projector
 
     def run_once(self) -> FirstBootState:
         cleanup_result = "NO_SEAL"
@@ -143,7 +146,15 @@ class FirstBootOrchestrator:
                 cleanup_result = "SEALED_CLEANUP_FAILED"
         observations = self._facts.collect()
         if self._ap_projector is not None:
-            self._ap_projector.publish(observations)
+            response_hold = bool(
+                cleanup_result == "SEALED_RESPONSE_PENDING"
+                and self._seal_controller is not None
+                and self._seal_controller.response_hold_active()
+            )
+            self._ap_projector.publish(
+                observations,
+                allow_sealed_response=response_hold,
+            )
         load_error = "NONE"
         try:
             previous = self._state.load()
@@ -165,6 +176,7 @@ class FirstBootOrchestrator:
             last_error_code=error_code,
         )
         self._projector.publish(decision.stage, observations, error_code=error_code)
+        self._publish_flow(decision.stage, observations, error_code)
         action_error = (
             "NONE"
             if cleanup_blocks_actions
@@ -181,7 +193,40 @@ class FirstBootOrchestrator:
                 observations,
                 error_code=action_error,
             )
+            self._publish_flow(decision.stage, observations, action_error)
         return saved
+
+    def _publish_flow(
+        self,
+        stage: FirstBootStage,
+        facts: FirstBootFacts,
+        error_code: str,
+    ) -> None:
+        if self._flow_projector is None:
+            return
+        seal: dict[str, object] = {
+            "authorized": False,
+            "confirmAllowed": False,
+            "statusCode": "FACTORY_SEAL_NOT_AVAILABLE",
+            "acceptanceGeneration": None,
+            "authorizationBindingSha256": None,
+        }
+        if self._seal_controller is not None:
+            try:
+                seal = self._seal_controller.status()
+            except Exception:
+                pass
+        try:
+            self._flow_projector.publish(
+                stage,
+                facts,
+                error_code=error_code,
+                seal=seal,
+            )
+        except Exception:
+            # A diagnostic projection can become unavailable, but it must not
+            # alter the authoritative first-boot or one-way seal state machine.
+            return
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -208,6 +253,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         SystemdStageActions(),
         seal_controller,
         AccessPointAuthorizationProjector(group_id=group_id),
+        FactoryFlowProjector(group_id=group_id),
     )
     if args.once:
         try:
@@ -227,7 +273,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         while not stopping:
             orchestrator.run_once()
-            end = time.monotonic() + args.interval_seconds
+            interval_seconds = (
+                min(args.interval_seconds, 0.25)
+                if seal_controller.response_hold_active()
+                else args.interval_seconds
+            )
+            end = time.monotonic() + interval_seconds
             while not stopping and time.monotonic() < end:
                 time.sleep(min(0.25, end - time.monotonic()))
         return 0

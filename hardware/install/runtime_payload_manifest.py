@@ -23,6 +23,7 @@ RUNTIME_APP_FILES = (
     "edge_store_prepare.py",
     "fixed_frame_health_recovery.py",
     "fixed_frame_mcu_adapter.py",
+    "factory_progress.py",
     "factory_seal/__init__.py",
     "factory_seal/admission.py",
     "factory_seal/errors.py",
