@@ -82,6 +82,8 @@ class CellularHealth:
     default_route_ready: bool = False
     dns_ready: bool = False
     https_ready: bool = False
+    diagnostic_code: str | None = None
+    diagnostic_elapsed_ms: int | None = None
 
 
 class SysfsUsbNetworkInventory:
@@ -185,15 +187,19 @@ class CellularProbe:
                 ipv4=ipv4,
                 dhcp=True,
             )
-        if not self._dns_is_bound(device.interface):
+        dns_result = self._dns_probe(device.interface)
+        if dns_result.return_code != 0:
             return self._base(
                 device,
                 "CELLULAR_DNS_UNAVAILABLE",
                 ipv4=ipv4,
                 dhcp=True,
                 route=True,
+                diagnostic_code=_command_diagnostic("RESOLVECTL", dns_result),
+                diagnostic_elapsed_ms=dns_result.elapsed_ms,
             )
-        if not self._https_is_bound(device.interface):
+        https_result = self._https_probe(device.interface)
+        if https_result.return_code != 0:
             return self._base(
                 device,
                 "CELLULAR_HTTPS_UNAVAILABLE",
@@ -201,6 +207,8 @@ class CellularProbe:
                 dhcp=True,
                 route=True,
                 dns=True,
+                diagnostic_code=_command_diagnostic("CURL", https_result),
+                diagnostic_elapsed_ms=https_result.elapsed_ms,
             )
         return CellularHealth(
             ready=True,
@@ -225,6 +233,8 @@ class CellularProbe:
         dhcp: bool = False,
         route: bool = False,
         dns: bool = False,
+        diagnostic_code: str | None = None,
+        diagnostic_elapsed_ms: int | None = None,
     ) -> CellularHealth:
         return CellularHealth(
             False,
@@ -237,6 +247,8 @@ class CellularProbe:
             dhcp_ready=dhcp,
             default_route_ready=route,
             dns_ready=dns,
+            diagnostic_code=diagnostic_code,
+            diagnostic_elapsed_ms=diagnostic_elapsed_ms,
         )
 
     def _ipv4_address(self, interface: str) -> str | None:
@@ -292,8 +304,8 @@ class CellularProbe:
         )
         return has_bound_default and selected_bound
 
-    def _dns_is_bound(self, interface: str) -> bool:
-        result = self._run(
+    def _dns_probe(self, interface: str) -> CommandResult:
+        return self._run(
             (
                 "/usr/bin/resolvectl",
                 "query",
@@ -303,10 +315,9 @@ class CellularProbe:
                 self._config.https_probe_host,
             )
         )
-        return result.return_code == 0
 
-    def _https_is_bound(self, interface: str) -> bool:
-        result = self._run(
+    def _https_probe(self, interface: str) -> CommandResult:
+        return self._run(
             (
                 "/usr/bin/curl",
                 "--fail",
@@ -324,7 +335,14 @@ class CellularProbe:
             ),
             timeout=12,
         )
-        return result.return_code == 0
 
     def _run(self, argv: tuple[str, ...], *, timeout: float = 5) -> CommandResult:
         return self._runner.run(argv, timeout_seconds=timeout)
+
+
+def _command_diagnostic(command: str, result: CommandResult) -> str:
+    if result.failure_kind is not None:
+        return f"{command}_{result.failure_kind}"
+    if result.return_code < 0:
+        return f"{command}_SIGNAL_{-result.return_code}"
+    return f"{command}_EXIT_{result.return_code}"

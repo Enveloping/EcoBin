@@ -4,7 +4,8 @@ from dataclasses import dataclass
 import os
 import re
 import subprocess
-from typing import Sequence
+import time
+from typing import Literal, Sequence
 
 
 _LONG_DIGITS = re.compile(r"(?<!\d)\d{15,22}(?!\d)")
@@ -15,6 +16,8 @@ _MAX_CAPTURE = 64 * 1024
 class CommandResult:
     return_code: int
     stdout: str
+    elapsed_ms: int | None = None
+    failure_kind: Literal["TIMEOUT", "EXEC_ERROR"] | None = None
 
 
 def redact_command_output(raw: bytes) -> str:
@@ -30,6 +33,7 @@ class CommandRunner:
             raise ValueError("external command must use an absolute executable path")
         if not 0 < timeout_seconds <= 30:
             raise ValueError("external command timeout is invalid")
+        started = time.monotonic()
         try:
             completed = subprocess.run(
                 list(argv),
@@ -45,8 +49,24 @@ class CommandRunner:
                     "LC_ALL": "C.UTF-8",
                 },
             )
-        except (OSError, subprocess.TimeoutExpired):
-            return CommandResult(124, "")
+        except subprocess.TimeoutExpired:
+            return CommandResult(
+                124,
+                "",
+                max(0, int((time.monotonic() - started) * 1000)),
+                "TIMEOUT",
+            )
+        except OSError:
+            return CommandResult(
+                124,
+                "",
+                max(0, int((time.monotonic() - started) * 1000)),
+                "EXEC_ERROR",
+            )
         # stderr is intentionally discarded.  Callers expose stable error
         # codes only, never command text or modem identifiers.
-        return CommandResult(completed.returncode, redact_command_output(completed.stdout))
+        return CommandResult(
+            completed.returncode,
+            redact_command_output(completed.stdout),
+            max(0, int((time.monotonic() - started) * 1000)),
+        )

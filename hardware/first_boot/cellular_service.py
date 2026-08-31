@@ -29,6 +29,12 @@ from factory_seal.validation import FactorySealPaths, inspect_sealed_authorizati
 
 
 PROFILE_PATH = Path("/etc/NetworkManager/system-connections/ecobin-air780e.nmconnection")
+_PRODUCTION_LIVENESS_FAILURES = frozenset(
+    {
+        "CELLULAR_DNS_UNAVAILABLE",
+        "CELLULAR_HTTPS_UNAVAILABLE",
+    }
+)
 
 
 def _emit_status_transition(message: str) -> None:
@@ -67,7 +73,40 @@ class CellularResultReporter:
         return self._store.read()
 
 
-def run_once() -> str:
+class CellularProbeDiagnosticReporter:
+    """Log bounded probe diagnostics only when their stable identity changes."""
+
+    def __init__(
+        self,
+        *,
+        emit: Callable[[str], None] = _emit_status_transition,
+    ) -> None:
+        self._emit = emit
+        self._last_observation: tuple[str, str | None] | None = None
+
+    def report(
+        self,
+        result_code: str,
+        diagnostic_code: str | None,
+        elapsed_ms: int | None,
+    ) -> None:
+        observation = (result_code, diagnostic_code)
+        if observation == self._last_observation:
+            return
+        self._last_observation = observation
+        if diagnostic_code is None:
+            return
+        elapsed = elapsed_ms if elapsed_ms is not None else "UNKNOWN"
+        self._emit(
+            f"ecobin-cellular-probe result={result_code} "
+            f"diagnostic={diagnostic_code} elapsedMs={elapsed}"
+        )
+
+
+def run_once(
+    *,
+    probe_diagnostic: Callable[[str, str | None, int | None], None] | None = None,
+) -> str:
     seal_paths = FactorySealPaths()
     seal_fact = inspect_sealed_authorization(seal_paths)
     if seal_fact.exists and not seal_fact.valid:
@@ -135,8 +174,26 @@ def run_once() -> str:
         if not health.ready:
             health = probe.probe()
     if not health.ready:
-        apply_emergency_uplink_lock()
+        if probe_diagnostic is not None:
+            probe_diagnostic(
+                health.error_code,
+                health.diagnostic_code,
+                health.diagnostic_elapsed_ms,
+            )
+        # A valid sealed device already has the narrow, verified PRODUCTION
+        # policy installed.  DNS/HTTPS liveness misses are availability facts,
+        # not evidence that this policy or the selected RNDIS identity became
+        # unsafe.  Keep the policy so an established MQTT/maintenance session
+        # can recover; the returned error still blocks first-boot progression.
+        # Factory mode and every structural/policy failure remain fail-closed.
+        if not (
+            firewall_mode == "PRODUCTION"
+            and health.error_code in _PRODUCTION_LIVENESS_FAILURES
+        ):
+            apply_emergency_uplink_lock()
         return health.error_code
+    if probe_diagnostic is not None:
+        probe_diagnostic("NONE", None, None)
     return "NONE"
 
 
@@ -148,8 +205,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not 5 <= args.interval_seconds <= 300:
         parser.error("--interval-seconds must be between 5 and 300")
     reporter = CellularResultReporter()
+    diagnostic_reporter = CellularProbeDiagnosticReporter()
     if args.once:
-        result = run_once()
+        result = run_once(probe_diagnostic=diagnostic_reporter.report)
         reporter.report(result)
         return 0 if result == "NONE" else 1
     stopping = False
@@ -161,7 +219,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     while not stopping:
-        reporter.report(run_once())
+        reporter.report(
+            run_once(probe_diagnostic=diagnostic_reporter.report)
+        )
         end = time.monotonic() + args.interval_seconds
         while not stopping and time.monotonic() < end:
             time.sleep(min(0.5, end - time.monotonic()))

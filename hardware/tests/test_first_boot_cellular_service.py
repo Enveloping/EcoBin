@@ -370,6 +370,140 @@ def test_dns_failure_does_not_attempt_clock_synchronisation(
     assert emergency == [True]
 
 
+@pytest.mark.parametrize(
+    ("error_code", "dns_ready", "diagnostic_code", "elapsed_ms"),
+    (
+        (
+            "CELLULAR_DNS_UNAVAILABLE",
+            False,
+            "RESOLVECTL_EXIT_1",
+            37,
+        ),
+        (
+            "CELLULAR_HTTPS_UNAVAILABLE",
+            True,
+            "CURL_EXIT_28",
+            10_004,
+        ),
+    ),
+)
+def test_live_connectivity_failure_keeps_verified_production_firewall(
+    monkeypatch: pytest.MonkeyPatch,
+    error_code: str,
+    dns_ready: bool,
+    diagnostic_code: str,
+    elapsed_ms: int,
+) -> None:
+    """A liveness miss must not replace an already-verified narrow policy."""
+
+    monkeypatch.setattr(
+        cellular_service,
+        "inspect_sealed_authorization",
+        lambda _paths: SimpleNamespace(exists=True, valid=True),
+    )
+    modes: list[str] = []
+    _install_happy_path(monkeypatch, _accepted(time_trusted=True), modes)
+    monkeypatch.setattr(
+        cellular_service,
+        "CellularProbe",
+        lambda _config, _inventory: SimpleNamespace(
+            probe=lambda: SimpleNamespace(
+                ready=False,
+                error_code=error_code,
+                dns_ready=dns_ready,
+                diagnostic_code=diagnostic_code,
+                diagnostic_elapsed_ms=elapsed_ms,
+            )
+        ),
+    )
+    emergency: list[bool] = []
+    monkeypatch.setattr(
+        cellular_service,
+        "apply_emergency_uplink_lock",
+        lambda: emergency.append(True) or True,
+    )
+    diagnostics: list[tuple[str, str | None, int | None]] = []
+
+    assert [
+        cellular_service.run_once(
+            probe_diagnostic=lambda *values: diagnostics.append(values)
+        )
+        for _ in range(3)
+    ] == [error_code] * 3
+    assert modes == ["enxcell0:PRODUCTION"] * 3
+    assert emergency == []
+    assert diagnostics == [(error_code, diagnostic_code, elapsed_ms)] * 3
+
+
+def test_https_failure_still_fails_closed_before_seal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cellular_service,
+        "inspect_sealed_authorization",
+        lambda _paths: SimpleNamespace(exists=False, valid=False),
+    )
+    modes: list[str] = []
+    _install_happy_path(monkeypatch, _accepted(time_trusted=True), modes)
+    monkeypatch.setattr(
+        cellular_service,
+        "CellularProbe",
+        lambda _config, _inventory: SimpleNamespace(
+            probe=lambda: SimpleNamespace(
+                ready=False,
+                error_code="CELLULAR_HTTPS_UNAVAILABLE",
+                dns_ready=True,
+            )
+        ),
+    )
+    emergency: list[bool] = []
+    monkeypatch.setattr(
+        cellular_service,
+        "apply_emergency_uplink_lock",
+        lambda: emergency.append(True) or True,
+    )
+
+    assert cellular_service.run_once() == "CELLULAR_HTTPS_UNAVAILABLE"
+    assert modes == ["enxcell0:FACTORY"]
+    assert emergency == [True]
+
+
+def test_non_liveness_probe_failure_still_fails_closed_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cellular_service,
+        "inspect_sealed_authorization",
+        lambda _paths: SimpleNamespace(exists=True, valid=True),
+    )
+    modes: list[str] = []
+    _install_happy_path(monkeypatch, _accepted(time_trusted=True), modes)
+    monkeypatch.setattr(
+        cellular_service,
+        "CellularProbe",
+        lambda _config, _inventory: SimpleNamespace(
+            probe=lambda: SimpleNamespace(
+                ready=False,
+                error_code="CELLULAR_DEFAULT_ROUTE_WRONG_INTERFACE",
+                dns_ready=False,
+            )
+        ),
+    )
+    emergency: list[bool] = []
+    monkeypatch.setattr(
+        cellular_service,
+        "apply_emergency_uplink_lock",
+        lambda: emergency.append(True) or True,
+    )
+
+    assert (
+        cellular_service.run_once()
+        == "CELLULAR_DEFAULT_ROUTE_WRONG_INTERFACE"
+    )
+    assert modes == ["enxcell0:PRODUCTION"]
+    assert emergency == [True]
+
+
 def test_result_reporter_persists_every_cycle_but_logs_only_transitions(
     tmp_path: Path,
 ) -> None:
@@ -388,3 +522,68 @@ def test_result_reporter_persists_every_cycle_but_logs_only_transitions(
         "ecobin-cellular-uplink result=CHRONY_ONLINE_FAILED statusProjection=OK",
         "ecobin-cellular-uplink result=NONE statusProjection=OK",
     ]
+
+
+def test_probe_diagnostic_reporter_logs_safe_details_only_on_transitions() -> None:
+    messages: list[str] = []
+    reporter = cellular_service.CellularProbeDiagnosticReporter(
+        emit=messages.append
+    )
+
+    reporter.report("CELLULAR_HTTPS_UNAVAILABLE", "CURL_EXIT_28", 10_004)
+    reporter.report("CELLULAR_HTTPS_UNAVAILABLE", "CURL_EXIT_28", 9_500)
+    reporter.report("NONE", None, None)
+    reporter.report("CELLULAR_HTTPS_UNAVAILABLE", "CURL_EXIT_28", 8_000)
+
+    assert messages == [
+        (
+            "ecobin-cellular-probe result=CELLULAR_HTTPS_UNAVAILABLE "
+            "diagnostic=CURL_EXIT_28 elapsedMs=10004"
+        ),
+        (
+            "ecobin-cellular-probe result=CELLULAR_HTTPS_UNAVAILABLE "
+            "diagnostic=CURL_EXIT_28 elapsedMs=8000"
+        ),
+    ]
+
+
+def test_main_once_wires_probe_diagnostic_reporter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    diagnostics: list[tuple[str, str | None, int | None]] = []
+    results: list[str] = []
+
+    class DiagnosticReporter:
+        def report(
+            self,
+            result_code: str,
+            diagnostic_code: str | None,
+            elapsed_ms: int | None,
+        ) -> None:
+            diagnostics.append((result_code, diagnostic_code, elapsed_ms))
+
+    class ResultReporter:
+        def report(self, result_code: str) -> None:
+            results.append(result_code)
+
+    def run_once(
+        *,
+        probe_diagnostic: Callable[[str, str | None, int | None], None] | None,
+    ) -> str:
+        assert probe_diagnostic is not None
+        probe_diagnostic("CELLULAR_HTTPS_UNAVAILABLE", "CURL_TIMEOUT", 12_000)
+        return "CELLULAR_HTTPS_UNAVAILABLE"
+
+    monkeypatch.setattr(
+        cellular_service,
+        "CellularProbeDiagnosticReporter",
+        DiagnosticReporter,
+    )
+    monkeypatch.setattr(cellular_service, "CellularResultReporter", ResultReporter)
+    monkeypatch.setattr(cellular_service, "run_once", run_once)
+
+    assert cellular_service.main(["--once"]) == 1
+    assert diagnostics == [
+        ("CELLULAR_HTTPS_UNAVAILABLE", "CURL_TIMEOUT", 12_000)
+    ]
+    assert results == ["CELLULAR_HTTPS_UNAVAILABLE"]

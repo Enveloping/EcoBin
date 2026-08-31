@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 
 import pytest
 
@@ -17,7 +18,7 @@ from first_boot.cellular_probe import (
     SimState,
     UsbNetworkDevice,
 )
-from first_boot.command import CommandResult, redact_command_output
+from first_boot.command import CommandResult, CommandRunner, redact_command_output
 from first_boot.network_manager import (
     NetworkManagerActivator,
     install_network_manager_profile,
@@ -155,6 +156,61 @@ def test_verified_rndis_dhcp_route_dns_and_https_are_all_required() -> None:
     assert not any("RNDISCALL" in " ".join(call[0]) for call in runner.calls)
 
 
+@pytest.mark.parametrize(
+    (
+        "failed_binary",
+        "return_code",
+        "elapsed_ms",
+        "error_code",
+        "diagnostic_code",
+    ),
+    (
+        (
+            "/usr/bin/resolvectl",
+            1,
+            37,
+            "CELLULAR_DNS_UNAVAILABLE",
+            "RESOLVECTL_EXIT_1",
+        ),
+        (
+            "/usr/bin/curl",
+            28,
+            10_004,
+            "CELLULAR_HTTPS_UNAVAILABLE",
+            "CURL_EXIT_28",
+        ),
+    ),
+)
+def test_live_probe_failure_exposes_only_safe_exit_diagnostics(
+    failed_binary: str,
+    return_code: int,
+    elapsed_ms: int,
+    error_code: str,
+    diagnostic_code: str,
+) -> None:
+    class DiagnosticRunner(_Runner):
+        def run(
+            self, argv: tuple[str, ...], *, timeout_seconds: float
+        ) -> CommandResult:
+            command = tuple(argv)
+            if command[0] == failed_binary:
+                self.calls.append((command, timeout_seconds))
+                return CommandResult(return_code, "discarded output", elapsed_ms)
+            return super().run(command, timeout_seconds=timeout_seconds)
+
+    health = CellularProbe(
+        _config(),
+        _Inventory(_device()),
+        runner=DiagnosticRunner(),
+    ).probe()
+
+    assert not health.ready
+    assert health.error_code == error_code
+    assert health.diagnostic_code == diagnostic_code
+    assert health.diagnostic_elapsed_ms == elapsed_ms
+    assert "discarded" not in diagnostic_code
+
+
 def test_usb_ids_are_diagnostics_and_do_not_require_batch_configuration() -> None:
     runner = _Runner()
     health = CellularProbe(
@@ -238,6 +294,90 @@ def test_command_output_redacts_full_length_subscriber_identifiers() -> None:
     assert "460001234567890" not in output
     assert output.count("[REDACTED]") == 2
     assert "192.168.5.2" in output
+
+
+def test_command_runner_records_elapsed_time_for_completed_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ticks = iter((100.0, 100.125))
+    monkeypatch.setattr("first_boot.command.time.monotonic", lambda: next(ticks))
+    monkeypatch.setattr(
+        "first_boot.command.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            ["/usr/bin/true"],
+            0,
+            stdout=b"ok",
+            stderr=b"",
+        ),
+    )
+
+    result = CommandRunner().run(["/usr/bin/true"], timeout_seconds=1)
+
+    assert result.return_code == 0
+    assert result.stdout == "ok"
+    assert result.elapsed_ms == 125
+    assert result.failure_kind is None
+
+
+@pytest.mark.parametrize(
+    ("failure", "failure_kind"),
+    (
+        (subprocess.TimeoutExpired("/usr/bin/true", 1), "TIMEOUT"),
+        (OSError("execution denied"), "EXEC_ERROR"),
+    ),
+)
+def test_command_runner_distinguishes_timeout_from_execution_error(
+    monkeypatch: pytest.MonkeyPatch,
+    failure: BaseException,
+    failure_kind: str,
+) -> None:
+    ticks = iter((200.0, 200.5))
+    monkeypatch.setattr("first_boot.command.time.monotonic", lambda: next(ticks))
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise failure
+
+    monkeypatch.setattr("first_boot.command.subprocess.run", fail)
+
+    result = CommandRunner().run(["/usr/bin/true"], timeout_seconds=1)
+
+    assert result.return_code != 0
+    assert result.stdout == ""
+    assert result.elapsed_ms == 500
+    assert result.failure_kind == failure_kind
+
+
+@pytest.mark.parametrize(
+    ("failed_binary", "failure_kind", "diagnostic_code"),
+    (
+        ("/usr/bin/resolvectl", "TIMEOUT", "RESOLVECTL_TIMEOUT"),
+        ("/usr/bin/curl", "EXEC_ERROR", "CURL_EXEC_ERROR"),
+    ),
+)
+def test_live_probe_diagnostic_distinguishes_command_failure_kind(
+    failed_binary: str,
+    failure_kind: str,
+    diagnostic_code: str,
+) -> None:
+    class FailureRunner(_Runner):
+        def run(
+            self, argv: tuple[str, ...], *, timeout_seconds: float
+        ) -> CommandResult:
+            command = tuple(argv)
+            if command[0] == failed_binary:
+                self.calls.append((command, timeout_seconds))
+                return CommandResult(124, "", 5_000, failure_kind)
+            return super().run(command, timeout_seconds=timeout_seconds)
+
+    health = CellularProbe(
+        _config(),
+        _Inventory(_device()),
+        runner=FailureRunner(),
+    ).probe()
+
+    assert not health.ready
+    assert health.diagnostic_code == diagnostic_code
+    assert health.diagnostic_elapsed_ms == 5_000
 
 
 def test_nm_profile_is_deterministic_and_never_autoconnects(tmp_path: Path) -> None:
