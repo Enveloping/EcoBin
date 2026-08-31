@@ -4,6 +4,7 @@ from http import HTTPStatus
 import io
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 import pytest
@@ -27,6 +28,8 @@ from factory.portal import (
     security_headers,
 )
 from factory_seal.errors import FactorySealPortalError
+from first_boot.factory_flow import _SEAL_STATUS_CODES
+from first_boot.model import FactoryTestStatus, FirstBootStage
 
 
 class FixedSnapshot:
@@ -830,6 +833,134 @@ def test_factory_web_describes_runtime_transport_progress_codes() -> None:
         "MQTT_FAILED",
     ):
         assert code in app
+
+
+def test_factory_web_uses_operator_language_for_the_visible_flow() -> None:
+    """Machine codes stay in the contract, but the operator flow must translate them."""
+
+    web = Path(__file__).parents[1] / "factory" / "web"
+    index = (web / "index.html").read_text(encoding="utf-8")
+    app = (web / "app.js").read_text(encoding="utf-8")
+
+    assert "P7" not in index
+    assert "P8" not in index
+    assert re.search(r"P[78](?![A-Z0-9_])", app) is None
+    assert 'status.stage || "UNKNOWN"' not in app
+    assert 'status.factoryTest?.status || "NOT_RUN"' not in app
+    assert 'status.factorySeal?.statusCode || "UNKNOWN"' not in app
+    assert 'factory.phase || "待操作"' not in app
+    assert '${recovery.context || "UNKNOWN"}' not in app
+    assert "STEP_LABELS[step.id] || step.id" not in app
+    assert 'byId("diagnostics").open = true' not in app
+    assert "错误码 ${problem.code}" not in app
+    assert 'id="last-error-code"' in index
+    assert 'id="flow-error-code"' in index
+    assert "FIRST_BOOT_STAGE_LABELS" in app
+    assert "FACTORY_TEST_STATUS_LABELS" in app
+    assert "FACTORY_SEAL_STATUS_LABELS" in app
+    assert "FACTORY_PHASE_LABELS" in app
+    assert 'EVIDENCE_CONFIRMED: "后台已确认验收信息"' in app
+    assert "actionErrorDescription(error.message)" in app
+    assert 'releaseId === "UNKNOWN"' in app
+    assert 'technicalCodeText(problem?.code)' in app
+    assert 'step.state === "BLOCKED"' in app
+    assert re.search(
+        r'step\.errorCode\s*&&\s*step\.errorCode !== "NONE"',
+        app,
+    )
+    describe_error = re.search(
+        r"function describeError\(node\) \{(.*?)\n\}",
+        app,
+        re.DOTALL,
+    )
+    assert describe_error is not None
+    assert "blockedStepProblem(node)" in describe_error.group(1)
+    assert "factoryRecoveryProblem(node)" in describe_error.group(1)
+    assert "factoryTest?.recovery" in app
+    assert "factoryTest.recovery.resultCode" in app
+    assert (
+        'LEGACY_ACTION_SAFETY_FAILURE_READY: "旧检查记录缺少现场安全确认，'
+        '请先保存本轮失败报告"'
+    ) in app
+    assert 'code === "CELLULAR_PROFILE_INSTALL_FAILED"' in app
+    assert 'code === "CELLULAR_ACTIVATION_FAILED"' in app
+    assert "存储空间、文件系统和权限" in app
+    assert "联网模式或驱动与当前镜像不匹配" in app
+
+    def object_keys(name: str) -> set[str]:
+        match = re.search(
+            rf"const {name} = Object\.freeze\(\{{(.*?)\}}\);",
+            app,
+            re.DOTALL,
+        )
+        assert match is not None, name
+        return set(re.findall(r"^\s{2}([A-Z0-9_]+):", match.group(1), re.MULTILINE))
+
+    seal_labels = object_keys("FACTORY_SEAL_STATUS_LABELS")
+    assert _SEAL_STATUS_CODES <= seal_labels
+    assert {stage.value for stage in FirstBootStage} <= object_keys(
+        "FIRST_BOOT_STAGE_LABELS"
+    )
+    assert {status.value for status in FactoryTestStatus} <= object_keys(
+        "FACTORY_TEST_STATUS_LABELS"
+    )
+
+    error_labels = object_keys("ERROR_DESCRIPTIONS")
+    assert {
+        "FACTORY_TEST_FAILED",
+        "FACTORY_STATE_INVALID",
+        "FACTORY_RECOVERY_REQUIRED",
+        "FACTORY_REPORT_INVALID",
+        "IMAGE_RELEASE_INVALID",
+        "FACTORY_SEAL_LOCAL_FACT_CHANGED",
+        "ENROLLMENT_CLEANUP_REQUIRED",
+        "DEVICE_CREDENTIALS_INVALID",
+        "DEVICE_CAPABILITIES_INVALID",
+        "MAINTENANCE_BUSY",
+        "SYSTEM_FACTS_INVALID",
+        "FACTORY_TEST_GATE_CLOSED",
+        "TIME_NOT_TRUSTED",
+        "MCU_RESET_LINE_REQUIRED_FOR_RECOVERY",
+        "APPLICATION_RECOVERY_FAILED",
+    } <= error_labels
+    assert {
+        "CELLULAR_CONFIG_MISSING",
+        "CELLULAR_CONFIG_NOT_REGULAR",
+        "CELLULAR_CONFIG_PERMISSIONS",
+        "CELLULAR_CONFIG_SIZE",
+        "CELLULAR_CONFIG_ENCODING",
+        "CELLULAR_CONFIG_SYNTAX",
+        "CELLULAR_CONFIG_FIELDS",
+        "CELLULAR_CONFIG_VALUE",
+        "CELLULAR_CONFIG_SCHEMA",
+        "CELLULAR_HIL_LOCKED",
+        "CELLULAR_APN_MODE_UNSUPPORTED",
+        "CELLULAR_CONNECTION_ID_INVALID",
+        "CELLULAR_USB_DRIVER_UNKNOWN",
+        "CELLULAR_USB_PROFILE_UNKNOWN",
+        "CELLULAR_PROBE_IPV4_INVALID",
+        "CELLULAR_HTTPS_PROBE_INVALID",
+        "CELLULAR_RNDIS_AMBIGUOUS",
+        "CELLULAR_USB_PARENT_UNVERIFIED",
+        "CELLULAR_USB_DRIVER_MISMATCH",
+        "CELLULAR_RNDIS_UNAVAILABLE",
+        "CELLULAR_INTERFACE_INVALID",
+        "CELLULAR_SIM_ABSENT",
+        "CELLULAR_SIM_LOCKED",
+        "CELLULAR_DHCP_UNAVAILABLE",
+        "CELLULAR_DEFAULT_ROUTE_WRONG_INTERFACE",
+        "CELLULAR_DNS_UNAVAILABLE",
+        "CELLULAR_HTTPS_UNAVAILABLE",
+        "CELLULAR_PROFILE_INSTALL_FAILED",
+        "CELLULAR_ACTIVATION_FAILED",
+        "CELLULAR_EGRESS_GATE_FAILED",
+    } <= error_labels
+
+    phase_labels = object_keys("FACTORY_PHASE_LABELS")
+    assert {
+        "DELIVERY_SAFE_VERIFIED",
+        "LEGACY_ACTION_SAFETY_FAILURE_READY",
+    } <= phase_labels
 
 
 def test_server_builder_uses_only_the_fixed_ap_address() -> None:

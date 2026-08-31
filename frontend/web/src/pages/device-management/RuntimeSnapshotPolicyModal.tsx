@@ -17,9 +17,9 @@ import {
   releasePlatformRuntimeSnapshotPolicy,
   type RuntimeSnapshotPolicy,
 } from '@/api/deviceDirectory';
-import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { formatShanghaiTime } from '@/utils/decimal';
+import { operatorErrorMessage } from './operatorErrorPresentation';
 
 interface Props {
   open: boolean;
@@ -32,13 +32,17 @@ interface FormValues {
 }
 
 function errorText(error: unknown) {
-  if (error instanceof ApiProblem) {
-    return error.requestId
-      ? `${error.message}（请求 ID：${error.requestId}）`
-      : error.message;
-  }
-  return error instanceof Error ? error.message : '运行快照策略操作失败';
+  return operatorErrorMessage(
+    error,
+    '设备状态上报设置未完成，请稍后再试',
+  );
 }
+
+const rolloutLabels: Record<RuntimeSnapshotPolicy['rolloutStatus'], string> = {
+  PENDING: '等待生成设备设置',
+  RUNNING: '正在生成设备设置',
+  DONE: '本轮设备设置已生成',
+};
 
 export default function RuntimeSnapshotPolicyModal({ open, onClose }: Props) {
   const [form] = Form.useForm<FormValues>();
@@ -119,7 +123,7 @@ export default function RuntimeSnapshotPolicyModal({ open, onClose }: Props) {
       );
       setPolicy(released);
       form.setFieldValue('reason', '');
-      message.success('全局策略已发布，系统正在自动生成并下发设备配置');
+      message.success('设置已发布，系统正在为各设备生成对应配置');
     } catch (error) {
       message.error(errorText(error));
     } finally {
@@ -130,10 +134,10 @@ export default function RuntimeSnapshotPolicyModal({ open, onClose }: Props) {
 
   return (
     <Modal
-      title="运行快照策略"
+      title="设备状态定期上报策略"
       open={open}
       width={760}
-      okText="发布全局策略"
+      okText="发布设置"
       cancelText="关闭"
       confirmLoading={submitting}
       okButtonProps={{ disabled: loading || !policy }}
@@ -144,8 +148,8 @@ export default function RuntimeSnapshotPolicyModal({ open, onClose }: Props) {
       <Alert
         showIcon
         type="info"
-        message="这是诊断快照的空闲兜底周期，不是设备在线心跳"
-        description="OneNet 上下线事件仍是在线状态的唯一来源。设备启动、MQTT 重连和实际状态变化会另外及时上报；平台不会清理已有历史数据。"
+        message="这是设备空闲时的定期状态上报，不用于判断设备是否在线"
+        description="设备是否在线以物联网平台的通知为准。设备启动、重新连接云端或状态发生变化时也会立即上报；已有历史记录不会被清理。"
         style={{ marginBottom: 16 }}
       />
 
@@ -161,9 +165,9 @@ export default function RuntimeSnapshotPolicyModal({ open, onClose }: Props) {
             <Descriptions.Item label="最近修改">
               {policy.updatedBy} · {formatShanghaiTime(policy.updatedAt)}
             </Descriptions.Item>
-            <Descriptions.Item label="下发批次">
+            <Descriptions.Item label="设置状态">
               <Tag color={policy.rolloutStatus === 'DONE' ? 'success' : 'processing'}>
-                {policy.rolloutStatus}
+                {rolloutLabels[policy.rolloutStatus]}
               </Tag>
             </Descriptions.Item>
             <Descriptions.Item label="修改原因" span={2}>
@@ -173,7 +177,7 @@ export default function RuntimeSnapshotPolicyModal({ open, onClose }: Props) {
 
           <div style={{ margin: '16px 0' }}>
             <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-              <Typography.Text strong>自动下发进度</Typography.Text>
+              <Typography.Text strong>设备设置生成进度</Typography.Text>
               <Typography.Text type="secondary">
                 {policy.processedDeviceCount}/{policy.targetDeviceCount}，
                 已生成 {policy.publishedDeviceCount} 份配置
@@ -185,7 +189,7 @@ export default function RuntimeSnapshotPolicyModal({ open, onClose }: Props) {
                 : policy.rolloutStatus === 'DONE' ? 'success' : 'active'
             } />
             <Typography.Text type="secondary">
-              待应用 {policy.pendingDeviceCount} · 边缘已保存{' '}
+              待应用 {policy.pendingDeviceCount} · 设备已保存{' '}
               {policy.edgeSavedDeviceCount} · 已应用 {policy.appliedDeviceCount}
               {' '}· 失败 {policy.failedDeviceCount} · 阻塞{' '}
               {policy.blockedDeviceCount}
@@ -197,8 +201,8 @@ export default function RuntimeSnapshotPolicyModal({ open, onClose }: Props) {
       <Form form={form} layout="vertical" disabled={loading || submitting}>
         <Form.Item
           name="fallbackIntervalMinutes"
-          label="空闲兜底周期（分钟）"
-          extra="最小 10 分钟；默认 60 分钟。单个设备不能覆盖该值。"
+          label="设备空闲上报周期（分钟）"
+          extra="最小 10 分钟，默认 60 分钟；所有设备统一使用此设置。"
           rules={[
             { required: true, message: '请输入兜底周期' },
             { type: 'integer', min: 10, max: 71582 },

@@ -37,13 +37,13 @@
         <div class="progress-viewport" tabindex="0" aria-label="出厂接入进度，可左右滑动">
           <ol id="progress-chain" class="progress-chain">
             <li data-node="BOOT_AND_PORTAL"><span class="node-number">01</span><span class="node-label">启动准备</span><small data-role="node-state">等待</small></li>
-            <li data-node="LOCAL_HARDWARE_ACCEPTANCE"><span class="node-number">02</span><span class="node-label">P7 本地验收</span><small data-role="node-state">等待</small></li>
+            <li data-node="LOCAL_HARDWARE_ACCEPTANCE"><span class="node-number">02</span><span class="node-label">本机硬件检查</span><small data-role="node-state">等待</small></li>
             <li data-node="CELLULAR_AND_TIME"><span class="node-number">03</span><span class="node-label">联网校时</span><small data-role="node-state">等待</small></li>
             <li data-node="ENROLLMENT_AND_CREDENTIALS"><span class="node-number">04</span><span class="node-label">设备注册</span><small data-role="node-state">等待</small></li>
-            <li data-node="RUNTIME_AND_MQTT"><span class="node-number">05</span><span class="node-label">正式服务</span><small data-role="node-state">等待</small></li>
+            <li data-node="RUNTIME_AND_MQTT"><span class="node-number">05</span><span class="node-label">连接云端</span><small data-role="node-state">等待</small></li>
             <li data-node="FACTORY_BAGS"><span class="node-number">06</span><span class="node-label">扫码绑袋</span><small data-role="node-state">等待</small></li>
-            <li data-node="CLOUD_EVIDENCE"><span class="node-number">07</span><span class="node-label">P8 采集证据</span><small data-role="node-state">等待</small></li>
-            <li data-node="CLOUD_DECISION_AND_AUTHORIZATION"><span class="node-number">08</span><span class="node-label">云端判定</span><small data-role="node-state">等待</small></li>
+            <li data-node="CLOUD_EVIDENCE"><span class="node-number">07</span><span class="node-label">采集验收信息</span><small data-role="node-state">等待</small></li>
+            <li data-node="CLOUD_DECISION_AND_AUTHORIZATION"><span class="node-number">08</span><span class="node-label">后台验收</span><small data-role="node-state">等待</small></li>
             <li data-node="FACTORY_SEAL"><span class="node-number">09</span><span class="node-label">结束出厂</span><small data-role="node-state">等待</small></li>
           </ol>
         </div>
@@ -53,7 +53,7 @@
       <section class="current-card" aria-labelledby="current-title">
         <div class="current-card__head">
           <div>
-            <p id="current-index" class="section-kicker">当前节点</p>
+            <p id="current-index" class="section-kicker">当前步骤</p>
             <h2 id="current-title">正在读取进度</h2>
           </div>
           <span id="current-state" class="state-badge">读取中</span>
@@ -63,9 +63,9 @@
         <div id="issue-panel" class="issue-panel" hidden>
           <strong id="issue-title">当前阶段需要处理</strong>
           <p id="issue-action"></p>
-          <code id="issue-code"></code>
+          <span id="issue-code">如需报修，请展开下方诊断信息并提供技术代码。</span>
         </div>
-        <ul id="current-substeps" class="substep-list" aria-label="当前节点详细进度"></ul>
+        <ul id="current-substeps" class="substep-list" aria-label="当前步骤详细进度"></ul>
       </section>
 
       <section id="operator-panel" class="operator-panel" aria-labelledby="action-title">
@@ -80,20 +80,20 @@
         <p id="action-instruction" class="action-instruction">正在读取下一步操作……</p>
 
         <div id="simulation-warning" class="inline-note" hidden>
-          当前报告会记录测试证据来源；这不改变后续接入流程。
+          当前报告会记录本次检查所用的硬件来源；这不改变后续接入流程。
         </div>
 
         <label id="update-line-selection" class="field" hidden>
-          <span>MCU 升级线路实际装配情况</span>
+          <span>控制板远程升级线路装配情况</span>
           <select id="mcu-update-line-installed">
             <option value="">请选择</option>
-            <option value="true">已安装 BOOT0 / NRST</option>
-            <option value="false">未安装，跳过 ROM 探测</option>
+            <option value="true">已安装升级线和复位线</option>
+            <option value="false">未安装，跳过升级线路检查</option>
           </select>
         </label>
 
         <div id="recovery-panel" class="issue-panel" hidden>
-          <strong>设备处于恢复锁定</strong>
+          <strong>设备需要先完成安全恢复</strong>
           <p id="recovery-reason">完成受控恢复后才能继续。</p>
         </div>
 
@@ -125,12 +125,14 @@
       <details id="diagnostics" class="diagnostics">
         <summary>查看诊断信息</summary>
         <dl>
-          <div><dt>首次启动阶段</dt><dd id="stage">UNKNOWN</dd></div>
-          <div><dt>镜像发布</dt><dd id="release">UNKNOWN</dd></div>
-          <div><dt>P7 状态</dt><dd id="test-status">NOT_RUN</dd></div>
-          <div><dt>可信时间</dt><dd id="time-trusted">UNKNOWN</dd></div>
-          <div><dt>封存状态</dt><dd id="seal-status">UNKNOWN</dd></div>
-          <div><dt>错误码</dt><dd id="last-error">NONE</dd></div>
+          <div><dt>当前接入阶段</dt><dd id="stage">正在读取</dd></div>
+          <div><dt>设备软件版本</dt><dd id="release">正在读取</dd></div>
+          <div><dt>本机硬件检查</dt><dd id="test-status">正在读取</dd></div>
+          <div><dt>系统时间</dt><dd id="time-trusted">正在读取</dd></div>
+          <div><dt>出厂模式状态</dt><dd id="seal-status">正在读取</dd></div>
+          <div><dt>最近问题</dt><dd id="last-error">正在读取</dd></div>
+          <div><dt>当前步骤问题代码（报修用）</dt><dd><code id="flow-error-code">正在读取</code></dd></div>
+          <div><dt>设备最近问题代码（报修用）</dt><dd><code id="last-error-code">正在读取</code></dd></div>
           <div><dt>最近刷新</dt><dd id="last-update">尚未读取</dd></div>
         </dl>
       </details>
@@ -151,10 +153,10 @@
       <div class="terminal__mark" aria-hidden="true">✓</div>
       <p class="section-kicker">请求已受理</p>
       <h2 id="terminal-title">出厂模式正在关闭</h2>
-      <p id="terminal-description">封存事实已经可靠保存。热点和本页面即将断开，这是正常现象。</p>
+      <p id="terminal-description">封存结果已经安全保存。热点和本页面即将断开，这是正常现象。</p>
       <div class="terminal__next">
         <strong>接下来</strong>
-        <p>断电后重新开机复核：出厂热点不应再次出现，正式服务和 OneNet 应恢复。</p>
+        <p>断电后重新开机复核：出厂热点不应再次出现，设备日常服务和云端连接应恢复。</p>
       </div>
     </section>
   </body>

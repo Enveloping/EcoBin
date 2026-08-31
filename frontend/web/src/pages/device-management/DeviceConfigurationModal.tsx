@@ -158,7 +158,7 @@ export default function DeviceConfigurationModal({
           <Col span={8}>
             <Form.Item
               name={['device', 'mcuHeartbeatIntervalMs']}
-              label="MCU 心跳间隔（ms）"
+              label="设备控制板心跳间隔（毫秒）"
               rules={[{ required: true }, positiveIntegerRule]}
             >
               <InputNumber style={{ width: '100%' }} precision={0} />
@@ -167,7 +167,7 @@ export default function DeviceConfigurationModal({
           <Col span={8}>
             <Form.Item
               name={['device', 'mcuHeartbeatMissThreshold']}
-              label="MCU 心跳丢失阈值"
+              label="设备控制板心跳丢失阈值"
               rules={[{ required: true }, positiveIntegerRule]}
             >
               <InputNumber style={{ width: '100%' }} precision={0} />

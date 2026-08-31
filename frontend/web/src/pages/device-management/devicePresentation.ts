@@ -17,9 +17,9 @@ export const assetColors: Record<DeviceAssetLifecycleStatus, string> = {
 };
 
 export const acceptanceLabels: Record<DeviceAcceptanceStatus, string> = {
-  PENDING: '等待真实设备证据',
-  FAILED: '证据未通过',
-  PASSED: '机器验收通过',
+  PENDING: '设备功能检查尚未完成',
+  FAILED: '设备功能检查未通过',
+  PASSED: '设备功能检查通过',
 };
 
 export const acceptanceColors: Record<DeviceAcceptanceStatus, string> = {
@@ -63,11 +63,11 @@ const runtimeLabels: Record<string, string> = {
   DEGRADED: '降级',
   FAILED: '故障',
   FAULT: '故障',
-  ACTUATOR_FAULT: '执行器故障',
+  ACTUATOR_FAULT: '驱动机构故障',
   SWITCH_FAULT: '限位开关故障',
   DRIVER_FAULT: '驱动故障',
   SENSOR_FAULT: '传感器故障',
-  PROTOCOL_ERROR: '协议错误',
+  PROTOCOL_ERROR: '通信格式错误',
   CONFIG_ERROR: '配置错误',
   OVERLOAD: '超量程',
   INCOMPATIBLE: '不兼容',
@@ -100,7 +100,7 @@ const runtimeLabels: Record<string, string> = {
 
 export function runtimeStatusLabel(value?: string | null): string {
   if (!value) return '尚无数据';
-  return runtimeLabels[value] ?? value;
+  return runtimeLabels[value] ?? '状态暂不支持显示';
 }
 
 export function runtimeStatusColor(value?: string | null): string {
@@ -122,7 +122,42 @@ export function runtimeStatusColor(value?: string | null): string {
   if (['OPEN', 'OPENING', 'CLOSING', 'DELIVERY', 'CLEAN'].includes(value)) {
     return 'processing';
   }
-  return 'default';
+  return 'warning';
+}
+
+export function technicalIssueStateLabel(value: string): string {
+  return ({
+    AUTO_RETRYING: '系统正在自动处理',
+    ACTION_REQUIRED: '需要管理员处理',
+    RECOVERY_REQUIRED: '需要现场安全恢复',
+  } as Record<string, string>)[value] ?? '处理状态待确认';
+}
+
+export function operatorFacingTechnicalText(value: string): string {
+  const replacements = [
+    ['P7', '本机硬件检查'],
+    ['P8', '云端自动验收'],
+    ['机器验收', '设备功能检查'],
+    ['OneNet', '云端设备平台'],
+    ['MQTT', '云端连接'],
+    ['MCU', '设备控制板'],
+    ['COS', '云端照片存储'],
+    ['UART', '控制板通信'],
+    ['K1', '一次性注册密钥'],
+    ['验收证据', '验收记录'],
+    ['设备证据', '设备确认结果'],
+    ['可靠任务', '后台处理任务'],
+    ['重放原', '重复发送原'],
+    ['代际', '轮次'],
+  ] as const;
+  const translated = replacements.reduce(
+    (text, [internal, friendly]) => text.split(internal).join(friendly),
+    value,
+  );
+  return translated.replace(
+    /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g,
+    '技术问题',
+  );
 }
 
 export const configurationLabels: Record<
@@ -130,7 +165,7 @@ export const configurationLabels: Record<
   string
 > = {
   PENDING: '自动下发中',
-  EDGE_SAVED: '香橙派已保存',
+  EDGE_SAVED: '设备已保存',
   APPLIED: '已精确应用',
   FAILED: '设备拒绝或应用失败',
 };

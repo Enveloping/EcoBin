@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { message } from 'antd';
 import { listAllOrganizations } from '@/api/identityDirectory';
 import { useAuthStore } from '@/stores/authStore';
 import type { DirectoryScope } from './useDirectoryScope';
@@ -65,7 +66,11 @@ export function useOrganizationScope(
     }
     let active = true;
     setLoading(true);
-    listAllOrganizations(directoryScope.context)
+    listAllOrganizations(
+      directoryScope.context,
+      {},
+      { silent: true },
+    )
       .then((organizations) => {
         if (!active) return;
         setOrganizationOptions(
@@ -78,7 +83,9 @@ export function useOrganizationScope(
         );
       })
       .catch(() => {
-        if (active) setOrganizationOptions([]);
+        if (!active) return;
+        setOrganizationOptions([]);
+        message.error('机构列表暂时无法读取，请刷新页面后再试');
       })
       .finally(() => {
         if (active) setLoading(false);

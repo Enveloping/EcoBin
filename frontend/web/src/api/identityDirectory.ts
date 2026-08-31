@@ -37,6 +37,10 @@ export interface DirectoryPageParams {
   query?: string;
 }
 
+interface DirectoryRequestOptions {
+  silent?: boolean;
+}
+
 type DirectoryFilterParams = Omit<
   DirectoryPageParams,
   'page' | 'pageSize'
@@ -114,23 +118,28 @@ async function collectDirectoryItems<T>(
   }
 }
 
-export function listIdentityTenants(params: DirectoryPageParams = {}) {
+export function listIdentityTenants(
+  params: DirectoryPageParams = {},
+  options: DirectoryRequestOptions = {},
+) {
   return request<PageData<IdentityTenant>>({
     url: '/api/v1/web/platform/tenants',
     method: 'GET',
     params,
+    silent: options.silent,
   });
 }
 
 export function listAllIdentityTenants(
   params: DirectoryFilterParams = {},
+  options: DirectoryRequestOptions = {},
 ) {
   return collectDirectoryItems((page) =>
     listIdentityTenants({
       ...params,
       page,
       pageSize: DIRECTORY_OPTION_PAGE_SIZE,
-    }));
+    }, options));
 }
 
 export function getIdentityTenant(tenantCode: string) {
@@ -247,24 +256,27 @@ export function updateCurrentTenant(
 export function listOrganizations(
   context: DirectoryContext,
   params: DirectoryPageParams = {},
+  options: DirectoryRequestOptions = {},
 ) {
   return request<PageData<IdentityOrganization>>({
     url: `${scopedBase(context)}/organizations`,
     method: 'GET',
     params,
+    silent: options.silent,
   });
 }
 
 export function listAllOrganizations(
   context: DirectoryContext,
   params: DirectoryFilterParams = {},
+  options: DirectoryRequestOptions = {},
 ) {
   return collectDirectoryItems((page) =>
     listOrganizations(context, {
       ...params,
       page,
       pageSize: DIRECTORY_OPTION_PAGE_SIZE,
-    }));
+    }, options));
 }
 
 export function createOrganization(

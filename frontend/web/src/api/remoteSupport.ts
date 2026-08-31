@@ -49,6 +49,7 @@ export function openRemoteSupportSession(
     method: 'POST',
     data,
     noStore: true,
+    silent: true,
   });
 }
 
@@ -80,5 +81,6 @@ export function closeRemoteSupportSession(
     method: 'POST',
     data,
     noStore: true,
+    silent: true,
   });
 }

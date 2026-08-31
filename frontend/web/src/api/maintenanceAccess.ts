@@ -14,11 +14,14 @@ export interface MaintenanceSshKey {
   revokedReason: string | null;
 }
 
-export function listMaintenanceSshKeys() {
+export function listMaintenanceSshKeys(
+  options: { silent?: boolean } = {},
+) {
   return request<MaintenanceSshKey[]>({
     url: '/api/v1/web/platform/maintenance-ssh-keys',
     method: 'GET',
     noStore: true,
+    silent: options.silent,
   });
 }
 

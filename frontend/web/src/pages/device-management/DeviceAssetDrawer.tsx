@@ -61,7 +61,6 @@ import {
   type DeviceRuntime,
   type DeviceTechnicalIssue,
 } from '@/api/deviceDirectory';
-import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { formatShanghaiTime } from '@/utils/decimal';
 import {
@@ -74,20 +73,25 @@ import {
   configurationLabels,
   connectivityColors,
   connectivityLabels,
+  operatorFacingTechnicalText,
   runtimeStatusColor,
   runtimeStatusLabel,
+  technicalIssueStateLabel,
 } from './devicePresentation';
 import {
   buildFactoryProgressSteps,
   collectFactoryProgressCodes,
   factoryActionLabel,
   factoryFailureGuidance,
+  factoryIssueAlertType,
   factoryProgressSummary,
   factoryStageLabel,
   sealStatusLabel,
   taskStateLabel,
+  technicalResultLabel,
 } from './factoryProgressPresentation';
 import RemoteSupportPanel from './RemoteSupportPanel';
+import { operatorErrorMessage } from './operatorErrorPresentation';
 
 export type DeviceManagementMode = 'platform' | 'tenant' | 'organization';
 export type DeviceControlKind = 'disable' | 'restore' | 'retire';
@@ -167,12 +171,10 @@ const EMPTY_FACTORY_PROGRESS_LOAD: FactoryProgressLoadState = {
 };
 
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiProblem) {
-    return error.requestId
-      ? `${error.message}（请求 ID：${error.requestId}）`
-      : error.message;
-  }
-  return error instanceof Error ? error.message : '设备数据加载失败';
+  return operatorErrorMessage(
+    error,
+    '设备信息暂时无法加载或操作未完成，请稍后再试',
+  );
 }
 
 function RuntimeTag({ value }: { value?: string | null }) {
@@ -197,12 +199,33 @@ function portWeightText(port: DevicePortRuntime): string {
 }
 
 function PortRuntimePanel({ port }: { port: DevicePortRuntime }) {
+  const technicalStates = [
+    ['投递门状态', port.deliveryDoorState],
+    ['投递门驱动机构', port.deliveryDoorActuatorHealth],
+    ['投递门检测', port.deliveryDoorContactState],
+    ['最近投递门指令', port.lastDeliveryDoorCommand],
+    ['投递门指令结果', port.lastDeliveryDoorOutputStatus],
+    ['清运锁供电', port.cleanLockPowerState],
+    ['清运电磁阀', port.cleanSolenoidHealth],
+    ['清运门记录', port.cleanDoorRecordedState],
+    ['清运门状态来源', port.cleanDoorStateBasis],
+    ['称重传感器', port.weightSensorHealth],
+    ['重量取值方式', port.weightValueKind],
+    ['重量测量', port.weightMeasurementStatus],
+    ['红外传感器', port.infraredSensorHealth],
+    ['红外结果', port.infraredValue],
+    ['满溢传感器类型', port.fullnessSensorKind],
+    ['满溢传感器结果', port.fullnessSensorValue],
+    ['烟雾传感器', port.smokeSensorHealth],
+    ['烟雾状态', port.smokeState],
+    ['投口安全状态', port.safetyStatus],
+  ].filter((entry): entry is [string, string] => typeof entry[1] === 'string');
   return (
     <Descriptions size="small" bordered column={2}>
       <Descriptions.Item label="投递门状态">
         <RuntimeTag value={port.deliveryDoorState} />
       </Descriptions.Item>
-      <Descriptions.Item label="投递门执行器">
+      <Descriptions.Item label="投递门驱动机构">
         <RuntimeTag value={port.deliveryDoorActuatorHealth} />
       </Descriptions.Item>
       <Descriptions.Item label="投递门检测">
@@ -233,12 +256,12 @@ function PortRuntimePanel({ port }: { port: DevicePortRuntime }) {
       <Descriptions.Item label="清运门记录状态">
         <RuntimeTag value={port.cleanDoorRecordedState} />
       </Descriptions.Item>
-      <Descriptions.Item label="清运门事实依据">
+      <Descriptions.Item label="清运门状态来源">
         {runtimeStatusLabel(port.cleanDoorStateBasis)}
       </Descriptions.Item>
       <Descriptions.Item label="清运员关门确认">
         {port.cleanerPhysicalCloseConfirmed == null
-          ? '本次快照未提供'
+          ? '本次状态记录未提供'
           : port.cleanerPhysicalCloseConfirmed
             ? <Tag color="success">已现场确认关闭</Tag>
             : <Tag color="warning">尚未确认关闭</Tag>}
@@ -261,7 +284,9 @@ function PortRuntimePanel({ port }: { port: DevicePortRuntime }) {
       <Descriptions.Item label="满溢传感器">
         {port.fullnessSensorKind ? (
           <Space size={4} wrap>
-            <Typography.Text>{port.fullnessSensorKind}</Typography.Text>
+            <Typography.Text>
+              {runtimeStatusLabel(port.fullnessSensorKind)}
+            </Typography.Text>
             <RuntimeTag value={port.fullnessSensorValue} />
             {port.representativeDistanceMm != null && (
               <Typography.Text type="secondary">
@@ -290,6 +315,25 @@ function PortRuntimePanel({ port }: { port: DevicePortRuntime }) {
       <Descriptions.Item label="最后观测时间" span={2}>
         {optionalTime(port.lastObservedAt)}
       </Descriptions.Item>
+      <Descriptions.Item label="报修信息" span={2}>
+        <Collapse
+          ghost
+          size="small"
+          items={[{
+            key: `port-${port.portNo}-technical-states`,
+            label: '查看原始状态代码（报修时使用）',
+            children: (
+              <Descriptions size="small" column={2}>
+                {technicalStates.map(([label, value]) => (
+                  <Descriptions.Item key={label} label={`${label}代码`}>
+                    <Typography.Text copyable code>{value}</Typography.Text>
+                  </Descriptions.Item>
+                ))}
+              </Descriptions>
+            ),
+          }]}
+        />
+      </Descriptions.Item>
     </Descriptions>
   );
 }
@@ -317,37 +361,37 @@ function RuntimeStatusPanel({
             ? 'error'
             : 'warning'}
         message={online === 'ONLINE'
-          ? 'OneNet 当前报告设备在线'
+          ? '物联网平台当前报告设备在线'
           : online === 'OFFLINE'
-            ? 'OneNet 当前报告设备离线，新投递和清运会被阻止'
-            : '尚未取得可信的设备上下线事实'}
-        description="在线状态来自 OneNet 上下线通知；其余健康项来自最近一次可信运行快照，必须结合各自时间判断，不代表持续直播值。"
+            ? '物联网平台当前报告设备离线，新投递和清运会被阻止'
+            : '平台暂时无法确认设备是否在线'}
+        description="设备是否在线由物联网平台通知；其他健康状态来自设备最近一次上报，请结合更新时间判断，可能不是实时状态。"
       />
       {!health.trustedRuntimeReceivedAt && (
         <Alert
           type="warning"
           showIcon
-          message="尚未收到机构归属后的可信运行快照"
-          description="设备可以已经在线，但 MCU、摄像头和传感器等项目仍会显示未知；设备分配机构并上报运行快照后才会形成这些当前投影。"
+          message="尚未收到设备最新运行状态"
+          description="设备可以已经在线，但控制板、摄像头和传感器等项目仍会显示未知；设备分配机构并上报运行状态后才会形成这些当前信息。"
         />
       )}
       <Descriptions size="small" bordered column={2}>
         <Descriptions.Item label="设备联网">
           <RuntimeTag value={health.oneNetConnectionStatus} />
         </Descriptions.Item>
-        <Descriptions.Item label="联网事实时间">
+        <Descriptions.Item label="设备状态发生时间">
           {optionalTime(health.oneNetStatusObservedAt)}
         </Descriptions.Item>
-        <Descriptions.Item label="平台收到联网事实">
+        <Descriptions.Item label="平台收到状态时间">
           {optionalTime(health.oneNetStatusReceivedAt)}
         </Descriptions.Item>
         <Descriptions.Item label="香橙派最近运行状态">
           <RuntimeTag value={health.edgeConnectionStatus} />
         </Descriptions.Item>
-        <Descriptions.Item label="最近运行快照">
+        <Descriptions.Item label="平台收到运行状态">
           {optionalTime(health.trustedRuntimeReceivedAt)}
         </Descriptions.Item>
-        <Descriptions.Item label="MCU 通信">
+        <Descriptions.Item label="设备控制板通信">
           <RuntimeTag value={health.mcuLinkStatus} />
         </Descriptions.Item>
         <Descriptions.Item label="整机安全状态">
@@ -383,36 +427,8 @@ function RuntimeStatusPanel({
             )}
           </Space>
         </Descriptions.Item>
-        <Descriptions.Item label="香橙派软件">
-          {health.edgeSoftwareVersion ?? '尚无数据'}
-        </Descriptions.Item>
-        <Descriptions.Item label="香橙派启动编号">
-          {health.edgeBootId ?? '尚无数据'}
-        </Descriptions.Item>
-        <Descriptions.Item label="MCU 固件">
-          {health.mcuFirmwareVersion ?? '尚无数据'}
-        </Descriptions.Item>
-        <Descriptions.Item label="MCU 最近重启原因">
-          {health.lastMcuResetReason ?? '尚无数据'}
-        </Descriptions.Item>
-        <Descriptions.Item label="串口状态">
-          <Space size={4} wrap>
-            <RuntimeTag value={health.uartState} />
-            {health.uartProtocolMajor != null
-              && health.uartProtocolMinor != null && (
-              <Typography.Text type="secondary">
-                协议 {health.uartProtocolMajor}.{health.uartProtocolMinor}
-              </Typography.Text>
-            )}
-          </Space>
-        </Descriptions.Item>
-        <Descriptions.Item label="待发送可靠事件">
-          {health.pendingReliableEventCount ?? '尚无数据'}
-        </Descriptions.Item>
-        <Descriptions.Item label="香橙派上报配置版本">
-          {health.orangePiReportedConfigurationVersion == null
-            ? '尚无数据'
-            : `v${health.orangePiReportedConfigurationVersion}`}
+        <Descriptions.Item label="控制板连接状态">
+          <RuntimeTag value={health.uartState} />
         </Descriptions.Item>
         <Descriptions.Item label="最近心跳记录">
           {optionalTime(health.lastHeartbeatAt)}
@@ -421,8 +437,103 @@ function RuntimeStatusPanel({
           {optionalTime(health.lastDeviceEventAt)}
         </Descriptions.Item>
       </Descriptions>
+      <Collapse
+        size="small"
+        items={[{
+          key: 'runtime-technical-diagnostics',
+          label: '技术诊断（报修时使用）',
+          children: (
+            <Descriptions size="small" bordered column={2}>
+              <Descriptions.Item label="设备软件版本">
+                <Typography.Text copyable code>
+                  {health.edgeSoftwareVersion ?? '尚无数据'}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="控制板软件版本">
+                <Typography.Text copyable code>
+                  {health.mcuFirmwareVersion ?? '尚无数据'}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="设备本次启动编号">
+                <Typography.Text copyable code>
+                  {health.edgeBootId ?? '尚无数据'}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="控制板重启原因代码">
+                <Typography.Text copyable code>
+                  {health.lastMcuResetReason ?? '尚无数据'}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="控制板通信版本">
+                {health.uartProtocolMajor != null
+                  && health.uartProtocolMinor != null
+                  ? `${health.uartProtocolMajor}.${health.uartProtocolMinor}`
+                  : '尚无数据'}
+              </Descriptions.Item>
+              <Descriptions.Item label="等待上传的设备记录">
+                {health.pendingReliableEventCount ?? '尚无数据'}
+              </Descriptions.Item>
+              <Descriptions.Item label="设备上报的配置版本" span={2}>
+                {health.orangePiReportedConfigurationVersion == null
+                  ? '尚无数据'
+                  : `v${health.orangePiReportedConfigurationVersion}`}
+              </Descriptions.Item>
+              <Descriptions.Item label="设备联网状态代码">
+                <Typography.Text copyable code>
+                  {health.oneNetConnectionStatus}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="设备运行状态代码">
+                <Typography.Text copyable code>
+                  {health.edgeConnectionStatus}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="控制板通信状态代码">
+                <Typography.Text copyable code>
+                  {health.mcuLinkStatus}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="整机安全状态代码">
+                <Typography.Text copyable code>
+                  {health.safetyStatus}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="称重状态代码">
+                <Typography.Text copyable code>
+                  {health.aggregateWeightHealth}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="摄像头状态代码">
+                <Typography.Text copyable code>
+                  {health.cameraHealth}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="存储状态代码">
+                <Typography.Text copyable code>
+                  {health.localStorageHealth}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="设备时钟状态代码">
+                <Typography.Text copyable code>
+                  {health.clockSyncHealth}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="控制板连接状态代码">
+                <Typography.Text copyable code>
+                  {health.uartState}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="当前作业类型代码">
+                <Typography.Text copyable code>
+                  {runtime.occupancyKind ?? 'NONE'}
+                </Typography.Text>
+              </Descriptions.Item>
+            </Descriptions>
+          ),
+        }]}
+      />
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        页面读取时间：{formatShanghaiTime(runtime.fetchedAt)}。这里是观察视图；真正开始投递或清运时，后端仍会在事务中重新检查全部准入条件。
+        页面读取时间：{formatShanghaiTime(runtime.fetchedAt)}。这里显示的是最近一次记录；每次开始投递或清运前，系统都会再次确认设备当前满足安全和业务条件。
       </Typography.Text>
       {runtime.ports.length ? (
         <Collapse
@@ -480,10 +591,10 @@ function AcceptanceEvidenceFacts({
   evidence: DeviceAcceptanceEvidence;
 }) {
   const functionalFacts = [
-    ['OneNet 在线', evidence.oneNetOnline],
-    ['持久化存储', evidence.persistentStoreHealthy],
-    ['配置持久化', evidence.configurationPersistenceHealthy],
-    ['MCU 通信', evidence.mcuCommunicationHealthy],
+    ['云端连接', evidence.oneNetOnline],
+    ['本地存储', evidence.persistentStoreHealthy],
+    ['配置安全保存', evidence.configurationPersistenceHealthy],
+    ['设备控制板通信', evidence.mcuCommunicationHealthy],
     ['传感器数据', evidence.sensorsHealthy],
     ['摄像头采集', evidence.camerasCaptureHealthy],
     ['测试图片上传', evidence.cameraUploadHealthy],
@@ -494,7 +605,7 @@ function AcceptanceEvidenceFacts({
         <Space direction="vertical" size={4} style={{ width: '100%' }}>
           {evidence.failureReasons.map((code) => (
             <Typography.Text key={code} type="secondary">
-              {factoryFailureGuidance(code).title}（{code}）
+              {factoryFailureGuidance(code).title}
             </Typography.Text>
           ))}
         </Space>
@@ -507,27 +618,52 @@ function AcceptanceEvidenceFacts({
             </Tag>
           </Descriptions.Item>
         ))}
-        <Descriptions.Item label="可信时间（诊断）">
+        <Descriptions.Item label="设备时间状态（仅供排查）">
           <Tag>
             {evidence.trustedTimeHealthy ? '已同步' : '未同步，不影响验收结论'}
           </Tag>
         </Descriptions.Item>
-        <Descriptions.Item label="MCU 来源（诊断）">
+        <Descriptions.Item label="设备控制板来源（诊断）">
           <Tag>{evidence.mcuSimulated ? '模拟来源' : '真实来源'}</Tag>
         </Descriptions.Item>
         <Descriptions.Item label="摄像头来源（诊断）">
           <Tag>{evidence.camerasSimulated ? '模拟来源' : '真实来源'}</Tag>
         </Descriptions.Item>
-        <Descriptions.Item label="证据观测时间">
+        <Descriptions.Item label="设备检查时间">
           {formatShanghaiTime(evidence.observedAt)}
         </Descriptions.Item>
-        <Descriptions.Item label="后端接收时间">
+        <Descriptions.Item label="平台收到时间">
           {formatShanghaiTime(evidence.receivedAt)}
         </Descriptions.Item>
-        <Descriptions.Item label="证据 UID" span={2}>
-          <Typography.Text copyable code>{evidence.evidenceUid}</Typography.Text>
-        </Descriptions.Item>
       </Descriptions>
+      <Collapse
+        ghost
+        size="small"
+        items={[{
+          key: `evidence-${evidence.evidenceUid}-diagnostics`,
+          label: '技术诊断（报修时使用）',
+          children: (
+            <Descriptions size="small" column={1}>
+              <Descriptions.Item label="检查记录编号">
+                <Typography.Text copyable code>
+                  {evidence.evidenceUid}
+                </Typography.Text>
+              </Descriptions.Item>
+              {evidence.failureReasons.length > 0 && (
+                <Descriptions.Item label="未通过原因代码">
+                  <Space wrap>
+                    {evidence.failureReasons.map((code) => (
+                      <Typography.Text key={code} copyable code>
+                        {code}
+                      </Typography.Text>
+                    ))}
+                  </Space>
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+          ),
+        }]}
+      />
     </Space>
   );
 }
@@ -537,7 +673,7 @@ function EvidencePanel({ rows }: { rows: DeviceAcceptanceEvidence[] }) {
     return (
       <Empty
         image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="当前验收代次尚未保存自动验收证据"
+        description="本次验收尚未保存设备检查记录"
       />
     );
   }
@@ -548,7 +684,7 @@ function EvidencePanel({ rows }: { rows: DeviceAcceptanceEvidence[] }) {
         key: evidence.evidenceUid,
         label: (
           <Space wrap>
-            <Typography.Text strong>历史证据 {index + 1}</Typography.Text>
+            <Typography.Text strong>验收记录 {index + 1}</Typography.Text>
             <Tag color={acceptanceColors[evidence.evaluationStatus]}>
               当次判定 {acceptanceLabels[evidence.evaluationStatus]}
             </Tag>
@@ -577,28 +713,42 @@ function FactoryEvidenceReference({
       {!evidence ? (
         <Typography.Text type="secondary">{emptyText}</Typography.Text>
       ) : (
-        <Descriptions size="small" column={1} colon={false}>
-          <Descriptions.Item label="当次判定">
-            <Tag color={acceptanceColors[evidence.evaluationStatus]}>
-              {acceptanceLabels[evidence.evaluationStatus]}
-            </Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="证据 UID">
-            <Typography.Text copyable code>{evidence.evidenceUid}</Typography.Text>
-          </Descriptions.Item>
-          <Descriptions.Item label="证据摘要">
-            <Typography.Text
-              copyable={{ text: evidence.evidenceSha256 }}
-              code
-              style={{ overflowWrap: 'anywhere' }}
-            >
-              {evidence.evidenceSha256}
-            </Typography.Text>
-          </Descriptions.Item>
-          <Descriptions.Item label="后端收到">
-            {formatShanghaiTime(evidence.receivedAt)}
-          </Descriptions.Item>
-        </Descriptions>
+        <>
+          <Descriptions size="small" column={1} colon={false}>
+            <Descriptions.Item label="当次判定">
+              <Tag color={acceptanceColors[evidence.evaluationStatus]}>
+                {acceptanceLabels[evidence.evaluationStatus]}
+              </Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="平台收到">
+              {formatShanghaiTime(evidence.receivedAt)}
+            </Descriptions.Item>
+          </Descriptions>
+          <Collapse
+            ghost
+            size="small"
+            items={[{
+              key: 'evidence-technical-reference',
+              label: '查看技术记录（报修时使用）',
+              children: (
+                <Descriptions size="small" column={1} colon={false}>
+                  <Descriptions.Item label="检查记录编号">
+                    <Typography.Text copyable code>{evidence.evidenceUid}</Typography.Text>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="记录校验值">
+                    <Typography.Text
+                      copyable={{ text: evidence.evidenceSha256 }}
+                      code
+                      style={{ overflowWrap: 'anywhere' }}
+                    >
+                      {evidence.evidenceSha256}
+                    </Typography.Text>
+                  </Descriptions.Item>
+                </Descriptions>
+              ),
+            }]}
+          />
+        </>
       )}
     </Card>
   );
@@ -619,7 +769,7 @@ function FactoryTaskDiagnostics({
           {taskStateLabel(task.taskState)}
         </Tag>
       </Descriptions.Item>
-      <Descriptions.Item label="任务 UID">
+      <Descriptions.Item label="系统任务编号">
         {task.taskUid
           ? <Typography.Text copyable code>{task.taskUid}</Typography.Text>
           : '尚未创建'}
@@ -631,10 +781,10 @@ function FactoryTaskDiagnostics({
               ? '尝试次数未记录'
               : `第 ${task.latestAttempt.attemptNo} 次`}
             {task.latestAttempt.technicalResult
-              ? ` · ${task.latestAttempt.technicalResult}`
+              ? ` · ${technicalResultLabel(task.latestAttempt.technicalResult)}`
               : ''}
           </Descriptions.Item>
-          <Descriptions.Item label="外部请求编号">
+          <Descriptions.Item label="物联网平台请求编号">
             {task.latestAttempt.externalRequestId
               ? (
                 <Typography.Text copyable>
@@ -643,16 +793,16 @@ function FactoryTaskDiagnostics({
               )
               : '未记录'}
           </Descriptions.Item>
-          <Descriptions.Item label="HTTP / 外部错误">
+          <Descriptions.Item label="物联网平台返回信息">
             {task.latestAttempt.httpStatus ?? '-'} / {task.latestAttempt.externalErrorCode ?? '-'}
           </Descriptions.Item>
-          <Descriptions.Item label="结果落库">
+          <Descriptions.Item label="平台记录时间">
             {optionalTime(task.latestAttempt.recordedAt)}
           </Descriptions.Item>
         </>
       )}
       {(task.blockedDiagnostic || task.latestAttempt?.diagnostic) && (
-        <Descriptions.Item label="脱敏诊断" span={2}>
+        <Descriptions.Item label="技术诊断信息" span={2}>
           <Typography.Text code style={{ overflowWrap: 'anywhere' }}>
             {task.blockedDiagnostic ?? task.latestAttempt?.diagnostic}
           </Typography.Text>
@@ -783,15 +933,15 @@ function FactoryProgressPanel({
           return (
             <Alert
               key={code}
-              type="error"
+              type={factoryIssueAlertType(progress)}
               showIcon
               style={{ marginBottom: 8 }}
               message={guidance.title}
               description={(
                 <Space direction="vertical" size={4}>
                   <Typography.Text>{guidance.action}</Typography.Text>
-                  <Typography.Text type="secondary" code>
-                    稳定问题代码：{code}
+                  <Typography.Text type="secondary">
+                    如需技术协助，请展开下方“技术诊断”并提供报修代码。
                   </Typography.Text>
                 </Space>
               )}
@@ -806,15 +956,15 @@ function FactoryProgressPanel({
               ? <Tag color="success" style={{ marginLeft: 8 }}>已完整</Tag>
               : <Tag color="warning" style={{ marginLeft: 8 }}>待补齐</Tag>}
           </Descriptions.Item>
-          <Descriptions.Item label="袋码修订号">
+          <Descriptions.Item label="袋码更新次数">
             {progress.factoryBags.revision}
           </Descriptions.Item>
-          <Descriptions.Item label="权威验收">
+          <Descriptions.Item label="当前验收结果">
             <Tag color={acceptanceColors[progress.acceptance.status]}>
               {acceptanceLabels[progress.acceptance.status]}
             </Tag>
             <Typography.Text type="secondary">
-              第 {progress.acceptance.generation} 代
+              第 {progress.acceptance.generation} 次验收
             </Typography.Text>
           </Descriptions.Item>
           <Descriptions.Item label="封存状态">
@@ -853,8 +1003,8 @@ function FactoryProgressPanel({
             type="warning"
             showIcon
             style={{ marginTop: 12 }}
-            message="最新历史证据不是当前权威结论绑定的证据"
-            description="下方两份证据必须分别核对；后来收到的历史证据不会自动改写已经形成的权威 PASSED 和封存绑定。"
+            message="最近收到的检查记录不是本次验收采用的记录"
+            description="请分别核对下方两份记录；后到的记录不会自动改变已确认的验收结果或封存授权。"
           />
         )}
         <div
@@ -867,14 +1017,14 @@ function FactoryProgressPanel({
           }}
         >
           <FactoryEvidenceReference
-            title="权威结论绑定证据"
+            title="当前验收采用的检查记录"
             evidence={progress.acceptance.authoritativeEvidence}
-            emptyText="当前尚未形成可绑定的权威证据"
+            emptyText="本次验收尚未采用任何设备检查记录"
           />
           <FactoryEvidenceReference
-            title="最新收到的历史证据"
+            title="最近收到的检查记录"
             evidence={progress.acceptance.latestEvidence}
-            emptyText="后端尚未收到设备验收证据"
+            emptyText="管理平台尚未收到设备检查记录"
           />
         </div>
 
@@ -883,11 +1033,24 @@ function FactoryProgressPanel({
           style={{ marginTop: 12 }}
           items={[{
             key: 'factory-task-diagnostics',
-            label: '可靠任务与时间诊断',
+            label: '技术诊断（报修时使用）',
             children: (
               <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                {issueCodes.length > 0 && (
+                  <Descriptions size="small" column={1} bordered>
+                    <Descriptions.Item label="报修代码">
+                      <Space wrap>
+                        {issueCodes.map((code) => (
+                          <Typography.Text key={code} copyable code>
+                            {code}
+                          </Typography.Text>
+                        ))}
+                      </Space>
+                    </Descriptions.Item>
+                  </Descriptions>
+                )}
                 <FactoryTaskDiagnostics
-                  title="P8 请求"
+                  title="设备功能检查指令"
                   task={progress.acceptanceRequest}
                 />
                 <FactoryTaskDiagnostics
@@ -895,7 +1058,7 @@ function FactoryProgressPanel({
                   task={progress.seal}
                 />
                 <Descriptions size="small" column={2} bordered>
-                  <Descriptions.Item label="授权代次">
+                  <Descriptions.Item label="对应第几次验收">
                     {progress.seal.status === 'NOT_ISSUED'
                       ? '尚未签发'
                       : progress.seal.generation}
@@ -906,7 +1069,7 @@ function FactoryProgressPanel({
                   <Descriptions.Item label="设备封存时间">
                     {optionalTime(progress.seal.sealedAt)}
                   </Descriptions.Item>
-                  <Descriptions.Item label="后端收到完成事件">
+                  <Descriptions.Item label="平台收到完成通知">
                     {optionalTime(progress.seal.completionReceivedAt)}
                   </Descriptions.Item>
                   <Descriptions.Item label="设备清理完成" span={2}>
@@ -1289,12 +1452,14 @@ export default function DeviceAssetDrawer({
                   loadTechnicalIssues(),
                   loadFactoryProgress(),
                 ]);
+              } catch (error) {
+                message.error(errorMessage(error));
               } finally {
                 setReevaluating(false);
               }
             }}
           >
-            重新读取验收证据
+            重新核对设备检查结果
           </Button>
           {asset.lifecycleStatus === 'NORMAL' && (
             <Button onClick={() => onControl(asset, 'disable')}>禁用</Button>
@@ -1476,7 +1641,7 @@ export default function DeviceAssetDrawer({
         ),
       );
       message.success(
-        `已为 ${baselineIssue.portNo} 号投口创建新的皮重测量代际`,
+        `已安排新一轮空袋重量测量，等待设备执行（${baselineIssue.portNo} 号投口）`,
       );
       setBaselineIssue(undefined);
       await loadTechnicalIssues();
@@ -1512,7 +1677,7 @@ export default function DeviceAssetDrawer({
           loading={reevaluating}
           onClick={() => void reevaluateAcceptanceFromIssue()}
         >
-          重新读取验收证据
+          重新核对设备检查结果
         </Button>
       )}
       {issue.nextActions.includes('RESYNCHRONIZE_CONFIGURATION') && (
@@ -1556,7 +1721,7 @@ export default function DeviceAssetDrawer({
         title={
           <Space direction="vertical" size={0}>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              PERMANENT DEVICE ASSET
+              永久设备详情
             </Typography.Text>
             <Typography.Text strong>{asset?.hardwareSn ?? '设备详情'}</Typography.Text>
           </Space>
@@ -1575,11 +1740,11 @@ export default function DeviceAssetDrawer({
                 <Descriptions.Item label="设备公开码" span={2}>
                   <Typography.Text copyable code>{asset.deviceCode}</Typography.Text>
                 </Descriptions.Item>
-                <Descriptions.Item label="硬件 SN">
+                <Descriptions.Item label="设备序列号">
                   <Typography.Text copyable>{asset.hardwareSn}</Typography.Text>
                 </Descriptions.Item>
                 <Descriptions.Item label="型号">{asset.modelCode}</Descriptions.Item>
-                <Descriptions.Item label="机器验收">
+                <Descriptions.Item label="设备功能检查">
                   <Tag color={acceptanceColors[asset.acceptanceStatus]}>
                     {acceptanceLabels[asset.acceptanceStatus]}
                   </Tag>
@@ -1678,7 +1843,7 @@ export default function DeviceAssetDrawer({
                     </Typography.Text>
                   )}
                 </Descriptions.Item>
-                <Descriptions.Item label="OneNet 设备名" span={2}>
+                <Descriptions.Item label="物联网平台设备名称" span={2}>
                   {asset.oneNetMapping.deviceName}
                 </Descriptions.Item>
               </Descriptions>
@@ -1840,9 +2005,9 @@ export default function DeviceAssetDrawer({
                             message={(
                               <Space wrap>
                                 <Typography.Text strong>
-                                  {issue.title}
+                                  {operatorFacingTechnicalText(issue.title)}
                                 </Typography.Text>
-                                <Tag>{issue.state}</Tag>
+                                <Tag>{technicalIssueStateLabel(issue.state)}</Tag>
                                 {issue.portNo != null && (
                                   <Tag>{issue.portNo} 号投口</Tag>
                                 )}
@@ -1855,30 +2020,73 @@ export default function DeviceAssetDrawer({
                                 style={{ width: '100%' }}
                               >
                                 <Typography.Text>
-                                  {issue.description}
+                                  {operatorFacingTechnicalText(issue.description)}
                                 </Typography.Text>
                                 <Typography.Text
                                   type="secondary"
                                   style={{ fontSize: 12 }}
                                 >
-                                  问题代码：{issue.code}
                                   {issue.automaticAttemptNo != null
                                     && issue.automaticAttemptLimit != null
-                                    ? ` · 系统测量 ${issue.automaticAttemptNo}/${issue.automaticAttemptLimit}`
+                                    ? `系统自动处理：第 ${issue.automaticAttemptNo} 次，最多 ${issue.automaticAttemptLimit} 次`
                                     : ''}
                                   {issue.occurredAt
-                                    ? ` · ${formatShanghaiTime(issue.occurredAt)}`
+                                    ? `${issue.automaticAttemptNo != null ? ' · ' : ''}记录时间：${formatShanghaiTime(issue.occurredAt)}`
                                     : ''}
                                 </Typography.Text>
-                                {issue.diagnostic && (
-                                  <Typography.Text
-                                    type="secondary"
-                                    code
-                                    style={{ fontSize: 12 }}
-                                  >
-                                    {issue.diagnostic}
-                                  </Typography.Text>
-                                )}
+                                <Collapse
+                                  ghost
+                                  size="small"
+                                  items={[{
+                                    key: `technical-issue-${issue.issueUid}`,
+                                    label: '技术诊断（报修时使用）',
+                                    children: (
+                                      <Descriptions size="small" column={1}>
+                                        <Descriptions.Item label="问题代码">
+                                          <Typography.Text code>{issue.code}</Typography.Text>
+                                        </Descriptions.Item>
+                                        <Descriptions.Item label="问题记录编号">
+                                          <Typography.Text copyable>
+                                            {issue.issueUid}
+                                          </Typography.Text>
+                                        </Descriptions.Item>
+                                        {issue.taskUid && (
+                                          <Descriptions.Item label="后台任务编号">
+                                            <Typography.Text copyable>
+                                              {issue.taskUid}
+                                            </Typography.Text>
+                                          </Descriptions.Item>
+                                        )}
+                                        {issue.blockedReasonCode && (
+                                          <Descriptions.Item label="阻断原因代码">
+                                            <Typography.Text code>
+                                              {issue.blockedReasonCode}
+                                            </Typography.Text>
+                                          </Descriptions.Item>
+                                        )}
+                                        {issue.externalErrorCode && (
+                                          <Descriptions.Item label="外部服务错误代码">
+                                            <Typography.Text code>
+                                              {issue.externalErrorCode}
+                                            </Typography.Text>
+                                          </Descriptions.Item>
+                                        )}
+                                        {issue.httpStatus != null && (
+                                          <Descriptions.Item label="网络响应状态">
+                                            {issue.httpStatus}
+                                          </Descriptions.Item>
+                                        )}
+                                        {issue.diagnostic && (
+                                          <Descriptions.Item label="诊断详情">
+                                            <Typography.Text code>
+                                              {issue.diagnostic}
+                                            </Typography.Text>
+                                          </Descriptions.Item>
+                                        )}
+                                      </Descriptions>
+                                    ),
+                                  }]}
+                                />
                                 {issueActions(issue)}
                               </Space>
                             )}
@@ -1914,7 +2122,7 @@ export default function DeviceAssetDrawer({
                       <Space wrap>
                         <HistoryOutlined />
                         <Typography.Text strong>
-                          出厂机器验收证据（历史审计）
+                          设备检查历史记录
                         </Typography.Text>
                         {evidenceLoaded && <Tag>{evidence.length} 份记录</Tag>}
                       </Space>
@@ -1928,8 +2136,8 @@ export default function DeviceAssetDrawer({
                         <Alert
                           type="info"
                           showIcon
-                          message="这里的每一行都是历史证据，不代表当前权威验收状态"
-                          description="请以“接入与封存进度”中的权威结论绑定证据为准；最新收到的证据和历史失败都不会自行替代权威绑定关系。可信时间和模拟来源只作中性诊断。"
+                          message="这里展示的是以往检查记录，不代表设备当前状态"
+                          description="当前结果请以顶部“接入与封存进度”中的设备功能检查为准；后来收到的记录和历史失败不会自行替代本次验收采用的记录。系统时间和模拟来源只用于诊断。"
                         />
                         <Spin spinning={loadingEvidence}>
                           <EvidencePanel rows={evidence} />
@@ -2010,15 +2218,46 @@ export default function DeviceAssetDrawer({
                     ? '两种恢复操作处理的问题不同'
                     : '安装、通电和联网后无需机构确认'}
                       description={mode === 'platform'
-                        ? '“重新下发”只适用于命令尚未到达设备的传输阻断；同版本但摘要不同属于内容冲突，设备已接收或已经明确失败时，排除故障后都必须发布更高的修复版本。'
+                        ? '“重新下发”只适用于指令尚未到达设备的情况；同一版本的配置内容与记录不一致、设备已经接收，或应用已经明确失败时，排除故障后都必须发布更高的修复版本。'
                         : '系统会自动下发配置并测量厂家初始袋皮重；这里仅用于日常改价或调整投口配置。'}
                 />
-                {mode === 'platform' && latestApplication?.lastFailureCode && (
+                {mode === 'platform'
+                  && latestApplication?.status === 'FAILED'
+                  && latestApplication.lastFailureCode && (
                   <Alert
                     style={{ marginBottom: 12 }}
                     type="error"
                     showIcon
-                    message={`最近失败：${latestApplication.lastFailureCode}`}
+                    message="最近一次配置应用未成功"
+                    description={(
+                      <Space direction="vertical" size={6}>
+                        <Typography.Text>
+                          请先排除设备连接或配置问题，再按页面建议发布修复版本。
+                        </Typography.Text>
+                        <Collapse
+                          ghost
+                          size="small"
+                          items={[{
+                            key: 'configuration-failure-diagnostic',
+                            label: '技术诊断（报修时使用）',
+                            children: (
+                              <Descriptions size="small" column={1}>
+                                <Descriptions.Item label="失败代码">
+                                  <Typography.Text code>
+                                    {latestApplication.lastFailureCode}
+                                  </Typography.Text>
+                                </Descriptions.Item>
+                                {latestApplication.lastFailedAt && (
+                                  <Descriptions.Item label="失败记录时间">
+                                    {formatShanghaiTime(latestApplication.lastFailedAt)}
+                                  </Descriptions.Item>
+                                )}
+                              </Descriptions>
+                            ),
+                          }]}
+                        />
+                      </Space>
+                    )}
                   />
                 )}
                 <Spin spinning={loadingConfiguration}>
@@ -2040,7 +2279,9 @@ export default function DeviceAssetDrawer({
                                 <Tag color={configurationColors[version.application.status]}>
                                   {configurationLabels[version.application.status]}
                                 </Tag>
-                                <Tag>{version.application.dispatchState}</Tag>
+                                <Tag>
+                                  {taskStateLabel(version.application.dispatchState)}
+                                </Tag>
                               </Space>
                             }
                             description={
@@ -2061,7 +2302,7 @@ export default function DeviceAssetDrawer({
 
       <Modal
         width={760}
-        title="发布日常价格与机器配置"
+        title="发布日常价格与设备配置"
         open={configurationModalOpen}
         confirmLoading={submitting}
         onOk={() => void publishConfiguration()}
@@ -2072,7 +2313,7 @@ export default function DeviceAssetDrawer({
           type="warning"
           showIcon
           message="发布会生成一个不可修改的新版本"
-          description="当前进行中的投递或清运继续使用启动时冻结的旧配置；新业务只在新版本精确应用后使用它。设备名称和安装位置由清运员在安装资料页维护，不属于机器配置。"
+          description="当前进行中的投递或清运继续使用开始时采用的旧配置；新业务只在新版本准确应用后使用它。设备名称和安装位置由清运员在安装资料页维护，不属于设备运行配置。"
           style={{ marginBottom: 20 }}
         />
         <Form form={configForm} layout="vertical">
@@ -2155,11 +2396,11 @@ export default function DeviceAssetDrawer({
           type={recoveryKind === 'roll-forward' ? 'warning' : 'info'}
           showIcon
           message={recoveryKind === 'roll-forward'
-            ? '完整复制当前配置，只递增版本身份'
+            ? '完整复制当前配置，只增加版本号'
             : '不会产生新版本'}
           description={recoveryKind === 'roll-forward'
-            ? '用于当前应用已经失败，或命令送达后证据超时的情况。机构价格、投口和传感器参数不会被平台重新填写或修改。'
-            : '仅用于可靠任务明确证明命令尚未到达设备的情况；不会重新执行已经被设备接收的命令。'}
+            ? '用于当前配置已经失败，或指令送达后长时间没有收到设备确认的情况。机构价格、投口和传感器参数不会被平台重新填写或修改。'
+            : '仅用于后台发送记录明确证明指令尚未到达设备的情况；不会重新执行已经被设备接收的指令。'}
           style={{ marginBottom: 20 }}
         />
         <Form form={recoveryForm} layout="vertical">
@@ -2179,14 +2420,14 @@ export default function DeviceAssetDrawer({
         confirmLoading={baselineSubmitting}
         onOk={() => void submitManualBaselineAttempt()}
         onCancel={() => setBaselineIssue(undefined)}
-        okText="创建新的测量代际"
+        okText="开始新一轮测量"
         destroyOnClose
       >
         <Alert
           type="warning"
           showIcon
-          message="这不是重放上一条失败命令"
-          description="系统会结束保留上一代失败事实，并创建全新的皮重测量和设备命令。只有现场已排除故障且厂家袋仍为空时才能执行。"
+          message="系统不会重复执行上一条失败指令"
+          description="系统会保留上次失败记录，并创建全新的空袋重量测量和设备指令。只有现场已排除故障且厂家袋仍为空时才能执行。"
           style={{ marginBottom: 20 }}
         />
         <Form form={baselineForm} layout="vertical">

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { message } from 'antd';
 import {
   listAllIdentityTenants,
   type DirectoryContext,
@@ -51,7 +52,7 @@ export function useDirectoryScope(): DirectoryScope {
     }
     let active = true;
     setLoading(true);
-    listAllIdentityTenants()
+    listAllIdentityTenants({}, { silent: true })
       .then((tenants) => {
         if (!active) return;
         setTenantOptions(
@@ -60,6 +61,11 @@ export function useDirectoryScope(): DirectoryScope {
             value: tenant.tenantCode,
           })),
         );
+      })
+      .catch(() => {
+        if (!active) return;
+        setTenantOptions([]);
+        message.error('租户列表暂时无法读取，请刷新页面后再试');
       })
       .finally(() => active && setLoading(false));
     return () => {

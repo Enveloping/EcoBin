@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, App, Button, Card, Descriptions, Form, Input, InputNumber,
+  Alert, App, Button, Card, Collapse, Descriptions, Form, Input, InputNumber,
   Modal, Select, Space, Tag, Typography,
 } from 'antd';
 import { CodeOutlined, DisconnectOutlined, ToolOutlined } from '@ant-design/icons';
@@ -19,6 +19,7 @@ import {
 import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { formatShanghaiTime } from '@/utils/decimal';
+import { operatorErrorMessage } from './operatorErrorPresentation';
 
 interface OpenForm {
   maintenanceSshKeyUid: string;
@@ -33,8 +34,8 @@ const terminalStates = new Set<RemoteSupportState>([
 ]);
 
 const stateCopy: Record<RemoteSupportState, { label: string; color: string }> = {
-  PREPARING: { label: '正在准备服务器租约', color: 'processing' },
-  CONNECTING: { label: '等待设备建立隧道', color: 'processing' },
+  PREPARING: { label: '正在准备连接资源', color: 'processing' },
+  CONNECTING: { label: '系统正在安排设备连接', color: 'processing' },
   OPEN: { label: '已开放', color: 'success' },
   RECONNECTING: { label: '设备暂时离线，等待重连', color: 'warning' },
   CLOSING: { label: '正在关闭', color: 'warning' },
@@ -43,17 +44,50 @@ const stateCopy: Record<RemoteSupportState, { label: string; color: string }> = 
   EXPIRED: { label: '已到期', color: 'default' },
 };
 
+const failureCopy: Record<string, { title: string; action: string }> = {
+  CREDENTIALS_INVALID: {
+    title: '设备的远程维护凭证无效',
+    action: '请重新安装与当前设备匹配的维护凭证，再发起新的远程维护会话。',
+  },
+  SSH_NOT_AVAILABLE: {
+    title: '设备缺少远程维护程序',
+    action: '请确认设备已安装包含远程维护能力的正式软件版本。',
+  },
+  SSH_START_FAILED: {
+    title: '设备未能启动安全连接',
+    action: '请确认设备在线且网络正常；若再次失败，请联系技术人员检查设备服务。',
+  },
+  SSH_EXITED: {
+    title: '远程维护连接意外中断',
+    action: '请先确认设备仍在线；如现场网络已经恢复，可重新发起会话。',
+  },
+  PROCESS_SUPERVISION_FAILED: {
+    title: '设备未能持续监控远程连接',
+    action: '请联系技术人员检查设备的远程维护服务，再重新发起会话。',
+  },
+  CONNECT_TIMEOUT: {
+    title: '设备未在规定时间内建立连接',
+    action: '请确认设备在线且蜂窝网络稳定，然后重新发起会话。',
+  },
+  SERVER_LEASE_CONFLICT: {
+    title: '服务器连接端口被其他会话占用',
+    action: '请先关闭冲突的远程维护会话；端口释放后再重新发起。',
+  },
+};
+
+function remoteSupportFailureCopy(code: string) {
+  return failureCopy[code] || {
+    title: '远程维护连接未能建立',
+    action: '请确认设备在线后重新发起；若仍失败，请展开技术诊断并联系技术人员。',
+  };
+}
+
 function storageKey(hardwareSn: string): string {
   return `ecobin.remote-support-session.${hardwareSn}`;
 }
 
 function errorText(error: unknown): string {
-  if (error instanceof ApiProblem) {
-    return error.requestId
-      ? `${error.message}（请求 ID：${error.requestId}）`
-      : error.message;
-  }
-  return error instanceof Error ? error.message : '远程维护操作失败';
+  return operatorErrorMessage(error, '远程维护操作未完成，请稍后再试');
 }
 
 export default function RemoteSupportPanel({ hardwareSn }: {
@@ -80,7 +114,7 @@ export default function RemoteSupportPanel({ hardwareSn }: {
     const restore = async () => {
       setLoading(true);
       try {
-        const loadedKeys = await listMaintenanceSshKeys();
+        const loadedKeys = await listMaintenanceSshKeys({ silent: true });
         if (cancelled) return;
         setKeys(loadedKeys);
         try {
@@ -164,7 +198,7 @@ export default function RemoteSupportPanel({ hardwareSn }: {
       sessionStorage.setItem(storageKey(hardwareSn), created.sessionUid);
       setSession(created);
       setOpenModal(false);
-      message.success('开启指令已交给 OneNet，正在等待香橙派建立隧道');
+      message.success('远程协助请求已登记，系统正在安排发送给设备');
     } catch (error) {
       message.error(errorText(error));
     } finally {
@@ -186,7 +220,7 @@ export default function RemoteSupportPanel({ hardwareSn }: {
       );
       setSession(updated);
       setCloseModal(false);
-      message.success('关闭指令已提交，服务器租约已开始撤销');
+      message.success('关闭请求已登记，系统正在安全收回远程连接');
     } catch (error) {
       message.error(errorText(error));
     } finally {
@@ -197,6 +231,9 @@ export default function RemoteSupportPanel({ hardwareSn }: {
   const canClose = session && !terminalStates.has(session.state);
   const reservesPort = session
     && (canClose || session.leaseCleanupPending);
+  const failure = session?.failureCode
+    ? remoteSupportFailureCopy(session.failureCode)
+    : undefined;
 
   return (
     <Card
@@ -256,14 +293,34 @@ export default function RemoteSupportPanel({ hardwareSn }: {
             <Descriptions.Item label="到期时间" span={2}>
               {formatShanghaiTime(session.expiresAt)}
             </Descriptions.Item>
-            {session.failureCode && (
-              <Descriptions.Item label="失败代码" span={2}>
-                <Typography.Text type="danger" code>
-                  {session.failureCode}
-                </Typography.Text>
-              </Descriptions.Item>
-            )}
           </Descriptions>
+          {failure && (
+            <Alert
+              type="error"
+              showIcon
+              message={failure.title}
+              description={failure.action}
+            />
+          )}
+          {session.failureCode && (
+            <Collapse
+              ghost
+              size="small"
+              items={[{
+                key: 'remote-support-failure-diagnostic',
+                label: '技术诊断（报修时使用）',
+                children: (
+                  <Descriptions size="small" column={1}>
+                    <Descriptions.Item label="失败代码">
+                      <Typography.Text type="danger" copyable code>
+                        {session.failureCode}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                  </Descriptions>
+                ),
+              }]}
+            />
+          )}
           {session.state === 'OPEN' && session.certificate && (
             <Alert
               type="success"

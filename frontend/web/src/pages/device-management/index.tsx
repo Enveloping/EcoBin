@@ -38,7 +38,6 @@ import {
   type CreateDeviceAssetRequest,
   type DeviceAsset,
 } from '@/api/deviceDirectory';
-import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
 import { useOrganizationScope } from '@/pages/identity/useOrganizationScope';
@@ -50,6 +49,7 @@ import DeviceAssetDrawer, {
   type DeviceManagementMode,
 } from './DeviceAssetDrawer';
 import RuntimeSnapshotPolicyModal from './RuntimeSnapshotPolicyModal';
+import { operatorErrorMessage } from './operatorErrorPresentation';
 import {
   acceptanceColors,
   acceptanceLabels,
@@ -85,12 +85,7 @@ interface ControlState {
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiProblem) {
-    return error.requestId
-      ? `${error.message}（请求 ID：${error.requestId}）`
-      : error.message;
-  }
-  return error instanceof Error ? error.message : '设备操作失败';
+  return operatorErrorMessage(error, '设备操作未完成，请刷新页面后再试');
 }
 
 const controlCopy: Record<
@@ -105,7 +100,7 @@ const controlCopy: Record<
   restore: {
     title: '恢复设备',
     action: '确认恢复',
-    warning: '恢复只重新参加实时准入判断，不会跳过联网、配置、皮重或安全条件。',
+    warning: '恢复后系统仍会重新检查设备联网、配置、空袋重量和安全状态，不会跳过任何必要条件。',
   },
   retire: {
     title: '报废设备',
@@ -160,7 +155,7 @@ export default function DeviceManagementPage() {
   const pageCopy = mode === 'platform'
     ? {
       title: '永久设备资产',
-      description: '平台登记物理设备资产、查看当前在线状态和历史验收证据，并只分配一次租户。',
+      description: '平台登记物理设备资产、查看当前在线状态和历史检查记录，并只分配一次租户。',
     }
     : mode === 'tenant'
       ? {
@@ -177,7 +172,7 @@ export default function DeviceManagementPage() {
       title: '设备',
       dataIndex: 'hardwareSn',
       width: 250,
-      fieldProps: { placeholder: '搜索硬件 SN' },
+      fieldProps: { placeholder: '搜索设备序列号' },
       render: (_, asset) => (
         <Space direction="vertical" size={1}>
           <Typography.Link
@@ -187,7 +182,7 @@ export default function DeviceManagementPage() {
             {asset.hardwareSn}
           </Typography.Link>
           <Typography.Text type="secondary" copyable>
-            {asset.deviceCode}
+            设备编号：{asset.deviceCode}
           </Typography.Text>
         </Space>
       ),
@@ -207,7 +202,7 @@ export default function DeviceManagementPage() {
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               {asset.connectivity?.statusObservedAt
                 ? formatShanghaiTime(asset.connectivity.statusObservedAt)
-                : '尚未收到上下线事实'}
+                : '平台尚未收到设备联网状态'}
             </Typography.Text>
           </Space>
         );
@@ -237,7 +232,7 @@ export default function DeviceManagementPage() {
       ),
     },
     {
-      title: '机器验收',
+      title: '设备功能检查',
       dataIndex: 'acceptanceStatus',
       valueType: 'select',
       hideInSearch: mode !== 'platform',
@@ -302,7 +297,7 @@ export default function DeviceManagementPage() {
         commandKey('device.asset.create', payload.hardwareSn, payload),
         (intent) => createPlatformDeviceAsset(payload, intent),
       );
-      message.success('设备资产已创建，设备联网后会自动验收');
+      message.success('设备资产已创建，设备联网并完成初始袋登记后，系统会自动验收');
       setAssetModalOpen(false);
       assetForm.resetFields();
       setSelected(created);
@@ -408,7 +403,7 @@ export default function DeviceManagementPage() {
           icon={<DashboardOutlined />}
           onClick={() => setRuntimePolicyOpen(true)}
         >
-          运行快照策略
+          设备状态上报策略
         </Button>,
         <Button
           key="create"
@@ -432,7 +427,7 @@ export default function DeviceManagementPage() {
         message="永久归属 · 自动验收 · 联网即用"
         description={
           mode === 'platform'
-            ? '机器验收发生在分配租户之前；MCU 和摄像头是否模拟仅作诊断，平台依据联网、通信、采集、上传等功能证据自动判定。'
+            ? '设备功能检查发生在分配租户之前；设备控制板和摄像头是否为模拟来源只用于诊断，平台依据联网、通信、采集和上传等实际检查结果自动判定。'
             : mode === 'tenant'
               ? '租户界面不展示安装或启用进度；设备只能永久分配一次机构。'
               : '系统自动下发配置、重测厂家初始袋皮重并计算业务资格，不需要现场确认或经营开关。'
@@ -514,24 +509,19 @@ export default function DeviceManagementPage() {
           setControl({ asset, kind });
         }}
         onReevaluateAcceptance={async (asset) => {
-          try {
-            const updated = await executeCommand(
-              commandKey(
-                'device.acceptance.reevaluate',
-                asset.hardwareSn,
-                {},
-              ),
-              (intent) => reevaluateDeviceAcceptance(
-                asset.hardwareSn, intent,
-              ),
-            );
-            setSelected(updated);
-            reload();
-            message.success('已根据最新功能证据重新计算验收结果');
-          } catch (error) {
-            message.error(errorMessage(error));
-            throw error;
-          }
+          const updated = await executeCommand(
+            commandKey(
+              'device.acceptance.reevaluate',
+              asset.hardwareSn,
+              {},
+            ),
+            (intent) => reevaluateDeviceAcceptance(
+              asset.hardwareSn, intent,
+            ),
+          );
+          setSelected(updated);
+          reload();
+          message.success('已根据最新设备检查记录重新核对验收结果');
         }}
         onChanged={reload}
       />
@@ -553,16 +543,16 @@ export default function DeviceManagementPage() {
           type="warning"
           showIcon
           message="这里只登记设备资产，不登记厂家初始袋"
-          description="硬件 SN 创建后不可替换。设备首次装袋必须由已绑定的厂家操作员在共享小程序的设备出厂端逐口扫描 EB1 袋码；所有投口完成装袋后，设备才会进入自动验收。"
+          description="设备序列号创建后不可替换。设备首次装袋必须由已绑定的厂家操作员在共享小程序的设备出厂端逐口扫描防伪袋码（EB1 格式）；所有投口完成装袋后，设备才会进入自动验收。"
           style={{ marginBottom: 20 }}
         />
         <Form form={assetForm} layout="vertical">
           <Form.Item
             name="hardwareSn"
-            label="硬件 SN / OneNet 设备名"
+            label="设备序列号 / 物联网平台设备名称"
             rules={[{ required: true }, {
               pattern: /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/,
-              message: '请输入 1～64 位合法硬件 SN',
+              message: '请输入 1～64 位合法设备序列号',
             }]}
           >
             <Input maxLength={64} />

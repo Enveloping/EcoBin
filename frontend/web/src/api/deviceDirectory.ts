@@ -70,6 +70,7 @@ export function listPlatformDeviceAssets(
     method: 'GET',
     params,
     noStore: true,
+    silent: true,
   });
 }
 
@@ -78,6 +79,7 @@ export function getPlatformRuntimeSnapshotPolicy() {
     url: '/api/v1/web/platform/device-runtime-snapshot-policy',
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -92,6 +94,7 @@ export function releasePlatformRuntimeSnapshotPolicy(
     url: '/api/v1/web/platform/device-runtime-snapshot-policy/releases',
     method: 'POST',
     data,
+    silent: true,
   });
 }
 
@@ -103,6 +106,7 @@ export function createPlatformDeviceAsset(
     url: '/api/v1/web/platform/device-assets',
     method: 'POST',
     data,
+    silent: true,
   });
 }
 
@@ -111,6 +115,7 @@ export function getPlatformDeviceAsset(hardwareSn: string) {
     url: `/api/v1/web/platform/device-assets/${encodeURIComponent(hardwareSn)}`,
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -121,6 +126,7 @@ export function getPlatformDeviceRuntime(hardwareSn: string) {
       + '/runtime',
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -146,6 +152,7 @@ export function assignPlatformDeviceTenant(
       + '/tenant-assignments',
     method: 'POST',
     data,
+    silent: true,
   });
 }
 
@@ -169,6 +176,7 @@ export function listDeviceAcceptanceEvidence(hardwareSn: string) {
       + '/acceptance-evidence',
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -184,6 +192,7 @@ function controlPlatformDevice(
       + `/${action}`,
     method: 'POST',
     data,
+    silent: true,
   });
 }
 
@@ -220,6 +229,7 @@ export function listPlatformDeviceTechnicalIssues(hardwareSn: string) {
     url: `${platformDeviceAssetUrl(hardwareSn)}/technical-issues`,
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -238,6 +248,7 @@ export function startPlatformBaselineMeasurementAttempt(
       + '/baseline-measurement-attempts',
     method: 'POST',
     data,
+    silent: true,
   });
 }
 
@@ -250,6 +261,7 @@ export function listPlatformDeviceConfigurationVersions(
     method: 'GET',
     params,
     noStore: true,
+    silent: true,
   });
 }
 
@@ -263,6 +275,7 @@ export function getPlatformDeviceConfigurationVersion(
       + versionNo,
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -278,6 +291,7 @@ export function rollForwardPlatformDeviceConfiguration(
     url: `${platformDeviceAssetUrl(hardwareSn)}/configuration-roll-forwards`,
     method: 'POST',
     data,
+    silent: true,
   });
 }
 
@@ -291,6 +305,7 @@ export function getPlatformDeviceConfigurationApplication(
       + encodeURIComponent(applicationUid),
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -309,6 +324,7 @@ export function resynchronizePlatformDeviceConfiguration(
       + `${encodeURIComponent(applicationUid)}/resynchronizations`,
     method: 'POST',
     data,
+    silent: true,
   });
 }
 
@@ -320,6 +336,7 @@ export function listTenantDeviceAssets(
     method: 'GET',
     params,
     noStore: true,
+    silent: true,
   });
 }
 
@@ -328,6 +345,7 @@ export function getTenantDeviceAsset(hardwareSn: string) {
     url: `/api/v1/web/device-assets/${encodeURIComponent(hardwareSn)}`,
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -336,6 +354,7 @@ export function getTenantDeviceRuntime(hardwareSn: string) {
     url: `/api/v1/web/device-assets/${encodeURIComponent(hardwareSn)}/runtime`,
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -350,6 +369,7 @@ export function assignTenantDeviceOrganization(
       + '/organization-assignments',
     method: 'POST',
     data,
+    silent: true,
   });
 }
 
@@ -372,6 +392,7 @@ export function listOrganizationDevices(
     method: 'GET',
     params,
     noStore: true,
+    silent: true,
   });
 }
 
@@ -383,6 +404,7 @@ export function getOrganizationDevice(
     url: organizationDeviceUrl(organizationCode, deviceCode),
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -394,6 +416,7 @@ export function getOrganizationDeviceRuntime(
     url: `${organizationDeviceUrl(organizationCode, deviceCode)}/runtime`,
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -409,6 +432,7 @@ export function listDeviceConfigurationVersions(
     method: 'GET',
     params,
     noStore: true,
+    silent: true,
   });
 }
 
@@ -423,6 +447,7 @@ export function getDeviceConfigurationVersion(
       + `/configuration-versions/${versionNo}`,
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -441,6 +466,7 @@ export function releaseDeviceConfiguration(
       + '/configuration-releases',
     method: 'POST',
     data,
+    silent: true,
   });
 }
 
@@ -455,6 +481,7 @@ export function getDeviceConfigurationApplication(
       + `/configuration-applications/${encodeURIComponent(applicationUid)}`,
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -475,5 +502,6 @@ export function resynchronizeDeviceConfiguration(
       + '/resynchronizations',
     method: 'POST',
     data,
+    silent: true,
   });
 }

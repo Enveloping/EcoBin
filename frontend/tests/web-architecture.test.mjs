@@ -506,10 +506,10 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.doesNotMatch(pageSource, /factoryBags/);
   assert.match(pageSource, /共享小程序的设备出厂端/);
   assert.match(pageSource, /联网即可使用/);
-  assert.match(pageSource, /运行快照策略/);
+  assert.match(pageSource, /设备状态上报策略/);
   assert.match(pageSource, /联网状态/);
   assert.match(pageSource, /window\.setInterval\(refreshVisibleList, 15_000\)/);
-  assert.match(runtimePolicySource, /不是设备在线心跳/);
+  assert.match(runtimePolicySource, /不用于判断设备是否在线/);
   assert.match(runtimePolicySource, /fallbackIntervalMinutes/);
   assert.doesNotMatch(
     configurationModalSource,
@@ -517,20 +517,20 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   );
   assert.match(drawerSource, /mcuSimulated/);
   assert.match(drawerSource, /camerasSimulated/);
-  assert.match(drawerSource, /当前验收代次尚未保存自动验收证据/);
+  assert.match(drawerSource, /本次验收尚未保存设备检查记录/);
   assert.match(drawerSource, /当前联网与最近运行状态/);
   assert.match(drawerSource, /每 15 秒自动刷新/);
-  assert.match(drawerSource, /出厂自动机器验收（历史证据）/);
-  assert.match(drawerSource, /不是设备当前状态/);
+  assert.match(drawerSource, /设备检查历史记录/);
+  assert.match(drawerSource, /不代表设备当前状态/);
   assert.match(drawerSource, /activeKey=\{evidenceExpanded/);
-  assert.match(drawerSource, /模拟器（仅诊断）/);
+  assert.match(drawerSource, /模拟来源/);
   assert.doesNotMatch(drawerSource, /模拟器（不能通过）/);
   assert.match(drawerSource, /expectedLatestVersion:\s*current\.versionNo/);
   assert.match(drawerSource, /系统会自动下发配置并测量厂家初始袋皮重/);
   assert.match(drawerSource, /配置下发与恢复/);
   assert.match(drawerSource, /重新下发当前版本/);
   assert.match(drawerSource, /发布修复版本/);
-  assert.match(drawerSource, /同版本但摘要不同/);
+  assert.match(drawerSource, /同一版本的配置内容与记录不一致/);
   assert.doesNotMatch(apiSource, /device-deployments|deploymentCode|TenantPool/);
   assert.doesNotMatch(pageSource, /部署进度|租户设备池|经营开关状态/);
   assert.doesNotMatch(drawerSource, /人工验收|现场验收|手动开启/);
