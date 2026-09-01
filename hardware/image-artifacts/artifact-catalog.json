@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-08-31T13:18:39.581Z",
+  "catalogedAt": "2026-09-01T02:40:26.212Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -433,6 +433,21 @@
       "path": "evidence/hil-factory-login-20260830-11-chrony-sandbox/README.md",
       "bytes": 5699,
       "sha256": "c980d293a7851331e530625ef87b7d764b9c7e9a9e2d49d76d14948b50dafd92"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260831-13-friendly-copy/ecobin-orangepi-zero3-0.1.0-single-card.20260831.13-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "sha256": "72f074058ed7117d185a24362a26d011c7996863c31fd16d363cd9164bf4ab96"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260831-13-friendly-copy/flash-result-disk1-121220160204-v13.json",
+      "bytes": 689,
+      "sha256": "d4d7c5c2776fb138038e45d09e4580a70fd056d63d02f3ad47b030274ca7e6ea"
+    },
+    {
+      "path": "evidence/hil-factory-login-20260831-13-friendly-copy/README.md",
+      "bytes": 2281,
+      "sha256": "f863836a0f8979fcd4db1157ac401f6aff4bee867351ba07268c23da5faeffe2"
     },
     {
       "path": "evidence/hil-v10-chrony-permission-hotfix-20260830-01/README.md",
@@ -940,6 +955,20 @@
       "sha256": "72f074058ed7117d185a24362a26d011c7996863c31fd16d363cd9164bf4ab96"
     },
     {
+      "path": "local/factory-secret/builds/hil-factory-login-20260831-13-friendly-copy/flash-progress-disk1-121220160204-v13.log",
+      "bytes": 3512,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "309e8a916cebedaf941058be351e605c821c33e46d9edab74c1f2563719c72c0"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260831-13-friendly-copy/flash-result-disk1-121220160204-v13.json",
+      "bytes": 706,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b2e5ed7bef9df7f6b410fde6d656e5d483998d1581b2cc748097022a76814efc"
+    },
+    {
       "path": "local/factory-secret/builds/hil-factory-login-20260831-13-friendly-copy/offline-verification.log",
       "bytes": 915,
       "classification": "LOCAL_DIAGNOSTIC",
@@ -1069,6 +1098,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "be7ec0b911cc89c2b40f285407898249ed6043a0b124a8857885c8212b214718"
+    },
+    {
+      "path": "local/flash-v13-disk1.ps1",
+      "bytes": 1057,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "267316b407fbb4ba0a7091c4968dcbdd31f3410bdff9fd9efd2621f7b0a91b62"
     },
     {
       "path": "local/flash-v9-disk1.ps1",
