@@ -49,7 +49,10 @@ from edge_identity import (
     load_or_generate_edge_boot_id,
     persist_edge_boot_id,
 )
-from mqtt_client import MqttClient
+from business_message_handler import BusinessMessageHandler
+from business_outbox_relay import BusinessOutboxRelay
+from device_identity import DeviceIdentity
+from direct_onenet_transport import DirectOneNetTransport
 from photo_manager import PhotoManager
 from work_manager import WorkManager
 from command_processor import CommandProcessor
@@ -150,6 +153,7 @@ class EcoBinEdge:
         )
 
         config_validate()
+        self.device_identity = DeviceIdentity(DEVICE_NAME)
         # -- EdgeStore (SQLite) --
         self.store = EdgeStore(EDGE_STORE_PATH)
         self.store.initialize()
@@ -186,27 +190,12 @@ class EcoBinEdge:
             self.store.get_device_entry_url,
         )
 
-        # -- MQTT Client --
-        self.mqtt = MqttClient(
+        # -- Current direct implementation of the stable cloud boundary --
+        self.cloud_transport = DirectOneNetTransport(
             product_id=PRODUCT_ID, device_name=DEVICE_NAME,
-            device_key=DEVICE_KEY, edge_store=self.store,
+            device_key=DEVICE_KEY,
             mqtt_host=MQTT_HOST, mqtt_port=MQTT_PORT,
-            edge_boot_id=self._edge_boot_id,
             clean_session=MQTT_CLEAN_SESSION,
-            trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
-            unsupported_command_types=(
-                {
-                    "END_CLEAN_BEFORE_UNLOCK",
-                    "RESUME_CLEAN_OPERATION",
-                }
-                if getattr(
-                    self.uart,
-                    "compatibility_mode",
-                    False,
-                )
-                else set()
-            ),
-            factory_seal_gate=self.factory_seal_gate,
         )
 
         # -- Photo Manager --
@@ -229,7 +218,12 @@ class EcoBinEdge:
         )
 
         # -- Work Manager --
-        self.work = WorkManager(self.store, self.uart, self.mqtt, self.photo)
+        self.work = WorkManager(
+            self.store,
+            self.uart,
+            self.device_identity,
+            self.photo,
+        )
         self.acceptance = DeviceAcceptanceRunner(
             self.store,
             self.uart,
@@ -302,14 +296,56 @@ class EcoBinEdge:
             interval_seconds=DEVICE_ENTRY_URL_REFRESH_SECONDS,
         )
 
-        # -- Wire callbacks --
-        self.mqtt.on_command_received = self._on_command
-        self.mqtt.on_confirmation_received = self._on_confirmation
-        self.mqtt.on_reliable_event_count_changed = (
+        # -- Business/cloud bridge (still one process and one connection) --
+        self.business_messages = BusinessMessageHandler(
+            self.store,
+            self.device_identity,
+            edge_boot_id=self._edge_boot_id,
+            trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
+            unsupported_command_types=(
+                {
+                    "END_CLEAN_BEFORE_UNLOCK",
+                    "RESUME_CLEAN_OPERATION",
+                }
+                if getattr(
+                    self.uart,
+                    "compatibility_mode",
+                    False,
+                )
+                else set()
+            ),
+            factory_seal_gate=self.factory_seal_gate,
+        )
+        self.business_outbox = BusinessOutboxRelay(
+            self.store,
+            self.cloud_transport,
+        )
+
+        # -- Wire stable callbacks --
+        self.business_messages.on_command_received = self._on_command
+        self.business_messages.on_reliable_event_count_changed = (
             self._request_runtime_snapshot
         )
-        self.mqtt.on_connected = self._on_mqtt_connected
-        self.mqtt.on_disconnected = self._on_mqtt_disconnected
+        self.business_messages.on_outbox_wakeup = (
+            self.business_outbox.wake
+        )
+        self.cloud_transport.on_service_request = (
+            self.business_messages.handle_service_request
+        )
+        self.cloud_transport.on_legacy_command_received = (
+            self.business_messages.handle_legacy_command
+        )
+        self.cloud_transport.on_event_transport_ack = (
+            self.business_outbox.handle_transport_ack
+        )
+        self.cloud_transport.on_event_platform_result = (
+            self.business_outbox.handle_platform_result
+        )
+        self.cloud_transport.on_connected = self._on_cloud_connected
+        self.cloud_transport.on_disconnected = self._on_cloud_disconnected
+        self.cloud_transport.on_mqtt_state_observed = (
+            self._on_direct_mqtt_state_observed
+        )
 
         # -- Signal handlers --
         signal.signal(signal.SIGINT, self._on_signal)
@@ -320,7 +356,7 @@ class EcoBinEdge:
         self._report_factory_progress(service_state="STOPPING")
         self._exit_flag.set()
         try:
-            self.mqtt.disconnect()
+            self.cloud_transport.disconnect()
         except Exception:
             pass
         try:
@@ -341,10 +377,39 @@ class EcoBinEdge:
         self.commands.wake()
         return True
 
-    def _on_confirmation(self, topic, payload):
-        logger.debug("confirmation received: topic=%s", topic)
+    def _on_direct_mqtt_state_observed(
+        self,
+        session_present: bool,
+        reason_code: int,
+    ) -> None:
+        """Preserve legacy direct-MQTT diagnostics during migration."""
 
-    def _on_mqtt_connected(self):
+        try:
+            self.store.save_mqtt_persistent_state(
+                session_present,
+                reason_code,
+            )
+        except Exception:
+            logger.exception("failed to persist MQTT diagnostic state")
+
+    def _on_cloud_connected(self):
+        try:
+            fault = self.store.get_active_edge_fault(
+                "NETWORK",
+                "NETWORK_CONNECTIVITY",
+            )
+            if fault is not None:
+                self.store.recover_fault_and_create_event(
+                    device_name=self.device_identity.device_name,
+                    fault_uid=fault["fault_uid"],
+                    component="NETWORK",
+                    fault_code="NETWORK_CONNECTIVITY",
+                    port_no=fault["port_no"],
+                    recovery_evidence="MQTT_CONNECTED",
+                )
+        except Exception:
+            logger.exception("failed to persist cloud recovery event")
+        self.business_outbox.on_connected()
         values = {"mqtt_state": "CONNECTED"}
         if self._can_clear_runtime_error():
             values["last_error_code"] = None
@@ -352,7 +417,8 @@ class EcoBinEdge:
         if self._runtime_ready:
             self._publish_runtime_snapshot_now(force=True)
 
-    def _on_mqtt_disconnected(self, _reason_code):
+    def _on_cloud_disconnected(self):
+        self.business_outbox.on_disconnected()
         values = {}
         if self._exit_flag.is_set():
             values["mqtt_state"] = "DISCONNECTED"
@@ -365,13 +431,51 @@ class EcoBinEdge:
             })
         self._report_factory_progress(**values)
 
+    def _connect_cloud_after_local_boot(self, result: dict) -> dict:
+        """Start the selected transport after local safety recovery."""
+
+        if not self.cloud_transport.connect():
+            logger.error("BOOT: cloud transport connect failed")
+            try:
+                self.store.observe_fault_and_create_event(
+                    device_name=self.device_identity.device_name,
+                    component="NETWORK",
+                    fault_code="NETWORK_CONNECTIVITY",
+                    severity="WARNING",
+                    detail={"reasonCode": "MQTT_CONNECT_FAILED"},
+                )
+            except Exception:
+                logger.exception(
+                    "failed to persist cloud connection fault"
+                )
+            return {
+                **result,
+                "status": "DEGRADED",
+                "reason": "mqtt_connect_failed",
+            }
+
+        # Preserve the existing short grace period between subscription and
+        # the first runtime snapshot.  Reconnect snapshots remain callback-
+        # driven after the runtime has reached READY.
+        time.sleep(0.5)
+        from edge_boot import _publish_runtime_snapshot
+
+        _publish_runtime_snapshot(
+            self.store,
+            self.cloud_transport,
+            self.device_identity,
+            result["mcu_info"],
+            result.get("snapshots", []),
+        )
+        return result
+
     def _report_p8_progress(
         self,
         phase: str,
         error_code: str | None = None,
     ) -> None:
         values = {"p8_phase": phase}
-        if error_code is not None or self.mqtt.connected:
+        if error_code is not None or self.cloud_transport.connected:
             values["last_error_code"] = error_code
         self._report_factory_progress(**values)
 
@@ -398,7 +502,9 @@ class EcoBinEdge:
             self._report_factory_progress(
                 uart_state=self._current_uart_progress_state(),
                 mqtt_state=(
-                    "CONNECTED" if self.mqtt.connected else "DISCONNECTED"
+                    "CONNECTED"
+                    if self.cloud_transport.connected
+                    else "DISCONNECTED"
                 ),
             )
         logger.info("factory progress heartbeat stopped")
@@ -461,10 +567,12 @@ class EcoBinEdge:
             # boot path owns its own fresh handshake/generation, so close once.
             self.uart.close()
             result = boot_sequence(
-                store=self.store, uart_link=self.uart,
-                mqtt_client=self.mqtt, work_manager=self.work,
-                photo_manager=self.photo,
+                store=self.store,
+                uart_link=self.uart,
+                device_identity=self.device_identity,
             )
+            if result["status"] != "SAFETY_LOCKED":
+                result = self._connect_cloud_after_local_boot(result)
         else:
             result = {
                 "status": "MCU_UPDATE_FAILED_LOCKED",
@@ -484,7 +592,9 @@ class EcoBinEdge:
                 service_state="FAILED",
                 uart_state="FAILED",
                 mqtt_state=(
-                    "CONNECTED" if self.mqtt.connected else "DISCONNECTED"
+                    "CONNECTED"
+                    if self.cloud_transport.connected
+                    else "DISCONNECTED"
                 ),
                 last_error_code="RUNTIME_BOOT_FAILED",
             )
@@ -498,11 +608,13 @@ class EcoBinEdge:
             service_state="RUNNING",
             uart_state=self._current_uart_progress_state(),
             mqtt_state=(
-                "CONNECTED" if self.mqtt.connected else "FAILED"
+                "CONNECTED"
+                if self.cloud_transport.connected
+                else "FAILED"
             ),
             last_error_code=(
                 None
-                if self.mqtt.connected
+                if self.cloud_transport.connected
                 else "MQTT_CONNECT_FAILED"
             ),
         )
@@ -533,8 +645,8 @@ class EcoBinEdge:
         # -- Clock quality / bounded NTP self-repair --
         threading.Thread(target=self._clock_health_loop, daemon=True, name="clock-health").start()
 
-        # -- MQTT main loop --
-        self.mqtt.loop_forever()
+        # -- Selected cloud transport main loop --
+        self.cloud_transport.run_forever()
         self._shutdown()
 
     def _uart_event_loop(self):
@@ -598,7 +710,7 @@ class EcoBinEdge:
             self.commands.wake()
             self._request_runtime_snapshot()
             values = {"uart_state": "READY"}
-            if not self.mqtt.connected:
+            if not self.cloud_transport.connected:
                 values["last_error_code"] = "MQTT_DISCONNECTED"
             elif self._can_clear_runtime_error():
                 values["last_error_code"] = None
@@ -613,7 +725,7 @@ class EcoBinEdge:
             )
             self._exit_flag.set()
             try:
-                self.mqtt.disconnect()
+                self.cloud_transport.disconnect()
             except Exception:
                 pass
             try:
@@ -817,7 +929,7 @@ class EcoBinEdge:
                     # A reconnect snapshot may have moved the shared fallback
                     # deadline while this thread was waiting on the old one.
                     continue
-                if not self.mqtt.connected:
+                if not self.cloud_transport.connected:
                     if periodic_due:
                         self._retry_runtime_snapshot_after(30.0)
                     continue
@@ -898,7 +1010,8 @@ class EcoBinEdge:
             )
             result = _publish_runtime_snapshot(
                 self.store,
-                self.mqtt,
+                self.cloud_transport,
+                self.device_identity,
                 {
                 "mcu_boot_id": (
                     getattr(self.uart, "_mcu_boot_id", None) or 0
@@ -956,7 +1069,11 @@ class EcoBinEdge:
         except Exception:
             pass
         try:
-            self.mqtt.disconnect()
+            self.business_outbox.stop()
+        except Exception:
+            pass
+        try:
+            self.cloud_transport.disconnect()
         except Exception:
             pass
         try:

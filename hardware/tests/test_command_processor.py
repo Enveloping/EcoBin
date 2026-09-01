@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from command_processor import CommandProcessor
+from device_identity import DeviceIdentity
 from edge_store import (
     EdgeStore,
     FACTORY_SEAL_RETRYABLE_ERROR_CODES,
@@ -1501,12 +1502,12 @@ def test_real_smoke_alarm_is_recorded_and_blocks_new_delivery(tmp_path):
     store.set_state("applied_config_version", "8")
     store.set_state("applied_config_content_sha256", "a" * 64)
     uart = FakeUart()
-    mqtt = type(
-        "FakeMqtt",
-        (),
-        {"device_name": "SN-DEMO-0001"},
-    )()
-    work = WorkManager(store, uart, mqtt, FakePhotoManager())
+    work = WorkManager(
+        store,
+        uart,
+        DeviceIdentity("SN-DEMO-0001"),
+        FakePhotoManager(),
+    )
     processor = CommandProcessor(store, uart, work)
 
     processor.process_mcu_event({

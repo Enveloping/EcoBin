@@ -6013,9 +6013,13 @@ class EdgeStore:
             )
             return True
 
-    def mark_event_sending(self, event_uid: str, mqtt_msg_id: int) -> None:
+    def mark_event_sending(
+        self,
+        event_uid: str,
+        mqtt_msg_id: Optional[int],
+    ) -> bool:
         with self.transaction():
-            self._conn.execute(
+            cursor = self._conn.execute(
                 """UPDATE event_outbox
                    SET state='SENDING', mqtt_msg_id=?
                    WHERE event_uid=? AND state='PENDING'
@@ -6025,6 +6029,7 @@ class EdgeStore:
                      )""",
                 (mqtt_msg_id, event_uid),
             )
+            return cursor.rowcount > 0
 
     def mark_event_pending_retry(self, event_uid: str) -> None:
         now_s = int(time.time())

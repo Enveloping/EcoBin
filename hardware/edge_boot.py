@@ -6,6 +6,8 @@ import os
 import shutil
 import time
 import uuid as _uuid
+from cloud_transport import CloudEvent, CloudTransport
+from device_identity import DeviceIdentity
 from edge_identity import is_valid_edge_boot_id, new_edge_boot_id
 from edge_store import EdgeStore, WORK_TYPE_NONE
 from onenet_wire import canonical_payload_sha256
@@ -45,31 +47,17 @@ def _verified_firmware_identity(result):
     }
 
 
-def _device_name(mqtt_client) -> str:
-    return str(
-        getattr(mqtt_client, "device_name", "") or ""
-    )
-
-
 def _observe_edge_fault(
     store,
-    mqtt_client,
+    device_identity: DeviceIdentity,
     component,
     fault_code,
     severity,
     detail=None,
 ):
-    device_name = _device_name(mqtt_client)
-    if not device_name:
-        logger.error(
-            "cannot persist reliable fault without immutable device name: %s/%s",
-            component,
-            fault_code,
-        )
-        return "REJECTED"
     try:
         return store.observe_fault_and_create_event(
-            device_name=device_name,
+            device_name=device_identity.device_name,
             component=component,
             fault_code=fault_code,
             severity=severity,
@@ -86,7 +74,7 @@ def _observe_edge_fault(
 
 def _recover_edge_fault(
     store,
-    mqtt_client,
+    device_identity: DeviceIdentity,
     component,
     fault_code,
     recovery_evidence,
@@ -94,11 +82,8 @@ def _recover_edge_fault(
     fault = store.get_active_edge_fault(component, fault_code)
     if fault is None:
         return "UNKNOWN"
-    device_name = _device_name(mqtt_client)
-    if not device_name:
-        return "REJECTED"
     return store.recover_fault_and_create_event(
-        device_name=device_name,
+        device_name=device_identity.device_name,
         fault_uid=fault["fault_uid"],
         component=component,
         fault_code=fault_code,
@@ -107,13 +92,17 @@ def _recover_edge_fault(
     )
 
 
-def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager):
-    """Execute the full boot sequence. Returns status dict."""
+def boot_sequence(
+    store,
+    uart_link,
+    device_identity: DeviceIdentity,
+):
+    """Recover SQLite, UART and MCU local facts without starting networking."""
     if not store.integrity_check():
         logger.critical("BOOT: SQLite integrity FAILED")
         _observe_edge_fault(
             store,
-            mqtt_client,
+            device_identity,
             "EDGE_STORAGE",
             "EDGE_STORAGE",
             "BLOCK_DEVICE",
@@ -137,7 +126,7 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager):
         logger.error("BOOT: UART open failed")
         _observe_edge_fault(
             store,
-            mqtt_client,
+            device_identity,
             "UART",
             "UART_PROTOCOL",
             "BLOCK_DEVICE",
@@ -158,7 +147,7 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager):
         logger.error("BOOT: HELLO failed: %s", e)
         _observe_edge_fault(
             store,
-            mqtt_client,
+            device_identity,
             "UART",
             "UART_PROTOCOL",
             "BLOCK_DEVICE",
@@ -170,7 +159,7 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager):
         return _boot_fixed_frame_compatibility(
             store,
             uart_link,
-            mqtt_client,
+            device_identity,
             mcu_info,
         )
     try:
@@ -184,7 +173,7 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager):
         logger.error("BOOT: QUERY_STATE failed: %s", e)
         _observe_edge_fault(
             store,
-            mqtt_client,
+            device_identity,
             "UART",
             "UART_PROTOCOL",
             "BLOCK_DEVICE",
@@ -240,39 +229,24 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager):
         )
     _recover_edge_fault(
         store,
-        mqtt_client,
+        device_identity,
         "UART",
         "UART_PROTOCOL",
         "BOOT_UART_READY",
     )
-    if not mqtt_client.connect():
-        logger.error("BOOT: MQTT connect failed")
-        _observe_edge_fault(
-            store,
-            mqtt_client,
-            "NETWORK",
-            "NETWORK_CONNECTIVITY",
-            "WARNING",
-            {"reasonCode": "MQTT_CONNECT_FAILED"},
-        )
-        return {"status": "DEGRADED", "reason": "mqtt_connect_failed", "mcu_info": mcu_info}
-    _recover_edge_fault(
-        store,
-        mqtt_client,
-        "NETWORK",
-        "NETWORK_CONNECTIVITY",
-        "MQTT_CONNECTED",
-    )
-    time.sleep(0.5)
-    _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots)
-    logger.info("BOOT: sequence complete, READY")
-    return {"status": "READY", "mcu_info": mcu_info, "snapshot_count": len(snapshots)}
+    logger.info("BOOT: local recovery complete, READY")
+    return {
+        "status": "READY",
+        "mcu_info": mcu_info,
+        "snapshots": snapshots,
+        "snapshot_count": len(snapshots),
+    }
 
 
 def _boot_fixed_frame_compatibility(
     store,
     uart_link,
-    mqtt_client,
+    device_identity: DeviceIdentity,
     mcu_info,
 ):
     """Boot with the small F0/F1 sensor query, but no MCU work recovery."""
@@ -340,7 +314,7 @@ def _boot_fixed_frame_compatibility(
     if communication_healthy:
         _recover_edge_fault(
             store,
-            mqtt_client,
+            device_identity,
             "UART",
             "UART_PROTOCOL",
             "FIXED_FRAME_SELF_TEST_SUCCEEDED",
@@ -349,37 +323,13 @@ def _boot_fixed_frame_compatibility(
     else:
         _observe_edge_fault(
             store,
-            mqtt_client,
+            device_identity,
             "UART",
             "UART_PROTOCOL",
             "BLOCK_DEVICE",
             {"reasonCode": self_test.get("queryStatus", "SELF_TEST_FAILED")},
         )
         mcu_info["uart_state"] = "FAULT"
-    if not mqtt_client.connect():
-        logger.error("BOOT: MQTT connect failed")
-        _observe_edge_fault(
-            store,
-            mqtt_client,
-            "NETWORK",
-            "NETWORK_CONNECTIVITY",
-            "WARNING",
-            {"reasonCode": "MQTT_CONNECT_FAILED"},
-        )
-        return {
-            "status": "DEGRADED",
-            "reason": "mqtt_connect_failed",
-            "mcu_info": mcu_info,
-        }
-    _recover_edge_fault(
-        store,
-        mqtt_client,
-        "NETWORK",
-        "NETWORK_CONNECTIVITY",
-        "MQTT_CONNECTED",
-    )
-    time.sleep(0.5)
-    _publish_runtime_snapshot(store, mqtt_client, mcu_info, [])
     status = "READY" if sensors_healthy else "DEGRADED"
     logger.info(
         "BOOT: fixed-frame sensor query complete: status=%s query=%s",
@@ -392,6 +342,7 @@ def _boot_fixed_frame_compatibility(
             None if sensors_healthy else "fixed_frame_sensor_self_test_failed"
         ),
         "mcu_info": mcu_info,
+        "snapshots": [],
         "snapshot_count": 1 if communication_healthy else 0,
     }
 
@@ -716,7 +667,8 @@ def _build_runtime_snapshot_payload(
 
 def _publish_runtime_snapshot(
     store,
-    mqtt_client,
+    cloud_transport: CloudTransport,
+    device_identity: DeviceIdentity,
     mcu_info,
     snapshots,
     *,
@@ -740,9 +692,6 @@ def _publish_runtime_snapshot(
             "skipped_unchanged": True,
             "payload_sha256": payload_sha256,
         }
-    device_name = (
-        getattr(mqtt_client, "device_name", "") or "UNKNOWN_DEVICE"
-    )
     envelope = {
         "schemaVersion": 2,
         "eventUid": str(_uuid.uuid4()),
@@ -751,7 +700,7 @@ def _publish_runtime_snapshot(
         "deliveryClass": "TELEMETRY_SNAPSHOT",
         "target": {
             "type": "DEVICE_ASSET",
-            "uid": device_name,
+            "uid": device_identity.device_name,
         },
         "commandUid": None,
         "occurredAt": sampled_clock.occurred_at,
@@ -759,11 +708,14 @@ def _publish_runtime_snapshot(
         "payloadSha256": payload_sha256,
         "payload": payload,
     }
-    publish_mid = mqtt_client.publish_event(
-        "DEVICE_RUNTIME_SNAPSHOT",
-        envelope,
+    queued = cloud_transport.send_event(
+        CloudEvent(
+            event_uid=envelope["eventUid"],
+            event_type="DEVICE_RUNTIME_SNAPSHOT",
+            params=envelope,
+        )
     )
-    if publish_mid is None:
+    if not queued:
         logger.warning("DEVICE_RUNTIME_SNAPSHOT could not be queued")
         return {
             "published": False,

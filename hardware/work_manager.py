@@ -7,6 +7,7 @@ import uuid as _uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from device_identity import DeviceIdentity
 from trusted_clock import local_deadline_reference, raw_utc_now
 from edge_store import (
     EdgeStore,
@@ -215,11 +216,25 @@ def _deadline_after_ms(duration_ms: int) -> str:
 
 class WorkManager:
 
-    def __init__(self, store: EdgeStore, uart_link, mqtt_client, photo_manager):
+    def __init__(
+        self,
+        store: EdgeStore,
+        uart_link,
+        device_identity: DeviceIdentity | None,
+        photo_manager,
+    ):
         self._store = store
         self._uart = uart_link
-        self._mqtt = mqtt_client
+        self._device_identity = device_identity
         self._photo = photo_manager
+
+    def _own_device_name(self) -> str:
+        identity = self._device_identity
+        if not isinstance(identity, DeviceIdentity):
+            raise RuntimeError(
+                "immutable device identity is required for reliable events"
+            )
+        return identity.device_name
 
     def _remaining_clean_window_or_recovery(
         self,
@@ -1818,11 +1833,8 @@ class WorkManager:
         payload,
         mcu_receive_generation: int,
     ):
-        device_name = (
-            getattr(self._mqtt, "device_name", None) or "UNKNOWN_DEVICE"
-        )
         result = self._store.record_safety_state_and_event(
-            device_name=device_name,
+            device_name=self._own_device_name(),
             mcu_receive_generation=mcu_receive_generation,
             payload=payload,
         )
@@ -1839,9 +1851,7 @@ class WorkManager:
         severity = str(payload.get("severity") or "WARNING")
         lifecycle = str(payload.get("lifecycle") or "OBSERVED")
         fault_uid = str(payload.get("faultUid") or _new_uid())
-        device_name = (
-            getattr(self._mqtt, "device_name", None) or "UNKNOWN_DEVICE"
-        )
+        device_name = self._own_device_name()
         component = str(
             payload.get("component") or "MCU_INTERNAL"
         )

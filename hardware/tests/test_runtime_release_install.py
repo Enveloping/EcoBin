@@ -216,6 +216,11 @@ sys.path.insert(0, str(app))
 os.chdir(app.parent)
 for name in (
     "main",
+    "cloud_transport",
+    "direct_onenet_transport",
+    "business_message_handler",
+    "business_outbox_relay",
+    "device_identity",
     "mqtt_client",
     "command_processor",
     "factory_seal.admission",

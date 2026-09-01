@@ -10,13 +10,18 @@ from __future__ import annotations
 EDGE_SCHEMA_VERSION = "18"
 
 RUNTIME_APP_FILES = (
+    "business_message_handler.py",
+    "business_outbox_relay.py",
     "camera_capture.py",
+    "cloud_transport.py",
     "command_processor.py",
     "config.py",
     "cos_photo_uploader.py",
     "device_acceptance.py",
     "device_credentials.py",
     "device_entry_url_refresh.py",
+    "device_identity.py",
+    "direct_onenet_transport.py",
     "edge_boot.py",
     "edge_identity.py",
     "edge_store.py",

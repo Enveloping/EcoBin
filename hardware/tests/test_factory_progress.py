@@ -189,7 +189,11 @@ def test_runtime_factory_heartbeat_refreshes_uart_and_mqtt_every_five_seconds():
         (),
         {"is_open": True, "mcu_session_ready": True},
     )()
-    edge.mqtt = type("Mqtt", (), {"connected": True})()
+    edge.cloud_transport = type(
+        "CloudTransport",
+        (),
+        {"connected": True},
+    )()
     edge.factory_progress = _ProgressCapture()
 
     edge._factory_progress_loop()

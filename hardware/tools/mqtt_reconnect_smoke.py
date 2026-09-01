@@ -25,12 +25,7 @@ HARDWARE_ROOT = Path(__file__).resolve().parents[1]
 if str(HARDWARE_ROOT) not in sys.path:
     sys.path.insert(0, str(HARDWARE_ROOT))
 
-from mqtt_client import MqttClient  # noqa: E402
-
-
-class _ProbeStore:
-    def save_mqtt_persistent_state(self, *args) -> None:
-        pass
+from direct_onenet_transport import DirectOneNetTransport  # noqa: E402
 
 
 def _required_environment(name: str) -> str:
@@ -44,49 +39,46 @@ def run_probe(deadline_seconds: float) -> float:
     if deadline_seconds <= 0:
         raise ValueError("deadline_seconds must be positive")
 
-    mqtt_client = MqttClient(
+    cloud_transport = DirectOneNetTransport(
         product_id=_required_environment("ECOBIN_PRODUCT_ID"),
         device_name=_required_environment("ECOBIN_DEVICE_NAME"),
         device_key=_required_environment("ECOBIN_DEVICE_KEY"),
-        edge_store=_ProbeStore(),
         mqtt_host=os.environ.get(
             "ECOBIN_MQTT_HOST",
             "studio-mqtt.heclouds.com",
         ),
         mqtt_port=int(os.environ.get("ECOBIN_MQTT_PORT", "1883")),
     )
-    mqtt_client._subscribe_topics = lambda: None
-    mqtt_client._publish_online = lambda: None
-    mqtt_client._relay_pending_events = lambda: None
-    mqtt_client._start_relay_loop = lambda: None
+    cloud_transport._subscribe_topics = lambda: None
+    cloud_transport._publish_online = lambda: None
 
     reconnect_event = threading.Event()
     connect_count = 0
-    original_on_connect = mqtt_client._on_connect
+    original_on_connect = cloud_transport._on_connect
 
     def on_connect(client, userdata, flags, reason_code, properties) -> None:
         nonlocal connect_count
         original_on_connect(client, userdata, flags, reason_code, properties)
-        if mqtt_client._reason_code_int(reason_code) == 0:
+        if cloud_transport._reason_code_int(reason_code) == 0:
             connect_count += 1
             if connect_count >= 2:
                 reconnect_event.set()
 
-    mqtt_client.client.on_connect = on_connect
+    cloud_transport.client.on_connect = on_connect
     try:
-        if not mqtt_client.connect():
+        if not cloud_transport.connect():
             raise RuntimeError("initial MQTT connection failed")
         started = time.monotonic()
-        mqtt_client.client._sock_close()
+        cloud_transport.client._sock_close()
         if not reconnect_event.wait(deadline_seconds):
             raise TimeoutError(
                 f"MQTT did not reconnect within {deadline_seconds:g} seconds"
             )
         return time.monotonic() - started
     finally:
-        mqtt_client.disconnect()
-        if mqtt_client._network_loop_started:
-            mqtt_client.client.loop_stop()
+        cloud_transport.disconnect()
+        if cloud_transport._network_loop_started:
+            cloud_transport.client.loop_stop()
 
 
 def main() -> int:

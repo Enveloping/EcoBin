@@ -4,6 +4,8 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import edge_boot as edge_boot_module
+from cloud_transport import CloudEvent
+from device_identity import DeviceIdentity
 from edge_boot import (
     _publish_runtime_snapshot,
     boot_sequence,
@@ -45,17 +47,23 @@ def test_clock_state_uses_shared_clock_sampler(monkeypatch):
     assert edge_boot_module._clock_state() == "ESTIMATED"
 
 
-class FakeMqttClient:
-    device_name = "SN-DEMO-0001"
+DEVICE_IDENTITY = DeviceIdentity("SN-DEMO-0001")
+
+
+class FakeCloudTransport:
 
     def __init__(self):
         self.published = []
+        self.connected = True
+        self.connect_called = False
 
-    def publish_event(self, event_type, payload):
-        self.published.append((event_type, payload))
-        return 1
+    def send_event(self, event):
+        assert isinstance(event, CloudEvent)
+        self.published.append((event.event_type, dict(event.params)))
+        return True
 
     def connect(self):
+        self.connect_called = True
         return True
 
 
@@ -336,14 +344,11 @@ def mark_configuration_applied(store):
 def test_fixed_frame_boot_reports_and_recovers_uart_fault(tmp_path):
     store = EdgeStore(str(tmp_path / "edge.db"))
     store.initialize()
-    mqtt = FakeMqttClient()
 
     failed = boot_sequence(
         store,
         FailedOpenUart(),
-        mqtt,
-        None,
-        None,
+        DEVICE_IDENTITY,
     )
 
     assert failed["status"] == "SAFETY_LOCKED"
@@ -361,9 +366,7 @@ def test_fixed_frame_boot_reports_and_recovers_uart_fault(tmp_path):
     recovered = boot_sequence(
         store,
         FixedFrameBootUart(),
-        mqtt,
-        None,
-        None,
+        DEVICE_IDENTITY,
     )
 
     assert recovered["status"] == "READY"
@@ -382,11 +385,12 @@ def test_publish_runtime_snapshot_uses_valid_edge_boot_id_and_event_uid(tmp_path
     store = EdgeStore(str(tmp_path / "edge.db"))
     store.initialize()
     store.set_edge_boot_id("123")
-    mqtt = FakeMqttClient()
+    cloud_transport = FakeCloudTransport()
 
     _publish_runtime_snapshot(
         store,
-        mqtt,
+        cloud_transport,
+        DEVICE_IDENTITY,
         {
             "mcu_boot_id": 456,
             "mcu_firmware_version": "test-fw",
@@ -395,8 +399,8 @@ def test_publish_runtime_snapshot_uses_valid_edge_boot_id_and_event_uid(tmp_path
         [],
     )
 
-    assert len(mqtt.published) == 1
-    event_type, payload = mqtt.published[0]
+    assert len(cloud_transport.published) == 1
+    event_type, payload = cloud_transport.published[0]
     assert event_type == "DEVICE_RUNTIME_SNAPSHOT"
     assert payload["eventUid"]
     assert payload["payload"]["edgeBootId"] == 123
@@ -408,7 +412,7 @@ def test_runtime_snapshot_semantic_dedupe_and_forced_fallback(tmp_path):
     store = EdgeStore(str(tmp_path / "edge.db"))
     store.initialize()
     store.set_edge_boot_id("123")
-    mqtt = FakeMqttClient()
+    cloud_transport = FakeCloudTransport()
     mcu_info = {
         "mcu_boot_id": 456,
         "mcu_firmware_version": "test-fw",
@@ -417,14 +421,16 @@ def test_runtime_snapshot_semantic_dedupe_and_forced_fallback(tmp_path):
 
     first = _publish_runtime_snapshot(
         store,
-        mqtt,
+        cloud_transport,
+        DEVICE_IDENTITY,
         mcu_info,
         [],
         force=True,
     )
     unchanged = _publish_runtime_snapshot(
         store,
-        mqtt,
+        cloud_transport,
+        DEVICE_IDENTITY,
         mcu_info,
         [],
         force=False,
@@ -432,7 +438,8 @@ def test_runtime_snapshot_semantic_dedupe_and_forced_fallback(tmp_path):
     )
     fallback = _publish_runtime_snapshot(
         store,
-        mqtt,
+        cloud_transport,
+        DEVICE_IDENTITY,
         mcu_info,
         [],
         force=True,
@@ -446,8 +453,11 @@ def test_runtime_snapshot_semantic_dedupe_and_forced_fallback(tmp_path):
         "payload_sha256": first["payload_sha256"],
     }
     assert fallback["published"] is True
-    assert len(mqtt.published) == 2
-    assert mqtt.published[0][1]["eventUid"] != mqtt.published[1][1]["eventUid"]
+    assert len(cloud_transport.published) == 2
+    assert (
+        cloud_transport.published[0][1]["eventUid"]
+        != cloud_transport.published[1][1]["eventUid"]
+    )
     store.close()
 
 
@@ -455,18 +465,25 @@ def test_runtime_snapshot_state_change_bypasses_semantic_dedupe(tmp_path):
     store = EdgeStore(str(tmp_path / "edge.db"))
     store.initialize()
     store.set_edge_boot_id("123")
-    mqtt = FakeMqttClient()
+    cloud_transport = FakeCloudTransport()
     mcu_info = {
         "mcu_boot_id": 456,
         "mcu_firmware_version": "test-fw",
         "mcu_capability": 1,
     }
-    first = _publish_runtime_snapshot(store, mqtt, mcu_info, [])
+    first = _publish_runtime_snapshot(
+        store,
+        cloud_transport,
+        DEVICE_IDENTITY,
+        mcu_info,
+        [],
+    )
 
     changed_mcu_info = dict(mcu_info, uart_state="FAULT")
     changed = _publish_runtime_snapshot(
         store,
-        mqtt,
+        cloud_transport,
+        DEVICE_IDENTITY,
         changed_mcu_info,
         [],
         force=False,
@@ -475,7 +492,7 @@ def test_runtime_snapshot_state_change_bypasses_semantic_dedupe(tmp_path):
 
     assert changed["published"] is True
     assert changed["payload_sha256"] != first["payload_sha256"]
-    assert len(mqtt.published) == 2
+    assert len(cloud_transport.published) == 2
     store.close()
 
 
@@ -503,11 +520,12 @@ def test_non_uart_fault_does_not_misreport_uart_link_as_faulted(tmp_path):
     store.initialize()
     store.set_edge_boot_id("123")
     store.record_fault("SMOKE_SENSOR", 1536, "WARNING", {})
-    mqtt = FakeMqttClient()
+    cloud_transport = FakeCloudTransport()
 
     _publish_runtime_snapshot(
         store,
-        mqtt,
+        cloud_transport,
+        DEVICE_IDENTITY,
         {
             "mcu_boot_id": 456,
             "mcu_firmware_version": "test-fw",
@@ -516,7 +534,7 @@ def test_non_uart_fault_does_not_misreport_uart_link_as_faulted(tmp_path):
         [],
     )
 
-    assert mqtt.published[0][1]["payload"]["uartState"] == "READY"
+    assert cloud_transport.published[0][1]["payload"]["uartState"] == "READY"
     store.close()
 
 
@@ -549,7 +567,7 @@ def test_fixed_frame_boot_queries_sensors_and_releases_stale_local_work(
         },
     )
     uart = FixedFrameBootUart()
-    mqtt = FakeMqttClient()
+    cloud_transport = FakeCloudTransport()
     store.set_state(
         "fixed_frame_latest_observation_json",
         '{"postWeightGrams":123}',
@@ -568,9 +586,11 @@ def test_fixed_frame_boot_queries_sensors_and_releases_stale_local_work(
     )
     monkeypatch.setattr("edge_boot.time.sleep", lambda _: None)
 
-    result = boot_sequence(store, uart, mqtt, None, None)
+    result = boot_sequence(store, uart, DEVICE_IDENTITY)
 
     assert result["status"] == "READY"
+    assert cloud_transport.connect_called is False
+    assert cloud_transport.published == []
     assert result["snapshot_count"] == 1
     assert uart.self_test_queries == 1
     assert uart.firmware_identity_queries == 1
@@ -582,7 +602,14 @@ def test_fixed_frame_boot_queries_sensors_and_releases_stale_local_work(
     assert store.get_state(
         "fixed_frame_latest_observation_json"
     ) == '{"postWeightGrams":123}'
-    snapshot = mqtt.published[-1][1]["payload"]
+    _publish_runtime_snapshot(
+        store,
+        cloud_transport,
+        DEVICE_IDENTITY,
+        result["mcu_info"],
+        result["snapshots"],
+    )
+    snapshot = cloud_transport.published[-1][1]["payload"]
     assert snapshot["uartProtocolMajor"] is None
     assert snapshot["uartProtocolMinor"] is None
     assert snapshot["mcuFirmwareVersion"] == "2.1.0"
@@ -601,7 +628,7 @@ def test_fixed_frame_boot_queries_sensors_and_releases_stale_local_work(
     assert snapshot["ports"][0]["smokeState"] == "NORMAL"
     encode_event_post(
         "DEVICE_RUNTIME_SNAPSHOT",
-        mqtt.published[-1][1],
+        cloud_transport.published[-1][1],
     )
     store.close()
 
@@ -615,35 +642,53 @@ def test_fixed_frame_boot_does_not_publish_internal_error_as_identity(
     store.set_edge_boot_id("123")
     uart = FixedFrameBootUart()
     uart.firmware_identity_result["statusCode"] = 3
-    mqtt = FakeMqttClient()
+    cloud_transport = FakeCloudTransport()
     monkeypatch.setattr("edge_boot.time.sleep", lambda _: None)
 
-    result = boot_sequence(store, uart, mqtt, None, None)
+    result = boot_sequence(store, uart, DEVICE_IDENTITY)
 
     assert result["status"] == "READY"
-    snapshot = mqtt.published[-1][1]["payload"]
+    assert cloud_transport.connect_called is False
+    assert cloud_transport.published == []
+    _publish_runtime_snapshot(
+        store,
+        cloud_transport,
+        DEVICE_IDENTITY,
+        result["mcu_info"],
+        result["snapshots"],
+    )
+    snapshot = cloud_transport.published[-1][1]["payload"]
     assert "mcuFirmwareIdentity" not in snapshot
     assert snapshot["mcuFirmwareVersion"] == "fixed-frame-compat"
     store.close()
 
 
-def test_fixed_frame_self_test_timeout_still_connects_but_degrades(
+def test_fixed_frame_self_test_timeout_completes_local_boot_but_degrades(
     tmp_path,
     monkeypatch,
 ):
     store = EdgeStore(str(tmp_path / "edge.db"))
     store.initialize()
     uart = FixedFrameTimeoutBootUart()
-    mqtt = FakeMqttClient()
+    cloud_transport = FakeCloudTransport()
     monkeypatch.setattr("edge_boot.time.sleep", lambda _: None)
 
-    result = boot_sequence(store, uart, mqtt, None, None)
+    result = boot_sequence(store, uart, DEVICE_IDENTITY)
 
     assert result["status"] == "DEGRADED"
     assert result["reason"] == "fixed_frame_sensor_self_test_failed"
     assert uart.self_test_queries == 1
-    assert len(mqtt.published) == 1
-    snapshot = mqtt.published[0][1]["payload"]
+    assert cloud_transport.connect_called is False
+    assert cloud_transport.published == []
+    _publish_runtime_snapshot(
+        store,
+        cloud_transport,
+        DEVICE_IDENTITY,
+        result["mcu_info"],
+        result["snapshots"],
+    )
+    assert len(cloud_transport.published) == 1
+    snapshot = cloud_transport.published[0][1]["payload"]
     assert snapshot["uartState"] == "FAULT"
     assert snapshot["ports"][0]["weightValueAvailable"] is False
     assert snapshot["ports"][0]["weightSensorHealth"] == "TIMEOUT"
@@ -661,10 +706,9 @@ def test_boot_recovery_reapplies_ram_config_before_confirming_no_work(
     store.set_edge_boot_id("123")
     mark_configuration_applied(store)
     uart = BootRecoveryUart()
-    mqtt = FakeMqttClient()
     monkeypatch.setattr("edge_boot.time.sleep", lambda _: None)
 
-    result = boot_sequence(store, uart, mqtt, None, None)
+    result = boot_sequence(store, uart, DEVICE_IDENTITY)
 
     assert result["status"] == "READY"
     assert store.get_mcu_receive_generation() == 1
@@ -743,10 +787,9 @@ def test_boot_restart_aborts_clean_and_requires_a_new_complete_clean(
         },
     )
     uart = BootRecoveryUart()
-    mqtt = FakeMqttClient()
     monkeypatch.setattr("edge_boot.time.sleep", lambda _: None)
 
-    result = boot_sequence(store, uart, mqtt, None, None)
+    result = boot_sequence(store, uart, DEVICE_IDENTITY)
 
     assert result["status"] == "READY"
     assert uart.commands == [
@@ -816,10 +859,9 @@ def test_boot_restart_appends_edge_restart_after_clean_window_expiry(
         "CLEAN_RECOVERY_REQUIRED"
     )
     uart = BootRecoveryUart()
-    mqtt = FakeMqttClient()
     monkeypatch.setattr("edge_boot.time.sleep", lambda _: None)
 
-    result = boot_sequence(store, uart, mqtt, None, None)
+    result = boot_sequence(store, uart, DEVICE_IDENTITY)
 
     assert result["status"] == "READY"
     assert store.get_work_slot() is None
@@ -895,10 +937,9 @@ def test_boot_restart_aborts_delivery_without_fake_completion(
         },
     )
     uart = BootRecoveryUart()
-    mqtt = FakeMqttClient()
     monkeypatch.setattr("edge_boot.time.sleep", lambda _: None)
 
-    result = boot_sequence(store, uart, mqtt, None, None)
+    result = boot_sequence(store, uart, DEVICE_IDENTITY)
 
     assert result["status"] == "READY"
     assert uart.commands[-1] == "CONFIRM_NO_ACTIVE_WORK"
