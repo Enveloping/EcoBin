@@ -222,7 +222,7 @@ class FakeSystem:
             ),
             "/var/lib/ecobin/updater": (
                 uid["ecobin-updater"],
-                primary_gid["ecobin-updater"],
+                ipc_gid["ecobin-updater-ipc"],
             ),
             "/var/lib/ecobin/updater/staging": (
                 uid["ecobin-updater"],
@@ -269,6 +269,17 @@ class FakeSystem:
             os.chmod(path, 0o600)
             self.owners[absolute] = (0, 0)
             self.modes[absolute] = 0o600
+
+    def _apply_systemd_directory_ownership(
+        self, absolute: str, expected_owner: tuple[int, int]
+    ) -> None:
+        """Model systemd's conditional recursive ownership correction."""
+        if self.owners.get(absolute) == expected_owner:
+            return
+        prefix = absolute + "/"
+        for candidate in tuple(self.owners):
+            if candidate == absolute or candidate.startswith(prefix):
+                self.owners[candidate] = expected_owner
 
     def __call__(self, arguments: Sequence[str]) -> CommandResult:
         args = tuple(arguments)
@@ -343,14 +354,18 @@ class FakeSystem:
             )
             state.update(LoadState="loaded", ActiveState="active", SubState="running")
             if unit == "ecobin-communication.service":
-                self.owners["/var/lib/ecobin/communication"] = (995, 990)
+                self._apply_systemd_directory_ownership(
+                    "/var/lib/ecobin/communication", (995, 990)
+                )
                 _write(
                     self.rootfs / "var/lib/ecobin/communication/communication.db",
                     b"state",
                     0o600,
                 )
             if unit == "ecobin-updater.service":
-                self.owners["/var/lib/ecobin/updater"] = (993, 988)
+                self._apply_systemd_directory_ownership(
+                    "/var/lib/ecobin/updater", (993, 988)
+                )
                 _write(
                     self.rootfs / "var/lib/ecobin/updater/updater.db",
                     b"state",
@@ -1250,7 +1265,15 @@ def test_rollback_closes_socket_before_enumerating_new_helper_instances(
 
 @pytest.mark.parametrize(
     "failure",
-    ("state-owner", "privileged-group", "snapshot-mode", "lock-mode", "trust-owner"),
+    (
+        "state-owner",
+        "state-group",
+        "nested-state-group",
+        "privileged-group",
+        "snapshot-mode",
+        "lock-mode",
+        "trust-owner",
+    ),
 )
 def test_audit_rejects_incorrect_runtime_or_code_permissions(
     tmp_path: Path, failure: str
@@ -1262,6 +1285,10 @@ def test_audit_rejects_incorrect_runtime_or_code_permissions(
 
     if failure == "state-owner":
         fake.owners["/var/lib/ecobin/updater"] = (0, 988)
+    elif failure == "state-group":
+        fake.owners["/var/lib/ecobin/updater"] = (993, 993)
+    elif failure == "nested-state-group":
+        fake.owners["/var/lib/ecobin/updater/staging"] = (993, 988)
     elif failure == "privileged-group":
         fake.owners["/run/ecobin/privileged"] = (0, 0)
     elif failure == "snapshot-mode":

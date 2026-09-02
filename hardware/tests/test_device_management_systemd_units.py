@@ -40,11 +40,20 @@ def test_permanent_accounts_and_socket_groups_are_exact() -> None:
 
 
 def test_permanent_state_and_socket_directories_are_least_privilege() -> None:
-    for owner in ("communication", "business", "updater"):
+    for owner in ("communication", "business"):
         assert (
             f"d /var/lib/ecobin/{owner} 0700 ecobin-{owner} ecobin-{owner} -"
             in TMPFILES
         )
+    assert (
+        "d /var/lib/ecobin/updater 0700 "
+        "ecobin-updater ecobin-updater-ipc -"
+    ) in TMPFILES
+    assert (
+        "d /var/lib/ecobin/updater 0700 "
+        "ecobin-updater ecobin-updater -"
+    ) not in TMPFILES
+    for owner in ("communication", "business", "updater"):
         assert (
             f"d /run/ecobin/{owner} 0750 ecobin-{owner} ecobin-{owner}-ipc -"
             in TMPFILES

@@ -2201,12 +2201,7 @@ class MaintenanceInstaller:
             ),
             "/var/lib/ecobin/updater": (
                 users["ecobin-updater"],
-                frozenset(
-                    {
-                        primary_groups["ecobin-updater"],
-                        groups["ecobin-updater-ipc"],
-                    }
-                ),
+                frozenset({groups["ecobin-updater-ipc"]}),
             ),
             "/var/lib/ecobin/updater/staging": (
                 users["ecobin-updater"],
