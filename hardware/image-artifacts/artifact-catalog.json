@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-02T18:19:05.104Z",
+  "catalogedAt": "2026-09-02T20:28:44.459Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -451,8 +451,13 @@
     },
     {
       "path": "evidence/hil-runtime-traversal-20260903-16/README.md",
-      "bytes": 4254,
-      "sha256": "7cbe975c377a9f2207605b842fbbb63f7d20087c8ec4db95258bba79d2a17f39"
+      "bytes": 4802,
+      "sha256": "fc95c32f1cff4f849909d71ad878579fcbbd9df95eb6d9f9cbfd8e7f7d39c5a8"
+    },
+    {
+      "path": "evidence/hil-stage3-live-maintenance-20260903/README.md",
+      "bytes": 8957,
+      "sha256": "7be341c02b7953b579070440f663eb1bbe7af148dfaf7139d0995856d201a04c"
     },
     {
       "path": "evidence/hil-stage3-permanent-layer-20260902-14/README.md",
@@ -1566,6 +1571,55 @@
       "classification": "SOURCE_SNAPSHOT",
       "digestRecorded": true,
       "sha256": "0db1dc83a158706749f326f0a9fbb57d17064796bb6350ac930c06e3e314dd5b"
+    },
+    {
+      "path": "local/stage3-maintenance/archive_failed_r2_state.py",
+      "bytes": 8341,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "612b260be17875437ac4214da06c5f8d0e3726fcdd515d39733c22881ae8d29f"
+    },
+    {
+      "path": "local/stage3-maintenance/preinstall_readonly_audit.py",
+      "bytes": 6579,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "d623587942d65af24e04087722b03fd9e9e6d5509387e03b854f2305285b7835"
+    },
+    {
+      "path": "local/stage3-maintenance/serial_console.py",
+      "bytes": 1827,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "d6a88e59d133a9d0a62f3028c89380e5166a9b0033845aece184b1f0b9c4225b"
+    },
+    {
+      "path": "local/stage3-maintenance/serial_upload.py",
+      "bytes": 3243,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c97b11053cc88c66c10baa9abd23784dd291592e13679b6c1715b9ae9d63b542"
+    },
+    {
+      "path": "local/stage3-maintenance/stage3-maintenance-v13-20260903-16-b747398e.tar.gz",
+      "bytes": 90083,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "ae9b23db30807aa19848c2daddc1f1a1a9f549684b8c3e659b8f229cfc42de22"
+    },
+    {
+      "path": "local/stage3-maintenance/stage3-maintenance-v13-20260903-16-r2-6d3b446f.tar.gz",
+      "bytes": 88012,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "bf06b66660274fd4a1befdce25c0bb25edc53481a3248ff9d6f848dcf0814fb8"
+    },
+    {
+      "path": "local/stage3-maintenance/stage3-maintenance-v13-20260903-16-r3-4120579c.tar.gz",
+      "bytes": 88080,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "3ca7381651c3abc0a33aee0a83d4a4f306dd536ed530e913cf1dd173a3b30488"
     },
     {
       "path": "local/upstream-cache/Armbian_25.5.1_Orangepizero3_bookworm_current_6.12.23_minimal.img.xz",
