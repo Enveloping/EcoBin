@@ -37,7 +37,7 @@
 ### `architecture/` — 架构与领域设计
 
 - [项目上下文](architecture/project-context.md)
-- [香橙派业务程序发布与远程更新设计](architecture/orangepi-business-runtime-release-and-update-design.md)：区分出厂程序、可替换业务程序和永久设备管理层，记录九阶段迁移顺序；当前已完成进程内解耦及 V63 只接收兼容性事实的仓库实现，尚未开放业务程序更新下行。
+- [香橙派业务程序发布与远程更新设计](architecture/orangepi-business-runtime-release-and-update-design.md)：区分出厂程序、可替换业务程序和永久设备管理层，记录九阶段迁移顺序；第一、二阶段已完成，第三阶段已在当前 v13 设备完成受控原位安装及在线低权限验收，v17 已完成离线构建；第四阶段只有默认关闭的安全候选，业务程序更新下行仍未开放。
 - [V52 设备自注册、厂家初始袋与按需远程维护](architecture/device-enrollment-factory-acceptance-remote-support-v52.md)
 - [V52 设备出厂与远程维护代码审查](review/device-enrollment-factory-remote-support-v52-review-2026-08-15.md)
 - [V53 投递自动审核与自动提现](architecture/delivery-auto-review-and-withdrawal-v53.md)
@@ -91,6 +91,7 @@
   腾讯云 CDB V60 空库、初始超级管理员、账号级 TLS、未切换旧 V59 后端和待迁移 COS 的
   当前接力状态。
 - [投递全链路联调复盘与复跑手册](operations/delivery-e2e-integration-retrospective-2026-08-02.md)：V25 真实云链路、模拟 MCU/双摄的故障分层、复跑顺序和证据清单。
+- [香橙派 v17 后端允许列表部署记录](operations/orangepi-v17-backend-allowlist-deployment-2026-09-03.md)：记录 v17 加入、未写卡 v15/v16 移除、可恢复配置备份以及生产重载和健康核验结果，不包含运行秘密。
 
 ### `flows/` — 流程图与可视化说明
 
