@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-01T02:40:26.212Z",
+  "catalogedAt": "2026-09-02T09:40:14.825Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -450,6 +450,11 @@
       "sha256": "f863836a0f8979fcd4db1157ac401f6aff4bee867351ba07268c23da5faeffe2"
     },
     {
+      "path": "evidence/hil-stage3-permanent-layer-20260902-14/README.md",
+      "bytes": 3614,
+      "sha256": "e224268aa269ddf7dede9eee03f93dd0f0f29b4209d22b709af6a437264ec0d9"
+    },
+    {
       "path": "evidence/hil-v10-chrony-permission-hotfix-20260830-01/README.md",
       "bytes": 5364,
       "sha256": "3c2565e307ddf41f7856a7404a57e5bc52c8c8aedb02f6f96fbec4a84c85d3d8"
@@ -568,6 +573,20 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "f186fb43d52bb522259f870c13f5e5247da3bd74e391485680bc5b6bc45cc660"
+    },
+    {
+      "path": "local/build-v14-candidate.sh",
+      "bytes": 5397,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "96b731aae5afca4675460e96c3c07604c91dded12cc5fd7ff914a61c1d8b94db"
+    },
+    {
+      "path": "local/build-v14-hil-factory-image.sh",
+      "bytes": 1775,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "e7e39870411ecc5ea523a01fd7dc0ece4a1eafe3ed02591bb8421f68b7060f54"
     },
     {
       "path": "local/build-v8.sh",
@@ -976,6 +995,34 @@
       "sha256": "09e0e91f0018fcd22301e52eb22cd5955ef78809a96fe4bb687676869d3d67f2"
     },
     {
+      "path": "local/factory-secret/builds/hil-factory-login-20260902-14-permanent-layer/build-and-offline-verification.log",
+      "bytes": 1345,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "71641218b0d77a8c99c507767392a7de404eb63b9d2a3299c41fa2a51ff099e6"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260902-14-permanent-layer/ecobin-orangepi-zero3-0.1.0-single-card.20260902.14-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "c4d4f44104eacf095a7ec575f92141de20d48fb5f766ccc4a1ef0cde5be0796b"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260902-14-permanent-layer/ecobin-orangepi-zero3-0.1.0-single-card.20260902.14-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "0e0531b8734c3dee29d14753842e1f373ac8d0fdb088bcbab1ddf8a34f353c0e"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260902-14-permanent-layer/offline-verification.log",
+      "bytes": 915,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "b2f50d0b12149a142fe8b00a6c7259560c37db8c247719be1e3bbf62e694cad6"
+    },
+    {
       "path": "local/factory-secret/config/cellular.env",
       "bytes": 464,
       "classification": "SECRET_INPUT",
@@ -1107,6 +1154,13 @@
       "sha256": "267316b407fbb4ba0a7091c4968dcbdd31f3410bdff9fd9efd2621f7b0a91b62"
     },
     {
+      "path": "local/flash-v14-disk1.ps1",
+      "bytes": 1059,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "64e4ea890471fef4fc852522d66a2b380523e013c62fd3cc2182b91cf85b94fa"
+    },
+    {
       "path": "local/flash-v9-disk1.ps1",
       "bytes": 1192,
       "classification": "LOCAL_ARTIFACT",
@@ -1233,6 +1287,13 @@
       "sha256": "048c473e74f7cae23c1ef0758c11e8f901d9eddaf7582dbf0f07c6c859057303"
     },
     {
+      "path": "local/resume-v14-candidate.sh",
+      "bytes": 3768,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "0db58eccafa91b4f6fb5f781d3c0de9d4e35459c66bc1934acaaba5681dacfe5"
+    },
+    {
       "path": "local/source-bundles/repository-023248af.bundle",
       "bytes": 12137,
       "classification": "SOURCE_SNAPSHOT",
@@ -1308,6 +1369,13 @@
       "classification": "SOURCE_SNAPSHOT",
       "digestRecorded": true,
       "sha256": "89686273a4be1814167cf84aefd52d8a59ee7bde0c62d592063042399b4198d2"
+    },
+    {
+      "path": "local/source-bundles/repository-832d0226.bundle",
+      "bytes": 53053611,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "6928d03f3757a089a089128a78bc61b05b6210da8cfbc381525412746ca314e1"
     },
     {
       "path": "local/source-bundles/repository-9e8417eb.bundle",
@@ -1420,6 +1488,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "e1860762956f5d60816cb6069da89b60c289ce4a4705cca457a8e55b2410eb96"
+    },
+    {
+      "path": "local/verify-v14-hil-factory-image.sh",
+      "bytes": 1825,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9004f8ff2ec4468a9db092e4a52d522a6b3b00abb9e69ddd08498e3cb00a611d"
     },
     {
       "path": "local/verify-v8.sh",
