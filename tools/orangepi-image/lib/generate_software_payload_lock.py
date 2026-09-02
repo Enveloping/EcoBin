@@ -17,6 +17,10 @@ from typing import Any
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPOSITORY_ROOT / "hardware/system"))
 from image_software_installer import (  # noqa: E402
+    COMMUNICATION_AGENT_FILES,
+    DEVICE_UPDATER_FILES,
+    DEVICE_UPDATER_HELPER_FILES,
+    DEVICE_UPDATER_HELPER_UNIT_FILES,
     RUNTIME_APP_FILES,
     ImageSoftwareError,
     load_and_validate_payload,
@@ -85,6 +89,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--remote-support-release-id", required=True)
     parser.add_argument("--factory-test-release-id", required=True)
     parser.add_argument("--first-boot-release-id", required=True)
+    parser.add_argument("--communication-agent-release-id", required=True)
+    parser.add_argument("--device-updater-release-id", required=True)
     return parser.parse_args(argv)
 
 
@@ -103,6 +109,8 @@ def main(argv: list[str] | None = None) -> int:
             "remoteSupport": args.remote_support_release_id,
             "factoryTest": args.factory_test_release_id,
             "firstBoot": args.first_boot_release_id,
+            "communicationAgent": args.communication_agent_release_id,
+            "deviceUpdater": args.device_updater_release_id,
         }
         if not RELEASE_ID.fullmatch(args.payload_id):
             raise PayloadLockError("payload ID is invalid")
@@ -111,8 +119,12 @@ def main(argv: list[str] | None = None) -> int:
         for name, release_id in identities.items():
             if not RELEASE_ID.fullmatch(release_id):
                 raise PayloadLockError(f"component release ID is invalid: {name}")
+            if name in {"communicationAgent", "deviceUpdater"} and len(release_id) > 32:
+                raise PayloadLockError(
+                    f"permanent component release ID exceeds 32 characters: {name}"
+                )
         document = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "lockState": "LOCKED",
             "payloadId": args.payload_id,
             "sourceGitCommit": args.git_commit,
@@ -134,6 +146,14 @@ def main(argv: list[str] | None = None) -> int:
                     "venv": "components/factory-test-venv",
                 },
                 "firstBoot": {"releaseId": identities["firstBoot"]},
+                "communicationAgent": {
+                    "releaseId": identities["communicationAgent"],
+                    "root": "components/communication-agent",
+                },
+                "deviceUpdater": {
+                    "releaseId": identities["deviceUpdater"],
+                    "root": "components/device-updater",
+                },
             },
             "entries": _inventory(payload),
         }
@@ -165,6 +185,59 @@ def main(argv: list[str] | None = None) -> int:
                 raise PayloadLockError(
                     "hardware runtime source differs from the repository commit"
                 )
+        for component_root, expected_files in (
+            ("communication-agent", COMMUNICATION_AGENT_FILES),
+            ("device-updater", DEVICE_UPDATER_FILES),
+        ):
+            app = payload / "components" / component_root / "app"
+            actual_files = {
+                path.relative_to(app).as_posix()
+                for path in app.rglob("*")
+                if path.is_file() and not path.is_symlink()
+            }
+            if actual_files != set(expected_files):
+                raise PayloadLockError(
+                    f"permanent component allowlist is not exact: {component_root}"
+                )
+            for name in expected_files:
+                if (
+                    (app / name).read_bytes()
+                    != (REPOSITORY_ROOT / "hardware" / name).read_bytes()
+                ):
+                    raise PayloadLockError(
+                        f"permanent component source differs: {component_root}"
+                    )
+        updater_root = payload / "components/device-updater"
+        for relative, expected_files, repository_directory in (
+            (
+                "helpers",
+                DEVICE_UPDATER_HELPER_FILES,
+                REPOSITORY_ROOT / "hardware/device_management/helpers",
+            ),
+            (
+                "systemd",
+                DEVICE_UPDATER_HELPER_UNIT_FILES,
+                REPOSITORY_ROOT / "hardware/device_management/helpers/systemd",
+            ),
+        ):
+            source_root = updater_root / relative
+            actual_files = {
+                path.relative_to(source_root).as_posix()
+                for path in source_root.rglob("*")
+                if path.is_file() and not path.is_symlink()
+            }
+            if actual_files != set(expected_files):
+                raise PayloadLockError(
+                    f"device updater {relative} allowlist is not exact"
+                )
+            for name in expected_files:
+                if (
+                    (source_root / name).read_bytes()
+                    != (repository_directory / name).read_bytes()
+                ):
+                    raise PayloadLockError(
+                        f"device updater {relative} source differs: {name}"
+                    )
     except (OSError, PayloadLockError, ImageSoftwareError) as exc:
         if "lock_path" in locals() and os.path.lexists(lock_path):
             lock_path.unlink()

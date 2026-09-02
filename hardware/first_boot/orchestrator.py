@@ -27,6 +27,11 @@ class StageActions(Protocol):
 class SystemdStageActions:
     _RUNTIME_TARGET = "ecobin-runtime.target"
     _RUNTIME_MEMBERS = (
+        "ecobin-communication.service",
+        "ecobin-updater.service",
+        "ecobin-business-activation-helper.socket",
+        "ecobin-mcu-flash-helper.socket",
+        "ecobin-device-management-preflight.service",
         "ecobin-hardware.service",
         "ecobin-remote-support.service",
     )

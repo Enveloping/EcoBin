@@ -158,6 +158,7 @@ class ReleaseMetadataTest(unittest.TestCase):
         raw_sha = "1" * 64
         self.candidate = self.base / "candidate.json"
         self.candidate_value = {
+            "schemaVersion": 2,
             "artifactClass": "UNSIGNED_NO_SECRET_CANDIDATE",
             "releaseId": "fixture-001",
             "version": "1.2.3",
@@ -176,6 +177,7 @@ class ReleaseMetadataTest(unittest.TestCase):
             "software": {
                 "implementedSlices": [f"P{number}" for number in range(1, 9)],
                 "runtimeInstalled": True,
+                "payloadSchemaVersion": 2,
                 "factoryPortalInstalled": True,
                 # These are preconditions authenticated by the signed
                 # two-candidate proof; release never consumes them unsigned.
@@ -189,6 +191,8 @@ class ReleaseMetadataTest(unittest.TestCase):
                     "remoteSupport": "control-001",
                     "factoryTest": "control-001",
                     "firstBoot": "control-001",
+                    "communicationAgent": "communication-001",
+                    "deviceUpdater": "updater-001",
                 },
             },
             "factory": {},
@@ -362,6 +366,8 @@ class ReleaseMetadataTest(unittest.TestCase):
         ):
             self.assertEqual((first / name).read_bytes(), (second / name).read_bytes())
         manifest = json.loads((first / "image-manifest.json").read_text("utf-8"))
+        self.assertEqual(manifest["schemaVersion"], 2)
+        self.assertEqual(manifest["software"]["payloadSchemaVersion"], 2)
         reproducibility = manifest["software"]["buildReproducibility"]
         self.assertTrue(reproducibility["releaseEligible"])
         self.assertEqual(
@@ -373,6 +379,51 @@ class ReleaseMetadataTest(unittest.TestCase):
         self.assertEqual(
             manifest["locks"]["formalReleasePolicySha256"],
             hashlib.sha256(self.policy.read_bytes()).hexdigest(),
+        )
+
+    def test_attested_legacy_candidate_keeps_the_v1_release_contract(self) -> None:
+        self.candidate_value["schemaVersion"] = 1
+        self.candidate_value["software"].pop("payloadSchemaVersion")
+        self.candidate_value["software"]["components"].pop("communicationAgent")
+        self.candidate_value["software"]["components"].pop("deviceUpdater")
+        self._write_json(self.candidate, self.candidate_value)
+        candidate_sha256 = hashlib.sha256(self.candidate.read_bytes()).hexdigest()
+        for candidate in self.attestation_value["candidates"]:
+            candidate["manifestSha256"] = candidate_sha256
+        self._write_json(self.attestation, self.attestation_value)
+        self._sign(
+            self.keys["buildAttestation"][0],
+            self.attestation,
+            self.attestation_signature,
+        )
+        self.evidence_value["buildAttestationSha256"] = hashlib.sha256(
+            self.attestation.read_bytes()
+        ).hexdigest()
+        self._write_json(self.evidence, self.evidence_value)
+        self._sign(
+            self.keys["sealEvidence"][0],
+            self.evidence,
+            self.evidence_signature,
+        )
+
+        output = self.base / "legacy-v1"
+        result = self._generate(output)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads(
+            (output / "image-manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["schemaVersion"], 1)
+        self.assertNotIn("payloadSchemaVersion", manifest["software"])
+        self.assertEqual(
+            set(manifest["software"]["components"]),
+            {
+                "hardwareRuntime",
+                "enrollment",
+                "remoteSupport",
+                "factoryTest",
+                "firstBoot",
+            },
         )
 
     def test_manifest_tamper_after_attestation_is_rejected(self) -> None:

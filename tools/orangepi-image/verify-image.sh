@@ -245,6 +245,9 @@ for forbidden_path in \
     var/lib/ecobin/first-boot/sealed.json \
     var/lib/ecobin/remote-support/state.db \
     var/lib/ecobin/hardware/edge.db \
+    var/lib/ecobin/communication/communication.db \
+    var/lib/ecobin/business/edge.db \
+    var/lib/ecobin/updater/updater.db \
     var/lib/dbus/machine-id \
     var/lib/systemd/random-seed \
     var/lib/systemd/timesync/clock \
@@ -313,6 +316,9 @@ for clean_directory in \
     var/lib/ecobin/remote-support \
     var/lib/ecobin/first-boot \
     var/lib/ecobin/factory-test \
+    var/lib/ecobin/communication \
+    var/lib/ecobin/business \
+    var/lib/ecobin/updater \
     root/EcoBin/hardware/data \
     var/lib/cloud \
     var/lib/dhcp \
@@ -597,15 +603,23 @@ if [[ -d "${systemd_directory}" ]]; then
             lowercase_name="${candidate_name,,}"
             case "${lowercase_name}" in
                 orangepi-resize-filesystem.service|\
+                ecobin-business-activation-helper.socket|\
+                ecobin-business-activation-helper@*.service|\
+                ecobin-business-permission-preflight.service|\
+                ecobin-device-management-preflight.service|\
                 ecobin-cellular-uplink.service|\
+                ecobin-communication.service|\
                 ecobin-enrollment.service|\
                 ecobin-factory-ap.service|\
                 ecobin-factory-portal.service|\
                 ecobin-factory-test.service|\
                 ecobin-factory-handoff.service|\
                 ecobin-hardware.service|\
+                ecobin-mcu-flash-helper.socket|\
+                ecobin-mcu-flash-helper@*.service|\
                 ecobin-remote-support.service|\
-                ecobin-runtime.target)
+                ecobin-runtime.target|\
+                ecobin-updater.service)
                     fail "stage service must not be independently enabled: ${candidate_name}"
                     ;;
                 *.swap|dphys-swapfile*|systemd-swap*|orangepi-zram*|zramswap*|systemd-zram-setup@*)

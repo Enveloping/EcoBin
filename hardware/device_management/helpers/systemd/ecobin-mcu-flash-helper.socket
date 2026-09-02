@@ -1,0 +1,14 @@
+[Unit]
+Description=EcoBin on-demand MCU flash helper socket
+
+[Socket]
+ListenStream=/run/ecobin/privileged/mcu-flash.sock
+Accept=yes
+SocketUser=root
+SocketGroup=ecobin-privileged-helper-ipc
+SocketMode=0660
+DirectoryMode=0750
+Backlog=8
+MaxConnections=1
+RemoveOnStop=yes
+FlushPending=yes

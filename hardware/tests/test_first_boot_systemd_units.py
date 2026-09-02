@@ -119,6 +119,22 @@ def test_factory_and_runtime_owners_are_mutually_exclusive() -> None:
 
     assert "Conflicts=ecobin-cellular-uplink.service ecobin-enrollment.service ecobin-remote-support.service ecobin-hardware.service ecobin-runtime.target" in factory_test
     assert "Conflicts=ecobin-factory-test.service" in runtime
+    assert (
+        "Wants=ecobin-communication.service ecobin-updater.service "
+        "ecobin-remote-support.service ecobin-hardware.service"
+        in runtime
+    )
+    assert (
+        "Wants=ecobin-business-activation-helper.socket "
+        "ecobin-mcu-flash-helper.socket"
+        in runtime
+    )
+    assert "Wants=ecobin-device-management-preflight.service" in runtime
+    assert (
+        "After=ecobin-runtime-gate.service ecobin-cellular-uplink.service "
+        "ecobin-device-management-preflight.service"
+        in runtime
+    )
     assert "ecobin-factory.target" not in runtime
     assert "Conflicts=" not in factory_dropin
     assert "intentionally coexist" in factory_dropin

@@ -794,6 +794,11 @@ def _fsync_directory(path: Path) -> None:
 
 def _runtime_healthy() -> bool:
     for unit in (
+        "ecobin-communication.service",
+        "ecobin-updater.service",
+        "ecobin-business-activation-helper.socket",
+        "ecobin-mcu-flash-helper.socket",
+        "ecobin-device-management-preflight.service",
         "ecobin-hardware.service",
         "ecobin-cellular-uplink.service",
         "ecobin-remote-support.service",

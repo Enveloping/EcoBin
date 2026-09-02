@@ -1100,6 +1100,11 @@ def test_seal_is_blocked_when_capability_file_no_longer_matches_report(
 @pytest.mark.parametrize(
     "inactive_unit",
     [
+        "ecobin-communication.service",
+        "ecobin-updater.service",
+        "ecobin-business-activation-helper.socket",
+        "ecobin-mcu-flash-helper.socket",
+        "ecobin-device-management-preflight.service",
         "ecobin-hardware.service",
         "ecobin-cellular-uplink.service",
         "ecobin-remote-support.service",

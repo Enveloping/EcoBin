@@ -31,12 +31,18 @@ from validate_inputs import (
 
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 KEY_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-COMPONENT_NAMES = (
+RELEASE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+LEGACY_COMPONENT_NAMES = (
     "hardwareRuntime",
     "enrollment",
     "remoteSupport",
     "factoryTest",
     "firstBoot",
+)
+
+COMPONENT_NAMES = LEGACY_COMPONENT_NAMES + (
+    "communicationAgent",
+    "deviceUpdater",
 )
 MAX_JSON_BYTES = 4 * 1024 * 1024
 MAX_DPKG_STATUS_BYTES = 32 * 1024 * 1024
@@ -434,6 +440,19 @@ def generate(args: argparse.Namespace) -> None:
         raise ReleaseMetadataError("candidate manifest lacks software inventory")
     if software.get("runtimeInstalled") is not True or software.get("factoryPortalInstalled") is not True:
         raise ReleaseMetadataError("candidate image payload is incomplete")
+    candidate_schema_version = candidate.get("schemaVersion")
+    if isinstance(candidate_schema_version, bool):
+        raise ReleaseMetadataError("candidate manifest schema version is unsupported")
+    if candidate_schema_version == 1:
+        component_names = LEGACY_COMPONENT_NAMES
+        if "payloadSchemaVersion" in software:
+            raise ReleaseMetadataError("schema-v1 candidate carries schema-v2 software facts")
+    elif candidate_schema_version == 2:
+        component_names = COMPONENT_NAMES
+        if software.get("payloadSchemaVersion") != 2:
+            raise ReleaseMetadataError("candidate software payload schema is not v2")
+    else:
+        raise ReleaseMetadataError("candidate manifest schema version is unsupported")
     # Unsigned candidate booleans are not authorization. verify_build_attestation
     # has already authenticated their exact true values together with two
     # independently audited byte-identical no-secret raws.
@@ -445,11 +464,22 @@ def generate(args: argparse.Namespace) -> None:
         "candidateCount": 2,
     }
     components = software.get("components")
-    if not isinstance(components, dict) or any(
-        not isinstance(components.get(name), str) or not components[name]
-        for name in COMPONENT_NAMES
-    ):
+    if not isinstance(components, dict) or set(components) != set(component_names):
         raise ReleaseMetadataError("candidate component release identities are incomplete")
+    for name in component_names:
+        release_id = components[name]
+        if not isinstance(release_id, str) or not RELEASE_ID_PATTERN.fullmatch(release_id):
+            raise ReleaseMetadataError(
+                f"candidate component release identity is invalid: {name}"
+            )
+        if (
+            candidate_schema_version == 2
+            and name in {"communicationAgent", "deviceUpdater"}
+            and len(release_id) > 32
+        ):
+            raise ReleaseMetadataError(
+                f"candidate component release identity exceeds device fact limit: {name}"
+            )
     implemented = software.get("implementedSlices")
     if implemented != [f"P{number}" for number in range(1, 9)]:
         raise ReleaseMetadataError("candidate has not completed P1 through P8")
@@ -538,7 +568,7 @@ def generate(args: argparse.Namespace) -> None:
     signature_name = "release-checksums.sig"
     release_manifest = {
         "$schema": "./schemas/release-manifest.schema.json",
-        "schemaVersion": 1,
+        "schemaVersion": candidate_schema_version,
         "artifactClass": "SEALED_SIGNED_RELEASE",
         "releaseId": candidate["releaseId"],
         "version": candidate["version"],

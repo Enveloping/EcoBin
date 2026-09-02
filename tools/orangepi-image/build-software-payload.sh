@@ -19,6 +19,8 @@ enrollment_release_id=""
 remote_release_id=""
 factory_release_id=""
 first_boot_release_id=""
+communication_agent_release_id=""
+device_updater_release_id=""
 staging_directory=""
 
 fail() { printf 'software-payload-build=FAIL: %s\n' "$1" >&2; exit 1; }
@@ -49,6 +51,8 @@ while [[ $# -gt 0 ]]; do
         --remote-support-release-id) remote_release_id="$2"; shift 2 ;;
         --factory-test-release-id) factory_release_id="$2"; shift 2 ;;
         --first-boot-release-id) first_boot_release_id="$2"; shift 2 ;;
+        --communication-agent-release-id) communication_agent_release_id="$2"; shift 2 ;;
+        --device-updater-release-id) device_updater_release_id="$2"; shift 2 ;;
         *) fail "unknown or incomplete argument: $1" ;;
     esac
 done
@@ -65,6 +69,9 @@ for value in "${output_directory}" "${runtime_archive}" "${runtime_sha256}" \
     "${mcu_trust_directory}" "${enrollment_env}" "${cellular_env}" \
     "${payload_id}" "${runtime_release_id}" "${enrollment_release_id}" \
     "${remote_release_id}" "${factory_release_id}" "${first_boot_release_id}"; do
+    [[ -n "${value}" ]] || fail "all controlled payload inputs are required"
+done
+for value in "${communication_agent_release_id}" "${device_updater_release_id}"; do
     [[ -n "${value}" ]] || fail "all controlled payload inputs are required"
 done
 [[ "${runtime_sha256}" =~ ^[0-9a-f]{64}$ ]] || fail "runtime SHA-256 is malformed"
@@ -98,6 +105,13 @@ output_directory="${output_parent}/${output_name}"
 staging_directory="$(mktemp -d "${output_parent}/.ecobin-software-payload.XXXXXXXX")"
 mkdir -m 0755 -- "${staging_directory}/components" "${staging_directory}/config" \
     "${staging_directory}/trust" "${staging_directory}/evidence"
+mkdir -m 0755 -- \
+    "${staging_directory}/components/communication-agent" \
+    "${staging_directory}/components/communication-agent/app" \
+    "${staging_directory}/components/device-updater" \
+    "${staging_directory}/components/device-updater/app" \
+    "${staging_directory}/components/device-updater/helpers" \
+    "${staging_directory}/components/device-updater/systemd"
 
 make_locked_venv() {
     local destination="$1"
@@ -138,6 +152,32 @@ make_locked_venv "${tool_venv}" remote-support
     --release-id "${runtime_release_id}" \
     --destination "${staging_directory}/components/hardware-runtime"
 rm -rf -- "${tool_venv}" "${verification_inputs}"
+
+# These permanent, stdlib-only agents are image components. They deliberately
+# remain outside the replaceable hardware/business runtime release.
+for name in communication_agent.py communication_store.py local_control.py; do
+    install -m 0644 -- "${repository_root}/hardware/${name}" \
+        "${staging_directory}/components/communication-agent/app/${name}"
+done
+for name in device_management_preflight.py local_control.py updater_agent.py \
+    updater_store.py; do
+    install -m 0644 -- "${repository_root}/hardware/${name}" \
+        "${staging_directory}/components/device-updater/app/${name}"
+done
+for name in __init__.py privileged_control.py business_activation_helper.py \
+    business_activation_primitives.py mcu_flash_helper.py \
+    mcu_flash_primitives.py; do
+    install -m 0644 -- \
+        "${repository_root}/hardware/device_management/helpers/${name}" \
+        "${staging_directory}/components/device-updater/helpers/${name}"
+done
+for name in ecobin-business-activation-helper.socket \
+    ecobin-business-activation-helper@.service \
+    ecobin-mcu-flash-helper.socket ecobin-mcu-flash-helper@.service; do
+    install -m 0644 -- \
+        "${repository_root}/hardware/device_management/helpers/systemd/${name}" \
+        "${staging_directory}/components/device-updater/systemd/${name}"
+done
 
 make_locked_venv "${staging_directory}/components/enrollment-venv" enrollment
 make_locked_venv "${staging_directory}/components/remote-support-venv" remote-support
@@ -180,7 +220,9 @@ python3 "${script_directory}/lib/generate_software_payload_lock.py" \
     --enrollment-release-id "${enrollment_release_id}" \
     --remote-support-release-id "${remote_release_id}" \
     --factory-test-release-id "${factory_release_id}" \
-    --first-boot-release-id "${first_boot_release_id}"
+    --first-boot-release-id "${first_boot_release_id}" \
+    --communication-agent-release-id "${communication_agent_release_id}" \
+    --device-updater-release-id "${device_updater_release_id}"
 payload_sha256="$(sha256sum -- "${staging_directory}/software-payload.lock.json" | awk '{print $1}')"
 python3 "${repository_root}/hardware/system/image_software_installer.py" validate-payload \
     --payload "${staging_directory}" --payload-sha256 "${payload_sha256}" \

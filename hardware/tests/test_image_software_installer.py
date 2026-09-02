@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import os
 import runpy
+import shutil
 import stat
 import subprocess
 import sys
@@ -12,10 +14,16 @@ from pathlib import Path
 
 import pytest
 
+from factory_seal.validation import FactorySealPaths, collect_local_factory_facts
 from install.runtime_release import RUNTIME_APP_FILES as SIGNED_RUNTIME_APP_FILES
 from system import image_software_installer as image_installer
 from system.image_software_installer import (
+    COMMUNICATION_AGENT_FILES,
+    DEVICE_UPDATER_FILES,
+    DEVICE_UPDATER_HELPER_FILES,
+    DEVICE_UPDATER_HELPER_UNIT_FILES,
     FACTORY_APP_RUNTIME_FILES,
+    LEGACY_RUNTIME_APP_FILES,
     RUNTIME_APP_FILES,
     ImageSoftwareError,
     audit_image_software,
@@ -43,6 +51,41 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
     assert "factory_progress.py" in RUNTIME_APP_FILES
     assert "factory_progress.py" in FACTORY_APP_RUNTIME_FILES
     assert "factory_progress.py" in image_installer.ENROLLMENT_FILES
+    assert set(COMMUNICATION_AGENT_FILES) == {
+        "communication_agent.py",
+        "communication_store.py",
+        "local_control.py",
+    }
+    assert set(DEVICE_UPDATER_FILES) == {
+        "device_management_preflight.py",
+        "local_control.py",
+        "updater_agent.py",
+        "updater_store.py",
+    }
+    assert set(DEVICE_UPDATER_HELPER_FILES) == {
+        "__init__.py",
+        "privileged_control.py",
+        "business_activation_helper.py",
+        "business_activation_primitives.py",
+        "mcu_flash_helper.py",
+        "mcu_flash_primitives.py",
+    }
+    assert set(DEVICE_UPDATER_HELPER_UNIT_FILES) == {
+        "ecobin-business-activation-helper.socket",
+        "ecobin-business-activation-helper@.service",
+        "ecobin-mcu-flash-helper.socket",
+        "ecobin-mcu-flash-helper@.service",
+    }
+    assert "business_control.py" in RUNTIME_APP_FILES
+    assert "local_control.py" in RUNTIME_APP_FILES
+    assert "communication_agent.py" not in RUNTIME_APP_FILES
+    assert "communication_store.py" not in RUNTIME_APP_FILES
+    assert "updater_agent.py" not in RUNTIME_APP_FILES
+    assert "updater_store.py" not in RUNTIME_APP_FILES
+    assert isinstance(LEGACY_RUNTIME_APP_FILES, tuple)
+    assert len(LEGACY_RUNTIME_APP_FILES) == 40
+    assert "business_control.py" not in LEGACY_RUNTIME_APP_FILES
+    assert "local_control.py" not in LEGACY_RUNTIME_APP_FILES
     assert set(FACTORY_APP_RUNTIME_FILES) < set(RUNTIME_APP_FILES)
 
 
@@ -206,6 +249,8 @@ def _make_payload(
     hil_approved: bool = True,
     mutate_before_lock: Callable[[Path], None] | None = None,
     expect_valid: bool = True,
+    communication_release_id: str = "communication-001",
+    updater_release_id: str = "updater-001",
 ) -> tuple[Path, str, str]:
     payload = tmp_path / "payload"
     payload.mkdir()
@@ -213,6 +258,31 @@ def _make_payload(
     _write_runtime(payload, git_commit, "runtime-001")
     for name in ("enrollment", "remote-support", "factory-test"):
         _make_venv(payload / f"components/{name}-venv")
+    for component, files in (
+        ("communication-agent", COMMUNICATION_AGENT_FILES),
+        ("device-updater", DEVICE_UPDATER_FILES),
+    ):
+        app = payload / "components" / component / "app"
+        app.mkdir(parents=True)
+        for name in files:
+            (app / name).write_bytes((HARDWARE_ROOT / name).read_bytes())
+    updater_root = payload / "components/device-updater"
+    for relative, files, source_root in (
+        (
+            "helpers",
+            DEVICE_UPDATER_HELPER_FILES,
+            HARDWARE_ROOT / "device_management/helpers",
+        ),
+        (
+            "systemd",
+            DEVICE_UPDATER_HELPER_UNIT_FILES,
+            HARDWARE_ROOT / "device_management/helpers/systemd",
+        ),
+    ):
+        destination = updater_root / relative
+        destination.mkdir()
+        for name in files:
+            (destination / name).write_bytes((source_root / name).read_bytes())
     (payload / "config").mkdir()
     (payload / "config/enrollment.env").write_text(
         "ECOBIN_ENROLLMENT_BACKEND_URL=https://api.jinshoubao.com\n"
@@ -282,6 +352,10 @@ def _make_payload(
             "factory-001",
             "--first-boot-release-id",
             "first-boot-001",
+            "--communication-agent-release-id",
+            communication_release_id,
+            "--device-updater-release-id",
+            updater_release_id,
         ]
     )
     if not hil_approved or not expect_valid:
@@ -289,6 +363,66 @@ def _make_payload(
         return payload, git_commit, ""
     assert result == 0
     return payload, git_commit, _sha256(payload / "software-payload.lock.json")
+
+
+def _convert_payload_to_legacy_v1(
+    payload: Path,
+    git_commit: str,
+) -> str:
+    lock_path = payload / "software-payload.lock.json"
+    lock_path.unlink()
+    shutil.rmtree(payload / "components/communication-agent")
+    shutil.rmtree(payload / "components/device-updater")
+    runtime = payload / "components/hardware-runtime"
+    for name in ("business_control.py", "local_control.py"):
+        (runtime / "app" / name).unlink()
+    checksum_path = runtime / "SHA256SUMS"
+    checksum_path.write_text(
+        "".join(
+            line
+            for line in checksum_path.read_text(encoding="ascii").splitlines(keepends=True)
+            if not line.rstrip().endswith(
+                ("app/business_control.py", "app/local_control.py")
+            )
+        ),
+        encoding="ascii",
+    )
+    namespace = runpy.run_path(
+        str(PAYLOAD_LOCK_GENERATOR), run_name="legacy_payload_lock_generator"
+    )
+    document = {
+        "schemaVersion": 1,
+        "lockState": "LOCKED",
+        "payloadId": "payload-v1-001",
+        "sourceGitCommit": git_commit,
+        "components": {
+            "hardwareRuntime": {
+                "releaseId": "runtime-001",
+                "root": "components/hardware-runtime",
+            },
+            "enrollment": {
+                "releaseId": "enrollment-001",
+                "venv": "components/enrollment-venv",
+            },
+            "remoteSupport": {
+                "releaseId": "remote-001",
+                "venv": "components/remote-support-venv",
+            },
+            "factoryTest": {
+                "releaseId": "factory-001",
+                "venv": "components/factory-test-venv",
+            },
+            "firstBoot": {"releaseId": "first-boot-001"},
+        },
+        "entries": namespace["_inventory"](payload),
+    }
+    lock_path.write_text(
+        json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    os.chmod(lock_path, 0o644)
+    return _sha256(lock_path)
 
 
 def test_payload_lock_is_bound_to_every_file_and_real_component_identity(tmp_path: Path):
@@ -306,7 +440,10 @@ def test_payload_lock_is_bound_to_every_file_and_real_component_identity(tmp_pat
         "remoteSupport",
         "factoryTest",
         "firstBoot",
+        "communicationAgent",
+        "deviceUpdater",
     }
+    assert lock["schemaVersion"] == 2
     assert all(component["releaseId"] for component in lock["components"].values())
     (payload / "config/enrollment.env").write_text("tampered\n", encoding="ascii")
     with pytest.raises(ImageSoftwareError, match="inventory"):
@@ -315,6 +452,96 @@ def test_payload_lock_is_bound_to_every_file_and_real_component_identity(tmp_pat
             expected_sha256=digest,
             expected_git_commit=git_commit,
         )
+
+
+def test_legacy_v1_payload_remains_readable_but_cannot_build_a_new_image(
+    tmp_path: Path,
+) -> None:
+    payload, git_commit, _digest = _make_payload(tmp_path)
+    digest = _convert_payload_to_legacy_v1(payload, git_commit)
+
+    lock = load_and_validate_payload(
+        payload,
+        expected_sha256=digest,
+        expected_git_commit=git_commit,
+    )
+
+    assert lock["schemaVersion"] == 1
+    assert set(lock["components"]) == set(image_installer.LEGACY_COMPONENT_NAMES)
+    rootfs = tmp_path / "new-image-rootfs"
+    rootfs.mkdir()
+    with pytest.raises(ImageSoftwareError, match="requires schema-v2"):
+        install_image_software(
+            rootfs,
+            REPOSITORY_ROOT,
+            payload,
+            payload_sha256=digest,
+            release_id="new-image-001",
+            version="1.0.0",
+            git_commit=git_commit,
+        )
+
+
+def test_permanent_component_release_ids_fit_device_fact_contract(
+    tmp_path: Path,
+) -> None:
+    payload, _git_commit, digest = _make_payload(
+        tmp_path,
+        communication_release_id="a" * 33,
+        expect_valid=False,
+    )
+
+    assert digest == ""
+    assert not (payload / "software-payload.lock.json").exists()
+
+
+def test_validator_rejects_oversize_permanent_component_release_id(
+    tmp_path: Path,
+) -> None:
+    payload, git_commit, _digest = _make_payload(tmp_path)
+    lock_path = payload / "software-payload.lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock["components"]["deviceUpdater"]["releaseId"] = "u" * 33
+    lock_path.write_text(
+        json.dumps(lock, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    with pytest.raises(ImageSoftwareError, match="device fact limit"):
+        load_and_validate_payload(
+            payload,
+            expected_sha256=_sha256(lock_path),
+            expected_git_commit=git_commit,
+        )
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "components/communication-agent/app/communication_agent.py",
+        "components/device-updater/helpers/business_activation_primitives.py",
+        "components/device-updater/systemd/ecobin-mcu-flash-helper@.service",
+    ],
+)
+def test_payload_lock_refuses_permanent_component_source_drift(
+    tmp_path: Path,
+    relative: str,
+) -> None:
+    def mutate(payload: Path) -> None:
+        (payload / relative).write_text(
+            "# substituted permanent agent\n",
+            encoding="utf-8",
+        )
+
+    payload, _git_commit, digest = _make_payload(
+        tmp_path,
+        mutate_before_lock=mutate,
+        expect_valid=False,
+    )
+
+    assert digest == ""
+    assert not (payload / "software-payload.lock.json").exists()
 
 
 def test_payload_lock_generator_refuses_unapproved_cellular_facts(tmp_path: Path):
@@ -425,6 +652,122 @@ def test_payload_lock_refuses_unsafe_trust_store_entries(
     assert not (payload / "software-payload.lock.json").exists()
 
 
+def _install_image_for_public_trust_audit(tmp_path: Path) -> Path:
+    payload, git_commit, digest = _make_payload(tmp_path)
+    rootfs = tmp_path / "rootfs"
+    systemd = rootfs / "etc/systemd/system"
+    (rootfs / "usr/sbin").mkdir(parents=True)
+    systemd.mkdir(parents=True)
+    for name in ("hostapd", "dnsmasq"):
+        executable = rootfs / "usr/sbin" / name
+        executable.write_text("#!/bin/sh\n", encoding="ascii")
+        os.chmod(executable, 0o755)
+    (systemd / "ecobin-mcu-safe-gpio.service").write_bytes(
+        (HARDWARE_ROOT / "ecobin-mcu-safe-gpio.service").read_bytes()
+    )
+    wants = systemd / "multi-user.target.wants"
+    wants.mkdir()
+    (wants / "ecobin-mcu-safe-gpio.service").symlink_to(
+        "../ecobin-mcu-safe-gpio.service"
+    )
+
+    previous_umask = os.umask(0o077)
+    try:
+        install_image_software(
+            rootfs,
+            REPOSITORY_ROOT,
+            payload,
+            payload_sha256=digest,
+            release_id="public-trust-audit-001",
+            version="1.0.0",
+            git_commit=git_commit,
+        )
+    finally:
+        os.umask(previous_umask)
+    return rootfs
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or os.geteuid() != 0,
+    reason="root-owned trust metadata requires a privileged Linux test",
+)
+def test_audit_rejects_unsafe_public_runtime_trust_path_metadata(
+    tmp_path: Path,
+) -> None:
+    rootfs = _install_image_for_public_trust_audit(tmp_path)
+    trust_store = rootfs / "usr/share/ecobin/runtime-release-keys"
+    public_key = trust_store / "factory_2026.pem"
+
+    os.chmod(trust_store, 0o750)
+    try:
+        with pytest.raises(ImageSoftwareError, match="root-owned 0755"):
+            audit_image_software(rootfs, REPOSITORY_ROOT)
+    finally:
+        os.chmod(trust_store, 0o755)
+
+    os.chown(trust_store, 1, 1)
+    try:
+        with pytest.raises(ImageSoftwareError, match="root-owned 0755"):
+            audit_image_software(rootfs, REPOSITORY_ROOT)
+    finally:
+        os.chown(trust_store, 0, 0)
+
+    os.chmod(public_key, 0o600)
+    try:
+        with pytest.raises(ImageSoftwareError, match="permissions are invalid"):
+            audit_image_software(rootfs, REPOSITORY_ROOT)
+    finally:
+        os.chmod(public_key, 0o644)
+
+    os.chown(public_key, 1, 1)
+    try:
+        with pytest.raises(ImageSoftwareError, match="not owned by root"):
+            audit_image_software(rootfs, REPOSITORY_ROOT)
+    finally:
+        os.chown(public_key, 0, 0)
+
+    hardlink_source = tmp_path / "runtime-release-key-hardlink-source.pem"
+    public_key.rename(hardlink_source)
+    os.link(hardlink_source, public_key)
+    try:
+        with pytest.raises(ImageSoftwareError, match="single-link"):
+            audit_image_software(rootfs, REPOSITORY_ROOT)
+    finally:
+        public_key.unlink()
+        hardlink_source.rename(public_key)
+
+    linked_child_target = tmp_path / "linked-trust-child"
+    linked_child_target.mkdir()
+    linked_child = trust_store / "linked-child"
+    linked_child.symlink_to(linked_child_target, target_is_directory=True)
+    try:
+        with pytest.raises(ImageSoftwareError, match="unsupported name|single-link"):
+            audit_image_software(rootfs, REPOSITORY_ROOT)
+    finally:
+        linked_child.unlink()
+
+    trust_store_target = trust_store.with_name("runtime-release-keys-real")
+    trust_store.rename(trust_store_target)
+    trust_store.symlink_to(trust_store_target.name, target_is_directory=True)
+    try:
+        with pytest.raises(ImageSoftwareError, match="root-owned 0755"):
+            audit_image_software(rootfs, REPOSITORY_ROOT)
+    finally:
+        trust_store.unlink()
+        trust_store_target.rename(trust_store)
+
+    share = rootfs / "usr/share"
+    share_target = rootfs / "usr/share-real"
+    share.rename(share_target)
+    share.symlink_to(share_target.name, target_is_directory=True)
+    try:
+        with pytest.raises(ImageSoftwareError, match="root-owned 0755"):
+            audit_image_software(rootfs, REPOSITORY_ROOT)
+    finally:
+        share.unlink()
+        share_target.rename(share)
+
+
 def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -507,9 +850,49 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
     )
 
     assert metadata["components"]["firstBoot"]["releaseId"] == "first-boot-001"
+    assert metadata["schemaVersion"] == 1
+    assert metadata["softwarePayloadSchemaVersion"] == 2
+    assert metadata["components"]["communicationAgent"]["releaseId"] == "communication-001"
+    assert metadata["components"]["deviceUpdater"]["releaseId"] == "updater-001"
+    assert os.readlink(rootfs / "opt/ecobin/communication/current") == (
+        "releases/communication-001"
+    )
+    assert os.readlink(rootfs / "opt/ecobin/updater/current") == (
+        "releases/updater-001"
+    )
+    assert (
+        rootfs / "usr/share/ecobin/device-management-release.env"
+    ).read_text(encoding="ascii") == (
+        "ECOBIN_COMMUNICATION_AGENT_VERSION=communication-001\n"
+        "ECOBIN_DEVICE_UPDATER_VERSION=updater-001\n"
+    )
+    assert (
+        rootfs / "usr/share/ecobin/runtime-release-keys/factory_2026.pem"
+    ).read_bytes() == (payload / "trust/runtime-release-keys/factory_2026.pem").read_bytes()
     private_release = rootfs / "etc/ecobin/image-release.json"
     public_release = rootfs / "usr/share/ecobin/image-release.json"
     assert public_release.read_bytes() == private_release.read_bytes()
+    factory_report = json.loads(
+        (
+            HARDWARE_ROOT
+            / "image-artifacts/evidence/"
+            "hil-v8-simulated-acceptance-20260829-01/report.json"
+        ).read_text(encoding="utf-8")
+    )
+    factory_report["imageReleaseId"] = metadata["releaseId"]
+    factory_report_path = tmp_path / "factory-report.json"
+    factory_report_path.write_text(
+        json.dumps(factory_report),
+        encoding="utf-8",
+    )
+    seal_facts = collect_local_factory_facts(
+        FactorySealPaths(
+            image_release=private_release,
+            factory_report=factory_report_path,
+            sealed=tmp_path / "sealed.json",
+        )
+    )
+    assert seal_facts.image_release_id == "image-001"
     if os.name == "posix":
         assert stat.S_IMODE(public_release.stat().st_mode) == 0o644
     assert (
@@ -520,6 +903,58 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
     assert not os.path.lexists(
         systemd / "multi-user.target.wants/ecobin-hardware.service"
     )
+    assert not os.path.lexists(
+        systemd / "multi-user.target.wants/ecobin-communication.service"
+    )
+    assert not os.path.lexists(
+        systemd / "multi-user.target.wants/ecobin-updater.service"
+    )
+    assert not os.path.lexists(
+        systemd / "multi-user.target.wants/ecobin-business-permission-preflight.service"
+    )
+    assert not os.path.lexists(
+        systemd / "multi-user.target.wants/ecobin-device-management-preflight.service"
+    )
+    assert (
+        systemd / "ecobin-business-permission-preflight.service"
+    ).read_bytes() == (
+        HARDWARE_ROOT / "ecobin-business-permission-preflight.service"
+    ).read_bytes()
+    assert (
+        systemd / "ecobin-device-management-preflight.service"
+    ).read_bytes() == (
+        HARDWARE_ROOT / "ecobin-device-management-preflight.service"
+    ).read_bytes()
+    assert (
+        rootfs / "usr/lib/ecobin/business_runtime_preflight.py"
+    ).read_bytes() == (
+        HARDWARE_ROOT / "system/business_runtime_preflight.py"
+    ).read_bytes()
+    assert (
+        rootfs / "usr/lib/ecobin/device-management/local_control.py"
+    ).read_bytes() == (HARDWARE_ROOT / "local_control.py").read_bytes()
+    for name in DEVICE_UPDATER_HELPER_FILES:
+        assert (
+            rootfs / "usr/lib/ecobin/device-management/helpers" / name
+        ).read_bytes() == (
+            HARDWARE_ROOT / "device_management/helpers" / name
+        ).read_bytes()
+    for name in DEVICE_UPDATER_HELPER_UNIT_FILES:
+        assert (systemd / name).read_bytes() == (
+            HARDWARE_ROOT / "device_management/helpers/systemd" / name
+        ).read_bytes()
+    assert (
+        rootfs / "usr/lib/sysusers.d/ecobin-device-runtime.conf"
+    ).read_bytes() == (
+        HARDWARE_ROOT
+        / "device_management/config/sysusers.d/ecobin-device-runtime.conf"
+    ).read_bytes()
+    assert (
+        rootfs / "usr/lib/tmpfiles.d/ecobin-device-runtime.conf"
+    ).read_bytes() == (
+        HARDWARE_ROOT
+        / "device_management/config/tmpfiles.d/ecobin-device-runtime.conf"
+    ).read_bytes()
     assert os.readlink(systemd / "nftables.service") == "/dev/null"
     audit_image_software(
         rootfs,
@@ -560,6 +995,16 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
     )
     assert direct_audit.returncode == 0, direct_audit.stderr
     assert "image-software-audit=PASS" in direct_audit.stdout
+    forbidden_helper_link = (
+        systemd
+        / "multi-user.target.wants/ecobin-business-activation-helper.socket"
+    )
+    forbidden_helper_link.symlink_to(
+        "../ecobin-business-activation-helper.socket"
+    )
+    with pytest.raises(ImageSoftwareError, match="independently enabled"):
+        audit_image_software(rootfs, REPOSITORY_ROOT)
+    forbidden_helper_link.unlink()
     with monkeypatch.context() as contract_patch:
         contract_patch.setattr(
             image_installer,
@@ -572,6 +1017,16 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
         )
         with pytest.raises(ImageSoftwareError, match="contract facts differ"):
             audit_image_software(rootfs, REPOSITORY_ROOT)
+    installed_agent = (
+        rootfs
+        / "opt/ecobin/communication/releases/communication-001/app/communication_agent.py"
+    )
+    controlled_agent = (HARDWARE_ROOT / "communication_agent.py").read_bytes()
+    installed_agent.write_text("# tampered\n", encoding="ascii")
+    with pytest.raises(ImageSoftwareError, match="controlled source|installed tree"):
+        audit_image_software(rootfs, REPOSITORY_ROOT)
+    installed_agent.write_bytes(controlled_agent)
+    os.chmod(installed_agent, 0o644)
     (rootfs / "etc/ecobin/hardware.env").write_text("tampered\n", encoding="ascii")
     with pytest.raises(ImageSoftwareError, match="controlled source"):
         audit_image_software(rootfs, REPOSITORY_ROOT)

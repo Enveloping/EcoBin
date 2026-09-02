@@ -20,19 +20,30 @@ import re
 
 BLOCKED_ENABLED_UNITS = {
     "orangepi-resize-filesystem.service",
+    "ecobin-business-activation-helper.socket",
+    "ecobin-business-permission-preflight.service",
+    "ecobin-device-management-preflight.service",
     "ecobin-cellular-uplink.service",
+    "ecobin-communication.service",
     "ecobin-enrollment.service",
     "ecobin-factory-ap.service",
     "ecobin-factory-portal.service",
     "ecobin-factory-test.service",
     "ecobin-factory-handoff.service",
     "ecobin-hardware.service",
+    "ecobin-mcu-flash-helper.socket",
     "ecobin-remote-support.service",
     "ecobin-runtime.target",
+    "ecobin-updater.service",
     "orangepi-zram-config.service",
     "zramswap.service",
     "systemd-zram-setup@zram0.service",
 }
+
+BLOCKED_ENABLED_UNIT_PREFIXES = (
+    "ecobin-business-activation-helper@",
+    "ecobin-mcu-flash-helper@",
+)
 
 REMOVE_EXACT_PATHS = (
     "etc/ecobin/device-credentials.json",
@@ -43,6 +54,9 @@ REMOVE_EXACT_PATHS = (
     "var/lib/ecobin/first-boot/sealed.json",
     "var/lib/ecobin/remote-support/state.db",
     "var/lib/ecobin/hardware/edge.db",
+    "var/lib/ecobin/communication/communication.db",
+    "var/lib/ecobin/business/edge.db",
+    "var/lib/ecobin/updater/updater.db",
     "var/lib/dbus/machine-id",
     "var/lib/systemd/random-seed",
     "var/lib/systemd/timesync/clock",
@@ -88,6 +102,9 @@ CLEAR_DIRECTORY_CONTENTS = (
     "var/lib/ecobin/remote-support",
     "var/lib/ecobin/first-boot",
     "var/lib/ecobin/factory-test",
+    "var/lib/ecobin/communication",
+    "var/lib/ecobin/business",
+    "var/lib/ecobin/updater",
     "root/EcoBin/hardware/data",
     "var/log",
     "var/cache/apt/archives",
@@ -498,7 +515,18 @@ class RootfsSanitizer:
                     or name.startswith("systemd-swap")
                     for name in names if name
                 )
-                if any(name in BLOCKED_ENABLED_UNITS for name in names) or simulator or persistent_swap:
+                helper_instance = any(
+                    name.startswith(prefix) and name.endswith(".service")
+                    for name in names
+                    for prefix in BLOCKED_ENABLED_UNIT_PREFIXES
+                    if name
+                )
+                if (
+                    any(name in BLOCKED_ENABLED_UNITS for name in names)
+                    or helper_instance
+                    or simulator
+                    or persistent_swap
+                ):
                     entry.unlink()
 
     def remove_fstab_swap_entries(self) -> None:

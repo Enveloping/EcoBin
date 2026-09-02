@@ -174,19 +174,36 @@ class ImageToolingTest(unittest.TestCase):
         self.software_payload_lock.write_text(
             json.dumps(
                 {
-                    "schemaVersion": 1,
+                    "schemaVersion": 2,
                     "lockState": "LOCKED",
                     "payloadId": "payload-001",
                     "sourceGitCommit": "a" * 40,
                     "components": {
-                        name: {"releaseId": f"{name.lower()}-001"}
-                        for name in (
-                            "hardwareRuntime",
-                            "enrollment",
-                            "remoteSupport",
-                            "factoryTest",
-                            "firstBoot",
-                        )
+                        "hardwareRuntime": {
+                            "releaseId": "hardwareruntime-001",
+                            "root": "components/hardware-runtime",
+                        },
+                        "enrollment": {
+                            "releaseId": "enrollment-001",
+                            "venv": "components/enrollment-venv",
+                        },
+                        "remoteSupport": {
+                            "releaseId": "remotesupport-001",
+                            "venv": "components/remote-support-venv",
+                        },
+                        "factoryTest": {
+                            "releaseId": "factorytest-001",
+                            "venv": "components/factory-test-venv",
+                        },
+                        "firstBoot": {"releaseId": "firstboot-001"},
+                        "communicationAgent": {
+                            "releaseId": "communicationagent-001",
+                            "root": "components/communication-agent",
+                        },
+                        "deviceUpdater": {
+                            "releaseId": "deviceupdater-001",
+                            "root": "components/device-updater",
+                        },
                     },
                     "entries": [{"path": "fixture", "type": "directory", "mode": "0755"}],
                 },
@@ -199,6 +216,58 @@ class ImageToolingTest(unittest.TestCase):
         self.software_payload_sha256 = hashlib.sha256(
             self.software_payload_lock.read_bytes()
         ).hexdigest()
+
+    def test_manifest_schemas_keep_exact_v1_and_v2_component_contracts(self) -> None:
+        payload_schema = json.loads(
+            (TOOL_ROOT / "schemas/software-payload-lock.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        candidate_schema = json.loads(
+            (TOOL_ROOT / "schemas/image-manifest.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        release_schema = json.loads(
+            (TOOL_ROOT / "schemas/release-manifest.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        legacy = {
+            "hardwareRuntime",
+            "enrollment",
+            "remoteSupport",
+            "factoryTest",
+            "firstBoot",
+        }
+        current = legacy | {"communicationAgent", "deviceUpdater"}
+        for schema in (payload_schema, candidate_schema, release_schema):
+            self.assertNotIn("-v1", schema["$id"])
+            self.assertEqual(schema["properties"]["schemaVersion"]["enum"], [1, 2])
+            self.assertEqual(set(schema["$defs"]["componentsV1"]["required"]), legacy)
+            self.assertEqual(set(schema["$defs"]["componentsV2"]["required"]), current)
+            self.assertFalse(
+                schema["$defs"]["componentsV1"]["additionalProperties"]
+            )
+            self.assertFalse(
+                schema["$defs"]["componentsV2"]["additionalProperties"]
+            )
+        for schema in (candidate_schema, release_schema):
+            self.assertNotIn(
+                "payloadSchemaVersion",
+                schema["$defs"]["softwareV1"]["properties"],
+            )
+            self.assertIn(
+                "payloadSchemaVersion",
+                schema["$defs"]["softwareV2"]["required"],
+            )
+            self.assertEqual(
+                schema["$defs"]["softwareV2"]["properties"][
+                    "payloadSchemaVersion"
+                ],
+                {"const": 2},
+            )
 
     def write_json(self, name: str, value: object) -> None:
         (self.fixture / name).write_text(
@@ -441,6 +510,15 @@ class ImageToolingTest(unittest.TestCase):
         self.assertIn("verified_archive_stream", stage)
         self.assertIn("safe_extract_archive_stream", stage)
         self.assertIn("load_and_validate_payload", lock_generator)
+        self.assertIn("components/communication-agent", builder)
+        self.assertIn("components/device-updater", builder)
+        self.assertIn("components/device-updater/helpers", builder)
+        self.assertIn("components/device-updater/systemd", builder)
+        self.assertIn("device_management_preflight.py", builder)
+        self.assertIn("business_activation_primitives.py", builder)
+        self.assertIn("mcu_flash_primitives.py", builder)
+        self.assertIn("--communication-agent-release-id", launcher)
+        self.assertIn("--device-updater-release-id", launcher)
 
     def test_container_git_allows_only_the_exact_read_only_repository(self) -> None:
         """Container root must read a non-root bind mount without trusting all repos."""
@@ -727,6 +805,8 @@ class ImageToolingTest(unittest.TestCase):
         self.assertEqual(outputs[0], outputs[1])
         manifest = json.loads(outputs[0])
         self.assertEqual(manifest["artifactClass"], "UNSIGNED_NO_SECRET_CANDIDATE")
+        self.assertEqual(manifest["schemaVersion"], 2)
+        self.assertEqual(manifest["software"]["payloadSchemaVersion"], 2)
         self.assertFalse(manifest["security"]["k1Injected"])
         self.assertFalse(manifest["security"]["setupApKeyInjected"])
         self.assertTrue(manifest["security"]["persistentSwapDisabled"])
@@ -741,7 +821,15 @@ class ImageToolingTest(unittest.TestCase):
         )
         self.assertEqual(
             set(manifest["software"]["components"]),
-            {"hardwareRuntime", "enrollment", "remoteSupport", "factoryTest", "firstBoot"},
+            {
+                "hardwareRuntime",
+                "enrollment",
+                "remoteSupport",
+                "factoryTest",
+                "firstBoot",
+                "communicationAgent",
+                "deviceUpdater",
+            },
         )
         self.assertEqual(manifest["builder"]["platform"], "linux/arm64")
         self.assertEqual(manifest["builder"]["uvArtifact"]["version"], "1.0.0")
@@ -781,6 +869,9 @@ class ImageToolingTest(unittest.TestCase):
             "var/lib/cloud/instance",
             "var/lib/ecobin/hardware/photos",
             "var/lib/ecobin/factory-test",
+            "var/lib/ecobin/communication",
+            "var/lib/ecobin/business",
+            "var/lib/ecobin/updater",
             "root/EcoBin/hardware/data",
             "var/log",
             "var/cache/apt/archives",
@@ -812,6 +903,14 @@ class ImageToolingTest(unittest.TestCase):
             "[Swap]\nWhat=/swapfile\n", encoding="utf-8"
         )
         (root / "etc/systemd/system/multi-user.target.wants/orangepi-zram-config.service").write_text("[Unit]\n", encoding="utf-8")
+        for name in (
+            "ecobin-business-activation-helper.socket",
+            "ecobin-mcu-flash-helper@fixture.service",
+        ):
+            (root / "etc/systemd/system/multi-user.target.wants" / name).write_text(
+                "[Unit]\n",
+                encoding="utf-8",
+            )
         (root / "etc/ssh/ssh_host_ed25519_key").write_text(
             "fixture-host-key", encoding="ascii"
         )
@@ -836,6 +935,15 @@ class ImageToolingTest(unittest.TestCase):
         (root / "var/lib/ecobin/factory-test/result.json").write_text(
             "{}", encoding="ascii"
         )
+        for state_directory, database in (
+            ("communication", "communication.db"),
+            ("business", "edge.db"),
+            ("updater", "updater.db"),
+        ):
+            (root / f"var/lib/ecobin/{state_directory}/{database}").write_text(
+                "device-specific state",
+                encoding="ascii",
+            )
         (root / "var/lib/ecobin/device-capabilities.json").write_text(
             '{"schemaVersion":1,"mcuRemoteUpdateCapable":true}',
             encoding="ascii",
@@ -875,8 +983,27 @@ class ImageToolingTest(unittest.TestCase):
         self.assertNotIn(" swap ", fstab_text)
         self.assertEqual((root / "etc/default/orangepi-zram-config").read_text(encoding="utf-8"), "ENABLED=false\nSWAP=false\n")
         self.assertFalse((root / "etc/systemd/system/multi-user.target.wants/orangepi-zram-config.service").exists())
+        self.assertFalse(
+            (
+                root
+                / "etc/systemd/system/multi-user.target.wants/"
+                "ecobin-business-activation-helper.socket"
+            ).exists()
+        )
+        self.assertFalse(
+            (
+                root
+                / "etc/systemd/system/multi-user.target.wants/"
+                "ecobin-mcu-flash-helper@fixture.service"
+            ).exists()
+        )
         self.assertEqual(list((root / "var/lib/cloud").iterdir()), [])
         self.assertEqual(list((root / "var/lib/ecobin/factory-test").iterdir()), [])
+        for state_directory in ("communication", "business", "updater"):
+            self.assertEqual(
+                list((root / f"var/lib/ecobin/{state_directory}").iterdir()),
+                [],
+            )
         self.assertFalse(
             (root / "var/lib/ecobin/device-capabilities.json").exists()
         )
@@ -1244,6 +1371,14 @@ class ImageToolingTest(unittest.TestCase):
         self.assertIn("--target-media-qualification-evidence", verify)
         self.assertIn("automatic login is enabled", verify)
         self.assertIn("var/lib/ecobin/factory-test", verify)
+        self.assertIn("var/lib/ecobin/communication/communication.db", verify)
+        self.assertIn("var/lib/ecobin/business/edge.db", verify)
+        self.assertIn("var/lib/ecobin/updater/updater.db", verify)
+        self.assertIn("var/lib/ecobin/communication", verify)
+        self.assertIn("var/lib/ecobin/business", verify)
+        self.assertIn("var/lib/ecobin/updater", verify)
+        self.assertIn("ecobin-business-activation-helper.socket", verify)
+        self.assertIn("ecobin-mcu-flash-helper@*.service", verify)
         self.assertIn("root/EcoBin/hardware/data", verify)
         self.assertIn("configured OneNet device key", verify)
         self.assertIn("image_software_installer.py", verify)

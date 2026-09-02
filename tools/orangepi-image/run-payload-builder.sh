@@ -19,6 +19,8 @@ enrollment_release_id=""
 remote_release_id=""
 factory_release_id=""
 first_boot_release_id=""
+communication_agent_release_id=""
+device_updater_release_id=""
 
 fail() { printf 'payload-builder-launch=FAIL: %s\n' "$1" >&2; exit 1; }
 while [[ $# -gt 0 ]]; do
@@ -38,6 +40,8 @@ while [[ $# -gt 0 ]]; do
         --remote-support-release-id) remote_release_id="$2"; shift 2 ;;
         --factory-test-release-id) factory_release_id="$2"; shift 2 ;;
         --first-boot-release-id) first_boot_release_id="$2"; shift 2 ;;
+        --communication-agent-release-id) communication_agent_release_id="$2"; shift 2 ;;
+        --device-updater-release-id) device_updater_release_id="$2"; shift 2 ;;
         *) fail "unknown or incomplete argument: $1" ;;
     esac
 done
@@ -49,6 +53,9 @@ for value in "${output_directory}" "${runtime_archive}" "${runtime_sha256}" \
     "${mcu_trust_directory}" "${enrollment_env}" "${cellular_env}" \
     "${payload_id}" "${runtime_release_id}" "${enrollment_release_id}" \
     "${remote_release_id}" "${factory_release_id}" "${first_boot_release_id}"; do
+    [[ -n "${value}" ]] || fail "all payload builder inputs are required"
+done
+for value in "${communication_agent_release_id}" "${device_updater_release_id}"; do
     [[ -n "${value}" ]] || fail "all payload builder inputs are required"
 done
 [[ "${runtime_sha256}" =~ ^[0-9a-f]{64}$ ]] || fail "runtime SHA-256 is malformed"
@@ -121,4 +128,6 @@ docker run --rm --platform "${builder_platform}" \
     --enrollment-release-id "${enrollment_release_id}" \
     --remote-support-release-id "${remote_release_id}" \
     --factory-test-release-id "${factory_release_id}" \
-    --first-boot-release-id "${first_boot_release_id}"
+    --first-boot-release-id "${first_boot_release_id}" \
+    --communication-agent-release-id "${communication_agent_release_id}" \
+    --device-updater-release-id "${device_updater_release_id}"

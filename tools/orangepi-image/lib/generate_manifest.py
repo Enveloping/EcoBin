@@ -82,15 +82,21 @@ def main(argv: list[str] | None = None) -> int:
             raise ValidationError("software payload lock identity differs")
         software_payload = load_json(args.software_payload_lock)
         components = software_payload.get("components")
-        component_names = (
+        payload_schema_version = software_payload.get("schemaVersion")
+        legacy_component_names = (
             "hardwareRuntime",
             "enrollment",
             "remoteSupport",
             "factoryTest",
             "firstBoot",
         )
+        component_names = legacy_component_names + (
+            "communicationAgent",
+            "deviceUpdater",
+        ) if payload_schema_version == 2 else legacy_component_names
         if (
-            software_payload.get("schemaVersion") != 1
+            isinstance(payload_schema_version, bool)
+            or payload_schema_version not in (1, 2)
             or software_payload.get("lockState") != "LOCKED"
             or software_payload.get("sourceGitCommit") != args.git_commit
             or not isinstance(components, dict)
@@ -103,6 +109,14 @@ def main(argv: list[str] | None = None) -> int:
             release_id = release.get("releaseId") if isinstance(release, dict) else None
             if not isinstance(release_id, str) or not RELEASE_ID.fullmatch(release_id):
                 raise ValidationError(f"software component has no real release ID: {name}")
+            if (
+                payload_schema_version == 2
+                and name in {"communicationAgent", "deviceUpdater"}
+                and len(release_id) > 32
+            ):
+                raise ValidationError(
+                    f"software component release ID exceeds device fact limit: {name}"
+                )
             software_components[name] = release_id
 
         repository_root = args.repository_root.resolve(strict=True)
@@ -155,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
         manifest = {
             "$schema": "./schemas/image-manifest.schema.json",
-            "schemaVersion": 1,
+            "schemaVersion": payload_schema_version,
             "artifactClass": "UNSIGNED_NO_SECRET_CANDIDATE",
             "releaseId": args.release_id,
             "version": args.version,
@@ -195,6 +209,11 @@ def main(argv: list[str] | None = None) -> int:
                     "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8"
                 ],
                 "runtimeInstalled": True,
+                **(
+                    {"payloadSchemaVersion": payload_schema_version}
+                    if payload_schema_version == 2
+                    else {}
+                ),
                 "components": software_components,
                 "uart5": {
                     "configured": True,

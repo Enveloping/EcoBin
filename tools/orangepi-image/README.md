@@ -198,12 +198,25 @@ tools/orangepi-image/run-payload-builder.sh \
   --enrollment-release-id enrollment-001 \
   --remote-support-release-id remote-support-001 \
   --factory-test-release-id factory-test-001 \
-  --first-boot-release-id first-boot-001
+  --first-boot-release-id first-boot-001 \
+  --communication-agent-release-id communication-001 \
+  --device-updater-release-id updater-001
 ```
 
 The command prints the SHA-256 of `software-payload.lock.json`. Record that
 value in the controlled release job and pass it separately to the image build.
-The payload contains no K1, setup AP password or private signing key.
+New payloads use schema v2 and bind exactly seven component identities. The
+communication agent and device updater are immutable image components under
+`/opt/ecobin/communication` and `/opt/ecobin/updater`; they are deliberately
+not part of the replaceable hardware/business runtime. Their release IDs are
+limited to 32 characters so they fit the device software-fact contract. The
+installer and auditor can still read historical five-component schema-v1
+metadata, but a new image build rejects it. The payload contains no K1, setup
+AP password or private signing key.
+The updater component also carries the two fixed root-helper implementations
+and a boot-scoped probe that calls both helpers as the real updater user.
+Stage-three images keep every helper mutation disabled; installing these files
+does not enable business-runtime or MCU remote updates.
 `enrollment.env` has exactly the production HTTPS URL, `K1` key ID and
 `SELF_ENROLLMENT` mode. `cellular.env` must exactly satisfy the Air780E RNDIS
 schema-v2/HIL parser; USB VID/PID remain runtime diagnostics and are forbidden

@@ -31,13 +31,19 @@ if str(HARDWARE_SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(HARDWARE_SOURCE_ROOT))
 
 from install.runtime_payload_manifest import (  # noqa: E402
+    COMMUNICATION_AGENT_FILES,
+    DEVICE_UPDATER_FILES,
+    DEVICE_UPDATER_HELPER_FILES,
+    DEVICE_UPDATER_HELPER_UNIT_FILES,
     FACTORY_APP_RUNTIME_FILES,
+    LEGACY_RUNTIME_APP_FILES,
     RUNTIME_APP_FILES,
 )
 
 
 LOCK_NAME = "software-payload.lock.json"
-LOCK_SCHEMA_VERSION = 1
+LEGACY_LOCK_SCHEMA_VERSION = 1
+LOCK_SCHEMA_VERSION = 2
 RELEASE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
@@ -68,13 +74,20 @@ MIN_PUBLIC_KEY_PEM_BYTES = 100
 MAX_PUBLIC_KEY_PEM_BYTES = 1024
 MAX_PUBLIC_KEYS_PER_STORE = 64
 
-COMPONENT_NAMES = (
+LEGACY_COMPONENT_NAMES = (
     "hardwareRuntime",
     "enrollment",
     "remoteSupport",
     "factoryTest",
     "firstBoot",
 )
+
+PERMANENT_COMPONENT_NAMES = (
+    "communicationAgent",
+    "deviceUpdater",
+)
+
+COMPONENT_NAMES = LEGACY_COMPONENT_NAMES + PERMANENT_COMPONENT_NAMES
 
 FACTORY_APP_PACKAGES = ("factory", "first_boot", "factory_seal")
 
@@ -99,10 +112,39 @@ REMOTE_SUPPORT_FILES = (
     "trusted_clock.py",
 )
 
-MAIN_UNITS = (
+LEGACY_MAIN_UNITS = (
     "ecobin-hardware.service",
     "ecobin-enrollment.service",
     "ecobin-remote-support.service",
+)
+
+MAIN_UNITS = (
+    "ecobin-communication.service",
+    *LEGACY_MAIN_UNITS,
+    "ecobin-updater.service",
+    "ecobin-device-management-preflight.service",
+    "ecobin-business-permission-preflight.service",
+)
+
+PRIVILEGED_HELPER_UNITS = DEVICE_UPDATER_HELPER_UNIT_FILES
+
+DEVICE_MANAGEMENT_CONFIG_FILES = (
+    (
+        "device_management/config/sysusers.d/ecobin-device-runtime.conf",
+        "usr/lib/sysusers.d/ecobin-device-runtime.conf",
+    ),
+    (
+        "device_management/config/tmpfiles.d/ecobin-device-runtime.conf",
+        "usr/lib/tmpfiles.d/ecobin-device-runtime.conf",
+    ),
+)
+
+DEVICE_MANAGEMENT_SUPPORT_FILES = (
+    (
+        "system/business_runtime_preflight.py",
+        "usr/lib/ecobin/business_runtime_preflight.py",
+        0o644,
+    ),
 )
 
 CONFLICTING_UNITS = (
@@ -134,7 +176,12 @@ ENABLED_LINKS = {
 
 STATIC_UNIT_NAMES = frozenset(
     {
+        "ecobin-business-activation-helper.socket",
+        "ecobin-business-activation-helper@.service",
         "ecobin-cellular-uplink.service",
+        "ecobin-device-management-preflight.service",
+        "ecobin-business-permission-preflight.service",
+        "ecobin-communication.service",
         "ecobin-enrollment.service",
         "ecobin-edge-store-prepare.service",
         "ecobin-factory-ap-prepare.service",
@@ -146,15 +193,40 @@ STATIC_UNIT_NAMES = frozenset(
         "ecobin-factory-test.service",
         "ecobin-factory.target",
         "ecobin-hardware.service",
+        "ecobin-mcu-flash-helper.socket",
+        "ecobin-mcu-flash-helper@.service",
         "ecobin-remote-support.service",
         "ecobin-runtime-gate.service",
         "ecobin-runtime.target",
+        "ecobin-updater.service",
     }
+)
+
+STATIC_UNIT_INSTANCE_PREFIXES = (
+    "ecobin-business-activation-helper@",
+    "ecobin-mcu-flash-helper@",
 )
 
 
 class ImageSoftwareError(RuntimeError):
     """The payload or installed image violates the immutable image policy."""
+
+
+def _component_names_for_lock_schema(schema_version: object) -> tuple[str, ...]:
+    if isinstance(schema_version, bool):
+        raise ImageSoftwareError("software payload lock schema version is unsupported")
+    if schema_version == LEGACY_LOCK_SCHEMA_VERSION:
+        return LEGACY_COMPONENT_NAMES
+    if schema_version == LOCK_SCHEMA_VERSION:
+        return COMPONENT_NAMES
+    raise ImageSoftwareError("software payload lock schema version is unsupported")
+
+
+def _is_static_unit_name(name: str) -> bool:
+    return name in STATIC_UNIT_NAMES or any(
+        name.startswith(prefix) and name.endswith(".service")
+        for prefix in STATIC_UNIT_INSTANCE_PREFIXES
+    )
 
 
 def _sha256(path: Path) -> str:
@@ -293,13 +365,14 @@ def load_and_validate_payload(
     }
     if set(lock) != required_top:
         raise ImageSoftwareError("software payload lock fields are not exact")
-    if lock["schemaVersion"] != LOCK_SCHEMA_VERSION or lock["lockState"] != "LOCKED":
-        raise ImageSoftwareError("software payload is not a locked schema-v1 payload")
+    component_names = _component_names_for_lock_schema(lock["schemaVersion"])
+    if lock["lockState"] != "LOCKED":
+        raise ImageSoftwareError("software payload is not locked")
     _require_release_id(lock["payloadId"], field="payloadId")
     if lock["sourceGitCommit"] != expected_git_commit:
         raise ImageSoftwareError("software payload was built for another Git commit")
     components = lock["components"]
-    if not isinstance(components, dict) or set(components) != set(COMPONENT_NAMES):
+    if not isinstance(components, dict) or set(components) != set(component_names):
         raise ImageSoftwareError("software payload component set is incomplete")
     expected_component_fields = {
         "hardwareRuntime": {"releaseId", "root"},
@@ -308,11 +381,26 @@ def load_and_validate_payload(
         "factoryTest": {"releaseId", "venv"},
         "firstBoot": {"releaseId"},
     }
-    for name in COMPONENT_NAMES:
+    if lock["schemaVersion"] == LOCK_SCHEMA_VERSION:
+        expected_component_fields.update(
+            {
+                "communicationAgent": {"releaseId", "root"},
+                "deviceUpdater": {"releaseId", "root"},
+            }
+        )
+    for name in component_names:
         component = components[name]
         if not isinstance(component, dict) or set(component) != expected_component_fields[name]:
             raise ImageSoftwareError(f"component metadata is not exact: {name}")
         _require_release_id(component["releaseId"], field=f"{name}.releaseId")
+        if (
+            lock["schemaVersion"] == LOCK_SCHEMA_VERSION
+            and name in PERMANENT_COMPONENT_NAMES
+            and len(component["releaseId"]) > 32
+        ):
+            raise ImageSoftwareError(
+                f"{name}.releaseId exceeds the device fact limit"
+            )
         for path_field in ("root", "venv"):
             if path_field in component:
                 relative = _safe_relative(
@@ -488,10 +576,14 @@ def _validate_ed25519_public_key_pem(path: Path) -> None:
         raise ImageSoftwareError("trusted public key is not Ed25519")
 
 
-def _validate_public_key_store(path: Path, *, name_pattern: re.Pattern[str]) -> None:
+def _validate_public_key_store(
+    path: Path,
+    *,
+    name_pattern: re.Pattern[str],
+    require_root_ownership: bool = False,
+) -> None:
     try:
         directory_details = path.lstat()
-        entries = sorted(path.iterdir(), key=lambda item: item.name)
     except OSError as exc:
         raise ImageSoftwareError("controlled trust directory is unavailable") from exc
     if stat.S_ISLNK(directory_details.st_mode) or not stat.S_ISDIR(
@@ -500,6 +592,16 @@ def _validate_public_key_store(path: Path, *, name_pattern: re.Pattern[str]) -> 
         raise ImageSoftwareError("controlled trust directory is not a regular directory")
     if os.name == "posix" and stat.S_IMODE(directory_details.st_mode) != 0o755:
         raise ImageSoftwareError("controlled trust directory permissions are invalid")
+    if (
+        os.name == "posix"
+        and require_root_ownership
+        and (directory_details.st_uid != 0 or directory_details.st_gid != 0)
+    ):
+        raise ImageSoftwareError("controlled trust directory is not owned by root")
+    try:
+        entries = sorted(path.iterdir(), key=lambda item: item.name)
+    except OSError as exc:
+        raise ImageSoftwareError("controlled trust directory is unavailable") from exc
     if not 1 <= len(entries) <= MAX_PUBLIC_KEYS_PER_STORE:
         raise ImageSoftwareError("controlled trust directory key count is invalid")
 
@@ -520,6 +622,12 @@ def _validate_public_key_store(path: Path, *, name_pattern: re.Pattern[str]) -> 
             raise ImageSoftwareError("controlled trust public key size is invalid")
         if os.name == "posix" and stat.S_IMODE(details.st_mode) != 0o644:
             raise ImageSoftwareError("controlled trust public key permissions are invalid")
+        if (
+            os.name == "posix"
+            and require_root_ownership
+            and (details.st_uid != 0 or details.st_gid != 0)
+        ):
+            raise ImageSoftwareError("controlled trust public key is not owned by root")
         _validate_ed25519_public_key_pem(key)
 
 
@@ -590,6 +698,61 @@ def _validate_payload_semantics(payload_root: Path, lock: dict[str, Any]) -> Non
     for name in ("enrollment", "remoteSupport", "factoryTest"):
         _require_python_launcher(payload_root / components[name]["venv"])
 
+    if lock["schemaVersion"] == LOCK_SCHEMA_VERSION:
+        for component_name, expected_files in (
+            ("communicationAgent", COMMUNICATION_AGENT_FILES),
+            ("deviceUpdater", DEVICE_UPDATER_FILES),
+        ):
+            app = payload_root / components[component_name]["root"] / "app"
+            actual_files = {
+                path.relative_to(app).as_posix()
+                for path in _source_files(app)
+            }
+            if actual_files != set(expected_files):
+                raise ImageSoftwareError(
+                    "permanent component source allowlist is not exact: "
+                    f"{component_name}"
+                )
+            for name in expected_files:
+                if (
+                    (app / name).read_bytes()
+                    != (HARDWARE_SOURCE_ROOT / name).read_bytes()
+                ):
+                    raise ImageSoftwareError(
+                        "permanent component source differs from repository: "
+                        f"{component_name}"
+                    )
+        updater_root = payload_root / components["deviceUpdater"]["root"]
+        for relative, expected_files, repository_directory in (
+            (
+                "helpers",
+                DEVICE_UPDATER_HELPER_FILES,
+                HARDWARE_SOURCE_ROOT / "device_management/helpers",
+            ),
+            (
+                "systemd",
+                DEVICE_UPDATER_HELPER_UNIT_FILES,
+                HARDWARE_SOURCE_ROOT / "device_management/helpers/systemd",
+            ),
+        ):
+            source_root = updater_root / relative
+            actual_files = {
+                path.relative_to(source_root).as_posix()
+                for path in _source_files(source_root)
+            }
+            if actual_files != set(expected_files):
+                raise ImageSoftwareError(
+                    f"device updater {relative} allowlist is not exact"
+                )
+            for name in expected_files:
+                if (
+                    (source_root / name).read_bytes()
+                    != (repository_directory / name).read_bytes()
+                ):
+                    raise ImageSoftwareError(
+                        f"device updater {relative} source differs: {name}"
+                    )
+
     _validate_enrollment_config(payload_root / "config/enrollment.env")
     _validate_cellular_config(payload_root / "config/cellular.env")
     validate_trust_directories(
@@ -639,8 +802,7 @@ def _mkdir(rootfs: Path, relative: str, mode: int = 0o755) -> Path:
                 raise ImageSoftwareError(f"install path is not a regular directory: /{relative}")
         else:
             current.mkdir(mode=mode if final else 0o755)
-        if final:
-            os.chmod(current, mode)
+        os.chmod(current, mode if final else 0o755)
         if os.name == "posix":
             os.chown(current, 0, 0)
     return current
@@ -756,10 +918,42 @@ def _write_json(destination: Path, value: dict[str, Any], mode: int = 0o644) -> 
         os.chown(destination, 0, 0)
 
 
-def _install_units(rootfs: Path, repository_hardware: Path) -> None:
+def _device_management_release_environment(components: dict[str, Any]) -> bytes:
+    return (
+        "ECOBIN_COMMUNICATION_AGENT_VERSION="
+        f"{components['communicationAgent']['releaseId']}\n"
+        "ECOBIN_DEVICE_UPDATER_VERSION="
+        f"{components['deviceUpdater']['releaseId']}\n"
+    ).encode("ascii")
+
+
+def _write_device_management_release_environment(
+    destination: Path, components: dict[str, Any]
+) -> None:
+    if _lexists(destination):
+        raise ImageSoftwareError(
+            "image already contains device-management release environment"
+        )
+    destination.write_bytes(_device_management_release_environment(components))
+    os.chmod(destination, 0o644)
+    if os.name == "posix":
+        os.chown(destination, 0, 0)
+
+
+def _install_units(
+    rootfs: Path,
+    repository_hardware: Path,
+    device_updater_release: Path,
+) -> None:
     systemd = _mkdir(rootfs, "etc/systemd/system")
     for name in MAIN_UNITS:
         _install_regular(repository_hardware / name, systemd / name, 0o644)
+    for name in PRIVILEGED_HELPER_UNITS:
+        _install_regular(
+            device_updater_release / "systemd" / name,
+            systemd / name,
+            0o644,
+        )
     for source_directory in (
         repository_hardware / "factory/systemd",
         repository_hardware / "first_boot/systemd",
@@ -780,6 +974,18 @@ def _install_units(rootfs: Path, repository_hardware: Path) -> None:
         _mkdir(rootfs, "usr/lib/tmpfiles.d") / "ecobin-factory.conf",
         0o644,
     )
+    for source_relative, target_relative in DEVICE_MANAGEMENT_CONFIG_FILES:
+        target = rootfs / target_relative
+        _mkdir(rootfs, target.parent.relative_to(rootfs).as_posix())
+        _install_regular(
+            repository_hardware / source_relative,
+            target,
+            0o644,
+        )
+    for source_relative, target_relative, mode in DEVICE_MANAGEMENT_SUPPORT_FILES:
+        target = rootfs / target_relative
+        _mkdir(rootfs, target.parent.relative_to(rootfs).as_posix())
+        _install_regular(repository_hardware / source_relative, target, mode)
     _install_regular(
         repository_hardware / "factory/config/NetworkManager/conf.d/90-ecobin-factory-wlan.conf",
         _mkdir(rootfs, "etc/NetworkManager/conf.d") / "90-ecobin-factory-wlan.conf",
@@ -882,6 +1088,10 @@ def install_image_software(
         expected_sha256=payload_sha256,
         expected_git_commit=git_commit,
     )
+    if lock["schemaVersion"] != LOCK_SCHEMA_VERSION:
+        raise ImageSoftwareError(
+            "new image installation requires schema-v2 permanent components"
+        )
     contract_facts = _factory_contract_facts(repository_root)
     _assert_target_programs(rootfs)
     components = lock["components"]
@@ -892,6 +1102,8 @@ def install_image_software(
     _mkdir(rootfs, "opt/ecobin", 0o755)
     _mkdir(rootfs, "opt/ecobin/factory-test", 0o755)
     _mkdir(rootfs, "opt/ecobin/remote-support", 0o755)
+    _mkdir(rootfs, "opt/ecobin/communication", 0o755)
+    _mkdir(rootfs, "opt/ecobin/updater", 0o755)
     hardware_parent = _mkdir(rootfs, "opt/ecobin/hardware/releases")
     hardware_release = hardware_parent / components["hardwareRuntime"]["releaseId"]
     _copy_tree(payload_root / components["hardwareRuntime"]["root"], hardware_release)
@@ -928,6 +1140,40 @@ def install_image_software(
         f"releases/{components['remoteSupport']['releaseId']}"
     )
 
+    for component_name, install_name in (
+        ("communicationAgent", "communication"),
+        ("deviceUpdater", "updater"),
+    ):
+        component_parent = _mkdir(
+            rootfs, f"opt/ecobin/{install_name}/releases"
+        )
+        component_release = (
+            component_parent / components[component_name]["releaseId"]
+        )
+        _copy_tree(
+            payload_root / components[component_name]["root"],
+            component_release,
+        )
+        (rootfs / f"opt/ecobin/{install_name}/current").symlink_to(
+            f"releases/{components[component_name]['releaseId']}"
+        )
+
+    device_updater_release = (
+        rootfs
+        / "opt/ecobin/updater/releases"
+        / components["deviceUpdater"]["releaseId"]
+    )
+    helper_library = _mkdir(rootfs, "usr/lib/ecobin/device-management")
+    _install_regular(
+        device_updater_release / "app/local_control.py",
+        helper_library / "local_control.py",
+        0o644,
+    )
+    _copy_tree(
+        device_updater_release / "helpers",
+        helper_library / "helpers",
+    )
+
     etc_ecobin = _mkdir(rootfs, "etc/ecobin", 0o750)
     _install_regular(repository_hardware / "install/hardware.env.example", etc_ecobin / "hardware.env", 0o640)
     _install_regular(payload_root / "config/enrollment.env", etc_ecobin / "enrollment.env", 0o600)
@@ -936,13 +1182,26 @@ def install_image_software(
         _copy_tree(payload_root / "trust" / trust_name, etc_ecobin / trust_name)
     share_ecobin = _mkdir(rootfs, "usr/share/ecobin")
     _install_regular(payload_root / LOCK_NAME, share_ecobin / LOCK_NAME, 0o644)
+    _copy_tree(
+        payload_root / "trust/runtime-release-keys",
+        share_ecobin / "runtime-release-keys",
+    )
+    _write_device_management_release_environment(
+        share_ecobin / "device-management-release.env",
+        components,
+    )
     image_release = {
+        # This is the long-lived factory image identity document schema, not
+        # the software payload lock schema.  Factory acceptance and sealing
+        # deliberately continue to consume schema v1; the independently
+        # versioned payload format is declared by the field below.
         "schemaVersion": 1,
         "releaseId": release_id,
         "version": version,
         "gitCommit": git_commit,
         "softwarePayloadId": lock["payloadId"],
         "softwarePayloadLockSha256": payload_sha256,
+        "softwarePayloadSchemaVersion": lock["schemaVersion"],
         "components": {
             name: {"releaseId": components[name]["releaseId"]}
             for name in COMPONENT_NAMES
@@ -954,7 +1213,7 @@ def install_image_software(
     # also carries K1, setup access and device credentials.  The factory portal
     # receives only this immutable, non-secret release identity projection.
     _write_json(share_ecobin / "image-release.json", image_release)
-    _install_units(rootfs, repository_hardware)
+    _install_units(rootfs, repository_hardware, device_updater_release)
     audit_image_software(
         rootfs,
         repository_root,
@@ -993,6 +1252,32 @@ def _assert_root_owned_directory(installed: Path, mode: int = 0o755) -> None:
         raise ImageSoftwareError(
             f"installed directory is not root-owned {mode:04o}: {installed}"
         )
+
+
+def _assert_root_owned_directory_chain(
+    rootfs: Path, installed: Path, mode: int = 0o755
+) -> None:
+    try:
+        relative = installed.relative_to(rootfs)
+    except ValueError as exc:
+        raise ImageSoftwareError("installed directory escapes the image root") from exc
+    current = rootfs
+    for part in relative.parts:
+        current /= part
+        _assert_root_owned_directory(current, mode)
+
+
+def _audit_public_runtime_trust_store(rootfs: Path, installed: Path) -> None:
+    # Validate every path component with lstat before reading the trust store.
+    # Otherwise a symlink at /usr, /usr/share, /usr/share/ecobin, or the store
+    # root can redirect an otherwise byte-identical key set outside the image's
+    # controlled read-only trust boundary.
+    _assert_root_owned_directory_chain(rootfs, installed)
+    _validate_public_key_store(
+        installed,
+        name_pattern=RUNTIME_PUBLIC_KEY_NAME,
+        require_root_ownership=True,
+    )
 
 
 def _assert_tree_matches(installed: Path, source: Path) -> None:
@@ -1095,9 +1380,14 @@ def _audit_factory_app(app: Path, repository_hardware: Path) -> None:
         raise ImageSoftwareError("factory application top-level allowlist is not exact")
 
 
-def _audit_units(rootfs: Path, repository_hardware: Path) -> None:
+def _audit_units(
+    rootfs: Path,
+    repository_hardware: Path,
+    *,
+    permanent_layer: bool,
+) -> None:
     systemd = rootfs / "etc/systemd/system"
-    for name in MAIN_UNITS:
+    for name in MAIN_UNITS if permanent_layer else LEGACY_MAIN_UNITS:
         _assert_same_file(systemd / name, repository_hardware / name, 0o644)
     for source_directory in (
         repository_hardware / "factory/systemd",
@@ -1105,6 +1395,28 @@ def _audit_units(rootfs: Path, repository_hardware: Path) -> None:
     ):
         for source in _source_files(source_directory):
             _assert_same_file(systemd / source.relative_to(source_directory), source, 0o644)
+    if permanent_layer:
+        helper_unit_source = (
+            repository_hardware / "device_management/helpers/systemd"
+        )
+        for name in PRIVILEGED_HELPER_UNITS:
+            _assert_same_file(
+                systemd / name,
+                helper_unit_source / name,
+                0o644,
+            )
+        for source_relative, target_relative in DEVICE_MANAGEMENT_CONFIG_FILES:
+            _assert_same_file(
+                rootfs / target_relative,
+                repository_hardware / source_relative,
+                0o644,
+            )
+        for source_relative, target_relative, mode in DEVICE_MANAGEMENT_SUPPORT_FILES:
+            _assert_same_file(
+                rootfs / target_relative,
+                repository_hardware / source_relative,
+                mode,
+            )
     for name in CONFLICTING_UNITS:
         mask = systemd / name
         if not mask.is_symlink() or os.readlink(mask) != "/dev/null":
@@ -1118,7 +1430,7 @@ def _audit_units(rootfs: Path, repository_hardware: Path) -> None:
             continue
         name = directory.name
         target = os.readlink(directory).rsplit("/", 1)[-1] if directory.is_symlink() else name
-        if name in STATIC_UNIT_NAMES or target in STATIC_UNIT_NAMES:
+        if _is_static_unit_name(name) or _is_static_unit_name(target):
             raise ImageSoftwareError(f"stage unit is independently enabled: {name}")
 
 
@@ -1146,7 +1458,7 @@ def audit_image_software(
     _assert_root_owned_directory(public_image_release.parent)
     _assert_same_file(public_image_release, private_image_release, 0o644)
     image_release = _load_json(private_image_release)
-    required = {
+    legacy_required = {
         "schemaVersion",
         "releaseId",
         "version",
@@ -1156,7 +1468,16 @@ def audit_image_software(
         "components",
         "contracts",
     }
-    if set(image_release) != required or image_release["schemaVersion"] != 1:
+    current_required = legacy_required | {"softwarePayloadSchemaVersion"}
+    if (
+        (set(image_release) == legacy_required and image_release["schemaVersion"] == 1)
+        or (
+            set(image_release) == current_required
+            and image_release["schemaVersion"] == 1
+        )
+    ):
+        pass
+    else:
         raise ImageSoftwareError("installed image release metadata is malformed")
     if image_release["contracts"] != _factory_contract_facts(repository_root):
         raise ImageSoftwareError("installed factory-seal contract facts differ")
@@ -1181,17 +1502,73 @@ def audit_image_software(
         _assert_same_file(installed_lock, payload_root / LOCK_NAME, 0o644)
     else:
         lock = _load_json(installed_lock)
+        if set(lock) != {
+            "schemaVersion",
+            "lockState",
+            "payloadId",
+            "sourceGitCommit",
+            "components",
+            "entries",
+        }:
+            raise ImageSoftwareError("installed software payload lock fields are not exact")
+        _component_names_for_lock_schema(lock.get("schemaVersion"))
+        if lock.get("lockState") != "LOCKED":
+            raise ImageSoftwareError("installed software payload lock is not locked")
+        _require_release_id(lock.get("payloadId"), field="payloadId")
+        if not isinstance(lock.get("sourceGitCommit"), str) or not GIT_COMMIT.fullmatch(
+            lock["sourceGitCommit"]
+        ):
+            raise ImageSoftwareError("installed software payload Git identity is malformed")
+    lock_schema_version = lock["schemaVersion"]
+    component_names = _component_names_for_lock_schema(lock_schema_version)
+    if (
+        image_release["softwarePayloadId"] != lock.get("payloadId")
+        or image_release["gitCommit"] != lock.get("sourceGitCommit")
+    ):
+        raise ImageSoftwareError(
+            "installed image identity differs from its software payload lock"
+        )
+    if (
+        image_release["schemaVersion"] != 1
+        or image_release.get("softwarePayloadSchemaVersion", 1)
+        != lock_schema_version
+    ):
+        raise ImageSoftwareError(
+            "installed image and software payload schema versions differ"
+        )
+    permanent_layer = lock_schema_version == LOCK_SCHEMA_VERSION
+    if permanent_layer:
+        for shared_code_root in (
+            rootfs / "opt/ecobin/communication",
+            rootfs / "opt/ecobin/updater",
+        ):
+            _assert_root_owned_directory(shared_code_root)
     components = lock.get("components")
-    if not isinstance(components, dict) or set(components) != set(COMPONENT_NAMES):
+    if not isinstance(components, dict) or set(components) != set(component_names):
         raise ImageSoftwareError("installed component identity set is incomplete")
-    for name in COMPONENT_NAMES:
+    for name in component_names:
         component = components[name]
-        if not isinstance(component, dict):
+        expected_fields = (
+            {"releaseId", "root"}
+            if name in {"hardwareRuntime", *PERMANENT_COMPONENT_NAMES}
+            else {"releaseId", "venv"}
+            if name in {"enrollment", "remoteSupport", "factoryTest"}
+            else {"releaseId"}
+        )
+        if not isinstance(component, dict) or set(component) != expected_fields:
             raise ImageSoftwareError("installed component identity is malformed")
         _require_release_id(component.get("releaseId"), field=f"{name}.releaseId")
+        if (
+            permanent_layer
+            and name in PERMANENT_COMPONENT_NAMES
+            and len(component["releaseId"]) > 32
+        ):
+            raise ImageSoftwareError(
+                f"{name}.releaseId exceeds the device fact limit"
+            )
     expected_components = {
         name: {"releaseId": components[name]["releaseId"]}
-        for name in COMPONENT_NAMES
+        for name in component_names
     }
     if image_release["components"] != expected_components:
         raise ImageSoftwareError("installed component release IDs are inconsistent")
@@ -1200,14 +1577,17 @@ def audit_image_software(
     hardware_current = rootfs / "opt/ecobin/hardware/current"
     if not hardware_current.is_symlink() or os.readlink(hardware_current) != f"releases/{components['hardwareRuntime']['releaseId']}":
         raise ImageSoftwareError("hardware runtime current link is invalid")
-    for name in RUNTIME_APP_FILES:
+    runtime_app_files = (
+        RUNTIME_APP_FILES if permanent_layer else LEGACY_RUNTIME_APP_FILES
+    )
+    for name in runtime_app_files:
         _assert_same_file(hardware_release / "app" / name, repository_hardware / name)
     actual_runtime_files = {
         path.relative_to(hardware_release / "app").as_posix()
         for path in (hardware_release / "app").rglob("*")
         if path.is_file() and not path.is_symlink()
     }
-    if actual_runtime_files != set(RUNTIME_APP_FILES):
+    if actual_runtime_files != set(runtime_app_files):
         raise ImageSoftwareError("hardware runtime app allowlist is not exact")
     if payload_root is not None:
         _assert_tree_matches(hardware_release, payload_root / components["hardwareRuntime"]["root"])
@@ -1251,6 +1631,80 @@ def audit_image_software(
         remote_release / ".venv", lock, components["remoteSupport"]["venv"]
     )
 
+    if permanent_layer:
+        for component_name, install_name, expected_files in (
+            ("communicationAgent", "communication", COMMUNICATION_AGENT_FILES),
+            ("deviceUpdater", "updater", DEVICE_UPDATER_FILES),
+        ):
+            release_id = components[component_name]["releaseId"]
+            component_release = (
+                rootfs / f"opt/ecobin/{install_name}/releases" / release_id
+            )
+            component_current = rootfs / f"opt/ecobin/{install_name}/current"
+            if (
+                not component_current.is_symlink()
+                or os.readlink(component_current) != f"releases/{release_id}"
+            ):
+                raise ImageSoftwareError(
+                    f"permanent component current link is invalid: {component_name}"
+                )
+            _assert_root_owned_directory(component_release)
+            _assert_root_owned_directory(component_release / "app")
+            for name in expected_files:
+                _assert_same_file(
+                    component_release / "app" / name,
+                    repository_hardware / name,
+                    0o644,
+                )
+            if payload_root is not None:
+                _assert_tree_matches(
+                    component_release,
+                    payload_root / components[component_name]["root"],
+                )
+            _assert_tree_matches_lock(
+                component_release,
+                lock,
+                components[component_name]["root"],
+            )
+
+        helper_library = rootfs / "usr/lib/ecobin/device-management"
+        _assert_root_owned_directory(helper_library)
+        _assert_root_owned_directory(helper_library / "helpers")
+        updater_release = (
+            rootfs
+            / "opt/ecobin/updater/releases"
+            / components["deviceUpdater"]["releaseId"]
+        )
+        _assert_same_file(
+            helper_library / "local_control.py",
+            repository_hardware / "local_control.py",
+            0o644,
+        )
+        _assert_same_file(
+            helper_library / "local_control.py",
+            updater_release / "app/local_control.py",
+            0o644,
+        )
+        actual_helper_files = {
+            path.relative_to(helper_library / "helpers").as_posix()
+            for path in _source_files(helper_library / "helpers")
+        }
+        if actual_helper_files != set(DEVICE_UPDATER_HELPER_FILES):
+            raise ImageSoftwareError(
+                "installed privileged helper allowlist is not exact"
+            )
+        for name in DEVICE_UPDATER_HELPER_FILES:
+            _assert_same_file(
+                helper_library / "helpers" / name,
+                repository_hardware / "device_management/helpers" / name,
+                0o644,
+            )
+            _assert_same_file(
+                helper_library / "helpers" / name,
+                updater_release / "helpers" / name,
+                0o644,
+            )
+
     _assert_same_file(rootfs / "etc/ecobin/hardware.env", repository_hardware / "install/hardware.env.example", 0o640)
     if payload_root is not None:
         _assert_same_file(rootfs / "etc/ecobin/enrollment.env", payload_root / "config/enrollment.env", 0o600)
@@ -1265,13 +1719,60 @@ def audit_image_software(
             lock,
             f"trust/{trust_name}",
         )
+    if permanent_layer:
+        public_runtime_trust = rootfs / "usr/share/ecobin/runtime-release-keys"
+        _audit_public_runtime_trust_store(rootfs, public_runtime_trust)
+        if payload_root is not None:
+            _assert_tree_matches(
+                public_runtime_trust,
+                payload_root / "trust/runtime-release-keys",
+            )
+        _assert_tree_matches_lock(
+            public_runtime_trust,
+            lock,
+            "trust/runtime-release-keys",
+        )
+        release_environment = (
+            rootfs / "usr/share/ecobin/device-management-release.env"
+        )
+        try:
+            release_environment_details = release_environment.lstat()
+        except OSError as exc:
+            raise ImageSoftwareError(
+                "installed device-management release environment is absent"
+            ) from exc
+        if (
+            not stat.S_ISREG(release_environment_details.st_mode)
+            or (
+                os.name == "posix"
+                and (
+                    stat.S_IMODE(release_environment_details.st_mode) != 0o644
+                    or release_environment_details.st_uid != 0
+                    or release_environment_details.st_gid != 0
+                )
+            )
+        ):
+            raise ImageSoftwareError(
+                "installed device-management release environment metadata differs"
+            )
+        if (
+            release_environment.read_bytes()
+            != _device_management_release_environment(components)
+        ):
+            raise ImageSoftwareError(
+                "installed device-management release environment differs"
+            )
     _validate_enrollment_config(rootfs / "etc/ecobin/enrollment.env")
     _validate_cellular_config(rootfs / "etc/ecobin/cellular.env")
     validate_trust_directories(
         rootfs / "etc/ecobin/mcu-release-keys",
         rootfs / "etc/ecobin/runtime-release-keys",
     )
-    _audit_units(rootfs, repository_hardware)
+    _audit_units(
+        rootfs,
+        repository_hardware,
+        permanent_layer=permanent_layer,
+    )
     _assert_target_programs(rootfs)
     return image_release
 

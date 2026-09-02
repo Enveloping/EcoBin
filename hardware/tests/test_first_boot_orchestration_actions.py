@@ -112,7 +112,7 @@ def test_repeated_factory_stage_does_not_resubmit_active_service_dependencies() 
     ]
 
 
-def test_active_runtime_target_restarts_an_inactive_hardware_gateway() -> None:
+def test_active_runtime_target_restarts_every_inactive_independent_member() -> None:
     runner = RecordingRunner(
         active_units={
             "ecobin-runtime.target",
@@ -131,6 +131,11 @@ def test_active_runtime_target_restarts_an_inactive_hardware_gateway() -> None:
     ) == "NONE"
 
     assert [call[-1] for call in _start_calls(runner)] == [
+        "ecobin-communication.service",
+        "ecobin-updater.service",
+        "ecobin-business-activation-helper.socket",
+        "ecobin-mcu-flash-helper.socket",
+        "ecobin-device-management-preflight.service",
         "ecobin-hardware.service",
     ]
 
