@@ -286,7 +286,8 @@ class ReliableDeviceInboxWorkerServiceTest {
     @ValueSource(strings = {
             "SAFETY_SENSOR_STATE_CHANGED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
-            "FACTORY_SEAL_COMPLETED"
+            "FACTORY_SEAL_COMPLETED",
+            "DEVICE_SOFTWARE_STATE_REPORTED"
     })
     void platformDeviceAssetFactCompletesWithoutOrganizationScope(
             String messageKind) {
@@ -378,7 +379,8 @@ class ReliableDeviceInboxWorkerServiceTest {
                         "DEVICE_FAULT_RECOVERED",
                         "SAFETY_SENSOR_STATE_CHANGED",
                         "REMOTE_SUPPORT_TUNNEL_STATUS",
-                        "FACTORY_SEAL_COMPLETED")
+                        "FACTORY_SEAL_COMPLETED",
+                        "DEVICE_SOFTWARE_STATE_REPORTED")
                         .contains(messageKind) ? 2 : 1,
                 "{}",
                 now,

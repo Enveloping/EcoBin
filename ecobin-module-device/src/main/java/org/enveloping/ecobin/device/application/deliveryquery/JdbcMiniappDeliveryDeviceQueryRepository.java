@@ -64,7 +64,10 @@ class JdbcMiniappDeliveryDeviceQueryRepository
                    runtime.applied_config_content_sha256
                        AS progress_applied_configuration_content_sha256,
                    runtime.applied_mcu_payload_sha256
-                       AS progress_applied_configuration_mcu_payload_sha256
+                       AS progress_applied_configuration_mcu_payload_sha256,
+                   management.architecture_generation
+                       AS management_architecture_generation,
+                   compatibility.business_admission_status
             FROM dev_device_asset asset
             JOIN iam_tenant tenant
               ON tenant.id = asset.tenant_id
@@ -77,6 +80,10 @@ class JdbcMiniappDeliveryDeviceQueryRepository
               ON occupancy.asset_id = asset.id
              AND occupancy.tenant_id = asset.tenant_id
              AND occupancy.organization_id = asset.organization_id
+            LEFT JOIN dev_device_management_profile management
+              ON management.asset_id = asset.id
+            LEFT JOIN dev_device_compatibility_projection compatibility
+              ON compatibility.asset_id = asset.id
             LEFT JOIN dev_config_version configuration
               ON configuration.id = (
                   SELECT latest.id
@@ -302,7 +309,10 @@ class JdbcMiniappDeliveryDeviceQueryRepository
                 rs.getBytes(
                         "progress_applied_configuration_content_sha256"),
                 rs.getBytes(
-                        "progress_applied_configuration_mcu_payload_sha256"));
+                        "progress_applied_configuration_mcu_payload_sha256"),
+                rs.getString(
+                        "management_architecture_generation"),
+                rs.getString("business_admission_status"));
     }
 
     private static PortSnapshotRow port(ResultSet rs)

@@ -403,7 +403,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V62 application exited before readiness`n$diagnostic"
+            throw "correct V63 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -441,7 +441,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V62 application did not become ready; " +
+    throw "correct V63 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -1167,6 +1167,29 @@ WHERE login_name = 'enveloping';
         )
     }
 
+    foreach ($database in @(
+            $databaseNames.Correct,
+            $databaseNames.ExistingAdminUpgrade,
+            $databaseNames.ClockRecoveryUpgrade)) {
+        Invoke-MySql -Database "" -Sql @"
+GRANT TRIGGER ON ``$database``.*
+    TO 'ecobin_trigger_definer'@'%';
+GRANT INSERT ON ``$database``.dev_device_management_profile
+    TO 'ecobin_trigger_definer'@'%';
+GRANT SELECT (
+    asset_id, architecture_generation,
+    transition_source_event_uid, transitioned_at
+) ON ``$database``.dev_device_management_profile
+    TO 'ecobin_trigger_definer'@'%';
+GRANT INSERT ON ``$database``.dev_device_compatibility_projection
+    TO 'ecobin_trigger_definer'@'%';
+GRANT SELECT (
+    asset_id, architecture_generation, management_state_sequence
+) ON ``$database``.dev_device_compatibility_projection
+    TO 'ecobin_trigger_definer'@'%';
+"@ | Out-Null
+    }
+
     $v1Marker = Invoke-MySql -Database $databaseNames.Correct -Sql @"
 SELECT CONCAT_WS('|', version, description, script, checksum, success)
 FROM flyway_schema_history
@@ -1181,8 +1204,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 62) {
-        throw "correct target must contain 62 successful Flyway migrations"
+    if ($historyCount -ne 63) {
+        throw "correct target must contain 63 successful Flyway migrations"
     }
 
     Invoke-MySql -Database "" -Sql @"
@@ -1260,8 +1283,8 @@ SELECT COUNT(*) FROM information_schema.tables
 WHERE table_schema = '$($databaseNames.Correct)'
   AND table_type = 'BASE TABLE';
 "@)
-    if ($tableCount -ne 120) {
-        throw "correct target must contain 119 domain tables plus Flyway history"
+    if ($tableCount -ne 124) {
+        throw "correct target must contain 123 domain tables plus Flyway history"
     }
     $permissionCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
@@ -1571,8 +1594,8 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 62
-        domainTables = 119
+        targetVersion = 63
+        domainTables = 123
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
         runtimePrincipal = $runtimePrincipal
@@ -1580,7 +1603,7 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV62Ready = $true
+        correctV63Ready = $true
         bagLabelBatchLimit500 = $true
         mcuRemoteUpdateCapabilityV60 = $true
         externalRequestIdV61 = $true

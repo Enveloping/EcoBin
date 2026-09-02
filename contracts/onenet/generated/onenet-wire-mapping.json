@@ -1826,6 +1826,152 @@
       ],
       "schemaRef": "events/events.schema.json#/$defs/deviceRuntimeSnapshotEvent"
     },
+    "deviceSoftwareStateReported": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "DEVICE_SOFTWARE_STATE_REPORTED",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": true,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.managementStateSequence",
+          "nullable": false,
+          "wireIdentifier": "managementStateSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.managementArchitectureGeneration",
+          "nullable": false,
+          "wireIdentifier": "managementArchitectureGeneration"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.businessAdmissionState",
+          "nullable": false,
+          "wireIdentifier": "businessAdmissionState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.communicationAgent",
+          "nullable": false,
+          "wireIdentifier": "communicationAgent"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceUpdater",
+          "nullable": false,
+          "wireIdentifier": "deviceUpdater"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.activeBusinessRelease",
+          "nullable": true,
+          "wireIdentifier": "activeBusinessRelease"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.businessProcessState",
+          "nullable": false,
+          "wireIdentifier": "businessProcessState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.businessReady",
+          "nullable": false,
+          "wireIdentifier": "businessReady"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.negotiatedProtocols",
+          "nullable": false,
+          "wireIdentifier": "negotiatedProtocols"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuFirmware",
+          "nullable": true,
+          "wireIdentifier": "mcuFirmware"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.uartState",
+          "nullable": false,
+          "wireIdentifier": "uartState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.uartProtocol",
+          "nullable": true,
+          "wireIdentifier": "uartProtocol"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.capabilityBitmapHex",
+          "nullable": false,
+          "wireIdentifier": "capabilityBitmapHex"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/deviceSoftwareStateReportedEvent"
+    },
     "endCleanBeforeUnlock": {
       "commandType": "END_CLEAN_BEFORE_UNLOCK",
       "inputMappings": [

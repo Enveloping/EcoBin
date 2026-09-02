@@ -699,6 +699,23 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
                 "successful MCU progress must report the target as installed"
             )
 
+    if event_type == "DEVICE_SOFTWARE_STATE_REPORTED":
+        if instance["commandUid"] is not None:
+            raise ContractError(
+                "DEVICE_SOFTWARE_STATE_REPORTED must not claim a commandUid"
+            )
+        negotiated = payload["negotiatedProtocols"]
+        if payload["businessReady"] and (
+            payload["businessProcessState"] != "RUNNING"
+            or payload["activeBusinessRelease"] is None
+            or not negotiated["agentBusinessNegotiated"]
+            or not negotiated["updaterBusinessNegotiated"]
+        ):
+            raise ContractError(
+                "ready business software requires its active release and "
+                "business-facing negotiated protocols"
+            )
+
     if event_type == "FACTORY_SEAL_COMPLETED":
         if (
             instance["target"]["uid"] != payload["hardwareSn"]

@@ -1,8 +1,9 @@
 @{
-    CatalogVersion = 31
+    CatalogVersion = 32
 
     ReadOnlyTables = @(
         "iam_permission_definition"
+        "dev_edge_software_release"
     )
 
     SlotTables = @(
@@ -181,6 +182,29 @@
             "retired_at"
             "retirement_reason"
             "control_version"
+            "updated_at"
+        )
+        dev_device_management_profile = @(
+            "architecture_generation"
+            "transition_source_event_uid"
+            "transitioned_at"
+            "lock_version"
+            "updated_at"
+        )
+        dev_device_compatibility_projection = @(
+            "architecture_generation"
+            "latest_software_fact_id"
+            "source_event_uid"
+            "management_state_sequence"
+            "compatibility_status"
+            "business_admission_status"
+            "primary_reason_code"
+            "primary_reason_message"
+            "reasons_json"
+            "capabilities_json"
+            "observed_at"
+            "received_at"
+            "lock_version"
             "updated_at"
         )
         # V58 keeps the authorization identity, accepted evidence, command,

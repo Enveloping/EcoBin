@@ -96,6 +96,11 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "DEVICE_RUNTIME_SNAPSHOT",
                     "TELEMETRY_SNAPSHOT",
                     "DEVICE_ASSET")),
+            Map.entry("deviceSoftwareStateReported",
+            new EventContract(
+                    "DEVICE_SOFTWARE_STATE_REPORTED",
+                    "RELIABLE_FACT",
+                    "DEVICE_ASSET")),
             Map.entry("deviceFaultObserved",
             new EventContract(
                     "DEVICE_FAULT_OBSERVED",
@@ -579,6 +584,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                         contract.messageKind())
                 || "FACTORY_SEAL_COMPLETED".equals(
                         contract.messageKind())
+                || "DEVICE_SOFTWARE_STATE_REPORTED".equals(
+                        contract.messageKind())
                 || "MCU_FIRMWARE_UPDATE_PROGRESS".equals(
                         contract.messageKind())) {
             return sourceScopePort.resolverForPlatformAsset(hardwareSn);
@@ -626,6 +633,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "onenet.remote-support-status";
             case "MCU_FIRMWARE_UPDATE_PROGRESS" ->
                     "onenet.mcu-firmware-progress";
+            case "DEVICE_SOFTWARE_STATE_REPORTED" ->
+                    "onenet.device-software-state";
             case "FACTORY_SEAL_COMPLETED" ->
                     "onenet.factory-seal-completion";
             default -> "onenet.device-event";
@@ -816,6 +825,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     photoGrantRequestPayload(wire);
             case "DEVICE_RUNTIME_SNAPSHOT" ->
                     runtimePayload(wire);
+            case "DEVICE_SOFTWARE_STATE_REPORTED" ->
+                    deviceSoftwareStatePayload(wire);
             case "DEVICE_ACCEPTANCE_EVIDENCE" ->
                     acceptanceEvidencePayload(wire);
             case "DEVICE_FAULT_OBSERVED",
@@ -2293,6 +2304,246 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         return payload;
     }
 
+    private static Map<String, Object> deviceSoftwareStatePayload(
+            JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(
+                "managementStateSequence",
+                positiveSafeInteger(wire, "managementStateSequence"));
+        payload.put(
+                "managementArchitectureGeneration",
+                exactEnum(
+                        wire,
+                        "managementArchitectureGeneration",
+                        1L,
+                        "PERMANENT_V1"));
+        payload.put(
+                "businessAdmissionState",
+                enumText(
+                        integer(wire, "businessAdmissionState"),
+                        Map.of(
+                                1L, "OPEN",
+                                2L, "DRAINING",
+                                3L, "MAINTENANCE",
+                                4L, "LOCKED"),
+                        "businessAdmissionState"));
+        payload.put(
+                "communicationAgent",
+                deviceSoftwareCommunicationAgent(
+                        object(wire, "communicationAgent")));
+        payload.put(
+                "deviceUpdater",
+                deviceSoftwareUpdater(object(wire, "deviceUpdater")));
+        payload.put(
+                "activeBusinessRelease",
+                activeBusinessRelease(wire));
+        String businessProcessState = enumText(
+                integer(wire, "businessProcessState"),
+                Map.of(
+                        1L, "STOPPED",
+                        2L, "STARTING",
+                        3L, "RUNNING",
+                        4L, "FAILED"),
+                "businessProcessState");
+        payload.put("businessProcessState", businessProcessState);
+        boolean businessReady = bool(wire, "businessReady");
+        payload.put("businessReady", businessReady);
+        Map<String, Object> negotiated = negotiatedProtocols(
+                object(wire, "negotiatedProtocols"));
+        payload.put("negotiatedProtocols", negotiated);
+        payload.put("mcuFirmware", deviceSoftwareMcuFirmware(wire));
+        payload.put(
+                "uartState",
+                enumText(
+                        integer(wire, "uartState"),
+                        Map.of(
+                                1L, "DISCONNECTED",
+                                2L, "NEGOTIATING",
+                                3L, "READY",
+                                4L, "INCOMPATIBLE",
+                                5L, "FAULT"),
+                        "uartState"));
+        payload.put("uartProtocol", deviceSoftwareUartProtocol(wire));
+        payload.put(
+                "capabilityBitmapHex",
+                pattern(
+                        wire,
+                        "capabilityBitmapHex",
+                        "^[0-9a-f]{16}$"));
+
+        if (businessReady
+                && (!"RUNNING".equals(businessProcessState)
+                || payload.get("activeBusinessRelease") == null
+                || !Boolean.TRUE.equals(
+                negotiated.get("agentBusinessNegotiated"))
+                || !Boolean.TRUE.equals(
+                negotiated.get("updaterBusinessNegotiated")))) {
+            throw permanent(
+                    "ready business software lacks its active release or "
+                            + "business-facing negotiated protocols");
+        }
+        return payload;
+    }
+
+    private static Map<String, Object> deviceSoftwareCommunicationAgent(
+            JsonNode wire) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("versionName", deviceSoftwareVersion(wire, "versionName"));
+        value.put(
+                "managementTransportProtocolMajor",
+                protocolMajor(wire, "managementTransportProtocolMajor"));
+        value.put(
+                "managementTransportProtocolMinor",
+                protocolPart(wire, "managementTransportProtocolMinor"));
+        value.put(
+                "businessLocalProtocolMajor",
+                protocolMajor(wire, "businessLocalProtocolMajor"));
+        value.put(
+                "businessLocalProtocolMinor",
+                protocolPart(wire, "businessLocalProtocolMinor"));
+        value.put(
+                "updaterLocalProtocolMajor",
+                protocolMajor(wire, "updaterLocalProtocolMajor"));
+        value.put(
+                "updaterLocalProtocolMinor",
+                protocolPart(wire, "updaterLocalProtocolMinor"));
+        return value;
+    }
+
+    private static Map<String, Object> deviceSoftwareUpdater(JsonNode wire) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("versionName", deviceSoftwareVersion(wire, "versionName"));
+        value.put(
+                "deviceMaintenanceProtocolMajor",
+                protocolMajor(wire, "deviceMaintenanceProtocolMajor"));
+        value.put(
+                "deviceMaintenanceProtocolMinor",
+                protocolPart(wire, "deviceMaintenanceProtocolMinor"));
+        value.put(
+                "businessLocalProtocolMajor",
+                protocolMajor(wire, "businessLocalProtocolMajor"));
+        value.put(
+                "businessLocalProtocolMinor",
+                protocolPart(wire, "businessLocalProtocolMinor"));
+        value.put(
+                "businessPackageFormatVersion",
+                requiredIntegerInRange(
+                        wire,
+                        "businessPackageFormatVersion",
+                        1L,
+                        65_535L));
+        value.put(
+                "mcuPackageFormatVersion",
+                requiredIntegerInRange(
+                        wire,
+                        "mcuPackageFormatVersion",
+                        1L,
+                        65_535L));
+        return value;
+    }
+
+    private static Map<String, Object> activeBusinessRelease(JsonNode wire) {
+        if (!bool(wire, "activeBusinessReleasePresent")) {
+            return null;
+        }
+        JsonNode release = object(wire, "activeBusinessRelease");
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("releaseUid", pattern(release, "releaseUid", UUID_V4));
+        value.put(
+                "releaseSequence",
+                positiveSafeInteger(release, "releaseSequence"));
+        value.put(
+                "versionName",
+                deviceSoftwareVersion(release, "versionName"));
+        value.put(
+                "packageSha256",
+                pattern(release, "packageSha256", SHA256));
+        return value;
+    }
+
+    private static Map<String, Object> negotiatedProtocols(JsonNode wire) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        negotiatedProtocolPair(value, wire, "agentBusiness");
+        negotiatedProtocolPair(value, wire, "agentUpdater");
+        negotiatedProtocolPair(value, wire, "updaterBusiness");
+        return value;
+    }
+
+    private static void negotiatedProtocolPair(
+            Map<String, Object> target,
+            JsonNode wire,
+            String prefix) {
+        String negotiatedField = prefix + "Negotiated";
+        String majorField = prefix + "Major";
+        String minorField = prefix + "Minor";
+        boolean negotiated = bool(wire, negotiatedField);
+        long major = protocolPart(wire, majorField);
+        long minor = protocolPart(wire, minorField);
+        if ((negotiated && major == 0L)
+                || (!negotiated && (major != 0L || minor != 0L))) {
+            throw permanent(
+                    prefix + " protocol negotiation fields differ");
+        }
+        target.put(negotiatedField, negotiated);
+        target.put(majorField, major);
+        target.put(minorField, minor);
+    }
+
+    private static Map<String, Object> deviceSoftwareMcuFirmware(
+            JsonNode wire) {
+        if (!bool(wire, "mcuFirmwarePresent")) {
+            return null;
+        }
+        JsonNode firmware = object(wire, "mcuFirmware");
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put(
+                "versionName",
+                deviceSoftwareVersion(firmware, "versionName"));
+        value.put(
+                "versionCode",
+                requiredIntegerInRange(
+                        firmware,
+                        "versionCode",
+                        1L,
+                        4_294_967_295L));
+        value.put(
+                "identityHex",
+                pattern(firmware, "identityHex", "^[0-9a-f]{16}$"));
+        value.put(
+                "fixedFrameRevision",
+                requiredIntegerInRange(
+                        firmware, "fixedFrameRevision", 1L, 255L));
+        return value;
+    }
+
+    private static Map<String, Object> deviceSoftwareUartProtocol(
+            JsonNode wire) {
+        if (!bool(wire, "uartProtocolPresent")) {
+            return null;
+        }
+        JsonNode protocol = object(wire, "uartProtocol");
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("major", protocolMajor(protocol, "major"));
+        value.put("minor", protocolPart(protocol, "minor"));
+        return value;
+    }
+
+    private static String deviceSoftwareVersion(
+            JsonNode wire, String field) {
+        return pattern(
+                wire,
+                field,
+                "^[0-9A-Za-z][0-9A-Za-z._+\\-]{0,31}$");
+    }
+
+    private static long protocolPart(JsonNode wire, String field) {
+        return requiredIntegerInRange(wire, field, 0L, 255L);
+    }
+
+    private static long protocolMajor(JsonNode wire, String field) {
+        return requiredIntegerInRange(wire, field, 1L, 255L);
+    }
+
     private static Map<String, Object> acceptanceEvidencePayload(
             JsonNode wire) {
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -3133,6 +3384,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 && event.get("commandUid") == null))) {
             throw permanent(
                     "MCU firmware progress differs from its deployment target");
+        }
+        if ("DEVICE_SOFTWARE_STATE_REPORTED".equals(
+                contract.messageKind())
+                && event.get("commandUid") != null) {
+            throw permanent(
+                    "device software state must not claim a command target");
         }
         if ("FACTORY_SEAL_COMPLETED".equals(contract.messageKind())
                 && (!payload.get("hardwareSn").equals(targetUid)

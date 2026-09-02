@@ -5,6 +5,7 @@ import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedPlatformDeviceAssetFactEvent;
 import org.enveloping.ecobin.device.application.firmware.McuFirmwareRolloutService;
 import org.enveloping.ecobin.device.application.remote.RemoteSupportSessionService;
+import org.enveloping.ecobin.device.application.software.DeviceSoftwareCompatibilityService;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,7 @@ public class TrustedPlatformDeviceAssetFactService
             "DEVICE_COMMAND_OBSERVED",
             "FACTORY_SEAL_COMPLETED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
+            DeviceSoftwareCompatibilityService.EVENT_TYPE,
             McuFirmwareRolloutService.EVENT_TYPE);
     private static final String UUID_V4 =
             "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
@@ -46,6 +48,7 @@ public class TrustedPlatformDeviceAssetFactService
     private final RemoteSupportSessionService remoteSupportSessions;
     private final McuFirmwareRolloutService firmwareRollouts;
     private final FactorySealAuthorizationService factorySealAuthorizations;
+    private final DeviceSoftwareCompatibilityService softwareCompatibility;
 
     public TrustedPlatformDeviceAssetFactService(
             JdbcTemplate jdbc,
@@ -53,13 +56,15 @@ public class TrustedPlatformDeviceAssetFactService
             ReliablePlatformEdgeConfirmationService confirmationService,
             RemoteSupportSessionService remoteSupportSessions,
             McuFirmwareRolloutService firmwareRollouts,
-            FactorySealAuthorizationService factorySealAuthorizations) {
+            FactorySealAuthorizationService factorySealAuthorizations,
+            DeviceSoftwareCompatibilityService softwareCompatibility) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.confirmationService = confirmationService;
         this.remoteSupportSessions = remoteSupportSessions;
         this.firmwareRollouts = firmwareRollouts;
         this.factorySealAuthorizations = factorySealAuthorizations;
+        this.softwareCompatibility = softwareCompatibility;
     }
 
     @Override
@@ -142,6 +147,27 @@ public class TrustedPlatformDeviceAssetFactService
             if (assetIds.size() != 1) {
                 throw new UntrustedInboxSourceException(
                         "platform device fact target is not registered");
+            }
+            if (DeviceSoftwareCompatibilityService.EVENT_TYPE.equals(
+                    inboxEvent.messageKind())) {
+                DeviceSoftwareCompatibilityService.ApplyResult applied =
+                        softwareCompatibility.apply(
+                                sourceInboxId,
+                                assetIds.getFirst(),
+                                normalized,
+                                event,
+                                now);
+                confirmationService.ensureApplied(
+                        assetIds.getFirst(),
+                        hardwareSn,
+                        eventUid,
+                        payloadSha256,
+                        applied.changed()
+                                ? "UPDATED" : "NO_ACTION_REQUIRED",
+                        now);
+                return applied.changed()
+                        ? TrustedDeviceEventApplyResult.APPLIED
+                        : TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
             }
             boolean remoteSupportChanged = false;
             if ("REMOTE_SUPPORT_TUNNEL_STATUS".equals(

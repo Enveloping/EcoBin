@@ -135,6 +135,10 @@
     {
       "file": "mcu-firmware-update-progress.event.json",
       "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "device-software-state-reported.event.json",
+      "schema": "../../onenet/events/events.schema.json"
     }
   ],
   "generated": true

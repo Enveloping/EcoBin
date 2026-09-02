@@ -58,6 +58,10 @@ import {
   connectivityColors,
   connectivityLabels,
 } from './devicePresentation';
+import {
+  businessAdmissionPresentation,
+  deviceManagementSummary,
+} from './deviceManagementPresentation';
 
 interface AssetFormValues {
   hardwareSn: string;
@@ -164,7 +168,7 @@ export default function DeviceManagementPage() {
       }
       : {
         title: '机构设备',
-        description: '安装、通电、联网即可使用；本页只查看设备并管理日常价格与配置。',
+        description: '机构无需手动启用设备；系统会结合联网、配置、安全、占用和软件状态判断能否开始投递或清运。',
       };
 
   const columns = useMemo<ProColumns<DeviceAsset>[]>(() => [
@@ -203,6 +207,30 @@ export default function DeviceManagementPage() {
               {asset.connectivity?.statusObservedAt
                 ? formatShanghaiTime(asset.connectivity.statusObservedAt)
                 : '平台尚未收到设备联网状态'}
+            </Typography.Text>
+          </Space>
+        );
+      },
+    },
+    {
+      title: '新业务状态',
+      dataIndex: ['deviceManagement', 'businessAdmission'],
+      search: false,
+      width: 240,
+      render: (_, asset) => {
+        const management = deviceManagementSummary(asset);
+        const presentation = businessAdmissionPresentation(
+          management,
+        );
+        const secondary = management?.primaryReason?.title
+          ?? (management?.architectureGeneration === 'PERMANENT_V1'
+            ? '打开设备详情可查看当前判断依据'
+            : '仍按联网、配置、安全和占用等现有条件检查');
+        return (
+          <Space direction="vertical" size={1}>
+            <Tag color={presentation.color}>{presentation.label}</Tag>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {secondary}
             </Typography.Text>
           </Space>
         );
@@ -338,7 +366,7 @@ export default function DeviceManagementPage() {
       message.success(
         assignment.kind === 'tenant'
           ? '租户永久归属已写入'
-          : '机构永久归属已写入，机构安装联网即可使用',
+          : '机构永久归属已写入，设备联网后系统会自动检查业务条件',
       );
       setAssignment(undefined);
       assignmentForm.resetFields();
@@ -424,7 +452,7 @@ export default function DeviceManagementPage() {
         type="info"
         showIcon
         icon={<SafetyCertificateOutlined />}
-        message="永久归属 · 自动验收 · 联网即用"
+        message="永久归属 · 自动验收 · 自动检查业务条件"
         description={
           mode === 'platform'
             ? '设备功能检查发生在分配租户之前；设备控制板和摄像头是否为模拟来源只用于诊断，平台依据联网、通信、采集和上传等实际检查结果自动判定。'

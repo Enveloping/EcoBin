@@ -86,7 +86,71 @@ public final class DeviceModels {
             Instant updatedAt,
             DeviceInstallationProfileView installationProfile,
             DeviceConnectivityView connectivity,
+            DeviceManagementSummaryView deviceManagement,
             ComputedOneNetMapping oneNetMapping) {
+    }
+
+    /**
+     * 设备管理程序对“能否开始新物理业务”的只读摘要。
+     *
+     * <p>尚未迁移的设备始终返回 {@code LEGACY_DIRECT}，此时新架构的准入和
+     * 兼容性字段为空，调用方必须继续沿用既有联网、配置、安全和占用检查。</p>
+     */
+    public record DeviceManagementSummaryView(
+            String architectureGeneration,
+            String businessAdmission,
+            String compatibility,
+            DeviceManagementReasonView primaryReason,
+            Instant observedAt) {
+    }
+
+    public record DeviceManagementReasonView(
+            String code,
+            String title,
+            String description,
+            boolean blocksNewBusiness) {
+    }
+
+    public record DeviceProtocolVersionView(
+            int major,
+            int minor) {
+    }
+
+    /**
+     * 最新可靠设备软件事实及由后台计算出的当前兼容性。
+     *
+     * <p>这些字段只用于接收、判断和展示；第二阶段不提供业务程序更新下发能力。</p>
+     */
+    public record DeviceManagementStatusView(
+            String architectureGeneration,
+            String businessAdmission,
+            String compatibility,
+            DeviceManagementReasonView primaryReason,
+            Instant observedAt,
+            List<DeviceManagementReasonView> reasons,
+            String deviceGateState,
+            Long managementStateSequence,
+            String communicationAgentVersion,
+            String deviceUpdaterVersion,
+            UUID businessReleaseUid,
+            String businessVersionName,
+            Long businessReleaseSequence,
+            String businessPackageSha256,
+            String businessProcessState,
+            Boolean businessReady,
+            String mcuFirmwareVersion,
+            String mcuFirmwareIdentityHex,
+            DeviceProtocolVersionView managementTransportProtocol,
+            DeviceProtocolVersionView deviceMaintenanceProtocol,
+            DeviceProtocolVersionView agentBusinessProtocol,
+            DeviceProtocolVersionView agentUpdaterProtocol,
+            DeviceProtocolVersionView updaterBusinessProtocol,
+            DeviceProtocolVersionView uartProtocol,
+            UUID sourceEventUid) {
+
+        public DeviceManagementStatusView {
+            reasons = List.copyOf(reasons);
+        }
     }
 
     public record DeviceInstallationProfileView(
@@ -349,6 +413,7 @@ public final class DeviceModels {
             long version,
             RuntimeConfigurationSummary configuration,
             RuntimeHealthSummary health,
+            DeviceManagementStatusView deviceManagement,
             boolean occupied,
             String occupancyKind,
             Instant occupiedAt,

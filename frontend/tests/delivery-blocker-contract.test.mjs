@@ -6,7 +6,11 @@ function source(relativePath) {
   return readFileSync(new URL(relativePath, import.meta.url), 'utf8');
 }
 
-const blockerCodes = ['PORT_FULL', 'WEIGHT_BASELINE_MISSING'];
+const blockerCodes = [
+  'PORT_FULL',
+  'WEIGHT_BASELINE_MISSING',
+  'DEVICE_SOFTWARE_NOT_ACCEPTING',
+];
 
 test('delivery blocker codes stay aligned across the API and clients', () => {
   const sources = new Map([
@@ -45,5 +49,9 @@ test('new delivery blockers have actionable Chinese messages', () => {
   assert.match(
     deliveryEntry,
     /WEIGHT_BASELINE_MISSING:\s*'投口称重基准未就绪，请联系工作人员'/,
+  );
+  assert.match(
+    deliveryEntry,
+    /DEVICE_SOFTWARE_NOT_ACCEPTING:\s*'设备正在维护或业务程序尚未准备好，请稍后再试'/,
   );
 });

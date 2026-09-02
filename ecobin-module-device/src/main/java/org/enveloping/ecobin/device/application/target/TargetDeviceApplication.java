@@ -24,6 +24,10 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceConnectivityView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceInstallationProfileView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceManagementReasonView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceManagementStatusView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceManagementSummaryView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceProtocolVersionView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceRuntimeView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceTechnicalIssueView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.PageData;
@@ -2878,6 +2882,7 @@ public class TargetDeviceApplication {
                 head.version(),
                 head.configuration(),
                 head.health(),
+                head.deviceManagement(),
                 head.occupancyKind() != null,
                 head.occupancyKind(),
                 head.occupiedAt(),
@@ -2930,6 +2935,49 @@ public class TargetDeviceApplication {
                        runtime.last_heartbeat_at,
                        runtime.last_device_event_at,
                        runtime.lock_version AS runtime_version,
+                       COALESCE(management_profile.architecture_generation,
+                           'LEGACY_DIRECT')
+                           AS management_architecture_generation,
+                       compatibility.compatibility_status
+                           AS management_compatibility_status,
+                       compatibility.business_admission_status
+                           AS management_business_admission_status,
+                       compatibility.reasons_json
+                           AS management_reasons_json,
+                       COALESCE(compatibility.observed_at,
+                           compatibility.received_at)
+                           AS management_observed_at,
+                       compatibility.source_event_uid
+                           AS management_source_event_uid,
+                       compatibility.management_state_sequence,
+                       software_fact.business_gate_state,
+                       software_fact.communication_agent_version,
+                       software_fact.device_updater_version,
+                       software_fact.active_business_release_uid,
+                       software_fact.active_business_release_sequence,
+                       software_fact.active_business_version_name,
+                       LOWER(HEX(software_fact.active_business_package_sha256))
+                           AS active_business_package_sha256,
+                       software_fact.business_process_state,
+                       software_fact.business_process_ready,
+                       software_fact.mcu_firmware_version
+                           AS management_mcu_firmware_version,
+                       software_fact.mcu_firmware_identity_hex
+                           AS management_mcu_firmware_identity_hex,
+                       software_fact.management_transport_protocol_major,
+                       software_fact.management_transport_protocol_minor,
+                       software_fact.device_maintenance_protocol_major,
+                       software_fact.device_maintenance_protocol_minor,
+                       software_fact.negotiated_communication_business_major,
+                       software_fact.negotiated_communication_business_minor,
+                       software_fact.negotiated_communication_updater_major,
+                       software_fact.negotiated_communication_updater_minor,
+                       software_fact.negotiated_updater_business_major,
+                       software_fact.negotiated_updater_business_minor,
+                       software_fact.uart_protocol_major
+                           AS management_uart_protocol_major,
+                       software_fact.uart_protocol_minor
+                           AS management_uart_protocol_minor,
                        occupancy.occupancy_kind,
                        occupancy.acquired_at AS occupied_at
                 FROM dev_device_asset asset
@@ -2939,6 +2987,12 @@ public class TargetDeviceApplication {
                   ON runtime.asset_id = asset.id
                  AND runtime.tenant_id = asset.tenant_id
                  AND runtime.organization_id = asset.organization_id
+                LEFT JOIN dev_device_management_profile management_profile
+                  ON management_profile.asset_id = asset.id
+                LEFT JOIN dev_device_compatibility_projection compatibility
+                  ON compatibility.asset_id = asset.id
+                LEFT JOIN dev_device_software_fact software_fact
+                  ON software_fact.id = compatibility.latest_software_fact_id
                 LEFT JOIN dev_config_version latest_config
                   ON latest_config.id = (
                       SELECT latest.id
@@ -2954,7 +3008,7 @@ public class TargetDeviceApplication {
                 """;
     }
 
-    private static RuntimeHead runtimeHead(ResultSet rs) throws SQLException {
+    private RuntimeHead runtimeHead(ResultSet rs) throws SQLException {
         Long latestPublishedVersion = nullableLong(
                 rs, "latest_published_version");
         Long latestAppliedVersion = nullableLong(
@@ -3004,6 +3058,7 @@ public class TargetDeviceApplication {
                 rs.getLong("control_version"),
                 configuration,
                 health,
+                deviceManagementStatus(rs),
                 rs.getString("occupancy_kind"),
                 instant(rs, "occupied_at"));
     }
@@ -3079,6 +3134,18 @@ public class TargetDeviceApplication {
                        transport.status_observed_at,
                        transport.status_received_at,
                        transport.evidence_source,
+                       COALESCE(management_profile.architecture_generation,
+                           'LEGACY_DIRECT')
+                           AS management_architecture_generation,
+                       compatibility.compatibility_status
+                           AS management_compatibility_status,
+                       compatibility.business_admission_status
+                           AS management_business_admission_status,
+                       compatibility.reasons_json
+                           AS management_reasons_json,
+                       COALESCE(compatibility.observed_at,
+                           compatibility.received_at)
+                           AS management_observed_at,
                        asset.lifecycle_status, asset.control_version,
                        asset.tenant_assigned_at,
                        asset.organization_assigned_at, asset.accepted_at,
@@ -3100,6 +3167,10 @@ public class TargetDeviceApplication {
                  AND channel_binding.status = 'ACTIVE'
                 LEFT JOIN dev_device_transport_state transport
                   ON transport.asset_id = asset.id
+                LEFT JOIN dev_device_management_profile management_profile
+                  ON management_profile.asset_id = asset.id
+                LEFT JOIN dev_device_compatibility_projection compatibility
+                  ON compatibility.asset_id = asset.id
                 """;
     }
 
@@ -3135,10 +3206,154 @@ public class TargetDeviceApplication {
                         instant(rs, "status_observed_at"),
                         instant(rs, "status_received_at"),
                         rs.getString("evidence_source")),
+                deviceManagementSummary(rs),
                 new ComputedOneNetMapping(
                         oneNetProductId,
                         hardwareSn,
                         oneNetProductId != null));
+    }
+
+    private DeviceManagementSummaryView deviceManagementSummary(
+            ResultSet rs) throws SQLException {
+        String generation = rs.getString(
+                "management_architecture_generation");
+        if (!"PERMANENT_V1".equals(generation)) {
+            return new DeviceManagementSummaryView(
+                    "LEGACY_DIRECT", null, null, null, null);
+        }
+        List<DeviceManagementReasonView> reasons = managementReasons(rs);
+        return new DeviceManagementSummaryView(
+                "PERMANENT_V1",
+                rs.getString("management_business_admission_status"),
+                rs.getString("management_compatibility_status"),
+                reasons.isEmpty() ? null : reasons.getFirst(),
+                instant(rs, "management_observed_at"));
+    }
+
+    private DeviceManagementStatusView deviceManagementStatus(
+            ResultSet rs) throws SQLException {
+        DeviceManagementSummaryView summary = deviceManagementSummary(rs);
+        if ("LEGACY_DIRECT".equals(summary.architectureGeneration())) {
+            return new DeviceManagementStatusView(
+                    "LEGACY_DIRECT",
+                    null,
+                    null,
+                    null,
+                    null,
+                    List.of(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null);
+        }
+        List<DeviceManagementReasonView> reasons = managementReasons(rs);
+        return new DeviceManagementStatusView(
+                summary.architectureGeneration(),
+                summary.businessAdmission(),
+                summary.compatibility(),
+                summary.primaryReason(),
+                summary.observedAt(),
+                reasons,
+                rs.getString("business_gate_state"),
+                nullableLong(rs, "management_state_sequence"),
+                rs.getString("communication_agent_version"),
+                rs.getString("device_updater_version"),
+                nullableUuid(rs, "active_business_release_uid"),
+                rs.getString("active_business_version_name"),
+                nullableLong(rs, "active_business_release_sequence"),
+                rs.getString("active_business_package_sha256"),
+                rs.getString("business_process_state"),
+                rs.getObject("business_process_ready", Boolean.class),
+                rs.getString("management_mcu_firmware_version"),
+                rs.getString("management_mcu_firmware_identity_hex"),
+                protocolVersion(
+                        rs,
+                        "management_transport_protocol_major",
+                        "management_transport_protocol_minor"),
+                protocolVersion(
+                        rs,
+                        "device_maintenance_protocol_major",
+                        "device_maintenance_protocol_minor"),
+                protocolVersion(
+                        rs,
+                        "negotiated_communication_business_major",
+                        "negotiated_communication_business_minor"),
+                protocolVersion(
+                        rs,
+                        "negotiated_communication_updater_major",
+                        "negotiated_communication_updater_minor"),
+                protocolVersion(
+                        rs,
+                        "negotiated_updater_business_major",
+                        "negotiated_updater_business_minor"),
+                protocolVersion(
+                        rs,
+                        "management_uart_protocol_major",
+                        "management_uart_protocol_minor"),
+                nullableUuid(rs, "management_source_event_uid"));
+    }
+
+    private List<DeviceManagementReasonView> managementReasons(
+            ResultSet rs) throws SQLException {
+        String raw = rs.getString("management_reasons_json");
+        if (raw == null) {
+            return List.of();
+        }
+        JsonNode root = readJson(raw);
+        if (!root.isArray()) {
+            throw invariant();
+        }
+        List<DeviceManagementReasonView> reasons = new ArrayList<>();
+        for (JsonNode item : root) {
+            if (!item.isObject()) {
+                throw invariant();
+            }
+            String code = item.path("code").asText();
+            String title = item.path("title").asText();
+            String description = item.path("description").asText();
+            if (code.isBlank() || title.isBlank() || description.isBlank()
+                    || code.length() > 64
+                    || title.length() > 100
+                    || description.length() > 500) {
+                throw invariant();
+            }
+            reasons.add(new DeviceManagementReasonView(
+                    code,
+                    title,
+                    description,
+                    item.path("blocksNewBusiness").asBoolean()));
+        }
+        return List.copyOf(reasons);
+    }
+
+    private static DeviceProtocolVersionView protocolVersion(
+            ResultSet rs,
+            String majorColumn,
+            String minorColumn) throws SQLException {
+        Integer major = rs.getObject(majorColumn, Integer.class);
+        Integer minor = rs.getObject(minorColumn, Integer.class);
+        if (major == null && minor == null) {
+            return null;
+        }
+        if (major == null || minor == null) {
+            throw invariant();
+        }
+        return new DeviceProtocolVersionView(major, minor);
     }
 
     private static DeviceInstallationProfileView installationProfileView(
@@ -4136,6 +4351,7 @@ public class TargetDeviceApplication {
             long version,
             RuntimeConfigurationSummary configuration,
             RuntimeHealthSummary health,
+            DeviceManagementStatusView deviceManagement,
             String occupancyKind,
             Instant occupiedAt) {
     }

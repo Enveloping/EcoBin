@@ -20,6 +20,7 @@
     { "$ref": "#/$defs/deviceAcceptanceEvidenceEvent" },
     { "$ref": "#/$defs/remoteSupportTunnelStatusEvent" },
     { "$ref": "#/$defs/mcuFirmwareUpdateProgressEvent" },
+    { "$ref": "#/$defs/deviceSoftwareStateReportedEvent" },
     { "$ref": "#/$defs/factorySealCompletedEvent" }
   ],
   "$defs": {
@@ -1514,6 +1515,369 @@
         }
       }
     },
+    "deviceSoftwareVersionName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$"
+    },
+    "deviceSoftwareProtocolMajor": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 255
+    },
+    "deviceSoftwareProtocolMinor": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "deviceSoftwareCommunicationAgent": {
+      "type": "object",
+      "required": [
+        "versionName",
+        "managementTransportProtocolMajor",
+        "managementTransportProtocolMinor",
+        "businessLocalProtocolMajor",
+        "businessLocalProtocolMinor",
+        "updaterLocalProtocolMajor",
+        "updaterLocalProtocolMinor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "versionName": {
+          "$ref": "#/$defs/deviceSoftwareVersionName"
+        },
+        "managementTransportProtocolMajor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMajor"
+        },
+        "managementTransportProtocolMinor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMinor"
+        },
+        "businessLocalProtocolMajor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMajor"
+        },
+        "businessLocalProtocolMinor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMinor"
+        },
+        "updaterLocalProtocolMajor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMajor"
+        },
+        "updaterLocalProtocolMinor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMinor"
+        }
+      }
+    },
+    "deviceSoftwareUpdater": {
+      "type": "object",
+      "required": [
+        "versionName",
+        "deviceMaintenanceProtocolMajor",
+        "deviceMaintenanceProtocolMinor",
+        "businessLocalProtocolMajor",
+        "businessLocalProtocolMinor",
+        "businessPackageFormatVersion",
+        "mcuPackageFormatVersion"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "versionName": {
+          "$ref": "#/$defs/deviceSoftwareVersionName"
+        },
+        "deviceMaintenanceProtocolMajor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMajor"
+        },
+        "deviceMaintenanceProtocolMinor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMinor"
+        },
+        "businessLocalProtocolMajor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMajor"
+        },
+        "businessLocalProtocolMinor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMinor"
+        },
+        "businessPackageFormatVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "mcuPackageFormatVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
+    },
+    "deviceActiveBusinessRelease": {
+      "type": "object",
+      "required": [
+        "releaseUid",
+        "releaseSequence",
+        "versionName",
+        "packageSha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "releaseUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "releaseSequence": {
+          "$ref": "../common.schema.json#/$defs/positiveSequence"
+        },
+        "versionName": {
+          "$ref": "#/$defs/deviceSoftwareVersionName"
+        },
+        "packageSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "deviceNegotiatedProtocols": {
+      "type": "object",
+      "required": [
+        "agentBusinessNegotiated",
+        "agentBusinessMajor",
+        "agentBusinessMinor",
+        "agentUpdaterNegotiated",
+        "agentUpdaterMajor",
+        "agentUpdaterMinor",
+        "updaterBusinessNegotiated",
+        "updaterBusinessMajor",
+        "updaterBusinessMinor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "agentBusinessNegotiated": { "type": "boolean" },
+        "agentBusinessMajor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMinor"
+        },
+        "agentBusinessMinor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMinor"
+        },
+        "agentUpdaterNegotiated": { "type": "boolean" },
+        "agentUpdaterMajor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMinor"
+        },
+        "agentUpdaterMinor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMinor"
+        },
+        "updaterBusinessNegotiated": { "type": "boolean" },
+        "updaterBusinessMajor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMinor"
+        },
+        "updaterBusinessMinor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMinor"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "agentBusinessNegotiated": { "const": true }
+            },
+            "required": ["agentBusinessNegotiated"]
+          },
+          "then": {
+            "properties": {
+              "agentBusinessMajor": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 255
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "agentBusinessMajor": { "const": 0 },
+              "agentBusinessMinor": { "const": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "agentUpdaterNegotiated": { "const": true }
+            },
+            "required": ["agentUpdaterNegotiated"]
+          },
+          "then": {
+            "properties": {
+              "agentUpdaterMajor": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 255
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "agentUpdaterMajor": { "const": 0 },
+              "agentUpdaterMinor": { "const": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "updaterBusinessNegotiated": { "const": true }
+            },
+            "required": ["updaterBusinessNegotiated"]
+          },
+          "then": {
+            "properties": {
+              "updaterBusinessMajor": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 255
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "updaterBusinessMajor": { "const": 0 },
+              "updaterBusinessMinor": { "const": 0 }
+            }
+          }
+        }
+      ]
+    },
+    "deviceSoftwareMcuFirmware": {
+      "type": "object",
+      "required": [
+        "versionName",
+        "versionCode",
+        "identityHex",
+        "fixedFrameRevision"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "versionName": {
+          "$ref": "#/$defs/deviceSoftwareVersionName"
+        },
+        "versionCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "identityHex": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "fixedFrameRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255
+        }
+      }
+    },
+    "deviceSoftwareUartProtocol": {
+      "type": "object",
+      "required": ["major", "minor"],
+      "additionalProperties": false,
+      "properties": {
+        "major": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMajor"
+        },
+        "minor": {
+          "$ref": "#/$defs/deviceSoftwareProtocolMinor"
+        }
+      }
+    },
+    "deviceSoftwareStateReportedPayload": {
+      "type": "object",
+      "required": [
+        "managementStateSequence",
+        "managementArchitectureGeneration",
+        "businessAdmissionState",
+        "communicationAgent",
+        "deviceUpdater",
+        "activeBusinessRelease",
+        "businessProcessState",
+        "businessReady",
+        "negotiatedProtocols",
+        "mcuFirmware",
+        "uartState",
+        "uartProtocol",
+        "capabilityBitmapHex"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "managementStateSequence": {
+          "$ref": "../common.schema.json#/$defs/positiveSequence"
+        },
+        "managementArchitectureGeneration": {
+          "const": "PERMANENT_V1"
+        },
+        "businessAdmissionState": {
+          "enum": ["OPEN", "DRAINING", "MAINTENANCE", "LOCKED"]
+        },
+        "communicationAgent": {
+          "$ref": "#/$defs/deviceSoftwareCommunicationAgent"
+        },
+        "deviceUpdater": {
+          "$ref": "#/$defs/deviceSoftwareUpdater"
+        },
+        "activeBusinessRelease": {
+          "oneOf": [
+            { "$ref": "#/$defs/deviceActiveBusinessRelease" },
+            { "type": "null" }
+          ]
+        },
+        "businessProcessState": {
+          "enum": ["STOPPED", "STARTING", "RUNNING", "FAILED"]
+        },
+        "businessReady": { "type": "boolean" },
+        "negotiatedProtocols": {
+          "$ref": "#/$defs/deviceNegotiatedProtocols"
+        },
+        "mcuFirmware": {
+          "oneOf": [
+            { "$ref": "#/$defs/deviceSoftwareMcuFirmware" },
+            { "type": "null" }
+          ]
+        },
+        "uartState": {
+          "enum": [
+            "DISCONNECTED",
+            "NEGOTIATING",
+            "READY",
+            "INCOMPATIBLE",
+            "FAULT"
+          ]
+        },
+        "uartProtocol": {
+          "oneOf": [
+            { "$ref": "#/$defs/deviceSoftwareUartProtocol" },
+            { "type": "null" }
+          ]
+        },
+        "capabilityBitmapHex": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "businessReady": { "const": true } },
+            "required": ["businessReady"]
+          },
+          "then": {
+            "properties": {
+              "businessProcessState": { "const": "RUNNING" },
+              "activeBusinessRelease": {
+                "$ref": "#/$defs/deviceActiveBusinessRelease"
+              },
+              "negotiatedProtocols": {
+                "properties": {
+                  "agentBusinessNegotiated": { "const": true },
+                  "updaterBusinessNegotiated": { "const": true }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
     "deviceRuntimeSnapshotPayload": {
       "type": "object",
       "required": [
@@ -2092,6 +2456,31 @@
             },
             "payload": {
               "$ref": "#/$defs/mcuFirmwareUpdateProgressPayload"
+            }
+          }
+        }
+      ]
+    },
+    "deviceSoftwareStateReportedEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "DEVICE_SOFTWARE_STATE_REPORTED" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DEVICE_ASSET" }
+                  }
+                }
+              ]
+            },
+            "commandUid": { "type": "null" },
+            "payload": {
+              "$ref": "#/$defs/deviceSoftwareStateReportedPayload"
             }
           }
         }

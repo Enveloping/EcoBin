@@ -56,7 +56,9 @@ interface MiniappDeliveryDeviceQueryRepository {
             LocalDateTime trustedRuntimeReceivedAt,
             Long progressAppliedConfigurationVersion,
             byte[] progressAppliedConfigurationContentSha256,
-            byte[] progressAppliedConfigurationMcuPayloadSha256) {
+            byte[] progressAppliedConfigurationMcuPayloadSha256,
+            String managementArchitectureGeneration,
+            String businessAdmissionStatus) {
     }
 
     record PortSnapshotRow(

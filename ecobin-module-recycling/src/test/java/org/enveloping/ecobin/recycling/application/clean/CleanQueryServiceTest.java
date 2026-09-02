@@ -26,6 +26,7 @@ class CleanQueryServiceTest {
                 row,
                 false,
                 false,
+                false,
                 true,
                 "OFFLINE");
 
@@ -34,6 +35,7 @@ class CleanQueryServiceTest {
         assertThat(option.blockers()).containsExactly(
                 "CLEAN_CONFIGURATION_UNAVAILABLE",
                 "CONFIGURATION_NOT_APPLIED",
+                "DEVICE_SOFTWARE_NOT_ACCEPTING",
                 "EDGE_OFFLINE",
                 "DEVICE_BUSY",
                 "CLEAN_OPERATION_ACTIVE",
@@ -54,6 +56,7 @@ class CleanQueryServiceTest {
                 row,
                 true,
                 true,
+                true,
                 false,
                 "ONLINE");
 
@@ -72,6 +75,7 @@ class CleanQueryServiceTest {
 
         CleanPortOption option = CleanQueryService.portOption(
                 row,
+                true,
                 true,
                 true,
                 false,

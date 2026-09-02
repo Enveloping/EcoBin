@@ -1236,6 +1236,7 @@ class HttpContractTests(unittest.TestCase):
             [
                 "CLEAN_CONFIGURATION_UNAVAILABLE",
                 "CONFIGURATION_NOT_APPLIED",
+                "DEVICE_SOFTWARE_NOT_ACCEPTING",
                 "EDGE_OFFLINE",
                 "DEVICE_BUSY",
                 "PORT_DISABLED",

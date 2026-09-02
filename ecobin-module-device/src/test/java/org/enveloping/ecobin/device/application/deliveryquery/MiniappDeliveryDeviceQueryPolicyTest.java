@@ -64,6 +64,100 @@ class MiniappDeliveryDeviceQueryPolicyTest {
     }
 
     @Test
+    void managedDeviceLeavesPreviewOpenWhenSoftwareAcceptsBusiness() {
+        var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
+                asset(
+                        CONTENT_SHA,
+                        CONTENT_SHA,
+                        NOW.minusSeconds(2),
+                        false,
+                        "PERMANENT_V1",
+                        "ACCEPTING"),
+                List.of(healthyPort()),
+                NOW);
+
+        assertThat(evaluation.commonBlockers()).isEmpty();
+        assertThat(evaluation.ports().getFirst().blockers()).isEmpty();
+    }
+
+    @Test
+    void managedDeviceBlocksPreviewWhileSoftwareAdmissionIsPaused() {
+        var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
+                asset(
+                        CONTENT_SHA,
+                        CONTENT_SHA,
+                        NOW.minusSeconds(2),
+                        false,
+                        "PERMANENT_V1",
+                        "PAUSED"),
+                List.of(healthyPort()),
+                NOW);
+
+        assertThat(evaluation.commonBlockers()).containsExactly(
+                MiniappDeliveryDeviceQueryPolicy
+                        .DEVICE_SOFTWARE_NOT_ACCEPTING);
+        assertThat(evaluation.ports().getFirst().blockers())
+                .containsExactly(
+                        MiniappDeliveryDeviceQueryPolicy
+                                .DEVICE_SOFTWARE_NOT_ACCEPTING);
+    }
+
+    @Test
+    void managedDeviceBlocksPreviewWhenSoftwareAdmissionIsUnknown() {
+        var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
+                asset(
+                        CONTENT_SHA,
+                        CONTENT_SHA,
+                        NOW.minusSeconds(2),
+                        false,
+                        "PERMANENT_V1",
+                        "UNKNOWN"),
+                List.of(healthyPort()),
+                NOW);
+
+        assertThat(evaluation.ports().getFirst().blockers())
+                .containsExactly(
+                        MiniappDeliveryDeviceQueryPolicy
+                                .DEVICE_SOFTWARE_NOT_ACCEPTING);
+    }
+
+    @Test
+    void managedDeviceBlocksPreviewWhenAdmissionProjectionIsMissing() {
+        var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
+                asset(
+                        CONTENT_SHA,
+                        CONTENT_SHA,
+                        NOW.minusSeconds(2),
+                        false,
+                        "PERMANENT_V1",
+                        null),
+                List.of(healthyPort()),
+                NOW);
+
+        assertThat(evaluation.ports().getFirst().blockers())
+                .containsExactly(
+                        MiniappDeliveryDeviceQueryPolicy
+                                .DEVICE_SOFTWARE_NOT_ACCEPTING);
+    }
+
+    @Test
+    void legacyDeviceKeepsExistingPreviewWhenNewProjectionIsMissing() {
+        var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
+                asset(
+                        CONTENT_SHA,
+                        CONTENT_SHA,
+                        NOW.minusSeconds(2),
+                        false,
+                        "LEGACY_DIRECT",
+                        null),
+                List.of(healthyPort()),
+                NOW);
+
+        assertThat(evaluation.commonBlockers()).isEmpty();
+        assertThat(evaluation.ports().getFirst().blockers()).isEmpty();
+    }
+
+    @Test
     void oldRuntimeDiagnosticDoesNotCreateAnExpiryGate() {
         var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
                 asset(
@@ -158,6 +252,23 @@ class MiniappDeliveryDeviceQueryPolicyTest {
                     byte[] progressAppliedContentSha,
                     LocalDateTime receivedAt,
                     boolean busy) {
+        return asset(
+                applicationContentSha,
+                progressAppliedContentSha,
+                receivedAt,
+                busy,
+                "LEGACY_DIRECT",
+                "ACCEPTING");
+    }
+
+    private static MiniappDeliveryDeviceQueryRepository
+            .AssetSnapshotRow asset(
+                    byte[] applicationContentSha,
+                    byte[] progressAppliedContentSha,
+                    LocalDateTime receivedAt,
+                    boolean busy,
+                    String managementArchitectureGeneration,
+                    String businessAdmissionStatus) {
         return new MiniappDeliveryDeviceQueryRepository
                 .AssetSnapshotRow(
                 101L,
@@ -188,7 +299,9 @@ class MiniappDeliveryDeviceQueryPolicyTest {
                 receivedAt,
                 8L,
                 progressAppliedContentSha,
-                MCU_PAYLOAD_SHA);
+                MCU_PAYLOAD_SHA,
+                managementArchitectureGeneration,
+                businessAdmissionStatus);
     }
 
     private static MiniappDeliveryDeviceQueryRepository.PortSnapshotRow

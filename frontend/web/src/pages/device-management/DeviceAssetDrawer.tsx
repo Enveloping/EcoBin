@@ -90,6 +90,18 @@ import {
   taskStateLabel,
   technicalResultLabel,
 } from './factoryProgressPresentation';
+import {
+  architectureGenerationLabel,
+  businessAdmissionPresentation,
+  businessProcessStateLabel,
+  compatibilityPresentation,
+  deviceGateStateLabel,
+  deviceManagementDetail,
+  deviceManagementSummary,
+  formatProtocolVersion,
+  type DeviceManagementDetail,
+  type DeviceManagementSummary,
+} from './deviceManagementPresentation';
 import RemoteSupportPanel from './RemoteSupportPanel';
 import { operatorErrorMessage } from './operatorErrorPresentation';
 
@@ -560,6 +572,165 @@ function RuntimeStatusPanel({
         />
       )}
     </Space>
+  );
+}
+
+function DeviceManagementStatusPanel({
+  management,
+  runtimeUnavailable,
+}: {
+  management: DeviceManagementDetail | DeviceManagementSummary | null;
+  runtimeUnavailable: boolean;
+}) {
+  const lastKnownAdmission = businessAdmissionPresentation(management);
+  const admission = runtimeUnavailable
+    ? {
+      color: 'warning' as const,
+      label: '当前状态无法确认',
+      description: '设备详情刷新失败；下面显示的是上一次成功读取的记录，不能据此开始新的投递或清运。',
+    }
+    : lastKnownAdmission;
+  const compatibility = compatibilityPresentation(management);
+  const detail = management && 'reasons' in management ? management : null;
+  const reasons = detail?.reasons.length
+    ? detail.reasons
+    : management?.primaryReason
+      ? [management.primaryReason]
+      : [];
+  const managed = management?.architectureGeneration === 'PERMANENT_V1';
+  const reasonRequired = managed && (
+    management.businessAdmission !== 'ACCEPTING'
+    || management.compatibility !== 'FULLY_COMPATIBLE'
+  );
+  const visibleReasons = reasons.length || !reasonRequired
+    ? reasons
+    : [{
+      code: 'MANAGEMENT_REASON_NOT_AVAILABLE',
+      title: '当前状态的具体原因尚未完整记录',
+      description: '请先刷新设备状态；如果仍没有具体说明，请携带设备序列号联系技术支持。',
+      blocksNewBusiness: management.businessAdmission !== 'ACCEPTING',
+    }];
+  const alertType = admission.color === 'success'
+    ? 'success'
+    : admission.color === 'error'
+      ? 'error'
+      : admission.color === 'warning'
+        ? 'warning'
+        : 'info';
+  const protocolItems = detail ? [
+    ['云端管理通信版本', detail.managementTransportProtocol],
+    ['设备维护通信版本', detail.deviceMaintenanceProtocol],
+    ['通信程序与业务程序通信版本', detail.agentBusinessProtocol],
+    ['通信程序与更新程序通信版本', detail.agentUpdaterProtocol],
+    ['更新程序与业务程序通信版本', detail.updaterBusinessProtocol],
+    ['业务程序与控制板通信版本', detail.uartProtocol],
+  ] as const : [];
+
+  return (
+    <Card
+      title="设备软件与业务可用状态"
+      extra={(
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          随设备运行状态自动刷新
+        </Typography.Text>
+      )}
+    >
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <Alert
+          showIcon
+          type={alertType}
+          message={admission.label}
+          description={admission.description}
+        />
+        <Descriptions size="small" bordered column={2}>
+          <Descriptions.Item label="设备管理方式">
+            {architectureGenerationLabel(management)}
+          </Descriptions.Item>
+          <Descriptions.Item label="新投递和清运">
+            <Tag color={admission.color}>{admission.label}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="软件配合情况" span={2}>
+            <Space direction="vertical" size={2}>
+              <Tag color={compatibility.color}>{compatibility.label}</Tag>
+              <Typography.Text type="secondary">
+                {runtimeUnavailable
+                  ? `上一次记录：${compatibility.description}`
+                  : compatibility.description}
+              </Typography.Text>
+            </Space>
+          </Descriptions.Item>
+          {managed && detail && (
+            <>
+              <Descriptions.Item label="设备作业入口">
+                {deviceGateStateLabel(detail.deviceGateState)}
+              </Descriptions.Item>
+              <Descriptions.Item label="业务程序运行情况">
+                {businessProcessStateLabel(
+                  detail.businessProcessState,
+                  detail.businessReady,
+                )}
+              </Descriptions.Item>
+              <Descriptions.Item label="业务程序版本">
+                {detail.businessVersionName ?? '尚无数据'}
+              </Descriptions.Item>
+              <Descriptions.Item label="设备通信程序版本">
+                {detail.communicationAgentVersion ?? '尚无数据'}
+              </Descriptions.Item>
+              <Descriptions.Item label="设备更新程序版本">
+                {detail.deviceUpdaterVersion ?? '尚无数据'}
+              </Descriptions.Item>
+              <Descriptions.Item label="控制板程序版本">
+                {detail.mcuFirmwareVersion ?? '尚无数据'}
+              </Descriptions.Item>
+            </>
+          )}
+          <Descriptions.Item
+            label={managed ? '设备管理状态记录时间' : '新版管理状态记录'}
+            span={2}
+          >
+            {managed ? optionalTime(management?.observedAt) : '旧设备不需要此记录'}
+          </Descriptions.Item>
+        </Descriptions>
+        {visibleReasons.length > 0 && (
+          <div>
+            <Typography.Text strong>当前需要注意</Typography.Text>
+            <List
+              size="small"
+              dataSource={visibleReasons}
+              renderItem={(reason) => (
+                <List.Item>
+                  <List.Item.Meta
+                    title={reason.title}
+                    description={reason.description}
+                  />
+                </List.Item>
+              )}
+            />
+          </div>
+        )}
+        {managed && protocolItems.some(([, value]) => value != null) && (
+          <Collapse
+            size="small"
+            items={[{
+              key: 'device-management-technical-diagnostics',
+              label: '通信版本（报修时使用）',
+              children: (
+                <Descriptions size="small" bordered column={1}>
+                  {protocolItems.map(([label, value]) => (
+                    <Descriptions.Item key={label} label={label}>
+                      {formatProtocolVersion(value)}
+                    </Descriptions.Item>
+                  ))}
+                </Descriptions>
+              ),
+            }]}
+          />
+        )}
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          页面展示的是平台当前记录。每次开始投递或清运时，系统仍会重新检查联网、配置、安全、占用和软件状态。
+        </Typography.Text>
+      </Space>
+    </Card>
   );
 }
 
@@ -1135,6 +1306,9 @@ export default function DeviceAssetDrawer({
   const loadingTechnicalIssues = technicalIssueLoad.status === 'loading';
   const loadingRuntime = runtimeLoad.status === 'loading';
   const hardwareSn = asset?.hardwareSn;
+  const softwareManagement = runtimeLoad.data
+    ? deviceManagementDetail(runtimeLoad.data) ?? deviceManagementSummary(asset)
+    : deviceManagementSummary(asset);
 
   const canConfigure = Boolean(asset) && (
     (mode === 'organization' && Boolean(organizationCode))
@@ -1855,6 +2029,11 @@ export default function DeviceAssetDrawer({
                 onRefresh={() => void loadFactoryProgress()}
               />
             )}
+
+            <DeviceManagementStatusPanel
+              management={softwareManagement}
+              runtimeUnavailable={runtimeLoad.status === 'error'}
+            />
 
             <section>
               <Space

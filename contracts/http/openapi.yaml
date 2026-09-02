@@ -8097,6 +8097,225 @@
           }
         }
       },
+      "DeviceManagementArchitectureGeneration": {
+        "type": "string",
+        "enum": ["LEGACY_DIRECT", "PERMANENT_V1"],
+        "description": "LEGACY_DIRECT 表示仍由现有业务程序直接连接云端；PERMANENT_V1 表示已经切换到独立的永久通信代理和设备更新器。"
+      },
+      "DeviceBusinessAdmission": {
+        "type": ["string", "null"],
+        "enum": ["ACCEPTING", "PAUSED", "UNKNOWN", null],
+        "description": "新版设备管理程序对开始新物理业务的统一准入结果；旧架构设备为 null，继续使用既有检查。"
+      },
+      "DeviceSoftwareCompatibility": {
+        "type": ["string", "null"],
+        "enum": [
+          "FULLY_COMPATIBLE",
+          "BASE_COMPATIBLE",
+          "INCOMPATIBLE",
+          "UNKNOWN",
+          null
+        ]
+      },
+      "DeviceManagementReason": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "title", "description", "blocksNewBusiness"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "稳定诊断代码。网页应展示 title 和 description，不直接展示本字段。"
+          },
+          "title": {"type": "string", "minLength": 1, "maxLength": 100},
+          "description": {"type": "string", "minLength": 1, "maxLength": 500},
+          "blocksNewBusiness": {"type": "boolean"}
+        }
+      },
+      "DeviceProtocolVersion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["major", "minor"],
+        "properties": {
+          "major": {"type": "integer", "minimum": 0, "maximum": 255},
+          "minor": {"type": "integer", "minimum": 0, "maximum": 255}
+        }
+      },
+      "DeviceManagementSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "architectureGeneration",
+          "businessAdmission",
+          "compatibility",
+          "primaryReason",
+          "observedAt"
+        ],
+        "properties": {
+          "architectureGeneration": {
+            "$ref": "#/components/schemas/DeviceManagementArchitectureGeneration"
+          },
+          "businessAdmission": {
+            "$ref": "#/components/schemas/DeviceBusinessAdmission"
+          },
+          "compatibility": {
+            "$ref": "#/components/schemas/DeviceSoftwareCompatibility"
+          },
+          "primaryReason": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DeviceManagementReason"},
+              {"type": "null"}
+            ]
+          },
+          "observedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
+      "DeviceManagementStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "设备永久管理层的最新可靠事实和后台兼容性投影。该对象在当前阶段只读，不代表后台已开放业务程序更新下发。",
+        "required": [
+          "architectureGeneration",
+          "businessAdmission",
+          "compatibility",
+          "primaryReason",
+          "observedAt",
+          "reasons",
+          "deviceGateState",
+          "managementStateSequence",
+          "communicationAgentVersion",
+          "deviceUpdaterVersion",
+          "businessReleaseUid",
+          "businessVersionName",
+          "businessReleaseSequence",
+          "businessPackageSha256",
+          "businessProcessState",
+          "businessReady",
+          "mcuFirmwareVersion",
+          "mcuFirmwareIdentityHex",
+          "managementTransportProtocol",
+          "deviceMaintenanceProtocol",
+          "agentBusinessProtocol",
+          "agentUpdaterProtocol",
+          "updaterBusinessProtocol",
+          "uartProtocol",
+          "sourceEventUid"
+        ],
+        "properties": {
+          "architectureGeneration": {
+            "$ref": "#/components/schemas/DeviceManagementArchitectureGeneration"
+          },
+          "businessAdmission": {
+            "$ref": "#/components/schemas/DeviceBusinessAdmission"
+          },
+          "compatibility": {
+            "$ref": "#/components/schemas/DeviceSoftwareCompatibility"
+          },
+          "primaryReason": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DeviceManagementReason"},
+              {"type": "null"}
+            ]
+          },
+          "observedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "reasons": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {"$ref": "#/components/schemas/DeviceManagementReason"}
+          },
+          "deviceGateState": {
+            "type": ["string", "null"],
+            "enum": ["OPEN", "DRAINING", "MAINTENANCE", "LOCKED", null]
+          },
+          "managementStateSequence": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "communicationAgentVersion": {"type": ["string", "null"], "maxLength": 32},
+          "deviceUpdaterVersion": {"type": ["string", "null"], "maxLength": 32},
+          "businessReleaseUid": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UuidV4"},
+              {"type": "null"}
+            ]
+          },
+          "businessVersionName": {"type": ["string", "null"], "maxLength": 32},
+          "businessReleaseSequence": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "businessPackageSha256": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "businessProcessState": {
+            "type": ["string", "null"],
+            "enum": ["STOPPED", "STARTING", "RUNNING", "FAILED", null]
+          },
+          "businessReady": {"type": ["boolean", "null"]},
+          "mcuFirmwareVersion": {"type": ["string", "null"], "maxLength": 32},
+          "mcuFirmwareIdentityHex": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9a-f]{16}$"
+          },
+          "managementTransportProtocol": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DeviceProtocolVersion"},
+              {"type": "null"}
+            ]
+          },
+          "deviceMaintenanceProtocol": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DeviceProtocolVersion"},
+              {"type": "null"}
+            ]
+          },
+          "agentBusinessProtocol": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DeviceProtocolVersion"},
+              {"type": "null"}
+            ]
+          },
+          "agentUpdaterProtocol": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DeviceProtocolVersion"},
+              {"type": "null"}
+            ]
+          },
+          "updaterBusinessProtocol": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DeviceProtocolVersion"},
+              {"type": "null"}
+            ]
+          },
+          "uartProtocol": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/DeviceProtocolVersion"},
+              {"type": "null"}
+            ]
+          },
+          "sourceEventUid": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UuidV4"},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
       "DeviceRuntime": {
         "type": "object",
         "additionalProperties": false,
@@ -8108,6 +8327,7 @@
           "version",
           "configuration",
           "health",
+          "deviceManagement",
           "occupied",
           "occupancyKind",
           "occupiedAt",
@@ -8121,6 +8341,7 @@
           "version": {"$ref": "#/components/schemas/ExpectedVersion"},
           "configuration": {"$ref": "#/components/schemas/DeviceRuntimeConfigurationSummary"},
           "health": {"$ref": "#/components/schemas/DeviceRuntimeHealthSummary"},
+          "deviceManagement": {"$ref": "#/components/schemas/DeviceManagementStatus"},
           "occupied": {"type": "boolean"},
           "occupancyKind": {
             "type": ["string", "null"],
@@ -11820,6 +12041,7 @@
           "CONFIGURATION_NOT_APPLIED",
           "EDGE_OFFLINE",
           "DEVICE_BUSY",
+          "DEVICE_SOFTWARE_NOT_ACCEPTING",
           "PORT_DISABLED",
           "CURRENT_BAG_MISSING",
           "PORT_FULL",
@@ -12703,6 +12925,7 @@
         "enum": [
           "CLEAN_CONFIGURATION_UNAVAILABLE",
           "CONFIGURATION_NOT_APPLIED",
+          "DEVICE_SOFTWARE_NOT_ACCEPTING",
           "EDGE_OFFLINE",
           "DEVICE_BUSY",
           "PORT_DISABLED",
@@ -13870,6 +14093,7 @@
           "updatedAt",
           "installationProfile",
           "connectivity",
+          "deviceManagement",
           "oneNetMapping"
         ],
         "properties": {
@@ -13975,6 +14199,9 @@
           },
           "connectivity": {
             "$ref": "#/components/schemas/DeviceConnectivity"
+          },
+          "deviceManagement": {
+            "$ref": "#/components/schemas/DeviceManagementSummary"
           },
           "oneNetMapping": {
             "$ref": "#/components/schemas/ComputedOneNetMapping"

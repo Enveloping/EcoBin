@@ -26,6 +26,37 @@ import java.util.UUID;
 @Service
 public class CleanQueryService {
 
+    static final String LOAD_ASSET_SQL = """
+            SELECT asset.id,
+                   asset.installation_display_name AS display_name,
+                   asset.installation_address AS address,
+                   COALESCE(
+                       transport.onenet_connection_status,
+                       'UNKNOWN'
+                   ) AS onenet_connection_status,
+                   management.architecture_generation,
+                   compatibility.business_admission_status
+            FROM dev_device_asset asset
+            JOIN iam_tenant tenant
+              ON tenant.id = asset.tenant_id
+             AND tenant.status = 'ENABLED'
+            JOIN iam_organization organization
+              ON organization.tenant_id = asset.tenant_id
+             AND organization.id = asset.organization_id
+             AND organization.status = 'ENABLED'
+            LEFT JOIN dev_device_transport_state transport
+              ON transport.asset_id = asset.id
+            LEFT JOIN dev_device_management_profile management
+              ON management.asset_id = asset.id
+            LEFT JOIN dev_device_compatibility_projection compatibility
+              ON compatibility.asset_id = asset.id
+            WHERE asset.tenant_id = ?
+              AND asset.organization_id = ?
+              AND asset.device_public_code = ?
+              AND asset.lifecycle_status = 'NORMAL'
+              AND asset.acceptance_status = 'PASSED'
+            """;
+
     private final JdbcTemplate jdbc;
     private final StartCleanIdentityParticipationPort identity;
 
@@ -87,36 +118,15 @@ public class CleanQueryService {
             long organizationUserId,
             String deviceCode) {
         requireScope(locked, tenantId, organizationId);
-        Asset asset = jdbc.query("""
-                        SELECT asset.id,
-                               asset.installation_display_name
-                                   AS display_name,
-                               asset.installation_address AS address,
-                               COALESCE(
-                                   transport.onenet_connection_status,
-                                   'UNKNOWN'
-                               ) AS onenet_connection_status
-                        FROM dev_device_asset asset
-                        JOIN iam_tenant tenant
-                          ON tenant.id = asset.tenant_id
-                         AND tenant.status = 'ENABLED'
-                        JOIN iam_organization organization
-                          ON organization.tenant_id = asset.tenant_id
-                         AND organization.id = asset.organization_id
-                         AND organization.status = 'ENABLED'
-                        LEFT JOIN dev_device_transport_state transport
-                          ON transport.asset_id = asset.id
-                        WHERE asset.tenant_id = ?
-                          AND asset.organization_id = ?
-                          AND asset.device_public_code = ?
-                          AND asset.lifecycle_status = 'NORMAL'
-                          AND asset.acceptance_status = 'PASSED'
-                        """,
+        Asset asset = jdbc.query(
+                LOAD_ASSET_SQL,
                 (rs, ignored) -> new Asset(
                         rs.getLong("id"),
                         rs.getString("display_name"),
                         rs.getString("address"),
-                        rs.getString("onenet_connection_status")),
+                        rs.getString("onenet_connection_status"),
+                        rs.getString("architecture_generation"),
+                        rs.getString("business_admission_status")),
                 tenantId,
                 organizationId,
                 deviceCode).stream().findFirst().orElseThrow(
@@ -263,6 +273,9 @@ public class CleanQueryService {
                         rs,
                         cleanConfigurationAvailable,
                         configurationApplied,
+                        StartCleanOperationService.acceptsNewBusiness(
+                                asset.architectureGeneration(),
+                                asset.businessAdmissionStatus()),
                         deviceBusy,
                         asset.onenetConnectionStatus()),
                 tenantId,
@@ -325,6 +338,7 @@ public class CleanQueryService {
             ResultSet rs,
             boolean cleanConfigurationAvailable,
             boolean configurationApplied,
+            boolean softwareAcceptingNewBusiness,
             boolean deviceBusy,
             String onenetConnectionStatus) throws SQLException {
         List<CleanReadinessBlocker> blockers = new ArrayList<>();
@@ -338,6 +352,11 @@ public class CleanQueryService {
         if (!configurationApplied || businessEnabled == null) {
             blockers.add(
                     CleanReadinessBlocker.CONFIGURATION_NOT_APPLIED);
+        }
+        if (!softwareAcceptingNewBusiness) {
+            blockers.add(
+                    CleanReadinessBlocker
+                            .DEVICE_SOFTWARE_NOT_ACCEPTING);
         }
         if (!"ONLINE".equals(onenetConnectionStatus)) {
             blockers.add(CleanReadinessBlocker.EDGE_OFFLINE);
@@ -487,6 +506,8 @@ public class CleanQueryService {
             long id,
             String displayName,
             String address,
-            String onenetConnectionStatus) {
+            String onenetConnectionStatus,
+            String architectureGeneration,
+            String businessAdmissionStatus) {
     }
 }

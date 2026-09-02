@@ -70,6 +70,7 @@ const BLOCKER_TEXT: Record<DeliveryOptionBlocker, string> = {
   CONFIGURATION_NOT_APPLIED: '设备配置尚未生效',
   EDGE_OFFLINE: '设备当前离线',
   DEVICE_BUSY: '设备正在执行其他作业',
+  DEVICE_SOFTWARE_NOT_ACCEPTING: '设备正在维护或业务程序尚未准备好，请稍后再试',
   PORT_DISABLED: '投口已停用',
   CURRENT_BAG_MISSING: '投口尚未安装有效垃圾袋',
   PORT_FULL: '投口已满，请选择其他投口',
@@ -104,7 +105,8 @@ function portCard(port: DeliveryPortOption): DeliveryPortCard {
       ? `满溢度 ${port.fullnessPercent}%`
       : '满溢度待确认',
     blockerText: port.blockers
-      .map((blocker) => BLOCKER_TEXT[blocker] || blocker)
+      .map((blocker) => BLOCKER_TEXT[blocker]
+        || '暂时无法投递，请稍后重试或联系管理员')
       .join('；'),
   }
 }

@@ -77,6 +77,16 @@ HARDWARE_MCU_UART_GOLDEN_TEST = (
     / "ecobin_uart_golden_test.c"
 )
 
+# OneNet rejects thing-model imports at 256 KiB.  Keep the file readable and
+# compact only the two largest runtime-state event descriptors so adding the
+# management-plane fact does not rewrite every generated line.
+ONENET_IMPORT_COMPACT_EVENT_IDENTIFIERS = frozenset(
+    {
+        "deviceRuntimeSnapshot",
+        "deviceSoftwareStateReported",
+    }
+)
+
 
 def json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -84,7 +94,46 @@ def json_text(value: Any) -> str:
 
 def onenet_import_json_text(value: Any) -> str:
     """Keep the human-imported OneNet artifact readable with safe size headroom."""
-    return json.dumps(value, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
+    projected = copy.deepcopy(value)
+    events = projected.get("events") if isinstance(projected, dict) else None
+    if not isinstance(events, list):
+        return json.dumps(
+            projected, ensure_ascii=False, indent=1, sort_keys=True
+        ) + "\n"
+
+    compact_events: dict[str, Mapping[str, Any]] = {}
+    for index, event in enumerate(events):
+        if not isinstance(event, dict):
+            continue
+        identifier = event.get("identifier")
+        if identifier not in ONENET_IMPORT_COMPACT_EVENT_IDENTIFIERS:
+            continue
+        marker = f"__ECOBIN_COMPACT_ONENET_EVENT_{index}__"
+        compact_events[marker] = event
+        events[index] = marker
+    found_identifiers = {
+        event["identifier"] for event in compact_events.values()
+    }
+    if found_identifiers != ONENET_IMPORT_COMPACT_EVENT_IDENTIFIERS:
+        raise ValueError(
+            "OneNet compact event identifiers differ from the candidate"
+        )
+
+    rendered = json.dumps(
+        projected, ensure_ascii=False, indent=1, sort_keys=True
+    )
+    for marker, event in compact_events.items():
+        marker_json = json.dumps(marker, ensure_ascii=False)
+        if rendered.count(marker_json) != 1:
+            raise ValueError("OneNet compact event marker is not unique")
+        compact_json = json.dumps(
+            event,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        rendered = rendered.replace(marker_json, compact_json, 1)
+    return rendered + "\n"
 
 
 def macro_name(value: str) -> str:
@@ -3466,6 +3515,70 @@ def build_onenet_examples() -> dict[str, Any]:
         },
         command_uid=firmware_command_uid,
     )
+    business_release_uid = "8d000000-0000-4000-8000-000000000001"
+    device_software_state_event = _event(
+        "8d000000-0000-4000-8000-000000000002",
+        1058,
+        "DEVICE_SOFTWARE_STATE_REPORTED",
+        "RELIABLE_FACT",
+        "DEVICE_ASSET",
+        "SN-CONTRACT-0001",
+        {
+            "managementStateSequence": 7,
+            "managementArchitectureGeneration": "PERMANENT_V1",
+            "businessAdmissionState": "OPEN",
+            "communicationAgent": {
+                "versionName": "1.0.0",
+                "managementTransportProtocolMajor": 1,
+                "managementTransportProtocolMinor": 0,
+                "businessLocalProtocolMajor": 1,
+                "businessLocalProtocolMinor": 0,
+                "updaterLocalProtocolMajor": 1,
+                "updaterLocalProtocolMinor": 0,
+            },
+            "deviceUpdater": {
+                "versionName": "1.0.0",
+                "deviceMaintenanceProtocolMajor": 1,
+                "deviceMaintenanceProtocolMinor": 0,
+                "businessLocalProtocolMajor": 1,
+                "businessLocalProtocolMinor": 0,
+                "businessPackageFormatVersion": 1,
+                "mcuPackageFormatVersion": 1,
+            },
+            "activeBusinessRelease": {
+                "releaseUid": business_release_uid,
+                "releaseSequence": 12,
+                "versionName": "1.0.0-rc.3",
+                "packageSha256": "d" * 64,
+            },
+            "businessProcessState": "RUNNING",
+            "businessReady": True,
+            "negotiatedProtocols": {
+                "agentBusinessNegotiated": True,
+                "agentBusinessMajor": 1,
+                "agentBusinessMinor": 0,
+                "agentUpdaterNegotiated": True,
+                "agentUpdaterMajor": 1,
+                "agentUpdaterMinor": 0,
+                "updaterBusinessNegotiated": True,
+                "updaterBusinessMajor": 1,
+                "updaterBusinessMinor": 0,
+            },
+            "mcuFirmware": {
+                "versionName": "2.1.0",
+                "versionCode": 20100,
+                "identityHex": "0123456789abcdef",
+                "fixedFrameRevision": 2,
+            },
+            "uartState": "READY",
+            "uartProtocol": {
+                "major": 1,
+                "minor": 0,
+            },
+            "capabilityBitmapHex": "0000000000001fff",
+        },
+        command_uid=None,
+    )
     remote_support_session_uid = (
         "8b000000-0000-4000-8000-000000000001"
     )
@@ -3641,6 +3754,10 @@ def build_onenet_examples() -> dict[str, Any]:
         ),
         "mcu-firmware-update-progress.event.json": (
             mcu_firmware_progress_event,
+            "../../onenet/events/events.schema.json",
+        ),
+        "device-software-state-reported.event.json": (
+            device_software_state_event,
             "../../onenet/events/events.schema.json",
         ),
     }

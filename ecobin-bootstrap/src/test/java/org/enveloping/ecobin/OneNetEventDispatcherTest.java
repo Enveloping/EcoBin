@@ -230,6 +230,116 @@ class OneNetEventDispatcherTest {
     }
 
     @Test
+    void deviceSoftwareStateIsNormalizedAsAPlatformAssetFact()
+            throws Exception {
+        JsonNode wireExample = objectMapper.readTree(Files.readString(
+                contractPath("contracts/examples/onenet-wire/"
+                        + "device-software-state-reported.event-wire.json")));
+        String decrypted = """
+                {
+                  "msgType": "thingEvent",
+                  "subData": {
+                    "productId": "%s",
+                    "deviceName": "%s",
+                    "params": %s
+                  }
+                }
+                """.formatted(
+                PRODUCT_ID,
+                HARDWARE_SN,
+                wireExample.path("oneJsonPayload")
+                        .path("params").toString());
+
+        dispatcher.handle(
+                decrypted,
+                "mq-device-software-state",
+                RAW_TRANSPORT);
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort).receive(captor.capture());
+        TrustedInboxMessage message = captor.getValue();
+        assertThat(message.sourceNamespace())
+                .isEqualTo("onenet.device-software-state");
+        assertThat(message.messageKind())
+                .isEqualTo("DEVICE_SOFTWARE_STATE_REPORTED");
+        assertThat(message.normalizedSchemaVersion())
+                .isEqualTo(
+                        TrustedDeviceInboxEvent
+                                .CURRENT_NORMALIZED_SCHEMA_VERSION);
+        assertThat(message.executionLane())
+                .isEqualTo(
+                        org.enveloping.ecobin.operations.api.inbox
+                                .TrustedInboxExecutionLane.DEVICE);
+
+        JsonNode normalized =
+                objectMapper.readTree(message.normalizedPayload());
+        JsonNode payload = normalized.path("event").path("payload");
+        assertThat(payload.path("managementArchitectureGeneration")
+                .asText()).isEqualTo("PERMANENT_V1");
+        assertThat(payload.path("businessAdmissionState").asText())
+                .isEqualTo("OPEN");
+        assertThat(payload.path("activeBusinessRelease")
+                .path("releaseSequence").asLong()).isEqualTo(12L);
+        assertThat(payload.path("negotiatedProtocols")
+                .path("agentBusinessNegotiated").asBoolean()).isTrue();
+        assertThat(payload.path("negotiatedProtocols")
+                .path("agentBusinessPresent").isMissingNode()).isTrue();
+        assertThat(payload.path("mcuFirmware")
+                .path("versionCode").asLong()).isEqualTo(20_100L);
+
+        message.scopeResolver().resolve(
+                (scopeKind, tenantKey, organizationKey) -> {
+                    assertThat(scopeKind).isEqualTo("PLATFORM");
+                    assertThat(tenantKey).isNull();
+                    assertThat(organizationKey).isNull();
+                });
+        verify(sourceScopePort).resolverForPlatformAsset(HARDWARE_SN);
+    }
+
+    @Test
+    void deviceSoftwareDeclaredProtocolMajorMustBePositive()
+            throws Exception {
+        ObjectNode wireExample = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "device-software-state-reported"
+                                + ".event-wire.json")));
+        ((ObjectNode) wireExample.path("oneJsonPayload")
+                .path("params")
+                .path("deviceSoftwareStateReported")
+                .path("value")
+                .path("communicationAgent"))
+                .put("managementTransportProtocolMajor", 0);
+        String decrypted = """
+                {
+                  "msgType": "thingEvent",
+                  "subData": {
+                    "productId": "%s",
+                    "deviceName": "%s",
+                    "params": %s
+                  }
+                }
+                """.formatted(
+                PRODUCT_ID,
+                HARDWARE_SN,
+                wireExample.path("oneJsonPayload")
+                        .path("params").toString());
+
+        OneNetPermanentMessageException exception = assertThrows(
+                OneNetPermanentMessageException.class,
+                () -> dispatcher.handle(
+                        decrypted,
+                        "mq-device-software-zero-major",
+                        RAW_TRANSPORT));
+
+        assertThat(exception).hasMessage(
+                "managementTransportProtocolMajor"
+                        + " is outside the target range");
+        verify(inboxPort, never()).receive(any());
+    }
+
+    @Test
     void runtimeSnapshotBeforeIdentityFieldDeploymentRemainsValid()
             throws Exception {
         ObjectNode wireExample = (ObjectNode) objectMapper.readTree(

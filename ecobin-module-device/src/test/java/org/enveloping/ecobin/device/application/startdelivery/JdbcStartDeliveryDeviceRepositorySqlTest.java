@@ -65,6 +65,22 @@ class JdbcStartDeliveryDeviceRepositorySqlTest {
     }
 
     @Test
+    void startAdmissionLocksManagementGenerationAndBusinessAdmission() {
+        String asset = JdbcStartDeliveryDeviceRepository
+                .LOCK_ASSET_SQL
+                .toLowerCase(Locale.ROOT);
+
+        assertThat(asset)
+                .contains(
+                        "from dev_device_asset asset",
+                        "left join dev_device_management_profile management",
+                        "left join dev_device_compatibility_projection compatibility",
+                        "management.architecture_generation",
+                        "compatibility.business_admission_status",
+                        "for update");
+    }
+
+    @Test
     void writesFrozenBagIdentityQueuedCommandAndDeliveryOccupancy() {
         String session =
                 JdbcStartDeliveryDeviceRepository.INSERT_SESSION_SQL

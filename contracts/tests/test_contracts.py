@@ -28,6 +28,7 @@ from contractlib import (  # noqa: E402
 from generate_contracts import (  # noqa: E402
     HARDWARE_MCU_UART_GOLDEN_TEST,
     HARDWARE_MCU_UART_HEADER,
+    ONENET_IMPORT_COMPACT_EVENT_IDENTIFIERS,
     apply_outputs,
     build_outputs,
 )
@@ -49,14 +50,37 @@ class GeneratedArtifactTests(unittest.TestCase):
         self.assertEqual([], apply_outputs(build_outputs(), check=True))
 
     def test_onenet_import_candidate_stays_below_vendor_file_limit(self) -> None:
-        candidate = (
+        candidate_path = (
             CONTRACTS_ROOT
             / "onenet"
             / "generated"
             / "onenet-thing-model.candidate.json"
-        ).read_bytes()
+        )
+        candidate = candidate_path.read_bytes()
         self.assertLess(len(candidate), 256 * 1024)
         self.assertNotIn(b"\r\n", candidate)
+
+        candidate_text = candidate.decode("utf-8")
+        event_identifiers = {
+            event["identifier"]
+            for event in load_json(candidate_path)["events"]
+        }
+        locally_compacted = {
+            identifier
+            for identifier in event_identifiers
+            if f'"identifier":"{identifier}"' in candidate_text
+        }
+        self.assertEqual(
+            {
+                "deviceRuntimeSnapshot",
+                "deviceSoftwareStateReported",
+            },
+            set(ONENET_IMPORT_COMPACT_EVENT_IDENTIFIERS),
+        )
+        self.assertEqual(
+            set(ONENET_IMPORT_COMPACT_EVENT_IDENTIFIERS),
+            locally_compacted,
+        )
 
     def test_onenet_import_candidate_enum_descriptions_match_vendor_limits(
         self,
@@ -554,6 +578,110 @@ class OneNetSchemaTests(unittest.TestCase):
         summary = ValidationSummary()
         validate_onenet_examples(summary)
         self.assertGreaterEqual(len(summary.checks), 2)
+
+    def test_device_software_declared_protocol_majors_are_positive(
+        self,
+    ) -> None:
+        validator = JsonSchemaSubsetValidator()
+        schema = (
+            CONTRACTS_ROOT / "onenet" / "events" / "events.schema.json"
+        )
+        event = load_json(
+            CONTRACTS_ROOT
+            / "examples"
+            / "onenet"
+            / "device-software-state-reported.event.json"
+        )
+        from contractlib import payload_sha256
+
+        declared_major_paths = (
+            ("communicationAgent", "managementTransportProtocolMajor"),
+            ("communicationAgent", "businessLocalProtocolMajor"),
+            ("communicationAgent", "updaterLocalProtocolMajor"),
+            ("deviceUpdater", "deviceMaintenanceProtocolMajor"),
+            ("deviceUpdater", "businessLocalProtocolMajor"),
+            ("uartProtocol", "major"),
+        )
+        for object_name, field_name in declared_major_paths:
+            with self.subTest(path=f"{object_name}.{field_name}"):
+                invalid = copy.deepcopy(event)
+                invalid["payload"][object_name][field_name] = 0
+                invalid["payloadSha256"] = payload_sha256(
+                    invalid["payload"]
+                )
+                with self.assertRaises(ContractError):
+                    validator.validate(invalid, schema)
+
+    def test_device_software_negotiation_flags_are_not_presence_flags(
+        self,
+    ) -> None:
+        semantic = load_json(
+            CONTRACTS_ROOT
+            / "examples"
+            / "onenet"
+            / "device-software-state-reported.event.json"
+        )
+        wire = load_json(
+            CONTRACTS_ROOT
+            / "examples"
+            / "onenet-wire"
+            / "device-software-state-reported.event-wire.json"
+        )
+        semantic_protocols = semantic["payload"]["negotiatedProtocols"]
+        wire_protocols = wire["oneJsonPayload"]["params"][
+            "deviceSoftwareStateReported"
+        ]["value"]["negotiatedProtocols"]
+
+        for prefix in (
+            "agentBusiness",
+            "agentUpdater",
+            "updaterBusiness",
+        ):
+            negotiated = f"{prefix}Negotiated"
+            presence = f"{prefix}Present"
+            with self.subTest(prefix=prefix):
+                self.assertTrue(semantic_protocols[negotiated])
+                self.assertTrue(wire_protocols[negotiated])
+                self.assertNotIn(presence, semantic_protocols)
+                self.assertNotIn(presence, wire_protocols)
+
+    def test_open_device_may_report_not_ready_with_zero_negotiation_pair(
+        self,
+    ) -> None:
+        validator = JsonSchemaSubsetValidator()
+        schema = (
+            CONTRACTS_ROOT / "onenet" / "events" / "events.schema.json"
+        )
+        mapping = load_json(
+            CONTRACTS_ROOT / "onenet" / "thing-model.mapping.yaml"
+        )
+        event = load_json(
+            CONTRACTS_ROOT
+            / "examples"
+            / "onenet"
+            / "device-software-state-reported.event.json"
+        )
+        from contractlib import payload_sha256
+
+        event["payload"]["businessReady"] = False
+        for prefix in (
+            "agentBusiness",
+            "agentUpdater",
+            "updaterBusiness",
+        ):
+            event["payload"]["negotiatedProtocols"][
+                f"{prefix}Negotiated"
+            ] = False
+            event["payload"]["negotiatedProtocols"][
+                f"{prefix}Major"
+            ] = 0
+            event["payload"]["negotiatedProtocols"][
+                f"{prefix}Minor"
+            ] = 0
+        event["payloadSha256"] = payload_sha256(event["payload"])
+
+        validator.validate(event, schema)
+        _validate_event_semantics(event, mapping)
 
     def test_generated_onenet_candidate_respects_vendor_shape(self) -> None:
         summary = ValidationSummary()

@@ -82,8 +82,12 @@ test('only one available clean port is auto-selected and blockers stay explicit'
     '设备配置尚未完整应用',
   );
   assert.equal(
+    cleanBlockerText('DEVICE_SOFTWARE_NOT_ACCEPTING'),
+    '设备正在维护，请稍后再发起清运',
+  );
+  assert.equal(
     cleanBlockerText('FUTURE_BLOCKER'),
-    '暂时无法清运（FUTURE_BLOCKER）',
+    '暂时无法清运，请稍后重试或联系管理员',
   );
 });
 

@@ -88,4 +88,18 @@ class JdbcMiniappDeliveryDeviceQueryRepositorySqlTest {
                         "runtime_fault_bitmap",
                         "pending_delivery_result_session_id");
     }
+
+    @Test
+    void optionsReadManagementGenerationAndBusinessAdmission() {
+        String asset =
+                JdbcMiniappDeliveryDeviceQueryRepository
+                        .FIND_CURRENT_ASSET_SQL
+                        .toLowerCase(Locale.ROOT);
+
+        assertThat(asset).contains(
+                "left join dev_device_management_profile management",
+                "left join dev_device_compatibility_projection compatibility",
+                "management.architecture_generation",
+                "compatibility.business_admission_status");
+    }
 }

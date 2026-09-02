@@ -5788,6 +5788,68 @@ export interface components {
             lastObservedAt: components["schemas"]["UtcTimestamp"] | null;
             runtimeVersion: components["schemas"]["ExpectedVersion"] | null;
         };
+        /**
+         * @description LEGACY_DIRECT 表示仍由现有业务程序直接连接云端；PERMANENT_V1 表示已经切换到独立的永久通信代理和设备更新器。
+         * @enum {string}
+         */
+        DeviceManagementArchitectureGeneration: "LEGACY_DIRECT" | "PERMANENT_V1";
+        /**
+         * @description 新版设备管理程序对开始新物理业务的统一准入结果；旧架构设备为 null，继续使用既有检查。
+         * @enum {string|null}
+         */
+        DeviceBusinessAdmission: "ACCEPTING" | "PAUSED" | "UNKNOWN" | null;
+        /** @enum {string|null} */
+        DeviceSoftwareCompatibility: "FULLY_COMPATIBLE" | "BASE_COMPATIBLE" | "INCOMPATIBLE" | "UNKNOWN" | null;
+        DeviceManagementReason: {
+            /** @description 稳定诊断代码。网页应展示 title 和 description，不直接展示本字段。 */
+            code: string;
+            title: string;
+            description: string;
+            blocksNewBusiness: boolean;
+        };
+        DeviceProtocolVersion: {
+            major: number;
+            minor: number;
+        };
+        DeviceManagementSummary: {
+            architectureGeneration: components["schemas"]["DeviceManagementArchitectureGeneration"];
+            businessAdmission: components["schemas"]["DeviceBusinessAdmission"];
+            compatibility: components["schemas"]["DeviceSoftwareCompatibility"];
+            primaryReason: components["schemas"]["DeviceManagementReason"] | null;
+            observedAt: components["schemas"]["UtcTimestamp"] | null;
+        };
+        /** @description 设备永久管理层的最新可靠事实和后台兼容性投影。该对象在当前阶段只读，不代表后台已开放业务程序更新下发。 */
+        DeviceManagementStatus: {
+            architectureGeneration: components["schemas"]["DeviceManagementArchitectureGeneration"];
+            businessAdmission: components["schemas"]["DeviceBusinessAdmission"];
+            compatibility: components["schemas"]["DeviceSoftwareCompatibility"];
+            primaryReason: components["schemas"]["DeviceManagementReason"] | null;
+            observedAt: components["schemas"]["UtcTimestamp"] | null;
+            reasons: components["schemas"]["DeviceManagementReason"][];
+            /** @enum {string|null} */
+            deviceGateState: "OPEN" | "DRAINING" | "MAINTENANCE" | "LOCKED" | null;
+            /** Format: int64 */
+            managementStateSequence: number | null;
+            communicationAgentVersion: string | null;
+            deviceUpdaterVersion: string | null;
+            businessReleaseUid: components["schemas"]["UuidV4"] | null;
+            businessVersionName: string | null;
+            /** Format: int64 */
+            businessReleaseSequence: number | null;
+            businessPackageSha256: string | null;
+            /** @enum {string|null} */
+            businessProcessState: "STOPPED" | "STARTING" | "RUNNING" | "FAILED" | null;
+            businessReady: boolean | null;
+            mcuFirmwareVersion: string | null;
+            mcuFirmwareIdentityHex: string | null;
+            managementTransportProtocol: components["schemas"]["DeviceProtocolVersion"] | null;
+            deviceMaintenanceProtocol: components["schemas"]["DeviceProtocolVersion"] | null;
+            agentBusinessProtocol: components["schemas"]["DeviceProtocolVersion"] | null;
+            agentUpdaterProtocol: components["schemas"]["DeviceProtocolVersion"] | null;
+            updaterBusinessProtocol: components["schemas"]["DeviceProtocolVersion"] | null;
+            uartProtocol: components["schemas"]["DeviceProtocolVersion"] | null;
+            sourceEventUid: components["schemas"]["UuidV4"] | null;
+        };
         /** @description Current OneNet presence plus the latest trusted runtime projection. Runtime health fields are snapshots and include their observation times. */
         DeviceRuntime: {
             deviceCode: components["schemas"]["DeviceCode"];
@@ -5796,6 +5858,7 @@ export interface components {
             version: components["schemas"]["ExpectedVersion"];
             configuration: components["schemas"]["DeviceRuntimeConfigurationSummary"];
             health: components["schemas"]["DeviceRuntimeHealthSummary"];
+            deviceManagement: components["schemas"]["DeviceManagementStatus"];
             occupied: boolean;
             /** @enum {string|null} */
             occupancyKind: "DELIVERY" | "CLEAN" | null;
@@ -6830,7 +6893,7 @@ export interface components {
         /** @description Stable public identity of one whole delivery session */
         DeliverySessionUid: components["schemas"]["UuidV4"];
         /** @enum {string} */
-        DeliveryOptionBlocker: "PHONE_BINDING_REQUIRED" | "WALLET_DELIVERY_LIMIT_REACHED" | "ASSET_UNAVAILABLE" | "CONFIGURATION_NOT_APPLIED" | "EDGE_OFFLINE" | "DEVICE_BUSY" | "PORT_DISABLED" | "CURRENT_BAG_MISSING" | "PORT_FULL" | "WEIGHT_BASELINE_MISSING" | "BASELINE_REMEASUREMENT_ACTIVE" | "PORT_CLEAN_OPERATION_ACTIVE" | "CLEAN_RESTARTED_CLEAN_REQUIRED";
+        DeliveryOptionBlocker: "PHONE_BINDING_REQUIRED" | "WALLET_DELIVERY_LIMIT_REACHED" | "ASSET_UNAVAILABLE" | "CONFIGURATION_NOT_APPLIED" | "EDGE_OFFLINE" | "DEVICE_BUSY" | "DEVICE_SOFTWARE_NOT_ACCEPTING" | "PORT_DISABLED" | "CURRENT_BAG_MISSING" | "PORT_FULL" | "WEIGHT_BASELINE_MISSING" | "BASELINE_REMEASUREMENT_ACTIVE" | "PORT_CLEAN_OPERATION_ACTIVE" | "CLEAN_RESTARTED_CLEAN_REQUIRED";
         /**
          * @description Non-negative display percentage preserved as an exact decimal string; values may exceed 100.00.
          * @example 87.50
@@ -7080,7 +7143,7 @@ export interface components {
             statusUrl: components["schemas"]["StatusUrl"];
         };
         /** @enum {string} */
-        CleanOptionBlocker: "CLEAN_CONFIGURATION_UNAVAILABLE" | "CONFIGURATION_NOT_APPLIED" | "EDGE_OFFLINE" | "DEVICE_BUSY" | "PORT_DISABLED" | "CLEAN_OPERATION_ACTIVE" | "PORT_WORK_ACTIVE";
+        CleanOptionBlocker: "CLEAN_CONFIGURATION_UNAVAILABLE" | "CONFIGURATION_NOT_APPLIED" | "DEVICE_SOFTWARE_NOT_ACCEPTING" | "EDGE_OFFLINE" | "DEVICE_BUSY" | "PORT_DISABLED" | "CLEAN_OPERATION_ACTIVE" | "PORT_WORK_ACTIVE";
         /** @enum {string} */
         CleanDeviceFilter: "ALL" | "ONLINE" | "NO_DELIVERY_24H" | "NO_CLEAN_24H" | "FULL" | "FULL_TIMEOUT_2H";
         CleanDeviceItem: {
@@ -8513,6 +8576,7 @@ export interface components {
             updatedAt: string;
             installationProfile: components["schemas"]["DeviceInstallationProfile"];
             connectivity: components["schemas"]["DeviceConnectivity"];
+            deviceManagement: components["schemas"]["DeviceManagementSummary"];
             oneNetMapping: components["schemas"]["ComputedOneNetMapping"];
         };
         DeviceAssetPage: {

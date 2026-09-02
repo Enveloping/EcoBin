@@ -12,6 +12,8 @@ final class MiniappDeliveryDeviceQueryPolicy {
     static final String EDGE_OFFLINE = "EDGE_OFFLINE";
     static final String PORT_DISABLED = "PORT_DISABLED";
     static final String DEVICE_BUSY = "DEVICE_BUSY";
+    static final String DEVICE_SOFTWARE_NOT_ACCEPTING =
+            "DEVICE_SOFTWARE_NOT_ACCEPTING";
 
     private MiniappDeliveryDeviceQueryPolicy() {
     }
@@ -35,6 +37,12 @@ final class MiniappDeliveryDeviceQueryPolicy {
         }
         if (asset.deviceBusy()) {
             common.add(DEVICE_BUSY);
+        }
+        if ("PERMANENT_V1".equals(
+                asset.managementArchitectureGeneration())
+                && !"ACCEPTING".equals(
+                asset.businessAdmissionStatus())) {
+            common.add(DEVICE_SOFTWARE_NOT_ACCEPTING);
         }
 
         List<PortEvaluation> evaluatedPorts = ports.stream()

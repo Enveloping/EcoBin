@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.recycling.application.clean;
 
+import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -10,8 +11,71 @@ import java.util.Locale;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class StartCleanOperationServiceSqlTest {
+
+    @Test
+    void assetLockReadsSoftwareAdmissionInsideTheCreationLock() {
+        String sql = StartCleanOperationService.LOCK_ASSET_SQL
+                .toLowerCase(Locale.ROOT);
+
+        assertThat(sql)
+                .contains(
+                        "from dev_device_asset asset",
+                        "left join dev_device_management_profile",
+                        "left join dev_device_compatibility_projection",
+                        "management.architecture_generation",
+                        "compatibility.business_admission_status",
+                        "for update");
+    }
+
+    @Test
+    void cleanOptionsReadTheSameSoftwareAdmissionProjection() {
+        String sql = CleanQueryService.LOAD_ASSET_SQL
+                .toLowerCase(Locale.ROOT);
+
+        assertThat(sql)
+                .contains(
+                        "left join dev_device_management_profile",
+                        "left join dev_device_compatibility_projection",
+                        "management.architecture_generation",
+                        "compatibility.business_admission_status");
+    }
+
+    @Test
+    void onlyManagedDevicesRequireAnAcceptingSoftwareProjection() {
+        assertThatCode(() ->
+                StartCleanOperationService.requireSoftwareAdmission(
+                        "LEGACY_DIRECT",
+                        null))
+                .doesNotThrowAnyException();
+        assertThatCode(() ->
+                StartCleanOperationService.requireSoftwareAdmission(
+                        "PERMANENT_V1",
+                        "ACCEPTING"))
+                .doesNotThrowAnyException();
+
+        assertThatThrownBy(() ->
+                StartCleanOperationService.requireSoftwareAdmission(
+                        "PERMANENT_V1",
+                        "PAUSED"))
+                .isInstanceOfSatisfying(
+                        TargetApiException.class,
+                        exception -> {
+                            assertThat(exception.status()).isEqualTo(422);
+                            assertThat(exception.code()).isEqualTo(
+                                    "DEVICE.SOFTWARE_NOT_ACCEPTING");
+                            assertThat(exception.getMessage()).contains(
+                                    "暂时不能创建新的清运任务");
+                        });
+        assertThatThrownBy(() ->
+                StartCleanOperationService.requireSoftwareAdmission(
+                        "PERMANENT_V1",
+                        null))
+                .isInstanceOf(TargetApiException.class);
+    }
 
     @Test
     void immutableCleanStartFactsUsePlainReads() {

@@ -2483,6 +2483,42 @@ test('staff table hides security versions and keeps access actions inside edit',
   await expect(page.getByText('机构任职', { exact: true })).toBeVisible();
 });
 
+function legacyDeviceManagementSummary() {
+  return {
+    architectureGeneration: 'LEGACY_DIRECT',
+    businessAdmission: null,
+    compatibility: null,
+    primaryReason: null,
+    observedAt: null,
+  };
+}
+
+function legacyDeviceManagementStatus() {
+  return {
+    ...legacyDeviceManagementSummary(),
+    reasons: [],
+    deviceGateState: null,
+    managementStateSequence: null,
+    communicationAgentVersion: null,
+    deviceUpdaterVersion: null,
+    businessReleaseUid: null,
+    businessVersionName: null,
+    businessReleaseSequence: null,
+    businessPackageSha256: null,
+    businessProcessState: null,
+    businessReady: null,
+    mcuFirmwareVersion: null,
+    mcuFirmwareIdentityHex: null,
+    managementTransportProtocol: null,
+    deviceMaintenanceProtocol: null,
+    agentBusinessProtocol: null,
+    agentUpdaterProtocol: null,
+    updaterBusinessProtocol: null,
+    uartProtocol: null,
+    sourceEventUid: null,
+  };
+}
+
 function permanentDeviceAsset(overrides: Record<string, unknown> = {}) {
   const deviceCode = typeof overrides.deviceCode === 'string'
     ? overrides.deviceCode
@@ -2532,6 +2568,7 @@ function permanentDeviceAsset(overrides: Record<string, unknown> = {}) {
       statusReceivedAt: null,
       evidenceSource: null,
     },
+    deviceManagement: legacyDeviceManagementSummary(),
     ...overrides,
   };
 }
@@ -2575,6 +2612,7 @@ function permanentDeviceRuntime(deviceCode: string) {
       lastDeviceEventAt: '2026-08-24T02:59:30.000Z',
       runtimeVersion: 6,
     },
+    deviceManagement: legacyDeviceManagementStatus(),
     occupied: false,
     occupancyKind: null,
     occupiedAt: null,
@@ -3117,12 +3155,12 @@ test('platform registers an asset without factory bags and writes tenant ownersh
   await page.goto('/devices');
   await expect(page.getByText('永久设备资产', { exact: true })).toBeVisible();
   await expect(
-    page.getByText('永久归属 · 自动验收 · 联网即用', { exact: true }),
+    page.getByText('永久归属 · 自动验收 · 自动检查业务条件', { exact: true }),
   ).toBeVisible();
   await page.getByRole('button', { name: '登记真实设备' }).click();
   const createDialog = page.getByRole('dialog', { name: '登记真实设备资产' });
   await createDialog.locator('.ant-form-item')
-    .filter({ hasText: '硬件 SN / OneNet 设备名' })
+    .filter({ hasText: '设备序列号 / 物联网平台设备名称' })
     .locator('input')
     .fill(hardwareSn);
   await createDialog.locator('.ant-form-item')
@@ -3149,7 +3187,12 @@ test('platform registers an asset without factory bags and writes tenant ownersh
     key: expect.any(String),
   });
   const drawer = page.locator('.ant-drawer').filter({ hasText: hardwareSn });
-  await expect(drawer.getByText('设备联网后会自动提交功能验收证据')).toBeVisible();
+  await expect(
+    drawer.getByText('设备软件与业务可用状态', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    drawer.getByText('沿用现有业务检查', { exact: true }).first(),
+  ).toBeVisible();
   await drawer.getByRole('button', { name: '永久分配租户' }).click();
   const assignmentDialog = page.getByRole('dialog', { name: '永久分配租户' });
   await assignmentDialog.getByLabel('目标租户').click();

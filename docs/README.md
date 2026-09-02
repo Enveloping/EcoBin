@@ -30,13 +30,14 @@
 24. [P0 详细设计与任务拆分](planning/detailed-design-draft.md)：已批准的施工方案、跨端责任、任务依赖与目标窗口。
 25. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：历史任务入口；设备相关旧部署步骤由 V36 裁决覆盖。
 26. [权限与角色设计](architecture/permission-design.md)：三类登录主体、多租户隔离和接口鉴权。
-27. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构；新栈目标迁移已推进到 V62，并由只读 epoch guard 校验，运行制品不携带 Flyway 或迁移脚本。
+27. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构；新栈目标迁移已推进到 V63，并由只读 epoch guard 校验，运行制品不携带 Flyway 或迁移脚本。
 
 ## 目录说明
 
 ### `architecture/` — 架构与领域设计
 
 - [项目上下文](architecture/project-context.md)
+- [香橙派业务程序发布与远程更新设计](architecture/orangepi-business-runtime-release-and-update-design.md)：区分出厂程序、可替换业务程序和永久设备管理层，记录九阶段迁移顺序；当前已完成进程内解耦及 V63 只接收兼容性事实的仓库实现，尚未开放业务程序更新下行。
 - [V52 设备自注册、厂家初始袋与按需远程维护](architecture/device-enrollment-factory-acceptance-remote-support-v52.md)
 - [V52 设备出厂与远程维护代码审查](review/device-enrollment-factory-remote-support-v52-review-2026-08-15.md)
 - [V53 投递自动审核与自动提现](architecture/delivery-auto-review-and-withdrawal-v53.md)

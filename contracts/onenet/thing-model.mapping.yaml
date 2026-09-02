@@ -277,6 +277,12 @@
       "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/deviceRuntimeSnapshotEvent"
     },
+    "deviceSoftwareStateReported": {
+      "eventType": "DEVICE_SOFTWARE_STATE_REPORTED",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "DEVICE_ASSET",
+      "schemaRef": "events/events.schema.json#/$defs/deviceSoftwareStateReportedEvent"
+    },
     "deviceAcceptanceEvidence": {
       "eventType": "DEVICE_ACCEPTANCE_EVIDENCE",
       "deliveryClass": "RELIABLE_FACT",
@@ -321,7 +327,8 @@
     "AUTHORIZE_FACTORY_SEAL target and payload hardwareSn equal the authenticated immutable device name; the current PASSED acceptance generation, evidence identity and digest, factory bag revision and ordered-set digest must match again immediately before every dispatch; expiresAt is the device's first reliable-acceptance deadline, and an exact command durably accepted before it may finish after it from the persisted receipt fact; duplicate commandUid is idempotent",
     "FACTORY_SEAL_COMPLETED target and payload hardwareSn equal the authenticated immutable device name; commandUid equals authorizationCommandUid; acceptance generation, evidence, challenge and factory-bag snapshot equal the issued authorization; authorizationBindingSha256 is the RFC8785 SHA-256 of exactly commandUid, hardwareSn, acceptanceGeneration, acceptanceEvidenceUid, acceptanceChallengeUid, acceptanceEvidenceSha256, factoryBagRevision, factoryBagSetSha256, imageReleaseId, imageReleaseSha256 and factoryReportSha256; completionClockQuality equals the envelope clockQuality; SYNCED requires occurredAt equal to cleanupCompletedAt and cleanupCompletedAt not before sealedAt, while ESTIMATED or UNAVAILABLE requires all three timestamps to be null",
     "remote support commands target the session UID; OPEN payload expiry exactly equals envelope expiry and is at most 30 minutes; status target is the authenticated device asset and carries the originating command UID",
-    "MCU firmware deployment target equals deploymentUid; COS key and grant prefix are derived from releaseUid and packageSha256; signed manifest identity must equal the command payload; cloud downgrade and legacy preflight are forbidden"
+    "MCU firmware deployment target equals deploymentUid; COS key and grant prefix are derived from releaseUid and packageSha256; signed manifest identity must equal the command payload; cloud downgrade and legacy preflight are forbidden",
+    "DEVICE_SOFTWARE_STATE_REPORTED is an unsolicited platform asset fact with no commandUid; businessReady requires a running identified business release plus negotiated agent-business and updater-business protocols"
   ],
   "forbiddenLegacyIdentifiers": [
     "openDeliveryDoor",
@@ -347,6 +354,7 @@
     "PHOTO_UPLOAD_GRANT_REQUESTED": "PHOTO_GRANT_REQ",
     "BUSINESS_CONFIRMATION_RECEIPT": "BIZ_CONFIRM_RCPT",
     "DEVICE_RUNTIME_SNAPSHOT": "DEV_RUNTIME_SNAP",
+    "DEVICE_SOFTWARE_STATE_REPORTED": "DEV_SW_STATE_RPT",
     "DEVICE_ACCEPTANCE_EVIDENCE": "DEV_ACCEPT_EVIDENCE",
     "DEVICE_ASSET": "DEVICE_ASSET",
     "START_DELIVERY_SESSION": "START_DELIV_SESSION",

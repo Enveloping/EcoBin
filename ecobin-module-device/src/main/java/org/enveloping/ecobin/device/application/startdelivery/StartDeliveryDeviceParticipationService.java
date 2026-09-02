@@ -141,6 +141,7 @@ public class StartDeliveryDeviceParticipationService
                 organizationId,
                 deviceCode,
                 command.portNo());
+        StartDeliveryDevicePolicy.requireSoftwareAdmission(asset);
         StartDeliveryDevicePolicy.requireOnenetOnline(
                 repository.lockTransportPresence(asset.id())
                         .orElse(null));

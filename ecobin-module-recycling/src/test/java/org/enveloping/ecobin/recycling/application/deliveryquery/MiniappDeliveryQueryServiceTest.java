@@ -172,6 +172,42 @@ class MiniappDeliveryQueryServiceTest {
     }
 
     @Test
+    void deviceSoftwareAdmissionBlockerMakesPreviewUnavailable() {
+        when(identity.current()).thenReturn(identity(true));
+        when(device.deliveryOptions(any())).thenReturn(
+                new DeliveryDeviceOptionsSnapshot(
+                        "Dv_0123456789abcdefghijklmn",
+                        "校园回收机",
+                        "教学楼一层",
+                        false,
+                        AS_OF,
+                        List.of(
+                                new DeliveryDevicePortOptionSnapshot(
+                                        2,
+                                        "塑料投口",
+                                        "0.4500",
+                                        "INFRARED_OR_WEIGHT",
+                                        List.of(
+                                                "DEVICE_SOFTWARE_NOT_ACCEPTING"))),
+                        optionsBusinessRef));
+        when(business.currentOptions(optionsBusinessRef)).thenReturn(
+                new DeliveryOptionsBusinessFacts(
+                        OptionalLong.of(-500),
+                        List.of(healthyBusinessPort())));
+        when(wallet.current(any())).thenReturn(eligibleWallet());
+
+        var result = service.deliveryOptions(
+                "Dv_0123456789abcdefghijklmn");
+
+        assertThat(result.ports()).singleElement()
+                .satisfies(port -> {
+                    assertThat(port.deliveryAllowed()).isFalse();
+                    assertThat(port.blockers()).containsExactly(
+                            "DEVICE_SOFTWARE_NOT_ACCEPTING");
+                });
+    }
+
+    @Test
     void unappliedDeviceConfigurationDoesNotInspectMissingFullnessMode() {
         when(identity.current()).thenReturn(identity(true));
         when(device.deliveryOptions(any())).thenReturn(

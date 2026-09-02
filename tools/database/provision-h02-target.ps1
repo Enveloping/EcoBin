@@ -1038,15 +1038,18 @@ WHERE table_schema = '$DatabaseName'
                 $existingMaxVersion -eq 61) -or
             ($existingDomainTableCount -eq 119 -and
                 $existingHistoryCount -eq 62 -and
-                $existingMaxVersion -eq 62)
+                $existingMaxVersion -eq 62) -or
+            ($existingDomainTableCount -eq 123 -and
+                $existingHistoryCount -eq 63 -and
+                $existingMaxVersion -eq 63)
         )
         if (-not $resumeLayoutValid) {
             throw (
-                "Migrated resume requires a complete V30 through V62 " +
+                "Migrated resume requires a complete V30 through V63 " +
                 "target database"
             )
         }
-        if ($existingMaxVersion -lt 62) {
+        if ($existingMaxVersion -lt 63) {
             # Check before changing the owner account so a stale local tunnel
             # fails without opening a database mutation window.
             if ($RemoteHost.Length -gt 0) {
@@ -1105,7 +1108,7 @@ GRANT SELECT (
 "@ | Out-Null
         }
 
-        Invoke-FlywayMigration -Target 62 -OwnerPassword $ownerPassword
+        Invoke-FlywayMigration -Target 63 -OwnerPassword $ownerPassword
         $migrationCompleted = $true
 
         Invoke-RootSql -Sql @"
@@ -1125,6 +1128,19 @@ GRANT SELECT (
     lifecycle_status
 ) ON $database.dev_device_asset
     TO 'ecobin_trigger_definer'@'%';
+GRANT INSERT ON $database.dev_device_management_profile
+    TO 'ecobin_trigger_definer'@'%';
+GRANT SELECT (
+    asset_id, architecture_generation,
+    transition_source_event_uid, transitioned_at
+) ON $database.dev_device_management_profile
+    TO 'ecobin_trigger_definer'@'%';
+GRANT INSERT ON $database.dev_device_compatibility_projection
+    TO 'ecobin_trigger_definer'@'%';
+GRANT SELECT (
+    asset_id, architecture_generation, management_state_sequence
+) ON $database.dev_device_compatibility_projection
+    TO 'ecobin_trigger_definer'@'%';
 ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
 "@ | Out-Null
         $resumeSchemaOwnerUnlocked = $false
@@ -1140,8 +1156,8 @@ ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
         (Invoke-RootSql -Sql $tableSql) -split "`r?`n" |
             Where-Object { $_.Length -gt 0 }
     )
-    if ($tables.Count -ne 119) {
-        throw "Expected 119 domain tables, got $($tables.Count)"
+    if ($tables.Count -ne 123) {
+        throw "Expected 123 domain tables, got $($tables.Count)"
     }
 
     $grantCatalog = Import-PowerShellDataFile -Path $grantCatalogPath
@@ -1180,8 +1196,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 62) {
-        throw "Expected sixty-two successful Flyway migrations"
+    if ($historyCount -ne 63) {
+        throw "Expected sixty-three successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
@@ -1491,7 +1507,7 @@ WHERE user = 'ecobin_schema_owner' AND host = '%';
     if (-not $migrationCompleted) {
         if ($upgradeExistingMigratedEnvironment) {
             Write-Warning (
-                "The target may contain a failed V62 forward migration. " +
+                "The target may contain a failed V63 forward migration. " +
                 "It was intentionally preserved. Restore from the " +
                 "pre-migration backup; do not run Flyway repair. " +
                 "Container=$ContainerName Volume=$VolumeName"

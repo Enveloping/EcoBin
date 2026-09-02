@@ -64,7 +64,9 @@ interface StartDeliveryDeviceRepository {
             String acceptanceStatus,
             Long tenantId,
             Long organizationId,
-            int expectedPortCount) {
+            int expectedPortCount,
+            String managementArchitectureGeneration,
+            String businessAdmissionStatus) {
     }
 
     record SubjectStatusRow(long id, String status) {

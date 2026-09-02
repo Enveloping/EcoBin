@@ -22,6 +22,10 @@ enum CleanReadinessBlocker {
             422,
             "DEVICE.OFFLINE",
             "OneNet 当前未确认设备在线，不能创建清运任务"),
+    DEVICE_SOFTWARE_NOT_ACCEPTING(
+            422,
+            "DEVICE.SOFTWARE_NOT_ACCEPTING",
+            "设备正在维护，或软件状态尚未确认，暂时不能创建新的清运任务"),
     DEVICE_BUSY(
             409,
             "DEVICE.DEVICE_BUSY",

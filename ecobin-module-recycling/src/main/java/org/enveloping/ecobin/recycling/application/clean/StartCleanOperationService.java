@@ -60,6 +60,22 @@ public class StartCleanOperationService {
     private static final Duration START_WINDOW = Duration.ofSeconds(60);
     private static final long RECOMMENDED_POLL_AFTER_MS = 1_000L;
 
+    static final String LOCK_ASSET_SQL = """
+            SELECT asset.id, asset.hardware_sn,
+                   asset.device_public_code,
+                   asset.lifecycle_status, asset.acceptance_status,
+                   asset.tenant_id, asset.organization_id,
+                   management.architecture_generation,
+                   compatibility.business_admission_status
+            FROM dev_device_asset asset
+            LEFT JOIN dev_device_management_profile management
+              ON management.asset_id = asset.id
+            LEFT JOIN dev_device_compatibility_projection compatibility
+              ON compatibility.asset_id = asset.id
+            WHERE asset.device_public_code = ?
+            FOR UPDATE
+            """;
+
     static final String LOAD_LATEST_CONFIGURATION_SQL = """
             SELECT config.id, config.version_no,
                    config.content_sha256,
@@ -338,14 +354,8 @@ public class StartCleanOperationService {
             long tenantId,
             long organizationId,
             long organizationUserId) {
-        Asset asset = one("""
-                        SELECT id, hardware_sn, device_public_code,
-                               lifecycle_status, acceptance_status,
-                               tenant_id, organization_id
-                        FROM dev_device_asset
-                        WHERE device_public_code = ?
-                        FOR UPDATE
-                        """,
+        Asset asset = one(
+                LOCK_ASSET_SQL,
                 (rs, ignored) -> new Asset(
                         rs.getLong("id"),
                         rs.getString("hardware_sn"),
@@ -353,7 +363,9 @@ public class StartCleanOperationService {
                         rs.getString("lifecycle_status"),
                         rs.getString("acceptance_status"),
                         nullableLong(rs, "tenant_id"),
-                        nullableLong(rs, "organization_id")),
+                        nullableLong(rs, "organization_id"),
+                        rs.getString("architecture_generation"),
+                        rs.getString("business_admission_status")),
                 deviceCode).orElseThrow(StartCleanOperationService::notFound);
         String tenantStatus = one("""
                         SELECT status
@@ -381,6 +393,9 @@ public class StartCleanOperationService {
                 tenantId,
                 organizationId,
                 deviceCode);
+        requireSoftwareAdmission(
+                asset.architectureGeneration(),
+                asset.businessAdmissionStatus());
 
         String onenetStatus = one("""
                         SELECT onenet_connection_status
@@ -1143,6 +1158,25 @@ public class StartCleanOperationService {
         }
     }
 
+    static void requireSoftwareAdmission(
+            String architectureGeneration,
+            String businessAdmissionStatus) {
+        if (!acceptsNewBusiness(
+                architectureGeneration,
+                businessAdmissionStatus)) {
+            throw CleanReadinessBlocker
+                    .DEVICE_SOFTWARE_NOT_ACCEPTING
+                    .problem();
+        }
+    }
+
+    static boolean acceptsNewBusiness(
+            String architectureGeneration,
+            String businessAdmissionStatus) {
+        return !"PERMANENT_V1".equals(architectureGeneration)
+                || "ACCEPTING".equals(businessAdmissionStatus);
+    }
+
     private CleanOperationAccepted replay(
             SuccessfulAudit previous,
             String fingerprint,
@@ -1398,7 +1432,9 @@ public class StartCleanOperationService {
             String lifecycleStatus,
             String acceptanceStatus,
             Long tenantId,
-            Long organizationId) {
+            Long organizationId,
+            String architectureGeneration,
+            String businessAdmissionStatus) {
     }
 
     private record Configuration(

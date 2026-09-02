@@ -1,6 +1,13 @@
 # EcoBin P0 目标数据库设计草案
 
 > [!IMPORTANT]
+> 2026-09-02 已推进 V63：新增不可变的香橙派业务发布声明、设备管理架构代次、只追加的
+> 设备软件实际状态事实和当前兼容性投影 4 张表。既有资产回填为沿用原有直连规则；只有
+> 收到可信的新架构状态事实后才单向切换，并在状态缺失、暂停或不兼容时阻止新物理业务。
+> V63 只建立接收、计算、准入和展示能力，不包含业务程序更新命令、部署状态机或发布写入
+> 接口；当前共 123 张领域表，76 条有效权限定义不变。
+
+> [!IMPORTANT]
 > 2026-08-31 已推进 V62：`ops_reliable_task` 新增非唯一索引
 > `ix_ops_task_factory_progress(source_device_asset_id, task_type, id DESC)`，
 > 用于设备出厂进度轮询定位候选云端验收任务；当前袋码版本和摘要仍由查询条件精确校验。
@@ -61,7 +68,7 @@
 > 状态：**数据库设计基线已确认，D-001～D-049 均已确认**
 > 整理日期：2026-07-24
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)、[`system-architecture-draft.md`](system-architecture-draft.md)
-> 当前目标结构：独立目标迁移已推进到 V62，共 119 张领域表；V59 只扩大袋码数量检查约束，V60 增加 MCU 远程升级线路能力三态列，V61 增加外部技术请求号诊断字段，V62 增加出厂进度可靠任务定位索引，表族数量和 76 条有效权限定义不变
+> 当前目标结构：独立目标迁移已推进到 V63，共 123 张领域表；V59 只扩大袋码数量检查约束，V60 增加 MCU 远程升级线路能力三态列，V61 增加外部技术请求号诊断字段，V62 增加出厂进度可靠任务定位索引，V63 增加设备软件实际状态、管理架构代次、发布声明和兼容性投影接收面；76 条有效权限定义不变
 > 历史字段讨论：[`../architecture/database-refactor-fields-draft.md`](../architecture/database-refactor-fields-draft.md)
 > 目的：把冻结的业务事实和架构边界落实为目标表、字段、约束、索引、事务锁根及迁移方案；F-04～F-06 已把 V1～V10 落为独立迁移，F-07 已验证只读纪元门禁，V-01、V-02 已使用目标身份和钱包表完成纵切；H-02 已完成本地开发演练和服务器整改阶段 0～3，目标数据库、加密备份和隔离恢复已通过，V-09 已 ready 但尚未授权，其他纵向业务仍不能当作已经实施。
 > 文档结构：本文件保存总状态、审计、表族概览、分章导航和后续顺序；各决策正文位于 [`database-design/`](database-design/) 下。

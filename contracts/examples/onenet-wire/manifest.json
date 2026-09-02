@@ -14,6 +14,7 @@
     "device-fault-observed.event-wire.json",
     "device-fault-recovered.event-wire.json",
     "device-runtime-snapshot.event-wire.json",
+    "device-software-state-reported.event-wire.json",
     "end-clean-before-unlock.service-wire.json",
     "factory-seal-completed.event-wire.json",
     "fullness-sample-complete.event-wire.json",

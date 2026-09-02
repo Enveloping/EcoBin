@@ -11,8 +11,8 @@ $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 $f07BootstrapPath = Join-Path $PSScriptRoot "../verify-f07-bootstrap.ps1"
 $f07BootstrapSource = Get-Content -LiteralPath $f07BootstrapPath -Raw
 
-if ($catalog.CatalogVersion -ne 31) {
-    throw "H-02 runtime grant catalog must be V31 for the V62 target"
+if ($catalog.CatalogVersion -ne 32) {
+    throw "H-02 runtime grant catalog must be V32 for the V63 target"
 }
 
 if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
@@ -21,38 +21,51 @@ if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
     throw "H-02 provisioning must reject dirty migrations and record provenance"
 }
 
-if ($provisionSource -notmatch '\$tables\.Count -ne 119' -or
-        $provisionSource -notmatch 'Expected 119 domain tables') {
-    throw "H-02 provisioning must enforce the V62 119-table shape"
-}
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 62') {
-    throw "H-02 provisioning must migrate through V62"
-}
-if ($provisionSource -notmatch '\$historyCount -ne 62' -or
-        $provisionSource -notmatch
-            'Expected sixty-two successful Flyway migrations') {
-    throw "H-02 provisioning must verify all 62 migrations"
+if ($provisionSource -notmatch '\$tables\.Count -ne 123' -or
+        $provisionSource -notmatch 'Expected 123 domain tables') {
+    throw "H-02 provisioning must enforce the V63 123-table shape"
 }
 if ($provisionSource -notmatch
-        '\$existingDomainTableCount -eq 119\s+-and\s+' +
-        '\$existingHistoryCount -eq 62\s+-and\s+' +
-        '\$existingMaxVersion -eq 62' -or
-        $provisionSource -notmatch '\$existingMaxVersion -lt 62' -or
+        'GRANT INSERT ON \$database\.dev_device_management_profile' -or
+        $provisionSource -notmatch
+        'transition_source_event_uid, transitioned_at' -or
+        $provisionSource -notmatch
+        'GRANT INSERT ON \$database\.dev_device_compatibility_projection' -or
+        $provisionSource -notmatch
+        'asset_id, architecture_generation, management_state_sequence') {
+    throw "V63 triggers are missing their exact definer grants"
+}
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 63') {
+    throw "H-02 provisioning must migrate through V63"
+}
+if ($provisionSource -notmatch '\$historyCount -ne 63' -or
+        $provisionSource -notmatch
+            'Expected sixty-three successful Flyway migrations') {
+    throw "H-02 provisioning must verify all 63 migrations"
+}
+if ($provisionSource -notmatch
+        '\$existingDomainTableCount -eq 123\s+-and\s+' +
+        '\$existingHistoryCount -eq 63\s+-and\s+' +
+        '\$existingMaxVersion -eq 63' -or
+        $provisionSource -notmatch '\$existingMaxVersion -lt 63' -or
         $provisionSource -notmatch
         '\$existingHistoryCount -eq 60\s+-and\s+' +
         '\$existingMaxVersion -eq 60' -or
         $provisionSource -notmatch
         '\$existingHistoryCount -eq 61\s+-and\s+' +
-        '\$existingMaxVersion -eq 61') {
-    throw "H-02 migrated resume must recognize V60/V61 and target V62"
+        '\$existingMaxVersion -eq 61' -or
+        $provisionSource -notmatch
+        '\$existingHistoryCount -eq 62\s+-and\s+' +
+        '\$existingMaxVersion -eq 62') {
+    throw "H-02 migrated resume must recognize V60/V61/V62 and target V63"
 }
-if ($f07BootstrapSource -notmatch '\$tableCount -ne 120' -or
+if ($f07BootstrapSource -notmatch '\$tableCount -ne 124' -or
         $f07BootstrapSource -notmatch
-            'correct target must contain 119 domain tables plus Flyway history' -or
-        $f07BootstrapSource -notmatch 'targetVersion\s*=\s*62' -or
-        $f07BootstrapSource -notmatch 'domainTables\s*=\s*119' -or
+            'correct target must contain 123 domain tables plus Flyway history' -or
+        $f07BootstrapSource -notmatch 'targetVersion\s*=\s*63' -or
+        $f07BootstrapSource -notmatch 'domainTables\s*=\s*123' -or
         $f07BootstrapSource -notmatch
-            'correctV62Ready\s*=\s*\$true' -or
+            'correctV63Ready\s*=\s*\$true' -or
         $f07BootstrapSource -notmatch
             'mcuRemoteUpdateCapabilityV60\s*=\s*\$true' -or
         $f07BootstrapSource -notmatch
@@ -71,8 +84,8 @@ if ($f07BootstrapSource -notmatch '\$tableCount -ne 120' -or
             'sealedClockQualityRequired\s*=\s*\$true' -or
         $f07BootstrapSource -match 'correct V56|correctV56Ready') {
     throw (
-        "F-07 bootstrap verification must report the V62 shape: " +
-        "119 domain tables plus Flyway history"
+        "F-07 bootstrap verification must report the V63 shape: " +
+        "123 domain tables plus Flyway history"
     )
 }
 if ($provisionSource -notmatch
@@ -157,6 +170,47 @@ foreach ($entry in $firmwareGrantShape.GetEnumerator()) {
     if (@(Compare-Object @($entry.Value) $actual).Count -ne 0) {
         throw "MCU firmware update grants differ for $($entry.Key)"
     }
+}
+
+$softwareCompatibilityGrantShape = @{
+    dev_device_management_profile = @(
+        "architecture_generation"
+        "transition_source_event_uid"
+        "transitioned_at"
+        "lock_version"
+        "updated_at"
+    )
+    dev_device_compatibility_projection = @(
+        "architecture_generation"
+        "latest_software_fact_id"
+        "source_event_uid"
+        "management_state_sequence"
+        "compatibility_status"
+        "business_admission_status"
+        "primary_reason_code"
+        "primary_reason_message"
+        "reasons_json"
+        "capabilities_json"
+        "observed_at"
+        "received_at"
+        "lock_version"
+        "updated_at"
+    )
+}
+foreach ($entry in $softwareCompatibilityGrantShape.GetEnumerator()) {
+    $actual = @($catalog.UpdateColumns[$entry.Key])
+    if (@(Compare-Object @($entry.Value) $actual).Count -ne 0) {
+        throw "Device software compatibility UPDATE grants differ for $($entry.Key)"
+    }
+}
+if ($catalog.ReadOnlyTables -notcontains "dev_edge_software_release") {
+    throw "Runtime must not register or mutate edge software releases"
+}
+if ($catalog.ReadOnlyTables -contains "dev_device_software_fact" -or
+        $catalog.SlotTables -contains "dev_device_software_fact" -or
+        $catalog.UpdateColumns.ContainsKey("dev_device_software_fact") -or
+        $catalog.PendingUpdateTables -contains "dev_device_software_fact") {
+    throw "Device software facts must retain default SELECT/INSERT-only grants"
 }
 $assetFirmwareColumns = @(
     "mcu_firmware_version_code"

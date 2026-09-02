@@ -1,0 +1,69 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": null,
+  "deliveryClass": "RELIABLE_FACT",
+  "edgeEventSequence": 1058,
+  "eventType": "DEVICE_SOFTWARE_STATE_REPORTED",
+  "eventUid": "8d000000-0000-4000-8000-000000000002",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "activeBusinessRelease": {
+      "packageSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "releaseSequence": 12,
+      "releaseUid": "8d000000-0000-4000-8000-000000000001",
+      "versionName": "1.0.0-rc.3"
+    },
+    "businessAdmissionState": "OPEN",
+    "businessProcessState": "RUNNING",
+    "businessReady": true,
+    "capabilityBitmapHex": "0000000000001fff",
+    "communicationAgent": {
+      "businessLocalProtocolMajor": 1,
+      "businessLocalProtocolMinor": 0,
+      "managementTransportProtocolMajor": 1,
+      "managementTransportProtocolMinor": 0,
+      "updaterLocalProtocolMajor": 1,
+      "updaterLocalProtocolMinor": 0,
+      "versionName": "1.0.0"
+    },
+    "deviceUpdater": {
+      "businessLocalProtocolMajor": 1,
+      "businessLocalProtocolMinor": 0,
+      "businessPackageFormatVersion": 1,
+      "deviceMaintenanceProtocolMajor": 1,
+      "deviceMaintenanceProtocolMinor": 0,
+      "mcuPackageFormatVersion": 1,
+      "versionName": "1.0.0"
+    },
+    "managementArchitectureGeneration": "PERMANENT_V1",
+    "managementStateSequence": 7,
+    "mcuFirmware": {
+      "fixedFrameRevision": 2,
+      "identityHex": "0123456789abcdef",
+      "versionCode": 20100,
+      "versionName": "2.1.0"
+    },
+    "negotiatedProtocols": {
+      "agentBusinessMajor": 1,
+      "agentBusinessMinor": 0,
+      "agentBusinessNegotiated": true,
+      "agentUpdaterMajor": 1,
+      "agentUpdaterMinor": 0,
+      "agentUpdaterNegotiated": true,
+      "updaterBusinessMajor": 1,
+      "updaterBusinessMinor": 0,
+      "updaterBusinessNegotiated": true
+    },
+    "uartProtocol": {
+      "major": 1,
+      "minor": 0
+    },
+    "uartState": "READY"
+  },
+  "payloadSha256": "7313ec15ff70fa5e59f2a077ab52633e73e028fdc4517f3b4575b15128110287",
+  "schemaVersion": 2,
+  "target": {
+    "type": "DEVICE_ASSET",
+    "uid": "SN-CONTRACT-0001"
+  }
+}

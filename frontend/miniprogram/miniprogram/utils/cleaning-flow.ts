@@ -7,6 +7,7 @@ import type {
 const BLOCKER_TEXT: Record<CleanOptionBlocker, string> = {
   CLEAN_CONFIGURATION_UNAVAILABLE: '机构尚未配置清运规则',
   CONFIGURATION_NOT_APPLIED: '设备配置尚未完整应用',
+  DEVICE_SOFTWARE_NOT_ACCEPTING: '设备正在维护，请稍后再发起清运',
   EDGE_OFFLINE: '设备当前未确认联网',
   DEVICE_BUSY: '设备正在执行其他作业',
   PORT_DISABLED: '当前投口未启用清运',
@@ -24,7 +25,7 @@ export type CleanOperationDisposition =
 
 export function cleanBlockerText(blocker: string): string {
   return BLOCKER_TEXT[blocker as CleanOptionBlocker]
-    || `暂时无法清运（${blocker}）`
+    || '暂时无法清运，请稍后重试或联系管理员'
 }
 
 export function autoSelectedCleanPortNo(

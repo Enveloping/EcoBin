@@ -33,11 +33,23 @@ class JdbcStartDeliveryDeviceRepository
             """;
 
     static final String LOCK_ASSET_SQL = """
-            SELECT id, hardware_sn, device_public_code,
-                   lifecycle_status, acceptance_status,
-                   tenant_id, organization_id, expected_port_count
-            FROM dev_device_asset
-            WHERE device_public_code = ?
+            SELECT asset.id,
+                   asset.hardware_sn,
+                   asset.device_public_code,
+                   asset.lifecycle_status,
+                   asset.acceptance_status,
+                   asset.tenant_id,
+                   asset.organization_id,
+                   asset.expected_port_count,
+                   management.architecture_generation
+                       AS management_architecture_generation,
+                   compatibility.business_admission_status
+            FROM dev_device_asset asset
+            LEFT JOIN dev_device_management_profile management
+              ON management.asset_id = asset.id
+            LEFT JOIN dev_device_compatibility_projection compatibility
+              ON compatibility.asset_id = asset.id
+            WHERE asset.device_public_code = ?
             FOR UPDATE
             """;
 
@@ -273,7 +285,10 @@ class JdbcStartDeliveryDeviceRepository
                         rs.getString("acceptance_status"),
                         nullableLong(rs, "tenant_id"),
                         nullableLong(rs, "organization_id"),
-                        rs.getInt("expected_port_count")),
+                        rs.getInt("expected_port_count"),
+                        rs.getString(
+                                "management_architecture_generation"),
+                        rs.getString("business_admission_status")),
                 deviceCode).stream().findFirst();
     }
 

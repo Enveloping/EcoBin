@@ -67,6 +67,25 @@ final class StartDeliveryDevicePolicy {
         }
     }
 
+    static void requireSoftwareAdmission(
+            StartDeliveryDeviceRepository.AssetRow asset) {
+        if (!"PERMANENT_V1".equals(
+                asset.managementArchitectureGeneration())) {
+            return;
+        }
+        if ("ACCEPTING".equals(asset.businessAdmissionStatus())) {
+            return;
+        }
+
+        String message = "PAUSED".equals(asset.businessAdmissionStatus())
+                ? "设备正在维护或业务程序尚未准备好，暂时不能开始新的投递，请稍后再试或联系管理员"
+                : "平台尚未确认设备业务程序是否可用，暂时不能开始新的投递，请稍后再试或联系管理员";
+        throw new TargetApiException(
+                422,
+                "DEVICE.SOFTWARE_NOT_ACCEPTING",
+                message);
+    }
+
     static void requirePortConfigured(
             StartDeliveryDeviceRepository.PortConfigurationRow port) {
         if (!port.businessEnabled()

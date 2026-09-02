@@ -4,6 +4,7 @@ import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedPlatformDeviceAssetFactEvent;
 import org.enveloping.ecobin.device.application.firmware.McuFirmwareRolloutService;
 import org.enveloping.ecobin.device.application.remote.RemoteSupportSessionService;
+import org.enveloping.ecobin.device.application.software.DeviceSoftwareCompatibilityService;
 import org.enveloping.ecobin.framework.reliability.TrustedPlatformInboxRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -55,7 +56,8 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                         confirmationService,
                         mock(RemoteSupportSessionService.class),
                         mock(McuFirmwareRolloutService.class),
-                        mock(FactorySealAuthorizationService.class));
+                        mock(FactorySealAuthorizationService.class),
+                        mock(DeviceSoftwareCompatibilityService.class));
 
         TrustedDeviceEventApplyResult result = service.apply(
                 new TrustedPlatformDeviceAssetFactEvent(
@@ -109,7 +111,8 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                         confirmationService,
                         remoteSupportSessions,
                         mock(McuFirmwareRolloutService.class),
-                        mock(FactorySealAuthorizationService.class));
+                        mock(FactorySealAuthorizationService.class),
+                        mock(DeviceSoftwareCompatibilityService.class));
 
         TrustedDeviceEventApplyResult result = service.apply(
                 new TrustedPlatformDeviceAssetFactEvent(
@@ -160,7 +163,8 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                         confirmations,
                         mock(RemoteSupportSessionService.class),
                         mock(McuFirmwareRolloutService.class),
-                        seals);
+                        seals,
+                        mock(DeviceSoftwareCompatibilityService.class));
 
         TrustedDeviceEventApplyResult result = service.apply(
                 new TrustedPlatformDeviceAssetFactEvent(
@@ -216,7 +220,8 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                         confirmations,
                         mock(RemoteSupportSessionService.class),
                         mock(McuFirmwareRolloutService.class),
-                        seals);
+                        seals,
+                        mock(DeviceSoftwareCompatibilityService.class));
 
         TrustedDeviceEventApplyResult result = service.apply(
                 new TrustedPlatformDeviceAssetFactEvent(
@@ -239,6 +244,63 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                 contains("FROM dev_device_asset"),
                 any(RowMapper.class),
                 any(Object[].class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void softwareStateFactIsProjectedAndConfirmedInsideItsInboxTask() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.query(
+                contains("FROM dev_device_asset"),
+                any(RowMapper.class),
+                any(Object[].class)))
+                .thenReturn(List.of(41L));
+        LocalDateTime now = LocalDateTime.of(2026, 9, 2, 3, 15);
+        when(jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class))
+                .thenReturn(now);
+        TrustedPlatformInboxRef sourceInbox =
+                mock(TrustedPlatformInboxRef.class);
+        when(sourceInbox.use(any())).thenAnswer(invocation -> {
+            TrustedPlatformInboxRef.PlatformInboxFunction<Object> function =
+                    invocation.getArgument(0);
+            return function.apply(27L);
+        });
+        DeviceSoftwareCompatibilityService compatibility =
+                mock(DeviceSoftwareCompatibilityService.class);
+        when(compatibility.apply(
+                eq(27L), eq(41L), any(), any(), eq(now)))
+                .thenReturn(new DeviceSoftwareCompatibilityService.ApplyResult(
+                        true, true));
+        ReliablePlatformEdgeConfirmationService confirmations =
+                mock(ReliablePlatformEdgeConfirmationService.class);
+        TrustedPlatformDeviceAssetFactService service =
+                new TrustedPlatformDeviceAssetFactService(
+                        jdbc,
+                        JsonMapper.builder().build(),
+                        confirmations,
+                        mock(RemoteSupportSessionService.class),
+                        mock(McuFirmwareRolloutService.class),
+                        mock(FactorySealAuthorizationService.class),
+                        compatibility);
+
+        TrustedDeviceEventApplyResult result = service.apply(
+                new TrustedPlatformDeviceAssetFactEvent(
+                        sourceInbox,
+                        "DEVICE_SOFTWARE_STATE_REPORTED",
+                        2,
+                        softwareStatePayload()));
+
+        assertEquals(TrustedDeviceEventApplyResult.APPLIED, result);
+        verify(compatibility).apply(
+                eq(27L), eq(41L), any(), any(), eq(now));
+        verify(confirmations).ensureApplied(
+                41L,
+                "SN-CONTRACT-0001",
+                "8d000000-0000-4000-8000-000000000002",
+                "d".repeat(64),
+                "UPDATED",
+                now);
     }
 
     private static String safetyPayload() {
@@ -264,6 +326,31 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                       "smokeState": "NORMAL",
                       "smokeDataUnavailable": false
                     }
+                  }
+                }
+                """;
+    }
+
+    private static String softwareStatePayload() {
+        return """
+                {
+                  "trustedSource": {
+                    "productId": "product",
+                    "deviceName": "SN-CONTRACT-0001"
+                  },
+                  "eventCanonicalSha256":
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "event": {
+                    "schemaVersion": 2,
+                    "eventUid": "8d000000-0000-4000-8000-000000000002",
+                    "eventType": "DEVICE_SOFTWARE_STATE_REPORTED",
+                    "target": {
+                      "type": "DEVICE_ASSET",
+                      "uid": "SN-CONTRACT-0001"
+                    },
+                    "payloadSha256":
+                      "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                    "payload": {}
                   }
                 }
                 """;

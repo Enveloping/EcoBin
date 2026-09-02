@@ -80,6 +80,7 @@ export type DeliveryOptionBlocker =
   | 'CONFIGURATION_NOT_APPLIED'
   | 'EDGE_OFFLINE'
   | 'DEVICE_BUSY'
+  | 'DEVICE_SOFTWARE_NOT_ACCEPTING'
   | 'PORT_DISABLED'
   | 'CURRENT_BAG_MISSING'
   | 'PORT_FULL'
@@ -443,6 +444,7 @@ export type CleanFullnessStatus =
 export type CleanOptionBlocker =
   | 'CLEAN_CONFIGURATION_UNAVAILABLE'
   | 'CONFIGURATION_NOT_APPLIED'
+  | 'DEVICE_SOFTWARE_NOT_ACCEPTING'
   | 'EDGE_OFFLINE'
   | 'DEVICE_BUSY'
   | 'PORT_DISABLED'

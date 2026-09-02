@@ -5,9 +5,9 @@
     "onenet/command-receipt.schema.json": "196cb96b85a8e9d501ea79a5a9cf8e40a23a3d13172cab489c301ff9a528e447",
     "onenet/commands/commands.schema.json": "464d8153832f54e51fea049eda9d9be537279f6582e305c692eb49f401c4c448",
     "onenet/common.schema.json": "183a8730acad9c5873788891468d4e1702ada1b095fb52aec6882b602bafcf8f",
-    "onenet/event-envelope.schema.json": "877794f13916ef6488330f06fb1b4a14ae60d27d76c4025d17641abc81ea16b6",
-    "onenet/events/events.schema.json": "fd5b9e9a833887dc3a5a25c1f3a1bcca6fb0753119c75040592df0139ab7189b",
-    "onenet/thing-model.mapping.yaml": "0e3fb42a860fc35d69f22ae2013636327d3d2a5fad8e1a4ee8e49cd4350db81a",
+    "onenet/event-envelope.schema.json": "42706d8729cbb20f9a39b866fc13fa2602f8378ac52e9de823266958e8b205d0",
+    "onenet/events/events.schema.json": "54012f4e20f4bed2b5f605335e228a623d68384a0bd2cb28b74fb8b3658932f3",
+    "onenet/thing-model.mapping.yaml": "a92085b025b581d6c021cd6df96eef0012257f51c740f333aa5e1ec8c3f118b2",
     "uart/uart-registry.schema.json": "6dc501225f8a7575591fca2a969e926fba15cbb1104fbf758193356f4fa23872",
     "uart/uart-registry.yaml": "d2b73386e99e7f5be3b05129617afcfe4499cbc4d3f2e8401a4ce5342ca90b75"
   },

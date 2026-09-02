@@ -505,7 +505,8 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.match(pageSource, /永久分配机构/);
   assert.doesNotMatch(pageSource, /factoryBags/);
   assert.match(pageSource, /共享小程序的设备出厂端/);
-  assert.match(pageSource, /联网即可使用/);
+  assert.match(pageSource, /机构无需手动启用设备/);
+  assert.match(pageSource, /联网、配置、安全、占用和软件状态/);
   assert.match(pageSource, /设备状态上报策略/);
   assert.match(pageSource, /联网状态/);
   assert.match(pageSource, /window\.setInterval\(refreshVisibleList, 15_000\)/);

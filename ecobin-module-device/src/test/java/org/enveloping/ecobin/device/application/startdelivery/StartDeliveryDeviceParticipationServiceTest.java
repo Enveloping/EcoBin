@@ -293,6 +293,76 @@ class StartDeliveryDeviceParticipationServiceTest {
     }
 
     @Test
+    void managedDeviceAcceptsNewDeliveryWhenSoftwareAdmissionAccepts() {
+        stubHappyPath("PERMANENT_V1", "ACCEPTING");
+
+        service.start(command());
+
+        verify(repository).insertSession(any());
+    }
+
+    @Test
+    void managedDeviceRejectsNewDeliveryWhileSoftwareIsPaused() {
+        stubHappyPath("PERMANENT_V1", "PAUSED");
+
+        assertThatThrownBy(() -> service.start(command()))
+                .isInstanceOfSatisfying(
+                        TargetApiException.class,
+                        exception -> {
+                            assertThat(exception.status()).isEqualTo(422);
+                            assertThat(exception.code()).isEqualTo(
+                                    "DEVICE.SOFTWARE_NOT_ACCEPTING");
+                            assertThat(exception.getMessage())
+                                    .contains("业务程序尚未准备好", "联系管理员");
+                        });
+
+        verify(repository, never()).lockTransportPresence(ASSET_ID);
+        verify(businessFacts, never()).lockForStart(any());
+        verify(repository, never()).insertSession(any());
+        verify(repository, never()).insertCommand(any());
+    }
+
+    @Test
+    void managedDeviceRejectsNewDeliveryWhenSoftwareAdmissionIsUnknown() {
+        stubHappyPath("PERMANENT_V1", "UNKNOWN");
+
+        assertThatThrownBy(() -> service.start(command()))
+                .isInstanceOfSatisfying(
+                        TargetApiException.class,
+                        exception -> assertThat(exception.getMessage())
+                                .contains("尚未确认", "联系管理员"));
+
+        verify(repository, never()).insertSession(any());
+        verify(repository, never()).insertCommand(any());
+    }
+
+    @Test
+    void managedDeviceRejectsNewDeliveryWhenAdmissionProjectionIsMissing() {
+        stubHappyPath("PERMANENT_V1", null);
+
+        assertThatThrownBy(() -> service.start(command()))
+                .isInstanceOfSatisfying(
+                        TargetApiException.class,
+                        exception -> {
+                            assertThat(exception.status()).isEqualTo(422);
+                            assertThat(exception.code()).isEqualTo(
+                                    "DEVICE.SOFTWARE_NOT_ACCEPTING");
+                        });
+
+        verify(repository, never()).insertSession(any());
+        verify(repository, never()).insertCommand(any());
+    }
+
+    @Test
+    void legacyDeviceKeepsExistingAdmissionWhenNewProjectionIsMissing() {
+        stubHappyPath("LEGACY_DIRECT", null);
+
+        service.start(command());
+
+        verify(repository).insertSession(any());
+    }
+
+    @Test
     void rejectsWhenOnenetDoesNotConfirmDeviceOnline() {
         stubHappyPath();
         when(repository.lockTransportPresence(ASSET_ID))
@@ -330,6 +400,12 @@ class StartDeliveryDeviceParticipationServiceTest {
     }
 
     private void stubHappyPath() {
+        stubHappyPath("LEGACY_DIRECT", "ACCEPTING");
+    }
+
+    private void stubHappyPath(
+            String managementArchitectureGeneration,
+            String businessAdmissionStatus) {
         when(repository.lockActiveSessionIds(
                 TENANT_ID,
                 ORGANIZATION_ID,
@@ -344,7 +420,9 @@ class StartDeliveryDeviceParticipationServiceTest {
                         "PASSED",
                         TENANT_ID,
                         ORGANIZATION_ID,
-                        2)));
+                        2,
+                        managementArchitectureGeneration,
+                        businessAdmissionStatus)));
         when(repository.lockTenant(TENANT_ID))
                 .thenReturn(Optional.of(
                         new StartDeliveryDeviceRepository
@@ -359,7 +437,7 @@ class StartDeliveryDeviceParticipationServiceTest {
                                 .SubjectStatusRow(
                                 ORGANIZATION_ID,
                                 "ENABLED")));
-        when(repository.lockTransportPresence(ASSET_ID))
+        lenient().when(repository.lockTransportPresence(ASSET_ID))
                 .thenReturn(Optional.of(
                         new StartDeliveryDeviceRepository
                                 .TransportPresenceRow("ONLINE")));

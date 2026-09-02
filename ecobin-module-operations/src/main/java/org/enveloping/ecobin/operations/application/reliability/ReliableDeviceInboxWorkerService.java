@@ -37,7 +37,8 @@ public class ReliableDeviceInboxWorkerService
             "DEVICE_COMMAND_OBSERVED",
             "FACTORY_SEAL_COMPLETED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
-            "MCU_FIRMWARE_UPDATE_PROGRESS");
+            "MCU_FIRMWARE_UPDATE_PROGRESS",
+            "DEVICE_SOFTWARE_STATE_REPORTED");
 
     private final ReliableInboxTaskRunner runner;
     private final TrustedPlatformInboxRefFactory platformInboxRefFactory;
