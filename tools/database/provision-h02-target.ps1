@@ -1175,10 +1175,19 @@ GRANT SELECT (
         $migrationCompleted = $true
     }
 
-    # Re-apply final trigger grants even when a resumed database is already at
-    # V63. GRANT and ACCOUNT LOCK are idempotent, and this lets the supported
-    # resume path converge databases provisioned by an older grant catalog.
+    # Converge the trigger definer even when a resumed database is already at
+    # V63. MySQL preserves column grants under their old table/column names
+    # across V36/V39 renames, so remove those historical entries explicitly
+    # before applying the exact current grant matrix.
     Invoke-RootSql -Sql @"
+REVOKE IF EXISTS SELECT (
+    activated_at, appid, tenant_id, organization_id
+) ON $database.iam_organization_miniapp
+    FROM 'ecobin_trigger_definer'@'%';
+REVOKE IF EXISTS SELECT (
+    organization_miniapp_id, openid, registered_via_deployment_id
+) ON $database.iam_organization_user
+    FROM 'ecobin_trigger_definer'@'%';
 GRANT TRIGGER ON $database.*
     TO 'ecobin_trigger_definer'@'%';
 GRANT SELECT (
@@ -1213,6 +1222,85 @@ GRANT SELECT (
 ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
 "@ | Out-Null
     $resumeSchemaOwnerUnlocked = $false
+
+    $triggerDefinerGrantRows = Invoke-RootSql -Sql @"
+SELECT grant_key
+FROM (
+    SELECT CONCAT(
+        'SCHEMA|', TABLE_SCHEMA, '|', PRIVILEGE_TYPE
+    ) AS grant_key
+    FROM information_schema.SCHEMA_PRIVILEGES
+    WHERE GRANTEE = '''ecobin_trigger_definer''@''%'''
+      AND TABLE_SCHEMA = '$DatabaseName'
+    UNION ALL
+    SELECT CONCAT(
+        'TABLE|', TABLE_SCHEMA, '|', TABLE_NAME, '|', PRIVILEGE_TYPE
+    ) AS grant_key
+    FROM information_schema.TABLE_PRIVILEGES
+    WHERE GRANTEE = '''ecobin_trigger_definer''@''%'''
+      AND TABLE_SCHEMA = '$DatabaseName'
+    UNION ALL
+    SELECT CONCAT(
+        'COLUMN|', TABLE_SCHEMA, '|', TABLE_NAME, '|',
+        COLUMN_NAME, '|', PRIVILEGE_TYPE
+    ) AS grant_key
+    FROM information_schema.COLUMN_PRIVILEGES
+    WHERE GRANTEE = '''ecobin_trigger_definer''@''%'''
+      AND TABLE_SCHEMA = '$DatabaseName'
+) grant_rows
+ORDER BY grant_key;
+"@
+    $actualTriggerDefinerGrants = @(
+        $triggerDefinerGrantRows -split "\r?\n" |
+            Where-Object { $_.Length -gt 0 }
+    )
+    $expectedTriggerDefinerGrants = @(
+        "SCHEMA|$DatabaseName|TRIGGER"
+        "TABLE|$DatabaseName|dev_device_compatibility_projection|INSERT"
+        "TABLE|$DatabaseName|dev_device_management_profile|INSERT"
+        "COLUMN|$DatabaseName|dev_device_asset|asset_uid|SELECT"
+        "COLUMN|$DatabaseName|dev_device_asset|created_at|SELECT"
+        "COLUMN|$DatabaseName|dev_device_asset|device_public_code|SELECT"
+        "COLUMN|$DatabaseName|dev_device_asset|hardware_sn|SELECT"
+        "COLUMN|$DatabaseName|dev_device_asset|id|SELECT"
+        "COLUMN|$DatabaseName|dev_device_asset|lifecycle_status|SELECT"
+        "COLUMN|$DatabaseName|dev_device_asset|organization_assigned_at|SELECT"
+        "COLUMN|$DatabaseName|dev_device_asset|organization_id|SELECT"
+        "COLUMN|$DatabaseName|dev_device_asset|tenant_assigned_at|SELECT"
+        "COLUMN|$DatabaseName|dev_device_asset|tenant_id|SELECT"
+        "COLUMN|$DatabaseName|dev_device_asset|updated_at|SELECT"
+        "COLUMN|$DatabaseName|dev_device_compatibility_projection|asset_id|SELECT"
+        "COLUMN|$DatabaseName|dev_device_compatibility_projection|architecture_generation|SELECT"
+        "COLUMN|$DatabaseName|dev_device_compatibility_projection|management_state_sequence|SELECT"
+        "COLUMN|$DatabaseName|dev_device_management_profile|architecture_generation|SELECT"
+        "COLUMN|$DatabaseName|dev_device_management_profile|asset_id|SELECT"
+        "COLUMN|$DatabaseName|dev_device_management_profile|transition_source_event_uid|SELECT"
+        "COLUMN|$DatabaseName|dev_device_management_profile|transitioned_at|SELECT"
+        "COLUMN|$DatabaseName|iam_miniapp_channel|activated_at|SELECT"
+        "COLUMN|$DatabaseName|iam_miniapp_channel|appid|SELECT"
+        "COLUMN|$DatabaseName|iam_organization_user|miniapp_channel_id|SELECT"
+        "COLUMN|$DatabaseName|iam_organization_user|organization_id|SELECT"
+        "COLUMN|$DatabaseName|iam_organization_user|registered_at|SELECT"
+        "COLUMN|$DatabaseName|iam_organization_user|registered_via_asset_id|SELECT"
+        "COLUMN|$DatabaseName|iam_organization_user|tenant_id|SELECT"
+        "COLUMN|$DatabaseName|iam_organization_user|wechat_subject_id|SELECT"
+    ) | Sort-Object
+    $triggerDefinerGrantDifference = @(
+        Compare-Object `
+            -ReferenceObject $expectedTriggerDefinerGrants `
+            -DifferenceObject $actualTriggerDefinerGrants
+    )
+    if ($triggerDefinerGrantDifference.Count -gt 0) {
+        $grantDifferenceSummary = @(
+            $triggerDefinerGrantDifference | ForEach-Object {
+                "$($_.SideIndicator) $($_.InputObject)"
+            }
+        ) -join "; "
+        throw (
+            "Trigger definer grants did not converge to the exact V63 " +
+            "matrix: $grantDifferenceSummary"
+        )
+    }
 
     $tableSql =
         "SELECT table_name FROM information_schema.tables " +

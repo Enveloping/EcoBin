@@ -43,12 +43,30 @@ if ($provisionSource -notmatch (
         '(?s)if \(-not \$skipMigration\) \{.*?' +
         'Invoke-FlywayMigration -Target 63.*?' +
         '\r?\n    \}\r?\n\r?\n' +
-        '    # Re-apply final trigger grants even when.*?' +
+        '    # Converge the trigger definer even when.*?' +
         '    Invoke-RootSql -Sql @"\r?\n' +
+        'REVOKE IF EXISTS SELECT \(.*?' +
+        '\$database\.iam_organization_miniapp.*?' +
+        'REVOKE IF EXISTS SELECT \(.*?' +
+        'organization_miniapp_id, openid, ' +
+        'registered_via_deployment_id.*?' +
         'GRANT TRIGGER ON \$database\.\*\r?\n' +
         "\s+TO 'ecobin_trigger_definer'@'%';\r?\n" +
         'GRANT SELECT \(')) {
-    throw "V63 resumed environments must always converge trigger grants"
+    throw "V63 resumed environments must revoke legacy and converge grants"
+}
+if ($provisionSource -notmatch
+        '\$expectedTriggerDefinerGrants = @\(' -or
+        $provisionSource -notmatch
+        'information_schema\.SCHEMA_PRIVILEGES' -or
+        $provisionSource -notmatch
+        'information_schema\.TABLE_PRIVILEGES' -or
+        $provisionSource -notmatch
+        'information_schema\.COLUMN_PRIVILEGES' -or
+        $provisionSource -notmatch
+        '(?s)Compare-Object.*?-ReferenceObject ' +
+        '\$expectedTriggerDefinerGrants') {
+    throw "H-02 must reject any unexpected final trigger definer grant"
 }
 $legacyGrantIndex = $provisionSource.IndexOf(
     "V9 creates the legacy immutable mini-program triggers")
