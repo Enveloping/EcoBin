@@ -1,0 +1,81 @@
+{
+  "evidenceType": "STAGE3_ONLINE_SHADOW_PROBE",
+  "observedAt": "2026-09-02T16:00:18Z",
+  "result": "PASS",
+  "sourceCommit": "8fc355016605e615afb252fcb37a0c60dbed1d41",
+  "deviceImage": {
+    "releaseId": "single-card-hil-20260831-13",
+    "version": "0.1.0-single-card.20260831.13",
+    "pythonVersion": "3.11.2",
+    "testUid": 1000
+  },
+  "transfer": {
+    "interface": "COM3_DEBUG_CONSOLE",
+    "archiveSizeBytes": 35107,
+    "archiveSha256": "0303a99238551d278fe9bdf77e31d9c80fee6374a90e888fb85aabea50418af1",
+    "deviceDigestVerifiedBeforeExtraction": true
+  },
+  "isolation": {
+    "sourceRoot": "/home/orangepi/ecobin-v15-shadow-8fc35501-probe2",
+    "workRoot": "/home/orangepi/ecobin-v15-shadow-evidence-20260902-run02",
+    "systemDirectoriesModified": false,
+    "businessDatabaseAccessed": false,
+    "deviceCredentialsAccessed": false,
+    "onenetAccessed": false,
+    "uartAccessed": false,
+    "camerasAccessed": false,
+    "systemdInstalled": false
+  },
+  "communicationAgent": {
+    "schemaVersion": 2,
+    "processStartCount": 2,
+    "inProcessLifecycleRuns": 2,
+    "secondLifecycleCreatedNewRuntimeIdentity": true,
+    "onenetOwnership": "DISABLED",
+    "remoteUpdateRouting": "DISABLED",
+    "databaseMode": "0600",
+    "databaseIntegrity": "ok"
+  },
+  "updater": {
+    "schemaVersion": 3,
+    "inProcessLifecycleRuns": 2,
+    "secondLifecycleCreatedNewRuntimeIdentity": true,
+    "stage4CandidateEnabled": false,
+    "updatesEnabled": false,
+    "jobGateMode": "DISABLED",
+    "jobGateState": "LOCKED",
+    "privilegedHelperMutationEnabled": false,
+    "databaseMode": "0600",
+    "databaseIntegrity": "ok",
+    "rejectedActions": {
+      "START_BUSINESS_UPDATE": "FEATURE_DISABLED",
+      "START_MCU_UPDATE": "FEATURE_DISABLED",
+      "CANCEL_UPDATE": "FEATURE_DISABLED",
+      "RENEW_DOWNLOAD_AUTHORIZATION": "FEATURE_DISABLED"
+    }
+  },
+  "existingBusinessService": {
+    "observationMethod": "EXTERNAL_COM3_READ_ONLY_BEFORE_AFTER",
+    "pidBefore": 1721,
+    "pidAfter": 1721,
+    "restartCountAfter": 0,
+    "activeStateAfter": "active",
+    "subStateAfter": "running"
+  },
+  "postProbe": {
+    "observationMethod": "EXTERNAL_COM3_READ_ONLY_AFTER",
+    "shadowProcessesRemaining": false,
+    "shadowSocketsRemaining": false,
+    "permanentCommunicationInstallPresent": false,
+    "permanentUpdaterInstallPresent": false
+  },
+  "probeGuard": {
+    "optimizedPythonModeRejected": true,
+    "negativeTestWorkRootCreated": false
+  },
+  "qualification": {
+    "countsAsV15ImageBoot": false,
+    "countsAsStage3Exit": false,
+    "requiresCleanImageHil": true
+  }
+}
