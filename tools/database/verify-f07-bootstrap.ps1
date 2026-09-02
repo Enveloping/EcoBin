@@ -1174,6 +1174,10 @@ WHERE login_name = 'enveloping';
         Invoke-MySql -Database "" -Sql @"
 GRANT TRIGGER ON ``$database``.*
     TO 'ecobin_trigger_definer'@'%';
+GRANT SELECT (
+    id, created_at, updated_at
+) ON ``$database``.dev_device_asset
+    TO 'ecobin_trigger_definer'@'%';
 GRANT INSERT ON ``$database``.dev_device_management_profile
     TO 'ecobin_trigger_definer'@'%';
 GRANT SELECT (
@@ -1189,6 +1193,67 @@ GRANT SELECT (
     TO 'ecobin_trigger_definer'@'%';
 "@ | Out-Null
     }
+
+    Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+INSERT INTO dev_device_asset (
+    asset_uid, device_public_code, hardware_sn,
+    model_name, production_batch, registration_source,
+    expected_port_count, installation_display_name,
+    installation_updated_at,
+    tenant_id, tenant_assigned_at,
+    organization_id, organization_assigned_at,
+    acceptance_status, accepted_at,
+    acceptance_evidence_sha256, last_acceptance_evaluated_at,
+    acceptance_failure_json,
+    lifecycle_status, disabled_at, disable_reason,
+    retired_at, retirement_reason, control_version,
+    created_at, updated_at
+) VALUES (
+    '63000000-0000-4000-8000-000000000001',
+    'Dv_V63TriggerProbe0000000001', 'V63-TRIGGER-PROBE',
+    'EC-M0', 'V63-PROBE', 'PLATFORM_MANUAL',
+    2, 'V63 trigger permission probe',
+    '2026-09-02 00:00:00.000',
+    NULL, NULL, NULL, NULL,
+    'PENDING', NULL, NULL, NULL, NULL,
+    'NORMAL', NULL, NULL, NULL, NULL, 0,
+    '2026-09-02 00:00:00.000', '2026-09-02 00:00:00.000'
+);
+"@ | Out-Null
+    $managementDefaults = Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT CONCAT(
+    (SELECT COUNT(*)
+     FROM dev_device_management_profile profile
+     JOIN dev_device_asset asset ON asset.id = profile.asset_id
+     WHERE asset.hardware_sn = 'V63-TRIGGER-PROBE'),
+    '|',
+    (SELECT COUNT(*)
+     FROM dev_device_compatibility_projection projection
+     JOIN dev_device_asset asset ON asset.id = projection.asset_id
+     WHERE asset.hardware_sn = 'V63-TRIGGER-PROBE')
+);
+"@
+    if ($managementDefaults -ne "1|1") {
+        throw "V63 new-asset management defaults were not created"
+    }
+    Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+DELETE projection
+FROM dev_device_compatibility_projection projection
+JOIN dev_device_asset asset ON asset.id = projection.asset_id
+WHERE asset.hardware_sn = 'V63-TRIGGER-PROBE';
+DELETE profile
+FROM dev_device_management_profile profile
+JOIN dev_device_asset asset ON asset.id = profile.asset_id
+WHERE asset.hardware_sn = 'V63-TRIGGER-PROBE';
+DELETE FROM dev_device_asset
+WHERE hardware_sn = 'V63-TRIGGER-PROBE';
+"@ | Out-Null
 
     $v1Marker = Invoke-MySql -Database $databaseNames.Correct -Sql @"
 SELECT CONCAT_WS('|', version, description, script, checksum, success)
@@ -1604,6 +1669,7 @@ WHERE schema_name = '$missingDatabase';
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
         correctV63Ready = $true
+        deviceAssetManagementTriggerReady = $true
         bagLabelBatchLimit500 = $true
         mcuRemoteUpdateCapabilityV60 = $true
         externalRequestIdV61 = $true

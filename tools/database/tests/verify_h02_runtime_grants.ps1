@@ -26,6 +26,10 @@ if ($provisionSource -notmatch '\$tables\.Count -ne 123' -or
     throw "H-02 provisioning must enforce the V63 123-table shape"
 }
 if ($provisionSource -notmatch
+        'id, asset_uid, device_public_code, hardware_sn' -or
+        $provisionSource -notmatch
+        'lifecycle_status, created_at, updated_at' -or
+        $provisionSource -notmatch
         'GRANT INSERT ON \$database\.dev_device_management_profile' -or
         $provisionSource -notmatch
         'transition_source_event_uid, transitioned_at' -or
@@ -34,6 +38,56 @@ if ($provisionSource -notmatch
         $provisionSource -notmatch
         'asset_id, architecture_generation, management_state_sequence') {
     throw "V63 triggers are missing their exact definer grants"
+}
+if ($provisionSource -notmatch (
+        '(?s)if \(-not \$skipMigration\) \{.*?' +
+        'Invoke-FlywayMigration -Target 63.*?' +
+        '\r?\n    \}\r?\n\r?\n' +
+        '    # Re-apply final trigger grants even when.*?' +
+        '    Invoke-RootSql -Sql @"\r?\n' +
+        'GRANT TRIGGER ON \$database\.\*\r?\n' +
+        "\s+TO 'ecobin_trigger_definer'@'%';\r?\n" +
+        'GRANT SELECT \(')) {
+    throw "V63 resumed environments must always converge trigger grants"
+}
+$legacyGrantIndex = $provisionSource.IndexOf(
+    "V9 creates the legacy immutable mini-program triggers")
+$target36Index = $provisionSource.IndexOf(
+    "Invoke-FlywayMigration -Target 36")
+$v36GrantIndex = $provisionSource.IndexOf(
+    "V36 replaces the trigger shapes")
+$target39Index = $provisionSource.IndexOf(
+    "Invoke-FlywayMigration -Target 39")
+$v39GrantIndex = $provisionSource.IndexOf(
+    "V39 installs the current channel/account trigger shapes")
+$target63Index = $provisionSource.IndexOf(
+    "Invoke-FlywayMigration -Target 63")
+if (
+    $legacyGrantIndex -lt 0 -or
+    $target36Index -le $legacyGrantIndex -or
+    $v36GrantIndex -le $target36Index -or
+    $target39Index -le $v36GrantIndex -or
+    $v39GrantIndex -le $target39Index -or
+    $target63Index -le $v39GrantIndex
+) {
+    throw "H-02 must grant each historical trigger before data backfills"
+}
+if ($provisionSource -notmatch (
+        '(?s)else \{\s*' +
+        '# The batch can create and unlock the schema owner.*?' +
+        '\$resumeSchemaOwnerUnlocked = \$true\s*' +
+        'Invoke-RootSql -Sql @"\s*CREATE DATABASE') -or
+    $provisionSource -notmatch
+        '\$ownerAccountCount = \[int\]\(Invoke-RootSql') {
+    throw "Fresh-install failures must idempotently re-lock the schema owner"
+}
+if ($f07BootstrapSource -notmatch
+        'id, created_at, updated_at' -or
+        $f07BootstrapSource -notmatch
+        'V63-TRIGGER-PROBE' -or
+        $f07BootstrapSource -notmatch
+        'deviceAssetManagementTriggerReady\s*=\s*\$true') {
+    throw "F-07 must execute the V63 new-asset trigger with final definer grants"
 }
 if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 63') {
     throw "H-02 provisioning must migrate through V63"

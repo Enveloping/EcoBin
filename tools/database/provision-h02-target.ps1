@@ -906,6 +906,7 @@ try {
 
     $database = Quote-Identifier -Value $DatabaseName
     $skipMigration = $false
+    $currentMigrationVersion = 0
     if ($ResumeExistingEmptyEnvironment) {
         $existingDatabaseCount = [int](Invoke-RootSql -Sql @"
 SELECT COUNT(*) FROM information_schema.schemata
@@ -939,6 +940,7 @@ WHERE table_schema = '$DatabaseName'
                 "SELECT MAX(CAST(version AS UNSIGNED)) " +
                 "FROM flyway_schema_history WHERE success=1;"
             ))
+        $currentMigrationVersion = $existingMaxVersion
         $resumeLayoutValid = (
             ($existingDomainTableCount -eq 96 -and
                 $existingHistoryCount -eq 30 -and
@@ -1071,6 +1073,10 @@ ALTER USER 'ecobin_schema_owner'@'%'
         }
     }
     else {
+        # The batch can create and unlock the schema owner before a remote
+        # acknowledgement is lost. Mark it first so every later failure path
+        # attempts the idempotent ACCOUNT LOCK recovery.
+        $resumeSchemaOwnerUnlocked = $true
         Invoke-RootSql -Sql @"
 CREATE DATABASE $database
     CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
@@ -1090,9 +1096,14 @@ GRANT SET_ANY_DEFINER ON *.*
 
     if (-not $skipMigration) {
         $sshTunnelProcess = Start-RemoteDatabaseTunnel
-        if (-not $upgradeExistingMigratedEnvironment) {
+        if ($currentMigrationVersion -lt 8) {
             Invoke-FlywayMigration -Target 8 -OwnerPassword $ownerPassword
+            $currentMigrationVersion = 8
+        }
 
+        if ($currentMigrationVersion -lt 36) {
+            # V9 creates the legacy immutable mini-program triggers. Re-apply
+            # their grants before any V30-V35 data migration can update rows.
             Invoke-RootSql -Sql @"
 GRANT TRIGGER ON $database.*
     TO 'ecobin_trigger_definer'@'%';
@@ -1106,12 +1117,41 @@ GRANT SELECT (
 ) ON $database.iam_organization_user
     TO 'ecobin_trigger_definer'@'%';
 "@ | Out-Null
+
+            Invoke-FlywayMigration -Target 36 -OwnerPassword $ownerPassword
+            $currentMigrationVersion = 36
         }
 
-        Invoke-FlywayMigration -Target 63 -OwnerPassword $ownerPassword
-        $migrationCompleted = $true
+        if ($currentMigrationVersion -lt 39) {
+            # V36 replaces the trigger shapes. V48 later updates every asset,
+            # so the permanent-ownership trigger must already be executable
+            # even when the resumed database contains business rows.
+            Invoke-RootSql -Sql @"
+GRANT TRIGGER ON $database.*
+    TO 'ecobin_trigger_definer'@'%';
+GRANT SELECT (
+    tenant_id, organization_id, organization_miniapp_id, openid,
+    registered_at, registered_via_asset_id
+) ON $database.iam_organization_user
+    TO 'ecobin_trigger_definer'@'%';
+GRANT SELECT (
+    asset_uid, device_public_code, hardware_sn,
+    tenant_id, tenant_assigned_at,
+    organization_id, organization_assigned_at,
+    lifecycle_status
+) ON $database.dev_device_asset
+    TO 'ecobin_trigger_definer'@'%';
+"@ | Out-Null
 
+            Invoke-FlywayMigration -Target 39 -OwnerPassword $ownerPassword
+            $currentMigrationVersion = 39
+        }
+
+        # V39 installs the current channel/account trigger shapes. Grant them
+        # before V48 and V49 backfill existing assets and organization users.
         Invoke-RootSql -Sql @"
+GRANT TRIGGER ON $database.*
+    TO 'ecobin_trigger_definer'@'%';
 GRANT SELECT (
     activated_at, appid
 ) ON $database.iam_miniapp_channel
@@ -1126,6 +1166,35 @@ GRANT SELECT (
     tenant_id, tenant_assigned_at,
     organization_id, organization_assigned_at,
     lifecycle_status
+) ON $database.dev_device_asset
+    TO 'ecobin_trigger_definer'@'%';
+"@ | Out-Null
+
+        Invoke-FlywayMigration -Target 63 -OwnerPassword $ownerPassword
+        $currentMigrationVersion = 63
+        $migrationCompleted = $true
+    }
+
+    # Re-apply final trigger grants even when a resumed database is already at
+    # V63. GRANT and ACCOUNT LOCK are idempotent, and this lets the supported
+    # resume path converge databases provisioned by an older grant catalog.
+    Invoke-RootSql -Sql @"
+GRANT TRIGGER ON $database.*
+    TO 'ecobin_trigger_definer'@'%';
+GRANT SELECT (
+    activated_at, appid
+) ON $database.iam_miniapp_channel
+    TO 'ecobin_trigger_definer'@'%';
+GRANT SELECT (
+    tenant_id, organization_id, miniapp_channel_id, wechat_subject_id,
+    registered_at, registered_via_asset_id
+) ON $database.iam_organization_user
+    TO 'ecobin_trigger_definer'@'%';
+GRANT SELECT (
+    id, asset_uid, device_public_code, hardware_sn,
+    tenant_id, tenant_assigned_at,
+    organization_id, organization_assigned_at,
+    lifecycle_status, created_at, updated_at
 ) ON $database.dev_device_asset
     TO 'ecobin_trigger_definer'@'%';
 GRANT INSERT ON $database.dev_device_management_profile
@@ -1143,8 +1212,7 @@ GRANT SELECT (
     TO 'ecobin_trigger_definer'@'%';
 ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
 "@ | Out-Null
-        $resumeSchemaOwnerUnlocked = $false
-    }
+    $resumeSchemaOwnerUnlocked = $false
 
     $tableSql =
         "SELECT table_name FROM information_schema.tables " +
@@ -1483,15 +1551,21 @@ catch {
     $failure = $_
     if ($resumeSchemaOwnerUnlocked) {
         try {
-            Invoke-RootSql -Sql @"
+            $ownerAccountCount = [int](Invoke-RootSql -Sql @"
+SELECT COUNT(*) FROM mysql.user
+WHERE user = 'ecobin_schema_owner' AND host = '%';
+"@)
+            if ($ownerAccountCount -eq 1) {
+                Invoke-RootSql -Sql @"
 ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
 "@ | Out-Null
-            $ownerLockState = Invoke-RootSql -Sql @"
+                $ownerLockState = Invoke-RootSql -Sql @"
 SELECT account_locked FROM mysql.user
 WHERE user = 'ecobin_schema_owner' AND host = '%';
 "@
-            if ($ownerLockState -ne "Y") {
-                throw "ecobin_schema_owner did not return to ACCOUNT LOCK"
+                if ($ownerLockState -ne "Y") {
+                    throw "ecobin_schema_owner did not return to ACCOUNT LOCK"
+                }
             }
             $resumeSchemaOwnerUnlocked = $false
         }

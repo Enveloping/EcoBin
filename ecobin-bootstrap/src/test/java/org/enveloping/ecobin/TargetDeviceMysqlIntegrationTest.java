@@ -236,10 +236,7 @@ class TargetDeviceMysqlIntegrationTest {
                         "hardwareSn", hardwareSn,
                         "modelCode", "EC-M0",
                         "productionBatch", "FACTORY-BAGS-" + run,
-                        "expectedPortCount", 2,
-                        "factoryBags", List.of(
-                                Map.of("portNo", 1, "bagCode", firstBag),
-                                Map.of("portNo", 2, "bagCode", secondBag))),
+                        "expectedPortCount", 2),
                 201));
         long assetId = assetId(hardwareSn);
 
@@ -831,11 +828,10 @@ class TargetDeviceMysqlIntegrationTest {
                         "hardwareSn", hardwareSn,
                         "modelCode", "EC-M0",
                         "productionBatch", "BATCH-" + run,
-                        "expectedPortCount", 2,
-                        "factoryBags", java.util.List.of(
-                                Map.of("portNo", 1, "bagCode", firstBag),
-                                Map.of("portNo", 2, "bagCode", secondBag))),
+                        "expectedPortCount", 2),
                 201));
+        long assetId = assetId(hardwareSn);
+        seedFactoryBagFixtures(assetId, List.of(firstBag, secondBag));
         String deviceCode = created.path("deviceCode").asText();
         assertTrue(deviceCode.matches("Dv_[A-Za-z0-9_-]{24,61}"));
         assertEquals("NORMAL", created.path("lifecycleStatus").asText());
@@ -874,6 +870,7 @@ class TargetDeviceMysqlIntegrationTest {
                 200));
         assertEquals("PASSED", reevaluated.path("acceptanceStatus").asText());
         assertEquals(1, reevaluated.path("version").asLong());
+        sealCurrentAcceptanceFixture(assetId);
         JsonNode accepted = data(read(platform,
                 "/api/v1/web/platform/device-assets/" + hardwareSn,
                 200));
@@ -909,7 +906,6 @@ class TargetDeviceMysqlIntegrationTest {
         assertEquals("DEVICE.TENANT_ASSIGNMENT_PERMANENT",
                 wrongTenant.path("code").asText());
 
-        long assetId = assetId(hardwareSn);
         long otherTenantId = jdbc.queryForObject(
                 "SELECT id FROM iam_tenant WHERE tenant_code = ?",
                 Long.class, otherTenantCode);
@@ -1210,11 +1206,10 @@ class TargetDeviceMysqlIntegrationTest {
                         "hardwareSn", hardwareSn,
                         "modelCode", "EC-M0",
                         "productionBatch", "BATCH-" + run,
-                        "expectedPortCount", 1,
-                        "factoryBags", List.of(Map.of(
-                                "portNo", 1,
-                                "bagCode", factoryBagCode))),
+                        "expectedPortCount", 1),
                 201));
+        seedFactoryBagFixtures(
+                assetId(hardwareSn), List.of(factoryBagCode));
         seedAcceptedEvidenceFixture(hardwareSn);
         data(write(
                 platform,
@@ -1223,6 +1218,7 @@ class TargetDeviceMysqlIntegrationTest {
                 UUID.randomUUID(),
                 Map.of(),
                 200));
+        sealCurrentAcceptanceFixture(assetId(hardwareSn));
         data(write(
                 platform,
                 post("/api/v1/web/platform/device-assets/" + hardwareSn
@@ -1377,21 +1373,24 @@ class TargetDeviceMysqlIntegrationTest {
             long operatorId,
             long labelId) {
         assertEquals(1, jdbc.update("""
-                        UPDATE dev_factory_installed_bag
-                        SET installation_source = 'FACTORY_MINIAPP',
-                            installed_by_factory_operator_id = ?,
-                            label_item_id = ?,
-                            updated_at = UTC_TIMESTAMP(3)
-                        WHERE asset_id = ?
-                          AND port_no = ?
-                          AND bag_code = ?
-                          AND installation_source = 'PLATFORM_CREATE'
+                        INSERT INTO dev_factory_installed_bag (
+                            asset_id, port_no, bag_code,
+                            installation_source,
+                            installed_by_factory_operator_id,
+                            label_item_id, tare_status,
+                            last_failure_code, installed_at,
+                            created_at, updated_at
+                        ) VALUES (
+                            ?, ?, ?, 'FACTORY_MINIAPP', ?, ?,
+                            'PENDING', NULL, UTC_TIMESTAMP(3),
+                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
                         """,
-                operatorId,
-                labelId,
                 assetId,
                 portNo,
-                bagCode));
+                bagCode,
+                operatorId,
+                labelId));
         assertEquals(1, jdbc.update("""
                         INSERT INTO rec_bag_label_claim (
                             claim_uid, label_item_id, claim_kind,
@@ -1408,6 +1407,87 @@ class TargetDeviceMysqlIntegrationTest {
                 assetId,
                 portNo,
                 operatorId));
+    }
+
+    private void seedFactoryBagFixtures(
+            long assetId,
+            List<String> bagCodes) {
+        long platformAdminId = jdbc.queryForObject("""
+                        SELECT id FROM iam_platform_admin
+                        WHERE login_name = ?
+                        """, Long.class, platformLogin);
+        String operatorCode = "OP_" + UUID.randomUUID().toString()
+                .replace("-", "").substring(0, 12).toUpperCase();
+        assertEquals(1, jdbc.update("""
+                        INSERT INTO iam_factory_operator (
+                            factory_operator_uid, operator_code,
+                            display_name, enabled, auth_version,
+                            lock_version, created_by_platform_admin_id,
+                            created_at, updated_at
+                        ) VALUES (?, ?, 'Device integration operator', 1,
+                                  0, 0, ?, UTC_TIMESTAMP(3),
+                                  UTC_TIMESTAMP(3))
+                        """,
+                UUID.randomUUID().toString(),
+                operatorCode,
+                platformAdminId));
+        long operatorId = jdbc.queryForObject("""
+                        SELECT id FROM iam_factory_operator
+                        WHERE operator_code = ?
+                        """, Long.class, operatorCode);
+
+        UUID batchUid = UUID.randomUUID();
+        assertEquals(1, jdbc.update("""
+                        INSERT INTO rec_bag_label_batch (
+                            batch_uid, operation_uid, key_id, label_count,
+                            request_sha256, created_by_platform_admin_id,
+                            created_at
+                        ) VALUES (?, ?, 'K1', ?, UNHEX(SHA2(?, 256)), ?,
+                                  UTC_TIMESTAMP(3))
+                        """,
+                batchUid.toString(),
+                UUID.randomUUID().toString(),
+                bagCodes.size(),
+                "device-integration-factory-bags-" + UUID.randomUUID(),
+                platformAdminId));
+        long batchId = jdbc.queryForObject("""
+                        SELECT id FROM rec_bag_label_batch
+                        WHERE batch_uid = ?
+                        """, Long.class, batchUid.toString());
+        for (int index = 0; index < bagCodes.size(); index++) {
+            String bagCode = bagCodes.get(index);
+            int portNo = index + 1;
+            assertEquals(1, jdbc.update("""
+                            INSERT INTO rec_bag_label_item (
+                                batch_id, sequence_no, bag_code, created_at
+                            ) VALUES (?, ?, ?, UTC_TIMESTAMP(3))
+                            """,
+                    batchId,
+                    portNo,
+                    bagCode));
+            long labelId = jdbc.queryForObject("""
+                            SELECT id FROM rec_bag_label_item
+                            WHERE batch_id = ? AND sequence_no = ?
+                            """, Long.class, batchId, portNo);
+            verifyFactoryBagFixture(
+                    assetId, portNo, bagCode, operatorId, labelId);
+        }
+        String canonicalBagSet = java.util.stream.IntStream
+                .range(0, bagCodes.size())
+                .mapToObj(index -> (index + 1) + ":" + bagCodes.get(index))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        assertEquals(1, jdbc.update("""
+                        UPDATE dev_device_asset
+                        SET factory_bag_revision =
+                                factory_bag_revision + ?,
+                            factory_bag_set_sha256 =
+                                UNHEX(SHA2(?, 256)),
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE id = ?
+                        """,
+                bagCodes.size(),
+                canonicalBagSet,
+                assetId));
     }
 
     private UUID insertAcceptanceRequestTask(
@@ -1650,45 +1730,103 @@ class TargetDeviceMysqlIntegrationTest {
 
     private void seedAcceptedEvidenceFixture(String hardwareSn) {
         long assetId = assetId(hardwareSn);
-        int expectedPortCount = jdbc.queryForObject("""
-                        SELECT expected_port_count
+        long factoryBagRevision = jdbc.queryForObject("""
+                        SELECT factory_bag_revision
                         FROM dev_device_asset
                         WHERE id = ?
                         """,
-                Integer.class,
+                Long.class,
                 assetId);
-        String evidenceUid = UUID.randomUUID().toString();
-        String challengeUid = UUID.randomUUID().toString();
-        String commandUid = UUID.randomUUID().toString();
-        String storeUid = UUID.randomUUID().toString();
-        String digestSeed = "accepted:" + hardwareSn;
-        jdbc.update("""
-                        INSERT INTO dev_device_acceptance_evidence (
-                            evidence_uid, asset_id, challenge_uid, command_uid,
-                            evidence_schema_version, edge_store_instance_uid,
-                            edge_software_version, edge_protocol_version,
-                            mcu_firmware_version, onenet_online,
-                            persistent_store_healthy, trusted_time_healthy,
-                            configuration_persistence_healthy,
-                            mcu_communication_healthy, sensors_healthy,
-                            cameras_capture_healthy, camera_upload_healthy,
-                            mcu_simulated, cameras_simulated,
-                            evaluation_status, failure_reasons_json,
-                            evidence_json, evidence_sha256,
-                            observed_at, received_at, created_at
-                        ) VALUES (
-                            ?, ?, ?, ?, 1, ?, '0.1.0', '2', 'mcu-real',
-                            1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                            'PASSED', JSON_ARRAY(), JSON_OBJECT(
-                                'verifiedPortCount', ?,
-                                'verifiedCameraCount', ?
-                            ), UNHEX(SHA2(?, 256)),
-                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3),
-                            UTC_TIMESTAMP(3)
-                        )
+        String factoryBagSetSha256 = jdbc.queryForObject("""
+                        SELECT LOWER(HEX(factory_bag_set_sha256))
+                        FROM dev_device_asset
+                        WHERE id = ?
                         """,
-                evidenceUid, assetId, challengeUid, commandUid, storeUid,
-                expectedPortCount, expectedPortCount, digestSeed);
+                String.class,
+                assetId);
+        assertNotNull(factoryBagSetSha256);
+        seedCurrentAcceptedEvidenceFixture(
+                assetId, factoryBagRevision, factoryBagSetSha256);
+    }
+
+    private void sealCurrentAcceptanceFixture(long assetId) {
+        String completionSeed = UUID.randomUUID().toString();
+        assertEquals(1, jdbc.update("""
+                        UPDATE dev_factory_seal_authorization authorization
+                        JOIN dev_device_asset asset
+                          ON asset.id = authorization.asset_id
+                        SET authorization.authorization_status = 'SEALED',
+                            completion_event_uid = ?,
+                            completion_payload_sha256 =
+                                UNHEX(SHA2(CONCAT(?, ':payload'), 256)),
+                            image_release_id = 'integration-test-image',
+                            image_release_sha256 =
+                                UNHEX(SHA2(CONCAT(?, ':image'), 256)),
+                            factory_report_sha256 =
+                                UNHEX(SHA2(CONCAT(?, ':report'), 256)),
+                            authorization_binding_sha256 =
+                                UNHEX(SHA2(CONCAT(?, ':binding'), 256)),
+                            operator_confirmation_uid = ?,
+                            completion_clock_quality = 'SYNCED',
+                            sealed_at = UTC_TIMESTAMP(3),
+                            cleanup_completed_at = UTC_TIMESTAMP(3),
+                            completion_received_at = UTC_TIMESTAMP(3),
+                            authorization.updated_at = UTC_TIMESTAMP(3)
+                        WHERE authorization.asset_id = ?
+                          AND authorization.authorization_status IN (
+                              'PENDING', 'ACKNOWLEDGED'
+                          )
+                          AND asset.acceptance_status = 'PASSED'
+                          AND authorization.acceptance_generation =
+                              asset.acceptance_generation
+                          AND authorization.acceptance_evidence_sha256 =
+                              asset.acceptance_evidence_sha256
+                          AND authorization.factory_bag_revision =
+                              asset.factory_bag_revision
+                          AND authorization.factory_bag_set_sha256 =
+                              asset.factory_bag_set_sha256
+                        """,
+                UUID.randomUUID().toString(),
+                completionSeed,
+                completionSeed,
+                completionSeed,
+                completionSeed,
+                UUID.randomUUID().toString(),
+                assetId));
+        assertEquals(1, jdbc.update("""
+                        UPDATE ops_reliable_task task
+                        JOIN dev_factory_seal_authorization authorization
+                          ON authorization.reliable_task_uid = task.task_uid
+                        JOIN dev_device_asset asset
+                          ON asset.id = authorization.asset_id
+                        SET task.state = 'DONE',
+                            task.next_run_at = NULL,
+                            task.lease_token = NULL,
+                            task.lease_worker = NULL,
+                            task.lease_until = NULL,
+                            task.dispatch_wait_reason = NULL,
+                            task.consecutive_failure_count = 0,
+                            task.handled_wake_version = task.wake_version,
+                            task.completed_at = UTC_TIMESTAMP(3),
+                            task.blocked_reason_code = NULL,
+                            task.blocked_diagnostic = NULL,
+                            task.lock_version = task.lock_version + 1,
+                            task.updated_at = UTC_TIMESTAMP(3)
+                        WHERE authorization.asset_id = ?
+                          AND authorization.authorization_status = 'SEALED'
+                          AND asset.acceptance_status = 'PASSED'
+                          AND authorization.acceptance_generation =
+                              asset.acceptance_generation
+                          AND authorization.acceptance_evidence_sha256 =
+                              asset.acceptance_evidence_sha256
+                          AND authorization.factory_bag_revision =
+                              asset.factory_bag_revision
+                          AND authorization.factory_bag_set_sha256 =
+                              asset.factory_bag_set_sha256
+                          AND task.task_type = 'AUTHORIZE_FACTORY_SEAL'
+                          AND task.state IN ('PENDING', 'BLOCKED')
+                        """,
+                assetId));
     }
 
     private ReplacementBagFacts seedReplacementBag(
