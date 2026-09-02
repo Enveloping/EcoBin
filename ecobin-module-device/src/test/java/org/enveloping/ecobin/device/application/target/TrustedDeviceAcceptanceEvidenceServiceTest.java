@@ -60,6 +60,34 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
     }
 
     @Test
+    void configuredRuntimeVersionIsAcceptedButUnknownVersionIsRejected() {
+        TrustedDeviceAcceptanceEvidenceService service = service(
+                "0.1.0, hardware-runtime-20260903-16");
+        LocalDateTime observedAt = LocalDateTime.of(
+                2026, 9, 3, 2, 0);
+        var asset = new TrustedDeviceAcceptanceEvidenceService.AssetState(
+                1L, DEVICE_PUBLIC_CODE, 1, 1L, new byte[32],
+                "PENDING", 0L, true, true);
+
+        assertThat(service.failures(
+                asset,
+                withEdgeSoftwareVersion(
+                        healthyEvidence(false, false),
+                        "hardware-runtime-20260903-16"),
+                observedAt,
+                observedAt.plusSeconds(1)))
+                .isEmpty();
+        assertThat(service.failures(
+                asset,
+                withEdgeSoftwareVersion(
+                        healthyEvidence(false, false),
+                        "hardware-runtime-unknown"),
+                observedAt,
+                observedAt.plusSeconds(1)))
+                .containsExactly("UNSUPPORTED_EDGE_SOFTWARE");
+    }
+
+    @Test
     void unsynchronizedClockDoesNotFailOtherwiseHealthyAcceptance() {
         TrustedDeviceAcceptanceEvidenceService service = service();
         var healthy = healthyEvidence(false, false);
@@ -374,6 +402,11 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
     }
 
     private static TrustedDeviceAcceptanceEvidenceService service() {
+        return service("0.1.0");
+    }
+
+    private static TrustedDeviceAcceptanceEvidenceService service(
+            String supportedSoftwareVersions) {
         return new TrustedDeviceAcceptanceEvidenceService(
                 mock(JdbcTemplate.class),
                 JsonMapper.builder().build(),
@@ -381,7 +414,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 mock(TrustedDeviceAcceptanceChallengePort.class),
                 mock(ReliablePlatformEdgeConfirmationService.class),
                 mock(FactorySealAuthorizationService.class),
-                "0.1.0",
+                supportedSoftwareVersions,
                 Duration.ofMinutes(10));
     }
 
@@ -636,6 +669,37 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 evidence.cameraUploadHealthy(),
                 stored,
                 sha256,
+                evidence.mcuSimulated(),
+                evidence.camerasSimulated(),
+                evidence.verifiedPortCount(),
+                evidence.verifiedCameraCount(),
+                evidence.sensorSampleSha256(),
+                evidence.cameraCaptureSha256(),
+                evidence.cameraUploadSha256());
+    }
+
+    private static TrustedDeviceAcceptanceEvidenceService.Evidence
+            withEdgeSoftwareVersion(
+                    TrustedDeviceAcceptanceEvidenceService.Evidence evidence,
+                    String edgeSoftwareVersion) {
+        return new TrustedDeviceAcceptanceEvidenceService.Evidence(
+                evidence.challengeUid(),
+                evidence.factoryBagRevision(),
+                evidence.factoryBagSetSha256(),
+                edgeSoftwareVersion,
+                evidence.edgeProtocolVersion(),
+                evidence.edgeStoreInstanceUid(),
+                evidence.mcuFirmwareVersion(),
+                evidence.persistentStoreHealthy(),
+                evidence.trustedTimeHealthy(),
+                evidence.configurationPersistenceHealthy(),
+                evidence.mcuCommunicationHealthy(),
+                evidence.mcuRemoteUpdateCapable(),
+                evidence.sensorsHealthy(),
+                evidence.camerasCaptureHealthy(),
+                evidence.cameraUploadHealthy(),
+                evidence.deviceEntryUrlStored(),
+                evidence.deviceEntryUrlSha256(),
                 evidence.mcuSimulated(),
                 evidence.camerasSimulated(),
                 evidence.verifiedPortCount(),
