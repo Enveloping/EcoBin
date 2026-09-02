@@ -151,6 +151,23 @@ RUNTIME_DROP_IN_PATH = (
     "/etc/systemd/system/ecobin-runtime.target.d/"
     "50-device-management-maintenance.conf"
 )
+LEGACY_GATE_DROP_IN_PATH = (
+    "/etc/systemd/system/ecobin-hardware.service.d/20-first-boot-gate.conf"
+)
+LEGACY_GATE_DROP_IN_SHA256 = (
+    "26660ce84b4465fd23f01f546fd78b72e4159be095d3a52e886560bba168f4d9"
+)
+LEGACY_GATE_DROP_IN_CONTENT = (
+    "[Unit]\n"
+    "Requires=ecobin-runtime-gate.service\n"
+    "After=ecobin-runtime-gate.service\n"
+    "Conflicts=ecobin-factory-test.service\n"
+    "\n"
+    "[Service]\n"
+    "Environment=PYTHONPATH=/opt/ecobin/factory-test/current/app\n"
+    "ExecCondition=/opt/ecobin/factory-test/current/.venv/bin/python "
+    "-m first_boot.gate --require runtime\n"
+).encode("utf-8")
 DROP_IN_CONTENT = (
     "[Unit]\n"
     "Wants=ecobin-communication.service ecobin-updater.service "
@@ -178,6 +195,8 @@ IMMUTABLE_PATHS = frozenset(
         "/etc/ecobin/image-release.json",
         "/usr/share/ecobin/image-release.json",
         "/etc/ecobin/hardware.env",
+        "/etc/systemd/system/ecobin-hardware.service.d",
+        LEGACY_GATE_DROP_IN_PATH,
         "/opt/ecobin/hardware/current",
         "/var/lib/ecobin/hardware/edge.db",
         "/var/lib/ecobin/hardware/edge.db-wal",
@@ -889,6 +908,10 @@ class MaintenanceInstaller:
             instances.add(unit)
         return tuple(sorted(instances))
 
+    @staticmethod
+    def _reported_drop_in_paths(state: Mapping[str, str]) -> tuple[str, ...]:
+        return tuple(state.get("dropInPaths", "").split())
+
     def _metadata_ids(self, path: Path, details: os.stat_result) -> tuple[int, int]:
         absolute = "/" + path.relative_to(self.rootfs).as_posix()
         if self.metadata_identity is not None:
@@ -991,9 +1014,9 @@ class MaintenanceInstaller:
             require_legacy_active and legacy["activeState"] != "active"
         ):
             raise MaintenanceInstallError("known legacy hardware service is not active and loaded")
-        if legacy["dropInPaths"]:
+        if self._reported_drop_in_paths(legacy) != (LEGACY_GATE_DROP_IN_PATH,):
             raise MaintenanceInstallError(
-                "known legacy hardware service has uncontrolled drop-ins"
+                "known legacy hardware service drop-in report differs from v13 baseline"
             )
         fragment = legacy["fragmentPath"]
         if not fragment.startswith("/"):
@@ -1016,7 +1039,7 @@ class MaintenanceInstaller:
             raise MaintenanceInstallError(
                 "MCU safe-GPIO service is not active and loaded"
             )
-        if safe_gpio["dropInPaths"]:
+        if self._reported_drop_in_paths(safe_gpio):
             raise MaintenanceInstallError(
                 "MCU safe-GPIO service has uncontrolled drop-ins"
             )
@@ -1269,6 +1292,35 @@ class MaintenanceInstaller:
             if _lexists(path):
                 self._assert_safe_directory(path, f"existing base directory {optional}")
 
+    def _assert_legacy_gate_drop_in(self, directory: Path) -> None:
+        directory_details = self._assert_safe_directory(
+            directory,
+            "v13 legacy gate drop-in directory",
+            expected_mode=0o755,
+        )
+        if os.name == "posix" and directory_details.st_nlink != 2:
+            raise MaintenanceInstallError(
+                "v13 legacy gate drop-in directory link count differs"
+            )
+        entries = list(directory.iterdir())
+        expected_name = PurePosixPath(LEGACY_GATE_DROP_IN_PATH).name
+        if len(entries) != 1 or entries[0].name != expected_name:
+            raise MaintenanceInstallError(
+                "v13 legacy gate drop-in directory has uncontrolled entries"
+            )
+        gate = entries[0]
+        details = self._assert_safe_regular(gate, "v13 legacy gate drop-in")
+        if (
+            details.st_nlink != 1
+            or self._metadata_mode(gate, details) != 0o644
+            or details.st_size != len(LEGACY_GATE_DROP_IN_CONTENT)
+            or _sha256_file(gate) != LEGACY_GATE_DROP_IN_SHA256
+            or gate.read_bytes() != LEGACY_GATE_DROP_IN_CONTENT
+        ):
+            raise MaintenanceInstallError(
+                "v13 legacy gate drop-in bytes or metadata differ"
+            )
+
     def _assert_dropin_filesystem(self, *, installed: bool) -> None:
         exact_names = {
             f"{unit}.d"
@@ -1280,9 +1332,15 @@ class MaintenanceInstaller:
                 *HELPER_UNIT_FILES,
             )
         }
+        legacy_directory_name = f"{LEGACY_SERVICE}.d"
         runtime_directory_name = f"{RUNTIME_TARGET}.d"
         runtime_file_name = PurePosixPath(RUNTIME_DROP_IN_PATH).name
-        for base_absolute in ("/etc/systemd/system", "/run/systemd/system"):
+        legacy_found = False
+        for base_absolute in (
+            "/etc/systemd/system",
+            "/run/systemd/system",
+            "/usr/lib/systemd/system",
+        ):
             base = self._path(base_absolute)
             if not _lexists(base):
                 continue
@@ -1294,6 +1352,13 @@ class MaintenanceInstaller:
                     for prefix in HELPER_INSTANCE_PREFIXES
                 )
                 if not related:
+                    continue
+                if (
+                    base_absolute == "/etc/systemd/system"
+                    and name == legacy_directory_name
+                ):
+                    self._assert_legacy_gate_drop_in(child)
+                    legacy_found = True
                     continue
                 if (
                     installed
@@ -1318,6 +1383,8 @@ class MaintenanceInstaller:
                     f"uncontrolled systemd drop-in state exists: "
                     f"{base_absolute}/{name}"
                 )
+        if not legacy_found:
+            raise MaintenanceInstallError("v13 legacy gate drop-in is absent")
 
     def _assert_targets_absent(self, manifest: MaintenanceManifest) -> None:
         for target in target_files(manifest):
@@ -1352,7 +1419,7 @@ class MaintenanceInstaller:
                 state["loadState"] != "not-found"
                 or state["activeState"] != "inactive"
                 or state["fragmentPath"]
-                or state["dropInPaths"]
+                or self._reported_drop_in_paths(state)
             ):
                 raise MaintenanceInstallError(
                     f"new permanent unit is already known to systemd: {unit}"
@@ -1388,7 +1455,9 @@ class MaintenanceInstaller:
             ):
                 self._assert_dropin_filesystem(installed=True)
                 runtime_target = self._systemctl_show(RUNTIME_TARGET)
-                if runtime_target["dropInPaths"] != RUNTIME_DROP_IN_PATH:
+                if self._reported_drop_in_paths(runtime_target) != (
+                    RUNTIME_DROP_IN_PATH,
+                ):
                     raise MaintenanceInstallError(
                         "installed runtime target drop-in state differs"
                     )
@@ -1414,7 +1483,10 @@ class MaintenanceInstaller:
             )
         self._assert_dropin_filesystem(installed=False)
         runtime_target = self._systemctl_show(RUNTIME_TARGET)
-        if runtime_target["loadState"] != "loaded" or runtime_target["dropInPaths"]:
+        if (
+            runtime_target["loadState"] != "loaded"
+            or self._reported_drop_in_paths(runtime_target)
+        ):
             raise MaintenanceInstallError(
                 "runtime target is unavailable or has uncontrolled drop-ins"
             )
@@ -2086,15 +2158,19 @@ class MaintenanceInstaller:
         if (
             actual.get("kind") != "symlink"
             or actual.get("target") != expected["target"]
-            or (
-                os.name == "posix"
-                and (
-                    actual.get("device") != expected["device"]
-                    or actual.get("inode") != expected["inode"]
-                )
-            )
+            or actual.get("device") != expected["device"]
+            or actual.get("inode") != expected["inode"]
         ):
             raise MaintenanceInstallError("hardware current release link changed")
+
+    def _assert_protected_paths_unchanged(self, record: Mapping[str, Any]) -> None:
+        for absolute, before in record.get("protectedBefore", {}).items():
+            if absolute == "/opt/ecobin/hardware/current":
+                continue
+            if self._snapshot(absolute) != before:
+                raise MaintenanceInstallError(
+                    f"protected device path changed during maintenance: {absolute}"
+                )
 
     def _assert_accounts(self) -> None:
         self._identity_installation_state(require_present=True)
@@ -2216,13 +2292,7 @@ class MaintenanceInstaller:
         self._assert_mcu_safety_gate()
         self._assert_dropin_filesystem(installed=True)
         self._assert_hardware_current_unchanged(record)
-        for absolute, before in record.get("protectedBefore", {}).items():
-            if absolute == "/opt/ecobin/hardware/current":
-                continue
-            if self._snapshot(absolute) != before:
-                raise MaintenanceInstallError(
-                    f"protected device path changed during maintenance: {absolute}"
-                )
+        self._assert_protected_paths_unchanged(record)
         artifact_intents = record.get("artifactIntents")
         if not isinstance(artifact_intents, list) or not artifact_intents:
             raise MaintenanceInstallError("artifact publication journal is absent")
@@ -2270,10 +2340,13 @@ class MaintenanceInstaller:
         states = {unit: self._systemctl_show(unit) for unit in TRACKED_UNITS}
         if (
             states[expected_legacy_service]["activeState"] != "active"
-            or states[expected_legacy_service]["dropInPaths"]
+            or self._reported_drop_in_paths(states[expected_legacy_service])
+            != (LEGACY_GATE_DROP_IN_PATH,)
         ):
             raise MaintenanceInstallError("legacy business service stopped during installation")
-        if states[RUNTIME_TARGET]["dropInPaths"] != RUNTIME_DROP_IN_PATH:
+        if self._reported_drop_in_paths(states[RUNTIME_TARGET]) != (
+            RUNTIME_DROP_IN_PATH,
+        ):
             raise MaintenanceInstallError(
                 "runtime target does not have the one controlled drop-in"
             )
@@ -2282,7 +2355,7 @@ class MaintenanceInstaller:
             if (
                 states[unit]["loadState"] != "loaded"
                 or states[unit]["fragmentPath"] != expected_fragment
-                or states[unit]["dropInPaths"]
+                or self._reported_drop_in_paths(states[unit])
             ):
                 raise MaintenanceInstallError(
                     f"installed unit fragment is not the controlled file: {unit}"
@@ -2549,7 +2622,7 @@ class MaintenanceInstaller:
                 errors.append(f"removed unit is not inactive: {unit}")
             if state.get("fragmentPath") in deleted_unit_paths:
                 errors.append(f"removed unit still points at deleted fragment: {unit}")
-            if state.get("dropInPaths"):
+            if self._reported_drop_in_paths(state):
                 errors.append(f"removed unit still has drop-ins: {unit}")
         try:
             residual_instances = self._helper_instances()
@@ -2568,13 +2641,13 @@ class MaintenanceInstaller:
                 errors.append(
                     f"removed helper instance still points at deleted fragment: {unit}"
                 )
-            if state.get("dropInPaths"):
+            if self._reported_drop_in_paths(state):
                 errors.append(f"removed helper instance still has drop-ins: {unit}")
 
         try:
             self._assert_dropin_filesystem(installed=False)
             runtime_target = self._systemctl_show(RUNTIME_TARGET)
-            if runtime_target.get("dropInPaths"):
+            if self._reported_drop_in_paths(runtime_target):
                 errors.append("runtime target still has maintenance drop-ins")
         except MaintenanceInstallError as exc:
             errors.append(f"cannot verify removed drop-ins: {exc}")
@@ -2602,6 +2675,20 @@ class MaintenanceInstaller:
             )
             if result.returncode != 0:
                 errors.append("cannot restore legacy service active state")
+
+        try:
+            legacy_state = self._systemctl_show(str(record["legacyService"]))
+            if self._reported_drop_in_paths(legacy_state) != (
+                LEGACY_GATE_DROP_IN_PATH,
+            ):
+                errors.append("legacy gate drop-in report changed during rollback")
+            self._assert_legacy_gate_drop_in(
+                self._path(str(PurePosixPath(LEGACY_GATE_DROP_IN_PATH).parent))
+            )
+            self._assert_protected_paths_unchanged(record)
+            self._assert_hardware_current_unchanged(record)
+        except MaintenanceInstallError as exc:
+            errors.append(f"legacy gate drop-in changed during rollback: {exc}")
 
         if errors:
             self._block_rollback(
@@ -2652,6 +2739,18 @@ class MaintenanceInstaller:
             expected_image_version,
             expected_legacy_service,
         )
+        legacy_state = self._systemctl_show(expected_legacy_service)
+        if self._reported_drop_in_paths(legacy_state) != (
+            LEGACY_GATE_DROP_IN_PATH,
+        ):
+            raise MaintenanceInstallError(
+                "legacy gate drop-in report changed before rollback"
+            )
+        self._assert_legacy_gate_drop_in(
+            self._path(str(PurePosixPath(LEGACY_GATE_DROP_IN_PATH).parent))
+        )
+        self._assert_protected_paths_unchanged(record)
+        self._assert_hardware_current_unchanged(record)
         if not apply:
             artifact_intents = record.get("artifactIntents", [])
             return {

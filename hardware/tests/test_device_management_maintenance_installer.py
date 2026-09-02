@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import stat
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Sequence
 
 import pytest
@@ -17,6 +18,9 @@ from system.device_management_maintenance_installer import (
     DROP_IN_RELATIVE,
     GROUP_NAMES,
     IPC_GROUP_MEMBERS,
+    LEGACY_GATE_DROP_IN_CONTENT,
+    LEGACY_GATE_DROP_IN_PATH,
+    LEGACY_GATE_DROP_IN_SHA256,
     HELPER_UNIT_FILES,
     LEGACY_SERVICE,
     MAIN_UNIT_FILES,
@@ -128,6 +132,7 @@ class FakeSystem:
         self.fail_stop: str | None = None
         self.sticky_active: str | None = None
         self.spawn_helper_on_socket_stop: str | None = None
+        self.legacy_drop_in_after_reload: str | None = None
         self.fail_reload = False
         self.calls: list[tuple[str, ...]] = []
         self.owners: dict[str, tuple[int, int]] = {}
@@ -152,6 +157,7 @@ class FakeSystem:
                 "active",
             ),
         }
+        self.states[LEGACY_SERVICE]["DropInPaths"] = LEGACY_GATE_DROP_IN_PATH
 
     @staticmethod
     def _state(
@@ -322,6 +328,10 @@ class FakeSystem:
                 if runtime_drop_in.is_file()
                 else ""
             )
+            if self.legacy_drop_in_after_reload is not None:
+                self.states[LEGACY_SERVICE]["DropInPaths"] = (
+                    self.legacy_drop_in_after_reload
+                )
             return CommandResult(0)
         if args[:2] == ("systemctl", "start"):
             unit = args[2]
@@ -448,6 +458,11 @@ def _make_rootfs(tmp_path: Path) -> tuple[Path, FakeSystem, Path]:
         b"[Service]\nExecStart=/bin/true\n",
     )
     _write(
+        rootfs / LEGACY_GATE_DROP_IN_PATH.lstrip("/"),
+        LEGACY_GATE_DROP_IN_CONTENT,
+        0o644,
+    )
+    _write(
         rootfs / "etc/systemd/system/ecobin-mcu-safe-gpio.service",
         b"[Service]\nType=oneshot\nExecStart=/bin/true\n",
     )
@@ -499,6 +514,18 @@ def _confirmations() -> dict[str, str]:
         "expected_image_version": IMAGE_VERSION,
         "expected_legacy_service": LEGACY_SERVICE,
     }
+
+
+def test_embedded_v13_gate_baseline_matches_the_image_source_file() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "first_boot/systemd/ecobin-hardware.service.d/20-first-boot-gate.conf"
+    )
+
+    assert source.read_bytes() == LEGACY_GATE_DROP_IN_CONTENT
+    assert hashlib.sha256(LEGACY_GATE_DROP_IN_CONTENT).hexdigest() == (
+        LEGACY_GATE_DROP_IN_SHA256
+    )
 
 
 def _maintenance_record(rootfs: Path) -> dict:
@@ -715,6 +742,128 @@ def test_rollback_is_dry_run_then_removes_only_exact_artifacts_and_restores_mode
         installer.preflight(payload, digest, **_confirmations())
 
 
+def test_install_audit_and_rollback_preserve_exact_v13_legacy_gate_drop_in(
+    tmp_path: Path,
+) -> None:
+    payload, digest = _make_payload(tmp_path)
+    rootfs, fake, _runtime = _make_rootfs(tmp_path)
+    installer = _installer(rootfs, fake)
+    gate = rootfs / LEGACY_GATE_DROP_IN_PATH.lstrip("/")
+    gate_directory = gate.parent
+    gate_before = gate.lstat()
+    directory_before = gate_directory.lstat()
+
+    installer.install(payload, digest, apply=True, **_confirmations())
+    record = _maintenance_record(rootfs)
+
+    assert LEGACY_GATE_DROP_IN_PATH in record["protectedBefore"]
+    assert str(PurePosixPath(LEGACY_GATE_DROP_IN_PATH).parent) in record[
+        "protectedBefore"
+    ]
+    assert LEGACY_GATE_DROP_IN_PATH not in {
+        item["path"] for item in record["artifactIntents"]
+    }
+    assert installer.audit(**_confirmations())["status"] == "PASS"
+
+    result = installer.rollback(apply=True, **_confirmations())
+    gate_after = gate.lstat()
+    directory_after = gate_directory.lstat()
+
+    assert result["status"] == "ROLLED_BACK"
+    assert gate.read_bytes() == LEGACY_GATE_DROP_IN_CONTENT
+    assert (gate_after.st_dev, gate_after.st_ino, gate_after.st_nlink) == (
+        gate_before.st_dev,
+        gate_before.st_ino,
+        gate_before.st_nlink,
+    )
+    assert (directory_after.st_dev, directory_after.st_ino) == (
+        directory_before.st_dev,
+        directory_before.st_ino,
+    )
+    assert fake.states[LEGACY_SERVICE]["DropInPaths"] == LEGACY_GATE_DROP_IN_PATH
+
+
+def test_changed_legacy_gate_blocks_audit_and_rollback_before_code_deletion(
+    tmp_path: Path,
+) -> None:
+    payload, digest = _make_payload(tmp_path)
+    rootfs, fake, _runtime = _make_rootfs(tmp_path)
+    installer = _installer(rootfs, fake)
+    installer.install(payload, digest, apply=True, **_confirmations())
+    gate = rootfs / LEGACY_GATE_DROP_IN_PATH.lstrip("/")
+    installed_code = rootfs / "etc/systemd/system/ecobin-updater.service"
+    gate.write_bytes(b"changed after installation\n")
+
+    with pytest.raises(MaintenanceInstallError):
+        installer.audit(**_confirmations())
+    with pytest.raises(MaintenanceInstallError):
+        installer.rollback(apply=True, **_confirmations())
+
+    assert installed_code.is_file()
+    assert (rootfs / ACTIVE_MARKER.lstrip("/")).is_file()
+
+
+@pytest.mark.parametrize("mutation", ("different-target", "same-target-new-inode"))
+def test_changed_hardware_current_blocks_rollback_before_permanent_code_deletion(
+    tmp_path: Path, mutation: str
+) -> None:
+    payload, digest = _make_payload(tmp_path)
+    rootfs, fake, _runtime = _make_rootfs(tmp_path)
+    installer = _installer(rootfs, fake)
+    installer.install(payload, digest, apply=True, **_confirmations())
+    current = rootfs / "opt/ecobin/hardware/current"
+    original_target = os.readlink(current)
+    original_inode = current.lstat().st_ino
+    if mutation == "different-target":
+        current.unlink()
+        current.symlink_to("releases/unexpected-runtime")
+    else:
+        replacement = current.with_name("current-maintenance-test-replacement")
+        replacement.symlink_to(original_target)
+        replacement_inode = replacement.lstat().st_ino
+        assert replacement_inode != original_inode
+        current.unlink()
+        replacement.rename(current)
+        assert os.readlink(current) == original_target
+        assert current.lstat().st_ino == replacement_inode
+    installed_code = rootfs / "etc/systemd/system/ecobin-updater.service"
+    stop_calls_before = sum(
+        call[:2] == ("systemctl", "stop") for call in fake.calls
+    )
+
+    with pytest.raises(MaintenanceInstallError, match="hardware current"):
+        installer.rollback(apply=True, **_confirmations())
+
+    assert installed_code.is_file()
+    assert (rootfs / ACTIVE_MARKER.lstrip("/")).is_file()
+    assert sum(call[:2] == ("systemctl", "stop") for call in fake.calls) == (
+        stop_calls_before
+    )
+
+
+def test_rollback_end_rechecks_legacy_gate_systemd_report_before_marker_clear(
+    tmp_path: Path,
+) -> None:
+    payload, digest = _make_payload(tmp_path)
+    rootfs, fake, _runtime = _make_rootfs(tmp_path)
+    installer = _installer(rootfs, fake)
+    installer.install(payload, digest, apply=True, **_confirmations())
+    gate = rootfs / LEGACY_GATE_DROP_IN_PATH.lstrip("/")
+    gate_inode = gate.lstat().st_ino
+    fake.legacy_drop_in_after_reload = (
+        f"{LEGACY_GATE_DROP_IN_PATH} "
+        "/run/systemd/system/ecobin-hardware.service.d/unexpected.conf"
+    )
+
+    with pytest.raises(MaintenanceInstallError, match="report changed"):
+        installer.rollback(apply=True, **_confirmations())
+
+    assert gate.read_bytes() == LEGACY_GATE_DROP_IN_CONTENT
+    assert gate.lstat().st_ino == gate_inode
+    assert (rootfs / ACTIVE_MARKER.lstrip("/")).is_file()
+    assert _maintenance_record(rootfs)["status"] == "ROLLBACK_BLOCKED"
+
+
 def test_rollback_refuses_to_delete_a_locally_changed_file(tmp_path: Path) -> None:
     payload, digest = _make_payload(tmp_path)
     rootfs, fake, _runtime = _make_rootfs(tmp_path)
@@ -841,7 +990,95 @@ def test_preflight_rejects_systemd_reported_drop_in_without_a_main_unit(
         _installer(rootfs, fake).preflight(payload, digest, **_confirmations())
 
 
-@pytest.mark.parametrize("base", ("etc/systemd/system", "run/systemd/system"))
+@pytest.mark.parametrize(
+    "reported",
+    (
+        "",
+        "/etc/systemd/system/ecobin-hardware.service.d/wrong.conf",
+        (
+            f"{LEGACY_GATE_DROP_IN_PATH} "
+            "/usr/lib/systemd/system/ecobin-hardware.service.d/vendor.conf"
+        ),
+    ),
+)
+def test_preflight_requires_exact_legacy_gate_systemd_report(
+    tmp_path: Path, reported: str
+) -> None:
+    payload, digest = _make_payload(tmp_path)
+    rootfs, fake, _runtime = _make_rootfs(tmp_path)
+    fake.states[LEGACY_SERVICE]["DropInPaths"] = reported
+
+    with pytest.raises(MaintenanceInstallError, match="v13 baseline"):
+        _installer(rootfs, fake).preflight(payload, digest, **_confirmations())
+
+
+@pytest.mark.parametrize(
+    "damage",
+    (
+        "missing",
+        "content",
+        "owner",
+        "group",
+        "mode",
+        "symlink",
+        "hardlink",
+        "sibling",
+        "directory-owner",
+        "directory-mode",
+    ),
+)
+def test_preflight_rejects_changed_legacy_gate_file_or_metadata(
+    tmp_path: Path, damage: str
+) -> None:
+    payload, digest = _make_payload(tmp_path)
+    rootfs, fake, _runtime = _make_rootfs(tmp_path)
+    absolute = LEGACY_GATE_DROP_IN_PATH
+    gate = rootfs / absolute.lstrip("/")
+    directory_absolute = str(PurePosixPath(absolute).parent)
+    directory = gate.parent
+
+    if damage == "missing":
+        gate.unlink()
+    elif damage == "content":
+        gate.write_bytes(b"[Unit]\nRequires=unexpected.service\n")
+    elif damage == "owner":
+        fake.owners[absolute] = (1000, 0)
+    elif damage == "group":
+        fake.owners[absolute] = (0, 1000)
+    elif damage == "mode":
+        fake.modes[absolute] = 0o600
+    elif damage == "symlink":
+        reference = rootfs / "gate-reference.conf"
+        _write(reference, LEGACY_GATE_DROP_IN_CONTENT)
+        gate.unlink()
+        try:
+            gate.symlink_to(reference)
+        except OSError:
+            pytest.skip("symbolic links are unavailable")
+    elif damage == "hardlink":
+        try:
+            os.link(gate, rootfs / "gate-hardlink.conf")
+        except OSError:
+            pytest.skip("hard links are unavailable")
+    elif damage == "sibling":
+        _write(directory / "99-uncontrolled.conf", b"[Service]\nUser=nobody\n")
+    elif damage == "directory-owner":
+        fake.owners[directory_absolute] = (1000, 0)
+    else:
+        fake.modes[directory_absolute] = 0o700
+
+    with pytest.raises(MaintenanceInstallError):
+        _installer(rootfs, fake).preflight(payload, digest, **_confirmations())
+
+
+@pytest.mark.parametrize(
+    "base",
+    (
+        "etc/systemd/system",
+        "run/systemd/system",
+        "usr/lib/systemd/system",
+    ),
+)
 def test_preflight_rejects_instance_specific_helper_drop_in_tree(
     tmp_path: Path, base: str
 ) -> None:
@@ -1064,4 +1301,17 @@ def test_audit_rejects_uncontrolled_systemd_drop_in(tmp_path: Path) -> None:
     )
 
     with pytest.raises(MaintenanceInstallError, match="controlled file"):
+        installer.audit(**_confirmations())
+
+
+def test_audit_rejects_missing_or_extra_legacy_gate_systemd_report(
+    tmp_path: Path,
+) -> None:
+    payload, digest = _make_payload(tmp_path)
+    rootfs, fake, _runtime = _make_rootfs(tmp_path)
+    installer = _installer(rootfs, fake)
+    installer.install(payload, digest, apply=True, **_confirmations())
+    fake.states[LEGACY_SERVICE]["DropInPaths"] = ""
+
+    with pytest.raises(MaintenanceInstallError):
         installer.audit(**_confirmations())
