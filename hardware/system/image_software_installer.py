@@ -699,6 +699,36 @@ def _validate_payload_semantics(payload_root: Path, lock: dict[str, Any]) -> Non
         _require_python_launcher(payload_root / components[name]["venv"])
 
     if lock["schemaVersion"] == LOCK_SCHEMA_VERSION:
+        # Schema v2 introduces permanent services and runs the replaceable
+        # business runtime as an unprivileged account.  Every directory inside
+        # a service component therefore has one canonical traversal mode.  A
+        # signed payload that records a restrictive builder umask is unusable
+        # and must be rejected before it reaches an image.
+        component_directories = {
+            components[name][field]
+            for name, field in (
+                ("hardwareRuntime", "root"),
+                ("enrollment", "venv"),
+                ("remoteSupport", "venv"),
+                ("factoryTest", "venv"),
+                ("communicationAgent", "root"),
+                ("deviceUpdater", "root"),
+            )
+        }
+        if os.name == "posix":
+            for entry in lock["entries"]:
+                path = entry["path"]
+                if (
+                    entry["type"] == "directory"
+                    and any(
+                        path == prefix or path.startswith(prefix + "/")
+                        for prefix in component_directories
+                    )
+                    and entry["mode"] != "0755"
+                ):
+                    raise ImageSoftwareError(
+                        "service component directory permissions are not 0755"
+                    )
         for component_name, expected_files in (
             ("communicationAgent", COMMUNICATION_AGENT_FILES),
             ("deviceUpdater", DEVICE_UPDATER_FILES),
@@ -1267,6 +1297,29 @@ def _assert_root_owned_directory_chain(
         _assert_root_owned_directory(current, mode)
 
 
+def _assert_root_owned_tree_directories(
+    installed: Path, mode: int = 0o755
+) -> None:
+    """Audit real directories in a controlled tree without following links."""
+
+    _assert_root_owned_directory(installed, mode)
+    for current_text, directory_names, _file_names in os.walk(
+        installed,
+        topdown=True,
+        followlinks=False,
+    ):
+        current = Path(current_text)
+        kept: list[str] = []
+        for name in directory_names:
+            directory = current / name
+            details = directory.lstat()
+            if stat.S_ISLNK(details.st_mode):
+                continue
+            _assert_root_owned_directory(directory, mode)
+            kept.append(name)
+        directory_names[:] = kept
+
+
 def _audit_public_runtime_trust_store(rootfs: Path, installed: Path) -> None:
     # Validate every path component with lstat before reading the trust store.
     # Otherwise a symlink at /usr, /usr/share, /usr/share/ecobin, or the store
@@ -1449,6 +1502,7 @@ def audit_image_software(
     repository_hardware = repository_root / "hardware"
     for shared_code_root in (
         rootfs / "opt/ecobin",
+        rootfs / "opt/ecobin/hardware",
         rootfs / "opt/ecobin/factory-test",
         rootfs / "opt/ecobin/remote-support",
     ):
@@ -1577,6 +1631,7 @@ def audit_image_software(
     hardware_current = rootfs / "opt/ecobin/hardware/current"
     if not hardware_current.is_symlink() or os.readlink(hardware_current) != f"releases/{components['hardwareRuntime']['releaseId']}":
         raise ImageSoftwareError("hardware runtime current link is invalid")
+    _assert_root_owned_tree_directories(hardware_release)
     runtime_app_files = (
         RUNTIME_APP_FILES if permanent_layer else LEGACY_RUNTIME_APP_FILES
     )
@@ -1600,6 +1655,7 @@ def audit_image_software(
     factory_release = rootfs / "opt/ecobin/factory-test/releases" / components["factoryTest"]["releaseId"]
     _assert_root_owned_directory(factory_release)
     _audit_factory_app(factory_release / "app", repository_hardware)
+    _assert_root_owned_tree_directories(factory_release / ".venv")
     if payload_root is not None:
         _assert_tree_matches(factory_release / ".venv", payload_root / components["factoryTest"]["venv"])
     _assert_tree_matches_lock(
@@ -1608,6 +1664,7 @@ def audit_image_software(
     enrollment = rootfs / "opt/ecobin/enrollment"
     for name in ENROLLMENT_FILES:
         _assert_same_file(enrollment / name, repository_hardware / name, 0o644)
+    _assert_root_owned_tree_directories(enrollment / ".venv")
     if payload_root is not None:
         _assert_tree_matches(enrollment / ".venv", payload_root / components["enrollment"]["venv"])
     _assert_tree_matches_lock(
@@ -1623,6 +1680,7 @@ def audit_image_software(
         raise ImageSoftwareError("remote support current link is invalid")
     _assert_root_owned_directory(remote_release)
     _assert_root_owned_directory(remote_release / "app")
+    _assert_root_owned_tree_directories(remote_release / ".venv")
     for name in REMOTE_SUPPORT_FILES:
         _assert_same_file(remote_release / "app" / name, repository_hardware / name, 0o644)
     if payload_root is not None:
@@ -1648,8 +1706,7 @@ def audit_image_software(
                 raise ImageSoftwareError(
                     f"permanent component current link is invalid: {component_name}"
                 )
-            _assert_root_owned_directory(component_release)
-            _assert_root_owned_directory(component_release / "app")
+            _assert_root_owned_tree_directories(component_release)
             for name in expected_files:
                 _assert_same_file(
                     component_release / "app" / name,
@@ -1668,8 +1725,7 @@ def audit_image_software(
             )
 
         helper_library = rootfs / "usr/lib/ecobin/device-management"
-        _assert_root_owned_directory(helper_library)
-        _assert_root_owned_directory(helper_library / "helpers")
+        _assert_root_owned_tree_directories(helper_library)
         updater_release = (
             rootfs
             / "opt/ecobin/updater/releases"

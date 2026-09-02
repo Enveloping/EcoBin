@@ -33,6 +33,7 @@ def test_stage_audits_venv_before_writing_private_completion_marker(
     calls: list[str] = []
 
     monkeypatch.setattr(stage.sys, "platform", "linux")
+    monkeypatch.setattr(stage.sys, "version_info", (3, 11))
     monkeypatch.setattr(stage.os, "geteuid", lambda: 0, raising=False)
     monkeypatch.setattr(
         stage,
@@ -72,6 +73,11 @@ def test_stage_audits_venv_before_writing_private_completion_marker(
         validate_marker,
         raising=False,
     )
+    monkeypatch.setattr(
+        stage.os,
+        "chmod",
+        lambda path, mode: calls.append(f"publish:{pathlib.Path(path).name}:{mode:o}"),
+    )
 
     result = stage.main(
         [
@@ -93,4 +99,9 @@ def test_stage_audits_venv_before_writing_private_completion_marker(
     )
 
     assert result == 0
-    assert calls == ["audit", "write-marker", "validate-marker"]
+    assert calls == [
+        "audit",
+        "write-marker",
+        "validate-marker",
+        "publish:runtime:755",
+    ]

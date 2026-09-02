@@ -114,6 +114,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             write_install_complete_marker(args.destination, args.release_id)
             validate_install_complete_marker(args.destination, args.release_id)
+            # Keep the incomplete staging root private.  Publish traversal only
+            # after the signed release, installed environment and completion
+            # marker have all passed their checks.
+            os.chmod(args.destination, 0o755)
         except Exception:
             shutil.rmtree(args.destination)
             raise

@@ -582,6 +582,33 @@ def safe_extract_archive_stream(
     else:
         target.mkdir(parents=True, exist_ok=False)
 
+    def ensure_release_directory(directory: Path) -> None:
+        """Create canonical release descendants without publishing ``target``.
+
+        Runtime installation deliberately keeps the incoming release root
+        private until all dependency and import checks have passed.  The
+        process-wide umask is therefore 0077, but that umask must not leak into
+        directories below the root: after publication the business service
+        needs to traverse every code and dependency directory.
+        """
+
+        try:
+            relative = directory.relative_to(target)
+        except ValueError as error:
+            raise ReleaseValidationError(
+                "archive directory escapes its extraction root"
+            ) from error
+        current = target
+        for part in relative.parts:
+            current /= part
+            current.mkdir(mode=0o755, exist_ok=True)
+            details = current.lstat()
+            if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
+                raise ReleaseValidationError(
+                    "archive directory conflicts with a non-directory entry"
+                )
+            os.chmod(current, 0o755)
+
     archive.seek(0)
     with tarfile.open(fileobj=archive, mode="r:*") as stream:
         members = stream.getmembers()
@@ -628,9 +655,9 @@ def safe_extract_archive_stream(
                 continue
             output = target.joinpath(*relative_parts)
             if member.isdir():
-                output.mkdir(mode=0o755, parents=True, exist_ok=True)
+                ensure_release_directory(output)
                 continue
-            output.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+            ensure_release_directory(output.parent)
             source = stream.extractfile(member)
             if source is None:
                 raise ReleaseValidationError("cannot read archive member")

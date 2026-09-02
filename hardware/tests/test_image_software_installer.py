@@ -367,6 +367,23 @@ def _make_payload(
     return payload, git_commit, _sha256(payload / "software-payload.lock.json")
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX directory modes are required")
+def test_payload_lock_rejects_private_service_component_directory(
+    tmp_path: Path,
+) -> None:
+    def make_runtime_app_private(payload: Path) -> None:
+        os.chmod(payload / "components/hardware-runtime/app", 0o700)
+
+    payload, _git_commit, digest = _make_payload(
+        tmp_path,
+        mutate_before_lock=make_runtime_app_private,
+        expect_valid=False,
+    )
+
+    assert digest == ""
+    assert not (payload / "software-payload.lock.json").exists()
+
+
 def _convert_payload_to_legacy_v1(
     payload: Path,
     git_commit: str,
@@ -820,6 +837,27 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
     if os.name == "posix":
         assert stat.S_IMODE(ecobin_root.stat().st_mode) == 0o755
         assert stat.S_IMODE(factory_test_root.stat().st_mode) == 0o755
+        hardware_release = ecobin_root / "hardware/releases/runtime-001"
+        communication_release = (
+            ecobin_root / "communication/releases/communication-001"
+        )
+        updater_release = ecobin_root / "updater/releases/updater-001"
+        for release in (
+            hardware_release,
+            communication_release,
+            updater_release,
+        ):
+            assert all(
+                stat.S_IMODE(path.stat().st_mode) == 0o755
+                for path in (
+                    release,
+                    *(
+                        item
+                        for item in release.rglob("*")
+                        if item.is_dir() and not item.is_symlink()
+                    ),
+                )
+            )
         remote_support_root = ecobin_root / "remote-support"
         remote_release = remote_support_root / "releases/remote-001"
         assert all(
@@ -997,6 +1035,16 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
     )
     assert direct_audit.returncode == 0, direct_audit.stderr
     assert "image-software-audit=PASS" in direct_audit.stdout
+    if os.name == "posix":
+        private_runtime_directory = (
+            rootfs / "opt/ecobin/hardware/releases/runtime-001/app"
+        )
+        os.chmod(private_runtime_directory, 0o700)
+        try:
+            with pytest.raises(ImageSoftwareError, match="root-owned 0755"):
+                audit_image_software(rootfs, REPOSITORY_ROOT)
+        finally:
+            os.chmod(private_runtime_directory, 0o755)
     forbidden_helper_link = (
         systemd
         / "multi-user.target.wants/ecobin-business-activation-helper.socket"

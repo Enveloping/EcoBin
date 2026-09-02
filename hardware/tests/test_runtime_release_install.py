@@ -795,6 +795,68 @@ def test_builder_archive_round_trips_through_safe_extraction(tmp_path):
     assert validate_release_tree(extracted)["ECOBIN_RELEASE_ID"] == "test-1"
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX umask semantics are required")
+def test_safe_extraction_canonicalizes_descendants_under_private_umask(tmp_path):
+    release = _make_release(tmp_path / "release")
+    archive = tmp_path / "release.tar.gz"
+    extracted = tmp_path / "extracted"
+    _write_deterministic_archive(
+        release,
+        archive,
+        release_id="test-1",
+        source_date_epoch=1,
+    )
+
+    previous_umask = os.umask(0o077)
+    try:
+        safe_extract_archive(
+            archive,
+            extracted,
+            expected_sha256=sha256_file(archive),
+        )
+    finally:
+        os.umask(previous_umask)
+
+    # The caller may keep the root private until publication, but every
+    # descendant must already be traversable when that root becomes current.
+    assert stat.S_IMODE(extracted.stat().st_mode) == 0o700
+    assert all(
+        stat.S_IMODE(path.stat().st_mode) == 0o755
+        for path in extracted.rglob("*")
+        if path.is_dir() and not path.is_symlink()
+    )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX umask semantics are required")
+def test_safe_extraction_canonicalizes_implicit_parent_directories(tmp_path):
+    archive = tmp_path / "implicit-directories.tar.gz"
+    member = tarfile.TarInfo(
+        "ecobin-hardware-test-1/app/implicit/package/module.py"
+    )
+    member.size = 1
+    _write_tar(archive, [member])
+    extracted = tmp_path / "extracted"
+
+    previous_umask = os.umask(0o077)
+    try:
+        safe_extract_archive(
+            archive,
+            extracted,
+            expected_sha256=sha256_file(archive),
+        )
+    finally:
+        os.umask(previous_umask)
+
+    assert stat.S_IMODE(extracted.stat().st_mode) == 0o700
+    assert all(
+        stat.S_IMODE((extracted / relative).stat().st_mode) == 0o755
+        for relative in ("app", "app/implicit", "app/implicit/package")
+    )
+    assert stat.S_IMODE(
+        (extracted / "app/implicit/package/module.py").stat().st_mode
+    ) == 0o644
+
+
 def test_release_tree_rejects_links_or_special_files(tmp_path):
     release = _make_release(tmp_path / "release")
     link = release / "app" / "linked.py"
