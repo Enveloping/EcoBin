@@ -1,13 +1,16 @@
 """Private durable safety state for the permanent device updater.
 
-Schema version two introduces the stage-four candidate job gate and the
-minimum physical-action ledger.  The candidate remains fail-closed unless the
-process is started with its explicit enable flag.  Software update execution
-and privileged-helper mutations remain outside this module and disabled.
+Schema version three separates durable physical-action preparation from the
+last-moment permission to write to hardware.  The candidate remains
+fail-closed unless the process is started with its explicit enable flag.
+Software update execution and privileged-helper mutations remain outside this
+module and disabled.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import re
 import sqlite3
@@ -20,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 
-UPDATER_SCHEMA_VERSION = 2
+UPDATER_SCHEMA_VERSION = 3
 UPDATER_COMPONENT = "DEVICE_UPDATER"
 MAX_RELEASE_VERSION_LENGTH = 32
 
@@ -28,16 +31,26 @@ JOB_GATE_STATES = frozenset({"OPEN", "DRAINING", "MAINTENANCE", "LOCKED"})
 JOB_PERMIT_STATES = frozenset(
     {"GRANTED", "ACTIVE", "ABANDONED", "COMPLETED"}
 )
-PHYSICAL_ACTION_STATES = frozenset({"MAY_HAVE_EXECUTED", "CONFIRMED"})
+PHYSICAL_ACTION_STATES = frozenset({"PREPARED", "ARMED", "CONFIRMED"})
 JOB_OUTCOMES = frozenset({"SUCCEEDED", "FAILED", "CANCELLED"})
 JOB_WORK_TYPES = frozenset({"DELIVERY", "CLEAN", "FULLNESS", "BASELINE"})
 PHYSICAL_ACTION_OUTCOMES = frozenset(
     {"EXECUTED", "NOT_EXECUTED", "FAILED_SAFE"}
 )
+LIVE_PHYSICAL_ACTION_OUTCOMES = frozenset({"EXECUTED", "FAILED_SAFE"})
+PHYSICAL_ACTION_CONFIRMATION_BASES = frozenset(
+    {
+        "MCU_IDENTITY_BOUND_FACT",
+        "LIVE_FIXED_FRAME_RESULT",
+        "PREPARED_NOT_ARMED",
+        "LIVE_DISPATCH_NOT_WRITTEN",
+    }
+)
 
 _TOKEN_PATTERN = re.compile(r"[A-Z][A-Z0-9_]{0,63}\Z")
 _ACTION_KEY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
+_DISPATCH_ATTEMPT_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{32,128}\Z")
 _AUTO_RESOLVABLE_LOCK_REASONS = frozenset(
     {
         "ACTIVE_JOB_RECONCILIATION",
@@ -113,14 +126,17 @@ class UpdaterStore:
                 connection.execute("BEGIN IMMEDIATE")
                 version = self._read_schema_version(connection)
                 if version is None:
-                    self._create_v2_schema(connection)
+                    self._create_v3_schema(connection)
                 elif version == 1:
                     self._migrate_v1_to_v2(connection)
+                    self._migrate_v2_to_v3(connection)
+                elif version == 2:
+                    self._migrate_v2_to_v3(connection)
                 elif version != UPDATER_SCHEMA_VERSION:
                     raise RuntimeError("updater database schema is incompatible")
-                self._verify_v2_schema(connection)
+                self._verify_v3_schema(connection)
                 self._apply_runtime_candidate_posture(connection)
-                self._verify_v2_invariants(connection)
+                self._verify_v3_invariants(connection)
 
                 instance_uid = _new_instance_uid(self._instance_uid_factory)
                 started_at = _format_utc(self._utc_now())
@@ -187,6 +203,12 @@ class UpdaterStore:
             (now, now),
         )
 
+    def _create_v3_schema(self, connection: sqlite3.Connection) -> None:
+        """Create the current schema through the audited v2 migration path."""
+
+        self._create_v2_schema(connection)
+        self._migrate_v2_to_v3(connection)
+
     def _migrate_v1_to_v2(self, connection: sqlite3.Connection) -> None:
         """Replace the v1 fixed posture inside the caller's one transaction."""
 
@@ -239,6 +261,52 @@ class UpdaterStore:
         connection.execute("DROP TABLE updater_management_state_v1")
         connection.execute(
             "UPDATE schema_version SET version=2 WHERE singleton_id=1"
+        )
+
+    def _migrate_v2_to_v3(self, connection: sqlite3.Connection) -> None:
+        """Add a non-authorizing PREPARED state and a runtime-bound ARM."""
+
+        self._verify_v2_schema(connection)
+        connection.execute(
+            "ALTER TABLE physical_action_ledger RENAME TO physical_action_ledger_v2"
+        )
+        connection.execute(self._v3_physical_action_schema_statement())
+        connection.execute(
+            """INSERT INTO physical_action_ledger (
+                   ledger_sequence, action_uid, permit_uid, work_uid,
+                   command_uid, action_key, action_kind,
+                   action_digest_sha256, state, dispatch_mode, arm_uid,
+                   arm_runtime_instance_uid,
+                   dispatch_attempt_token_sha256, receipt_uid,
+                   confirmed_outcome, confirmation_basis,
+                   evidence_digest_sha256, created_at, armed_at,
+                   confirmed_at, updated_at
+               )
+               SELECT ledger_sequence, action_uid, permit_uid, work_uid,
+                      command_uid, action_key, action_kind,
+                      action_digest_sha256, 'ARMED',
+                      'LEGACY_V2_UNCERTAIN', arm_uid, NULL, NULL,
+                      NULL, NULL, NULL, NULL, created_at, armed_at,
+                      NULL, updated_at
+               FROM physical_action_ledger_v2"""
+        )
+        connection.execute(self._v3_legacy_evidence_schema_statement())
+        quarantined_at = _format_utc(self._utc_now())
+        connection.execute(
+            """INSERT INTO physical_action_v2_evidence_quarantine (
+                   action_uid, legacy_receipt_uid, legacy_outcome,
+                   legacy_evidence_digest_sha256, legacy_confirmed_at,
+                   quarantined_at
+               )
+               SELECT action_uid, receipt_uid, confirmed_outcome,
+                      evidence_digest_sha256, confirmed_at, ?
+               FROM physical_action_ledger_v2
+               WHERE state='CONFIRMED'""",
+            (quarantined_at,),
+        )
+        connection.execute("DROP TABLE physical_action_ledger_v2")
+        connection.execute(
+            "UPDATE schema_version SET version=3 WHERE singleton_id=1"
         )
 
     @staticmethod
@@ -380,11 +448,133 @@ class UpdaterStore:
         )
 
     @staticmethod
+    def _v3_physical_action_schema_statement() -> str:
+        return """CREATE TABLE physical_action_ledger (
+            ledger_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            action_uid TEXT NOT NULL UNIQUE,
+            permit_uid TEXT NOT NULL REFERENCES job_permit(permit_uid),
+            work_uid TEXT NOT NULL,
+            command_uid TEXT NOT NULL,
+            action_key TEXT NOT NULL,
+            action_kind TEXT NOT NULL,
+            action_digest_sha256 TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN
+                ('PREPARED', 'ARMED', 'CONFIRMED')),
+            dispatch_mode TEXT NOT NULL CHECK (dispatch_mode IN
+                ('PREPARED_ONLY', 'TWO_PHASE_V3',
+                 'LEGACY_V2_UNCERTAIN')),
+            arm_uid TEXT UNIQUE,
+            arm_runtime_instance_uid TEXT REFERENCES
+                updater_runtime_instance(instance_uid),
+            dispatch_attempt_token_sha256 TEXT UNIQUE,
+            receipt_uid TEXT UNIQUE,
+            confirmed_outcome TEXT,
+            confirmation_basis TEXT CHECK (confirmation_basis IS NULL OR
+                confirmation_basis IN
+                    ('MCU_IDENTITY_BOUND_FACT', 'LIVE_FIXED_FRAME_RESULT',
+                     'PREPARED_NOT_ARMED',
+                     'LIVE_DISPATCH_NOT_WRITTEN')),
+            evidence_digest_sha256 TEXT,
+            created_at TEXT NOT NULL,
+            armed_at TEXT,
+            confirmed_at TEXT,
+            updated_at TEXT NOT NULL,
+            UNIQUE (work_uid, action_key),
+            UNIQUE (command_uid, action_key),
+            CHECK (
+                (state = 'PREPARED'
+                 AND dispatch_mode = 'PREPARED_ONLY'
+                 AND arm_uid IS NULL
+                 AND arm_runtime_instance_uid IS NULL
+                 AND dispatch_attempt_token_sha256 IS NOT NULL
+                 AND receipt_uid IS NULL
+                 AND confirmed_outcome IS NULL
+                 AND confirmation_basis IS NULL
+                 AND evidence_digest_sha256 IS NULL
+                 AND armed_at IS NULL
+                 AND confirmed_at IS NULL)
+                OR
+                (state = 'ARMED'
+                 AND receipt_uid IS NULL
+                 AND confirmed_outcome IS NULL
+                 AND confirmation_basis IS NULL
+                 AND evidence_digest_sha256 IS NULL
+                 AND confirmed_at IS NULL
+                 AND (
+                    (dispatch_mode = 'TWO_PHASE_V3'
+                     AND arm_uid IS NULL
+                     AND arm_runtime_instance_uid IS NOT NULL
+                     AND dispatch_attempt_token_sha256 IS NOT NULL
+                     AND armed_at IS NOT NULL)
+                    OR
+                    (dispatch_mode = 'LEGACY_V2_UNCERTAIN'
+                     AND arm_uid IS NOT NULL
+                     AND arm_runtime_instance_uid IS NULL
+                     AND dispatch_attempt_token_sha256 IS NULL
+                     AND armed_at IS NOT NULL)))
+                OR
+                (state = 'CONFIRMED'
+                 AND receipt_uid IS NOT NULL
+                 AND confirmed_outcome IS NOT NULL
+                 AND confirmation_basis IS NOT NULL
+                 AND evidence_digest_sha256 IS NOT NULL
+                 AND confirmed_at IS NOT NULL
+                 AND (
+                    (dispatch_mode = 'PREPARED_ONLY'
+                     AND arm_uid IS NULL
+                     AND arm_runtime_instance_uid IS NULL
+                     AND dispatch_attempt_token_sha256 IS NOT NULL
+                     AND armed_at IS NULL
+                     AND confirmation_basis = 'PREPARED_NOT_ARMED'
+                     AND confirmed_outcome = 'NOT_EXECUTED')
+                    OR
+                    (dispatch_mode = 'TWO_PHASE_V3'
+                     AND arm_uid IS NULL
+                     AND arm_runtime_instance_uid IS NOT NULL
+                     AND dispatch_attempt_token_sha256 IS NOT NULL
+                     AND armed_at IS NOT NULL
+                     AND ((confirmation_basis =
+                               'LIVE_DISPATCH_NOT_WRITTEN'
+                           AND confirmed_outcome = 'NOT_EXECUTED')
+                          OR (confirmation_basis =
+                                  'MCU_IDENTITY_BOUND_FACT'
+                              AND confirmed_outcome IN
+                                  ('EXECUTED', 'FAILED_SAFE'))
+                          OR (confirmation_basis =
+                                  'LIVE_FIXED_FRAME_RESULT'
+                              AND confirmed_outcome IN
+                                  ('EXECUTED', 'FAILED_SAFE'))))
+                    OR
+                    (dispatch_mode = 'LEGACY_V2_UNCERTAIN'
+                     AND arm_uid IS NOT NULL
+                     AND arm_runtime_instance_uid IS NULL
+                     AND dispatch_attempt_token_sha256 IS NULL
+                     AND armed_at IS NOT NULL
+                     AND confirmation_basis =
+                             'MCU_IDENTITY_BOUND_FACT'
+                     AND confirmed_outcome IN
+                             ('EXECUTED', 'FAILED_SAFE')))))
+        )"""
+
+    @staticmethod
+    def _v3_legacy_evidence_schema_statement() -> str:
+        return """CREATE TABLE physical_action_v2_evidence_quarantine (
+            action_uid TEXT PRIMARY KEY REFERENCES
+                physical_action_ledger(action_uid),
+            legacy_receipt_uid TEXT NOT NULL UNIQUE,
+            legacy_outcome TEXT NOT NULL CHECK (legacy_outcome IN
+                ('EXECUTED', 'NOT_EXECUTED', 'FAILED_SAFE')),
+            legacy_evidence_digest_sha256 TEXT NOT NULL,
+            legacy_confirmed_at TEXT NOT NULL,
+            quarantined_at TEXT NOT NULL
+        )"""
+
+    @staticmethod
     def _verify_v2_schema(connection: sqlite3.Connection) -> None:
         rows = connection.execute(
             "SELECT singleton_id, version FROM schema_version ORDER BY singleton_id"
         ).fetchall()
-        if [(row[0], row[1]) for row in rows] != [(1, UPDATER_SCHEMA_VERSION)]:
+        if [(row[0], row[1]) for row in rows] != [(1, 2)]:
             raise RuntimeError("updater database schema is incompatible")
         expected = {
             "schema_version",
@@ -401,6 +591,48 @@ class UpdaterStore:
             ).fetchall()
         }
         if not expected.issubset(actual):
+            raise RuntimeError("updater database schema is incompatible")
+        quick_check = connection.execute("PRAGMA quick_check").fetchone()
+        if quick_check is None or quick_check[0] != "ok":
+            raise RuntimeError("updater database integrity check failed")
+
+    @staticmethod
+    def _verify_v3_schema(connection: sqlite3.Connection) -> None:
+        rows = connection.execute(
+            "SELECT singleton_id, version FROM schema_version ORDER BY singleton_id"
+        ).fetchall()
+        if [(row[0], row[1]) for row in rows] != [(1, UPDATER_SCHEMA_VERSION)]:
+            raise RuntimeError("updater database schema is incompatible")
+        expected = {
+            "schema_version",
+            "updater_runtime_instance",
+            "updater_management_state",
+            "maintenance_lock",
+            "job_permit",
+            "physical_action_ledger",
+            "physical_action_v2_evidence_quarantine",
+        }
+        actual = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if not expected.issubset(actual):
+            raise RuntimeError("updater database schema is incompatible")
+        action_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(physical_action_ledger)"
+            ).fetchall()
+        }
+        if not {
+            "state",
+            "dispatch_mode",
+            "arm_runtime_instance_uid",
+            "dispatch_attempt_token_sha256",
+            "confirmation_basis",
+        }.issubset(action_columns):
             raise RuntimeError("updater database schema is incompatible")
         quick_check = connection.execute("PRAGMA quick_check").fetchone()
         if quick_check is None or quick_check[0] != "ok":
@@ -520,18 +752,18 @@ class UpdaterStore:
             )
 
     @staticmethod
-    def _verify_v2_invariants(connection: sqlite3.Connection) -> None:
+    def _verify_v3_invariants(connection: sqlite3.Connection) -> None:
         rows = connection.execute(
             "SELECT * FROM updater_management_state"
         ).fetchall()
         if len(rows) != 1:
             raise RuntimeError("updater management state is incompatible")
         state = rows[0]
-        unresolved = connection.execute(
+        armed = connection.execute(
             """SELECT COUNT(*) FROM physical_action_ledger
-               WHERE state='MAY_HAVE_EXECUTED'"""
+               WHERE state='ARMED'"""
         ).fetchone()[0]
-        if unresolved and (
+        if armed and (
             state["job_gate_state"] != "LOCKED"
             or not state["reconciliation_required"]
         ):
@@ -891,14 +1123,13 @@ class UpdaterStore:
                 disposition="FOUND",
             )
 
-    def authorize_physical_action(
+    def prepare_physical_action(
         self,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
-        """Atomically record the action and issue its one execution fence."""
+        """Durably reserve one logical action without permitting a write."""
 
         action_uid = _require_uuid4(payload.get("actionUid"), "actionUid")
-        arm_uid = _require_uuid4(payload.get("armUid"), "armUid")
         permit_uid = _require_uuid4(payload.get("permitUid"), "permitUid")
         work_uid = _require_uuid4(payload.get("workUid"), "workUid")
         command_uid = _require_uuid4(payload.get("commandUid"), "commandUid")
@@ -908,6 +1139,10 @@ class UpdaterStore:
             payload.get("actionDigestSha256"),
             "actionDigestSha256",
         )
+        dispatch_token = _require_dispatch_attempt_token(
+            payload.get("dispatchAttemptToken")
+        )
+        token_digest = _dispatch_token_digest(dispatch_token)
         identity = (
             permit_uid,
             work_uid,
@@ -931,10 +1166,24 @@ class UpdaterStore:
                         "action_digest_sha256",
                     )
                 )
-                if actual != identity or existing["arm_uid"] != arm_uid:
+                if actual != identity:
                     raise _conflict(
                         "PHYSICAL_ACTION_CONFLICT",
                         "physical action identity conflicts",
+                    )
+                same_preparing_attempt = (
+                    isinstance(
+                        existing["dispatch_attempt_token_sha256"], str
+                    )
+                    and hmac.compare_digest(
+                        existing["dispatch_attempt_token_sha256"],
+                        token_digest,
+                    )
+                )
+                if not same_preparing_attempt:
+                    return self._action_result(
+                        existing,
+                        disposition="DENIED",
                     )
                 return self._action_result(existing, disposition="DUPLICATE")
 
@@ -970,14 +1219,15 @@ class UpdaterStore:
                     """INSERT INTO physical_action_ledger (
                            action_uid, permit_uid, work_uid, command_uid,
                            action_key, action_kind, action_digest_sha256,
-                           state, arm_uid, created_at, armed_at, updated_at
-                       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'MAY_HAVE_EXECUTED',
-                                 ?, ?, ?, ?)""",
+                           state, dispatch_mode,
+                           dispatch_attempt_token_sha256,
+                           created_at, updated_at
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PREPARED',
+                                 'PREPARED_ONLY', ?, ?, ?)""",
                     (
                         action_uid,
                         *identity,
-                        arm_uid,
-                        now,
+                        token_digest,
                         now,
                         now,
                     ),
@@ -987,30 +1237,320 @@ class UpdaterStore:
                     "PHYSICAL_ACTION_CONFLICT",
                     "physical action identity is already in use",
                 ) from error
-            state = self._management_row(connection)
-            if state["job_gate_state"] in {
-                "OPEN",
-                "DRAINING",
-                "LOCKED",
-            }:
-                block_reason = (
-                    "DRAINING_ACTION_UNCONFIRMED"
-                    if state["job_gate_state"] == "DRAINING"
-                    else "PHYSICAL_ACTION_UNCONFIRMED"
-                )
-                connection.execute(
-                    """UPDATE updater_management_state
-                       SET management_state_sequence=management_state_sequence+1,
-                           job_gate_state='LOCKED', maintenance_state='LOCKED',
-                           reconciliation_required=1,
-                            block_reason_code=?,
-                            updated_at=? WHERE singleton_id=1""",
-                    (block_reason, now),
-                )
             return self._action_result(
                 self._require_action(connection, action_uid),
                 disposition="ACCEPTED",
             )
+
+    def arm_physical_action(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Bind the last-moment hardware permission to one live call token."""
+
+        action_uid = _require_uuid4(payload.get("actionUid"), "actionUid")
+        dispatch_token = _require_dispatch_attempt_token(
+            payload.get("dispatchAttemptToken")
+        )
+        token_digest = _dispatch_token_digest(dispatch_token)
+        runtime_instance_uid = self._require_runtime_instance_uid()
+        with self._transaction() as connection:
+            self._require_candidate(connection)
+            row = self._require_action(connection, action_uid)
+            if row["state"] == "ARMED":
+                same_live_attempt = (
+                    row["dispatch_mode"] == "TWO_PHASE_V3"
+                    and row["arm_runtime_instance_uid"]
+                    == runtime_instance_uid
+                    and isinstance(
+                        row["dispatch_attempt_token_sha256"], str
+                    )
+                    and hmac.compare_digest(
+                        row["dispatch_attempt_token_sha256"],
+                        token_digest,
+                    )
+                )
+                return self._action_result(
+                    row,
+                    disposition=(
+                        "DUPLICATE" if same_live_attempt else "DENIED"
+                    ),
+                    may_execute=same_live_attempt,
+                )
+            if row["state"] != "PREPARED":
+                return self._action_result(row, disposition="DENIED")
+            prepared_token_matches = (
+                isinstance(row["dispatch_attempt_token_sha256"], str)
+                and hmac.compare_digest(
+                    row["dispatch_attempt_token_sha256"],
+                    token_digest,
+                )
+            )
+            if not prepared_token_matches:
+                return self._action_result(row, disposition="DENIED")
+
+            permit = self._require_permit(connection, row["permit_uid"])
+            if permit["state"] != "ACTIVE":
+                raise UpdaterStoreError(
+                    "JOB_PERMIT_STATE_CONFLICT",
+                    "physical action requires an active permit",
+                )
+            self._require_prepared_action_dispatch_gate(
+                connection,
+                action_uid,
+            )
+            now = _format_utc(self._utc_now())
+            try:
+                connection.execute(
+                    """UPDATE physical_action_ledger
+                       SET state='ARMED', dispatch_mode='TWO_PHASE_V3',
+                           arm_runtime_instance_uid=?,
+                           armed_at=?, updated_at=?
+                       WHERE action_uid=? AND state='PREPARED'""",
+                    (
+                        runtime_instance_uid,
+                        now,
+                        now,
+                        action_uid,
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise _conflict(
+                    "PHYSICAL_ACTION_DISPATCH_TOKEN_CONFLICT",
+                    "physical action dispatch attempt conflicts",
+                ) from error
+            self._lock_for_armed_action(connection, now)
+            return self._action_result(
+                self._require_action(connection, action_uid),
+                disposition="ACCEPTED",
+                may_execute=True,
+            )
+
+    def cancel_prepared_physical_action(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Close a reservation when permanent state proves it was not armed."""
+
+        action_uid = _require_uuid4(payload.get("actionUid"), "actionUid")
+        receipt_uid = _require_uuid4(payload.get("receiptUid"), "receiptUid")
+        dispatch_token = _require_dispatch_attempt_token(
+            payload.get("dispatchAttemptToken")
+        )
+        token_digest = _dispatch_token_digest(dispatch_token)
+        evidence = _require_sha256(
+            payload.get("evidenceDigestSha256"),
+            "evidenceDigestSha256",
+        )
+        with self._transaction() as connection:
+            self._require_candidate(connection)
+            row = self._require_action(connection, action_uid)
+            token_matches_preparing_attempt = (
+                row["dispatch_mode"] == "PREPARED_ONLY"
+                and isinstance(row["dispatch_attempt_token_sha256"], str)
+                and hmac.compare_digest(
+                    row["dispatch_attempt_token_sha256"],
+                    token_digest,
+                )
+            )
+            if not token_matches_preparing_attempt:
+                raise UpdaterStoreError(
+                    "PHYSICAL_ACTION_CANCEL_DENIED",
+                    "physical action is not owned by this preparing attempt",
+                )
+            if row["state"] == "CONFIRMED":
+                if self._confirmation_matches(
+                    row,
+                    receipt_uid=receipt_uid,
+                    outcome="NOT_EXECUTED",
+                    confirmation_basis="PREPARED_NOT_ARMED",
+                    evidence=evidence,
+                ):
+                    return self._action_result(
+                        row,
+                        disposition="DUPLICATE",
+                    )
+                raise _conflict(
+                    "PHYSICAL_ACTION_RECEIPT_CONFLICT",
+                    "physical action receipt conflicts",
+                )
+            if row["state"] != "PREPARED":
+                raise UpdaterStoreError(
+                    "PHYSICAL_ACTION_ALREADY_ARMED",
+                    "an armed physical action cannot be cancelled as unexecuted",
+                )
+            now = _format_utc(self._utc_now())
+            self._confirm_action_row(
+                connection,
+                action_uid=action_uid,
+                receipt_uid=receipt_uid,
+                outcome="NOT_EXECUTED",
+                confirmation_basis="PREPARED_NOT_ARMED",
+                evidence=evidence,
+                now=now,
+            )
+            self._maybe_reopen_after_resolution(connection, now)
+            return self._action_result(
+                self._require_action(connection, action_uid),
+                disposition="ACCEPTED",
+            )
+
+    def abort_physical_action_dispatch(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Close an armed action only for its still-live pre-write caller."""
+
+        action_uid = _require_uuid4(payload.get("actionUid"), "actionUid")
+        receipt_uid = _require_uuid4(payload.get("receiptUid"), "receiptUid")
+        dispatch_token = _require_dispatch_attempt_token(
+            payload.get("dispatchAttemptToken")
+        )
+        token_digest = _dispatch_token_digest(dispatch_token)
+        evidence = _require_sha256(
+            payload.get("evidenceDigestSha256"),
+            "evidenceDigestSha256",
+        )
+        runtime_instance_uid = self._require_runtime_instance_uid()
+        with self._transaction() as connection:
+            self._require_candidate(connection)
+            row = self._require_action(connection, action_uid)
+            token_matches_live_attempt = (
+                row["dispatch_mode"] == "TWO_PHASE_V3"
+                and row["arm_runtime_instance_uid"]
+                == runtime_instance_uid
+                and isinstance(row["dispatch_attempt_token_sha256"], str)
+                and hmac.compare_digest(
+                    row["dispatch_attempt_token_sha256"],
+                    token_digest,
+                )
+            )
+            if not token_matches_live_attempt:
+                raise UpdaterStoreError(
+                    "PHYSICAL_ACTION_ABORT_DENIED",
+                    "physical action dispatch is not owned by this live attempt",
+                )
+            if row["state"] == "CONFIRMED":
+                if self._confirmation_matches(
+                    row,
+                    receipt_uid=receipt_uid,
+                    outcome="NOT_EXECUTED",
+                    confirmation_basis="LIVE_DISPATCH_NOT_WRITTEN",
+                    evidence=evidence,
+                ):
+                    return self._action_result(
+                        row,
+                        disposition="DUPLICATE",
+                    )
+                raise _conflict(
+                    "PHYSICAL_ACTION_RECEIPT_CONFLICT",
+                    "physical action receipt conflicts",
+                )
+            if row["state"] != "ARMED":
+                raise UpdaterStoreError(
+                    "PHYSICAL_ACTION_STATE_CONFLICT",
+                    "physical action is not armed",
+                )
+            now = _format_utc(self._utc_now())
+            self._confirm_action_row(
+                connection,
+                action_uid=action_uid,
+                receipt_uid=receipt_uid,
+                outcome="NOT_EXECUTED",
+                confirmation_basis="LIVE_DISPATCH_NOT_WRITTEN",
+                evidence=evidence,
+                now=now,
+            )
+            self._maybe_reopen_after_resolution(connection, now)
+            return self._action_result(
+                self._require_action(connection, action_uid),
+                disposition="ACCEPTED",
+            )
+
+    def confirm_live_physical_action_result(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Confirm a fixed-frame result from the still-live dispatch call."""
+
+        action_uid = _require_uuid4(payload.get("actionUid"), "actionUid")
+        receipt_uid = _require_uuid4(payload.get("receiptUid"), "receiptUid")
+        dispatch_token = _require_dispatch_attempt_token(
+            payload.get("dispatchAttemptToken")
+        )
+        token_digest = _dispatch_token_digest(dispatch_token)
+        outcome = _require_enum(
+            payload.get("outcome"),
+            LIVE_PHYSICAL_ACTION_OUTCOMES,
+            "outcome",
+        )
+        evidence = _require_sha256(
+            payload.get("evidenceDigestSha256"),
+            "evidenceDigestSha256",
+        )
+        runtime_instance_uid = self._require_runtime_instance_uid()
+        with self._transaction() as connection:
+            self._require_candidate(connection)
+            row = self._require_action(connection, action_uid)
+            token_matches_live_attempt = (
+                row["dispatch_mode"] == "TWO_PHASE_V3"
+                and row["arm_runtime_instance_uid"]
+                == runtime_instance_uid
+                and isinstance(row["dispatch_attempt_token_sha256"], str)
+                and hmac.compare_digest(
+                    row["dispatch_attempt_token_sha256"],
+                    token_digest,
+                )
+            )
+            if not token_matches_live_attempt:
+                raise UpdaterStoreError(
+                    "PHYSICAL_ACTION_LIVE_RESULT_DENIED",
+                    "physical action result is not owned by this live attempt",
+                )
+            if row["state"] == "CONFIRMED":
+                if self._confirmation_matches(
+                    row,
+                    receipt_uid=receipt_uid,
+                    outcome=outcome,
+                    confirmation_basis="LIVE_FIXED_FRAME_RESULT",
+                    evidence=evidence,
+                ):
+                    return self._action_result(
+                        row,
+                        disposition="DUPLICATE",
+                    )
+                raise _conflict(
+                    "PHYSICAL_ACTION_RECEIPT_CONFLICT",
+                    "physical action receipt conflicts",
+                )
+            if row["state"] != "ARMED":
+                raise UpdaterStoreError(
+                    "PHYSICAL_ACTION_STATE_CONFLICT",
+                    "physical action is not armed",
+                )
+            now = _format_utc(self._utc_now())
+            self._confirm_action_row(
+                connection,
+                action_uid=action_uid,
+                receipt_uid=receipt_uid,
+                outcome=outcome,
+                confirmation_basis="LIVE_FIXED_FRAME_RESULT",
+                evidence=evidence,
+                now=now,
+            )
+            self._maybe_reopen_after_resolution(connection, now)
+            return self._action_result(
+                self._require_action(connection, action_uid),
+                disposition="ACCEPTED",
+            )
+
+    def authorize_physical_action(
+        self,
+        _payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Reject the v2 one-step operation; it cannot fence response loss."""
+
+        raise UpdaterStoreError(
+            "LEGACY_PHYSICAL_ACTION_PROTOCOL_DISABLED",
+            "one-step physical action authorization is disabled",
+        )
 
     def confirm_physical_action(self, payload: dict[str, Any]) -> dict[str, Any]:
         action_uid = _require_uuid4(payload.get("actionUid"), "actionUid")
@@ -1020,34 +1560,47 @@ class UpdaterStore:
             PHYSICAL_ACTION_OUTCOMES,
             "outcome",
         )
+        confirmation_basis = _require_enum(
+            payload.get("confirmationBasis"),
+            PHYSICAL_ACTION_CONFIRMATION_BASES,
+            "confirmationBasis",
+        )
+        if confirmation_basis != "MCU_IDENTITY_BOUND_FACT":
+            raise UpdaterStoreError(
+                "PHYSICAL_ACTION_CONFIRMATION_BASIS_FORBIDDEN",
+                "general confirmation requires an identity-bound MCU fact",
+            )
+        if outcome == "NOT_EXECUTED":
+            raise UpdaterStoreError(
+                "PHYSICAL_ACTION_NOT_EXECUTED_REQUIRES_ABORT",
+                "an armed action cannot be declared unexecuted by general confirmation",
+            )
         evidence = _require_sha256(payload.get("evidenceDigestSha256"), "evidenceDigestSha256")
         with self._transaction() as connection:
             self._require_candidate(connection)
             row = self._require_action(connection, action_uid)
             if row["receipt_uid"] is not None:
-                if (
-                    row["receipt_uid"] == receipt_uid
-                    and row["confirmed_outcome"] == outcome
-                    and row["evidence_digest_sha256"] == evidence
+                if self._confirmation_matches(
+                    row,
+                    receipt_uid=receipt_uid,
+                    outcome=outcome,
+                    confirmation_basis=confirmation_basis,
+                    evidence=evidence,
                 ):
                     return self._action_result(row, disposition="DUPLICATE")
                 raise _conflict("PHYSICAL_ACTION_RECEIPT_CONFLICT", "physical action receipt conflicts")
-            if row["state"] != "MAY_HAVE_EXECUTED":
+            if row["state"] != "ARMED":
                 raise UpdaterStoreError("PHYSICAL_ACTION_STATE_CONFLICT", "physical action is not armed")
             now = _format_utc(self._utc_now())
-            try:
-                connection.execute(
-                    """UPDATE physical_action_ledger
-                       SET state='CONFIRMED', receipt_uid=?, confirmed_outcome=?,
-                           evidence_digest_sha256=?, confirmed_at=?, updated_at=?
-                       WHERE action_uid=?""",
-                    (receipt_uid, outcome, evidence, now, now, action_uid),
-                )
-            except sqlite3.IntegrityError as error:
-                raise _conflict(
-                    "PHYSICAL_ACTION_RECEIPT_CONFLICT",
-                    "physical action receipt identity is already in use",
-                ) from error
+            self._confirm_action_row(
+                connection,
+                action_uid=action_uid,
+                receipt_uid=receipt_uid,
+                outcome=outcome,
+                confirmation_basis=confirmation_basis,
+                evidence=evidence,
+                now=now,
+            )
             self._maybe_reopen_after_resolution(connection, now)
             return self._action_result(
                 self._require_action(connection, action_uid),
@@ -1063,6 +1616,87 @@ class UpdaterStore:
                 self._require_action(connection, action_uid),
                 disposition="FOUND",
             )
+
+    @staticmethod
+    def _confirmation_matches(
+        row: sqlite3.Row,
+        *,
+        receipt_uid: str,
+        outcome: str,
+        confirmation_basis: str,
+        evidence: str,
+    ) -> bool:
+        return (
+            row["receipt_uid"] == receipt_uid
+            and row["confirmed_outcome"] == outcome
+            and row["confirmation_basis"] == confirmation_basis
+            and row["evidence_digest_sha256"] == evidence
+        )
+
+    @staticmethod
+    def _confirm_action_row(
+        connection: sqlite3.Connection,
+        *,
+        action_uid: str,
+        receipt_uid: str,
+        outcome: str,
+        confirmation_basis: str,
+        evidence: str,
+        now: str,
+    ) -> None:
+        try:
+            connection.execute(
+                """UPDATE physical_action_ledger
+                   SET state='CONFIRMED', receipt_uid=?,
+                       confirmed_outcome=?, confirmation_basis=?,
+                       evidence_digest_sha256=?, confirmed_at=?, updated_at=?
+                   WHERE action_uid=?""",
+                (
+                    receipt_uid,
+                    outcome,
+                    confirmation_basis,
+                    evidence,
+                    now,
+                    now,
+                    action_uid,
+                ),
+            )
+        except sqlite3.IntegrityError as error:
+            raise _conflict(
+                "PHYSICAL_ACTION_RECEIPT_CONFLICT",
+                "physical action receipt identity is already in use",
+            ) from error
+
+    @staticmethod
+    def _lock_for_armed_action(
+        connection: sqlite3.Connection,
+        now: str,
+    ) -> None:
+        state = UpdaterStore._management_row(connection)
+        gate = state["job_gate_state"]
+        if gate == "LOCKED":
+            if not (
+                state["block_reason_code"] == "ACTIVE_JOB_IN_PROGRESS"
+                and not state["reconciliation_required"]
+            ):
+                return
+            block_reason = "PHYSICAL_ACTION_UNCONFIRMED"
+        elif gate in {"OPEN", "DRAINING"}:
+            block_reason = (
+                "DRAINING_ACTION_UNCONFIRMED"
+                if gate == "DRAINING"
+                else "PHYSICAL_ACTION_UNCONFIRMED"
+            )
+        else:
+            return
+        connection.execute(
+            """UPDATE updater_management_state
+               SET management_state_sequence=management_state_sequence+1,
+                   job_gate_state='LOCKED', maintenance_state='LOCKED',
+                   reconciliation_required=1, block_reason_code=?,
+                   updated_at=? WHERE singleton_id=1""",
+            (block_reason, now),
+        )
 
     def _maybe_reopen_after_resolution(
         self,
@@ -1161,7 +1795,12 @@ class UpdaterStore:
         }
 
     @staticmethod
-    def _action_result(row: sqlite3.Row, *, disposition: str) -> dict[str, Any]:
+    def _action_result(
+        row: sqlite3.Row,
+        *,
+        disposition: str,
+        may_execute: bool = False,
+    ) -> dict[str, Any]:
         state = row["state"]
         return {
             "disposition": disposition,
@@ -1171,15 +1810,15 @@ class UpdaterStore:
             "commandUid": row["command_uid"],
             "actionKey": row["action_key"],
             "actionKind": row["action_kind"],
+            "actionDigestSha256": row["action_digest_sha256"],
             "ledgerSequence": row["ledger_sequence"],
             "state": state,
-            # A duplicate ARM or a later GET reports history only.  It must
-            # never renew the one response that allowed a hardware write.
-            "mayExecute": (
-                state == "MAY_HAVE_EXECUTED"
-                and disposition == "ACCEPTED"
-            ),
+            "dispatchMode": row["dispatch_mode"],
+            # Only ARM_PHYSICAL_ACTION supplies this explicit true value.
+            # GET, PREPARE, confirmations and denials report history only.
+            "mayExecute": may_execute,
             "confirmedOutcome": row["confirmed_outcome"],
+            "confirmationBasis": row["confirmation_basis"],
             "receiptUid": row["receipt_uid"],
             "evidenceDigestSha256": row["evidence_digest_sha256"],
             "createdAt": row["created_at"],
@@ -1212,9 +1851,36 @@ class UpdaterStore:
             )
         unresolved = connection.execute(
             """SELECT 1 FROM physical_action_ledger
-               WHERE state='MAY_HAVE_EXECUTED' LIMIT 1"""
+               WHERE state<>'CONFIRMED' LIMIT 1"""
         ).fetchone()
         if unresolved is not None:
+            raise UpdaterStoreError(
+                "PHYSICAL_ACTION_RECONCILIATION_REQUIRED",
+                "the previous physical action must be confirmed first",
+            )
+
+    @staticmethod
+    def _require_prepared_action_dispatch_gate(
+        connection: sqlite3.Connection,
+        action_uid: str,
+    ) -> None:
+        state = UpdaterStore._management_row(connection)
+        gate = state["job_gate_state"]
+        allowed = gate in {"OPEN", "DRAINING"} or (
+            gate == "LOCKED"
+            and state["block_reason_code"] in _ACTIVE_JOB_LOCK_REASONS
+        )
+        if not allowed:
+            raise UpdaterStoreError(
+                "JOB_GATE_CLOSED",
+                "job gate does not allow this physical action to arm",
+            )
+        conflicting = connection.execute(
+            """SELECT 1 FROM physical_action_ledger
+               WHERE state<>'CONFIRMED' AND action_uid<>? LIMIT 1""",
+            (action_uid,),
+        ).fetchone()
+        if conflicting is not None:
             raise UpdaterStoreError(
                 "PHYSICAL_ACTION_RECONCILIATION_REQUIRED",
                 "the previous physical action must be confirmed first",
@@ -1264,7 +1930,7 @@ class UpdaterStore:
     @staticmethod
     def _count_unresolved_actions(connection: sqlite3.Connection) -> int:
         return connection.execute(
-            "SELECT COUNT(*) FROM physical_action_ledger WHERE state='MAY_HAVE_EXECUTED'"
+            "SELECT COUNT(*) FROM physical_action_ledger WHERE state<>'CONFIRMED'"
         ).fetchone()[0]
 
     class _Transaction:
@@ -1393,6 +2059,22 @@ def _require_action_key(value: Any) -> str:
     if not isinstance(value, str) or _ACTION_KEY_PATTERN.fullmatch(value) is None:
         raise UpdaterStoreError("REQUEST_INVALID", "actionKey is invalid")
     return value
+
+
+def _require_dispatch_attempt_token(value: Any) -> str:
+    if (
+        not isinstance(value, str)
+        or _DISPATCH_ATTEMPT_TOKEN_PATTERN.fullmatch(value) is None
+    ):
+        raise UpdaterStoreError(
+            "REQUEST_INVALID",
+            "dispatchAttemptToken must be a 32-128 character base64url token",
+        )
+    return value
+
+
+def _dispatch_token_digest(value: str) -> str:
+    return hashlib.sha256(value.encode("ascii")).hexdigest()
 
 
 def _require_release_version(value: Any) -> str:

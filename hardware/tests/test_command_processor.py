@@ -1,10 +1,15 @@
+import copy
 import json
 import os
+import threading
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from business_message_handler import BusinessMessageHandler
+from cloud_transport import CloudServiceRequest
 from command_processor import CommandProcessor
 from device_identity import DeviceIdentity
 from edge_store import (
@@ -18,14 +23,18 @@ from job_safety import (
     JobSafetyError,
     PermanentJobSafety,
 )
-from local_control import LocalControlRemoteError
+from local_control import LocalControlRemoteError, LocalControlUnavailable
 from onenet_wire import (
     canonical_payload_sha256,
     decode_service_command,
     encode_event_post,
 )
 from uart_link import compute_mcu_payload_sha256
-from work_manager import WorkManager, _remaining_operation_window_ms
+from work_manager import (
+    CleanUnlockDecisionDeferred,
+    WorkManager,
+    _remaining_operation_window_ms,
+)
 from updater_store import UpdaterStore, UpdaterStoreError
 
 
@@ -67,6 +76,87 @@ class FakeUart:
             "disposition": "ACCEPTED",
         }
 
+    def send_command_before_deadline(
+        self,
+        message_name,
+        values,
+        *,
+        mcu_command_uid=None,
+        dispatch_deadline_monotonic,
+        dispatch_gate=None,
+    ):
+        if time.monotonic() >= dispatch_deadline_monotonic:
+            return {
+                "acked": False,
+                "error": "COMMAND_EXPIRED",
+                "message_name": message_name,
+                "mcu_command_uid": mcu_command_uid,
+            }
+        if (
+            self.command_result is not None
+            and not self.command_result.get("acked")
+            and self.command_result.get("error")
+            in {
+                "UART_CLOSED",
+                "UART_NOT_READY",
+                "COMMAND_EXPIRED",
+                "MCU_FEATURE_NOT_SUPPORTED",
+            }
+        ):
+            return {
+                "message_name": message_name,
+                "mcu_command_uid": mcu_command_uid,
+                **self.command_result,
+            }
+        if dispatch_gate is not None:
+            dispatch_gate()
+        return self.send_command(
+            message_name,
+            values,
+            mcu_command_uid=mcu_command_uid,
+        )
+
+
+class CrashBeforeDispatchGateUart(FakeUart):
+    def send_command_before_deadline(self, *args, **kwargs):
+        del args, kwargs
+        raise SystemExit("simulated crash while waiting for UART lock")
+
+
+class EndCleanControlUart(FakeUart):
+    def __init__(self, *, end_result, before_end_send=None):
+        super().__init__()
+        self.end_result = dict(end_result)
+        self.before_end_send = before_end_send
+
+    def send_command_before_deadline(
+        self,
+        message_name,
+        values,
+        *,
+        mcu_command_uid=None,
+        dispatch_deadline_monotonic,
+        dispatch_gate=None,
+    ):
+        if message_name != "END_CLEAN_BEFORE_UNLOCK":
+            return super().send_command_before_deadline(
+                message_name,
+                values,
+                mcu_command_uid=mcu_command_uid,
+                dispatch_deadline_monotonic=dispatch_deadline_monotonic,
+                dispatch_gate=dispatch_gate,
+            )
+        assert time.monotonic() < dispatch_deadline_monotonic
+        assert dispatch_gate is None
+        if self.before_end_send is not None:
+            self.before_end_send()
+        self.calls.append((message_name, dict(values), mcu_command_uid))
+        return {
+            "message_name": message_name,
+            "mcu_command_uid": mcu_command_uid,
+            **self.end_result,
+        }
+
 
 class FakeJobSafety:
     enabled = True
@@ -88,7 +178,9 @@ class FakeJobSafety:
         self.authorize_errors = list(authorize_errors or [])
         self.complete_errors = list(complete_errors or [])
         self.confirmation_digests = []
+        self.confirmation_bases = []
         self.completion_digests = []
+        self.actions = {}
 
     @staticmethod
     def new_uid():
@@ -117,26 +209,140 @@ class FakeJobSafety:
         del permit, disposition_uid, evidence_sha256
         self.trace.append(("safety", "abandon"))
 
-    def authorize_physical_action(self, permit, *, action):
-        del permit
+    def prepare_physical_action(
+        self,
+        permit,
+        *,
+        action,
+        dispatch_attempt_token,
+    ):
         slot = self.store.get_work_slot()
         if slot is not None:
             assert action.action_key in slot["context"]["job_safety"]["actions"]
+        if action.action_uid not in self.actions:
+            self.actions[action.action_uid] = {
+                "actionUid": action.action_uid,
+                "permitUid": permit.permit_uid,
+                "workUid": permit.work_uid,
+                "commandUid": permit.command_uid,
+                "actionKey": action.action_key,
+                "actionKind": action.action_kind,
+                "actionDigestSha256": action.action_digest_sha256,
+                "receiptUid": action.receipt_uid,
+                "state": "PREPARED",
+                "confirmedOutcome": None,
+                "confirmationBasis": None,
+                "evidenceDigestSha256": None,
+                "dispatchAttemptToken": dispatch_attempt_token,
+            }
+        elif (
+            self.actions[action.action_uid].get("dispatchAttemptToken")
+            != dispatch_attempt_token
+        ):
+            raise JobSafetyError(
+                "PHYSICAL_ACTION_DISPATCH_TOKEN_MISMATCH",
+                "prepared action belongs to a different live call",
+            )
+        self.trace.append(("safety", "prepare"))
+
+    def arm_physical_action(self, action, *, dispatch_attempt_token):
+        remote = self.actions[action.action_uid]
         self.trace.append(("safety", "arm"))
+        if remote.get("dispatchAttemptToken") != dispatch_attempt_token:
+            raise JobSafetyError(
+                "PHYSICAL_ACTION_DISPATCH_TOKEN_MISMATCH",
+                "live dispatch attempt does not own this action",
+            )
         if self.authorize_errors:
-            raise self.authorize_errors.pop(0)
+            error = self.authorize_errors.pop(0)
+            remote["state"] = "ARMED"
+            remote["dispatchAttemptToken"] = dispatch_attempt_token
+            raise error
+        if remote["state"] != "PREPARED":
+            raise JobSafetyError(
+                "PHYSICAL_ACTION_STATE_CONFLICT",
+                "physical action is not prepared",
+            )
+        remote["state"] = "ARMED"
+        remote["dispatchAttemptToken"] = dispatch_attempt_token
+
+    def cancel_prepared_physical_action(
+        self,
+        action,
+        *,
+        dispatch_attempt_token,
+        evidence_sha256,
+    ):
+        remote = self.actions[action.action_uid]
+        if (
+            remote["state"] != "PREPARED"
+            or remote.get("dispatchAttemptToken")
+            != dispatch_attempt_token
+        ):
+            raise JobSafetyError(
+                "PHYSICAL_ACTION_STATE_CONFLICT",
+                "physical action is not prepared",
+            )
+        remote.update(
+            state="CONFIRMED",
+            confirmedOutcome="NOT_EXECUTED",
+            confirmationBasis="PREPARED_NOT_ARMED",
+            evidenceDigestSha256=evidence_sha256,
+        )
+        self.trace.append(("safety", "cancel"))
+
+    def abort_physical_action_dispatch(
+        self,
+        action,
+        *,
+        dispatch_attempt_token,
+        evidence_sha256,
+    ):
+        remote = self.actions[action.action_uid]
+        if (
+            remote["state"] != "ARMED"
+            or remote.get("dispatchAttemptToken")
+            != dispatch_attempt_token
+        ):
+            raise JobSafetyError(
+                "PHYSICAL_ACTION_DISPATCH_TOKEN_MISMATCH",
+                "live dispatch attempt does not own this action",
+            )
+        remote.update(
+            state="CONFIRMED",
+            confirmedOutcome="NOT_EXECUTED",
+            confirmationBasis="LIVE_DISPATCH_NOT_WRITTEN",
+            evidenceDigestSha256=evidence_sha256,
+        )
+        self.trace.append(("safety", "abort"))
 
     def get_physical_action(self, action_uid):
         self.trace.append(("safety", "get_action"))
-        return {
-            "actionUid": action_uid,
-            "state": "MAY_HAVE_EXECUTED",
-            "confirmedOutcome": None,
-        }
+        if action_uid not in self.actions:
+            raise JobSafetyError(
+                "PHYSICAL_ACTION_NOT_FOUND",
+                "physical action does not exist",
+            )
+        return dict(self.actions[action_uid])
 
-    def confirm_physical_action(self, action, *, outcome, evidence_sha256):
-        del action, outcome
+    def confirm_physical_action(
+        self,
+        action,
+        *,
+        outcome,
+        evidence_sha256,
+        confirmation_basis,
+    ):
+        remote = self.actions[action.action_uid]
+        assert remote["state"] == "ARMED"
+        remote.update(
+            state="CONFIRMED",
+            confirmedOutcome=outcome,
+            confirmationBasis=confirmation_basis,
+            evidenceDigestSha256=evidence_sha256,
+        )
         self.confirmation_digests.append(evidence_sha256)
+        self.confirmation_bases.append(confirmation_basis)
         self.trace.append(("safety", "confirm"))
 
     def complete_job(
@@ -166,12 +372,22 @@ class StoreBackedUpdaterClient:
             "BEGIN_JOB": self.store.begin_job,
             "GET_JOB_PERMIT": self.store.get_job_permit,
             "ABANDON_JOB_PERMIT": self.store.abandon_job_permit,
-            "AUTHORIZE_PHYSICAL_ACTION": (
-                self.store.authorize_physical_action
+            "PREPARE_PHYSICAL_ACTION": (
+                self.store.prepare_physical_action
+            ),
+            "ARM_PHYSICAL_ACTION": self.store.arm_physical_action,
+            "CANCEL_PREPARED_PHYSICAL_ACTION": (
+                self.store.cancel_prepared_physical_action
+            ),
+            "ABORT_PHYSICAL_ACTION_DISPATCH": (
+                self.store.abort_physical_action_dispatch
             ),
             "GET_PHYSICAL_ACTION": self.store.get_physical_action,
             "CONFIRM_PHYSICAL_ACTION": (
                 self.store.confirm_physical_action
+            ),
+            "CONFIRM_LIVE_PHYSICAL_ACTION_RESULT": (
+                self.store.confirm_live_physical_action_result
             ),
             "COMPLETE_JOB": self.store.complete_job,
         }
@@ -183,6 +399,23 @@ class StoreBackedUpdaterClient:
                 str(error),
                 "00000000-0000-4000-8000-000000000001",
             ) from error
+
+
+class LoseFirstArmResponseClient:
+    """Commit ARM once, then emulate a lost local-socket response."""
+
+    def __init__(self, delegate):
+        self.delegate = delegate
+        self.arm_requests = []
+
+    def request(self, action, payload):
+        if action == "ARM_PHYSICAL_ACTION":
+            self.arm_requests.append(dict(payload))
+            result = self.delegate.request(action, payload)
+            if len(self.arm_requests) == 1:
+                raise LocalControlUnavailable("ARM response lost")
+            return result
+        return self.delegate.request(action, payload)
 
 
 def make_real_job_safety(tmp_path):
@@ -226,7 +459,14 @@ class FakeCompatUart(FakeUart):
             "fixed-frame compatibility must not project config to MCU"
         )
 
-    def query_self_test(self, timeout_ms=3000, on_result=None):
+    def query_self_test(
+        self,
+        timeout_ms=3000,
+        on_result=None,
+        dispatch_gate=None,
+    ):
+        if dispatch_gate is not None:
+            dispatch_gate()
         self.self_test_calls.append(timeout_ms)
         result = dict(self.self_test_result)
         if on_result is not None:
@@ -339,6 +579,72 @@ def valid_service_command(example_name):
     ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     command["payloadSha256"] = canonical_payload_sha256(command["payload"])
     return command
+
+
+def valid_end_clean_service_invocation():
+    path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "contracts",
+        "examples",
+        "onenet-wire",
+        "end-clean-before-unlock.service-wire.json",
+    )
+    with open(path, encoding="utf-8") as source:
+        wire = json.load(source)
+    body = wire["callServiceApiBodyTemplate"]
+    service_id = body["identifier"]
+    params = copy.deepcopy(body["params"])
+    now = datetime.now(timezone.utc)
+    params["issuedAt"] = now.isoformat(timespec="milliseconds").replace(
+        "+00:00", "Z"
+    )
+    params["expiresAt"] = (
+        now + timedelta(minutes=5)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    decoded = decode_service_command(service_id, params)
+    params["payloadSha256"] = canonical_payload_sha256(decoded["payload"])
+    return service_id, params, decode_service_command(service_id, params)
+
+
+def invoke_business_service(handler, service_id, params):
+    return handler.handle_service_request(
+        CloudServiceRequest(
+            delivery_id=str(uuid.uuid4()),
+            request_id=str(uuid.uuid4()),
+            service_id=service_id,
+            params=params,
+            received_at=None,
+            clock_quality="UNAVAILABLE",
+        )
+    )
+
+
+def clean_preunlock_event(start, start_action_uid, measurement_uid):
+    return {
+        "message_name": "WORK_PREUNLOCK_WEIGHT_READY",
+        "message_type": 0x32,
+        "source_tx_sequence": 1,
+        "payload": {
+            "mcuBootId": 42,
+            "mcuEventSequence": 1,
+            "uptimeMs": 1_000,
+            "mcuCommandUid": start_action_uid,
+            "operationUid": start["payload"]["operationUid"],
+            "portNo": start["payload"]["portNo"],
+            "measurementUid": measurement_uid,
+            "measurementStatus": "STABLE",
+            "weightValuePresent": True,
+            "reportedWeightGrams": 50_000,
+            "weightValueKind": "STABLE_WINDOW_MEAN",
+            "measurementElapsedMs": 1_000,
+            "sampleCount": 10,
+            "calibrationVersion": 1,
+            "weightSensorHealth": "OK",
+            "faultCode": "NONE",
+        },
+    }
 
 
 def mark_configuration_applied(store):
@@ -1081,12 +1387,195 @@ def test_candidate_permit_and_action_are_durable_before_delivery_uart(
     assert safety_and_uart == [
         ("safety", "request"),
         ("safety", "begin"),
+        ("safety", "prepare"),
         ("safety", "arm"),
         ("uart", "START_DELIVERY_SESSION"),
     ]
     slot = store.get_work_slot()
     assert slot is not None
     assert "DELIVERY:START:0" in slot["context"]["job_safety"]["actions"]
+    store.close()
+
+
+@pytest.mark.parametrize("preflight_error", ["UART_CLOSED", "COMMAND_EXPIRED"])
+def test_uart_preflight_failure_cancels_prepared_action_without_opening_gate(
+    tmp_path,
+    preflight_error,
+):
+    store = make_store(tmp_path)
+    store.set_state("applied_config_version", "8")
+    store.set_state("applied_config_content_sha256", "a" * 64)
+    trace = []
+    uart = FakeUart(trace=trace)
+    uart.command_result = {"acked": False, "error": preflight_error}
+    safety = FakeJobSafety(trace, store)
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    command = valid_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+
+    result = work.start_delivery_command(command)
+
+    assert result["acked"] is False
+    assert [item for item in trace if item[0] in {"safety", "uart"}] == [
+        ("safety", "request"),
+        ("safety", "begin"),
+        ("safety", "prepare"),
+        ("safety", "cancel"),
+        ("safety", "get_action"),
+        ("safety", "complete"),
+    ]
+    assert uart.calls == []
+    remote = next(iter(safety.actions.values()))
+    assert remote["state"] == "CONFIRMED"
+    assert remote["confirmedOutcome"] == "NOT_EXECUTED"
+    assert remote["confirmationBasis"] == "PREPARED_NOT_ARMED"
+    store.close()
+
+
+def test_lost_arm_response_retries_same_token_and_writes_uart_once(tmp_path):
+    store = make_store(tmp_path)
+    store.set_state("applied_config_version", "8")
+    store.set_state("applied_config_content_sha256", "a" * 64)
+    updater = UpdaterStore(
+        tmp_path / "updater.db",
+        release_version="stage4-test",
+        enable_stage4_candidate=True,
+    )
+    updater.initialize()
+    updater.transition_job_gate("OPEN")
+    client = LoseFirstArmResponseClient(StoreBackedUpdaterClient(updater))
+    safety = PermanentJobSafety(client)
+    uart = FakeUart()
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    command = valid_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+
+    result = work.start_delivery_command(command)
+
+    assert result["acked"] is True
+    assert len(uart.calls) == 1
+    assert len(client.arm_requests) == 2
+    assert client.arm_requests[0] == client.arm_requests[1]
+    assert updater.get_status()["unreconciledPhysicalActionCount"] == 1
+    action_uid = store.get_work_slot()["context"]["job_safety"][
+        "actions"
+    ]["DELIVERY:START:0"]["action_uid"]
+    remote = updater.get_physical_action({"actionUid": action_uid})
+    assert remote["state"] == "ARMED"
+    assert remote["mayExecute"] is False
+    updater.close()
+    store.close()
+
+
+def test_local_unknown_cannot_turn_remote_armed_action_into_not_executed(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    store.set_state("applied_config_version", "8")
+    store.set_state("applied_config_content_sha256", "a" * 64)
+    updater, safety = make_real_job_safety(tmp_path)
+    uart = FakeUart()
+    uart.command_result = {"acked": False, "error": "TIMEOUT"}
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    processor = CommandProcessor(store, uart, work)
+    command = valid_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(command["commandUid"], command["commandType"], command)
+
+    assert processor.process_next()
+    slot = store.get_work_slot()
+    assert slot is not None
+    action = slot["context"]["job_safety"]["actions"][
+        "DELIVERY:START:0"
+    ]
+    action_uid = action["action_uid"]
+    assert updater.get_physical_action({"actionUid": action_uid})[
+        "state"
+    ] == "ARMED"
+
+    # Model an older edge.db snapshot which only remembers an uncertain
+    # preparation.  This rollbackable local value is not negative evidence.
+    action.pop("dispatch_result", None)
+    action["preparation_result"] = "UNKNOWN"
+    store.update_work_context(slot["work_uid"], slot["context"])
+
+    assert work.reconcile_pre_action_job_safety_failure() is False
+    remote = updater.get_physical_action({"actionUid": action_uid})
+    assert remote["state"] == "ARMED"
+    assert remote["confirmedOutcome"] is None
+    assert updater.get_status()["unreconciledPhysicalActionCount"] == 1
+    assert store.get_work_slot() is not None
+    assert len(uart.calls) == 1
+    updater.close()
+    store.close()
+
+
+def test_restart_keeps_remote_prepared_action_for_manual_recovery(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    store.set_state("applied_config_version", "8")
+    store.set_state("applied_config_content_sha256", "a" * 64)
+    trace = []
+    uart = CrashBeforeDispatchGateUart(trace=trace)
+    safety = FakeJobSafety(trace, store)
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    processor = CommandProcessor(store, uart, work)
+    command = valid_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(command["commandUid"], command["commandType"], command)
+
+    with pytest.raises(SystemExit, match="waiting for UART lock"):
+        processor.process_next()
+
+    slot = store.get_work_slot()
+    assert slot is not None
+    action = slot["context"]["job_safety"]["actions"][
+        "DELIVERY:START:0"
+    ]
+    remote = safety.actions[action["action_uid"]]
+    assert remote["state"] == "PREPARED"
+    assert uart.calls == []
+    assert ("safety", "arm") not in trace
+
+    recovered = store.recover_interrupted_commands()
+    assert recovered["physical_failed"] == 1
+    assert work.reconcile_pre_action_job_safety_failure() is False
+    assert remote["state"] == "PREPARED"
+    assert remote["confirmedOutcome"] is None
+    assert ("safety", "cancel") not in trace
+    assert ("safety", "complete") not in trace
+    assert uart.calls == []
+    assert store.get_work_slot() is not None
+    assert store.get_command(command["commandUid"])["state"] == "FAILED"
     store.close()
 
 
@@ -1123,7 +1612,7 @@ def test_real_permanent_ledger_allows_delivery_only_after_prior_mcu_fact(
                 "mcuCommandUid": start_uid,
                 "sessionUid": session_uid,
                 "portNo": command["payload"]["portNo"],
-                "roundIndex": 0,
+                "roundIndex": 1,
                 "measurementUid": preopen_uid,
                 "measurementStatus": "STABLE",
                 "weightValuePresent": True,
@@ -1151,7 +1640,7 @@ def test_real_permanent_ledger_allows_delivery_only_after_prior_mcu_fact(
                 "mcuCommandUid": authorize_uid,
                 "sessionUid": session_uid,
                 "portNo": command["payload"]["portNo"],
-                "roundIndex": 0,
+                "roundIndex": 1,
                 "command": "OPEN",
                 "outputStatus": "COMMAND_DISPATCHED",
                 "physicalDoorStateBasis": "NOT_OBSERVABLE",
@@ -1160,6 +1649,10 @@ def test_real_permanent_ledger_allows_delivery_only_after_prior_mcu_fact(
         }
     )
     assert updater.get_status()["unreconciledPhysicalActionCount"] == 0
+    resolved = updater.get_physical_action(
+        {"actionUid": authorize_uid}
+    )
+    assert resolved["confirmationBasis"] == "MCU_IDENTITY_BOUND_FACT"
 
     post_uid = "52000000-0000-4000-8000-000000000092"
     work.handle_mcu_event(
@@ -1550,7 +2043,7 @@ def test_uncertain_begin_retains_slot_then_closes_known_zero_effect_job(
     store.close()
 
 
-def test_uncertain_action_authorization_is_closed_without_uart_replay(
+def test_lost_arm_response_is_aborted_by_the_same_live_dispatch_attempt(
     tmp_path,
 ):
     store = make_store(tmp_path)
@@ -1587,14 +2080,18 @@ def test_uncertain_action_authorization_is_closed_without_uart_replay(
     action = slot["context"]["job_safety"]["actions"][
         "DELIVERY:START:0"
     ]
-    assert action["authorization_result"] == "UNKNOWN"
+    assert action["dispatch_result"] == "CONFIRMED"
     assert uart.calls == []
+    assert safety.actions[action["action_uid"]]["state"] == "CONFIRMED"
+    assert safety.actions[action["action_uid"]]["confirmationBasis"] == (
+        "LIVE_DISPATCH_NOT_WRITTEN"
+    )
 
     assert work.reconcile_pre_action_job_safety_failure() is True
     assert uart.calls == []
     assert store.get_work_slot() is None
     assert store.get_command(command["commandUid"])["state"] == "FAILED"
-    assert ("safety", "get_action") in trace
+    assert ("safety", "abort") in trace
     store.close()
 
 
@@ -1615,9 +2112,10 @@ def test_lost_permanent_completion_keeps_slot_until_retry_succeeds(
             )
         ],
     )
+    uart = FakeUart(trace=trace)
     work = WorkManager(
         store,
-        FakeUart(trace=trace),
+        uart,
         None,
         FakePhotoManager(),
         job_safety=safety,
@@ -1628,6 +2126,23 @@ def test_lost_permanent_completion_keeps_slot_until_retry_succeeds(
 
     result = work.start_delivery_command(command)
     assert result["acked"] is True
+    slot = store.get_work_slot()
+    start_action = slot["context"]["job_safety"]["actions"][
+        "DELIVERY:START:0"
+    ]
+    # Isolate completion-response recovery from action reconciliation by
+    # supplying the same identity-bound MCU fact used by normal handlers.
+    work._confirm_action_from_mcu_event(
+        slot["context"],
+        expected_action_key="DELIVERY:START:0",
+        expected_action_kind="START_DELIVERY_SESSION",
+        event_type="TEST_MCU_COMMAND_RESULT",
+        payload={
+            "mcuCommandUid": start_action["action_uid"],
+            "mcuBootId": 42,
+            "mcuEventSequence": 7,
+        },
+    )
     work.finalize_delivery(command["payload"]["sessionUid"])
 
     retained = store.get_work_slot()
@@ -1750,7 +2265,7 @@ def test_unstable_preopen_and_persisted_photos_authorize_first_open(
             "mcuCommandUid": start_mcu_command_uid,
             "sessionUid": command["payload"]["sessionUid"],
             "portNo": command["payload"]["portNo"],
-            "roundIndex": 0,
+            "roundIndex": 1,
             "measurementUid": measurement_uid,
             "measurementStatus": "UNSTABLE",
             "weightValuePresent": True,
@@ -1810,7 +2325,7 @@ def test_unpersisted_preopen_photo_fact_blocks_first_open(tmp_path):
             "mcuCommandUid": start_mcu_command_uid,
             "sessionUid": command["payload"]["sessionUid"],
             "portNo": command["payload"]["portNo"],
-            "roundIndex": 0,
+            "roundIndex": 1,
             "measurementUid": (
                 "52000000-0000-4000-8000-000000000002"
             ),
@@ -2240,6 +2755,883 @@ def test_end_clean_before_unlock_releases_reserved_operation(tmp_path):
     assert values["operationUid"] == start["payload"]["operationUid"]
     assert values["reason"] == "CLEANER_CANCELLED"
     store.close()
+
+
+def test_candidate_end_clean_before_unlock_is_not_a_physical_action(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    updater, safety = make_real_job_safety(tmp_path)
+    uart = FakeUart()
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    processor = CommandProcessor(store, uart, work)
+    start = valid_service_command("start-clean-operation.service-wire.json")
+    store.receive_command(start["commandUid"], start["commandType"], start)
+    assert processor.process_next()
+
+    slot = store.get_work_slot()
+    start_action = slot["context"]["job_safety"]["actions"][
+        "CLEAN:START:0"
+    ]
+    work._confirm_action_from_mcu_event(
+        slot["context"],
+        expected_action_key="CLEAN:START:0",
+        expected_action_kind="START_CLEAN_OPERATION",
+        event_type="TEST_MCU_COMMAND_RESULT",
+        payload={
+            "mcuCommandUid": start_action["action_uid"],
+            "mcuBootId": 42,
+            "mcuEventSequence": 1,
+        },
+    )
+    assert updater.get_status()["unreconciledPhysicalActionCount"] == 0
+
+    end = valid_service_command("end-clean-before-unlock.service-wire.json")
+    store.receive_command(end["commandUid"], end["commandType"], end)
+    assert processor.process_next()
+
+    assert store.get_command(end["commandUid"])["state"] == "COMPLETED"
+    assert store.get_work_slot() is None
+    assert updater.get_status()["activeJobPermitCount"] == 0
+    assert updater.get_status()["unreconciledPhysicalActionCount"] == 0
+    action_count = updater._connection.execute(
+        "SELECT COUNT(*) FROM physical_action_ledger"
+    ).fetchone()[0]
+    assert action_count == 1
+    assert set(slot["context"]["job_safety"]["actions"]) == {
+        "CLEAN:START:0"
+    }
+    assert [call[0] for call in uart.calls] == [
+        "START_CLEAN_OPERATION",
+        "END_CLEAN_BEFORE_UNLOCK",
+    ]
+    updater.close()
+    store.close()
+
+
+def test_pending_end_from_business_ingress_blocks_event_thread_unlock(
+    tmp_path,
+):
+    class BlockingCleanOpenPhotos(FakePhotoManager):
+        def __init__(self):
+            super().__init__()
+            self.capture_started = threading.Event()
+            self.release_capture = threading.Event()
+
+        def capture_clean_open_photos(self, work_uid):
+            self.capture_started.set()
+            if not self.release_capture.wait(5):
+                raise AssertionError("timed out waiting to release clean photos")
+            return self._capture("clean_open", work_uid)
+
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    updater, safety = make_real_job_safety(tmp_path)
+    uart = FakeUart()
+    photos = BlockingCleanOpenPhotos()
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        photos,
+        job_safety=safety,
+    )
+    processor = CommandProcessor(store, uart, work)
+    handler = BusinessMessageHandler(
+        store,
+        DeviceIdentity("SN-CONTRACT-0001"),
+        edge_boot_id=9_001,
+    )
+    command_wakes = []
+    handler.on_command_received = lambda *args: command_wakes.append(args)
+
+    start = valid_service_command("start-clean-operation.service-wire.json")
+    assert store.receive_command(
+        start["commandUid"], start["commandType"], start
+    ) == "ACCEPTED"
+    assert processor.process_next()
+    start_action_uid = uart.calls[-1][2]
+    event_errors = []
+
+    def process_preunlock_event():
+        try:
+            processor.process_mcu_event(
+                clean_preunlock_event(
+                    start,
+                    start_action_uid,
+                    "53000000-0000-4000-8000-0000000000d1",
+                )
+            )
+        except BaseException as error:  # surfaced after the thread joins
+            event_errors.append(error)
+
+    event_thread = threading.Thread(target=process_preunlock_event)
+    event_thread.start()
+    try:
+        assert photos.capture_started.wait(3)
+        service_id, params, end = valid_end_clean_service_invocation()
+
+        response = invoke_business_service(handler, service_id, params)
+
+        assert response.data["receiptState"] == 1
+        assert command_wakes == []
+        assert store.get_command(end["commandUid"])["state"] == "PENDING"
+
+        photos.release_capture.set()
+        event_thread.join(3)
+        assert not event_thread.is_alive()
+        assert len(event_errors) == 1
+        assert isinstance(event_errors[0], CleanUnlockDecisionDeferred)
+        assert [call[0] for call in uart.calls] == [
+            "START_CLEAN_OPERATION"
+        ]
+        retained = store.get_work_slot()
+        assert retained is not None
+        assert retained["context"]["phase"] == "PREUNLOCK_MEASURED"
+        assert "unlock_mcu_command_uid" not in retained["context"]
+        assert set(retained["context"]["job_safety"]["actions"]) == {
+            "CLEAN:START:0"
+        }
+        action_rows = updater._connection.execute(
+            "SELECT action_kind FROM physical_action_ledger"
+        ).fetchall()
+        assert [row["action_kind"] for row in action_rows] == [
+            "START_CLEAN_OPERATION"
+        ]
+
+        assert response.after_reply is not None
+        response.after_reply()
+        assert len(command_wakes) == 1
+        assert command_wakes[0][0] == end["commandUid"]
+        assert processor.process_next()
+
+        assert store.get_command(end["commandUid"])["state"] == "COMPLETED"
+        assert store.get_work_slot() is None
+        assert [call[0] for call in uart.calls] == [
+            "START_CLEAN_OPERATION",
+            "END_CLEAN_BEFORE_UNLOCK",
+        ]
+        action_rows = updater._connection.execute(
+            "SELECT action_kind FROM physical_action_ledger"
+        ).fetchall()
+        assert [row["action_kind"] for row in action_rows] == [
+            "START_CLEAN_OPERATION"
+        ]
+        permit = updater.get_job_permit({"permitUid": start["commandUid"]})
+        assert permit["state"] == "COMPLETED"
+        assert permit["completionOutcome"] == "CANCELLED"
+    finally:
+        photos.release_capture.set()
+        event_thread.join(3)
+        updater.close()
+        store.close()
+
+
+def test_end_persisted_after_unlock_claim_fails_in_single_consumer(tmp_path):
+    class BlockingUnlockUart(FakeUart):
+        def __init__(self):
+            super().__init__()
+            self.unlock_dispatch_started = threading.Event()
+            self.release_unlock = threading.Event()
+
+        def send_command_before_deadline(
+            self,
+            message_name,
+            values,
+            *,
+            mcu_command_uid=None,
+            dispatch_deadline_monotonic,
+            dispatch_gate=None,
+        ):
+            if message_name == "UNLOCK_CLEAN_DOOR":
+                self.unlock_dispatch_started.set()
+                if not self.release_unlock.wait(5):
+                    raise AssertionError("timed out waiting to release unlock")
+            return super().send_command_before_deadline(
+                message_name,
+                values,
+                mcu_command_uid=mcu_command_uid,
+                dispatch_deadline_monotonic=dispatch_deadline_monotonic,
+                dispatch_gate=dispatch_gate,
+            )
+
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    updater, safety = make_real_job_safety(tmp_path)
+    uart = BlockingUnlockUart()
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    processor = CommandProcessor(store, uart, work)
+    handler = BusinessMessageHandler(
+        store,
+        DeviceIdentity("SN-CONTRACT-0001"),
+        edge_boot_id=9_001,
+    )
+    command_wakes = []
+    handler.on_command_received = lambda *args: command_wakes.append(args)
+
+    start = valid_service_command("start-clean-operation.service-wire.json")
+    assert store.receive_command(
+        start["commandUid"], start["commandType"], start
+    ) == "ACCEPTED"
+    assert processor.process_next()
+    start_action_uid = uart.calls[-1][2]
+    event_errors = []
+
+    def process_preunlock_event():
+        try:
+            processor.process_mcu_event(
+                clean_preunlock_event(
+                    start,
+                    start_action_uid,
+                    "53000000-0000-4000-8000-0000000000d2",
+                )
+            )
+        except BaseException as error:  # surfaced after the thread joins
+            event_errors.append(error)
+
+    event_thread = threading.Thread(target=process_preunlock_event)
+    event_thread.start()
+    try:
+        assert uart.unlock_dispatch_started.wait(3)
+        claimed = store.get_work_slot()["context"]
+        assert claimed["phase"] == "UNLOCKING"
+        assert "unlock_mcu_command_uid" in claimed
+
+        service_id, params, end = valid_end_clean_service_invocation()
+        response = invoke_business_service(handler, service_id, params)
+        assert response.data["receiptState"] == 1
+        assert store.get_command(end["commandUid"])["state"] == "PENDING"
+        assert command_wakes == []
+
+        assert response.after_reply is not None
+        response.after_reply()
+        assert len(command_wakes) == 1
+        # The sole command consumer is still inside the MCU event. It can
+        # claim the newly accepted END only after the winning unlock call
+        # returns.
+        uart.release_unlock.set()
+        event_thread.join(3)
+        assert not event_thread.is_alive()
+        assert event_errors == []
+        assert [call[0] for call in uart.calls] == [
+            "START_CLEAN_OPERATION",
+            "UNLOCK_CLEAN_DOOR",
+        ]
+        assert processor.process_next()
+        rejected = store.get_command(end["commandUid"])
+        assert rejected["state"] == "FAILED"
+        assert rejected["last_error"] == "STATE_CONFLICT"
+        assert [call[0] for call in uart.calls] == [
+            "START_CLEAN_OPERATION",
+            "UNLOCK_CLEAN_DOOR",
+        ]
+        retained = store.get_work_slot()
+        assert retained["context"]["phase"] == "WAITING_LOCK_OUTPUT"
+        assert "end_before_unlock" not in retained["context"]
+        action_rows = updater._connection.execute(
+            """SELECT action_kind, state
+               FROM physical_action_ledger ORDER BY rowid"""
+        ).fetchall()
+        assert [row["action_kind"] for row in action_rows] == [
+            "START_CLEAN_OPERATION",
+            "UNLOCK_CLEAN_DOOR",
+        ]
+        assert action_rows[-1]["state"] == "ARMED"
+    finally:
+        uart.release_unlock.set()
+        event_thread.join(3)
+        updater.close()
+        store.close()
+
+
+def test_end_clean_wins_while_preunlock_event_is_blocked_taking_photos(
+    tmp_path,
+):
+    class BlockingCleanOpenPhotos(FakePhotoManager):
+        def __init__(self):
+            super().__init__()
+            self.capture_started = threading.Event()
+            self.release_capture = threading.Event()
+
+        def capture_clean_open_photos(self, work_uid):
+            self.capture_started.set()
+            if not self.release_capture.wait(5):
+                raise AssertionError("timed out waiting to release clean photos")
+            return self._capture("clean_open", work_uid)
+
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    updater, safety = make_real_job_safety(tmp_path)
+    end_sent = threading.Event()
+    context_seen_before_end_send = []
+
+    def observe_persisted_end_intent():
+        context_seen_before_end_send.append(
+            copy.deepcopy(store.get_work_slot()["context"])
+        )
+        end_sent.set()
+
+    uart = EndCleanControlUart(
+        end_result={"acked": False, "error": "TIMEOUT", "fatal": False},
+        before_end_send=observe_persisted_end_intent,
+    )
+    photos = BlockingCleanOpenPhotos()
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        photos,
+        job_safety=safety,
+    )
+    start = valid_service_command("start-clean-operation.service-wire.json")
+    store.receive_command(start["commandUid"], start["commandType"], start)
+    assert work.start_clean_command(start)["acked"] is True
+    operation_uid = start["payload"]["operationUid"]
+    port_no = start["payload"]["portNo"]
+    start_action_uid = uart.calls[-1][2]
+    preunlock_event = {
+        "message_name": "WORK_PREUNLOCK_WEIGHT_READY",
+        "payload": {
+            "mcuBootId": 42,
+            "mcuEventSequence": 1,
+            "uptimeMs": 1_000,
+            "mcuCommandUid": start_action_uid,
+            "operationUid": operation_uid,
+            "portNo": port_no,
+            "measurementUid": "53000000-0000-4000-8000-0000000000b1",
+            "measurementStatus": "STABLE",
+            "weightValuePresent": True,
+            "reportedWeightGrams": 50_000,
+            "weightValueKind": "STABLE_WINDOW_MEAN",
+            "measurementElapsedMs": 1_000,
+            "sampleCount": 10,
+            "calibrationVersion": 1,
+            "weightSensorHealth": "OK",
+            "faultCode": "NONE",
+        },
+    }
+    event_errors = []
+    end_errors = []
+    end_results = []
+
+    def process_preunlock_event():
+        try:
+            work.handle_mcu_event(preunlock_event)
+        except BaseException as error:  # surfaced after both threads join
+            event_errors.append(error)
+
+    end = valid_service_command("end-clean-before-unlock.service-wire.json")
+
+    def process_end_command():
+        try:
+            end_results.append(work.end_clean_before_unlock_command(end))
+        except BaseException as error:  # surfaced after both threads join
+            end_errors.append(error)
+
+    event_thread = threading.Thread(target=process_preunlock_event)
+    end_thread = threading.Thread(target=process_end_command)
+    event_thread.start()
+    try:
+        assert photos.capture_started.wait(3)
+        before_end = store.get_work_slot()["context"]
+        assert before_end["phase"] == "PREUNLOCK_MEASURED"
+
+        end_thread.start()
+        end_thread.join(3)
+        assert not end_thread.is_alive()
+        assert end_errors == []
+        assert end_results and end_results[0]["acked"] is False
+        assert end_sent.is_set()
+        assert context_seen_before_end_send[0]["phase"] == (
+            "ENDING_BEFORE_UNLOCK"
+        )
+        assert context_seen_before_end_send[0]["end_before_unlock"][
+            "state"
+        ] == "REQUESTED"
+
+        committed_end = copy.deepcopy(store.get_work_slot()["context"])
+        assert committed_end["phase"] == "ENDING_BEFORE_UNLOCK"
+        assert committed_end["end_before_unlock"]["state"] == (
+            "RESULT_UNKNOWN"
+        )
+
+        photos.release_capture.set()
+        event_thread.join(3)
+        assert not event_thread.is_alive()
+        assert event_errors == []
+
+        retained = store.get_work_slot()
+        assert retained is not None
+        assert retained["context"]["phase"] == committed_end["phase"]
+        assert retained["context"]["end_before_unlock"] == (
+            committed_end["end_before_unlock"]
+        )
+        assert "unlock_mcu_command_uid" not in retained["context"]
+        assert set(retained["context"]["job_safety"]["actions"]) == {
+            "CLEAN:START:0"
+        }
+        assert photos.captured == [("clean_open", operation_uid)]
+        assert [call[0] for call in uart.calls] == [
+            "START_CLEAN_OPERATION",
+            "END_CLEAN_BEFORE_UNLOCK",
+        ]
+        start_action = updater.get_physical_action(
+            {"actionUid": start_action_uid}
+        )
+        assert start_action["state"] == "CONFIRMED"
+        assert start_action["confirmedOutcome"] == "EXECUTED"
+    finally:
+        photos.release_capture.set()
+        event_thread.join(3)
+        if end_thread.ident is not None:
+            end_thread.join(3)
+        updater.close()
+        store.close()
+
+
+def test_unlock_claim_wins_before_end_and_end_returns_state_conflict(tmp_path):
+    class BlockingUnlockUart(FakeUart):
+        def __init__(self):
+            super().__init__()
+            self.unlock_dispatch_started = threading.Event()
+            self.release_unlock = threading.Event()
+
+        def send_command_before_deadline(
+            self,
+            message_name,
+            values,
+            *,
+            mcu_command_uid=None,
+            dispatch_deadline_monotonic,
+            dispatch_gate=None,
+        ):
+            if message_name == "UNLOCK_CLEAN_DOOR":
+                self.unlock_dispatch_started.set()
+                if not self.release_unlock.wait(5):
+                    raise AssertionError("timed out waiting to release unlock")
+            return super().send_command_before_deadline(
+                message_name,
+                values,
+                mcu_command_uid=mcu_command_uid,
+                dispatch_deadline_monotonic=dispatch_deadline_monotonic,
+                dispatch_gate=dispatch_gate,
+            )
+
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    updater, safety = make_real_job_safety(tmp_path)
+    uart = BlockingUnlockUart()
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    start = valid_service_command("start-clean-operation.service-wire.json")
+    store.receive_command(start["commandUid"], start["commandType"], start)
+    assert work.start_clean_command(start)["acked"] is True
+    operation_uid = start["payload"]["operationUid"]
+    start_action_uid = uart.calls[-1][2]
+    event = {
+        "message_name": "WORK_PREUNLOCK_WEIGHT_READY",
+        "payload": {
+            "mcuBootId": 42,
+            "mcuEventSequence": 1,
+            "uptimeMs": 1_000,
+            "mcuCommandUid": start_action_uid,
+            "operationUid": operation_uid,
+            "portNo": start["payload"]["portNo"],
+            "measurementUid": "53000000-0000-4000-8000-0000000000b2",
+            "measurementStatus": "STABLE",
+            "weightValuePresent": True,
+            "reportedWeightGrams": 50_000,
+            "weightValueKind": "STABLE_WINDOW_MEAN",
+            "measurementElapsedMs": 1_000,
+            "sampleCount": 10,
+            "calibrationVersion": 1,
+            "weightSensorHealth": "OK",
+            "faultCode": "NONE",
+        },
+    }
+    event_errors = []
+
+    def process_preunlock_event():
+        try:
+            work.handle_mcu_event(event)
+        except BaseException as error:  # surfaced after the thread joins
+            event_errors.append(error)
+
+    event_thread = threading.Thread(target=process_preunlock_event)
+    event_thread.start()
+    try:
+        assert uart.unlock_dispatch_started.wait(3)
+        claimed = store.get_work_slot()["context"]
+        assert claimed["phase"] == "UNLOCKING"
+        assert "unlock_mcu_command_uid" in claimed
+
+        end = valid_service_command("end-clean-before-unlock.service-wire.json")
+        end_result = work.end_clean_before_unlock_command(end)
+        assert end_result == {"acked": False, "error": "STATE_CONFLICT"}
+        assert "end_before_unlock" not in store.get_work_slot()["context"]
+
+        uart.release_unlock.set()
+        event_thread.join(3)
+        assert not event_thread.is_alive()
+        assert event_errors == []
+        assert [call[0] for call in uart.calls] == [
+            "START_CLEAN_OPERATION",
+            "UNLOCK_CLEAN_DOOR",
+        ]
+        assert store.get_work_slot()["context"]["phase"] == (
+            "WAITING_LOCK_OUTPUT"
+        )
+    finally:
+        uart.release_unlock.set()
+        event_thread.join(3)
+        updater.close()
+        store.close()
+
+
+def test_late_clean_start_fact_after_end_ack_only_finishes_cancellation(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    updater, safety = make_real_job_safety(tmp_path)
+    before_end_send = []
+
+    def capture_persisted_end_intent():
+        before_end_send.append(copy.deepcopy(store.get_work_slot()["context"]))
+
+    uart = EndCleanControlUart(
+        end_result={"acked": True, "disposition": "ACCEPTED"},
+        before_end_send=capture_persisted_end_intent,
+    )
+    photos = FakePhotoManager()
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        photos,
+        job_safety=safety,
+    )
+    processor = CommandProcessor(store, uart, work)
+    start = valid_service_command("start-clean-operation.service-wire.json")
+    store.receive_command(start["commandUid"], start["commandType"], start)
+    assert processor.process_next()
+    start_action_uid = uart.calls[-1][2]
+    assert updater.get_physical_action(
+        {"actionUid": start_action_uid}
+    )["state"] == "ARMED"
+
+    end = valid_service_command("end-clean-before-unlock.service-wire.json")
+    store.receive_command(end["commandUid"], end["commandType"], end)
+    assert processor.process_next()
+
+    assert len(before_end_send) == 1
+    persisted_before_uart = before_end_send[0]
+    assert persisted_before_uart["phase"] == "ENDING_BEFORE_UNLOCK"
+    assert persisted_before_uart["end_before_unlock"]["state"] == (
+        "REQUESTED"
+    )
+    retained = store.get_work_slot()
+    assert retained is not None
+    assert retained["context"]["phase"] == "END_BEFORE_UNLOCK_ACKED"
+    assert retained["context"]["end_before_unlock"]["state"] == "ACKED"
+    assert retained["context"]["job_safety"]["pending_completion"][
+        "outcome"
+    ] == "CANCELLED"
+    assert updater.get_status()["activeJobPermitCount"] == 1
+
+    work.handle_mcu_event(
+        {
+            "message_name": "WORK_PREUNLOCK_WEIGHT_READY",
+            "payload": {
+                "mcuBootId": 42,
+                "mcuEventSequence": 1,
+                "uptimeMs": 1_000,
+                "mcuCommandUid": start_action_uid,
+                "operationUid": start["payload"]["operationUid"],
+                "portNo": start["payload"]["portNo"],
+                "measurementUid": (
+                    "53000000-0000-4000-8000-0000000000a1"
+                ),
+                "measurementStatus": "STABLE",
+                "weightValuePresent": True,
+                "reportedWeightGrams": 50_000,
+                "weightValueKind": "STABLE_WINDOW_MEAN",
+                "measurementElapsedMs": 1_000,
+                "sampleCount": 10,
+                "calibrationVersion": 1,
+                "weightSensorHealth": "OK",
+                "faultCode": "NONE",
+            },
+        }
+    )
+
+    assert store.get_work_slot() is None
+    assert photos.captured == []
+    assert [call[0] for call in uart.calls] == [
+        "START_CLEAN_OPERATION",
+        "END_CLEAN_BEFORE_UNLOCK",
+    ]
+    action = updater.get_physical_action({"actionUid": start_action_uid})
+    assert action["state"] == "CONFIRMED"
+    assert action["confirmedOutcome"] == "EXECUTED"
+    permit = updater.get_job_permit({"permitUid": start["commandUid"]})
+    assert permit["state"] == "COMPLETED"
+    assert permit["completionOutcome"] == "CANCELLED"
+    updater.close()
+    store.close()
+
+
+def test_late_clean_start_fact_after_unknown_end_keeps_recovery_locked(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    updater, safety = make_real_job_safety(tmp_path)
+    before_end_send = []
+
+    def capture_persisted_end_intent():
+        before_end_send.append(copy.deepcopy(store.get_work_slot()["context"]))
+
+    uart = EndCleanControlUart(
+        end_result={"acked": False, "error": "TIMEOUT", "fatal": False},
+        before_end_send=capture_persisted_end_intent,
+    )
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    processor = CommandProcessor(store, uart, work)
+    start = valid_service_command("start-clean-operation.service-wire.json")
+    store.receive_command(start["commandUid"], start["commandType"], start)
+    assert processor.process_next()
+    start_action_uid = uart.calls[-1][2]
+    end = valid_service_command("end-clean-before-unlock.service-wire.json")
+    store.receive_command(end["commandUid"], end["commandType"], end)
+    assert processor.process_next()
+
+    assert before_end_send[0]["phase"] == "ENDING_BEFORE_UNLOCK"
+    assert before_end_send[0]["end_before_unlock"]["state"] == "REQUESTED"
+    retained = store.get_work_slot()
+    assert retained["context"]["end_before_unlock"]["state"] == (
+        "RESULT_UNKNOWN"
+    )
+    assert updater.get_physical_action(
+        {"actionUid": start_action_uid}
+    )["state"] == "ARMED"
+
+    store.close()
+    restarted_store = make_store(tmp_path)
+    restarted_safety = PermanentJobSafety(
+        StoreBackedUpdaterClient(updater)
+    )
+    restarted_uart = FakeUart()
+    restarted_photos = FakePhotoManager()
+    restarted_work = WorkManager(
+        restarted_store,
+        restarted_uart,
+        None,
+        restarted_photos,
+        job_safety=restarted_safety,
+    )
+    restarted_work.handle_mcu_event(
+        {
+            "message_name": "WORK_PREUNLOCK_WEIGHT_READY",
+            "payload": {
+                "mcuBootId": 42,
+                "mcuEventSequence": 2,
+                "uptimeMs": 2_000,
+                "mcuCommandUid": start_action_uid,
+                "operationUid": start["payload"]["operationUid"],
+                "portNo": start["payload"]["portNo"],
+                "measurementUid": (
+                    "53000000-0000-4000-8000-0000000000a2"
+                ),
+                "measurementStatus": "STABLE",
+                "weightValuePresent": True,
+                "reportedWeightGrams": 50_000,
+                "weightValueKind": "STABLE_WINDOW_MEAN",
+                "measurementElapsedMs": 1_000,
+                "sampleCount": 10,
+                "calibrationVersion": 1,
+                "weightSensorHealth": "OK",
+                "faultCode": "NONE",
+            },
+        }
+    )
+
+    after_late_start = restarted_store.get_work_slot()
+    assert after_late_start is not None
+    assert after_late_start["context"]["phase"] == (
+        "END_BEFORE_UNLOCK_RESULT_UNKNOWN"
+    )
+    assert after_late_start["context"]["end_before_unlock"]["state"] == (
+        "RESULT_UNKNOWN"
+    )
+    assert restarted_photos.captured == []
+    assert restarted_uart.calls == []
+    action = updater.get_physical_action({"actionUid": start_action_uid})
+    assert action["state"] == "CONFIRMED"
+    assert action["confirmedOutcome"] == "EXECUTED"
+    status = updater.get_status()
+    assert status["activeJobPermitCount"] == 1
+    assert status["unreconciledPhysicalActionCount"] == 0
+    assert updater.get_job_permit(
+        {"permitUid": start["commandUid"]}
+    )["state"] == "ACTIVE"
+    updater.close()
+    restarted_store.close()
+
+
+def _reach_unknown_end_after_late_clean_start(tmp_path):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    updater, safety = make_real_job_safety(tmp_path)
+    uart = EndCleanControlUart(
+        end_result={"acked": False, "error": "TIMEOUT", "fatal": False},
+    )
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    processor = CommandProcessor(store, uart, work)
+    start = valid_service_command("start-clean-operation.service-wire.json")
+    store.receive_command(start["commandUid"], start["commandType"], start)
+    assert processor.process_next()
+    start_action_uid = uart.calls[-1][2]
+    end = valid_service_command("end-clean-before-unlock.service-wire.json")
+    store.receive_command(end["commandUid"], end["commandType"], end)
+
+    assert processor.process_next()
+    first_end_call = uart.calls[-1]
+    assert first_end_call[0] == "END_CLEAN_BEFORE_UNLOCK"
+    assert store.get_command(end["commandUid"])["state"] == (
+        "RECOVERY_REQUIRED"
+    )
+
+    work.handle_mcu_event(
+        {
+            "message_name": "WORK_PREUNLOCK_WEIGHT_READY",
+            "payload": {
+                "mcuBootId": 42,
+                "mcuEventSequence": 1,
+                "uptimeMs": 1_000,
+                "mcuCommandUid": start_action_uid,
+                "operationUid": start["payload"]["operationUid"],
+                "portNo": start["payload"]["portNo"],
+                "measurementUid": (
+                    "53000000-0000-4000-8000-0000000000c1"
+                ),
+                "measurementStatus": "STABLE",
+                "weightValuePresent": True,
+                "reportedWeightGrams": 50_000,
+                "weightValueKind": "STABLE_WINDOW_MEAN",
+                "measurementElapsedMs": 1_000,
+                "sampleCount": 10,
+                "calibrationVersion": 1,
+                "weightSensorHealth": "OK",
+                "faultCode": "NONE",
+            },
+        }
+    )
+    retained = store.get_work_slot()
+    assert retained is not None
+    assert retained["context"]["phase"] == (
+        "END_BEFORE_UNLOCK_RESULT_UNKNOWN"
+    )
+    assert retained["context"]["end_before_unlock"]["state"] == (
+        "RESULT_UNKNOWN"
+    )
+    return store, updater, uart, work, start, end, first_end_call[2]
+
+
+def test_same_unknown_end_command_reuses_mcu_uid_and_converges_after_ack(
+    tmp_path,
+):
+    store, updater, uart, work, start, end, first_end_mcu_uid = (
+        _reach_unknown_end_after_late_clean_start(tmp_path)
+    )
+    try:
+        uart.end_result = {"acked": True, "disposition": "DUPLICATE"}
+
+        retry = work.end_clean_before_unlock_command(end)
+
+        assert retry["acked"] is True
+        end_calls = [
+            call for call in uart.calls
+            if call[0] == "END_CLEAN_BEFORE_UNLOCK"
+        ]
+        assert len(end_calls) == 2
+        assert end_calls[0][2] == first_end_mcu_uid
+        assert end_calls[1][2] == first_end_mcu_uid
+        assert end_calls[1][1]["reason"] == end_calls[0][1]["reason"]
+        assert store.get_command(end["commandUid"])["state"] == "COMPLETED"
+        assert store.get_work_slot() is None
+        permit = updater.get_job_permit({"permitUid": start["commandUid"]})
+        assert permit["state"] == "COMPLETED"
+        assert permit["completionOutcome"] == "CANCELLED"
+    finally:
+        updater.close()
+        store.close()
+
+
+@pytest.mark.parametrize("changed_field", ["command_uid", "reason"])
+def test_unknown_end_retry_rejects_changed_identity_or_reason(
+    tmp_path,
+    changed_field,
+):
+    store, updater, uart, work, _start, end, first_end_mcu_uid = (
+        _reach_unknown_end_after_late_clean_start(tmp_path)
+    )
+    try:
+        conflicting = copy.deepcopy(end)
+        if changed_field == "command_uid":
+            conflicting["commandUid"] = (
+                "81000000-0000-4000-8000-000000000099"
+            )
+        else:
+            conflicting["payload"]["reason"] = "SIMULATED_DIFFERENT_REASON"
+
+        call_count = len(uart.calls)
+        result = work.end_clean_before_unlock_command(conflicting)
+
+        assert result == {"acked": False, "error": "STATE_CONFLICT"}
+        assert len(uart.calls) == call_count
+        retained = store.get_work_slot()
+        assert retained is not None
+        assert retained["context"]["phase"] == (
+            "END_BEFORE_UNLOCK_RESULT_UNKNOWN"
+        )
+        intent = retained["context"]["end_before_unlock"]
+        assert intent["command_uid"] == end["commandUid"]
+        assert intent["reason"] == end["payload"]["reason"]
+        assert intent["mcu_command_uid"] == first_end_mcu_uid
+    finally:
+        updater.close()
+        store.close()
 
 
 def test_cloud_clean_resume_does_not_reset_already_recovered_window(tmp_path):
@@ -3100,7 +4492,7 @@ def test_compat_corrupt_fullness_cache_falls_back_to_zero(
     store.close()
 
 
-def test_compat_delivery_timeout_fails_and_never_replays_uart(
+def test_compat_delivery_overdue_keeps_a_slot_and_never_rebinds_dd_to_b(
     tmp_path,
 ):
     store = make_store(tmp_path)
@@ -3123,24 +4515,81 @@ def test_compat_delivery_timeout_fails_and_never_replays_uart(
     context["expires_at"] = (
         datetime.now(timezone.utc) - timedelta(seconds=1)
     ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    context["delivery_result_deadline_monotonic_ms"] = 1
     store.update_work_context(slot["work_uid"], context)
 
     assert work.expire_fixed_frame_work()
 
     inbox = store.get_command(command["commandUid"])
-    assert inbox["state"] == "FAILED"
-    assert inbox["last_error"] == "MCU_RESULT_TIMEOUT"
-    assert store.get_work_slot() is None
+    assert inbox["state"] == "RECOVERY_REQUIRED"
+    assert inbox["last_error"] == "MCU_RESULT_OVERDUE"
+    retained = store.get_work_slot()
+    assert retained is not None
+    assert retained["work_uid"] == command["payload"]["sessionUid"]
+    assert retained["work_state"] == "RECOVERY_REQUIRED"
+    assert retained["context"]["phase"] == (
+        "FIXED_FRAME_RESULT_OVERDUE_RECOVERY_REQUIRED"
+    )
     assert uart.calls == calls_after_start
+
+    second = copy.deepcopy(command)
+    second["commandUid"] = str(uuid.uuid4())
+    second["payload"]["sessionUid"] = str(uuid.uuid4())
+    second["target"]["uid"] = second["payload"]["sessionUid"]
+    second["payloadSha256"] = canonical_payload_sha256(
+        second["payload"]
+    )
+    assert store.receive_command(
+        second["commandUid"],
+        second["commandType"],
+        second,
+    ) == "ACCEPTED"
+    assert processor.process_next() is True
+    second_inbox = store.get_command(second["commandUid"])
+    assert second_inbox["state"] == "FAILED"
+    assert second_inbox["last_error"] == "DEVICE_BUSY"
+    assert uart.calls == calls_after_start
+
+    processor.process_mcu_event({
+        "message_name": "COMPAT_DELIVERY_RESULT",
+        "message_type": 240,
+        "source_tx_sequence": 1,
+        "payload": {
+            "mcuBootId": 42,
+            "mcuEventSequence": 1,
+            "uptimeMs": 1_000,
+            "preWeightGrams": 12_300,
+            "postWeightGrams": 14_800,
+            "infraredBlocked": True,
+            "rawFrameHex": "dd00300c0039d001dd",
+        },
+    })
+
+    assert store.get_command(command["commandUid"])["state"] == (
+        "COMPLETED"
+    )
+    assert store.get_command(second["commandUid"])["state"] == "FAILED"
+    assert store.get_work_slot() is None
+    delivery_events = [
+        json.loads(row["payload_json"])
+        for row in store.list_pending_events(limit=100)
+        if row["event_type"] == "DELIVERY_COMPLETE"
+    ]
+    assert len(delivery_events) == 1
+    assert delivery_events[0]["target"]["uid"] == (
+        command["payload"]["sessionUid"]
+    )
     observations = [
         json.loads(row["payload_json"])
         for row in store.list_pending_events(limit=100)
         if row["event_type"] == "DEVICE_COMMAND_OBSERVED"
     ]
-    assert [
+    first_stages = [
         event["payload"]["stage"]
         for event in observations
-    ] == ["ACCEPTED", "MCU_ACCEPTED", "FAILED"]
+        if event.get("commandUid") == command["commandUid"]
+    ]
+    assert first_stages == ["ACCEPTED", "MCU_ACCEPTED"]
     assert all(
         uuid.UUID(event["eventUid"]).version == 4
         for event in observations
@@ -3422,6 +4871,60 @@ def test_compat_clean_relative_window_expires_without_trusted_wall_clock(
         if row["event_type"] == "CLEAN_COMPLETE"
     ]
     assert len(clean_events) == 1
+    store.close()
+
+
+def test_clean_window_rejects_a_larger_monotonic_value_from_another_boot(
+    tmp_path,
+    monkeypatch,
+):
+    ticks = {"milliseconds": 10_000}
+    boot = {"identity": "linux:boot-a"}
+    monkeypatch.setattr(
+        "work_manager.local_deadline_reference",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "work_manager._monotonic_ms",
+        lambda: ticks["milliseconds"],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "work_manager._system_boot_identity",
+        lambda: boot["identity"],
+    )
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeUart()
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_service_command("start-clean-operation.service-wire.json")
+    store.receive_command(
+        command["commandUid"], command["commandType"], command
+    )
+    assert processor.process_next()
+    start_uid = store.get_command(command["commandUid"])["mcu_command_uid"]
+    slot = store.get_work_slot()
+    assert slot["context"]["operation_started_boot_identity"] == (
+        "linux:boot-a"
+    )
+
+    # A reboot can have a larger uptime than the old persisted sample.  The
+    # boot identity, not the numeric comparison, must close the unlock path.
+    boot["identity"] = "linux:boot-b"
+    ticks["milliseconds"] = 20_000
+    processor.process_mcu_event(
+        clean_preunlock_event(
+            command,
+            start_uid,
+            "53100000-0000-4000-8000-000000000099",
+        )
+    )
+
+    slot = store.get_work_slot()
+    assert slot["work_state"] == "RECOVERY_REQUIRED"
+    assert slot["context"]["phase"] == "CLEAN_RECOVERY_REQUIRED"
+    assert [call[0] for call in uart.calls] == ["START_CLEAN_OPERATION"]
     store.close()
 
 

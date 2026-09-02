@@ -4,6 +4,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from business_message_handler import BusinessMessageHandler
 from cloud_transport import CloudServiceRequest
 from device_identity import DeviceIdentity
@@ -111,6 +113,51 @@ def invoke(handler, service_id, params, *, request_id=None):
 def complete_reply(response):
     if response.after_reply is not None:
         response.after_reply()
+
+
+def persist_unknown_end_clean_command(store):
+    service_id, params, command = load_command(
+        "end-clean-before-unlock.service-wire.json"
+    )
+    mcu_command_uid = "82000000-0000-4000-8000-000000000001"
+    assert store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    ) == "ACCEPTED"
+    assert store.mark_command_recovery_required(
+        command["commandUid"],
+        "UART_ACK_RESULT_UNKNOWN",
+        mcu_command_uid,
+        {
+            "acked": False,
+            "error": "TIMEOUT",
+            "mcu_command_uid": mcu_command_uid,
+        },
+    )
+    context = {
+        "operation_uid": command["payload"]["operationUid"],
+        "port_no": command["payload"]["portNo"],
+        "phase": "END_BEFORE_UNLOCK_RESULT_UNKNOWN",
+        "start_mcu_command_uid": (
+            "83000000-0000-4000-8000-000000000001"
+        ),
+        "recovery_generation": 0,
+        "action_sequence": 0,
+        "end_before_unlock": {
+            "command_uid": command["commandUid"],
+            "mcu_command_uid": mcu_command_uid,
+            "reason": command["payload"]["reason"],
+            "state": "RESULT_UNKNOWN",
+        },
+    }
+    assert store.acquire_work_slot(
+        "CLEAN",
+        command["payload"]["operationUid"],
+        command["payload"]["portNo"],
+        context,
+    )
+    return service_id, params, command, mcu_command_uid
 
 
 def test_fixed_frame_unsupported_service_is_rejected_synchronously(
@@ -249,6 +296,141 @@ def test_duplicate_apply_configuration_is_acknowledged_without_redispatch(
         1,
         2,
     ]
+    store.close()
+
+
+def test_duplicate_unknown_end_clean_requeues_before_reply_and_wakes_after(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    service_id, params, command, mcu_command_uid = (
+        persist_unknown_end_clean_command(store)
+    )
+    handler = make_handler(store)
+    wakes = []
+    handler.on_command_received = lambda *args: wakes.append(args)
+
+    response = invoke(handler, service_id, params)
+
+    assert response.data["receiptState"] == 2
+    assert response.data["errorCode"] == ""
+    assert wakes == []
+    requeued = store.get_command(command["commandUid"])
+    assert requeued["state"] == "PENDING"
+    assert requeued["last_error"] is None
+    assert requeued["mcu_command_uid"] == mcu_command_uid
+    retained = store.get_work_slot()["context"]
+    assert retained["phase"] == "END_BEFORE_UNLOCK_RESULT_UNKNOWN"
+    assert retained["end_before_unlock"] == {
+        "command_uid": command["commandUid"],
+        "mcu_command_uid": mcu_command_uid,
+        "reason": command["payload"]["reason"],
+        "state": "RESULT_UNKNOWN",
+    }
+
+    # A second duplicate can arrive before the first transport reply finishes.
+    # The inbox is already PENDING, so only the response owning the atomic
+    # RECOVERY_REQUIRED -> PENDING transition may wake the consumer.
+    overlapping_duplicate = invoke(handler, service_id, params)
+    assert overlapping_duplicate.data["receiptState"] == 2
+    assert store.get_command(command["commandUid"])["state"] == "PENDING"
+    complete_reply(overlapping_duplicate)
+    assert wakes == []
+
+    complete_reply(response)
+
+    assert len(wakes) == 1
+    assert wakes[0][0] == command["commandUid"]
+    assert wakes[0][1] == "END_CLEAN_BEFORE_UNLOCK"
+    assert wakes[0][2] == command
+    store.close()
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        "context_command_uid",
+        "context_reason",
+        "context_mcu_command_uid",
+        "context_phase",
+        "inbox_last_error",
+        "inbox_state",
+        "inbox_digest",
+    ],
+)
+def test_duplicate_unknown_end_clean_mismatch_does_not_requeue_or_wake(
+    tmp_path,
+    monkeypatch,
+    mismatch,
+):
+    store = make_store(tmp_path)
+    service_id, params, command, _mcu_command_uid = (
+        persist_unknown_end_clean_command(store)
+    )
+    expected_state = "RECOVERY_REQUIRED"
+    if mismatch.startswith("context_"):
+        slot = store.get_work_slot()
+        context = slot["context"]
+        if mismatch == "context_command_uid":
+            context["end_before_unlock"]["command_uid"] = str(uuid.uuid4())
+        elif mismatch == "context_reason":
+            context["end_before_unlock"]["reason"] = "DIFFERENT_REASON"
+        elif mismatch == "context_mcu_command_uid":
+            context["end_before_unlock"]["mcu_command_uid"] = str(
+                uuid.uuid4()
+            )
+        else:
+            context["phase"] = "UNLOCKING"
+        assert store.update_work_context(slot["work_uid"], context)
+    elif mismatch == "inbox_last_error":
+        with store.transaction():
+            store._conn.execute(
+                "UPDATE command_inbox SET last_error=? WHERE command_uid=?",
+                ("DIFFERENT_ERROR", command["commandUid"]),
+            )
+    elif mismatch == "inbox_state":
+        expected_state = "PROCESSING"
+        with store.transaction():
+            store._conn.execute(
+                "UPDATE command_inbox SET state=? WHERE command_uid=?",
+                (expected_state, command["commandUid"]),
+            )
+    else:
+        original_receive_command = store.receive_command
+
+        def receive_then_change_persisted_digest(*args, **kwargs):
+            result = original_receive_command(*args, **kwargs)
+            assert result == "DUPLICATE"
+            with store.transaction():
+                store._conn.execute(
+                    """UPDATE command_inbox SET canonical_sha256=?
+                       WHERE command_uid=?""",
+                    ("0" * 64, command["commandUid"]),
+                )
+            return result
+
+        monkeypatch.setattr(
+            store,
+            "receive_command",
+            receive_then_change_persisted_digest,
+        )
+
+    handler = make_handler(store)
+    wakes = []
+    handler.on_command_received = lambda *args: wakes.append(args)
+
+    response = invoke(handler, service_id, params)
+
+    assert response.data["receiptState"] == 2
+    assert wakes == []
+    assert store.get_command(command["commandUid"])["state"] == (
+        expected_state
+    )
+    complete_reply(response)
+    assert wakes == []
+    assert store.get_command(command["commandUid"])["state"] == (
+        expected_state
+    )
     store.close()
 
 

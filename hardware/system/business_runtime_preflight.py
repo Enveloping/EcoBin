@@ -268,7 +268,7 @@ def verify_stage_three_health(
     if (
         updater.get("component") != "DEVICE_UPDATER"
         or updater.get("status") != "READY"
-        or updater.get("schemaVersion") != 2
+        or updater.get("schemaVersion") != 3
         or updater.get("stage4CandidateEnabled") is not False
         or updater.get("updatesEnabled") is not False
         or updater.get("jobGateMode") != "DISABLED"

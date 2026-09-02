@@ -11,6 +11,8 @@ from system.business_runtime_preflight import (
     verify_legacy_runtime_stopped,
     verify_stage_three_health,
 )
+from updater_agent import UpdaterControlHandler
+from updater_store import UpdaterStore
 
 
 HARDWARE = Path(__file__).resolve().parents[1]
@@ -47,7 +49,7 @@ def test_health_gate_requires_truthful_disabled_stage_three_posture() -> None:
     updater = {
         "component": "DEVICE_UPDATER",
         "status": "READY",
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "stage4CandidateEnabled": False,
         "updatesEnabled": False,
         "jobGateMode": "DISABLED",
@@ -78,6 +80,38 @@ def test_health_gate_requires_truthful_disabled_stage_three_posture() -> None:
             communication,
             {**updater, "updatesEnabled": True},
         )
+
+    for unknown_schema_version in (2, 4, None):
+        with pytest.raises(BusinessRuntimePreflightError, match="updater"):
+            verify_stage_three_health(
+                communication,
+                {**updater, "schemaVersion": unknown_schema_version},
+            )
+
+
+def test_health_gate_accepts_real_default_schema_v3_updater_store(
+    tmp_path: Path,
+) -> None:
+    communication = {
+        "component": "COMMUNICATION_AGENT",
+        "status": "READY",
+        "onenetOwnership": "DISABLED",
+        "remoteUpdateRouting": "DISABLED",
+    }
+    store = UpdaterStore(
+        tmp_path / "updater.db",
+        release_version="preflight-regression",
+    )
+    store.initialize()
+    try:
+        status = UpdaterControlHandler(store).get_status({})
+
+        assert status["schemaVersion"] == 3
+        assert status["stage4CandidateEnabled"] is False
+        assert status["jobGateState"] == "LOCKED"
+        verify_stage_three_health(communication, status)
+    finally:
+        store.close()
 
 
 def test_preflight_refuses_to_probe_while_business_runtime_is_active() -> None:

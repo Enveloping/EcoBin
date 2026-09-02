@@ -325,17 +325,133 @@ def test_expired_absolute_dispatch_deadline_prevents_first_uart_write():
         serial_factory=lambda **kwargs: fake,
     )
     assert adapter.open()
+    gate_calls = []
 
     result = adapter.send_command_before_deadline(
         "START_DELIVERY_SESSION",
         {"unitPriceTenThousandths": 4_500},
         mcu_command_uid="10000000-0000-4000-8000-000000000001",
         dispatch_deadline_monotonic=time.monotonic() - 1,
+        dispatch_gate=lambda: gate_calls.append("gate"),
     )
 
     assert result["acked"] is False
     assert result["error"] == "COMMAND_EXPIRED"
+    assert gate_calls == []
     assert fake.writes == []
+
+
+def test_fixed_frame_dispatch_gate_runs_after_drain_once_before_write():
+    fake = FakeSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    fake.inject(bytes.fromhex("DD 00 00 01 00 00 02 00 DD"))
+    order = []
+    original_write = fake.write
+
+    def tracked_write(data):
+        order.append("write")
+        return original_write(data)
+
+    def dispatch_gate():
+        assert adapter._io_lock._is_owned()
+        assert fake.in_waiting == 0
+        order.append("gate")
+
+    fake.write = tracked_write
+    result = adapter.send_command_before_deadline(
+        "START_CLEAN_OPERATION",
+        {},
+        mcu_command_uid="10000000-0000-4000-8000-000000000001",
+        dispatch_deadline_monotonic=time.monotonic() + 1,
+        dispatch_gate=dispatch_gate,
+    )
+
+    assert result["acked"] is True
+    assert order == ["gate", "write"]
+    assert fake.writes == [bytes.fromhex("EE 01 EE")]
+
+
+def test_fixed_frame_dispatch_gate_failure_propagates_without_uart_write():
+    class DispatchRejected(RuntimeError):
+        pass
+
+    fake = FakeSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    gate_calls = []
+
+    def reject_dispatch():
+        gate_calls.append("gate")
+        raise DispatchRejected("permanent action was not armed")
+
+    with pytest.raises(DispatchRejected, match="was not armed"):
+        adapter.send_command_before_deadline(
+            "START_CLEAN_OPERATION",
+            {},
+            mcu_command_uid="10000000-0000-4000-8000-000000000001",
+            dispatch_deadline_monotonic=time.monotonic() + 1,
+            dispatch_gate=reject_dispatch,
+        )
+
+    assert gate_calls == ["gate"]
+    assert fake.writes == []
+
+
+def test_fixed_frame_closed_precheck_does_not_call_dispatch_gate():
+    fake = FakeSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    adapter.close()
+    gate_calls = []
+
+    result = adapter.send_command_before_deadline(
+        "START_CLEAN_OPERATION",
+        {},
+        mcu_command_uid="10000000-0000-4000-8000-000000000001",
+        dispatch_deadline_monotonic=time.monotonic() + 1,
+        dispatch_gate=lambda: gate_calls.append("gate"),
+    )
+
+    assert result["acked"] is False
+    assert result["error"] == "UART_CLOSED"
+    assert gate_calls == []
+    assert fake.writes == []
+
+
+def test_fixed_frame_write_failure_after_gate_propagates():
+    fake = ShortWriteSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    gate_calls = []
+
+    with pytest.raises(IOError, match="short UART write"):
+        adapter.send_command_before_deadline(
+            "START_CLEAN_OPERATION",
+            {},
+            mcu_command_uid="10000000-0000-4000-8000-000000000001",
+            dispatch_deadline_monotonic=time.monotonic() + 1,
+            dispatch_gate=lambda: gate_calls.append("gate"),
+        )
+
+    assert gate_calls == ["gate"]
+    assert fake.writes == [bytes.fromhex("EE 01 EE")]
 
 
 def test_foreground_operations_are_not_starved_by_continuous_background_reads():
@@ -854,6 +970,106 @@ def test_self_test_query_returns_fresh_snapshot_and_queues_safety_event():
     assert event["payload"]["smokeState"] == "UNKNOWN"
     assert event["payload"]["smokeSensorHealth"] == "SENSOR_FAULT"
     assert event["payload"]["compatibilityMode"] is True
+
+
+def test_self_test_dispatch_gate_runs_after_drain_once_before_write():
+    fake = RespondingSerial(bytes.fromhex("F1 03 00 2E E0 00 00 F1"))
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    fake.inject(bytes.fromhex("DD 00 00 01 00 00 02 00 DD"))
+    order = []
+    original_write = fake.write
+
+    def tracked_write(data):
+        order.append("write")
+        return original_write(data)
+
+    def dispatch_gate():
+        assert adapter._io_lock._is_owned()
+        assert fake.in_waiting == 0
+        order.append("gate")
+
+    fake.write = tracked_write
+    result = adapter.query_self_test(
+        timeout_ms=20,
+        dispatch_gate=dispatch_gate,
+    )
+
+    assert result["queryStatus"] == "OK"
+    assert order == ["gate", "write"]
+    assert fake.writes == [bytes.fromhex("F0 01 F0")]
+
+
+def test_self_test_closed_precheck_does_not_call_dispatch_gate():
+    fake = FakeSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    adapter.close()
+    gate_calls = []
+
+    result = adapter.query_self_test(
+        timeout_ms=20,
+        dispatch_gate=lambda: gate_calls.append("gate"),
+    )
+
+    assert result["queryStatus"] == "UART_CLOSED"
+    assert gate_calls == []
+    assert fake.writes == []
+
+
+def test_self_test_dispatch_gate_failure_propagates_without_uart_write():
+    class DispatchRejected(RuntimeError):
+        pass
+
+    fake = FakeSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    gate_calls = []
+
+    def reject_dispatch():
+        gate_calls.append("gate")
+        raise DispatchRejected("permanent action was not armed")
+
+    with pytest.raises(DispatchRejected, match="was not armed"):
+        adapter.query_self_test(
+            timeout_ms=20,
+            dispatch_gate=reject_dispatch,
+        )
+
+    assert gate_calls == ["gate"]
+    assert fake.writes == []
+
+
+def test_self_test_write_failure_after_gate_propagates():
+    fake = ShortWriteSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    gate_calls = []
+
+    with pytest.raises(IOError, match="short UART write"):
+        adapter.query_self_test(
+            timeout_ms=20,
+            dispatch_gate=lambda: gate_calls.append("gate"),
+        )
+
+    assert gate_calls == ["gate"]
+    assert fake.writes == [bytes.fromhex("F0 01 F0")]
 
 
 def test_self_test_discards_partial_response_that_started_before_query():

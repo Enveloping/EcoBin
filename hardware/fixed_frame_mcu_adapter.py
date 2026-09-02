@@ -575,6 +575,7 @@ class FixedFrameMcuAdapter:
         on_result: Optional[Callable[[dict], object]] = None,
         *,
         queue_unchanged_safety_event: bool = True,
+        dispatch_gate: Optional[Callable[[], None]] = None,
     ) -> dict:
         """Request, optionally persist, then queue one fresh sensor snapshot.
 
@@ -604,10 +605,17 @@ class FixedFrameMcuAdapter:
             invalid_before = self._parser.invalid_count(
                 SELF_TEST_RESPONSE_HEADER
             )
+            # Arm only after the foreground UART lock, open check and stale
+            # input drain.  A rejected arm must escape unchanged and must not
+            # be mistaken for an ordinary UART write failure.
+            if dispatch_gate is not None:
+                dispatch_gate()
             try:
                 self._write_exact(SELF_TEST_QUERY_FRAME)
             except Exception as error:
                 logger.error("fixed-frame self-test query write failed: %s", error)
+                if dispatch_gate is not None:
+                    raise
                 result = self._failed_self_test("UART_WRITE_FAILED")
                 changed = self._notify_self_test(result, on_result)
                 if queue_unchanged_safety_event or changed is not False:
@@ -751,6 +759,7 @@ class FixedFrameMcuAdapter:
         *,
         mcu_command_uid: Optional[str] = None,
         dispatch_deadline_monotonic: Optional[float] = None,
+        dispatch_gate: Optional[Callable[[], None]] = None,
     ) -> dict:
         command_uid = str(
             uuid.UUID(mcu_command_uid or str(uuid.uuid4()))
@@ -787,28 +796,32 @@ class FixedFrameMcuAdapter:
                         0xAA,
                     )
                 )
-                if not self._dispatch_start(
+                dispatch_error = self._dispatch_start(
                     wire,
                     message_name=message_name,
                     dispatch_deadline=dispatch_deadline,
-                ):
+                    dispatch_gate=dispatch_gate,
+                )
+                if dispatch_error is not None:
                     return self._command_result(
                         message_name,
                         command_uid,
                         False,
-                        "COMMAND_EXPIRED",
+                        dispatch_error,
                     )
             elif message_name == "START_CLEAN_OPERATION":
-                if not self._dispatch_start(
+                dispatch_error = self._dispatch_start(
                     bytes((0xEE, 0x01, 0xEE)),
                     message_name=message_name,
                     dispatch_deadline=dispatch_deadline,
-                ):
+                    dispatch_gate=dispatch_gate,
+                )
+                if dispatch_error is not None:
                     return self._command_result(
                         message_name,
                         command_uid,
                         False,
-                        "COMMAND_EXPIRED",
+                        dispatch_error,
                     )
             else:
                 return self._command_result(
@@ -819,10 +832,12 @@ class FixedFrameMcuAdapter:
                 )
         except Exception as error:
             logger.error(
-                "fixed-frame MCU command write failed: command=%s error=%s",
+                "fixed-frame MCU command dispatch failed: command=%s error=%s",
                 message_name,
                 error,
             )
+            if dispatch_gate is not None:
+                raise
             return self._command_result(
                 message_name,
                 command_uid,
@@ -844,14 +859,16 @@ class FixedFrameMcuAdapter:
         *,
         mcu_command_uid: Optional[str] = None,
         dispatch_deadline_monotonic: float,
+        dispatch_gate: Optional[Callable[[], None]] = None,
     ) -> dict:
-        """Carry the original Edge deadline through the foreground I/O lock."""
+        """Carry the deadline and arm gate through the foreground I/O lock."""
 
         return self.send_command(
             message_name,
             values,
             mcu_command_uid=mcu_command_uid,
             dispatch_deadline_monotonic=dispatch_deadline_monotonic,
+            dispatch_gate=dispatch_gate,
         )
 
     def _dispatch_start(
@@ -860,8 +877,11 @@ class FixedFrameMcuAdapter:
         *,
         message_name: str,
         dispatch_deadline: Optional[float],
-    ) -> bool:
+        dispatch_gate: Optional[Callable[[], None]],
+    ) -> Optional[str]:
         with self._foreground_io(message_name) as wait_ms:
+            if not self.is_open:
+                return "UART_CLOSED"
             if self._dispatch_expired(dispatch_deadline):
                 logger.warning(
                     "fixed-frame physical command expired before UART write: "
@@ -869,7 +889,7 @@ class FixedFrameMcuAdapter:
                     message_name,
                     wait_ms,
                 )
-                return False
+                return "COMMAND_EXPIRED"
             self._discard_stale_business_input()
             if self._dispatch_expired(dispatch_deadline):
                 logger.warning(
@@ -878,7 +898,11 @@ class FixedFrameMcuAdapter:
                     message_name,
                     wait_ms,
                 )
-                return False
+                return "COMMAND_EXPIRED"
+            # This is the irreversible boundary: all local UART prechecks are
+            # complete and the first write follows without releasing the lock.
+            if dispatch_gate is not None:
+                dispatch_gate()
             self._write_exact(wire)
         logger.info(
             "fixed-frame physical command locally dispatched: "
@@ -886,7 +910,7 @@ class FixedFrameMcuAdapter:
             message_name,
             wait_ms,
         )
-        return True
+        return None
 
     @staticmethod
     def _physical_dispatch_deadline(values: dict) -> Optional[float]:

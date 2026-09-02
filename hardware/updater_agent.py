@@ -62,21 +62,55 @@ JOB_ACTION_FIELDS = {
     "COMPLETE_JOB": frozenset(
         {"permitUid", "completionUid", "outcome", "completionDigestSha256"}
     ),
-    "AUTHORIZE_PHYSICAL_ACTION": frozenset(
+    "PREPARE_PHYSICAL_ACTION": frozenset(
         {
             "actionUid",
-            "armUid",
             "permitUid",
             "workUid",
             "commandUid",
             "actionKey",
             "actionKind",
             "actionDigestSha256",
+            "dispatchAttemptToken",
+        }
+    ),
+    "ARM_PHYSICAL_ACTION": frozenset(
+        {"actionUid", "dispatchAttemptToken"}
+    ),
+    "CANCEL_PREPARED_PHYSICAL_ACTION": frozenset(
+        {
+            "actionUid",
+            "receiptUid",
+            "dispatchAttemptToken",
+            "evidenceDigestSha256",
+        }
+    ),
+    "ABORT_PHYSICAL_ACTION_DISPATCH": frozenset(
+        {
+            "actionUid",
+            "receiptUid",
+            "dispatchAttemptToken",
+            "evidenceDigestSha256",
+        }
+    ),
+    "CONFIRM_LIVE_PHYSICAL_ACTION_RESULT": frozenset(
+        {
+            "actionUid",
+            "receiptUid",
+            "dispatchAttemptToken",
+            "outcome",
+            "evidenceDigestSha256",
         }
     ),
     "GET_PHYSICAL_ACTION": frozenset({"actionUid"}),
     "CONFIRM_PHYSICAL_ACTION": frozenset(
-        {"actionUid", "receiptUid", "outcome", "evidenceDigestSha256"}
+        {
+            "actionUid",
+            "receiptUid",
+            "outcome",
+            "confirmationBasis",
+            "evidenceDigestSha256",
+        }
     ),
 }
 
@@ -111,11 +145,44 @@ class UpdaterControlHandler:
     def complete_job(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._store_call(self.store.complete_job, payload)
 
-    def authorize_physical_action(
+    def prepare_physical_action(
         self,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
-        return self._store_call(self.store.authorize_physical_action, payload)
+        return self._store_call(self.store.prepare_physical_action, payload)
+
+    def arm_physical_action(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._store_call(self.store.arm_physical_action, payload)
+
+    def cancel_prepared_physical_action(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._store_call(
+            self.store.cancel_prepared_physical_action,
+            payload,
+        )
+
+    def abort_physical_action_dispatch(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._store_call(
+            self.store.abort_physical_action_dispatch,
+            payload,
+        )
+
+    def confirm_live_physical_action_result(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._store_call(
+            self.store.confirm_live_physical_action_result,
+            payload,
+        )
 
     def get_physical_action(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._store_call(self.store.get_physical_action, payload)
@@ -300,7 +367,17 @@ def build_control_actions(
         "GET_JOB_PERMIT": handler.get_job_permit,
         "ABANDON_JOB_PERMIT": handler.abandon_job_permit,
         "COMPLETE_JOB": handler.complete_job,
-        "AUTHORIZE_PHYSICAL_ACTION": handler.authorize_physical_action,
+        "PREPARE_PHYSICAL_ACTION": handler.prepare_physical_action,
+        "ARM_PHYSICAL_ACTION": handler.arm_physical_action,
+        "CANCEL_PREPARED_PHYSICAL_ACTION": (
+            handler.cancel_prepared_physical_action
+        ),
+        "ABORT_PHYSICAL_ACTION_DISPATCH": (
+            handler.abort_physical_action_dispatch
+        ),
+        "CONFIRM_LIVE_PHYSICAL_ACTION_RESULT": (
+            handler.confirm_live_physical_action_result
+        ),
         "GET_PHYSICAL_ACTION": handler.get_physical_action,
         "CONFIRM_PHYSICAL_ACTION": handler.confirm_physical_action,
     }

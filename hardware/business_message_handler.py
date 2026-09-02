@@ -161,6 +161,17 @@ class BusinessMessageHandler:
                     .requeue_failed_factory_seal_command(command_uid)
                 )
 
+            clean_end_requeued = False
+            if (
+                result == "DUPLICATE"
+                and command["commandType"]
+                == "END_CLEAN_BEFORE_UNLOCK"
+            ):
+                clean_end_requeued = (
+                    self._store
+                    .requeue_unknown_end_clean_before_unlock(command)
+                )
+
             control_dispatched = False
             control_error = None
             if (
@@ -210,11 +221,17 @@ class BusinessMessageHandler:
                     "REQUEST_DEVICE_ACCEPTANCE",
                     "START_MCU_FIRMWARE_UPDATE",
                     "AUTHORIZE_FACTORY_SEAL",
+                    "END_CLEAN_BEFORE_UNLOCK",
                 }
                 and (
                     command["commandType"]
                     != "AUTHORIZE_FACTORY_SEAL"
                     or factory_seal_requeued
+                )
+                and (
+                    command["commandType"]
+                    != "END_CLEAN_BEFORE_UNLOCK"
+                    or clean_end_requeued
                 )
             )
 

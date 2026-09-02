@@ -54,7 +54,7 @@ from business_outbox_relay import BusinessOutboxRelay
 from device_identity import DeviceIdentity
 from direct_onenet_transport import DirectOneNetTransport
 from photo_manager import PhotoManager
-from work_manager import WorkManager
+from work_manager import CleanUnlockDecisionDeferred, WorkManager
 from job_safety import JobSafetyError, build_job_safety_from_environment
 from command_processor import CommandProcessor
 from device_acceptance import DeviceAcceptanceRunner
@@ -857,6 +857,19 @@ class EcoBinEdge:
                             event["mcu_boot_id"],
                             event["mcu_event_sequence"],
                             error,
+                        )
+                        break
+                    except CleanUnlockDecisionDeferred:
+                        # A durable, still-valid END_CLEAN_BEFORE_UNLOCK is
+                        # queued ahead of this unlock decision.  Keep the MCU
+                        # measurement pending, then let process_next() below
+                        # commit or reject that END command.  The next loop
+                        # replays the same fact if END did not become durable.
+                        logger.info(
+                            "clean unlock decision deferred to pending END: "
+                            "boot=%d seq=%d",
+                            event["mcu_boot_id"],
+                            event["mcu_event_sequence"],
                         )
                         break
                     except Exception as error:

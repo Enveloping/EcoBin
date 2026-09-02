@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import socket
+import threading
+
 import pytest
 
 from job_safety import (
@@ -13,7 +17,13 @@ from job_safety import (
     canonical_sha256,
     command_request_digest,
 )
-from local_control import LocalControlRemoteError, LocalControlUnavailable
+from local_control import (
+    LocalControlAction,
+    LocalControlClient,
+    LocalControlRemoteError,
+    LocalControlServer,
+    LocalControlUnavailable,
+)
 
 
 PERMIT_UID = "6d36e92a-b63f-40da-bf65-4b20aef38a9f"
@@ -21,10 +31,10 @@ WORK_UID = "cc67cd8b-933e-4c35-9206-b2d9af2e5745"
 COMMAND_UID = "9676db52-791f-4e90-b6f6-c50172459b8c"
 BEGIN_UID = "e696429a-48ad-4ff6-a593-68fc66d72450"
 ACTION_UID = "39cd4143-69bd-427c-a0c7-cf18d58215fb"
-ARM_UID = "dd90d026-4a7a-41c5-bbba-6403bc255c99"
 RECEIPT_UID = "3bb5f17f-45f8-42c9-a056-b196a57f2a8e"
 COMPLETION_UID = "ce9c894b-cda5-410e-9ed0-83d18a2f91db"
 DIGEST = "a" * 64
+DISPATCH_TOKEN = "dispatch-attempt-token-0123456789abcdef"
 
 
 def _command() -> dict:
@@ -64,7 +74,23 @@ def test_disabled_port_has_no_socket_or_physical_side_effect() -> None:
         )
         is None
     )
-    assert safety.authorize_physical_action(object()) is None
+    assert (
+        safety.prepare_physical_action(
+            None,
+            action=object(),
+            dispatch_attempt_token=DISPATCH_TOKEN,
+        )
+        is None
+    )
+    assert safety.arm_physical_action(object()) is None
+    assert (
+        safety.cancel_prepared_physical_action(
+            object(),
+            dispatch_attempt_token=DISPATCH_TOKEN,
+            evidence_sha256=DIGEST,
+        )
+        is None
+    )
 
 
 def test_environment_requires_explicit_candidate_and_absolute_socket() -> None:
@@ -88,10 +114,9 @@ def test_environment_requires_explicit_candidate_and_absolute_socket() -> None:
         )
 
 
-def test_request_begin_arm_confirm_and_complete_use_stable_exact_facts() -> None:
+def test_request_prepare_arm_confirm_and_complete_use_stable_exact_facts() -> None:
     action = PhysicalAction(
         action_uid=ACTION_UID,
-        arm_uid=ARM_UID,
         receipt_uid=RECEIPT_UID,
         action_key="DELIVERY:OPEN:0",
         action_kind="OPEN_DELIVERY_DOOR",
@@ -108,10 +133,22 @@ def test_request_begin_arm_confirm_and_complete_use_stable_exact_facts() -> None
             {
                 "actionUid": ACTION_UID,
                 "disposition": "ACCEPTED",
-                "state": "MAY_HAVE_EXECUTED",
+                "state": "PREPARED",
+                "mayExecute": False,
+            },
+            {
+                "actionUid": ACTION_UID,
+                "disposition": "ACCEPTED",
+                "state": "ARMED",
                 "mayExecute": True,
             },
-            {"state": "CONFIRMED"},
+            {
+                "actionUid": ACTION_UID,
+                "state": "CONFIRMED",
+                "confirmedOutcome": "EXECUTED",
+                "confirmationBasis": "MCU_IDENTITY_BOUND_FACT",
+                "evidenceDigestSha256": "c" * 64,
+            },
             {"state": "COMPLETED"},
         ]
     )
@@ -123,11 +160,20 @@ def test_request_begin_arm_confirm_and_complete_use_stable_exact_facts() -> None
         work_uid=WORK_UID,
     )
     safety.begin_job(permit, begin_uid=BEGIN_UID, digest=DIGEST)
-    safety.authorize_physical_action(permit, action=action)
+    safety.prepare_physical_action(
+        permit,
+        action=action,
+        dispatch_attempt_token=DISPATCH_TOKEN,
+    )
+    safety.arm_physical_action(
+        action,
+        dispatch_attempt_token=DISPATCH_TOKEN,
+    )
     safety.confirm_physical_action(
         action,
         outcome="EXECUTED",
         evidence_sha256="c" * 64,
+        confirmation_basis="MCU_IDENTITY_BOUND_FACT",
     )
     safety.complete_job(
         permit,
@@ -140,7 +186,8 @@ def test_request_begin_arm_confirm_and_complete_use_stable_exact_facts() -> None
     assert [call[0] for call in client.calls] == [
         "REQUEST_JOB_PERMIT",
         "BEGIN_JOB",
-        "AUTHORIZE_PHYSICAL_ACTION",
+        "PREPARE_PHYSICAL_ACTION",
+        "ARM_PHYSICAL_ACTION",
         "CONFIRM_PHYSICAL_ACTION",
         "COMPLETE_JOB",
     ]
@@ -153,7 +200,16 @@ def test_request_begin_arm_confirm_and_complete_use_stable_exact_facts() -> None
         "requestDigestSha256": command_request_digest(_command()),
     }
     assert "temporarySecret" not in request["requestDigestSha256"]
-    assert client.calls[2][1]["actionKey"] == "DELIVERY:OPEN:0"
+    prepare = client.calls[2][1]
+    assert prepare["actionKey"] == "DELIVERY:OPEN:0"
+    assert prepare["dispatchAttemptToken"] == DISPATCH_TOKEN
+    assert client.calls[3][1] == {
+        "actionUid": ACTION_UID,
+        "dispatchAttemptToken": DISPATCH_TOKEN,
+    }
+    assert client.calls[4][1]["confirmationBasis"] == (
+        "MCU_IDENTITY_BOUND_FACT"
+    )
 
 
 def test_restored_database_cannot_inherit_an_existing_action_authority() -> None:
@@ -172,7 +228,7 @@ def test_restored_database_cannot_inherit_an_existing_action_authority() -> None
         JobSafetyError,
         match="PHYSICAL_ACTION_ALREADY_RECORDED",
     ):
-        safety.authorize_physical_action(
+        safety.prepare_physical_action(
             JobPermit(
                 PERMIT_UID,
                 WORK_UID,
@@ -182,15 +238,405 @@ def test_restored_database_cannot_inherit_an_existing_action_authority() -> None
             ),
             action=PhysicalAction(
                 ACTION_UID,
-                ARM_UID,
                 RECEIPT_UID,
                 "DELIVERY:OPEN:0",
                 "OPEN_DELIVERY_DOOR",
                 DIGEST,
             ),
+            dispatch_attempt_token=DISPATCH_TOKEN,
         )
     assert [call[0] for call in client.calls] == [
-        "AUTHORIZE_PHYSICAL_ACTION"
+        "PREPARE_PHYSICAL_ACTION"
+    ]
+
+
+def test_arm_retries_a_lost_response_with_the_same_dispatch_token() -> None:
+    action = PhysicalAction(
+        ACTION_UID,
+        RECEIPT_UID,
+        "DELIVERY:OPEN:0",
+        "OPEN_DELIVERY_DOOR",
+        DIGEST,
+    )
+    client = FakeClient(
+        [
+            LocalControlUnavailable("response lost after commit"),
+            {
+                "actionUid": ACTION_UID,
+                "disposition": "DUPLICATE",
+                "state": "ARMED",
+                "mayExecute": True,
+            },
+        ]
+    )
+
+    PermanentJobSafety(client).arm_physical_action(
+        action,
+        dispatch_attempt_token=DISPATCH_TOKEN,
+    )
+
+    assert client.calls == [
+        (
+            "ARM_PHYSICAL_ACTION",
+            {
+                "actionUid": ACTION_UID,
+                "dispatchAttemptToken": DISPATCH_TOKEN,
+            },
+        ),
+        (
+            "ARM_PHYSICAL_ACTION",
+            {
+                "actionUid": ACTION_UID,
+                "dispatchAttemptToken": DISPATCH_TOKEN,
+            },
+        ),
+    ]
+
+
+@pytest.mark.parametrize("uncertain_code", ["RESULT_UNKNOWN", "SERVICE_STOPPING"])
+def test_arm_retries_an_uncertain_remote_result_with_the_exact_same_payload(
+    uncertain_code: str,
+) -> None:
+    action = PhysicalAction(
+        ACTION_UID,
+        RECEIPT_UID,
+        "DELIVERY:OPEN:0",
+        "OPEN_DELIVERY_DOOR",
+        DIGEST,
+    )
+    client = FakeClient(
+        [
+            LocalControlRemoteError(
+                uncertain_code,
+                "handler may still commit",
+                PERMIT_UID,
+            ),
+            {
+                "actionUid": ACTION_UID,
+                "disposition": "DUPLICATE",
+                "state": "ARMED",
+                "mayExecute": True,
+            },
+        ]
+    )
+
+    PermanentJobSafety(client).arm_physical_action(
+        action,
+        dispatch_attempt_token=DISPATCH_TOKEN,
+    )
+
+    assert len(client.calls) == 2
+    assert client.calls[0] == client.calls[1]
+    assert client.calls[0][1] is client.calls[1][1]
+    assert client.calls[0] == (
+        "ARM_PHYSICAL_ACTION",
+        {
+            "actionUid": ACTION_UID,
+            "dispatchAttemptToken": DISPATCH_TOKEN,
+        },
+    )
+
+
+@pytest.mark.parametrize("uncertain_code", ["RESULT_UNKNOWN", "SERVICE_STOPPING"])
+def test_repeated_uncertain_remote_result_fails_as_job_gate_unavailable(
+    uncertain_code: str,
+) -> None:
+    action = PhysicalAction(
+        ACTION_UID,
+        RECEIPT_UID,
+        "DELIVERY:OPEN:0",
+        "OPEN_DELIVERY_DOOR",
+        DIGEST,
+    )
+    client = FakeClient(
+        [
+            LocalControlRemoteError(
+                uncertain_code,
+                "handler may still commit",
+                PERMIT_UID,
+            ),
+            LocalControlRemoteError(
+                uncertain_code,
+                "handler may still commit",
+                PERMIT_UID,
+            ),
+        ]
+    )
+
+    with pytest.raises(JobSafetyError) as raised:
+        PermanentJobSafety(client).arm_physical_action(
+            action,
+            dispatch_attempt_token=DISPATCH_TOKEN,
+        )
+
+    assert raised.value.code == "JOB_GATE_UNAVAILABLE"
+    assert len(client.calls) == 2
+    assert client.calls[0] == client.calls[1]
+    assert client.calls[0][1] is client.calls[1][1]
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or not hasattr(socket, "AF_UNIX"),
+    reason="real peer-authenticated Unix sockets require POSIX",
+)
+def test_processing_timeouts_retry_exact_payload_and_later_converge(
+    tmp_path,
+) -> None:
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir(mode=0o700)
+    runtime_dir.chmod(0o700)
+    socket_path = runtime_dir / "updater.sock"
+    caller_uid = os.getuid()
+
+    calls_lock = threading.Lock()
+    commit_lock = threading.Lock()
+    first_started = threading.Event()
+    first_may_commit = threading.Event()
+    first_committed = threading.Event()
+    second_started = threading.Event()
+    second_may_return = threading.Event()
+    second_finished = threading.Event()
+    received_payloads: list[dict[str, str]] = []
+    committed = False
+
+    def arm_handler(payload: dict[str, str]) -> dict[str, object]:
+        nonlocal committed
+        with calls_lock:
+            received_payloads.append(dict(payload))
+            call_number = len(received_payloads)
+
+        if call_number == 1:
+            with commit_lock:
+                first_started.set()
+                if not first_may_commit.wait(timeout=3.0):
+                    raise RuntimeError("test did not release the first commit")
+                committed = True
+                first_committed.set()
+                return {
+                    "actionUid": payload["actionUid"],
+                    "disposition": "ACCEPTED",
+                    "state": "ARMED",
+                    "mayExecute": True,
+                }
+
+        if call_number == 2:
+            second_started.set()
+            with commit_lock:
+                if not second_may_return.wait(timeout=3.0):
+                    raise RuntimeError("test did not release the second handler")
+                assert committed is True
+                second_finished.set()
+                return {
+                    "actionUid": payload["actionUid"],
+                    "disposition": "DUPLICATE",
+                    "state": "ARMED",
+                    "mayExecute": True,
+                }
+
+        with commit_lock:
+            assert committed is True
+            return {
+                "actionUid": payload["actionUid"],
+                "disposition": "DUPLICATE",
+                "state": "ARMED",
+                "mayExecute": True,
+            }
+
+    allowed_uids = frozenset({caller_uid})
+    server = LocalControlServer(
+        socket_path,
+        protocol_name="ecobin.updater.control",
+        actions={
+            "ARM_PHYSICAL_ACTION": LocalControlAction(
+                arm_handler,
+                payload_fields=frozenset(
+                    {"actionUid", "dispatchAttemptToken"}
+                ),
+                allowed_uids=allowed_uids,
+            )
+        },
+        allowed_uids=allowed_uids,
+        request_timeout_seconds=0.5,
+        processing_timeout_seconds=0.05,
+    )
+    safety = PermanentJobSafety(
+        LocalControlClient(
+            socket_path,
+            protocol_name="ecobin.updater.control",
+            connect_timeout_seconds=0.5,
+            response_timeout_seconds=0.5,
+        )
+    )
+    action = PhysicalAction(
+        ACTION_UID,
+        RECEIPT_UID,
+        "DELIVERY:OPEN:0",
+        "OPEN_DELIVERY_DOOR",
+        DIGEST,
+    )
+    outcome: list[BaseException | None] = []
+
+    def invoke_arm() -> None:
+        try:
+            safety.arm_physical_action(
+                action,
+                dispatch_attempt_token=DISPATCH_TOKEN,
+            )
+        except BaseException as error:
+            outcome.append(error)
+        else:
+            outcome.append(None)
+
+    caller = threading.Thread(target=invoke_arm, daemon=True)
+    server.start()
+    try:
+        caller.start()
+        assert first_started.wait(timeout=1.0)
+        # The retry cannot reach the second handler until the server has
+        # returned RESULT_UNKNOWN for the still-running first handler.
+        assert second_started.wait(timeout=2.0)
+        first_may_commit.set()
+        assert first_committed.wait(timeout=1.0)
+
+        # Keep the idempotent retry in-flight beyond the second processing
+        # deadline even though the first worker has now committed.
+        caller.join(timeout=2.0)
+        assert not caller.is_alive()
+        assert len(outcome) == 1
+        assert isinstance(outcome[0], JobSafetyError)
+        assert outcome[0].code == "JOB_GATE_UNAVAILABLE"
+
+        second_may_return.set()
+        assert second_finished.wait(timeout=1.0)
+
+        # A later durable-inbox retry uses the same action identity and
+        # converges on the commit left by the timed-out first worker.
+        safety.arm_physical_action(
+            action,
+            dispatch_attempt_token=DISPATCH_TOKEN,
+        )
+
+        expected_payload = {
+            "actionUid": ACTION_UID,
+            "dispatchAttemptToken": DISPATCH_TOKEN,
+        }
+        assert received_payloads == [
+            expected_payload,
+            expected_payload,
+            expected_payload,
+        ]
+    finally:
+        first_may_commit.set()
+        second_may_return.set()
+        caller.join(timeout=1.0)
+        server.stop()
+
+
+@pytest.mark.parametrize(
+    ("operation", "response", "expected_action", "expected_basis"),
+    [
+        (
+            "cancel",
+            {
+                "actionUid": ACTION_UID,
+                "state": "CONFIRMED",
+                "confirmedOutcome": "NOT_EXECUTED",
+                "confirmationBasis": "PREPARED_NOT_ARMED",
+                "evidenceDigestSha256": "e" * 64,
+            },
+            "CANCEL_PREPARED_PHYSICAL_ACTION",
+            "PREPARED_NOT_ARMED",
+        ),
+        (
+            "abort",
+            {
+                "actionUid": ACTION_UID,
+                "state": "CONFIRMED",
+                "confirmedOutcome": "NOT_EXECUTED",
+                "confirmationBasis": "LIVE_DISPATCH_NOT_WRITTEN",
+                "evidenceDigestSha256": "e" * 64,
+            },
+            "ABORT_PHYSICAL_ACTION_DISPATCH",
+            "LIVE_DISPATCH_NOT_WRITTEN",
+        ),
+    ],
+)
+def test_zero_effect_closure_requires_permanent_basis(
+    operation,
+    response,
+    expected_action,
+    expected_basis,
+) -> None:
+    action = PhysicalAction(
+        ACTION_UID,
+        RECEIPT_UID,
+        "DELIVERY:OPEN:0",
+        "OPEN_DELIVERY_DOOR",
+        DIGEST,
+    )
+    client = FakeClient([response])
+    safety = PermanentJobSafety(client)
+
+    if operation == "cancel":
+        safety.cancel_prepared_physical_action(
+            action,
+            dispatch_attempt_token=DISPATCH_TOKEN,
+            evidence_sha256="e" * 64,
+        )
+    else:
+        safety.abort_physical_action_dispatch(
+            action,
+            dispatch_attempt_token=DISPATCH_TOKEN,
+            evidence_sha256="e" * 64,
+        )
+
+    request_action, payload = client.calls[0]
+    assert request_action == expected_action
+    assert payload["actionUid"] == ACTION_UID
+    assert payload["receiptUid"] == RECEIPT_UID
+    assert response["confirmationBasis"] == expected_basis
+    assert payload["dispatchAttemptToken"] == DISPATCH_TOKEN
+
+
+@pytest.mark.parametrize("outcome", ["EXECUTED", "FAILED_SAFE"])
+def test_live_fixed_frame_result_uses_token_bound_confirmation(outcome) -> None:
+    action = PhysicalAction(
+        ACTION_UID,
+        RECEIPT_UID,
+        "FULLNESS:SAMPLE:0",
+        "SAMPLE_FULLNESS",
+        DIGEST,
+    )
+    client = FakeClient(
+        [
+            {
+                "actionUid": ACTION_UID,
+                "state": "CONFIRMED",
+                "confirmedOutcome": outcome,
+                "confirmationBasis": "LIVE_FIXED_FRAME_RESULT",
+                "evidenceDigestSha256": "f" * 64,
+            }
+        ]
+    )
+
+    PermanentJobSafety(client).confirm_live_physical_action_result(
+        action,
+        dispatch_attempt_token=DISPATCH_TOKEN,
+        outcome=outcome,
+        evidence_sha256="f" * 64,
+    )
+
+    assert client.calls == [
+        (
+            "CONFIRM_LIVE_PHYSICAL_ACTION_RESULT",
+            {
+                "actionUid": ACTION_UID,
+                "receiptUid": RECEIPT_UID,
+                "dispatchAttemptToken": DISPATCH_TOKEN,
+                "outcome": outcome,
+                "evidenceDigestSha256": "f" * 64,
+            },
+        )
     ]
 
 

@@ -57,7 +57,6 @@ class JobPermit:
 @dataclass(frozen=True)
 class PhysicalAction:
     action_uid: str
-    arm_uid: str
     receipt_uid: str
     action_key: str
     action_kind: str
@@ -91,7 +90,43 @@ class DisabledJobSafety:
     ) -> None:
         del permit, disposition_uid, evidence_sha256
 
-    def authorize_physical_action(self, *args: Any, **kwargs: Any) -> None:
+    def prepare_physical_action(
+        self,
+        permit: JobPermit | None,
+        *,
+        action: PhysicalAction,
+        dispatch_attempt_token: str,
+    ) -> None:
+        del permit, action, dispatch_attempt_token
+        return None
+
+    def arm_physical_action(self, *args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        return None
+
+    def cancel_prepared_physical_action(
+        self,
+        action: PhysicalAction,
+        *,
+        dispatch_attempt_token: str,
+        evidence_sha256: str,
+    ) -> None:
+        del action, dispatch_attempt_token, evidence_sha256
+        return None
+
+    def abort_physical_action_dispatch(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        del args, kwargs
+        return None
+
+    def confirm_live_physical_action_result(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
         del args, kwargs
         return None
 
@@ -228,27 +263,28 @@ class PermanentJobSafety:
                 "unused job permit was not safely abandoned",
             )
 
-    def authorize_physical_action(
+    def prepare_physical_action(
         self,
         permit: JobPermit,
         *,
         action: PhysicalAction,
+        dispatch_attempt_token: str,
     ) -> None:
-        armed = self._request(
-            "AUTHORIZE_PHYSICAL_ACTION",
+        prepared = self._request(
+            "PREPARE_PHYSICAL_ACTION",
             {
                 "actionUid": action.action_uid,
-                "armUid": action.arm_uid,
                 "permitUid": permit.permit_uid,
                 "workUid": permit.work_uid,
                 "commandUid": permit.command_uid,
                 "actionKey": action.action_key,
                 "actionKind": action.action_kind,
                 "actionDigestSha256": action.action_digest_sha256,
+                "dispatchAttemptToken": dispatch_attempt_token,
             },
         )
         canonical_action_uid = _require_uuid4(
-            armed.get("actionUid"),
+            prepared.get("actionUid"),
             "actionUid",
         )
         if canonical_action_uid != action.action_uid:
@@ -260,14 +296,131 @@ class PermanentJobSafety:
                 "logical physical action already exists in the permanent ledger",
             )
         if (
-            armed.get("disposition") != "ACCEPTED"
-            or
-            armed.get("state") != "MAY_HAVE_EXECUTED"
+            prepared.get("state") != "PREPARED"
+            or prepared.get("mayExecute") is not False
+            or prepared.get("disposition") not in {"ACCEPTED", "DUPLICATE"}
+        ):
+            raise JobSafetyError(
+                str(
+                    prepared.get("errorCode")
+                    or "PHYSICAL_ACTION_NOT_PREPARED"
+                ),
+                "permanent ledger did not prepare the physical action",
+            )
+
+    def arm_physical_action(
+        self,
+        action: PhysicalAction,
+        *,
+        dispatch_attempt_token: str,
+    ) -> None:
+        armed = self._request(
+            "ARM_PHYSICAL_ACTION",
+            {
+                "actionUid": action.action_uid,
+                "dispatchAttemptToken": dispatch_attempt_token,
+            },
+        )
+        canonical_action_uid = _require_uuid4(
+            armed.get("actionUid"),
+            "actionUid",
+        )
+        if canonical_action_uid != action.action_uid:
+            raise JobSafetyError(
+                "PHYSICAL_ACTION_IDENTITY_MISMATCH",
+                "permanent updater returned a different physical action",
+            )
+        if (
+            armed.get("state") != "ARMED"
             or armed.get("mayExecute") is not True
+            or armed.get("disposition") not in {"ACCEPTED", "DUPLICATE"}
         ):
             raise JobSafetyError(
                 str(armed.get("errorCode") or "PHYSICAL_ACTION_NOT_ARMED"),
-                "permanent ledger did not authorize the physical action",
+                "permanent ledger did not open the UART dispatch gate",
+            )
+
+    def cancel_prepared_physical_action(
+        self,
+        action: PhysicalAction,
+        *,
+        dispatch_attempt_token: str,
+        evidence_sha256: str,
+    ) -> None:
+        result = self._request(
+            "CANCEL_PREPARED_PHYSICAL_ACTION",
+            {
+                "actionUid": action.action_uid,
+                "receiptUid": action.receipt_uid,
+                "dispatchAttemptToken": dispatch_attempt_token,
+                "evidenceDigestSha256": _require_sha256(
+                    evidence_sha256,
+                    "evidenceDigestSha256",
+                ),
+            },
+        )
+        self._require_not_executed_confirmation(
+            result,
+            action,
+            basis="PREPARED_NOT_ARMED",
+            evidence_sha256=evidence_sha256,
+        )
+
+    def abort_physical_action_dispatch(
+        self,
+        action: PhysicalAction,
+        *,
+        dispatch_attempt_token: str,
+        evidence_sha256: str,
+    ) -> None:
+        result = self._request(
+            "ABORT_PHYSICAL_ACTION_DISPATCH",
+            {
+                "actionUid": action.action_uid,
+                "receiptUid": action.receipt_uid,
+                "dispatchAttemptToken": dispatch_attempt_token,
+                "evidenceDigestSha256": _require_sha256(
+                    evidence_sha256,
+                    "evidenceDigestSha256",
+                ),
+            },
+        )
+        self._require_not_executed_confirmation(
+            result,
+            action,
+            basis="LIVE_DISPATCH_NOT_WRITTEN",
+            evidence_sha256=evidence_sha256,
+        )
+
+    @staticmethod
+    def _require_not_executed_confirmation(
+        result: Mapping[str, Any],
+        action: PhysicalAction,
+        *,
+        basis: str,
+        evidence_sha256: str,
+    ) -> None:
+        canonical_action_uid = _require_uuid4(
+            result.get("actionUid"),
+            "actionUid",
+        )
+        if canonical_action_uid != action.action_uid:
+            raise JobSafetyError(
+                "PHYSICAL_ACTION_IDENTITY_MISMATCH",
+                "permanent updater returned a different physical action",
+            )
+        if (
+            result.get("state") != "CONFIRMED"
+            or result.get("confirmedOutcome") != "NOT_EXECUTED"
+            or result.get("confirmationBasis") != basis
+            or result.get("evidenceDigestSha256") != evidence_sha256
+        ):
+            raise JobSafetyError(
+                str(
+                    result.get("errorCode")
+                    or "PHYSICAL_ACTION_UNCONFIRMED"
+                ),
+                "permanent ledger did not confirm zero physical effect",
             )
 
     def confirm_physical_action(
@@ -276,6 +429,7 @@ class PermanentJobSafety:
         *,
         outcome: str,
         evidence_sha256: str,
+        confirmation_basis: str,
     ) -> None:
         result = self._request(
             "CONFIRM_PHYSICAL_ACTION",
@@ -283,16 +437,57 @@ class PermanentJobSafety:
                 "actionUid": action.action_uid,
                 "receiptUid": action.receipt_uid,
                 "outcome": outcome,
+                "confirmationBasis": confirmation_basis,
                 "evidenceDigestSha256": _require_sha256(
                     evidence_sha256,
                     "evidenceDigestSha256",
                 ),
             },
         )
-        if result.get("state") != "CONFIRMED":
+        if (
+            result.get("actionUid") != action.action_uid
+            or result.get("state") != "CONFIRMED"
+            or result.get("confirmedOutcome") != outcome
+            or result.get("confirmationBasis") != confirmation_basis
+            or result.get("evidenceDigestSha256") != evidence_sha256
+        ):
             raise JobSafetyError(
                 str(result.get("errorCode") or "PHYSICAL_ACTION_UNCONFIRMED"),
                 "physical action outcome was not durably confirmed",
+            )
+
+    def confirm_live_physical_action_result(
+        self,
+        action: PhysicalAction,
+        *,
+        dispatch_attempt_token: str,
+        outcome: str,
+        evidence_sha256: str,
+    ) -> None:
+        result = self._request(
+            "CONFIRM_LIVE_PHYSICAL_ACTION_RESULT",
+            {
+                "actionUid": action.action_uid,
+                "receiptUid": action.receipt_uid,
+                "dispatchAttemptToken": dispatch_attempt_token,
+                "outcome": outcome,
+                "evidenceDigestSha256": _require_sha256(
+                    evidence_sha256,
+                    "evidenceDigestSha256",
+                ),
+            },
+        )
+        if (
+            result.get("actionUid") != action.action_uid
+            or result.get("state") != "CONFIRMED"
+            or result.get("confirmedOutcome") != outcome
+            or result.get("confirmationBasis")
+            != "LIVE_FIXED_FRAME_RESULT"
+            or result.get("evidenceDigestSha256") != evidence_sha256
+        ):
+            raise JobSafetyError(
+                str(result.get("errorCode") or "PHYSICAL_ACTION_UNCONFIRMED"),
+                "live fixed-frame result was not durably confirmed",
             )
 
     def get_physical_action(self, action_uid: str) -> dict[str, Any]:
@@ -343,7 +538,9 @@ class PermanentJobSafety:
         action: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
-        unavailable: LocalControlUnavailable | None = None
+        uncertain: LocalControlUnavailable | LocalControlRemoteError | None = (
+            None
+        )
         # Every mutating call carries a stable identity and exact digest. One
         # immediate retry can therefore recover a lost local response without
         # creating a second permit, receipt, or completion.
@@ -351,14 +548,23 @@ class PermanentJobSafety:
             try:
                 return self._client.request(action, payload)
             except LocalControlRemoteError as error:
+                if error.code in {"RESULT_UNKNOWN", "SERVICE_STOPPING"}:
+                    # The server returns these codes while an idempotent
+                    # handler thread may still commit: either its bounded
+                    # response wait ended or shutdown began around it. Retry
+                    # the exact payload; if it remains unknown, let the
+                    # durable business inbox retry later instead of
+                    # misclassifying the fact as rejected.
+                    uncertain = error
+                    continue
                 raise JobSafetyError(error.code, error.message) from error
             except LocalControlUnavailable as error:
-                unavailable = error
-        assert unavailable is not None
+                uncertain = error
+        assert uncertain is not None
         raise JobSafetyError(
             "JOB_GATE_UNAVAILABLE",
             "permanent updater could not be reached or confirmed",
-        ) from unavailable
+        ) from uncertain
 
 
 def build_job_safety_from_environment(

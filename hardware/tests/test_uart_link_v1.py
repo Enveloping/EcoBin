@@ -376,6 +376,59 @@ def test_timeout_retry_reuses_byte_identical_frame():
     assert decoded["messageType"] == MESSAGE_TYPE["QUERY_STATE"]
 
 
+def test_dispatch_deadline_stops_retransmission_after_one_unknown_write(
+    monkeypatch,
+):
+    clock = {"value": 0.0}
+    monkeypatch.setattr(
+        "uart_link.time.monotonic", lambda: clock["value"]
+    )
+    link = UartLink(port="fake", edge_boot_id=7)
+    link._mcu_boot_id = 42
+    link._ser = AutoAckSerial(7, 42, ack_after_write=2)
+
+    def lose_first_ack(*, timeout_ms):
+        del timeout_ms
+        clock["value"] = 2.0
+        return None
+
+    link._read_serial_frame = lose_first_ack
+    result = link._send_and_wait_ack(
+        "QUERY_STATE",
+        query_state_payload(),
+        ack_timeout_ms=5,
+        max_retries=3,
+        dispatch_deadline_monotonic=1.0,
+    )
+
+    assert result["acked"] is False
+    assert result["error"] == "TIMEOUT"
+    assert result["uart_write_attempted"] is True
+    assert len(link._ser.writes) == 1
+
+
+def test_dispatch_deadline_after_gate_can_stop_the_first_write(monkeypatch):
+    clock = {"value": 0.0}
+    monkeypatch.setattr(
+        "uart_link.time.monotonic", lambda: clock["value"]
+    )
+    link = UartLink(port="fake", edge_boot_id=7)
+    link._mcu_boot_id = 42
+    link._ser = AutoAckSerial(7, 42)
+
+    result = link._send_and_wait_ack(
+        "QUERY_STATE",
+        query_state_payload(),
+        dispatch_deadline_monotonic=1.0,
+        dispatch_gate=lambda: clock.update(value=2.0),
+    )
+
+    assert result["acked"] is False
+    assert result["error"] == "COMMAND_EXPIRED"
+    assert result["uart_write_attempted"] is False
+    assert link._ser.writes == []
+
+
 def test_event_received_before_ack_remains_available_to_event_consumer():
     link = UartLink(port="fake", edge_boot_id=7)
     link._mcu_boot_id = 42
@@ -561,6 +614,7 @@ def test_expired_absolute_dispatch_deadline_prevents_first_uart_write():
     link._mcu_boot_id = 42
     serial = AutoAckSerial(7, 42)
     link._ser = serial
+    gate_calls = []
 
     result = link.send_command_before_deadline(
         "START_DELIVERY_SESSION",
@@ -577,10 +631,166 @@ def test_expired_absolute_dispatch_deadline_prevents_first_uart_write():
         },
         mcu_command_uid="50000000-0000-4000-8000-000000000001",
         dispatch_deadline_monotonic=time.monotonic() - 1,
+        dispatch_gate=lambda: gate_calls.append("gate"),
     )
 
     assert result["acked"] is False
     assert result["error"] == "COMMAND_EXPIRED"
+    assert gate_calls == []
+    assert serial.writes == []
+
+
+def test_dispatch_gate_runs_under_uart_lock_once_before_all_ack_retries():
+    link = UartLink(port="fake", edge_boot_id=7, port_count=1)
+    link._mcu_boot_id = 42
+    serial = AutoAckSerial(7, 42, ack_after_write=2)
+    link._ser = serial
+    order = []
+    original_write = serial.write
+
+    def tracked_write(data):
+        order.append("write")
+        return original_write(data)
+
+    def dispatch_gate():
+        assert link._io_lock._is_owned()
+        order.append("gate")
+
+    serial.write = tracked_write
+    result = link.send_command_before_deadline(
+        "START_DELIVERY_SESSION",
+        {
+            "sessionUid": "51000000-0000-4000-8000-000000000001",
+            "portNo": 1,
+            "configVersion": 8,
+            "configContentSha256": "a" * 64,
+            "unitPriceTenThousandths": 10000,
+            "continueDeliveryWaitMs": 30000,
+            "negativeWeightThresholdGrams": 500,
+            "startExecutionWindowMs": 45000,
+            "deliveryAutoCloseMs": 120000,
+        },
+        mcu_command_uid="50000000-0000-4000-8000-000000000001",
+        dispatch_deadline_monotonic=time.monotonic() + 1,
+        dispatch_gate=dispatch_gate,
+    )
+
+    assert result["acked"] is True
+    assert order == ["gate", "write", "write"]
+
+
+def test_dispatch_gate_failure_propagates_without_uart_write():
+    class DispatchRejected(RuntimeError):
+        pass
+
+    link = UartLink(port="fake", edge_boot_id=7, port_count=1)
+    link._mcu_boot_id = 42
+    serial = AutoAckSerial(7, 42)
+    link._ser = serial
+    gate_calls = []
+
+    def reject_dispatch():
+        gate_calls.append("gate")
+        raise DispatchRejected("permanent action was not armed")
+
+    with pytest.raises(DispatchRejected, match="was not armed"):
+        link.send_command_before_deadline(
+            "START_DELIVERY_SESSION",
+            {
+                "sessionUid": "51000000-0000-4000-8000-000000000001",
+                "portNo": 1,
+                "configVersion": 8,
+                "configContentSha256": "a" * 64,
+                "unitPriceTenThousandths": 10000,
+                "continueDeliveryWaitMs": 30000,
+                "negativeWeightThresholdGrams": 500,
+                "startExecutionWindowMs": 45000,
+                "deliveryAutoCloseMs": 120000,
+            },
+            mcu_command_uid="50000000-0000-4000-8000-000000000001",
+            dispatch_deadline_monotonic=time.monotonic() + 1,
+            dispatch_gate=reject_dispatch,
+        )
+
+    assert gate_calls == ["gate"]
+    assert serial.writes == []
+
+
+def test_uart_write_failure_after_dispatch_gate_propagates():
+    link = UartLink(port="fake", edge_boot_id=7, port_count=1)
+    link._mcu_boot_id = 42
+    serial = AutoAckSerial(7, 42)
+    link._ser = serial
+    gate_calls = []
+
+    def failing_write(data):
+        serial.writes.append(bytes(data))
+        raise IOError("UART driver write failed")
+
+    serial.write = failing_write
+    with pytest.raises(IOError, match="driver write failed"):
+        link.send_command_before_deadline(
+            "START_DELIVERY_SESSION",
+            {
+                "sessionUid": "51000000-0000-4000-8000-000000000001",
+                "portNo": 1,
+                "configVersion": 8,
+                "configContentSha256": "a" * 64,
+                "unitPriceTenThousandths": 10000,
+                "continueDeliveryWaitMs": 30000,
+                "negativeWeightThresholdGrams": 500,
+                "startExecutionWindowMs": 45000,
+                "deliveryAutoCloseMs": 120000,
+            },
+            mcu_command_uid="50000000-0000-4000-8000-000000000001",
+            dispatch_deadline_monotonic=time.monotonic() + 1,
+            dispatch_gate=lambda: gate_calls.append("gate"),
+        )
+
+    assert gate_calls == ["gate"]
+    assert len(serial.writes) == 1
+
+
+@pytest.mark.parametrize(
+    ("serial_open", "session_ready", "expected_error"),
+    [
+        (False, True, "UART_CLOSED"),
+        (True, False, "UART_NOT_READY"),
+    ],
+)
+def test_uart_precheck_failure_does_not_call_dispatch_gate(
+    serial_open,
+    session_ready,
+    expected_error,
+):
+    link = UartLink(port="fake", edge_boot_id=7, port_count=1)
+    link._mcu_boot_id = 42 if session_ready else None
+    serial = AutoAckSerial(7, 42)
+    serial.is_open = serial_open
+    link._ser = serial
+    gate_calls = []
+
+    result = link.send_command_before_deadline(
+        "START_DELIVERY_SESSION",
+        {
+            "sessionUid": "51000000-0000-4000-8000-000000000001",
+            "portNo": 1,
+            "configVersion": 8,
+            "configContentSha256": "a" * 64,
+            "unitPriceTenThousandths": 10000,
+            "continueDeliveryWaitMs": 30000,
+            "negativeWeightThresholdGrams": 500,
+            "startExecutionWindowMs": 45000,
+            "deliveryAutoCloseMs": 120000,
+        },
+        mcu_command_uid="50000000-0000-4000-8000-000000000001",
+        dispatch_deadline_monotonic=time.monotonic() + 1,
+        dispatch_gate=lambda: gate_calls.append("gate"),
+    )
+
+    assert result["acked"] is False
+    assert result["error"] == expected_error
+    assert gate_calls == []
     assert serial.writes == []
 
 

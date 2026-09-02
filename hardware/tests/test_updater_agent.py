@@ -23,6 +23,10 @@ requires_unix_socket = pytest.mark.skipif(
 )
 
 
+def _uid(number: int) -> str:
+    return f"00000000-0000-4000-8000-{number:012x}"
+
+
 def _build_agent(tmp_path: Path) -> tuple[
     updater_agent.UpdaterAgent,
     LocalControlClient,
@@ -58,7 +62,7 @@ def test_health_and_status_report_truthful_default_locked_capabilities(
         assert status == {
             "component": "DEVICE_UPDATER",
             "status": "READY",
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "runtimeInstanceUid": status["runtimeInstanceUid"],
             "releaseVersion": "updater-v1",
             "startedAt": status["startedAt"],
@@ -200,6 +204,38 @@ def test_candidate_actions_use_exact_payloads_and_business_only_uid(
         )
 
         assert set(updater_agent.JOB_ACTION_FIELDS).issubset(actions)
+        assert "AUTHORIZE_PHYSICAL_ACTION" not in actions
+        assert {
+            "PREPARE_PHYSICAL_ACTION",
+            "ARM_PHYSICAL_ACTION",
+            "CANCEL_PREPARED_PHYSICAL_ACTION",
+            "ABORT_PHYSICAL_ACTION_DISPATCH",
+            "CONFIRM_LIVE_PHYSICAL_ACTION_RESULT",
+            "GET_PHYSICAL_ACTION",
+            "CONFIRM_PHYSICAL_ACTION",
+        }.issubset(actions)
+        assert actions["PREPARE_PHYSICAL_ACTION"].payload_fields == frozenset(
+            {
+                "actionUid",
+                "permitUid",
+                "workUid",
+                "commandUid",
+                "actionKey",
+                "actionKind",
+                "actionDigestSha256",
+                "dispatchAttemptToken",
+            }
+        )
+        assert actions[
+            "CANCEL_PREPARED_PHYSICAL_ACTION"
+        ].payload_fields == frozenset(
+            {
+                "actionUid",
+                "receiptUid",
+                "dispatchAttemptToken",
+                "evidenceDigestSha256",
+            }
+        )
         for action, expected_fields in updater_agent.JOB_ACTION_FIELDS.items():
             assert actions[action].payload_fields == expected_fields
             assert actions[action].allowed_uids == frozenset({3102})
@@ -219,6 +255,79 @@ def test_candidate_actions_use_exact_payloads_and_business_only_uid(
             == "STAGE4_ACTIVATION_REQUIRED"
         )
         assert store.get_status()["updatesEnabled"] is False
+    finally:
+        store.close()
+
+
+def test_agent_rejects_edge_rollback_token_takeover_and_cancellation(
+    tmp_path: Path,
+) -> None:
+    store = UpdaterStore(
+        tmp_path / "updater.db",
+        release_version="updater-v3",
+        enable_stage4_candidate=True,
+    )
+    store.initialize()
+    try:
+        store.transition_job_gate("OPEN")
+        store.request_job_permit(
+            {
+                "permitUid": _uid(1),
+                "workUid": _uid(2),
+                "commandUid": _uid(3),
+                "workType": "DELIVERY",
+                "requestDigestSha256": "a" * 64,
+            }
+        )
+        store.begin_job(
+            {
+                "permitUid": _uid(1),
+                "beginUid": _uid(4),
+                "permitDigestSha256": "a" * 64,
+            }
+        )
+        actions = updater_agent.build_control_actions(
+            updater_agent.UpdaterControlHandler(store),
+            allowed_uids={0, 3102},
+            business_uids={3102},
+            enable_stage4_candidate=True,
+        )
+        original = {
+            "actionUid": _uid(5),
+            "permitUid": _uid(1),
+            "workUid": _uid(2),
+            "commandUid": _uid(3),
+            "actionKey": "delivery.door.unlock.1",
+            "actionKind": "DELIVERY_DOOR_UNLOCK",
+            "actionDigestSha256": "c" * 64,
+            "dispatchAttemptToken": "L" * 43,
+        }
+        created = actions["PREPARE_PHYSICAL_ACTION"].handler(original)
+        takeover = actions["PREPARE_PHYSICAL_ACTION"].handler(
+            {**original, "dispatchAttemptToken": "M" * 43}
+        )
+        assert created["disposition"] == "ACCEPTED"
+        assert takeover["disposition"] == "DENIED"
+        assert takeover["state"] == "PREPARED"
+        assert takeover["mayExecute"] is False
+
+        with pytest.raises(LocalControlActionError) as cancelled:
+            actions["CANCEL_PREPARED_PHYSICAL_ACTION"].handler(
+                {
+                    "actionUid": _uid(5),
+                    "receiptUid": _uid(6),
+                    "dispatchAttemptToken": "M" * 43,
+                    "evidenceDigestSha256": "d" * 64,
+                }
+            )
+        assert cancelled.value.code == "PHYSICAL_ACTION_CANCEL_DENIED"
+        retained = actions["GET_PHYSICAL_ACTION"].handler(
+            {"actionUid": _uid(5)}
+        )
+        assert retained["state"] == "PREPARED"
+        assert retained["confirmedOutcome"] is None
+        assert "L" * 43 not in repr(retained)
+        assert "M" * 43 not in repr(retained)
     finally:
         store.close()
 

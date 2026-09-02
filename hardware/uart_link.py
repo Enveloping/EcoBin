@@ -25,7 +25,7 @@ import threading
 import time
 import uuid as _uuid
 from collections import deque
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 try:
     import serial
@@ -202,7 +202,8 @@ class UartLink:
     def _send_and_wait_ack(self, message_name: str, payload: bytes,
                            ack_timeout_ms: int = 500,
                            max_retries: int = 3,
-                           dispatch_deadline_monotonic: float | None = None) -> dict:
+                           dispatch_deadline_monotonic: float | None = None,
+                           dispatch_gate: Callable[[], None] | None = None) -> dict:
         """Send once and retransmit the exact same frame only on ACK timeout."""
         with self._io_lock:
             if not self.is_open:
@@ -227,8 +228,32 @@ class UartLink:
             if not raw_frame[5] & ACK_REQUIRED:
                 raise UartError(f"{message_name} does not require ACK")
 
+            # The permanent safety layer arms the physical action here: after
+            # the UART lock and all fail-closed prechecks, but immediately
+            # before the first byte can reach the MCU.  ACK retries reuse the
+            # already-armed command and therefore must not call the gate again.
+            if dispatch_gate is not None:
+                dispatch_gate()
+
+            uart_write_attempted = False
             for attempt in range(1, max_retries + 1):
+                if (
+                    dispatch_deadline_monotonic is not None
+                    and time.monotonic() >= dispatch_deadline_monotonic
+                ):
+                    return {
+                        "acked": False,
+                        "error": (
+                            "TIMEOUT"
+                            if uart_write_attempted
+                            else "COMMAND_EXPIRED"
+                        ),
+                        "fatal": False,
+                        "tx_sequence": tx_seq,
+                        "uart_write_attempted": uart_write_attempted,
+                    }
                 self._write_raw_frame(raw_frame)
+                uart_write_attempted = True
                 if attempt > 1:
                     logger.info(
                         "重试原帧 %s seq=%d (attempt %d/%d)",
@@ -270,7 +295,12 @@ class UartLink:
                         "tx_sequence": tx_seq,
                     }
                 logger.debug("ACK 超时: %s seq=%d", message_name, tx_seq)
-        return {"acked": False, "error": "TIMEOUT", "fatal": False}
+        return {
+            "acked": False,
+            "error": "TIMEOUT",
+            "fatal": False,
+            "uart_write_attempted": True,
+        }
 
     def _pop_matching_response(
         self, tx_sequence: int, message_type: int
@@ -616,8 +646,9 @@ class UartLink:
         *,
         mcu_command_uid: Optional[str] = None,
         dispatch_deadline_monotonic: float,
+        dispatch_gate: Callable[[], None] | None = None,
     ) -> dict:
-        """Check an Edge absolute deadline after taking the UART I/O lock."""
+        """Check and arm a physical dispatch while holding the UART I/O lock."""
 
         command_uid = str(_uuid.UUID(mcu_command_uid or str(_uuid.uuid4())))
         command_values = {
@@ -632,6 +663,7 @@ class UartLink:
             message_name,
             encode_payload(message_name, command_values),
             dispatch_deadline_monotonic=dispatch_deadline_monotonic,
+            dispatch_gate=dispatch_gate,
         )
         return {
             **result,

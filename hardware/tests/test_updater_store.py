@@ -4,6 +4,7 @@ import os
 import sqlite3
 import stat
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -65,7 +66,10 @@ def _begin_payload(number: int = 1) -> dict[str, str]:
     }
 
 
-def _action_payload(number: int = 1) -> dict[str, str]:
+def _action_payload(
+    number: int = 1,
+    token: str = "A" * 43,
+) -> dict[str, str]:
     return {
         "actionUid": _uid(number + 4),
         "permitUid": _uid(number),
@@ -74,13 +78,59 @@ def _action_payload(number: int = 1) -> dict[str, str]:
         "actionKey": "delivery.door.unlock.1",
         "actionKind": "DELIVERY_DOOR_UNLOCK",
         "actionDigestSha256": "c" * 64,
+        "dispatchAttemptToken": token,
     }
 
 
-def _authorization_payload(number: int = 1) -> dict[str, str]:
+def _arm_payload(
+    number: int = 1,
+    token: str = "A" * 43,
+) -> dict[str, str]:
     return {
-        **_action_payload(number),
-        "armUid": _uid(number + 5),
+        "actionUid": _uid(number + 4),
+        "dispatchAttemptToken": token,
+    }
+
+
+def _prepare_and_arm(
+    store: UpdaterStore,
+    number: int = 1,
+    token: str = "A" * 43,
+) -> dict[str, object]:
+    store.prepare_physical_action(_action_payload(number, token))
+    return store.arm_physical_action(_arm_payload(number, token))
+
+
+def _confirmation_payload(
+    number: int = 1,
+    *,
+    receipt_number: int = 7,
+    outcome: str = "EXECUTED",
+    evidence: str = "d" * 64,
+) -> dict[str, str]:
+    return {
+        "actionUid": _uid(number + 4),
+        "receiptUid": _uid(receipt_number),
+        "outcome": outcome,
+        "confirmationBasis": "MCU_IDENTITY_BOUND_FACT",
+        "evidenceDigestSha256": evidence,
+    }
+
+
+def _live_result_payload(
+    number: int = 1,
+    *,
+    receipt_number: int = 16,
+    token: str = "A" * 43,
+    outcome: str = "EXECUTED",
+    evidence: str = "e" * 64,
+) -> dict[str, str]:
+    return {
+        "actionUid": _uid(number + 4),
+        "receiptUid": _uid(receipt_number),
+        "dispatchAttemptToken": token,
+        "outcome": outcome,
+        "evidenceDigestSha256": evidence,
     }
 
 
@@ -133,7 +183,96 @@ def _create_v1_database(path: Path) -> None:
         )
 
 
-def test_store_defaults_to_locked_disabled_v2_and_persists_real_instances(
+def _create_v2_database_with_uncertain_action(path: Path) -> None:
+    timestamp = "2026-09-01T00:00:00.000Z"
+    with sqlite3.connect(path) as connection:
+        for statement in UpdaterStore._v2_schema_statements():
+            connection.execute(statement)
+        connection.execute("INSERT INTO schema_version VALUES (1, 2)")
+        connection.execute(
+            """INSERT INTO updater_runtime_instance
+                   VALUES (?, 'DEVICE_UPDATER', 'stage4-v2', ?)""",
+            (_uid(100), timestamp),
+        )
+        connection.execute(
+            """INSERT INTO updater_management_state (
+                   singleton_id, management_state_sequence,
+                   stage4_candidate_enabled, updates_enabled,
+                   job_gate_mode, job_gate_state, maintenance_state,
+                   reconciliation_required, block_reason_code,
+                   business_update_enabled, mcu_update_enabled,
+                   created_at, updated_at
+               ) VALUES (1, 7, 1, 0, 'ENFORCED', 'LOCKED', 'LOCKED',
+                         1, 'PHYSICAL_ACTION_UNCONFIRMED', 0, 0, ?, ?)""",
+            (timestamp, timestamp),
+        )
+        connection.execute(
+            """INSERT INTO job_permit (
+                   permit_uid, work_uid, command_uid, work_type,
+                   request_digest_sha256, state, grant_gate_sequence,
+                   begin_uid, permit_digest_sha256, created_at, begun_at,
+                   updated_at
+               ) VALUES (?, ?, ?, 'DELIVERY', ?, 'ACTIVE', 2, ?, ?, ?, ?, ?)""",
+            (
+                _uid(1),
+                _uid(2),
+                _uid(3),
+                "a" * 64,
+                _uid(4),
+                "a" * 64,
+                timestamp,
+                timestamp,
+                timestamp,
+            ),
+        )
+        connection.execute(
+            """INSERT INTO physical_action_ledger (
+                   action_uid, permit_uid, work_uid, command_uid,
+                   action_key, action_kind, action_digest_sha256,
+                   state, arm_uid, created_at, armed_at, updated_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, 'MAY_HAVE_EXECUTED',
+                         ?, ?, ?, ?)""",
+            (
+                _uid(5),
+                _uid(1),
+                _uid(2),
+                _uid(3),
+                "delivery.door.unlock.1",
+                "DELIVERY_DOOR_UNLOCK",
+                "c" * 64,
+                _uid(6),
+                timestamp,
+                timestamp,
+                timestamp,
+            ),
+        )
+    if os.name == "posix":
+        path.chmod(0o600)
+
+
+def _create_v2_database_with_confirmed_action(
+    path: Path,
+    outcome: str,
+) -> None:
+    _create_v2_database_with_uncertain_action(path)
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """UPDATE physical_action_ledger
+               SET state='CONFIRMED', receipt_uid=?, confirmed_outcome=?,
+                   evidence_digest_sha256=?, confirmed_at=?, updated_at=?
+               WHERE action_uid=?""",
+            (
+                _uid(7),
+                outcome,
+                "d" * 64,
+                "2026-09-01T00:01:00.000Z",
+                "2026-09-01T00:01:00.000Z",
+                _uid(5),
+            ),
+        )
+
+
+def test_store_defaults_to_locked_disabled_v3_and_persists_real_instances(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "updater.db"
@@ -150,7 +289,7 @@ def test_store_defaults_to_locked_disabled_v2_and_persists_real_instances(
 
     assert first_status == {
         "component": "DEVICE_UPDATER",
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "runtimeInstanceUid": first_status["runtimeInstanceUid"],
         "releaseVersion": "updater-v1",
         "startedAt": "2026-09-02T08:30:00.000Z",
@@ -181,7 +320,7 @@ def test_store_defaults_to_locked_disabled_v2_and_persists_real_instances(
     with sqlite3.connect(path) as connection:
         assert connection.execute(
             "SELECT version FROM schema_version"
-        ).fetchall() == [(2,)]
+        ).fetchall() == [(3,)]
         assert connection.execute(
             """SELECT component, release_version, started_at
                FROM updater_runtime_instance
@@ -215,7 +354,7 @@ def test_store_defaults_to_locked_disabled_v2_and_persists_real_instances(
     second.close()
 
 
-def test_v1_migrates_in_one_start_to_locked_v2_without_losing_instances(
+def test_v1_migrates_in_one_start_to_locked_v3_without_losing_instances(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "updater.db"
@@ -224,7 +363,7 @@ def test_v1_migrates_in_one_start_to_locked_v2_without_losing_instances(
     store = _store(path, "stage4")
     try:
         status = store.get_status()
-        assert status["schemaVersion"] == 2
+        assert status["schemaVersion"] == 3
         assert status["stage4CandidateEnabled"] is False
         assert status["jobGateState"] == "LOCKED"
         assert status["blockReasonCode"] == "STAGE4_CANDIDATE_DISABLED"
@@ -232,7 +371,7 @@ def test_v1_migrates_in_one_start_to_locked_v2_without_losing_instances(
         with sqlite3.connect(path) as connection:
             assert connection.execute(
                 "SELECT version FROM schema_version"
-            ).fetchone() == (2,)
+            ).fetchone() == (3,)
             assert connection.execute(
                 "SELECT COUNT(*) FROM updater_runtime_instance"
             ).fetchone() == (2,)
@@ -303,14 +442,24 @@ def test_candidate_permit_and_physical_action_complete_durable_handshake(
         assert permit["mayStart"] is True
         assert store.begin_job(_begin_payload())["state"] == "ACTIVE"
 
-        armed = store.authorize_physical_action(_authorization_payload())
-        assert armed["state"] == "MAY_HAVE_EXECUTED"
+        prepared = store.prepare_physical_action(_action_payload())
+        assert prepared["state"] == "PREPARED"
+        assert prepared["dispatchMode"] == "PREPARED_ONLY"
+        assert prepared["mayExecute"] is False
+        assert store.get_status()["jobGateState"] == "OPEN"
+
+        armed = store.arm_physical_action(_arm_payload())
+        assert armed["state"] == "ARMED"
+        assert armed["dispatchMode"] == "TWO_PHASE_V3"
         assert armed["mayExecute"] is True
-        duplicate_arm = store.authorize_physical_action(
-            _authorization_payload()
-        )
+        duplicate_arm = store.arm_physical_action(_arm_payload())
         assert duplicate_arm["disposition"] == "DUPLICATE"
-        assert duplicate_arm["mayExecute"] is False
+        assert duplicate_arm["mayExecute"] is True
+        denied_arm = store.arm_physical_action(
+            _arm_payload(token="B" * 43)
+        )
+        assert denied_arm["disposition"] == "DENIED"
+        assert denied_arm["mayExecute"] is False
         assert store.get_physical_action({"actionUid": _uid(5)})[
             "mayExecute"
         ] is False
@@ -318,11 +467,10 @@ def test_candidate_permit_and_physical_action_complete_durable_handshake(
         armed_sequence = store.get_status()["managementStateSequence"]
 
         with pytest.raises(UpdaterStoreError) as previous_unknown:
-            store.authorize_physical_action(
+            store.prepare_physical_action(
                 {
-                    **_authorization_payload(),
+                    **_action_payload(),
                     "actionUid": _uid(50),
-                    "armUid": _uid(51),
                     "actionKey": "delivery.door.unlock.2",
                 }
             )
@@ -345,14 +493,7 @@ def test_candidate_permit_and_physical_action_complete_durable_handshake(
             )
         assert incomplete.value.code == "PHYSICAL_ACTION_UNCONFIRMED"
 
-        confirmed = store.confirm_physical_action(
-            {
-                "actionUid": _uid(5),
-                "receiptUid": _uid(7),
-                "outcome": "EXECUTED",
-                "evidenceDigestSha256": "d" * 64,
-            }
-        )
+        confirmed = store.confirm_physical_action(_confirmation_payload())
         assert confirmed["state"] == "CONFIRMED"
         assert confirmed["mayExecute"] is False
         confirmed_sequence = store.get_status()[
@@ -374,6 +515,568 @@ def test_candidate_permit_and_physical_action_complete_durable_handshake(
         assert (
             completed_status["managementStateSequence"]
             > confirmed_sequence
+        )
+    finally:
+        store.close()
+
+
+def test_second_armed_action_restores_unconfirmed_reconciliation_status(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "updater.db", "stage4", candidate=True)
+    second_token = "B" * 43
+    second_action = {
+        **_action_payload(token=second_token),
+        "actionUid": _uid(20),
+        "actionKey": "delivery.door.unlock.2",
+        "actionDigestSha256": "f" * 64,
+    }
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        store.begin_job(_begin_payload())
+        _prepare_and_arm(store)
+        store.confirm_physical_action(_confirmation_payload())
+
+        active_job = store.get_status()
+        assert active_job["jobGateState"] == "LOCKED"
+        assert active_job["reconciliationRequired"] is False
+        assert active_job["blockReasonCode"] == "ACTIVE_JOB_IN_PROGRESS"
+
+        store.prepare_physical_action(second_action)
+        prepared = store.get_status()
+        assert prepared["reconciliationRequired"] is False
+        assert prepared["blockReasonCode"] == "ACTIVE_JOB_IN_PROGRESS"
+
+        armed = store.arm_physical_action(
+            {
+                "actionUid": second_action["actionUid"],
+                "dispatchAttemptToken": second_token,
+            }
+        )
+        status = store.get_status()
+        assert armed["state"] == "ARMED"
+        assert armed["mayExecute"] is True
+        assert status["jobGateState"] == "LOCKED"
+        assert status["reconciliationRequired"] is True
+        assert status["blockReasonCode"] == "PHYSICAL_ACTION_UNCONFIRMED"
+        assert status["unreconciledPhysicalActionCount"] == 1
+        assert (
+            status["managementStateSequence"]
+            > active_job["managementStateSequence"]
+        )
+    finally:
+        store.close()
+
+
+def test_dispatch_token_is_hashed_hidden_and_only_same_live_retry_executes(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    store = _store(path, "stage4", candidate=True)
+    token = "token_response_loss_retry_1234567890ABCDE"
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        store.begin_job(_begin_payload())
+        store.prepare_physical_action(_action_payload(token=token))
+
+        first = store.arm_physical_action(_arm_payload(token=token))
+        retry = store.arm_physical_action(_arm_payload(token=token))
+        lookup = store.get_physical_action({"actionUid": _uid(5)})
+        status = store.get_status()
+
+        assert first["disposition"] == "ACCEPTED"
+        assert first["mayExecute"] is True
+        assert retry["disposition"] == "DUPLICATE"
+        assert retry["mayExecute"] is True
+        assert lookup["disposition"] == "FOUND"
+        assert lookup["mayExecute"] is False
+        for result in (first, retry, lookup):
+            assert "dispatchAttemptToken" not in result
+            assert "dispatchAttemptTokenSha256" not in result
+            assert "armRuntimeInstanceUid" not in result
+            assert token not in repr(result)
+        assert "dispatchAttemptToken" not in status
+        assert "dispatchAttemptTokenSha256" not in status
+        assert "armRuntimeInstanceUid" not in status
+        assert token not in repr(status)
+
+        with sqlite3.connect(path) as connection:
+            persisted = connection.execute(
+                """SELECT dispatch_attempt_token_sha256
+                   FROM physical_action_ledger WHERE action_uid=?""",
+                (_uid(5),),
+            ).fetchone()[0]
+            database_dump = "\n".join(connection.iterdump())
+        assert persisted != token
+        assert len(persisted) == 64
+        assert token not in database_dump
+    finally:
+        store.close()
+
+
+def test_prepared_action_cannot_be_taken_over_by_a_new_business_token(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    original_token = "J" * 43
+    restarted_business_token = "K" * 43
+    store = _store(path, "stage4", candidate=True)
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        store.begin_job(_begin_payload())
+        missing_token = _action_payload(token=original_token)
+        del missing_token["dispatchAttemptToken"]
+        with pytest.raises(UpdaterStoreError) as invalid_prepare:
+            store.prepare_physical_action(missing_token)
+        assert invalid_prepare.value.code == "REQUEST_INVALID"
+        first = store.prepare_physical_action(
+            _action_payload(token=original_token)
+        )
+        retry = store.prepare_physical_action(
+            _action_payload(token=original_token)
+        )
+        takeover = store.prepare_physical_action(
+            _action_payload(token=restarted_business_token)
+        )
+        assert first["disposition"] == "ACCEPTED"
+        assert first["state"] == "PREPARED"
+        assert retry["disposition"] == "DUPLICATE"
+        assert takeover["disposition"] == "DENIED"
+        assert takeover["mayExecute"] is False
+        with sqlite3.connect(path) as connection:
+            prepared_state = connection.execute(
+                """SELECT state, dispatch_attempt_token_sha256
+                   FROM physical_action_ledger WHERE action_uid=?""",
+                (_uid(5),),
+            ).fetchone()
+        assert prepared_state[0] == "PREPARED"
+        assert len(prepared_state[1]) == 64
+        assert prepared_state[1] not in {
+            original_token,
+            restarted_business_token,
+        }
+
+        with pytest.raises(UpdaterStoreError) as rollback_cancel:
+            store.cancel_prepared_physical_action(
+                {
+                    "actionUid": _uid(5),
+                    "receiptUid": _uid(17),
+                    "dispatchAttemptToken": restarted_business_token,
+                    "evidenceDigestSha256": "1" * 64,
+                }
+            )
+        assert rollback_cancel.value.code == "PHYSICAL_ACTION_CANCEL_DENIED"
+        assert restarted_business_token not in str(rollback_cancel.value)
+        denied_arm = store.arm_physical_action(
+            _arm_payload(token=restarted_business_token)
+        )
+        assert denied_arm["disposition"] == "DENIED"
+        current = store.get_physical_action({"actionUid": _uid(5)})
+        assert current["state"] == "PREPARED"
+        assert current["confirmedOutcome"] is None
+        assert original_token not in repr(current)
+        assert restarted_business_token not in repr(current)
+
+        cancellation = {
+            "actionUid": _uid(5),
+            "receiptUid": _uid(18),
+            "dispatchAttemptToken": original_token,
+            "evidenceDigestSha256": "2" * 64,
+        }
+        cancelled = store.cancel_prepared_physical_action(cancellation)
+        duplicate_cancel = store.cancel_prepared_physical_action(
+            cancellation
+        )
+        assert cancelled["confirmedOutcome"] == "NOT_EXECUTED"
+        assert duplicate_cancel["disposition"] == "DUPLICATE"
+        with pytest.raises(UpdaterStoreError) as confirmed_takeover:
+            store.cancel_prepared_physical_action(
+                {
+                    **cancellation,
+                    "dispatchAttemptToken": restarted_business_token,
+                }
+            )
+        assert confirmed_takeover.value.code == (
+            "PHYSICAL_ACTION_CANCEL_DENIED"
+        )
+    finally:
+        store.close()
+
+
+def test_concurrent_different_dispatch_tokens_only_arm_one_attempt(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "updater.db", "stage4", candidate=True)
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        store.begin_job(_begin_payload())
+        store.prepare_physical_action(_action_payload(token="C" * 43))
+
+        payloads = [
+            _arm_payload(token="C" * 43),
+            _arm_payload(token="D" * 43),
+        ]
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(store.arm_physical_action, payloads))
+
+        assert sorted(result["disposition"] for result in results) == [
+            "ACCEPTED",
+            "DENIED",
+        ]
+        assert sum(bool(result["mayExecute"]) for result in results) == 1
+    finally:
+        store.close()
+
+
+def test_prepared_action_can_only_close_through_explicit_cancellation(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "updater.db", "stage4", candidate=True)
+    cancellation = {
+        "actionUid": _uid(5),
+        "receiptUid": _uid(12),
+        "dispatchAttemptToken": "A" * 43,
+        "evidenceDigestSha256": "6" * 64,
+    }
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        store.begin_job(_begin_payload())
+        store.prepare_physical_action(_action_payload())
+
+        with pytest.raises(UpdaterStoreError) as generic_confirmation:
+            store.confirm_physical_action(_confirmation_payload())
+        assert generic_confirmation.value.code == (
+            "PHYSICAL_ACTION_STATE_CONFLICT"
+        )
+
+        cancelled = store.cancel_prepared_physical_action(cancellation)
+        duplicate = store.cancel_prepared_physical_action(cancellation)
+        assert cancelled["state"] == "CONFIRMED"
+        assert cancelled["confirmedOutcome"] == "NOT_EXECUTED"
+        assert cancelled["confirmationBasis"] == "PREPARED_NOT_ARMED"
+        assert duplicate["disposition"] == "DUPLICATE"
+        denied = store.arm_physical_action(_arm_payload())
+        assert denied["disposition"] == "DENIED"
+        assert denied["mayExecute"] is False
+    finally:
+        store.close()
+
+
+def test_armed_action_not_executed_requires_same_live_dispatch_abort(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "updater.db", "stage4", candidate=True)
+    token = "E" * 43
+    abort = {
+        "actionUid": _uid(5),
+        "receiptUid": _uid(13),
+        "dispatchAttemptToken": token,
+        "evidenceDigestSha256": "7" * 64,
+    }
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        store.begin_job(_begin_payload())
+        _prepare_and_arm(store, token=token)
+
+        with pytest.raises(UpdaterStoreError) as generic_not_executed:
+            store.confirm_physical_action(
+                _confirmation_payload(outcome="NOT_EXECUTED")
+            )
+        assert generic_not_executed.value.code == (
+            "PHYSICAL_ACTION_NOT_EXECUTED_REQUIRES_ABORT"
+        )
+        with pytest.raises(UpdaterStoreError) as forged_basis:
+            store.confirm_physical_action(
+                {
+                    **_confirmation_payload(),
+                    "confirmationBasis": "PREPARED_NOT_ARMED",
+                }
+            )
+        assert forged_basis.value.code == (
+            "PHYSICAL_ACTION_CONFIRMATION_BASIS_FORBIDDEN"
+        )
+        with pytest.raises(UpdaterStoreError) as wrong_token:
+            store.abort_physical_action_dispatch(
+                {**abort, "dispatchAttemptToken": "F" * 43}
+            )
+        assert wrong_token.value.code == "PHYSICAL_ACTION_ABORT_DENIED"
+        assert "F" * 43 not in str(wrong_token.value)
+
+        aborted = store.abort_physical_action_dispatch(abort)
+        duplicate = store.abort_physical_action_dispatch(abort)
+        assert aborted["state"] == "CONFIRMED"
+        assert aborted["confirmedOutcome"] == "NOT_EXECUTED"
+        assert aborted["confirmationBasis"] == (
+            "LIVE_DISPATCH_NOT_WRITTEN"
+        )
+        assert duplicate["disposition"] == "DUPLICATE"
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize("outcome", ["EXECUTED", "FAILED_SAFE"])
+def test_live_fixed_frame_result_confirms_only_the_same_dispatch_attempt(
+    tmp_path: Path,
+    outcome: str,
+) -> None:
+    path = tmp_path / "updater.db"
+    store = _store(path, "stage4", candidate=True)
+    token = "G" * 43
+    result_payload = _live_result_payload(token=token, outcome=outcome)
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        store.begin_job(_begin_payload())
+        _prepare_and_arm(store, token=token)
+
+        with pytest.raises(UpdaterStoreError) as wrong_token:
+            store.confirm_live_physical_action_result(
+                {
+                    **result_payload,
+                    "dispatchAttemptToken": "H" * 43,
+                }
+            )
+        assert wrong_token.value.code == (
+            "PHYSICAL_ACTION_LIVE_RESULT_DENIED"
+        )
+        assert "H" * 43 not in str(wrong_token.value)
+
+        confirmed = store.confirm_live_physical_action_result(
+            result_payload
+        )
+        response_loss_retry = store.confirm_live_physical_action_result(
+            result_payload
+        )
+        lookup = store.get_physical_action({"actionUid": _uid(5)})
+        assert confirmed["disposition"] == "ACCEPTED"
+        assert confirmed["state"] == "CONFIRMED"
+        assert confirmed["confirmedOutcome"] == outcome
+        assert confirmed["confirmationBasis"] == (
+            "LIVE_FIXED_FRAME_RESULT"
+        )
+        assert confirmed["mayExecute"] is False
+        assert response_loss_retry["disposition"] == "DUPLICATE"
+        assert response_loss_retry["mayExecute"] is False
+        for response in (confirmed, response_loss_retry, lookup):
+            assert "dispatchAttemptToken" not in response
+            assert "dispatchAttemptTokenSha256" not in response
+            assert "armRuntimeInstanceUid" not in response
+            assert token not in repr(response)
+    finally:
+        store.close()
+
+
+def test_live_fixed_frame_result_rejects_not_executed(tmp_path: Path) -> None:
+    store = _store(tmp_path / "updater.db", "stage4", candidate=True)
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        store.begin_job(_begin_payload())
+        _prepare_and_arm(store)
+
+        with pytest.raises(UpdaterStoreError) as unsupported:
+            store.confirm_live_physical_action_result(
+                _live_result_payload(outcome="NOT_EXECUTED")
+            )
+        assert unsupported.value.code == "REQUEST_INVALID"
+        assert store.get_physical_action({"actionUid": _uid(5)})[
+            "state"
+        ] == "ARMED"
+    finally:
+        store.close()
+
+
+def test_live_fixed_frame_result_is_denied_after_updater_restart(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    token = "I" * 43
+    first = _store(path, "stage4", candidate=True)
+    _activate_candidate(first)
+    first.request_job_permit(_permit_payload())
+    first.begin_job(_begin_payload())
+    _prepare_and_arm(first, token=token)
+    first.close()
+
+    second = _store(path, "stage4", candidate=True)
+    try:
+        with pytest.raises(UpdaterStoreError) as restarted:
+            second.confirm_live_physical_action_result(
+                _live_result_payload(token=token)
+            )
+        assert restarted.value.code == "PHYSICAL_ACTION_LIVE_RESULT_DENIED"
+        action = second.get_physical_action({"actionUid": _uid(5)})
+        assert action["state"] == "ARMED"
+        assert action["confirmedOutcome"] is None
+    finally:
+        second.close()
+
+
+def test_v2_may_have_executed_migrates_to_locked_legacy_armed_fact(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    _create_v2_database_with_uncertain_action(path)
+
+    store = _store(path, "stage4-v3", candidate=True)
+    try:
+        status = store.get_status()
+        action = store.get_physical_action({"actionUid": _uid(5)})
+        assert status["schemaVersion"] == 3
+        assert status["jobGateState"] == "LOCKED"
+        assert status["reconciliationRequired"] is True
+        assert status["unreconciledPhysicalActionCount"] == 1
+        assert action["state"] == "ARMED"
+        assert action["dispatchMode"] == "LEGACY_V2_UNCERTAIN"
+        assert action["mayExecute"] is False
+
+        denied = store.arm_physical_action(_arm_payload())
+        assert denied["disposition"] == "DENIED"
+        assert denied["state"] == "ARMED"
+        with pytest.raises(UpdaterStoreError) as cancel:
+            store.cancel_prepared_physical_action(
+                {
+                    "actionUid": _uid(5),
+                    "receiptUid": _uid(14),
+                    "dispatchAttemptToken": "A" * 43,
+                    "evidenceDigestSha256": "8" * 64,
+                }
+            )
+        assert cancel.value.code == "PHYSICAL_ACTION_CANCEL_DENIED"
+        with pytest.raises(UpdaterStoreError) as abort:
+            store.abort_physical_action_dispatch(
+                {
+                    "actionUid": _uid(5),
+                    "receiptUid": _uid(14),
+                    "dispatchAttemptToken": "A" * 43,
+                    "evidenceDigestSha256": "8" * 64,
+                }
+            )
+        assert abort.value.code == "PHYSICAL_ACTION_ABORT_DENIED"
+        with pytest.raises(UpdaterStoreError) as live_result:
+            store.confirm_live_physical_action_result(
+                _live_result_payload()
+            )
+        assert live_result.value.code == (
+            "PHYSICAL_ACTION_LIVE_RESULT_DENIED"
+        )
+
+        confirmed = store.confirm_physical_action(_confirmation_payload())
+        assert confirmed["state"] == "CONFIRMED"
+        assert confirmed["confirmationBasis"] == (
+            "MCU_IDENTITY_BOUND_FACT"
+        )
+        with sqlite3.connect(path) as connection:
+            persisted = connection.execute(
+                """SELECT state, dispatch_mode,
+                          dispatch_attempt_token_sha256
+                   FROM physical_action_ledger WHERE action_uid=?""",
+                (_uid(5),),
+            ).fetchone()
+        assert persisted == ("CONFIRMED", "LEGACY_V2_UNCERTAIN", None)
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize(
+    "legacy_outcome",
+    ["EXECUTED", "NOT_EXECUTED", "FAILED_SAFE"],
+)
+def test_all_v2_confirmed_outcomes_are_quarantined_and_migrate_to_armed(
+    tmp_path: Path,
+    legacy_outcome: str,
+) -> None:
+    path = tmp_path / "updater.db"
+    _create_v2_database_with_confirmed_action(path, legacy_outcome)
+
+    store = _store(path, "stage4-v3", candidate=True)
+    try:
+        status = store.get_status()
+        action = store.get_physical_action({"actionUid": _uid(5)})
+        assert status["jobGateState"] == "LOCKED"
+        assert status["reconciliationRequired"] is True
+        assert status["unreconciledPhysicalActionCount"] == 1
+        assert action["state"] == "ARMED"
+        assert action["dispatchMode"] == "LEGACY_V2_UNCERTAIN"
+        assert action["receiptUid"] is None
+        assert action["confirmedOutcome"] is None
+        assert action["confirmationBasis"] is None
+        assert action["evidenceDigestSha256"] is None
+        assert action["mayExecute"] is False
+
+        denied = store.arm_physical_action(_arm_payload())
+        assert denied["disposition"] == "DENIED"
+        assert denied["mayExecute"] is False
+        with pytest.raises(UpdaterStoreError) as cancelled:
+            store.cancel_prepared_physical_action(
+                {
+                    "actionUid": _uid(5),
+                    "receiptUid": _uid(14),
+                    "dispatchAttemptToken": "A" * 43,
+                    "evidenceDigestSha256": "8" * 64,
+                }
+            )
+        assert cancelled.value.code == "PHYSICAL_ACTION_CANCEL_DENIED"
+        with pytest.raises(UpdaterStoreError) as aborted:
+            store.abort_physical_action_dispatch(
+                {
+                    "actionUid": _uid(5),
+                    "receiptUid": _uid(14),
+                    "dispatchAttemptToken": "A" * 43,
+                    "evidenceDigestSha256": "8" * 64,
+                }
+            )
+        assert aborted.value.code == "PHYSICAL_ACTION_ABORT_DENIED"
+        with pytest.raises(UpdaterStoreError) as live_result:
+            store.confirm_live_physical_action_result(
+                _live_result_payload()
+            )
+        assert live_result.value.code == (
+            "PHYSICAL_ACTION_LIVE_RESULT_DENIED"
+        )
+        with pytest.raises(UpdaterStoreError) as negative_confirmation:
+            store.confirm_physical_action(
+                _confirmation_payload(outcome="NOT_EXECUTED")
+            )
+        assert negative_confirmation.value.code == (
+            "PHYSICAL_ACTION_NOT_EXECUTED_REQUIRES_ABORT"
+        )
+
+        with sqlite3.connect(path) as connection:
+            authoritative = connection.execute(
+                """SELECT state, receipt_uid, confirmed_outcome,
+                          confirmation_basis, evidence_digest_sha256,
+                          confirmed_at
+                   FROM physical_action_ledger WHERE action_uid=?""",
+                (_uid(5),),
+            ).fetchone()
+            quarantined = connection.execute(
+                """SELECT legacy_receipt_uid, legacy_outcome,
+                          legacy_evidence_digest_sha256,
+                          legacy_confirmed_at
+                   FROM physical_action_v2_evidence_quarantine
+                   WHERE action_uid=?""",
+                (_uid(5),),
+            ).fetchone()
+        assert authoritative == (
+            "ARMED",
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        assert quarantined == (
+            _uid(7),
+            legacy_outcome,
+            "d" * 64,
+            "2026-09-01T00:01:00.000Z",
         )
     finally:
         store.close()
@@ -414,25 +1117,20 @@ def test_stable_ids_are_idempotent_and_changed_content_conflicts(
         )
         assert store.begin_job(begin)["disposition"] == "ACCEPTED"
         assert store.begin_job(begin)["disposition"] == "DUPLICATE"
-        action = _authorization_payload()
-        assert store.authorize_physical_action(action)["disposition"] == "ACCEPTED"
-        assert store.authorize_physical_action(action)["disposition"] == "DUPLICATE"
+        action = _action_payload()
+        assert store.prepare_physical_action(action)["disposition"] == "ACCEPTED"
+        assert store.prepare_physical_action(action)["disposition"] == "DUPLICATE"
+        assert store.arm_physical_action(_arm_payload())["disposition"] == "ACCEPTED"
         store.confirm_physical_action(
-            {
-                "actionUid": action["actionUid"],
-                "receiptUid": _uid(11),
-                "outcome": "EXECUTED",
-                "evidenceDigestSha256": "d" * 64,
-            }
+            _confirmation_payload(receipt_number=11)
         )
 
         regenerated = {
             **action,
             "actionUid": _uid(9),
-            "armUid": _uid(10),
         }
         with pytest.raises(UpdaterStoreError) as logical_conflict:
-            store.authorize_physical_action(regenerated)
+            store.prepare_physical_action(regenerated)
         assert logical_conflict.value.code == "PHYSICAL_ACTION_LOGICAL_CONFLICT"
     finally:
         store.close()
@@ -475,19 +1173,12 @@ def test_gate_draining_honours_granted_job_but_rejects_new_permits(
         assert status["jobGateState"] == "DRAINING"
         assert status["maintenanceOwnerUid"] == _uid(40)
         assert store.begin_job(_begin_payload())["state"] == "ACTIVE"
-        store.authorize_physical_action(_authorization_payload())
+        _prepare_and_arm(store)
         armed = store.get_status()
         assert armed["jobGateState"] == "LOCKED"
         assert armed["reconciliationRequired"] is True
         assert armed["unreconciledPhysicalActionCount"] == 1
-        store.confirm_physical_action(
-            {
-                "actionUid": _uid(5),
-                "receiptUid": _uid(7),
-                "outcome": "EXECUTED",
-                "evidenceDigestSha256": "d" * 64,
-            }
-        )
+        store.confirm_physical_action(_confirmation_payload())
         draining_again = store.get_status()
         assert draining_again["jobGateState"] == "DRAINING"
         assert draining_again["reconciliationRequired"] is False
@@ -522,7 +1213,7 @@ def test_gate_draining_honours_granted_job_but_rejects_new_permits(
         store.close()
 
 
-def test_manual_gate_lock_blocks_authorizing_actions(
+def test_manual_gate_lock_blocks_preparing_actions(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path / "updater.db", "stage4", candidate=True)
@@ -535,16 +1226,15 @@ def test_manual_gate_lock_blocks_authorizing_actions(
             block_reason_code="MANUAL_SAFETY_LOCK",
         )
 
-        with pytest.raises(UpdaterStoreError) as authorize_closed:
-            store.authorize_physical_action(
+        with pytest.raises(UpdaterStoreError) as prepare_closed:
+            store.prepare_physical_action(
                 {
-                    **_authorization_payload(),
+                    **_action_payload(),
                     "actionUid": _uid(50),
-                    "armUid": _uid(51),
                     "actionKey": "delivery.door.unlock.2",
                 }
             )
-        assert authorize_closed.value.code == "JOB_GATE_CLOSED"
+        assert prepare_closed.value.code == "JOB_GATE_CLOSED"
     finally:
         store.close()
 
@@ -557,7 +1247,7 @@ def test_restart_with_unconfirmed_action_stays_locked_until_receipt_and_completi
     _activate_candidate(first)
     first.request_job_permit(_permit_payload())
     first.begin_job(_begin_payload())
-    first.authorize_physical_action(_authorization_payload())
+    _prepare_and_arm(first)
     first.close()
 
     second = _store(path, "stage4", candidate=True)
@@ -568,15 +1258,21 @@ def test_restart_with_unconfirmed_action_stays_locked_until_receipt_and_completi
         assert status["unreconciledPhysicalActionCount"] == 1
         assert second.get_physical_action({"actionUid": _uid(5)})[
             "state"
-        ] == "MAY_HAVE_EXECUTED"
-        second.confirm_physical_action(
-            {
-                "actionUid": _uid(5),
-                "receiptUid": _uid(7),
-                "outcome": "EXECUTED",
-                "evidenceDigestSha256": "d" * 64,
-            }
-        )
+        ] == "ARMED"
+        restarted_arm = second.arm_physical_action(_arm_payload())
+        assert restarted_arm["disposition"] == "DENIED"
+        assert restarted_arm["mayExecute"] is False
+        with pytest.raises(UpdaterStoreError) as restarted_abort:
+            second.abort_physical_action_dispatch(
+                {
+                    "actionUid": _uid(5),
+                    "receiptUid": _uid(15),
+                    "dispatchAttemptToken": "A" * 43,
+                    "evidenceDigestSha256": "9" * 64,
+                }
+            )
+        assert restarted_abort.value.code == "PHYSICAL_ACTION_ABORT_DENIED"
+        second.confirm_physical_action(_confirmation_payload())
         second.complete_job(
             {
                 "permitUid": _uid(1),
@@ -610,9 +1306,7 @@ def test_restart_can_resume_the_one_durable_job_before_its_first_action(
         assert status["blockReasonCode"] == "ACTIVE_JOB_RECONCILIATION"
         if not restart_after_begin:
             assert second.begin_job(_begin_payload())["state"] == "ACTIVE"
-        authorized = second.authorize_physical_action(
-            _authorization_payload()
-        )
+        authorized = _prepare_and_arm(second)
         assert authorized["disposition"] == "ACCEPTED"
         assert authorized["mayExecute"] is True
     finally:
@@ -707,7 +1401,7 @@ def test_restart_preserves_explicit_manual_lock_over_active_job_state(
     first.request_job_permit(_permit_payload())
     if with_unresolved_action:
         first.begin_job(_begin_payload())
-        first.authorize_physical_action(_authorization_payload())
+        _prepare_and_arm(first)
     first.transition_job_gate(
         "LOCKED",
         block_reason_code="MANUAL_SAFETY_LOCK",
@@ -725,11 +1419,10 @@ def test_restart_preserves_explicit_manual_lock_over_active_job_state(
             assert begin_blocked.value.code == "JOB_GATE_CLOSED"
         else:
             with pytest.raises(UpdaterStoreError) as action_blocked:
-                second.authorize_physical_action(
+                second.prepare_physical_action(
                     {
-                        **_authorization_payload(),
+                        **_action_payload(),
                         "actionUid": _uid(70),
-                        "armUid": _uid(71),
                         "actionKey": "delivery.door.unlock.2",
                     }
                 )

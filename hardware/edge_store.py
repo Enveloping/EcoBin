@@ -2531,6 +2531,94 @@ class EdgeStore:
             )
             return cur.rowcount == 1
 
+    def requeue_unknown_end_clean_before_unlock(
+        self,
+        command: dict[str, Any],
+    ) -> bool:
+        """Retry only the exact non-actuating clean cancellation intent.
+
+        Physical commands in RECOVERY_REQUIRED must never be replayed.  This
+        one command is a narrow exception because it only tells the MCU to
+        abandon a clean state before any unlock was claimed.  Requeue it only
+        while the inbox identity, active work slot, durable END intent and
+        original MCU command identity all still agree inside one write
+        transaction.
+        """
+
+        if command.get("commandType") != "END_CLEAN_BEFORE_UNLOCK":
+            return False
+        command_uid = command.get("commandUid")
+        payload = command.get("payload")
+        if not isinstance(command_uid, str) or not isinstance(payload, dict):
+            return False
+        stable = dict(command)
+        stable.pop("cosGrant", None)
+        expected_digest = canonical_payload_sha256(stable)
+        with self.transaction(immediate=True):
+            inbox = self._conn.execute(
+                """SELECT command_type, canonical_sha256, state, last_error,
+                          mcu_command_uid
+                   FROM command_inbox WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+            slot = self._conn.execute(
+                """SELECT work_type, work_uid, port_no, context_json
+                   FROM work_slot WHERE slot_id=1"""
+            ).fetchone()
+            if (
+                inbox is None
+                or inbox["command_type"] != "END_CLEAN_BEFORE_UNLOCK"
+                or inbox["canonical_sha256"] != expected_digest
+                or inbox["state"] != "RECOVERY_REQUIRED"
+                or inbox["last_error"] != "UART_ACK_RESULT_UNKNOWN"
+                or slot is None
+                or slot["work_type"] != WORK_TYPE_CLEAN
+                or slot["work_uid"] != payload.get("operationUid")
+                or slot["port_no"] != payload.get("portNo")
+                or not slot["context_json"]
+            ):
+                return False
+            context = _json.loads(slot["context_json"])
+            if not isinstance(context, dict):
+                raise ValueError("active clean context is invalid")
+            end_intent = context.get("end_before_unlock")
+            exact_unknown_intent = (
+                isinstance(end_intent, dict)
+                and end_intent.get("command_uid") == command_uid
+                and end_intent.get("reason") == payload.get("reason")
+                and end_intent.get("state") == "RESULT_UNKNOWN"
+                and isinstance(end_intent.get("mcu_command_uid"), str)
+                and end_intent.get("mcu_command_uid")
+                == inbox["mcu_command_uid"]
+                and context.get("operation_uid")
+                == payload.get("operationUid")
+                and context.get("port_no") == payload.get("portNo")
+                and context.get("phase")
+                in {
+                    "ENDING_BEFORE_UNLOCK",
+                    "END_BEFORE_UNLOCK_RESULT_UNKNOWN",
+                }
+            )
+            if not exact_unknown_intent:
+                return False
+            updated = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='PENDING', processed_at=NULL,
+                       processing_started_at=NULL, last_error=NULL
+                   WHERE command_uid=?
+                     AND command_type='END_CLEAN_BEFORE_UNLOCK'
+                     AND canonical_sha256=?
+                     AND state='RECOVERY_REQUIRED'
+                     AND last_error='UART_ACK_RESULT_UNKNOWN'
+                     AND mcu_command_uid=?""",
+                (
+                    command_uid,
+                    expected_digest,
+                    end_intent["mcu_command_uid"],
+                ),
+            )
+            return updated.rowcount == 1
+
     def requeue_completed_photo_grant_command(
         self,
         command_uid: str,
@@ -2574,12 +2662,213 @@ class EdgeStore:
             )
             return cur.rowcount == 1
 
+    @staticmethod
+    def _valid_local_physical_action(
+        record: Any,
+        *,
+        action_key: str,
+        action_kind: str,
+        action_uid: Optional[str],
+    ) -> bool:
+        if not isinstance(record, dict):
+            return False
+        digest = record.get("action_digest_sha256")
+        return bool(
+            isinstance(action_uid, str)
+            and action_uid
+            and record.get("action_uid") == action_uid
+            and record.get("receipt_uid") == action_uid
+            and record.get("action_key") == action_key
+            and record.get("action_kind") == action_kind
+            and isinstance(digest, str)
+            and len(digest) == 64
+            and all(character in "0123456789abcdef" for character in digest)
+        )
+
+    @classmethod
+    def _protected_command_matches_work_slot(
+        cls,
+        row: sqlite3.Row,
+        command: Any,
+        slot: Optional[sqlite3.Row],
+        context: Any,
+    ) -> bool:
+        """Prove an interrupted command belongs to the retained safe lock.
+
+        The permanent updater owns whether a protected physical action may run
+        twice, while ``work_slot`` owns the current business identity.  Startup
+        may retain a command only when the immutable inbox payload, slot,
+        safety permit and local action receipt all name the same work.  A
+        missing or malformed binding deliberately falls back to the historical
+        FAILED/EDGE_RESTARTED handling; the occupied slot itself is never
+        released here.
+        """
+
+        if not isinstance(command, dict) or slot is None:
+            return False
+        command_uid = row["command_uid"]
+        command_type = row["command_type"]
+        payload = command.get("payload")
+        target = command.get("target")
+        if not (
+            command.get("commandUid") == command_uid
+            and command.get("commandType") == command_type
+            and isinstance(payload, dict)
+            and isinstance(target, dict)
+            and isinstance(context, dict)
+        ):
+            return False
+        stable_command = dict(command)
+        stable_command.pop("cosGrant", None)
+        if canonical_payload_sha256(stable_command) != row["canonical_sha256"]:
+            return False
+
+        start_bindings = {
+            "START_DELIVERY_SESSION": (
+                WORK_TYPE_DELIVERY,
+                "sessionUid",
+                "session_uid",
+                "DELIVERY:START:0",
+                "START_DELIVERY_SESSION",
+                "start_mcu_command_uid",
+            ),
+            "START_CLEAN_OPERATION": (
+                WORK_TYPE_CLEAN,
+                "operationUid",
+                "operation_uid",
+                "CLEAN:START:0",
+                "START_CLEAN_OPERATION",
+                "start_mcu_command_uid",
+            ),
+            "SAMPLE_FULLNESS": (
+                WORK_TYPE_FULLNESS,
+                "detectionUid",
+                "detection_uid",
+                "FULLNESS:SAMPLE:0",
+                "SAMPLE_FULLNESS",
+                "mcu_command_uid",
+            ),
+            "MEASURE_EMPTY_BAG_BASELINE": (
+                WORK_TYPE_BASELINE,
+                "measurementUid",
+                "measurement_uid",
+                "BASELINE:MEASURE:0",
+                "MEASURE_EMPTY_BAG_BASELINE",
+                "mcu_command_uid",
+            ),
+        }
+        binding = start_bindings.get(command_type)
+        if binding is not None:
+            (
+                work_type,
+                payload_uid_key,
+                context_uid_key,
+                action_key,
+                action_kind,
+                action_uid_key,
+            ) = binding
+            work_uid = payload.get(payload_uid_key)
+            if not (
+                isinstance(work_uid, str)
+                and work_uid
+                and slot["work_type"] == work_type
+                and slot["work_uid"] == work_uid
+                and slot["port_no"] == payload.get("portNo")
+                and target.get("uid") == work_uid
+                and context.get(context_uid_key) == work_uid
+                and context.get("port_no") == payload.get("portNo")
+                and context.get(
+                    "start_command_uid"
+                    if work_type in {WORK_TYPE_DELIVERY, WORK_TYPE_CLEAN}
+                    else "command_uid"
+                )
+                == command_uid
+            ):
+                return False
+            safety = context.get("job_safety")
+            if not isinstance(safety, dict):
+                return False
+            stable_digest = canonical_payload_sha256(stable_command)
+            if not (
+                safety.get("permit_uid") == command_uid
+                and safety.get("work_uid") == work_uid
+                and safety.get("command_uid") == command_uid
+                and safety.get("work_type") == work_type
+                and safety.get("begin_uid") == work_uid
+                and safety.get("completion_uid") == command_uid
+                and safety.get("request_digest_sha256") == stable_digest
+                and isinstance(safety.get("actions"), dict)
+            ):
+                return False
+            actions = safety["actions"]
+            action_uid = context.get(action_uid_key)
+            if (
+                command_type == "MEASURE_EMPTY_BAG_BASELINE"
+                and action_key not in actions
+                and "BASELINE:FIXED_FRAME_QUERY:0" in actions
+            ):
+                action_key = "BASELINE:FIXED_FRAME_QUERY:0"
+                action_uid = work_uid
+            return cls._valid_local_physical_action(
+                actions.get(action_key),
+                action_key=action_key,
+                action_kind=action_kind,
+                action_uid=action_uid,
+            )
+
+        if not (
+            slot["work_type"] == WORK_TYPE_CLEAN
+            and slot["work_uid"] == payload.get("operationUid")
+            and slot["port_no"] == payload.get("portNo")
+            and target.get("uid") == slot["work_uid"]
+            and context.get("operation_uid") == slot["work_uid"]
+            and context.get("port_no") == slot["port_no"]
+            and isinstance(context.get("job_safety"), dict)
+        ):
+            return False
+        if command_type == "RESUME_CLEAN_OPERATION":
+            action_key = context.get("resume_action_key")
+            action_uid = context.get("resume_mcu_command_uid")
+            actions = context["job_safety"].get("actions")
+            return bool(
+                context.get("resume_command_uid") == command_uid
+                and payload.get("recoveryGeneration")
+                == context.get("recovery_generation")
+                and isinstance(action_key, str)
+                and isinstance(actions, dict)
+                and cls._valid_local_physical_action(
+                    actions.get(action_key),
+                    action_key=action_key,
+                    action_kind="RESUME_CLEAN_OPERATION",
+                    action_uid=action_uid,
+                )
+            )
+        if command_type == "END_CLEAN_BEFORE_UNLOCK":
+            intent = context.get("end_before_unlock")
+            return bool(
+                isinstance(intent, dict)
+                and intent.get("command_uid") == command_uid
+                and isinstance(intent.get("mcu_command_uid"), str)
+                and intent.get("mcu_command_uid")
+                and intent.get("reason") == payload.get("reason")
+                and intent.get("state")
+                in {"REQUESTED", "RESULT_UNKNOWN", "ACKED"}
+                and context.get("phase")
+                in {
+                    "ENDING_BEFORE_UNLOCK",
+                    "END_BEFORE_UNLOCK_RESULT_UNKNOWN",
+                    "END_BEFORE_UNLOCK_ACKED",
+                    "END_BEFORE_UNLOCK_CONFIRMED",
+                }
+            )
+        return False
+
     def recover_interrupted_commands(
         self,
         *,
         physical_recovery_required: bool = True,
     ) -> dict[str, int]:
-        """Requeue idempotent controls; never resume physical commands."""
+        """Requeue controls and, when enabled, lock exact physical work."""
         with self.transaction():
             config = self._conn.execute(
                 """UPDATE command_inbox
@@ -2640,7 +2929,8 @@ class EdgeStore:
                      AND command_type='AUTHORIZE_FACTORY_SEAL'"""
             ).rowcount
             rows = self._conn.execute(
-                """SELECT command_uid, payload_json
+                """SELECT command_uid, command_type, canonical_sha256,
+                          state, last_error, payload_json
                    FROM command_inbox
                    WHERE state IN (
                        'PROCESSING', 'WAITING_MCU_RESULT',
@@ -2655,9 +2945,62 @@ class EdgeStore:
                           'AUTHORIZE_FACTORY_SEAL'
                       )"""
             ).fetchall()
+            slot = self._conn.execute(
+                """SELECT work_type, work_uid, work_state, port_no,
+                          context_json
+                   FROM work_slot WHERE slot_id=1"""
+            ).fetchone()
+            context = None
+            if slot is not None and slot["context_json"]:
+                try:
+                    decoded_context = _json.loads(slot["context_json"])
+                except (TypeError, ValueError):
+                    decoded_context = None
+                if isinstance(decoded_context, dict):
+                    context = decoded_context
+            physical_locked = 0
             physical_failed = 0
             for row in rows:
                 command = _json.loads(row["payload_json"])
+                if (
+                    physical_recovery_required
+                    and self._protected_command_matches_work_slot(
+                        row,
+                        command,
+                        slot,
+                        context,
+                    )
+                ):
+                    last_error = (
+                        row["last_error"]
+                        if row["state"] == "RECOVERY_REQUIRED"
+                        and row["last_error"]
+                        else "EDGE_RESTARTED_RESULT_UNKNOWN"
+                    )
+                    locked = self._conn.execute(
+                        """UPDATE command_inbox
+                           SET state='RECOVERY_REQUIRED', processed_at=NULL,
+                               processing_started_at=NULL, last_error=?
+                           WHERE command_uid=?
+                             AND state IN (
+                               'PROCESSING', 'WAITING_MCU_RESULT',
+                               'RECOVERY_REQUIRED'
+                             )""",
+                        (last_error, row["command_uid"]),
+                    ).rowcount
+                    if locked:
+                        self._conn.execute(
+                            """UPDATE work_slot
+                               SET work_state='RECOVERY_REQUIRED', updated_at=?
+                               WHERE slot_id=1 AND work_type=? AND work_uid=?""",
+                            (
+                                self._now(),
+                                slot["work_type"],
+                                slot["work_uid"],
+                            ),
+                        )
+                    physical_locked += locked
+                    continue
                 if command.get("targetDeviceName"):
                     observation = self._record_command_observation_in_tx(
                         self._conn,
@@ -2685,7 +3028,7 @@ class EdgeStore:
                 "acceptance_grant_lost": acceptance,
                 "firmware_grant_lost": firmware,
                 "factory_seal_requeued": factory_seal,
-                "physical_locked": 0,
+                "physical_locked": physical_locked,
                 "physical_failed": physical_failed,
             }
 
@@ -6242,6 +6585,299 @@ class EdgeStore:
             )
             return True
 
+    def claim_clean_unlock_dispatch(
+        self,
+        *,
+        work_uid: str,
+        start_mcu_command_uid: str,
+        preunlock_measurement_uid: str,
+        recovery_generation: int,
+        action_sequence: int,
+        unlock_mcu_command_uid: str,
+        unlock_action_key: str,
+    ) -> Optional[dict] | str:
+        """Atomically let either cancellation or the next unlock win.
+
+        The caller may have spent time taking photos after it loaded the work
+        context.  This transaction reloads the authoritative slot and changes
+        it to UNLOCKING only if no END_CLEAN_BEFORE_UNLOCK intent was committed
+        in the meantime.  Once this claim wins, that END command no longer
+        accepts the phase; if END won first, this method returns ``None`` and
+        no unlock command may be prepared or written.
+        """
+
+        deadline_reference = local_deadline_reference()
+        with self.transaction(immediate=True):
+            row = self._conn.execute(
+                """SELECT work_type, work_uid, context_json
+                   FROM work_slot WHERE slot_id=1"""
+            ).fetchone()
+            if (
+                row is None
+                or row["work_type"] != WORK_TYPE_CLEAN
+                or row["work_uid"] != work_uid
+                or not row["context_json"]
+            ):
+                return None
+            context = _json.loads(row["context_json"])
+            if not isinstance(context, dict):
+                raise ValueError("active clean context is invalid")
+            # OneNet ingress persists commands on its own thread, while the
+            # command consumer handles MCU events serially.  An END request
+            # can therefore be durable during slow photo I/O even though its
+            # WorkManager method has not run yet.  Treat that accepted inbox
+            # fact as winning this same transaction; otherwise the consumer
+            # would unlock first and only process the queued cancellation
+            # afterwards.
+            pending_end_rows = self._conn.execute(
+                """SELECT command_uid, command_type, payload_json,
+                          canonical_sha256, received_at,
+                          received_clock_quality
+                   FROM command_inbox
+                   WHERE command_type='END_CLEAN_BEFORE_UNLOCK'
+                     AND state='PENDING'"""
+            ).fetchall()
+            pending_valid_end = False
+            for pending_end_row in pending_end_rows:
+                pending_command = _json.loads(
+                    pending_end_row["payload_json"]
+                )
+                if not isinstance(pending_command, dict):
+                    raise ValueError(
+                        "pending clean cancellation command is invalid"
+                    )
+                pending_payload = pending_command.get("payload")
+                if not isinstance(pending_payload, dict):
+                    raise ValueError(
+                        "pending clean cancellation payload is invalid"
+                    )
+                if (
+                    pending_command.get("commandUid")
+                    != pending_end_row["command_uid"]
+                    or pending_command.get("commandType")
+                    != pending_end_row["command_type"]
+                    or pending_end_row["command_type"]
+                    != "END_CLEAN_BEFORE_UNLOCK"
+                ):
+                    raise ValueError(
+                        "pending clean cancellation identity is invalid"
+                    )
+                stable_command = dict(pending_command)
+                stable_command.pop("cosGrant", None)
+                if canonical_payload_sha256(stable_command) != (
+                    pending_end_row["canonical_sha256"]
+                ):
+                    raise ValueError(
+                        "pending clean cancellation digest is invalid"
+                    )
+                if pending_end_row["received_clock_quality"] not in {
+                    "SYNCED",
+                    "ESTIMATED",
+                    "UNAVAILABLE",
+                }:
+                    raise ValueError(
+                        "pending clean cancellation clock fact is invalid"
+                    )
+                if not (
+                    pending_payload.get("operationUid") == work_uid
+                    and pending_payload.get("portNo")
+                    == context.get("port_no")
+                ):
+                    continue
+                expires_at = _parse_utc_instant(
+                    pending_command.get("expiresAt"),
+                    "expiresAt",
+                )
+                if (
+                    deadline_reference is not None
+                    and expires_at <= deadline_reference
+                ):
+                    updated = self._conn.execute(
+                        """UPDATE command_inbox
+                           SET state='FAILED', processed_at=?,
+                               processing_started_at=NULL,
+                               last_error='COMMAND_EXPIRED'
+                           WHERE command_uid=? AND state='PENDING'""",
+                        (
+                            self._now(),
+                            pending_end_row["command_uid"],
+                        ),
+                    )
+                    if updated.rowcount != 1:
+                        raise ValueError(
+                            "expired clean cancellation state changed"
+                        )
+                    observation = self._record_command_observation_in_tx(
+                        self._conn,
+                        pending_command,
+                        "FAILED",
+                        error_code="COMMAND_EXPIRED",
+                    )
+                    if observation == "CONFLICT":
+                        raise ValueError(
+                            "expired clean cancellation observation conflicts"
+                        )
+                    continue
+                pending_valid_end = True
+            if pending_valid_end:
+                return "DEFERRED_BY_PENDING_END"
+            exact_preunlock_state = (
+                context.get("phase") == "PREUNLOCK_MEASURED"
+                and not isinstance(context.get("end_before_unlock"), dict)
+                and context.get("start_mcu_command_uid")
+                == start_mcu_command_uid
+                and context.get("preunlock_measurement_uid")
+                == preunlock_measurement_uid
+                and context.get("recovery_generation")
+                == recovery_generation
+                and context.get("action_sequence") == action_sequence
+            )
+            if not exact_preunlock_state:
+                return None
+            context["unlock_mcu_command_uid"] = unlock_mcu_command_uid
+            context["unlock_action_key"] = unlock_action_key
+            context["phase"] = "UNLOCKING"
+            updated = self._conn.execute(
+                """UPDATE work_slot SET context_json=?, updated_at=?
+                   WHERE slot_id=1 AND work_type=? AND work_uid=?""",
+                (
+                    _json.dumps(context, ensure_ascii=False),
+                    self._now(),
+                    WORK_TYPE_CLEAN,
+                    work_uid,
+                ),
+            )
+            if updated.rowcount != 1:
+                return None
+            return context
+
+    def claim_clean_end_before_unlock(
+        self,
+        *,
+        work_uid: str,
+        port_no: int,
+        command_uid: str,
+        mcu_command_uid: str,
+        reason: str,
+    ) -> Optional[dict]:
+        """Atomically persist cancellation before an unlock can be claimed."""
+
+        with self.transaction(immediate=True):
+            row = self._conn.execute(
+                """SELECT work_type, work_uid, port_no, context_json
+                   FROM work_slot WHERE slot_id=1"""
+            ).fetchone()
+            if (
+                row is None
+                or row["work_type"] != WORK_TYPE_CLEAN
+                or row["work_uid"] != work_uid
+                or row["port_no"] != port_no
+                or not row["context_json"]
+            ):
+                return None
+            context = _json.loads(row["context_json"])
+            if not isinstance(context, dict):
+                raise ValueError("active clean context is invalid")
+            existing = context.get("end_before_unlock")
+            if isinstance(existing, dict):
+                exact_retry = (
+                    existing.get("command_uid") == command_uid
+                    and existing.get("reason") == reason
+                    and isinstance(existing.get("mcu_command_uid"), str)
+                    and existing.get("mcu_command_uid") == mcu_command_uid
+                    and context.get("phase")
+                    in {
+                        "ENDING_BEFORE_UNLOCK",
+                        "END_BEFORE_UNLOCK_RESULT_UNKNOWN",
+                        "END_BEFORE_UNLOCK_RETRYABLE",
+                    }
+                )
+                safe_takeover = (
+                    existing.get("command_uid") != command_uid
+                    and existing.get("reason") == reason
+                    and existing.get("state")
+                    == "RETRYABLE_NOT_ACCEPTED"
+                    and existing.get("mcu_command_uid") == mcu_command_uid
+                    and context.get("phase")
+                    == "END_BEFORE_UNLOCK_RETRYABLE"
+                )
+                if not safe_takeover:
+                    return context if exact_retry else None
+                inbox = self._conn.execute(
+                    """SELECT command_type, state, payload_json
+                       FROM command_inbox WHERE command_uid=?""",
+                    (command_uid,),
+                ).fetchone()
+                incoming_command = (
+                    _json.loads(inbox["payload_json"])
+                    if inbox is not None and inbox["payload_json"]
+                    else None
+                )
+                incoming_payload = (
+                    incoming_command.get("payload")
+                    if isinstance(incoming_command, dict)
+                    else None
+                )
+                if not (
+                    inbox is not None
+                    and inbox["command_type"]
+                    == "END_CLEAN_BEFORE_UNLOCK"
+                    and inbox["state"] == "PROCESSING"
+                    and isinstance(incoming_command, dict)
+                    and incoming_command.get("commandUid") == command_uid
+                    and incoming_command.get("commandType")
+                    == "END_CLEAN_BEFORE_UNLOCK"
+                    and isinstance(incoming_payload, dict)
+                    and incoming_payload.get("operationUid") == work_uid
+                    and incoming_payload.get("portNo") == port_no
+                    and incoming_payload.get("reason") == reason
+                ):
+                    return None
+                # Reuse the original MCU command identity. The earlier UART
+                # outcome proved that command was not accepted, so this is a
+                # continuation of one stop intent, never a second operation.
+                existing["command_uid"] = command_uid
+                existing["state"] = "REQUESTED"
+                context["phase"] = "ENDING_BEFORE_UNLOCK"
+                updated = self._conn.execute(
+                    """UPDATE work_slot SET context_json=?, updated_at=?
+                       WHERE slot_id=1 AND work_type=? AND work_uid=?""",
+                    (
+                        _json.dumps(context, ensure_ascii=False),
+                        self._now(),
+                        WORK_TYPE_CLEAN,
+                        work_uid,
+                    ),
+                )
+                return context if updated.rowcount == 1 else None
+            if context.get("phase") not in {
+                "STARTING",
+                "WAITING_PREUNLOCK_WEIGHT",
+                "PREUNLOCK_MEASURED",
+                "PREUNLOCK_PHOTO_BLOCKED",
+            }:
+                return None
+            context["end_before_unlock"] = {
+                "command_uid": command_uid,
+                "mcu_command_uid": mcu_command_uid,
+                "reason": reason,
+                "state": "REQUESTED",
+            }
+            context["phase"] = "ENDING_BEFORE_UNLOCK"
+            updated = self._conn.execute(
+                """UPDATE work_slot SET context_json=?, updated_at=?
+                   WHERE slot_id=1 AND work_type=? AND work_uid=?""",
+                (
+                    _json.dumps(context, ensure_ascii=False),
+                    self._now(),
+                    WORK_TYPE_CLEAN,
+                    work_uid,
+                ),
+            )
+            if updated.rowcount != 1:
+                return None
+            return context
+
     def complete_fixed_frame_work(
         self,
         *,
@@ -6416,6 +7052,152 @@ class EdgeStore:
                         self._now(),
                         work_uid,
                     ),
+                )
+            return True
+
+    def mark_fixed_frame_result_overdue_for_recovery(
+        self,
+        *,
+        work_type: str,
+        work_uid: str,
+        command_type: str,
+        command_uid: str,
+        expected_command_state: str,
+        work_context: dict,
+    ) -> bool:
+        """Retain already-dispatched fixed-frame work while its result is late.
+
+        Move the exact command and work slot into a non-replayable recovery
+        state in one transaction. A later uniquely-bound DD or EF can still
+        report the original physical result while a new operation stays
+        blocked.
+        """
+
+        expected_command_types = {
+            WORK_TYPE_DELIVERY: "START_DELIVERY_SESSION",
+            WORK_TYPE_CLEAN: "START_CLEAN_OPERATION",
+        }
+        if expected_command_types.get(work_type) != command_type:
+            raise ValueError("fixed-frame overdue work binding is invalid")
+        if expected_command_state not in {
+            "WAITING_MCU_RESULT",
+            "FAILED",
+            "RECOVERY_REQUIRED",
+        }:
+            raise ValueError("fixed-frame overdue command state is invalid")
+        with self.transaction(immediate=True):
+            slot = self._conn.execute(
+                """SELECT work_type, work_uid FROM work_slot
+                   WHERE slot_id=1"""
+            ).fetchone()
+            command = self._conn.execute(
+                """SELECT command_type, state FROM command_inbox
+                   WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+            if (
+                slot is None
+                or slot["work_type"] != work_type
+                or slot["work_uid"] != work_uid
+                or command is None
+                or command["command_type"] != command_type
+                or command["state"] != expected_command_state
+            ):
+                return False
+            command_updated = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='RECOVERY_REQUIRED', processed_at=NULL,
+                       processing_started_at=NULL,
+                       last_error='MCU_RESULT_OVERDUE'
+                   WHERE command_uid=? AND command_type=?
+                     AND state=?""",
+                (command_uid, command_type, expected_command_state),
+            )
+            slot_updated = self._conn.execute(
+                """UPDATE work_slot
+                   SET work_state='RECOVERY_REQUIRED', context_json=?,
+                       updated_at=?
+                   WHERE slot_id=1 AND work_type=? AND work_uid=?""",
+                (
+                    _json.dumps(work_context, ensure_ascii=False),
+                    self._now(),
+                    work_type,
+                    work_uid,
+                ),
+            )
+            if command_updated.rowcount != 1 or slot_updated.rowcount != 1:
+                raise ValueError(
+                    "fixed-frame overdue state changed"
+                )
+            return True
+
+    def mark_fixed_frame_state_corrupt_for_recovery(
+        self,
+        *,
+        work_type: str,
+        work_uid: str,
+        command_type: str,
+        command_uid: Optional[str],
+        work_context: dict,
+    ) -> bool:
+        """Retain fixed-frame work whose command/action binding is damaged.
+
+        Once AA may have reached the fixed-frame MCU, a missing inbox row is
+        evidence of damaged local state, not evidence that no physical action
+        occurred. Keep the only work slot occupied so no later operation can
+        claim an otherwise anonymous DD or EF result.
+        """
+
+        expected_command_types = {
+            WORK_TYPE_DELIVERY: "START_DELIVERY_SESSION",
+            WORK_TYPE_CLEAN: "START_CLEAN_OPERATION",
+        }
+        if expected_command_types.get(work_type) != command_type:
+            raise ValueError("fixed-frame corrupt work binding is invalid")
+        with self.transaction(immediate=True):
+            slot = self._conn.execute(
+                """SELECT work_type, work_uid FROM work_slot
+                   WHERE slot_id=1"""
+            ).fetchone()
+            if (
+                slot is None
+                or slot["work_type"] != work_type
+                or slot["work_uid"] != work_uid
+            ):
+                return False
+            if isinstance(command_uid, str) and command_uid:
+                # If the row still exists, make the command non-replayable as
+                # well.  A missing row is the corruption being contained and
+                # must not prevent the slot itself from becoming a lock.
+                self._conn.execute(
+                    """UPDATE command_inbox
+                       SET state='RECOVERY_REQUIRED', processed_at=NULL,
+                           processing_started_at=NULL,
+                           last_error='FIXED_FRAME_STATE_CORRUPT'
+                       WHERE command_uid=?
+                         AND command_type=?
+                         AND state IN (
+                           'WAITING_MCU_RESULT',
+                           'RECOVERY_REQUIRED',
+                           'FAILED'
+                         )""",
+                    (command_uid, command_type),
+                )
+            updated = self._conn.execute(
+                """UPDATE work_slot
+                   SET work_state='RECOVERY_REQUIRED', context_json=?,
+                       updated_at=?
+                   WHERE slot_id=1 AND work_type=? AND work_uid=?""",
+                (
+                    _json.dumps(work_context, ensure_ascii=False),
+                    self._now(),
+                    work_type,
+                    work_uid,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ValueError(
+                    "fixed-frame corrupt state changed"
                 )
             return True
 
@@ -7210,9 +7992,70 @@ class EdgeStore:
                           target_uid: Optional[str] = None,
                           command_uid: Optional[str] = None,
                           delivery_class: str = "RELIABLE_FACT",
-                          fullness_transition: Optional[dict] = None) -> str:
+                          fullness_transition: Optional[dict] = None,
+                          mcu_receive_generation: Optional[int] = None,
+                          mcu_boot_id: Optional[int] = None,
+                          mcu_event_sequence: Optional[int] = None) -> str:
         with self.transaction():
             conn = self._conn
+            has_mcu_identity = (
+                isinstance(mcu_receive_generation, int)
+                and not isinstance(mcu_receive_generation, bool)
+                and mcu_receive_generation >= 0
+                and isinstance(mcu_boot_id, int)
+                and not isinstance(mcu_boot_id, bool)
+                and mcu_boot_id > 0
+                and isinstance(mcu_event_sequence, int)
+                and not isinstance(mcu_event_sequence, bool)
+                and mcu_event_sequence > 0
+            )
+            if has_mcu_identity:
+                derived = conn.execute(
+                    """SELECT event_uid FROM mcu_derived_event
+                       WHERE mcu_receive_generation=?
+                         AND mcu_boot_id=? AND mcu_event_sequence=?
+                         AND event_type=?""",
+                    (
+                        mcu_receive_generation,
+                        mcu_boot_id,
+                        mcu_event_sequence,
+                        event_type,
+                    ),
+                ).fetchone()
+                if derived:
+                    if work_state_update and work_uid:
+                        duplicate_context = work_state_update.get(
+                            "context", {}
+                        )
+                        conn.execute(
+                            """UPDATE work_slot
+                               SET work_state=?, context_json=?, updated_at=?
+                               WHERE work_uid=?""",
+                            (
+                                work_state_update.get("state"),
+                                _json.dumps(
+                                    duplicate_context,
+                                    ensure_ascii=False,
+                                ),
+                                self._now(),
+                                work_uid,
+                            ),
+                        )
+                    conn.execute(
+                        """UPDATE mcu_event_inbox
+                           SET state='PROCESSED', processed_at=?,
+                               last_error=NULL
+                           WHERE mcu_receive_generation=?
+                             AND mcu_boot_id=?
+                             AND mcu_event_sequence=?""",
+                        (
+                            self._now(),
+                            mcu_receive_generation,
+                            mcu_boot_id,
+                            mcu_event_sequence,
+                        ),
+                    )
+                    return "DUPLICATE"
             existing = conn.execute(
                 "SELECT state FROM event_outbox WHERE event_uid=?", (event_uid,)
             ).fetchone()
@@ -7242,6 +8085,20 @@ class EdgeStore:
                     work_uid,
                 ),
             )
+            if has_mcu_identity:
+                conn.execute(
+                    """INSERT INTO mcu_derived_event
+                       (mcu_receive_generation, mcu_boot_id,
+                        mcu_event_sequence, event_type, event_uid)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        mcu_receive_generation,
+                        mcu_boot_id,
+                        mcu_event_sequence,
+                        event_type,
+                        event_uid,
+                    ),
+                )
             if event_type == "CLEAN_COMPLETE" and payload.get("portNo"):
                 self._set_clean_restart_interlock_in_tx(
                     conn,
@@ -7259,5 +8116,20 @@ class EdgeStore:
                     "UPDATE work_slot SET work_state=?, context_json=?, updated_at=? WHERE work_uid=?",
                     (work_state_update.get("state"), _json.dumps(ctx, ensure_ascii=False),
                      self._now(), work_uid),
+                )
+            if has_mcu_identity:
+                conn.execute(
+                    """UPDATE mcu_event_inbox
+                       SET state='PROCESSED', processed_at=?,
+                           last_error=NULL
+                       WHERE mcu_receive_generation=?
+                         AND mcu_boot_id=?
+                         AND mcu_event_sequence=?""",
+                    (
+                        self._now(),
+                        mcu_receive_generation,
+                        mcu_boot_id,
+                        mcu_event_sequence,
+                    ),
                 )
             return "ACCEPTED"
