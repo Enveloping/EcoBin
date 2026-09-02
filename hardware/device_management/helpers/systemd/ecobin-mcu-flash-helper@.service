@@ -1,5 +1,7 @@
 [Unit]
 Description=EcoBin one-shot fixed MCU flash helper
+Requires=ecobin-mcu-safe-gpio.service
+After=ecobin-mcu-safe-gpio.service
 
 [Service]
 Type=exec
@@ -7,13 +9,15 @@ User=root
 Group=root
 WorkingDirectory=/usr/lib/ecobin/device-management
 ExecStart=/usr/bin/python3 -m helpers.mcu_flash_helper
+ExecStopPost=/usr/bin/python3 -m helpers.mcu_flash_recovery
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 StandardInput=socket
 StandardOutput=socket
 StandardError=journal
-TimeoutStartSec=180
-RuntimeMaxSec=180
+TimeoutStartSec=360
+RuntimeMaxSec=360
+TimeoutStopSec=90
 UMask=0077
 LimitCORE=0
 NoNewPrivileges=yes
@@ -56,6 +60,7 @@ InaccessiblePaths=-/var/lib/ecobin/privileged/business-snapshots
 InaccessiblePaths=-/usr/share/ecobin/runtime-release-keys
 ReadOnlyPaths=-/var/lib/ecobin/updater/mcu-firmware
 ReadWritePaths=/run/ecobin/privileged/mutation.lock
+ReadWritePaths=-/run/ecobin/privileged/mcu-application-recovery-required
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM

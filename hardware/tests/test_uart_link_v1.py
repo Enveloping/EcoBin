@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import time
 import uuid
 
 import pytest
@@ -553,6 +554,34 @@ def test_send_command_adds_stable_identity_and_valid_digest():
     assert payload["commandDigestSha256"] == compute_command_digest(
         "START_DELIVERY_SESSION", payload
     )
+
+
+def test_expired_absolute_dispatch_deadline_prevents_first_uart_write():
+    link = UartLink(port="fake", edge_boot_id=7, port_count=1)
+    link._mcu_boot_id = 42
+    serial = AutoAckSerial(7, 42)
+    link._ser = serial
+
+    result = link.send_command_before_deadline(
+        "START_DELIVERY_SESSION",
+        {
+            "sessionUid": "51000000-0000-4000-8000-000000000001",
+            "portNo": 1,
+            "configVersion": 8,
+            "configContentSha256": "a" * 64,
+            "unitPriceTenThousandths": 10000,
+            "continueDeliveryWaitMs": 30000,
+            "negativeWeightThresholdGrams": 500,
+            "startExecutionWindowMs": 45000,
+            "deliveryAutoCloseMs": 120000,
+        },
+        mcu_command_uid="50000000-0000-4000-8000-000000000001",
+        dispatch_deadline_monotonic=time.monotonic() - 1,
+    )
+
+    assert result["acked"] is False
+    assert result["error"] == "COMMAND_EXPIRED"
+    assert serial.writes == []
 
 
 def _last_edge_command_payload(link, message_name):

@@ -166,7 +166,7 @@ for name in device_management_preflight.py local_control.py updater_agent.py \
 done
 for name in __init__.py privileged_control.py business_activation_helper.py \
     business_activation_primitives.py mcu_flash_helper.py \
-    mcu_flash_primitives.py; do
+    mcu_flash_primitives.py mcu_flash_recovery.py; do
     install -m 0644 -- \
         "${repository_root}/hardware/device_management/helpers/${name}" \
         "${staging_directory}/components/device-updater/helpers/${name}"

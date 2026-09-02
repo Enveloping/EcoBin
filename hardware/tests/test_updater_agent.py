@@ -45,7 +45,7 @@ def _build_agent(tmp_path: Path) -> tuple[
 
 
 @requires_unix_socket
-def test_health_and_status_report_only_truthful_stage3_capabilities(
+def test_health_and_status_report_truthful_default_locked_capabilities(
     tmp_path: Path,
 ) -> None:
     agent, client = _build_agent(tmp_path)
@@ -58,16 +58,27 @@ def test_health_and_status_report_only_truthful_stage3_capabilities(
         assert status == {
             "component": "DEVICE_UPDATER",
             "status": "READY",
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "runtimeInstanceUid": status["runtimeInstanceUid"],
             "releaseVersion": "updater-v1",
             "startedAt": status["startedAt"],
             "managementStateSequence": 1,
+            "stage4CandidateEnabled": False,
             "updatesEnabled": False,
-            "jobGateMode": "NOT_ENFORCED_STAGE3",
-            "maintenanceState": "IDLE",
+            "jobGateMode": "DISABLED",
+            "jobGateState": "LOCKED",
+            "jobPermitRpcEnabled": False,
+            "maintenanceState": "LOCKED",
+            "maintenanceOwnerUid": None,
+            "maintenanceType": None,
+            "maintenanceFenceToken": None,
+            "reconciliationRequired": False,
+            "blockReasonCode": "STAGE4_CANDIDATE_DISABLED",
+            "activeJobPermitCount": 0,
+            "unreconciledPhysicalActionCount": 0,
             "businessUpdateEnabled": False,
             "mcuUpdateEnabled": False,
+            "privilegedHelperMutationEnabled": False,
             "localProtocolName": "ecobin.updater.control",
             "localProtocolMajor": 1,
             "localProtocolMinor": 0,
@@ -169,6 +180,82 @@ def test_disabled_action_handlers_have_no_state_side_effect(
             ).fetchone()[0] == 1
     finally:
         store.close()
+
+
+def test_candidate_actions_use_exact_payloads_and_business_only_uid(
+    tmp_path: Path,
+) -> None:
+    store = UpdaterStore(
+        tmp_path / "updater.db",
+        release_version="updater-v2",
+        enable_stage4_candidate=True,
+    )
+    store.initialize()
+    try:
+        actions = updater_agent.build_control_actions(
+            updater_agent.UpdaterControlHandler(store),
+            allowed_uids={0, 3101, 3102},
+            business_uids={3102},
+            enable_stage4_candidate=True,
+        )
+
+        assert set(updater_agent.JOB_ACTION_FIELDS).issubset(actions)
+        for action, expected_fields in updater_agent.JOB_ACTION_FIELDS.items():
+            assert actions[action].payload_fields == expected_fields
+            assert actions[action].allowed_uids == frozenset({3102})
+        assert actions["HEALTH"].allowed_uids == frozenset(
+            {0, 3101, 3102}
+        )
+        assert actions["GET_STATUS"].allowed_uids == frozenset(
+            {0, 3101, 3102}
+        )
+        for action in updater_agent.DISABLED_UPDATE_ACTIONS:
+            with pytest.raises(LocalControlActionError) as raised:
+                actions[action].handler({})
+            assert raised.value.code == "FEATURE_DISABLED"
+        assert store.get_status()["jobGateState"] == "LOCKED"
+        assert (
+            store.get_status()["blockReasonCode"]
+            == "STAGE4_ACTIVATION_REQUIRED"
+        )
+        assert store.get_status()["updatesEnabled"] is False
+    finally:
+        store.close()
+
+
+def test_candidate_requires_non_root_business_identity() -> None:
+    assert updater_agent.resolve_role_uids(
+        [3102],
+        None,
+        role="business",
+    ) == [3102]
+    assert updater_agent.resolve_role_uids(
+        None,
+        "ecobin-business",
+        role="business",
+        user_lookup=lambda _name: 3102,
+    ) == [3102]
+    with pytest.raises(ValueError, match="positive and non-root"):
+        updater_agent.resolve_role_uids(
+            [0],
+            None,
+            role="business",
+        )
+    with pytest.raises(ValueError, match="non-empty business UID"):
+        class ReadOnlyHandler:
+            @staticmethod
+            def get_status(_payload):
+                return {}
+
+            @staticmethod
+            def reject_disabled_update(_payload):
+                return {}
+
+        updater_agent.build_control_actions(
+            ReadOnlyHandler(),  # type: ignore[arg-type]
+            allowed_uids={0, 3101},
+            enable_stage4_candidate=True,
+        )
 
 
 @requires_unix_socket
@@ -325,3 +412,6 @@ def test_cli_defaults_match_permanent_updater_paths(monkeypatch) -> None:
     assert args.allowed_uid is None
     assert args.allowed_user is None
     assert args.socket_group is None
+    assert args.enable_stage4_candidate is False
+    assert args.business_uid is None
+    assert args.business_user is None

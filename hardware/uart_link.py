@@ -201,7 +201,8 @@ class UartLink:
 
     def _send_and_wait_ack(self, message_name: str, payload: bytes,
                            ack_timeout_ms: int = 500,
-                           max_retries: int = 3) -> dict:
+                           max_retries: int = 3,
+                           dispatch_deadline_monotonic: float | None = None) -> dict:
         """Send once and retransmit the exact same frame only on ACK timeout."""
         with self._io_lock:
             if not self.is_open:
@@ -210,6 +211,15 @@ class UartLink:
                 return {
                     "acked": False,
                     "error": "UART_NOT_READY",
+                    "fatal": False,
+                }
+            if (
+                dispatch_deadline_monotonic is not None
+                and time.monotonic() >= dispatch_deadline_monotonic
+            ):
+                return {
+                    "acked": False,
+                    "error": "COMMAND_EXPIRED",
                     "fatal": False,
                 }
             tx_seq = self._next_tx_sequence()
@@ -592,6 +602,36 @@ class UartLink:
         result = self._send_and_wait_ack(
             message_name,
             encode_payload(message_name, command_values),
+        )
+        return {
+            **result,
+            "message_name": message_name,
+            "mcu_command_uid": command_uid,
+        }
+
+    def send_command_before_deadline(
+        self,
+        message_name: str,
+        values: dict[str, Any],
+        *,
+        mcu_command_uid: Optional[str] = None,
+        dispatch_deadline_monotonic: float,
+    ) -> dict:
+        """Check an Edge absolute deadline after taking the UART I/O lock."""
+
+        command_uid = str(_uuid.UUID(mcu_command_uid or str(_uuid.uuid4())))
+        command_values = {
+            "mcuCommandUid": command_uid,
+            "commandDigestSha256": bytes(32),
+            **values,
+        }
+        command_values["commandDigestSha256"] = bytes.fromhex(
+            compute_command_digest(message_name, command_values)
+        )
+        result = self._send_and_wait_ack(
+            message_name,
+            encode_payload(message_name, command_values),
+            dispatch_deadline_monotonic=dispatch_deadline_monotonic,
         )
         return {
             **result,

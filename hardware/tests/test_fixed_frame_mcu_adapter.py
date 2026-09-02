@@ -317,6 +317,27 @@ def test_delivery_start_writes_price_and_start_once_without_retry():
     assert fake.reset_count == 0
 
 
+def test_expired_absolute_dispatch_deadline_prevents_first_uart_write():
+    fake = FakeSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    result = adapter.send_command_before_deadline(
+        "START_DELIVERY_SESSION",
+        {"unitPriceTenThousandths": 4_500},
+        mcu_command_uid="10000000-0000-4000-8000-000000000001",
+        dispatch_deadline_monotonic=time.monotonic() - 1,
+    )
+
+    assert result["acked"] is False
+    assert result["error"] == "COMMAND_EXPIRED"
+    assert fake.writes == []
+
+
 def test_foreground_operations_are_not_starved_by_continuous_background_reads():
     fake = ContendedSerial(read_delay_s=0.01)
     adapter = FixedFrameMcuAdapter(

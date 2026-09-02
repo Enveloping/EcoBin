@@ -43,8 +43,10 @@ def test_controller_exposes_explicit_stage_three_disabled_boundaries(tmp_path: P
             "remoteUpdateRouting": "DISABLED",
         }
         assert status["runtimeInstanceUid"] == start["startUid"]
-        assert status["schemaVersion"] == 1
+        assert status["schemaVersion"] == 2
         assert status["processStartCount"] == 1
+        assert status["inboundCommandCount"] == 0
+        assert status["outboundBusinessEventCount"] == 0
     finally:
         store.close()
 
@@ -274,6 +276,6 @@ def test_real_agent_health_and_status_over_authenticated_socket(tmp_path: Path):
         assert health["onenetOwnership"] == "DISABLED"
         assert health["remoteUpdateRouting"] == "DISABLED"
         assert status["runtimeInstanceUid"] == health["runtimeInstanceUid"]
-        assert status["schemaVersion"] == 1
+        assert status["schemaVersion"] == 2
     finally:
         agent.stop()

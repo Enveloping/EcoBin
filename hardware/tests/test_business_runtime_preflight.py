@@ -47,9 +47,23 @@ def test_health_gate_requires_truthful_disabled_stage_three_posture() -> None:
     updater = {
         "component": "DEVICE_UPDATER",
         "status": "READY",
+        "schemaVersion": 2,
+        "stage4CandidateEnabled": False,
         "updatesEnabled": False,
-        "jobGateMode": "NOT_ENFORCED_STAGE3",
-        "maintenanceState": "IDLE",
+        "jobGateMode": "DISABLED",
+        "jobGateState": "LOCKED",
+        "jobPermitRpcEnabled": False,
+        "maintenanceState": "LOCKED",
+        "maintenanceOwnerUid": None,
+        "maintenanceType": None,
+        "maintenanceFenceToken": None,
+        "reconciliationRequired": False,
+        "blockReasonCode": "STAGE4_CANDIDATE_DISABLED",
+        "activeJobPermitCount": 0,
+        "unreconciledPhysicalActionCount": 0,
+        "businessUpdateEnabled": False,
+        "mcuUpdateEnabled": False,
+        "privilegedHelperMutationEnabled": False,
     }
 
     verify_stage_three_health(communication, updater)

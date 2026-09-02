@@ -80,6 +80,22 @@ def test_runtime_configuration_has_no_global_test_mode_switch():
     assert "simulate_camera=" not in main_source
 
 
+def test_stage4_candidate_rejects_the_legacy_business_owned_mcu_updater():
+    class Safety:
+        enabled = True
+
+    with pytest.raises(RuntimeError, match="has not moved to the permanent updater"):
+        main._require_stage4_mcu_update_boundary(
+            Safety(),
+            legacy_mcu_update_enabled=True,
+        )
+
+    main._require_stage4_mcu_update_boundary(
+        Safety(),
+        legacy_mcu_update_enabled=False,
+    )
+
+
 def test_fixed_frame_link_selection_always_uses_configured_serial_boundary(
     monkeypatch,
 ):

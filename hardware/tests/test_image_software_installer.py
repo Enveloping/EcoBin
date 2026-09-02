@@ -69,6 +69,7 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
         "business_activation_primitives.py",
         "mcu_flash_helper.py",
         "mcu_flash_primitives.py",
+        "mcu_flash_recovery.py",
     }
     assert set(DEVICE_UPDATER_HELPER_UNIT_FILES) == {
         "ecobin-business-activation-helper.socket",
@@ -77,6 +78,7 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
         "ecobin-mcu-flash-helper@.service",
     }
     assert "business_control.py" in RUNTIME_APP_FILES
+    assert "job_safety.py" in RUNTIME_APP_FILES
     assert "local_control.py" in RUNTIME_APP_FILES
     assert "communication_agent.py" not in RUNTIME_APP_FILES
     assert "communication_store.py" not in RUNTIME_APP_FILES

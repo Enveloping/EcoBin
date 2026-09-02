@@ -750,6 +750,7 @@ class FixedFrameMcuAdapter:
         values: dict,
         *,
         mcu_command_uid: Optional[str] = None,
+        dispatch_deadline_monotonic: Optional[float] = None,
     ) -> dict:
         command_uid = str(
             uuid.UUID(mcu_command_uid or str(uuid.uuid4()))
@@ -761,7 +762,16 @@ class FixedFrameMcuAdapter:
                 False,
                 "UART_CLOSED",
             )
-        dispatch_deadline = self._physical_dispatch_deadline(values)
+        relative_deadline = self._physical_dispatch_deadline(values)
+        deadlines = [
+            deadline
+            for deadline in (
+                relative_deadline,
+                dispatch_deadline_monotonic,
+            )
+            if deadline is not None
+        ]
+        dispatch_deadline = min(deadlines) if deadlines else None
         try:
             if message_name == "START_DELIVERY_SESSION":
                 price = price_digit_from_ten_thousandths(
@@ -826,6 +836,23 @@ class FixedFrameMcuAdapter:
             "disposition": "LOCALLY_DISPATCHED",
             "compatibility_mode": True,
         }
+
+    def send_command_before_deadline(
+        self,
+        message_name: str,
+        values: dict,
+        *,
+        mcu_command_uid: Optional[str] = None,
+        dispatch_deadline_monotonic: float,
+    ) -> dict:
+        """Carry the original Edge deadline through the foreground I/O lock."""
+
+        return self.send_command(
+            message_name,
+            values,
+            mcu_command_uid=mcu_command_uid,
+            dispatch_deadline_monotonic=dispatch_deadline_monotonic,
+        )
 
     def _dispatch_start(
         self,

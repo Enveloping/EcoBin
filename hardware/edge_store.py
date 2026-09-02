@@ -2106,6 +2106,32 @@ class EdgeStore:
             ).fetchone()
         return self._decode_command_row(row)
 
+    def list_orphan_permit_reconciliation_commands(self) -> list[dict]:
+        """List restart-failed physical commands that never gained a slot."""
+
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT * FROM command_inbox
+                   WHERE state='FAILED' AND last_error='EDGE_RESTARTED'
+                     AND command_type IN (
+                       'START_DELIVERY_SESSION', 'START_CLEAN_OPERATION',
+                       'SAMPLE_FULLNESS', 'MEASURE_EMPTY_BAG_BASELINE'
+                     )
+                   ORDER BY rowid"""
+            ).fetchall()
+        return [self._decode_command_row(row) for row in rows]
+
+    def mark_orphan_permit_reconciled(self, command_uid: str) -> bool:
+        with self.transaction():
+            updated = self._conn.execute(
+                """UPDATE command_inbox
+                   SET last_error='EDGE_RESTARTED_BEFORE_PHYSICAL_START'
+                   WHERE command_uid=? AND state='FAILED'
+                     AND last_error='EDGE_RESTARTED'""",
+                (command_uid,),
+            )
+            return updated.rowcount == 1
+
     def claim_next_command(self) -> Optional[dict]:
         with self.transaction():
             maintenance = self._conn.execute(
@@ -2216,6 +2242,43 @@ class EdgeStore:
             )
             return cur.rowcount == 1
 
+    def complete_command_with_work_context(
+        self,
+        command_uid: str,
+        result: Optional[dict],
+        *,
+        work_uid: str,
+        work_context: dict,
+    ) -> bool:
+        """Complete a control command and freeze job receipt facts atomically."""
+
+        with self.transaction():
+            cur = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='COMPLETED', processed_at=?,
+                       processing_started_at=NULL, result_json=?,
+                       last_error=NULL WHERE command_uid=?""",
+                (
+                    self._now(),
+                    _json.dumps(result, ensure_ascii=False)
+                    if result
+                    else None,
+                    command_uid,
+                ),
+            )
+            slot = self._conn.execute(
+                """UPDATE work_slot SET context_json=?, updated_at=?
+                   WHERE slot_id=1 AND work_uid=?""",
+                (
+                    _json.dumps(work_context, ensure_ascii=False),
+                    self._now(),
+                    work_uid,
+                ),
+            )
+            if slot.rowcount != 1:
+                raise ValueError("active work context changed")
+            return cur.rowcount == 1
+
     def complete_device_acceptance(
         self,
         command: dict,
@@ -2323,6 +2386,8 @@ class EdgeStore:
         *,
         stage: str,
         mcu_command_uid: Optional[str] = None,
+        work_uid: Optional[str] = None,
+        work_context: Optional[dict] = None,
     ) -> bool:
         """Atomically fail a command and create its stable observation."""
         with self.transaction():
@@ -2347,6 +2412,20 @@ class EdgeStore:
                 )
                 if observation == "CONFLICT":
                     raise ValueError("command observation conflict")
+            if work_context is not None:
+                if not work_uid:
+                    raise ValueError("work_uid is required with work_context")
+                updated = self._conn.execute(
+                    """UPDATE work_slot SET context_json=?, updated_at=?
+                       WHERE slot_id=1 AND work_uid=?""",
+                    (
+                        _json.dumps(work_context, ensure_ascii=False),
+                        self._now(),
+                        work_uid,
+                    ),
+                )
+                if updated.rowcount != 1:
+                    raise ValueError("active work context changed")
             return cur.rowcount == 1
 
     def reject_claimed_command_and_observe(
@@ -6179,8 +6258,11 @@ class EdgeStore:
         target_type: str,
         bag_baseline: Optional[dict] = None,
         fullness_transition: Optional[dict] = None,
+        release_work_slot: bool = True,
     ) -> str:
-        """Atomically finish a DD/EF work item and release the single slot."""
+        """Atomically finish a DD/EF work item and optionally release its slot."""
+        if not isinstance(release_work_slot, bool):
+            raise TypeError("release_work_slot must be boolean")
         with self.transaction():
             slot = self._conn.execute(
                 """SELECT work_type, work_uid FROM work_slot
@@ -6254,14 +6336,25 @@ class EdgeStore:
                     int(context["port_no"]),
                     False,
                 )
-            self._conn.execute(
-                """UPDATE work_slot
-                   SET work_type='NONE', work_uid=NULL,
-                       work_state=NULL, port_no=NULL,
-                       context_json=NULL, updated_at=?
-                   WHERE slot_id=1""",
-                (now,),
-            )
+            if release_work_slot:
+                self._conn.execute(
+                    """UPDATE work_slot
+                       SET work_type='NONE', work_uid=NULL,
+                           work_state=NULL, port_no=NULL,
+                           context_json=NULL, updated_at=?
+                       WHERE slot_id=1""",
+                    (now,),
+                )
+            else:
+                self._conn.execute(
+                    """UPDATE work_slot SET context_json=?, updated_at=?
+                       WHERE slot_id=1 AND work_uid=?""",
+                    (
+                        _json.dumps(context, ensure_ascii=False),
+                        now,
+                        work_uid,
+                    ),
+                )
             return "ACCEPTED"
 
     def fail_fixed_frame_work(
@@ -6272,8 +6365,12 @@ class EdgeStore:
         error_code: str,
         mcu_command_uid: Optional[str],
         stage: str = "FAILED",
+        release_work_slot: bool = True,
+        work_context: Optional[dict] = None,
     ) -> bool:
         """Atomically fail a fixed-frame work item without replaying it."""
+        if not isinstance(release_work_slot, bool):
+            raise TypeError("release_work_slot must be boolean")
         with self.transaction():
             slot = self._conn.execute(
                 "SELECT work_uid FROM work_slot WHERE slot_id=1"
@@ -6301,14 +6398,25 @@ class EdgeStore:
                 )
                 if observation == "CONFLICT":
                     raise ValueError("command observation conflict")
-            self._conn.execute(
-                """UPDATE work_slot
-                   SET work_type='NONE', work_uid=NULL,
-                       work_state=NULL, port_no=NULL,
-                       context_json=NULL, updated_at=?
-                   WHERE slot_id=1""",
-                (self._now(),),
-            )
+            if release_work_slot:
+                self._conn.execute(
+                    """UPDATE work_slot
+                       SET work_type='NONE', work_uid=NULL,
+                           work_state=NULL, port_no=NULL,
+                           context_json=NULL, updated_at=?
+                       WHERE slot_id=1""",
+                    (self._now(),),
+                )
+            elif work_context is not None:
+                self._conn.execute(
+                    """UPDATE work_slot SET context_json=?, updated_at=?
+                       WHERE slot_id=1 AND work_uid=?""",
+                    (
+                        _json.dumps(work_context, ensure_ascii=False),
+                        self._now(),
+                        work_uid,
+                    ),
+                )
             return True
 
     def mark_clean_window_expired_for_recovery(
@@ -6416,6 +6524,17 @@ class EdgeStore:
                 if slot["context_json"]
                 else {}
             )
+            if isinstance(context.get("job_safety"), dict):
+                # The legacy restart path predates the permanent action
+                # ledger. Clearing this slot would discard the only local
+                # completion/reconciliation facts while updater.db correctly
+                # remains locked. Stage-four work is resolved by WorkManager
+                # against that permanent ledger, never by this generic abort.
+                return {
+                    "outcome": "JOB_SAFETY_RECONCILIATION_REQUIRED",
+                    "work_type": work_type,
+                    "work_uid": work_uid,
+                }
             completion_type = {
                 WORK_TYPE_DELIVERY: "DELIVERY_COMPLETE",
                 WORK_TYPE_CLEAN: "CLEAN_COMPLETE",
@@ -6687,6 +6806,8 @@ class EdgeStore:
         event_payload: dict,
         result: dict,
         bag_baseline: Optional[dict] = None,
+        work_uid: Optional[str] = None,
+        work_context: Optional[dict] = None,
     ) -> str:
         """Freeze a local fixed-frame result and its reliable event."""
         with self.transaction():
@@ -6716,6 +6837,10 @@ class EdgeStore:
                         ),
                         command["commandUid"],
                     ),
+                )
+                self._freeze_optional_work_context_in_tx(
+                    work_uid,
+                    work_context,
                 )
                 return "DUPLICATE"
             sequence = self._next_seq(self._conn)
@@ -6761,7 +6886,32 @@ class EdgeStore:
                     command["commandUid"],
                 ),
             )
+            self._freeze_optional_work_context_in_tx(
+                work_uid,
+                work_context,
+            )
             return "ACCEPTED"
+
+    def _freeze_optional_work_context_in_tx(
+        self,
+        work_uid: Optional[str],
+        work_context: Optional[dict],
+    ) -> None:
+        if work_context is None:
+            return
+        if not work_uid:
+            raise ValueError("work_uid is required with work_context")
+        updated = self._conn.execute(
+            """UPDATE work_slot SET context_json=?, updated_at=?
+               WHERE slot_id=1 AND work_uid=?""",
+            (
+                _json.dumps(work_context, ensure_ascii=False),
+                self._now(),
+                work_uid,
+            ),
+        )
+        if updated.rowcount != 1:
+            raise ValueError("active work context changed")
 
     def reserve_compat_mcu_event_sequence(self) -> int:
         with self.transaction():

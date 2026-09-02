@@ -148,6 +148,10 @@ def test_capabilities_publish_only_fixed_mcu_device_pins_and_binaries() -> None:
         request(mcu_flash_helper.PROTOCOL_NAME, "GET_CAPABILITIES"),
     )
 
+    assert response["result"]["localPrimitiveActions"] == [
+        "FLASH_MCU_FIRMWARE",
+        "RECOVER_MCU_APPLICATION",
+    ]
     assert response["result"]["fixedConfiguration"] == {
         "serialDevice": "/dev/ttyS5",
         "boot0WiringPiPin": 2,
@@ -157,6 +161,17 @@ def test_capabilities_publish_only_fixed_mcu_device_pins_and_binaries() -> None:
         "flashBinary": "/usr/bin/stm32flash",
         "firmwareRoot": "/var/lib/ecobin/updater/mcu-firmware",
     }
+
+
+def test_mcu_mutation_payloads_bind_every_action_to_a_canonical_action_uid() -> None:
+    actions = mcu_flash_helper.build_actions(UPDATER_UID)
+
+    assert actions["FLASH_MCU_FIRMWARE"].payload_fields == frozenset(
+        {"updateUid", "actionUid", "source"}
+    )
+    assert actions["RECOVER_MCU_APPLICATION"].payload_fields == frozenset(
+        {"updateUid", "actionUid"}
+    )
 
 
 @pytest.mark.parametrize(
@@ -350,6 +365,28 @@ def test_business_helper_has_no_device_access_and_mcu_helper_has_only_fixed_devi
     assert (
         "InaccessiblePaths=-/var/lib/ecobin/privileged/business-snapshots"
         in mcu
+    )
+
+
+def test_mcu_helper_has_bounded_flash_time_and_independent_safe_recovery() -> None:
+    service = (UNIT_ROOT / "ecobin-mcu-flash-helper@.service").read_text(
+        encoding="utf-8"
+    )
+    socket = (UNIT_ROOT / "ecobin-mcu-flash-helper.socket").read_text(
+        encoding="utf-8"
+    )
+
+    for unit in (service, socket):
+        assert "Requires=ecobin-mcu-safe-gpio.service" in unit
+        assert "After=ecobin-mcu-safe-gpio.service" in unit
+    assert "TimeoutStartSec=360" in service
+    assert "RuntimeMaxSec=360" in service
+    assert "TimeoutStopSec=90" in service
+    assert "ExecStopPost=/usr/bin/python3 -m helpers.mcu_flash_recovery" in service
+    assert (
+        "ReadWritePaths=-/run/ecobin/privileged/"
+        "mcu-application-recovery-required"
+        in service
     )
 
 

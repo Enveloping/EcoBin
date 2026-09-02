@@ -17,6 +17,15 @@ from edge_store import (
     WORK_TYPE_FULLNESS,
     WORK_TYPE_NONE,
 )
+from job_safety import (
+    DisabledJobSafety,
+    JobPermit,
+    JobSafetyError,
+    PhysicalAction,
+    action_digest,
+    canonical_sha256,
+    command_request_digest,
+)
 logger = logging.getLogger("work-manager")
 def _new_uid() -> str:
     return str(_uuid.uuid4())
@@ -222,11 +231,14 @@ class WorkManager:
         uart_link,
         device_identity: DeviceIdentity | None,
         photo_manager,
+        *,
+        job_safety=None,
     ):
         self._store = store
         self._uart = uart_link
         self._device_identity = device_identity
         self._photo = photo_manager
+        self._job_safety = job_safety or DisabledJobSafety()
 
     def _own_device_name(self) -> str:
         identity = self._device_identity
@@ -339,6 +351,1016 @@ class WorkManager:
             "error": error_code,
         }
 
+    def _request_job_safety(
+        self,
+        command: dict[str, Any],
+        *,
+        work_type: str,
+        work_uid: str,
+    ) -> dict[str, Any] | None:
+        """Obtain the permanent permit before creating a business work slot."""
+
+        permit = self._job_safety.request_job(
+            command,
+            work_type=work_type,
+            work_uid=work_uid,
+        )
+        if permit is None:
+            return None
+        return {
+            "permit_uid": permit.permit_uid,
+            "work_uid": permit.work_uid,
+            "command_uid": permit.command_uid,
+            "work_type": permit.work_type,
+            "request_digest_sha256": permit.request_digest_sha256,
+            # Reuse identifiers that already exist in the signed command and
+            # business work.  A committed-but-unanswered local RPC therefore
+            # remains addressable even before edge.db saves this context.
+            "begin_uid": permit.work_uid,
+            "completion_uid": permit.command_uid,
+            "actions": {},
+        }
+
+    @staticmethod
+    def _permit_from_safety_context(
+        safety: dict[str, Any],
+    ) -> JobPermit:
+        return JobPermit(
+            permit_uid=safety["permit_uid"],
+            work_uid=safety["work_uid"],
+            command_uid=safety["command_uid"],
+            work_type=safety["work_type"],
+            request_digest_sha256=safety["request_digest_sha256"],
+        )
+
+    def _begin_job_safety(self, context: dict[str, Any]) -> None:
+        safety = context.get("job_safety")
+        if safety is None:
+            if self._job_safety.enabled:
+                raise JobSafetyError(
+                    "JOB_PERMIT_MISSING",
+                    "active work has no permanent job permit",
+                )
+            return
+        self._job_safety.begin_job(
+            self._permit_from_safety_context(safety),
+            begin_uid=safety["begin_uid"],
+            digest=safety["request_digest_sha256"],
+        )
+
+    def _preserve_uncertain_job_begin(
+        self,
+        context: dict[str, Any],
+        work_uid: str,
+    ) -> None:
+        """Keep the business slot when the permanent begin reply is unknown."""
+
+        safety = context.get("job_safety")
+        if safety is not None:
+            safety["begin_result"] = "UNKNOWN"
+        try:
+            self._store.update_work_context(work_uid, context)
+        except Exception:
+            # acquire_work_slot already persisted the stable permit/begin
+            # identities.  Never release that slot merely because annotating
+            # the uncertain response failed.
+            logger.critical(
+                "could not annotate uncertain permanent job begin: work=%s",
+                work_uid,
+                exc_info=True,
+            )
+
+    def _abandon_job_safety(
+        self,
+        safety: dict[str, Any] | None,
+        *,
+        reason: str,
+    ) -> None:
+        if safety is None:
+            return
+        self._job_safety.abandon_job(
+            self._permit_from_safety_context(safety),
+            disposition_uid=safety["permit_uid"],
+            evidence_sha256=canonical_sha256(
+                {
+                    "workUid": safety["work_uid"],
+                    "reason": reason,
+                }
+            ),
+        )
+
+    def _send_physical_command(
+        self,
+        context: dict[str, Any],
+        message_name: str,
+        values: dict[str, Any],
+        *,
+        mcu_command_uid: str,
+        action_key: str,
+        action_kind: str,
+        not_after: str | None = None,
+    ) -> dict[str, Any]:
+        """Arm the permanent ledger before the first UART write can occur."""
+
+        dispatch_deadline_monotonic: float | None = None
+        if not_after is not None:
+            try:
+                remaining_ms = _remaining_until(not_after)
+            except ValueError:
+                return {
+                    "acked": False,
+                    "error": "COMMAND_EXPIRED",
+                    "fatal": False,
+                    "message_name": message_name,
+                    "mcu_command_uid": mcu_command_uid,
+                    "physicalEffect": "NOT_EXECUTED",
+                }
+            dispatch_deadline_monotonic = (
+                time.monotonic() + remaining_ms / 1000.0
+            )
+        action = self._arm_physical_action(
+            context,
+            message_name=message_name,
+            values=values,
+            mcu_command_uid=mcu_command_uid,
+            action_key=action_key,
+            action_kind=action_kind,
+        )
+        if action is not None and not_after is not None:
+            try:
+                _remaining_until(not_after)
+            except ValueError:
+                self._confirm_physical_action_record(
+                    context,
+                    action_key=action_key,
+                    record=context["job_safety"]["actions"][action_key],
+                    outcome="NOT_EXECUTED",
+                    evidence_sha256=canonical_sha256(
+                        {
+                            "eventType": "UART_COMMAND_EXPIRED_BEFORE_WRITE",
+                            "workUid": context["job_safety"]["work_uid"],
+                            "actionUid": action.action_uid,
+                            "notAfter": not_after,
+                        }
+                    ),
+                )
+                return {
+                    "acked": False,
+                    "error": "COMMAND_EXPIRED",
+                    "fatal": False,
+                    "message_name": message_name,
+                    "mcu_command_uid": mcu_command_uid,
+                    "physicalEffect": "NOT_EXECUTED",
+                }
+        deadline_sender = getattr(
+            self._uart,
+            "send_command_before_deadline",
+            None,
+        )
+        if (
+            dispatch_deadline_monotonic is not None
+            and callable(deadline_sender)
+        ):
+            result = deadline_sender(
+                message_name,
+                values,
+                mcu_command_uid=mcu_command_uid,
+                dispatch_deadline_monotonic=dispatch_deadline_monotonic,
+            )
+        else:
+            result = self._uart.send_command(
+                message_name,
+                values,
+                mcu_command_uid=mcu_command_uid,
+            )
+        known_not_sent = (
+            not result.get("acked")
+            and result.get("error")
+            in {
+                "UART_CLOSED",
+                "UART_NOT_READY",
+                "COMMAND_EXPIRED",
+                "MCU_FEATURE_NOT_SUPPORTED",
+            }
+        )
+        if action is not None and known_not_sent:
+            # UartLink returns these two errors before its first serial write.
+            # Freeze that exact no-effect fact so the permanent MAY record can
+            # be closed immediately or retried after an updater outage.
+            self._confirm_physical_action_record(
+                context,
+                action_key=action_key,
+                record=context["job_safety"]["actions"][action_key],
+                outcome="NOT_EXECUTED",
+                evidence_sha256=canonical_sha256(
+                    {
+                        "eventType": "UART_COMMAND_NOT_SENT",
+                        "workUid": context["job_safety"]["work_uid"],
+                        "actionUid": action.action_uid,
+                        "errorCode": result["error"],
+                    }
+                ),
+            )
+        if known_not_sent:
+            result["physicalEffect"] = "NOT_EXECUTED"
+        elif not result.get("acked"):
+            result["physicalEffect"] = "UNKNOWN"
+        return result
+
+    def _arm_physical_action(
+        self,
+        context: dict[str, Any],
+        *,
+        message_name: str,
+        values: dict[str, Any],
+        mcu_command_uid: str,
+        action_key: str,
+        action_kind: str,
+        persist_context: bool = True,
+    ) -> PhysicalAction | None:
+        """Persist one logical action and move it across the may-run fence."""
+
+        safety = context.get("job_safety")
+        if safety is None:
+            if self._job_safety.enabled:
+                raise JobSafetyError(
+                    "JOB_PERMIT_MISSING",
+                    "physical action has no permanent job permit",
+                )
+            return None
+
+        actions = safety.setdefault("actions", {})
+        record = actions.get(action_key)
+        digest = action_digest(
+            work_uid=safety["work_uid"],
+            command_uid=safety["command_uid"],
+            action_key=action_key,
+            action_kind=action_kind,
+            payload={
+                "messageName": message_name,
+                "mcuCommandUid": mcu_command_uid,
+                "values": values,
+            },
+        )
+        if record is None:
+            record = {
+                "action_uid": mcu_command_uid,
+                "arm_uid": mcu_command_uid,
+                "receipt_uid": mcu_command_uid,
+                "action_key": action_key,
+                "action_kind": action_kind,
+                "action_digest_sha256": digest,
+                "authorization_result": "PENDING",
+            }
+            actions[action_key] = record
+            # The identity must survive before updater.db is touched.  If the
+            # process dies after this commit, recovery sees an unarmed action
+            # and never invents a new physical command identity.
+            if persist_context:
+                self._store.update_work_context(
+                    safety["work_uid"],
+                    context,
+                )
+        elif record["action_digest_sha256"] != digest:
+            raise JobSafetyError(
+                "PHYSICAL_ACTION_CONFLICT",
+                "persisted physical action content changed",
+            )
+
+        action = self._physical_action(record)
+        try:
+            self._job_safety.authorize_physical_action(
+                self._permit_from_safety_context(safety),
+                action=action,
+            )
+        except Exception:
+            record["authorization_result"] = "UNKNOWN"
+            if persist_context:
+                self._store.update_work_context(
+                    safety["work_uid"],
+                    context,
+                )
+            raise
+        record["authorization_result"] = "ACCEPTED"
+        if persist_context:
+            # From this durable point onward a crash is conservatively treated
+            # as possibly having reached UART.
+            self._store.update_work_context(
+                safety["work_uid"],
+                context,
+            )
+        return action
+
+    @staticmethod
+    def _physical_action(record: dict[str, Any]) -> PhysicalAction:
+        return PhysicalAction(
+            action_uid=record["action_uid"],
+            arm_uid=record["arm_uid"],
+            receipt_uid=record["receipt_uid"],
+            action_key=record["action_key"],
+            action_kind=record["action_kind"],
+            action_digest_sha256=record["action_digest_sha256"],
+        )
+
+    def _confirm_action_from_mcu_event(
+        self,
+        context: dict[str, Any],
+        *,
+        event_type: str,
+        payload: dict[str, Any],
+        outcome: str = "EXECUTED",
+    ) -> None:
+        """Resolve one action from an already-durable, identity-bound MCU fact."""
+
+        safety = context.get("job_safety")
+        if safety is None:
+            return
+        action_uid = payload.get("mcuCommandUid")
+        actions = safety.get("actions", {})
+        match = next(
+            (
+                (key, record)
+                for key, record in actions.items()
+                if record.get("action_uid") == action_uid
+            ),
+            None,
+        )
+        if match is None:
+            raise JobSafetyError(
+                "PHYSICAL_ACTION_EVIDENCE_MISMATCH",
+                "MCU result does not identify a persisted physical action",
+            )
+        action_key, record = match
+        confirmations = safety.setdefault("confirmations", {})
+        existing = confirmations.get(action_key)
+        if isinstance(existing, dict) and existing.get("confirmed") is True:
+            return
+        evidence_sha256 = canonical_sha256(
+            {
+                "eventType": event_type,
+                "workUid": safety["work_uid"],
+                "actionUid": action_uid,
+                "payload": payload,
+            }
+        )
+        if isinstance(existing, dict) and (
+            existing.get("outcome") != outcome
+            or existing.get("evidence_sha256") != evidence_sha256
+        ):
+            raise JobSafetyError(
+                "PHYSICAL_ACTION_EVIDENCE_CONFLICT",
+                "physical action confirmation evidence changed",
+            )
+        self._confirm_physical_action_record(
+            context,
+            action_key=action_key,
+            record=record,
+            outcome=outcome,
+            evidence_sha256=evidence_sha256,
+        )
+
+    def _confirm_physical_action_record(
+        self,
+        context: dict[str, Any],
+        *,
+        action_key: str,
+        record: dict[str, Any],
+        outcome: str,
+        evidence_sha256: str,
+    ) -> None:
+        """Persist an exact receipt intent before its retry-safe local RPC."""
+
+        safety = context["job_safety"]
+        confirmations = safety.setdefault("confirmations", {})
+        confirmation = confirmations.get(action_key)
+        if isinstance(confirmation, dict):
+            if (
+                confirmation.get("outcome") != outcome
+                or confirmation.get("evidence_sha256") != evidence_sha256
+            ):
+                raise JobSafetyError(
+                    "PHYSICAL_ACTION_EVIDENCE_CONFLICT",
+                    "physical action confirmation evidence changed",
+                )
+            if confirmation.get("confirmed") is True:
+                return
+        else:
+            confirmation = {
+                "outcome": outcome,
+                "evidence_sha256": evidence_sha256,
+                "confirmed": False,
+            }
+            confirmations[action_key] = confirmation
+        self._store.update_work_context(safety["work_uid"], context)
+        self._job_safety.confirm_physical_action(
+            self._physical_action(record),
+            outcome=outcome,
+            evidence_sha256=evidence_sha256,
+        )
+        confirmation["confirmed"] = True
+        self._store.update_work_context(safety["work_uid"], context)
+
+    def _complete_job_safety(
+        self,
+        context: dict[str, Any],
+        *,
+        outcome: str,
+        evidence: dict[str, Any],
+        physical_outcome: str | None = None,
+    ) -> bool:
+        """Finish the permanent permit only after business facts are durable."""
+
+        safety = context.get("job_safety")
+        if safety is None:
+            return not self._job_safety.enabled
+        pending = self._prepare_job_safety_completion(
+            context,
+            outcome=outcome,
+            evidence=evidence,
+            physical_outcome=physical_outcome,
+        )
+        if pending is None:
+            return not self._job_safety.enabled
+        work_uid = safety.get("work_uid")
+        if isinstance(work_uid, str):
+            self._store.update_work_context(work_uid, context)
+        return self._finish_job_safety(safety, pending)
+
+    def _prepare_job_safety_completion(
+        self,
+        context: dict[str, Any],
+        *,
+        outcome: str,
+        evidence: dict[str, Any],
+        physical_outcome: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Freeze a retry identity before the business terminal transaction."""
+
+        safety = context.get("job_safety")
+        if safety is None:
+            return None
+        existing = safety.get("pending_completion")
+        if isinstance(existing, dict):
+            if (
+                existing.get("outcome") != outcome
+                or existing.get("physical_outcome") != physical_outcome
+            ):
+                logger.critical(
+                    "permanent job completion retry changed terminal facts: "
+                    "work=%s",
+                    safety.get("work_uid"),
+                )
+                raise JobSafetyError(
+                    "JOB_COMPLETION_FACT_CONFLICT",
+                    "terminal job facts changed after being frozen",
+                )
+            # The first attempt freezes the digest.  Never hash a context
+            # that now contains its own pending record or overwrite a receipt
+            # already accepted by the permanent ledger.
+            return existing
+        evidence_sha256 = canonical_sha256(evidence)
+        pending = {
+            "outcome": outcome,
+            "evidence_sha256": evidence_sha256,
+            "physical_outcome": physical_outcome,
+        }
+        safety["pending_completion"] = pending
+        return pending
+
+    def _finish_job_safety(
+        self,
+        safety: dict[str, Any],
+        pending: dict[str, Any],
+    ) -> bool:
+        """Retry-safe permanent receipts using only persisted exact facts."""
+
+        try:
+            confirmations = safety.get("confirmations", {})
+            for action_key, record in safety.get("actions", {}).items():
+                confirmation = confirmations.get(action_key, {})
+                self._job_safety.confirm_physical_action(
+                    self._physical_action(record),
+                    outcome=(
+                        confirmation.get("outcome")
+                        or pending.get("physical_outcome")
+                        or (
+                            "EXECUTED"
+                            if pending["outcome"]
+                            in {"SUCCEEDED", "CANCELLED"}
+                            else "FAILED_SAFE"
+                        )
+                    ),
+                    evidence_sha256=(
+                        confirmation.get("evidence_sha256")
+                        or pending["evidence_sha256"]
+                    ),
+                )
+            self._job_safety.complete_job(
+                self._permit_from_safety_context(safety),
+                completion_uid=safety["completion_uid"],
+                outcome=pending["outcome"],
+                completion_digest_sha256=pending["evidence_sha256"],
+            )
+            safety.pop("pending_completion", None)
+            safety["completion_confirmed"] = True
+            return True
+        except (JobSafetyError, KeyError, TypeError, ValueError):
+            # The business result has already committed and must still reach
+            # the platform.  Leaving the permanent permit unresolved blocks a
+            # new physical job until reconciliation, which is the safe result.
+            logger.critical(
+                "permanent job completion could not be confirmed: work=%s",
+                safety.get("work_uid"),
+                exc_info=True,
+            )
+            return False
+
+    def reconcile_pending_job_safety_completion(self) -> bool:
+        """Retry a terminal permanent receipt before releasing its work slot."""
+
+        slot = self._store.get_work_slot()
+        if slot is None:
+            return False
+        context = slot["context"]
+        safety = context.get("job_safety")
+        pending = (
+            safety.get("pending_completion")
+            if isinstance(safety, dict)
+            else None
+        )
+        if not isinstance(pending, dict):
+            return False
+        if not self._finish_job_safety(safety, pending):
+            return False
+        self._store.release_work_slot(slot["work_uid"])
+        return True
+
+    def reconcile_pending_physical_action_confirmations(self) -> bool:
+        """Retry frozen action receipts independently of the MCU inbox row."""
+
+        slot = self._store.get_work_slot()
+        if slot is None:
+            return False
+        context = slot["context"]
+        safety = context.get("job_safety")
+        if not isinstance(safety, dict):
+            return False
+        confirmations = safety.setdefault("confirmations", {})
+        progressed = False
+        for action_key, confirmation in list(confirmations.items()):
+            if (
+                not isinstance(confirmation, dict)
+                or confirmation.get("confirmed") is True
+            ):
+                continue
+            record = safety.get("actions", {}).get(action_key)
+            if not isinstance(record, dict):
+                logger.critical(
+                    "physical action confirmation lost its action record: "
+                    "work=%s action=%s",
+                    safety.get("work_uid"),
+                    action_key,
+                )
+                return progressed
+            try:
+                self._confirm_physical_action_record(
+                    context,
+                    action_key=action_key,
+                    record=record,
+                    outcome=confirmation["outcome"],
+                    evidence_sha256=confirmation["evidence_sha256"],
+                )
+            except (JobSafetyError, KeyError, TypeError, ValueError):
+                return progressed
+            progressed = True
+        return progressed
+
+    def reconcile_pre_action_job_safety_failure(self) -> bool:
+        """Close an interrupted job only when no physical action was armed."""
+
+        slot = self._store.get_work_slot()
+        if slot is None:
+            return False
+        context = slot["context"]
+        safety = context.get("job_safety")
+        if not isinstance(safety, dict):
+            return False
+        if safety.get("pending_completion"):
+            return False
+        actions = safety.get("actions", {})
+        confirmations = safety.setdefault("confirmations", {})
+        if actions:
+            pending_authorizations = {
+                key: record
+                for key, record in actions.items()
+                if record.get("authorization_result")
+                in {"PENDING", "UNKNOWN"}
+            }
+            if pending_authorizations and not (
+                self._reconcile_never_dispatched_actions(
+                    context,
+                    safety,
+                )
+            ):
+                return False
+            for action_key, record in safety.get("actions", {}).items():
+                if record.get("authorization_result") in {
+                    "PENDING",
+                    "UNKNOWN",
+                }:
+                    return False
+                confirmation = confirmations.get(action_key)
+                if not (
+                    isinstance(confirmation, dict)
+                    and confirmation.get("confirmed") is True
+                    and confirmation.get("outcome") == "NOT_EXECUTED"
+                ):
+                    return False
+        command_uid = safety.get("command_uid")
+        command_row = (
+            self._store.get_command(command_uid)
+            if isinstance(command_uid, str)
+            else None
+        )
+        if not command_row or command_row["state"] not in {
+            "FAILED",
+            "RECOVERY_REQUIRED",
+        }:
+            return False
+        try:
+            # The stable begin identity handles both possible outcomes of the
+            # interrupted call: GRANTED becomes ACTIVE; ACTIVE is a duplicate.
+            self._begin_job_safety(context)
+        except (JobSafetyError, KeyError, TypeError, ValueError):
+            return False
+        reason = str(command_row.get("last_error") or "EDGE_RESTARTED")
+        command = command_row.get("payload")
+        evidence = {
+            "eventType": "PHYSICAL_JOB_NOT_STARTED",
+            "workUid": slot["work_uid"],
+            "commandUid": command_uid,
+            "reason": reason,
+        }
+        self._prepare_job_safety_completion(
+            context,
+            outcome="FAILED",
+            evidence=evidence,
+            physical_outcome="NOT_EXECUTED",
+        )
+        if not isinstance(command, dict) or not self._store.fail_command_and_observe(
+            command,
+            reason,
+            stage="FAILED",
+            work_uid=slot["work_uid"],
+            work_context=context,
+        ):
+            return False
+        completed = self._complete_job_safety(
+            context,
+            outcome="FAILED",
+            evidence=evidence,
+            physical_outcome="NOT_EXECUTED",
+        )
+        if not completed:
+            return False
+        self._store.release_work_slot(slot["work_uid"])
+        return True
+
+    def reconcile_orphan_granted_job_permits(self) -> int:
+        """Abandon a grant committed before its business slot was created."""
+
+        if not self._job_safety.enabled:
+            return 0
+        progressed = 0
+        work_fields = {
+            "START_DELIVERY_SESSION": ("DELIVERY", "sessionUid"),
+            "START_CLEAN_OPERATION": ("CLEAN", "operationUid"),
+            "SAMPLE_FULLNESS": ("FULLNESS", "detectionUid"),
+            "MEASURE_EMPTY_BAG_BASELINE": ("BASELINE", "measurementUid"),
+        }
+        for row in self._store.list_orphan_permit_reconciliation_commands():
+            command = row.get("payload")
+            if not isinstance(command, dict):
+                continue
+            command_uid = command.get("commandUid")
+            mapping = work_fields.get(command.get("commandType"))
+            if not isinstance(command_uid, str) or mapping is None:
+                continue
+            work_type, work_field = mapping
+            work_uid = (command.get("payload") or {}).get(work_field)
+            try:
+                remote = self._job_safety.get_job_permit(command_uid)
+            except JobSafetyError as error:
+                if error.code == "JOB_PERMIT_NOT_FOUND":
+                    if self._store.mark_orphan_permit_reconciled(
+                        command_uid
+                    ):
+                        progressed += 1
+                continue
+            expected_digest = command_request_digest(command)
+            exact_identity = (
+                remote.get("permitUid") == command_uid
+                and remote.get("commandUid") == command_uid
+                and remote.get("workUid") == work_uid
+                and remote.get("workType") == work_type
+                and remote.get("requestDigestSha256") == expected_digest
+            )
+            if not exact_identity:
+                logger.critical(
+                    "orphan permanent permit identity conflicts: command=%s",
+                    command_uid,
+                )
+                continue
+            if remote.get("state") == "GRANTED":
+                permit = JobPermit(
+                    permit_uid=command_uid,
+                    work_uid=work_uid,
+                    command_uid=command_uid,
+                    work_type=work_type,
+                    request_digest_sha256=expected_digest,
+                )
+                try:
+                    self._job_safety.abandon_job(
+                        permit,
+                        disposition_uid=command_uid,
+                        evidence_sha256=canonical_sha256(
+                            {
+                                "eventType": "EDGE_RESTARTED_BEFORE_SLOT",
+                                "commandUid": command_uid,
+                                "workUid": work_uid,
+                            }
+                        ),
+                    )
+                except JobSafetyError:
+                    continue
+            elif remote.get("state") not in {"ABANDONED", "COMPLETED"}:
+                # ACTIVE without a business slot can follow a database
+                # restore. It is not proof of zero physical effect.
+                continue
+            if self._store.mark_orphan_permit_reconciled(command_uid):
+                progressed += 1
+        return progressed
+
+    def _reconcile_never_dispatched_actions(
+        self,
+        context: dict[str, Any],
+        safety: dict[str, Any],
+    ) -> bool:
+        """Resolve authorization attempts that provably never reached UART."""
+
+        confirmations = safety.setdefault("confirmations", {})
+        for action_key, record in list(
+            safety.get("actions", {}).items()
+        ):
+            if record.get("authorization_result") not in {
+                "PENDING",
+                "UNKNOWN",
+            }:
+                continue
+            evidence_sha256 = canonical_sha256(
+                {
+                    "eventType": "LOCAL_ACTION_NOT_DISPATCHED",
+                    "workUid": safety["work_uid"],
+                    "commandUid": safety["command_uid"],
+                    "actionUid": record["action_uid"],
+                }
+            )
+            try:
+                remote = self._job_safety.get_physical_action(
+                    record["action_uid"]
+                )
+            except JobSafetyError as error:
+                if error.code == "PHYSICAL_ACTION_NOT_FOUND":
+                    safety["actions"].pop(action_key, None)
+                    continue
+                return False
+            if remote.get("state") == "MAY_HAVE_EXECUTED":
+                try:
+                    self._confirm_physical_action_record(
+                        context,
+                        action_key=action_key,
+                        record=record,
+                        outcome="NOT_EXECUTED",
+                        evidence_sha256=evidence_sha256,
+                    )
+                except JobSafetyError:
+                    return False
+                record["authorization_result"] = "ACCEPTED"
+            elif (
+                remote.get("state") != "CONFIRMED"
+                or remote.get("confirmedOutcome") != "NOT_EXECUTED"
+                or remote.get("evidenceDigestSha256") != evidence_sha256
+            ):
+                return False
+            else:
+                confirmation = {
+                    "outcome": "NOT_EXECUTED",
+                    "evidence_sha256": evidence_sha256,
+                    "confirmed": True,
+                }
+                confirmations[action_key] = confirmation
+                record["authorization_result"] = "ACCEPTED"
+        self._store.update_work_context(safety["work_uid"], context)
+        return True
+
+    def _fail_work_before_physical_action(
+        self,
+        *,
+        context: dict[str, Any],
+        command: dict[str, Any],
+        work_uid: str,
+        mcu_command_uid: str | None,
+        error_code: str,
+    ) -> dict[str, Any]:
+        """Close a known-zero-effect job after its business failure is durable."""
+
+        evidence = {
+            "eventType": "PHYSICAL_JOB_NOT_STARTED",
+            "workUid": work_uid,
+            "commandUid": command["commandUid"],
+            "reason": error_code,
+        }
+        self._prepare_job_safety_completion(
+            context,
+            outcome="FAILED",
+            evidence=evidence,
+            physical_outcome="NOT_EXECUTED",
+        )
+        persisted = self._store.fail_fixed_frame_work(
+            work_uid=work_uid,
+            command=command,
+            error_code=error_code,
+            mcu_command_uid=mcu_command_uid,
+            stage="PRE_START_FAILED",
+            release_work_slot=not self._job_safety.enabled,
+            work_context=context,
+        )
+        if not persisted:
+            # Without the business-side terminal fact the permanent permit
+            # must remain unresolved, so never try to release it here.
+            raise ValueError("pre-action business failure was not persisted")
+        completed = self._complete_job_safety(
+            context,
+            outcome="FAILED",
+            evidence=evidence,
+            physical_outcome="NOT_EXECUTED",
+        )
+        if completed:
+            self._store.release_work_slot(work_uid)
+        return {
+            "acked": False,
+            "error": error_code,
+            "mcu_command_uid": mcu_command_uid,
+        }
+
+    def _fail_active_job_at_safe_boundary(
+        self,
+        *,
+        context: dict[str, Any],
+        error_code: str,
+        evidence: dict[str, Any],
+    ) -> bool:
+        """End work after prior actions are proven but the next one never ran."""
+
+        safety = context.get("job_safety")
+        work_uid = (
+            safety.get("work_uid")
+            if isinstance(safety, dict)
+            else context.get("session_uid")
+            or context.get("operation_uid")
+            or context.get("detection_uid")
+            or context.get("measurement_uid")
+        )
+        command_uid = (
+            safety.get("command_uid")
+            if isinstance(safety, dict)
+            else context.get("start_command_uid")
+            or context.get("command_uid")
+        )
+        command_row = (
+            self._store.get_command(command_uid)
+            if isinstance(command_uid, str)
+            else None
+        )
+        command = command_row.get("payload") if command_row else None
+        if not isinstance(work_uid, str) or not isinstance(command, dict):
+            return False
+        context["phase"] = "FAILED_SAFE"
+        self._prepare_job_safety_completion(
+            context,
+            outcome="FAILED",
+            evidence=evidence,
+        )
+        if not self._store.fail_command_and_observe(
+            command,
+            error_code,
+            stage="FAILED",
+            work_uid=work_uid if isinstance(safety, dict) else None,
+            work_context=context if isinstance(safety, dict) else None,
+        ):
+            return False
+        completed = self._complete_job_safety(
+            context,
+            outcome="FAILED",
+            evidence=evidence,
+        )
+        if completed:
+            self._store.release_work_slot(work_uid)
+        return completed
+
+    def _fail_unstored_job_before_physical_action(
+        self,
+        *,
+        context: dict[str, Any],
+        command: dict[str, Any],
+        work_uid: str,
+        error_code: str,
+        physical_outcome: str = "NOT_EXECUTED",
+    ) -> dict[str, Any]:
+        """Close a fixed-frame local job that never acquired a work slot."""
+
+        evidence = {
+            "eventType": "PHYSICAL_JOB_NOT_STARTED",
+            "workUid": work_uid,
+            "commandUid": command["commandUid"],
+            "reason": error_code,
+        }
+        self._prepare_job_safety_completion(
+            context,
+            outcome="FAILED",
+            evidence=evidence,
+            physical_outcome=physical_outcome,
+        )
+        persisted = self._store.fail_command_and_observe(
+            command,
+            error_code,
+            stage="PRE_START_FAILED",
+            work_uid=work_uid if self._job_safety.enabled else None,
+            work_context=context if self._job_safety.enabled else None,
+        )
+        if not persisted:
+            raise ValueError("pre-action command failure was not persisted")
+        completed = self._complete_job_safety(
+            context,
+            outcome="FAILED",
+            evidence=evidence,
+            physical_outcome=physical_outcome,
+        )
+        if completed and self._job_safety.enabled:
+            self._store.release_work_slot(work_uid)
+        return {
+            "acked": False,
+            "error": error_code,
+            "mcu_command_uid": None,
+        }
+
+    def _record_fixed_frame_start_failure(
+        self,
+        *,
+        context: dict[str, Any],
+        command: dict[str, Any],
+        work_uid: str,
+        mcu_command_uid: str,
+        error_code: str,
+    ) -> None:
+        known_no_effect = error_code in {
+            "COMMAND_EXPIRED",
+            "UART_CLOSED",
+            "MCU_FEATURE_NOT_SUPPORTED",
+        }
+        evidence = {
+            "eventType": "PHYSICAL_JOB_NOT_STARTED",
+            "workUid": work_uid,
+            "commandUid": command["commandUid"],
+            "reason": error_code,
+        }
+        if known_no_effect:
+            self._prepare_job_safety_completion(
+                context,
+                outcome="FAILED",
+                evidence=evidence,
+                physical_outcome="NOT_EXECUTED",
+            )
+        persisted = self._store.fail_fixed_frame_work(
+            work_uid=work_uid,
+            command=command,
+            error_code=error_code,
+            mcu_command_uid=mcu_command_uid,
+            stage="PRE_START_FAILED" if known_no_effect else "FAILED",
+            release_work_slot=not self._job_safety.enabled,
+            work_context=context if known_no_effect else None,
+        )
+        if not self._job_safety.enabled or not persisted or not known_no_effect:
+            return
+        completed = self._complete_job_safety(
+            context,
+            outcome="FAILED",
+            evidence=evidence,
+            physical_outcome="NOT_EXECUTED",
+        )
+        if completed:
+            self._store.release_work_slot(work_uid)
+
     def _safety_rejection(self, port_no: int) -> Optional[str]:
         if getattr(self._uart, "compatibility_mode", False):
             if (
@@ -432,8 +1454,11 @@ class WorkManager:
             return False
         context = slot["context"]
         if (
-            slot["work_type"] == WORK_TYPE_CLEAN
-            and context.get("phase") == "CLEAN_RECOVERY_REQUIRED"
+            context.get("phase")
+            in {
+                "CLEAN_RECOVERY_REQUIRED",
+                "FIXED_FRAME_RESULT_TIMEOUT_RECOVERY_REQUIRED",
+            }
         ):
             return False
         deadline = (
@@ -472,14 +1497,22 @@ class WorkManager:
             else None
         )
         if command is None:
+            if self._job_safety.enabled:
+                return False
             self._store.release_work_slot(slot["work_uid"])
             return True
+        if self._job_safety.enabled:
+            context["phase"] = (
+                "FIXED_FRAME_RESULT_TIMEOUT_RECOVERY_REQUIRED"
+            )
         return self._store.fail_fixed_frame_work(
             work_uid=slot["work_uid"],
             command=command,
             error_code="MCU_RESULT_TIMEOUT",
             mcu_command_uid=context.get("start_mcu_command_uid"),
             stage="FAILED",
+            release_work_slot=not self._job_safety.enabled,
+            work_context=context if self._job_safety.enabled else None,
         )
 
     def start_delivery_command(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -515,6 +1548,11 @@ class WorkManager:
         start_window_ms = _remaining_execution_ms(command)
         session_uid = payload["sessionUid"]
         mcu_command_uid = _new_uid()
+        job_safety = self._request_job_safety(
+            command,
+            work_type=WORK_TYPE_DELIVERY,
+            work_uid=session_uid,
+        )
         ctx = {
             "session_uid": session_uid,
             "port_no": payload["portNo"],
@@ -538,6 +1576,8 @@ class WorkManager:
             "final_weight_grams": None,
             "final_measurement_uid": None,
         }
+        if job_safety is not None:
+            ctx["job_safety"] = job_safety
         # 单作业槽和命令 ACCEPTED 观察在 SQLite 中一起落盘，成功后才允许写串口。
         # 若设备进程在随后崩溃，启动恢复会明确结束未决作业，绝不自动重放旧开门。
         if not self._store.acquire_work_slot(
@@ -547,7 +1587,16 @@ class WorkManager:
             ctx,
             observed_command=command,
         ):
+            self._abandon_job_safety(
+                job_safety,
+                reason="BUSINESS_WORK_SLOT_BUSY",
+            )
             return self._reject_command(command, "DEVICE_BUSY")
+        try:
+            self._begin_job_safety(ctx)
+        except Exception:
+            self._preserve_uncertain_job_begin(ctx, session_uid)
+            raise
         self._offer_initial_photo_grant(
             command,
             "DELIVERY_SESSION",
@@ -563,21 +1612,21 @@ class WorkManager:
                 "capture_open_photos",
                 session_uid,
             )
-            try:
-                start_window_ms = _remaining_execution_ms(command)
-            except ValueError:
-                self._store.fail_fixed_frame_work(
-                    work_uid=session_uid,
-                    command=command,
-                    error_code="COMMAND_EXPIRED",
-                    mcu_command_uid=mcu_command_uid,
-                    stage="PRE_START_FAILED",
-                )
-                return {
-                    "acked": False,
-                    "error": "COMMAND_EXPIRED",
-                }
-        result = self._uart.send_command(
+        # Permit acquisition, begin reconciliation and photo persistence may
+        # consume the whole command window.  Recompute at the last safe point
+        # for every UART protocol mode; the earlier value is validation only.
+        try:
+            start_window_ms = _remaining_execution_ms(command)
+        except ValueError:
+            return self._fail_work_before_physical_action(
+                context=ctx,
+                command=command,
+                work_uid=session_uid,
+                mcu_command_uid=mcu_command_uid,
+                error_code="COMMAND_EXPIRED",
+            )
+        result = self._send_physical_command(
+            ctx,
             "START_DELIVERY_SESSION",
             {
                 "sessionUid": session_uid,
@@ -595,6 +1644,9 @@ class WorkManager:
                 "deliveryAutoCloseMs": payload["deliveryAutoCloseMs"],
             },
             mcu_command_uid=mcu_command_uid,
+            action_key="DELIVERY:START:0",
+            action_kind="START_DELIVERY_SESSION",
+            not_after=command["expiresAt"],
         )
         if compatibility_mode:
             ctx["phase"] = (
@@ -609,6 +1661,14 @@ class WorkManager:
                 else "START_RESULT_UNKNOWN"
             )
         self._store.update_work_context(session_uid, ctx)
+        if result.get("physicalEffect") == "NOT_EXECUTED":
+            return self._fail_work_before_physical_action(
+                context=ctx,
+                command=command,
+                work_uid=session_uid,
+                mcu_command_uid=mcu_command_uid,
+                error_code=str(result.get("error") or "UART_WRITE_FAILED"),
+            )
         if result["acked"]:
             # uart-v1 的 acked 是协议 ACK；fixed-frame 没有 ACK，兼容适配器只能表示
             # “串口字节已在本机写出”。MCU_ACCEPTED 是当前云端契约投影，不能当成
@@ -622,21 +1682,12 @@ class WorkManager:
             error_code = str(
                 result.get("error") or "UART_WRITE_FAILED"
             )
-            stage = (
-                "PRE_START_FAILED"
-                if error_code in {
-                    "COMMAND_EXPIRED",
-                    "UART_CLOSED",
-                    "MCU_FEATURE_NOT_SUPPORTED",
-                }
-                else "FAILED"
-            )
-            self._store.fail_fixed_frame_work(
-                work_uid=session_uid,
+            self._record_fixed_frame_start_failure(
+                context=ctx,
                 command=command,
-                error_code=error_code,
+                work_uid=session_uid,
                 mcu_command_uid=mcu_command_uid,
-                stage=stage,
+                error_code=error_code,
             )
         return result
 
@@ -659,6 +1710,11 @@ class WorkManager:
         operation_uid = payload["operationUid"]
         mcu_command_uid = _new_uid()
         operation_window_ms = int(payload["operationWindowMs"])
+        job_safety = self._request_job_safety(
+            command,
+            work_type=WORK_TYPE_CLEAN,
+            work_uid=operation_uid,
+        )
         ctx = {
             "operation_uid": operation_uid,
             "port_no": payload["portNo"],
@@ -685,6 +1741,8 @@ class WorkManager:
             "final_measurement_uid": None,
             "completion_confirmed": False,
         }
+        if job_safety is not None:
+            ctx["job_safety"] = job_safety
         if not self._store.acquire_work_slot(
             WORK_TYPE_CLEAN,
             operation_uid,
@@ -692,7 +1750,16 @@ class WorkManager:
             ctx,
             observed_command=command,
         ):
+            self._abandon_job_safety(
+                job_safety,
+                reason="BUSINESS_WORK_SLOT_BUSY",
+            )
             return self._reject_command(command, "DEVICE_BUSY")
+        try:
+            self._begin_job_safety(ctx)
+        except Exception:
+            self._preserve_uncertain_job_begin(ctx, operation_uid)
+            raise
         self._offer_initial_photo_grant(
             command,
             "CLEAN_OPERATION",
@@ -711,20 +1778,26 @@ class WorkManager:
             try:
                 start_window_ms = _remaining_execution_ms(command)
             except ValueError:
-                self._store.fail_fixed_frame_work(
-                    work_uid=operation_uid,
+                return self._fail_work_before_physical_action(
+                    context=ctx,
                     command=command,
-                    error_code="COMMAND_EXPIRED",
+                    work_uid=operation_uid,
                     mcu_command_uid=mcu_command_uid,
-                    stage="PRE_START_FAILED",
+                    error_code="COMMAND_EXPIRED",
                 )
-                return {
-                    "acked": False,
-                    "error": "COMMAND_EXPIRED",
-                }
         else:
-            start_window_ms = _remaining_execution_ms(command)
-        result = self._uart.send_command(
+            try:
+                start_window_ms = _remaining_execution_ms(command)
+            except ValueError:
+                return self._fail_work_before_physical_action(
+                    context=ctx,
+                    command=command,
+                    work_uid=operation_uid,
+                    mcu_command_uid=mcu_command_uid,
+                    error_code="COMMAND_EXPIRED",
+                )
+        result = self._send_physical_command(
+            ctx,
             "START_CLEAN_OPERATION",
             {
                 "operationUid": operation_uid,
@@ -735,6 +1808,9 @@ class WorkManager:
                 "operationWindowMs": payload["operationWindowMs"],
             },
             mcu_command_uid=mcu_command_uid,
+            action_key="CLEAN:START:0",
+            action_kind="START_CLEAN_OPERATION",
+            not_after=command["expiresAt"],
         )
         if compatibility_mode:
             ctx["phase"] = (
@@ -749,6 +1825,14 @@ class WorkManager:
                 else "START_RESULT_UNKNOWN"
             )
         self._store.update_work_context(operation_uid, ctx)
+        if result.get("physicalEffect") == "NOT_EXECUTED":
+            return self._fail_work_before_physical_action(
+                context=ctx,
+                command=command,
+                work_uid=operation_uid,
+                mcu_command_uid=mcu_command_uid,
+                error_code=str(result.get("error") or "UART_WRITE_FAILED"),
+            )
         if result["acked"]:
             self._store.record_command_observation(
                 command,
@@ -759,21 +1843,12 @@ class WorkManager:
             error_code = str(
                 result.get("error") or "UART_WRITE_FAILED"
             )
-            stage = (
-                "PRE_START_FAILED"
-                if error_code in {
-                    "COMMAND_EXPIRED",
-                    "UART_CLOSED",
-                    "MCU_FEATURE_NOT_SUPPORTED",
-                }
-                else "FAILED"
-            )
-            self._store.fail_fixed_frame_work(
-                work_uid=operation_uid,
+            self._record_fixed_frame_start_failure(
+                context=ctx,
                 command=command,
-                error_code=error_code,
+                work_uid=operation_uid,
                 mcu_command_uid=mcu_command_uid,
-                stage=stage,
+                error_code=error_code,
             )
         return result
 
@@ -781,9 +1856,17 @@ class WorkManager:
         payload = command["payload"]
         config = payload["config"]
         self._require_applied_config(config)
-        if getattr(self._uart, "compatibility_mode", False):
-            return self._start_compat_fullness_command(command)
         detection_uid = payload["detectionUid"]
+        job_safety = self._request_job_safety(
+            command,
+            work_type=WORK_TYPE_FULLNESS,
+            work_uid=detection_uid,
+        )
+        if getattr(self._uart, "compatibility_mode", False):
+            return self._start_compat_fullness_command(
+                command,
+                job_safety=job_safety,
+            )
         mcu_command_uid = _new_uid()
         ctx = {
             "detection_uid": detection_uid,
@@ -794,14 +1877,36 @@ class WorkManager:
             "payload": payload,
             "phase": "SAMPLING",
         }
+        if job_safety is not None:
+            ctx["job_safety"] = job_safety
         if not self._store.acquire_work_slot(
             WORK_TYPE_FULLNESS,
             detection_uid,
             payload["portNo"],
             ctx,
         ):
+            self._abandon_job_safety(
+                job_safety,
+                reason="BUSINESS_WORK_SLOT_BUSY",
+            )
             return {"acked": False, "error": "DEVICE_BUSY"}
-        result = self._uart.send_command(
+        try:
+            self._begin_job_safety(ctx)
+        except Exception:
+            self._preserve_uncertain_job_begin(ctx, detection_uid)
+            raise
+        try:
+            start_window_ms = _remaining_execution_ms(command)
+        except ValueError:
+            return self._fail_work_before_physical_action(
+                context=ctx,
+                command=command,
+                work_uid=detection_uid,
+                mcu_command_uid=mcu_command_uid,
+                error_code="COMMAND_EXPIRED",
+            )
+        result = self._send_physical_command(
+            ctx,
             "SAMPLE_FULLNESS",
             {
                 "detectionUid": detection_uid,
@@ -809,23 +1914,66 @@ class WorkManager:
                 "sampleRole": payload["sampleRole"],
                 "configVersion": config["version"],
                 "configContentSha256": config["contentSha256"],
-                "startExecutionWindowMs": _remaining_execution_ms(command),
+                "startExecutionWindowMs": start_window_ms,
                 "settleWaitMs": payload["settleWaitMs"],
                 "measurementTimeoutMs": payload["measurementTimeoutMs"],
             },
             mcu_command_uid=mcu_command_uid,
+            action_key="FULLNESS:SAMPLE:0",
+            action_kind="SAMPLE_FULLNESS",
+            not_after=command["expiresAt"],
         )
         ctx["phase"] = (
             "WAITING_RESULT" if result["acked"] else "RESULT_UNKNOWN"
         )
         self._store.update_work_context(detection_uid, ctx)
+        if result.get("physicalEffect") == "NOT_EXECUTED":
+            return self._fail_work_before_physical_action(
+                context=ctx,
+                command=command,
+                work_uid=detection_uid,
+                mcu_command_uid=mcu_command_uid,
+                error_code=str(result.get("error") or "UART_WRITE_FAILED"),
+            )
         return result
 
     def _start_compat_fullness_command(
         self,
         command: dict[str, Any],
+        *,
+        job_safety: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload = command["payload"]
+        detection_uid = payload["detectionUid"]
+        context: dict[str, Any] = {
+            "detection_uid": detection_uid,
+            "port_no": payload["portNo"],
+            "command_uid": command["commandUid"],
+            "device_name": command["targetDeviceName"],
+            "phase": "COMPAT_LOCAL_RESULT",
+        }
+        if job_safety is not None:
+            context["job_safety"] = job_safety
+            if not self._store.acquire_work_slot(
+                WORK_TYPE_FULLNESS,
+                detection_uid,
+                payload["portNo"],
+                context,
+            ):
+                self._abandon_job_safety(
+                    job_safety,
+                    reason="BUSINESS_WORK_SLOT_BUSY",
+                )
+                return {"acked": False, "error": "DEVICE_BUSY"}
+        try:
+            self._begin_job_safety(context)
+        except Exception:
+            if job_safety is not None:
+                self._preserve_uncertain_job_begin(
+                    context,
+                    detection_uid,
+                )
+            raise
         try:
             observation = json.loads(
                 self._store.get_state(
@@ -852,7 +2000,6 @@ class WorkManager:
                     self._store.reserve_compat_mcu_event_sequence()
                 ),
             }
-        detection_uid = payload["detectionUid"]
         measurement = _compat_measurement(
             detection_uid,
             "total-weight",
@@ -899,6 +2046,15 @@ class WorkManager:
                 else "NO_HISTORY_ZERO"
             ),
         }
+        completion_evidence = {
+            "detectionUid": detection_uid,
+            "result": local_result,
+        }
+        self._prepare_job_safety_completion(
+            context,
+            outcome="SUCCEEDED",
+            evidence=completion_evidence,
+        )
         completed = self._store.complete_fixed_frame_local_result(
             result_type="FULLNESS",
             result_key=(
@@ -911,11 +2067,20 @@ class WorkManager:
             target_uid=detection_uid,
             event_payload=event_payload,
             result=local_result,
+            work_uid=detection_uid if job_safety is not None else None,
+            work_context=context if job_safety is not None else None,
         )
         if completed not in ("ACCEPTED", "DUPLICATE"):
             raise ValueError(
                 f"fixed-frame fullness persistence {completed.lower()}"
             )
+        safety_completed = self._complete_job_safety(
+            context,
+            outcome="SUCCEEDED",
+            evidence=completion_evidence,
+        )
+        if safety_completed and job_safety is not None:
+            self._store.release_work_slot(detection_uid)
         return {
             "acked": True,
             "completed_locally": True,
@@ -947,9 +2112,25 @@ class WorkManager:
         payload = command["payload"]
         config = payload["config"]
         self._require_applied_config(config)
-        if getattr(self._uart, "compatibility_mode", False):
-            return self._start_compat_baseline_command(command)
+        if (
+            getattr(self._uart, "compatibility_mode", False)
+            and payload.get("emptyBagConfirmed") is not True
+        ):
+            return self._reject_command(
+                command,
+                "EMPTY_BAG_NOT_CONFIRMED",
+            )
         measurement_uid = payload["measurementUid"]
+        job_safety = self._request_job_safety(
+            command,
+            work_type=WORK_TYPE_BASELINE,
+            work_uid=measurement_uid,
+        )
+        if getattr(self._uart, "compatibility_mode", False):
+            return self._start_compat_baseline_command(
+                command,
+                job_safety=job_safety,
+            )
         mcu_command_uid = _new_uid()
         ctx = {
             "measurement_uid": measurement_uid,
@@ -962,48 +2143,150 @@ class WorkManager:
             "config": config,
             "phase": "MEASURING",
         }
+        if job_safety is not None:
+            ctx["job_safety"] = job_safety
         if not self._store.acquire_work_slot(
             WORK_TYPE_BASELINE,
             measurement_uid,
             payload["portNo"],
             ctx,
         ):
+            self._abandon_job_safety(
+                job_safety,
+                reason="BUSINESS_WORK_SLOT_BUSY",
+            )
             return {"acked": False, "error": "DEVICE_BUSY"}
-        result = self._uart.send_command(
+        try:
+            self._begin_job_safety(ctx)
+        except Exception:
+            self._preserve_uncertain_job_begin(ctx, measurement_uid)
+            raise
+        try:
+            start_window_ms = _remaining_execution_ms(command)
+        except ValueError:
+            return self._fail_work_before_physical_action(
+                context=ctx,
+                command=command,
+                work_uid=measurement_uid,
+                mcu_command_uid=mcu_command_uid,
+                error_code="COMMAND_EXPIRED",
+            )
+        result = self._send_physical_command(
+            ctx,
             "MEASURE_BASELINE",
             {
                 "measurementUid": measurement_uid,
                 "portNo": payload["portNo"],
                 "configVersion": config["version"],
                 "configContentSha256": config["contentSha256"],
-                "startExecutionWindowMs": _remaining_execution_ms(command),
+                "startExecutionWindowMs": start_window_ms,
                 "measurementTimeoutMs": payload["measurementTimeoutMs"],
             },
             mcu_command_uid=mcu_command_uid,
+            action_key="BASELINE:MEASURE:0",
+            action_kind="MEASURE_EMPTY_BAG_BASELINE",
+            not_after=command["expiresAt"],
         )
         ctx["phase"] = (
             "WAITING_RESULT" if result["acked"] else "RESULT_UNKNOWN"
         )
         self._store.update_work_context(measurement_uid, ctx)
+        if result.get("physicalEffect") == "NOT_EXECUTED":
+            return self._fail_work_before_physical_action(
+                context=ctx,
+                command=command,
+                work_uid=measurement_uid,
+                mcu_command_uid=mcu_command_uid,
+                error_code=str(result.get("error") or "UART_WRITE_FAILED"),
+            )
         return result
 
     def _start_compat_baseline_command(
         self,
         command: dict[str, Any],
+        *,
+        job_safety: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload = command["payload"]
-        if payload.get("emptyBagConfirmed") is not True:
-            return self._reject_command(
-                command,
-                "EMPTY_BAG_NOT_CONFIRMED",
-            )
         measurement_uid = payload["measurementUid"]
         bag_uid = payload["bagUid"]
-        query_timeout_ms = min(
-            3_000,
-            payload["measurementTimeoutMs"],
-            _remaining_execution_ms(command),
-        )
+        context: dict[str, Any] = {
+            "measurement_uid": measurement_uid,
+            "port_no": payload["portNo"],
+            "bag_uid": bag_uid,
+            "command_uid": command["commandUid"],
+            "device_name": command["targetDeviceName"],
+            "phase": "COMPAT_QUERY_STARTING",
+        }
+        if job_safety is not None:
+            context["job_safety"] = job_safety
+            if not self._store.acquire_work_slot(
+                WORK_TYPE_BASELINE,
+                measurement_uid,
+                payload["portNo"],
+                context,
+            ):
+                self._abandon_job_safety(
+                    job_safety,
+                    reason="BUSINESS_WORK_SLOT_BUSY",
+                )
+                return {"acked": False, "error": "DEVICE_BUSY"}
+        try:
+            self._begin_job_safety(context)
+        except Exception:
+            if job_safety is not None:
+                self._preserve_uncertain_job_begin(
+                    context,
+                    measurement_uid,
+                )
+            raise
+        try:
+            query_timeout_ms = min(
+                3_000,
+                payload["measurementTimeoutMs"],
+                _remaining_execution_ms(command),
+            )
+        except ValueError:
+            return self._fail_unstored_job_before_physical_action(
+                context=context,
+                command=command,
+                work_uid=measurement_uid,
+                error_code="COMMAND_EXPIRED",
+            )
+        # The synchronous fixed-frame path has no business work slot yet, so
+        # use the command's already-durable measurement UUID as its permanent
+        # physical-action identity.
+        action_uid = measurement_uid
+        try:
+            self._arm_physical_action(
+                context,
+                message_name="QUERY_FIXED_FRAME_SELF_TEST",
+                values={
+                    "measurementUid": measurement_uid,
+                    "portNo": payload["portNo"],
+                    "bagUid": bag_uid,
+                },
+                mcu_command_uid=action_uid,
+                action_key="BASELINE:FIXED_FRAME_QUERY:0",
+                action_kind="MEASURE_EMPTY_BAG_BASELINE",
+                persist_context=job_safety is not None,
+            )
+        except Exception:
+            # No UART query has happened yet.  The permanent record remains
+            # authoritative if the local response itself was uncertain.
+            raise
+        try:
+            query_timeout_ms = min(
+                query_timeout_ms,
+                _remaining_execution_ms(command),
+            )
+        except ValueError:
+            return self._fail_unstored_job_before_physical_action(
+                context=context,
+                command=command,
+                work_uid=measurement_uid,
+                error_code="COMMAND_EXPIRED",
+            )
         snapshot = self._uart.query_self_test(
             timeout_ms=query_timeout_ms,
             on_result=self._store.save_fixed_frame_self_test,
@@ -1082,6 +2365,17 @@ class WorkManager:
             "reportedWeightGrams": weight_grams if stable else None,
             "compatibilitySource": "FRESH_F0_F1_SNAPSHOT",
         }
+        completion_evidence = {
+            "measurementUid": measurement_uid,
+            "queryStatus": query_status,
+            "measurementStatus": measurement_status,
+            "weightGrams": weight_grams if stable else None,
+        }
+        self._prepare_job_safety_completion(
+            context,
+            outcome="SUCCEEDED",
+            evidence=completion_evidence,
+        )
         now = datetime.now(timezone.utc).isoformat(
             timespec="milliseconds"
         ).replace("+00:00", "Z")
@@ -1111,11 +2405,20 @@ class WorkManager:
                 if stable
                 else None
             ),
+            work_uid=measurement_uid if job_safety is not None else None,
+            work_context=context if job_safety is not None else None,
         )
         if completed not in ("ACCEPTED", "DUPLICATE"):
             raise ValueError(
                 f"fixed-frame baseline persistence {completed.lower()}"
             )
+        safety_completed = self._complete_job_safety(
+            context,
+            outcome="SUCCEEDED",
+            evidence=completion_evidence,
+        )
+        if safety_completed and job_safety is not None:
+            self._store.release_work_slot(measurement_uid)
         return {
             "acked": True,
             "completed_locally": True,
@@ -1153,7 +2456,8 @@ class WorkManager:
         }:
             return {"acked": False, "error": "STATE_CONFLICT"}
         mcu_command_uid = _new_uid()
-        result = self._uart.send_command(
+        result = self._send_physical_command(
+            ctx,
             "END_CLEAN_BEFORE_UNLOCK",
             {
                 "operationUid": slot["work_uid"],
@@ -1164,6 +2468,12 @@ class WorkManager:
                 "reason": payload["reason"],
             },
             mcu_command_uid=mcu_command_uid,
+            action_key=(
+                "CLEAN:END_BEFORE_UNLOCK:"
+                f"{ctx['recovery_generation']}"
+            ),
+            action_kind="END_CLEAN_BEFORE_UNLOCK",
+            not_after=command["expiresAt"],
         )
         if result["acked"]:
             start_command_uid = ctx.get("start_command_uid")
@@ -1177,11 +2487,29 @@ class WorkManager:
                         start_command_uid,
                         payload["reason"],
                     )
-            self._store.complete_command(
+            completion_evidence = {
+                "operationUid": slot["work_uid"],
+                "terminalAction": "END_CLEAN_BEFORE_UNLOCK",
+                "reason": payload["reason"],
+            }
+            self._prepare_job_safety_completion(
+                ctx,
+                outcome="CANCELLED",
+                evidence=completion_evidence,
+            )
+            self._store.complete_command_with_work_context(
                 command["commandUid"],
                 {"reason": payload["reason"]},
+                work_uid=slot["work_uid"],
+                work_context=ctx,
             )
-            self._store.release_work_slot(slot["work_uid"])
+            completed = self._complete_job_safety(
+                ctx,
+                outcome="CANCELLED",
+                evidence=completion_evidence,
+            )
+            if completed:
+                self._store.release_work_slot(slot["work_uid"])
         return result
 
     def resume_clean_command(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -1238,7 +2566,8 @@ class WorkManager:
         ctx["resume_command_uid"] = command["commandUid"]
         ctx["phase"] = "RESUMING_CLEAN"
         self._store.update_work_context(slot["work_uid"], ctx)
-        result = self._uart.send_command(
+        result = self._send_physical_command(
+            ctx,
             "RESUME_CLEAN_OPERATION",
             {
                 "operationUid": slot["work_uid"],
@@ -1251,6 +2580,9 @@ class WorkManager:
                 ],
             },
             mcu_command_uid=resume_uid,
+            action_key=f"CLEAN:RESUME:{requested_generation}",
+            action_kind="RESUME_CLEAN_OPERATION",
+            not_after=command["expiresAt"],
         )
         return result
 
@@ -1441,6 +2773,11 @@ class WorkManager:
 
     def start_delivery_session(self, session_uid, port_no, unit_price_ten_thousandths,
                                bag_qr_code, negative_weight_threshold_grams=500):
+        if self._job_safety.enabled:
+            # This legacy debug entry point has no signed cloud command from
+            # which to derive a permanent permit.  It must not become a side
+            # door around the stage-four job gate.
+            return {"success": False, "reason": "JOB_PERMIT_REQUIRED"}
         ctx = {"session_uid": session_uid, "port_no": port_no,
                "unit_price_ten_thousandths": unit_price_ten_thousandths,
                "bag_qr_code": bag_qr_code,
@@ -1456,6 +2793,8 @@ class WorkManager:
         return {"success": True, "session_uid": session_uid}
 
     def authorize_first_open(self, session_uid):
+        if self._job_safety.enabled:
+            return {"success": False, "reason": "LEGACY_ENTRY_DISABLED"}
         slot = self._store.get_work_slot()
         if not slot or slot["work_uid"] != session_uid:
             return {"success": False, "reason": "SESSION_NOT_ACTIVE"}
@@ -1623,6 +2962,18 @@ class WorkManager:
             infrared_blocked=payload["infraredBlocked"],
             fixed_frame=True,
         )
+        completion_evidence = {
+            "eventType": "DELIVERY_COMPLETE",
+            "workUid": work_uid,
+            "mcuBootId": payload["mcuBootId"],
+            "mcuEventSequence": payload["mcuEventSequence"],
+            "measurementUid": final_measurement["measurementUid"],
+        }
+        self._prepare_job_safety_completion(
+            ctx,
+            outcome="SUCCEEDED",
+            evidence=completion_evidence,
+        )
         # 事件发件箱、命令完成、最终观测、满溢状态变化和作业槽释放由一个
         # SQLite 事务提交。这样强杀发生在任意时刻，都不会丢结果或重复生成第二单。
         created = self._store.complete_fixed_frame_work(
@@ -1642,11 +2993,19 @@ class WorkManager:
             device_name=ctx.get("device_name") or "UNKNOWN_DEVICE",
             target_type="DELIVERY_SESSION",
             fullness_transition=fullness_transition,
+            release_work_slot=not self._job_safety.enabled,
         )
         if created not in ("ACCEPTED", "DUPLICATE"):
             raise ValueError(
                 f"fixed-frame delivery persistence {created.lower()}"
             )
+        completed = self._complete_job_safety(
+            ctx,
+            outcome="SUCCEEDED",
+            evidence=completion_evidence,
+        )
+        if completed:
+            self._store.release_work_slot(work_uid)
         logger.info(
             "fixed-frame delivery complete: %s net=%d",
             work_uid,
@@ -1743,6 +3102,18 @@ class WorkManager:
         now = datetime.now(timezone.utc).isoformat(
             timespec="milliseconds"
         ).replace("+00:00", "Z")
+        completion_evidence = {
+            "eventType": "CLEAN_COMPLETE",
+            "workUid": work_uid,
+            "mcuBootId": payload["mcuBootId"],
+            "mcuEventSequence": payload["mcuEventSequence"],
+            "measurementUid": final_measurement["measurementUid"],
+        }
+        self._prepare_job_safety_completion(
+            ctx,
+            outcome="SUCCEEDED",
+            evidence=completion_evidence,
+        )
         created = self._store.complete_fixed_frame_work(
             work_type=WORK_TYPE_CLEAN,
             work_uid=work_uid,
@@ -1789,11 +3160,19 @@ class WorkManager:
                 baseline_weight_grams=post_weight,
                 reset_for_new_bag=True,
             ),
+            release_work_slot=not self._job_safety.enabled,
         )
         if created not in ("ACCEPTED", "DUPLICATE"):
             raise ValueError(
                 f"fixed-frame clean persistence {created.lower()}"
             )
+        completed = self._complete_job_safety(
+            ctx,
+            outcome="SUCCEEDED",
+            evidence=completion_evidence,
+        )
+        if completed:
+            self._store.release_work_slot(work_uid)
         logger.info(
             "fixed-frame clean complete: %s removed=%d",
             work_uid,
@@ -1907,12 +3286,23 @@ class WorkManager:
         ):
             raise ValueError("boot reconciliation result does not match clean")
         if payload.get("status") != "ACCEPTED":
+            self._confirm_action_from_mcu_event(
+                ctx,
+                event_type="BOOT_RECONCILIATION_RESULT",
+                payload=payload,
+                outcome="FAILED_SAFE",
+            )
             ctx["phase"] = "CLEAN_RECOVERY_FAILED"
             self._store.update_work_context(work_uid, ctx)
             raise ValueError(
                 "clean resume rejected: "
                 + str(payload.get("faultCode") or "MCU_INTERNAL")
             )
+        self._confirm_action_from_mcu_event(
+            ctx,
+            event_type="BOOT_RECONCILIATION_RESULT",
+            payload=payload,
+        )
         ctx["phase"] = "CLEAN_RECOVERY_REQUIRED"
         self._store.update_work_context(work_uid, ctx)
         command_uid = ctx.get("resume_command_uid")
@@ -1941,6 +3331,20 @@ class WorkManager:
     def _on_delivery_door_command_result(self, ctx, payload, work_uid):
         if payload.get("sessionUid") != work_uid:
             raise ValueError("door command result does not match delivery")
+        output_status = payload.get("outputStatus")
+        self._confirm_action_from_mcu_event(
+            ctx,
+            event_type="DELIVERY_DOOR_COMMAND_RESULT",
+            payload=payload,
+            outcome=(
+                "EXECUTED"
+                if output_status in {
+                    "COMMAND_DISPATCHED",
+                    "COALESCED_WITH_EXISTING_CLOSE",
+                }
+                else "NOT_EXECUTED"
+            ),
+        )
         ctx["last_delivery_door_command"] = payload.get("command")
         ctx["last_delivery_door_output_status"] = payload.get(
             "outputStatus"
@@ -1972,6 +3376,11 @@ class WorkManager:
         if weight_grams is not None:
             ctx["first_weight_grams"] = weight_grams
         self._store.update_work_context(work_uid, ctx)
+        self._confirm_action_from_mcu_event(
+            ctx,
+            event_type="WORK_PREOPEN_WEIGHT_READY",
+            payload=payload,
+        )
         start_command_uid = ctx.get("start_command_uid")
         if start_command_uid:
             self._store.complete_command(
@@ -1996,19 +3405,52 @@ class WorkManager:
         ctx["authorize_mcu_command_uid"] = authorize_uid
         ctx["phase"] = "AUTHORIZING_FIRST_OPEN"
         self._store.update_work_context(work_uid, ctx)
-        result = self._uart.send_command(
+        try:
+            remaining_authorization_ms = _remaining_until(ctx["expires_at"])
+        except ValueError:
+            self._fail_active_job_at_safe_boundary(
+                context=ctx,
+                error_code="COMMAND_EXPIRED",
+                evidence={
+                    "eventType": "DELIVERY_OPEN_NOT_EXECUTED",
+                    "workUid": work_uid,
+                    "preopenMeasurementUid": measurement_uid,
+                    "reason": "COMMAND_EXPIRED",
+                },
+            )
+            return
+        result = self._send_physical_command(
+            ctx,
             "AUTHORIZE_DELIVERY_FIRST_OPEN",
             {
                 "sessionUid": work_uid,
                 "portNo": ctx["port_no"],
                 "firstPreOpenMeasurementUid": measurement_uid,
                 "parentStartCommandUid": ctx["start_mcu_command_uid"],
-                "remainingStartAuthorizationMs": _remaining_until(
-                    ctx["expires_at"]
-                ),
+                "remainingStartAuthorizationMs": remaining_authorization_ms,
             },
             mcu_command_uid=authorize_uid,
+            action_key="DELIVERY:AUTHORIZE_OPEN:0",
+            action_kind="OPEN_DELIVERY_DOOR",
+            not_after=ctx["expires_at"],
         )
+        if result.get("physicalEffect") == "NOT_EXECUTED":
+            self._fail_active_job_at_safe_boundary(
+                context=ctx,
+                error_code=str(
+                    result.get("error") or "DELIVERY_OPEN_NOT_EXECUTED"
+                ),
+                evidence={
+                    "eventType": "DELIVERY_OPEN_NOT_EXECUTED",
+                    "workUid": work_uid,
+                    "preopenMeasurementUid": measurement_uid,
+                    "reason": str(
+                        result.get("error")
+                        or "DELIVERY_OPEN_NOT_EXECUTED"
+                    ),
+                },
+            )
+            return
         ctx["phase"] = (
             "WAITING_OPEN_COMMAND_RESULT"
             if result["acked"]
@@ -2122,6 +3564,17 @@ class WorkManager:
                     ),
                 ),
             }
+            completion_evidence = {
+                "eventType": "DELIVERY_COMPLETE",
+                "workUid": work_uid,
+                "startCommandUid": ctx.get("start_command_uid"),
+                "finalMeasurementUid": ctx.get("final_measurement_uid"),
+            }
+            self._prepare_job_safety_completion(
+                ctx,
+                outcome="SUCCEEDED",
+                evidence=completion_evidence,
+            )
             self._create_reliable_event(
                 event_type="DELIVERY_COMPLETE",
                 target_type="DELIVERY_SESSION",
@@ -2156,10 +3609,34 @@ class WorkManager:
             logger.info("continue delivery round=%d", round_idx)
 
     def finalize_delivery(self, work_uid):
-        self._store.release_work_slot(work_uid)
+        slot = self._store.get_work_slot()
+        context = (
+            slot["context"]
+            if slot and slot["work_uid"] == work_uid
+            else None
+        )
+        if context is not None:
+            completed = self._complete_job_safety(
+                context,
+                outcome="SUCCEEDED",
+                evidence={
+                    "eventType": "DELIVERY_COMPLETE",
+                    "workUid": work_uid,
+                    "startCommandUid": context.get("start_command_uid"),
+                    "finalMeasurementUid": context.get(
+                        "final_measurement_uid"
+                    ),
+                },
+            )
+            if completed:
+                self._store.release_work_slot(work_uid)
+        else:
+            self._store.release_work_slot(work_uid)
         logger.info("delivery session ended: %s", work_uid)
 
     def start_clean_operation(self, operation_uid, port_no, old_bag_qr, new_bag_qr):
+        if self._job_safety.enabled:
+            return {"success": False, "reason": "JOB_PERMIT_REQUIRED"}
         ctx = {"operation_uid": operation_uid, "port_no": port_no,
                "old_bag_qr": old_bag_qr, "new_bag_qr": new_bag_qr,
                "phase": "STARTED", "action_sequence": 0,
@@ -2178,6 +3655,16 @@ class WorkManager:
             or payload.get("mcuCommandUid") != ctx.get("start_mcu_command_uid")
         ):
             raise ValueError("preunlock measurement does not match active clean")
+        # This identity-bound MCU fact proves that the START action reached
+        # the controller.  Resolve the permanent action ledger before applying
+        # the business operation-window policy; otherwise a fact arriving just
+        # after expiry would be consumed while leaving the job permanently
+        # blocked by an action that can no longer be reconciled.
+        self._confirm_action_from_mcu_event(
+            ctx,
+            event_type="WORK_PREUNLOCK_WEIGHT_READY",
+            payload=payload,
+        )
         if self._remaining_clean_window_or_recovery(ctx, work_uid) is None:
             return
         measurement_uid = payload.get("measurementUid", "")
@@ -2214,7 +3701,8 @@ class WorkManager:
         ctx["unlock_mcu_command_uid"] = unlock_uid
         ctx["phase"] = "UNLOCKING"
         self._store.update_work_context(work_uid, ctx)
-        result = self._uart.send_command(
+        result = self._send_physical_command(
+            ctx,
             "UNLOCK_CLEAN_DOOR",
             {
                 "operationUid": work_uid,
@@ -2228,7 +3716,31 @@ class WorkManager:
                 "parentCommandUid": ctx["start_mcu_command_uid"],
             },
             mcu_command_uid=unlock_uid,
+            action_key=(
+                "CLEAN:UNLOCK:"
+                f"{ctx['recovery_generation']}:"
+                f"{ctx['action_sequence']}"
+            ),
+            action_kind="UNLOCK_CLEAN_DOOR",
+            not_after=ctx["operation_deadline"],
         )
+        if result.get("physicalEffect") == "NOT_EXECUTED":
+            self._fail_active_job_at_safe_boundary(
+                context=ctx,
+                error_code=str(
+                    result.get("error") or "CLEAN_UNLOCK_NOT_EXECUTED"
+                ),
+                evidence={
+                    "eventType": "CLEAN_UNLOCK_NOT_EXECUTED",
+                    "workUid": work_uid,
+                    "preunlockMeasurementUid": measurement_uid,
+                    "reason": str(
+                        result.get("error")
+                        or "CLEAN_UNLOCK_NOT_EXECUTED"
+                    ),
+                },
+            )
+            return
         ctx["phase"] = (
             "WAITING_LOCK_OUTPUT"
             if result["acked"]
@@ -2265,7 +3777,8 @@ class WorkManager:
             ctx.get("resume_mcu_command_uid")
             or ctx["start_mcu_command_uid"]
         )
-        result = self._uart.send_command(
+        result = self._send_physical_command(
+            ctx,
             "UNLOCK_CLEAN_DOOR",
             {
                 "operationUid": work_uid,
@@ -2279,7 +3792,21 @@ class WorkManager:
                 "parentCommandUid": parent_uid,
             },
             mcu_command_uid=unlock_uid,
+            action_key=(
+                "CLEAN:UNLOCK:"
+                f"{ctx['recovery_generation']}:"
+                f"{action_sequence}"
+            ),
+            action_kind="UNLOCK_CLEAN_DOOR",
+            not_after=ctx["operation_deadline"],
         )
+        if result.get("physicalEffect") == "NOT_EXECUTED":
+            ctx["phase"] = "CLEAN_RECOVERY_REQUIRED"
+            ctx["last_recovery_reason"] = str(
+                result.get("error") or "CLEAN_REUNLOCK_NOT_EXECUTED"
+            )
+            self._store.update_work_context(work_uid, ctx)
+            return
         ctx["phase"] = (
             "WAITING_LOCK_OUTPUT"
             if result["acked"]
@@ -2306,6 +3833,17 @@ class WorkManager:
     def _on_clean_lock_power_changed(self, ctx, payload, work_uid):
         if payload.get("operationUid") != work_uid:
             raise ValueError("lock event does not match active clean")
+        self._confirm_action_from_mcu_event(
+            ctx,
+            event_type="CLEAN_LOCK_POWER_CHANGED",
+            payload=payload,
+            outcome=(
+                "EXECUTED"
+                if payload.get("lockPowerState")
+                in {"ENERGIZED", "DEENERGIZED"}
+                else "FAILED_SAFE"
+            ),
+        )
         ctx["clean_lock_power_state"] = payload.get("lockPowerState")
         ctx["clean_solenoid_health"] = payload.get("solenoidHealth")
         if payload.get("lockPowerState") == "DEENERGIZED":
@@ -2313,6 +3851,8 @@ class WorkManager:
         self._store.update_work_context(work_uid, ctx)
 
     def authorize_clean_unlock(self, operation_uid):
+        if self._job_safety.enabled:
+            return {"success": False, "reason": "LEGACY_ENTRY_DISABLED"}
         slot = self._store.get_work_slot()
         if not slot or slot["work_uid"] != operation_uid:
             return {"success": False, "reason": "OPERATION_NOT_ACTIVE"}
@@ -2325,6 +3865,25 @@ class WorkManager:
         action_seq = ctx["action_sequence"]
         ctx["phase"] = "UNLOCKING"
         self._store.update_work_context(operation_uid, ctx)
+        ledger_action_uid = _new_uid()
+        self._arm_physical_action(
+            ctx,
+            message_name="UNLOCK_CLEAN_DOOR_LEGACY",
+            values={
+                "operationUid": operation_uid,
+                "portNo": port_no,
+                "actionSequence": action_seq,
+                "preunlockMeasurementUid": ctx[
+                    "preunlock_measurement_uid"
+                ],
+            },
+            mcu_command_uid=ledger_action_uid,
+            action_key=(
+                "CLEAN:LEGACY_UNLOCK:"
+                f"{ctx.get('recovery_generation', 0)}:{action_seq}"
+            ),
+            action_kind="UNLOCK_CLEAN_DOOR",
+        )
         result = self._uart.send_unlock_clean_door(
             operation_uid=operation_uid, port_no=port_no,
             action_sequence=action_seq,
@@ -2424,6 +3983,17 @@ class WorkManager:
                 ),
             ),
         }
+        completion_evidence = {
+            "eventType": "CLEAN_COMPLETE",
+            "workUid": work_uid,
+            "startCommandUid": ctx.get("start_command_uid"),
+            "finalMeasurementUid": ctx.get("final_measurement_uid"),
+        }
+        self._prepare_job_safety_completion(
+            ctx,
+            outcome="SUCCEEDED",
+            evidence=completion_evidence,
+        )
         self._create_reliable_event(
             event_type="CLEAN_COMPLETE",
             target_type="CLEAN_OPERATION",
@@ -2453,7 +4023,29 @@ class WorkManager:
         logger.info("clean complete: %s", ctx["operation_uid"])
 
     def finalize_clean(self, work_uid):
-        self._store.release_work_slot(work_uid)
+        slot = self._store.get_work_slot()
+        context = (
+            slot["context"]
+            if slot and slot["work_uid"] == work_uid
+            else None
+        )
+        if context is not None:
+            completed = self._complete_job_safety(
+                context,
+                outcome="SUCCEEDED",
+                evidence={
+                    "eventType": "CLEAN_COMPLETE",
+                    "workUid": work_uid,
+                    "startCommandUid": context.get("start_command_uid"),
+                    "finalMeasurementUid": context.get(
+                        "final_measurement_uid"
+                    ),
+                },
+            )
+            if completed:
+                self._store.release_work_slot(work_uid)
+        else:
+            self._store.release_work_slot(work_uid)
         logger.info("clean operation ended: %s", work_uid)
 
     def _on_fullness_sample_result(self, ctx, payload, work_uid):
@@ -2482,6 +4074,17 @@ class WorkManager:
             "totalWeightMeasurement": _measurement_fact(payload),
             "frozenConfig": _frozen_config(ctx["payload"]["config"]),
         }
+        completion_evidence = {
+            "eventType": "FULLNESS_SAMPLE_COMPLETE",
+            "workUid": work_uid,
+            "mcuBootId": payload.get("mcuBootId"),
+            "mcuEventSequence": payload.get("mcuEventSequence"),
+        }
+        self._prepare_job_safety_completion(
+            ctx,
+            outcome="SUCCEEDED",
+            evidence=completion_evidence,
+        )
         self._store.complete_command(
             ctx["command_uid"],
             {
@@ -2502,7 +4105,13 @@ class WorkManager:
             work_uid=work_uid,
             work_state_update={"state": "COMPLETED", "context": ctx},
         )
-        self._store.release_work_slot(work_uid)
+        completed = self._complete_job_safety(
+            ctx,
+            outcome="SUCCEEDED",
+            evidence=completion_evidence,
+        )
+        if completed:
+            self._store.release_work_slot(work_uid)
 
     def _on_baseline_measurement_result(self, ctx, payload, work_uid):
         if (
@@ -2518,6 +4127,17 @@ class WorkManager:
             "totalWeightMeasurement": _measurement_fact(payload),
             "frozenConfig": _frozen_config(ctx["config"]),
         }
+        completion_evidence = {
+            "eventType": "BASELINE_MEASUREMENT_COMPLETE",
+            "workUid": work_uid,
+            "mcuBootId": payload.get("mcuBootId"),
+            "mcuEventSequence": payload.get("mcuEventSequence"),
+        }
+        self._prepare_job_safety_completion(
+            ctx,
+            outcome="SUCCEEDED",
+            evidence=completion_evidence,
+        )
         self._store.complete_command(
             ctx["command_uid"],
             {
@@ -2534,4 +4154,10 @@ class WorkManager:
             work_uid=work_uid,
             work_state_update={"state": "COMPLETED", "context": ctx},
         )
-        self._store.release_work_slot(work_uid)
+        completed = self._complete_job_safety(
+            ctx,
+            outcome="SUCCEEDED",
+            evidence=completion_evidence,
+        )
+        if completed:
+            self._store.release_work_slot(work_uid)

@@ -189,11 +189,20 @@ def boot_sequence(
                 uart_link,
                 snapshot_begin,
             )
-            _reconcile_mcu_boot_work(
-                store,
-                uart_link,
-                snapshot_begin,
-            )
+            if (
+                restart_result["outcome"]
+                != "JOB_SAFETY_RECONCILIATION_REQUIRED"
+            ):
+                _reconcile_mcu_boot_work(
+                    store,
+                    uart_link,
+                    snapshot_begin,
+                )
+            else:
+                logger.critical(
+                    "BOOT: retained permanent job safety context; "
+                    "not confirming an empty MCU work state"
+                )
         except Exception as error:
             logger.error("BOOT: MCU recovery failed: %s", error)
             store.record_fault(
@@ -393,7 +402,16 @@ def recover_after_online_mcu_hello(store, uart_link, hello_frame):
             uart_link,
             snapshot_begin,
         )
-        _reconcile_mcu_boot_work(store, uart_link, snapshot_begin)
+        if (
+            restart_result["outcome"]
+            != "JOB_SAFETY_RECONCILIATION_REQUIRED"
+        ):
+            _reconcile_mcu_boot_work(store, uart_link, snapshot_begin)
+        else:
+            logger.critical(
+                "MCU restart retained permanent job safety context; "
+                "not confirming an empty MCU work state"
+            )
     else:
         slot = store.get_work_slot()
         active_work = _extract_active_work(snapshots)

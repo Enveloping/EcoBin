@@ -1,5 +1,7 @@
 [Unit]
 Description=EcoBin on-demand MCU flash helper socket
+Requires=ecobin-mcu-safe-gpio.service
+After=ecobin-mcu-safe-gpio.service
 
 [Socket]
 ListenStream=/run/ecobin/privileged/mcu-flash.sock

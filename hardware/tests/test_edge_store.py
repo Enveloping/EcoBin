@@ -1851,6 +1851,37 @@ class TestWorkSlotOperations:
         ]
         store.close()
 
+    def test_restart_never_clears_permanent_job_reconciliation_context(self):
+        store = make_store()
+        work_uid = "20000000-0000-4000-8000-000000000002"
+        store.acquire_work_slot(
+            WORK_TYPE_DELIVERY,
+            work_uid,
+            1,
+            {
+                "job_safety": {
+                    "permit_uid": (
+                        "10000000-0000-4000-8000-000000000002"
+                    ),
+                    "pending_completion": {
+                        "outcome": "SUCCEEDED",
+                        "evidence_sha256": "a" * 64,
+                        "physical_outcome": None,
+                    },
+                }
+            },
+        )
+
+        result = store.abort_interrupted_work()
+
+        assert result == {
+            "outcome": "JOB_SAFETY_RECONCILIATION_REQUIRED",
+            "work_type": WORK_TYPE_DELIVERY,
+            "work_uid": work_uid,
+        }
+        assert store.get_work_slot()["work_uid"] == work_uid
+        store.close()
+
     def test_clean_expiry_recovery_rolls_back_on_observation_conflict(self):
         store = make_store()
         command_uid = str(uuid.uuid4())

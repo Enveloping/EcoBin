@@ -517,6 +517,7 @@ class ImageToolingTest(unittest.TestCase):
         self.assertIn("device_management_preflight.py", builder)
         self.assertIn("business_activation_primitives.py", builder)
         self.assertIn("mcu_flash_primitives.py", builder)
+        self.assertIn("mcu_flash_recovery.py", builder)
         self.assertIn("--communication-agent-release-id", launcher)
         self.assertIn("--device-updater-release-id", launcher)
 

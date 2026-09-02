@@ -101,3 +101,31 @@ def test_delivery_physical_admission_is_enforced_locally(
 
     assert result == {"acked": False, "error": expected}
     assert store.observations == [("REJECTED", expected)]
+
+
+def test_candidate_job_gate_disables_all_legacy_debug_entry_points():
+    class EnabledSafety:
+        enabled = True
+
+    manager = WorkManager(
+        object(),
+        object(),
+        None,
+        None,
+        job_safety=EnabledSafety(),
+    )
+
+    assert manager.start_delivery_session(
+        "session", 1, 25_000, "bag"
+    ) == {"success": False, "reason": "JOB_PERMIT_REQUIRED"}
+    assert manager.start_clean_operation(
+        "operation", 1, "old", "new"
+    ) == {"success": False, "reason": "JOB_PERMIT_REQUIRED"}
+    assert manager.authorize_first_open("session") == {
+        "success": False,
+        "reason": "LEGACY_ENTRY_DISABLED",
+    }
+    assert manager.authorize_clean_unlock("operation") == {
+        "success": False,
+        "reason": "LEGACY_ENTRY_DISABLED",
+    }

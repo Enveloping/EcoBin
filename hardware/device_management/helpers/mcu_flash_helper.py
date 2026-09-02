@@ -22,7 +22,7 @@ POLICY = HelperPolicy(
         "flashBinary": "/usr/bin/stm32flash",
         "firmwareRoot": "/var/lib/ecobin/updater/mcu-firmware",
     },
-    primitive_actions=("FLASH_MCU_FIRMWARE",),
+    primitive_actions=("FLASH_MCU_FIRMWARE", "RECOVER_MCU_APPLICATION"),
 )
 
 
@@ -31,7 +31,11 @@ def build_actions(updater_uid: int) -> dict[str, HelperAction]:
     return {
         "FLASH_MCU_FIRMWARE": HelperAction(
             primitives.flash,
-            frozenset({"updateUid", "source"}),
+            frozenset({"updateUid", "actionUid", "source"}),
+        ),
+        "RECOVER_MCU_APPLICATION": HelperAction(
+            primitives.recover_application,
+            frozenset({"updateUid", "actionUid"}),
         ),
     }
 

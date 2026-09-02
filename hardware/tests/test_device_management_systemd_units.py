@@ -95,6 +95,8 @@ def test_silent_permanent_units_are_local_only_and_independently_sandboxed() -> 
     assert "--allowed-user ecobin-business" in updater
     assert "--socket-group ecobin-communication-ipc" in communication
     assert "--socket-group ecobin-updater-ipc" in updater
+    assert "--enable-stage4-candidate" not in updater
+    assert "ECOBIN_STAGE4_JOB_GATE_MODE" not in updater
     assert "ecobin-privileged-helper-ipc" not in communication
     assert (
         "SupplementaryGroups=ecobin-communication-ipc "
@@ -123,6 +125,8 @@ def test_silent_permanent_units_are_local_only_and_independently_sandboxed() -> 
     assert "StateDirectory=ecobin/updater" in updater
     assert "RuntimeDirectory=ecobin/updater" in updater
     assert "ReadOnlyPaths=/usr/share/ecobin/runtime-release-keys" in updater
+    assert "Requires=ecobin-mcu-safe-gpio.service" in updater
+    assert "After=local-fs.target ecobin-mcu-safe-gpio.service" in updater
     assert "ecobin-hardware.service" not in communication + updater
 
 

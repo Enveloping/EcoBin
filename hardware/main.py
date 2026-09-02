@@ -55,6 +55,7 @@ from device_identity import DeviceIdentity
 from direct_onenet_transport import DirectOneNetTransport
 from photo_manager import PhotoManager
 from work_manager import WorkManager
+from job_safety import JobSafetyError, build_job_safety_from_environment
 from command_processor import CommandProcessor
 from device_acceptance import DeviceAcceptanceRunner
 from edge_boot import boot_sequence, recover_after_online_mcu_hello
@@ -129,6 +130,21 @@ def _is_mcu_package_retry_wait(update: dict | None) -> bool:
     )
 
 
+def _require_stage4_mcu_update_boundary(
+    job_safety,
+    *,
+    legacy_mcu_update_enabled: bool,
+) -> None:
+    """Never combine the permanent job gate with the old root MCU updater."""
+
+    if job_safety.enabled and legacy_mcu_update_enabled:
+        raise RuntimeError(
+            "stage-four job safety cannot run with the legacy business-owned "
+            "MCU updater; MCU update orchestration has not moved to the "
+            "permanent updater"
+        )
+
+
 class EcoBinEdge:
     """EcoBin 香橙派边缘网关 v2。"""
 
@@ -153,6 +169,15 @@ class EcoBinEdge:
         )
 
         config_validate()
+        # Stage-four wiring is installed as a default-off candidate.  When a
+        # controlled HIL run explicitly enables it, every new physical job
+        # must obtain a permit from the independent updater; an unreadable or
+        # still-LOCKED updater therefore fails closed before UART activity.
+        self.job_safety = build_job_safety_from_environment()
+        _require_stage4_mcu_update_boundary(
+            self.job_safety,
+            legacy_mcu_update_enabled=MCU_UPDATE_ENABLED,
+        )
         self.device_identity = DeviceIdentity(DEVICE_NAME)
         # -- EdgeStore (SQLite) --
         self.store = EdgeStore(EDGE_STORE_PATH)
@@ -223,6 +248,7 @@ class EcoBinEdge:
             self.uart,
             self.device_identity,
             self.photo,
+            job_safety=self.job_safety,
         )
         self.acceptance = DeviceAcceptanceRunner(
             self.store,
@@ -622,6 +648,22 @@ class EcoBinEdge:
         recovered = self.store.recover_interrupted_commands()
         if any(recovered.values()):
             logger.warning("Recovered interrupted commands: %s", recovered)
+        if self.work.reconcile_pending_job_safety_completion():
+            logger.info(
+                "reconciled a pending permanent job completion before ready"
+            )
+        if self.work.reconcile_pre_action_job_safety_failure():
+            logger.info(
+                "closed an interrupted job that had no physical action"
+            )
+        reconciled_orphans = (
+            self.work.reconcile_orphan_granted_job_permits()
+        )
+        if reconciled_orphans:
+            logger.info(
+                "reconciled %d grant(s) created before a business slot",
+                reconciled_orphans,
+            )
 
         # Type=notify only becomes active after all persistent state recovery
         # and boot safety gates have completed.  A maintenance-locked updater
@@ -770,6 +812,14 @@ class EcoBinEdge:
                         continue
                 if self.work.expire_fixed_frame_work():
                     progressed = True
+                if self.work.reconcile_pending_physical_action_confirmations():
+                    progressed = True
+                if self.work.reconcile_pending_job_safety_completion():
+                    progressed = True
+                if self.work.reconcile_pre_action_job_safety_failure():
+                    progressed = True
+                if self.work.reconcile_orphan_granted_job_permits():
+                    progressed = True
                 if self._poll_remote_support_status():
                     progressed = True
                 for event in self.store.list_pending_mcu_events(limit=20):
@@ -781,6 +831,34 @@ class EcoBinEdge:
                             event["mcu_receive_generation"],
                         )
                         progressed = True
+                    except JobSafetyError as error:
+                        if error.code == "JOB_GATE_UNAVAILABLE":
+                            # The MCU fact is already durable and the action
+                            # receipt uses a stable identity.  Keep this inbox
+                            # row PENDING so a lost updater response or a brief
+                            # socket outage is retried; marking it FAILED would
+                            # strand an otherwise valid physical result forever.
+                            logger.warning(
+                                "permanent action confirmation unavailable; "
+                                "MCU event remains pending: boot=%d seq=%d",
+                                event["mcu_boot_id"],
+                                event["mcu_event_sequence"],
+                            )
+                            break
+                        self.store.mark_mcu_event_failed(
+                            event["mcu_boot_id"],
+                            event["mcu_event_sequence"],
+                            str(error),
+                            event["mcu_receive_generation"],
+                        )
+                        logger.error(
+                            "MCU event job-safety validation failed: "
+                            "boot=%d seq=%d: %s",
+                            event["mcu_boot_id"],
+                            event["mcu_event_sequence"],
+                            error,
+                        )
+                        break
                     except Exception as error:
                         self.store.mark_mcu_event_failed(
                             event["mcu_boot_id"],

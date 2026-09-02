@@ -13,6 +13,12 @@ from edge_store import (
     FACTORY_SEAL_TERMINAL_ERROR_CODES,
 )
 from factory_seal.errors import FactorySealError
+from job_safety import (
+    JobPermit,
+    JobSafetyError,
+    PermanentJobSafety,
+)
+from local_control import LocalControlRemoteError
 from onenet_wire import (
     canonical_payload_sha256,
     decode_service_command,
@@ -20,6 +26,7 @@ from onenet_wire import (
 )
 from uart_link import compute_mcu_payload_sha256
 from work_manager import WorkManager, _remaining_operation_window_ms
+from updater_store import UpdaterStore, UpdaterStoreError
 
 
 class FakeUart:
@@ -59,6 +66,134 @@ class FakeUart:
             "mcu_command_uid": mcu_command_uid,
             "disposition": "ACCEPTED",
         }
+
+
+class FakeJobSafety:
+    enabled = True
+
+    def __init__(
+        self,
+        trace,
+        store,
+        *,
+        request_error=None,
+        begin_errors=None,
+        authorize_errors=None,
+        complete_errors=None,
+    ):
+        self.trace = trace
+        self.store = store
+        self.request_error = request_error
+        self.begin_errors = list(begin_errors or [])
+        self.authorize_errors = list(authorize_errors or [])
+        self.complete_errors = list(complete_errors or [])
+        self.confirmation_digests = []
+        self.completion_digests = []
+
+    @staticmethod
+    def new_uid():
+        return str(uuid.uuid4())
+
+    def request_job(self, command, *, work_type, work_uid):
+        self.trace.append(("safety", "request"))
+        if self.request_error is not None:
+            raise self.request_error
+        return JobPermit(
+            permit_uid=self.new_uid(),
+            work_uid=work_uid,
+            command_uid=command["commandUid"],
+            work_type=work_type,
+            request_digest_sha256="a" * 64,
+        )
+
+    def begin_job(self, permit, *, begin_uid, digest):
+        del permit, begin_uid, digest
+        assert self.store.get_work_slot() is not None
+        self.trace.append(("safety", "begin"))
+        if self.begin_errors:
+            raise self.begin_errors.pop(0)
+
+    def abandon_job(self, permit, *, disposition_uid, evidence_sha256):
+        del permit, disposition_uid, evidence_sha256
+        self.trace.append(("safety", "abandon"))
+
+    def authorize_physical_action(self, permit, *, action):
+        del permit
+        slot = self.store.get_work_slot()
+        if slot is not None:
+            assert action.action_key in slot["context"]["job_safety"]["actions"]
+        self.trace.append(("safety", "arm"))
+        if self.authorize_errors:
+            raise self.authorize_errors.pop(0)
+
+    def get_physical_action(self, action_uid):
+        self.trace.append(("safety", "get_action"))
+        return {
+            "actionUid": action_uid,
+            "state": "MAY_HAVE_EXECUTED",
+            "confirmedOutcome": None,
+        }
+
+    def confirm_physical_action(self, action, *, outcome, evidence_sha256):
+        del action, outcome
+        self.confirmation_digests.append(evidence_sha256)
+        self.trace.append(("safety", "confirm"))
+
+    def complete_job(
+        self,
+        permit,
+        *,
+        completion_uid,
+        outcome,
+        completion_digest_sha256,
+    ):
+        del permit, completion_uid, outcome
+        self.completion_digests.append(completion_digest_sha256)
+        self.trace.append(("safety", "complete"))
+        if self.complete_errors:
+            raise self.complete_errors.pop(0)
+
+
+class StoreBackedUpdaterClient:
+    """Exercise the real permanent ledger without a platform Unix socket."""
+
+    def __init__(self, store):
+        self.store = store
+
+    def request(self, action, payload):
+        operations = {
+            "REQUEST_JOB_PERMIT": self.store.request_job_permit,
+            "BEGIN_JOB": self.store.begin_job,
+            "GET_JOB_PERMIT": self.store.get_job_permit,
+            "ABANDON_JOB_PERMIT": self.store.abandon_job_permit,
+            "AUTHORIZE_PHYSICAL_ACTION": (
+                self.store.authorize_physical_action
+            ),
+            "GET_PHYSICAL_ACTION": self.store.get_physical_action,
+            "CONFIRM_PHYSICAL_ACTION": (
+                self.store.confirm_physical_action
+            ),
+            "COMPLETE_JOB": self.store.complete_job,
+        }
+        try:
+            return operations[action](payload)
+        except UpdaterStoreError as error:
+            raise LocalControlRemoteError(
+                error.code,
+                str(error),
+                "00000000-0000-4000-8000-000000000001",
+            ) from error
+
+
+def make_real_job_safety(tmp_path):
+    updater = UpdaterStore(
+        tmp_path / "updater.db",
+        release_version="stage4-test",
+        enable_stage4_candidate=True,
+    )
+    updater.initialize()
+    updater.transition_job_gate("OPEN")
+    return updater, PermanentJobSafety(StoreBackedUpdaterClient(updater))
 
 
 class FakeCompatUart(FakeUart):
@@ -911,6 +1046,654 @@ def test_start_delivery_is_persisted_before_waiting_for_mcu_result(tmp_path):
     assert command_uid == inbox["mcu_command_uid"]
     assert values["deliveryAutoCloseMs"] == 120000
     assert values["startExecutionWindowMs"] > 0
+    store.close()
+
+
+def test_candidate_permit_and_action_are_durable_before_delivery_uart(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    store.set_state("applied_config_version", "8")
+    store.set_state("applied_config_content_sha256", "a" * 64)
+    trace = []
+    uart = FakeUart(trace=trace)
+    safety = FakeJobSafety(trace, store)
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    processor = CommandProcessor(store, uart, work)
+    command = valid_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(command["commandUid"], command["commandType"], command)
+
+    assert processor.process_next()
+
+    safety_and_uart = [
+        entry
+        for entry in trace
+        if entry[0] in {"safety", "uart"}
+    ]
+    assert safety_and_uart == [
+        ("safety", "request"),
+        ("safety", "begin"),
+        ("safety", "arm"),
+        ("uart", "START_DELIVERY_SESSION"),
+    ]
+    slot = store.get_work_slot()
+    assert slot is not None
+    assert "DELIVERY:START:0" in slot["context"]["job_safety"]["actions"]
+    store.close()
+
+
+def test_real_permanent_ledger_allows_delivery_only_after_prior_mcu_fact(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    store.set_state("applied_config_version", "8")
+    store.set_state("applied_config_content_sha256", "a" * 64)
+    updater, safety = make_real_job_safety(tmp_path)
+    uart = FakeUart()
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    command = valid_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+
+    assert work.start_delivery_command(command)["acked"] is True
+    session_uid = command["payload"]["sessionUid"]
+    start_uid = uart.calls[-1][2]
+    preopen_uid = "52000000-0000-4000-8000-000000000091"
+    work.handle_mcu_event(
+        {
+            "message_name": "WORK_PREOPEN_WEIGHT_READY",
+            "payload": {
+                "mcuBootId": 42,
+                "mcuEventSequence": 1,
+                "uptimeMs": 1_000,
+                "mcuCommandUid": start_uid,
+                "sessionUid": session_uid,
+                "portNo": command["payload"]["portNo"],
+                "roundIndex": 0,
+                "measurementUid": preopen_uid,
+                "measurementStatus": "STABLE",
+                "weightValuePresent": True,
+                "reportedWeightGrams": 1_000,
+                "weightValueKind": "STABLE_WINDOW_MEAN",
+                "measurementElapsedMs": 1_000,
+                "sampleCount": 10,
+                "calibrationVersion": 1,
+                "weightSensorHealth": "OK",
+                "faultCode": "NONE",
+            },
+        }
+    )
+    authorize_uid = uart.calls[-1][2]
+    assert uart.calls[-1][0] == "AUTHORIZE_DELIVERY_FIRST_OPEN"
+    assert updater.get_status()["unreconciledPhysicalActionCount"] == 1
+
+    work.handle_mcu_event(
+        {
+            "message_name": "DELIVERY_DOOR_COMMAND_RESULT",
+            "payload": {
+                "mcuBootId": 42,
+                "mcuEventSequence": 2,
+                "uptimeMs": 2_000,
+                "mcuCommandUid": authorize_uid,
+                "sessionUid": session_uid,
+                "portNo": command["payload"]["portNo"],
+                "roundIndex": 0,
+                "command": "OPEN",
+                "outputStatus": "COMMAND_DISPATCHED",
+                "physicalDoorStateBasis": "NOT_OBSERVABLE",
+                "faultCode": "NONE",
+            },
+        }
+    )
+    assert updater.get_status()["unreconciledPhysicalActionCount"] == 0
+
+    post_uid = "52000000-0000-4000-8000-000000000092"
+    work.handle_mcu_event(
+        {
+            "message_name": "WORK_POSTCLOSE_WEIGHT_READY",
+            "payload": {
+                "mcuBootId": 42,
+                "mcuEventSequence": 3,
+                "uptimeMs": 3_000,
+                "mcuCommandUid": authorize_uid,
+                "sessionUid": session_uid,
+                "portNo": command["payload"]["portNo"],
+                "roundIndex": 1,
+                "measurementUid": post_uid,
+                "measurementStatus": "STABLE",
+                "weightValuePresent": True,
+                "reportedWeightGrams": 1_500,
+                "weightValueKind": "STABLE_WINDOW_MEAN",
+                "measurementElapsedMs": 1_000,
+                "sampleCount": 10,
+                "calibrationVersion": 1,
+                "weightSensorHealth": "OK",
+                "faultCode": "NONE",
+            },
+        }
+    )
+    work.handle_mcu_event(
+        {
+            "message_name": "DELIVERY_SELECTION",
+            "payload": {
+                "sessionUid": session_uid,
+                "portNo": command["payload"]["portNo"],
+                "roundIndex": 1,
+                "postCloseMeasurementUid": post_uid,
+                "selection": "END",
+            },
+        }
+    )
+    work.finalize_delivery(session_uid)
+
+    status = updater.get_status()
+    assert status["activeJobPermitCount"] == 0
+    assert status["unreconciledPhysicalActionCount"] == 0
+    assert status["jobGateState"] == "OPEN"
+    assert store.get_work_slot() is None
+    updater.close()
+    store.close()
+
+
+def test_real_permanent_ledger_clean_flow_confirms_each_physical_action(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    updater, safety = make_real_job_safety(tmp_path)
+    uart = FakeUart()
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    command = valid_service_command(
+        "start-clean-operation.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"], command["commandType"], command
+    )
+    assert work.start_clean_command(command)["acked"] is True
+    operation_uid = command["payload"]["operationUid"]
+    port_no = command["payload"]["portNo"]
+    start_uid = uart.calls[-1][2]
+    preunlock_uid = "53000000-0000-4000-8000-000000000091"
+
+    work.handle_mcu_event(
+        {
+            "message_name": "WORK_PREUNLOCK_WEIGHT_READY",
+            "payload": {
+                "mcuBootId": 42,
+                "mcuEventSequence": 1,
+                "uptimeMs": 1_000,
+                "mcuCommandUid": start_uid,
+                "operationUid": operation_uid,
+                "portNo": port_no,
+                "measurementUid": preunlock_uid,
+                "measurementStatus": "STABLE",
+                "weightValuePresent": True,
+                "reportedWeightGrams": 50_000,
+                "weightValueKind": "STABLE_WINDOW_MEAN",
+                "measurementElapsedMs": 1_000,
+                "sampleCount": 10,
+                "calibrationVersion": 1,
+                "weightSensorHealth": "OK",
+                "faultCode": "NONE",
+            },
+        }
+    )
+    unlock_uid = uart.calls[-1][2]
+    assert uart.calls[-1][0] == "UNLOCK_CLEAN_DOOR"
+    assert updater.get_status()["unreconciledPhysicalActionCount"] == 1
+
+    work.handle_mcu_event(
+        {
+            "message_name": "CLEAN_LOCK_POWER_CHANGED",
+            "payload": {
+                "mcuBootId": 42,
+                "mcuEventSequence": 2,
+                "uptimeMs": 2_000,
+                "mcuCommandUid": unlock_uid,
+                "operationUid": operation_uid,
+                "portNo": port_no,
+                "cleanActionSequence": 0,
+                "lockPowerState": "ENERGIZED",
+                "solenoidHealth": "OK",
+                "faultCode": "NONE",
+            },
+        }
+    )
+    assert updater.get_status()["unreconciledPhysicalActionCount"] == 0
+
+    work.handle_mcu_event(
+        {
+            "message_name": "CLEAN_FINISH_REQUESTED",
+            "payload": {
+                "mcuBootId": 42,
+                "mcuEventSequence": 3,
+                "uptimeMs": 3_000,
+                "operationUid": operation_uid,
+                "portNo": port_no,
+                "cleanActionSequence": 1,
+            },
+        }
+    )
+    final_uid = "54000000-0000-4000-8000-000000000091"
+    work.handle_mcu_event(
+        {
+            "message_name": "CLEAN_FINAL_WEIGHT_READY",
+            "payload": {
+                "mcuBootId": 42,
+                "mcuEventSequence": 4,
+                "uptimeMs": 4_000,
+                "operationUid": operation_uid,
+                "portNo": port_no,
+                "cleanActionSequence": 1,
+                "measurementUid": final_uid,
+                "measurementStatus": "STABLE",
+                "weightValuePresent": True,
+                "reportedWeightGrams": 2_000,
+                "weightValueKind": "STABLE_WINDOW_MEAN",
+                "measurementElapsedMs": 1_000,
+                "sampleCount": 10,
+                "calibrationVersion": 1,
+                "weightSensorHealth": "OK",
+                "faultCode": "NONE",
+            },
+        }
+    )
+    work.handle_mcu_event(
+        {
+            "message_name": "CLEAN_COMPLETION_CONFIRMED",
+            "payload": {
+                "mcuBootId": 42,
+                "mcuEventSequence": 5,
+                "uptimeMs": 5_000,
+                "operationUid": operation_uid,
+                "portNo": port_no,
+                "cleanActionSequence": 1,
+                "finalMeasurementUid": final_uid,
+                "lockPowerState": "DEENERGIZED",
+                "solenoidHealth": "OK",
+                "cleanDoorStateBasis": "CLEANER_CONFIRMATION",
+                "cleanerPhysicalCloseConfirmed": True,
+            },
+        }
+    )
+    work.finalize_clean(operation_uid)
+
+    status = updater.get_status()
+    assert status["activeJobPermitCount"] == 0
+    assert status["unreconciledPhysicalActionCount"] == 0
+    assert status["jobGateState"] == "OPEN"
+    assert store.get_work_slot() is None
+    updater.close()
+    store.close()
+
+
+def test_expired_clean_preunlock_fact_resolves_permanent_start_action(
+    tmp_path,
+    monkeypatch,
+):
+    ticks = {"milliseconds": 1_000}
+    monkeypatch.setattr(
+        "work_manager.local_deadline_reference",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "work_manager._monotonic_ms",
+        lambda: ticks["milliseconds"],
+        raising=False,
+    )
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    updater, safety = make_real_job_safety(tmp_path)
+    uart = FakeUart()
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    command = valid_service_command(
+        "start-clean-operation.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"], command["commandType"], command
+    )
+    assert work.start_clean_command(command)["acked"] is True
+    operation_uid = command["payload"]["operationUid"]
+    start_uid = uart.calls[-1][2]
+    assert updater.get_status()["unreconciledPhysicalActionCount"] == 1
+
+    ticks["milliseconds"] += command["payload"]["operationWindowMs"] + 1
+    work.handle_mcu_event(
+        {
+            "message_name": "WORK_PREUNLOCK_WEIGHT_READY",
+            "payload": {
+                "mcuBootId": 42,
+                "mcuEventSequence": 1,
+                "uptimeMs": 1_801_001,
+                "mcuCommandUid": start_uid,
+                "operationUid": operation_uid,
+                "portNo": command["payload"]["portNo"],
+                "measurementUid": (
+                    "53000000-0000-4000-8000-000000000099"
+                ),
+                "measurementStatus": "STABLE",
+                "weightValuePresent": True,
+                "reportedWeightGrams": 50_000,
+                "weightValueKind": "STABLE_WINDOW_MEAN",
+                "measurementElapsedMs": 1_000,
+                "sampleCount": 10,
+                "calibrationVersion": 1,
+                "weightSensorHealth": "OK",
+                "faultCode": "NONE",
+            },
+        }
+    )
+
+    status = updater.get_status()
+    assert status["unreconciledPhysicalActionCount"] == 0
+    assert status["reconciliationRequired"] is False
+    slot = store.get_work_slot()
+    assert slot["work_uid"] == operation_uid
+    assert slot["work_state"] == "RECOVERY_REQUIRED"
+    assert slot["context"]["phase"] == "CLEAN_RECOVERY_REQUIRED"
+    assert slot["context"]["recovery_error_code"] == "COMMAND_EXPIRED"
+    assert [call[0] for call in uart.calls] == ["START_CLEAN_OPERATION"]
+    updater.close()
+    store.close()
+
+
+def test_restart_reconciles_grant_committed_before_business_slot(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    updater, safety = make_real_job_safety(tmp_path)
+    work = WorkManager(
+        store,
+        FakeUart(),
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    command = valid_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(command["commandUid"], command["commandType"], command)
+    assert store.claim_next_command() is not None
+    safety.request_job(
+        command,
+        work_type="DELIVERY",
+        work_uid=command["payload"]["sessionUid"],
+    )
+
+    recovered = store.recover_interrupted_commands()
+    assert recovered["physical_failed"] == 1
+    assert store.get_work_slot() is None
+    assert updater.get_status()["activeJobPermitCount"] == 1
+
+    assert work.reconcile_orphan_granted_job_permits() == 1
+    assert updater.get_status()["activeJobPermitCount"] == 0
+    assert updater.get_status()["jobGateState"] == "OPEN"
+    assert store.get_command(command["commandUid"])["last_error"] == (
+        "EDGE_RESTARTED_BEFORE_PHYSICAL_START"
+    )
+    updater.close()
+    store.close()
+
+
+def test_unavailable_permanent_job_gate_fails_before_slot_or_uart(tmp_path):
+    store = make_store(tmp_path)
+    store.set_state("applied_config_version", "8")
+    store.set_state("applied_config_content_sha256", "a" * 64)
+    trace = []
+    uart = FakeUart(trace=trace)
+    safety = FakeJobSafety(
+        trace,
+        store,
+        request_error=JobSafetyError(
+            "JOB_GATE_UNAVAILABLE",
+            "updater is unavailable",
+        ),
+    )
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    processor = CommandProcessor(store, uart, work)
+    command = valid_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(command["commandUid"], command["commandType"], command)
+
+    assert processor.process_next() is False
+
+    assert trace == [("safety", "request")]
+    assert store.get_work_slot() is None
+    pending = store.get_command(command["commandUid"])
+    assert pending["state"] == "PENDING"
+    assert pending["last_error"] == "JOB_GATE_UNAVAILABLE"
+    store.close()
+
+
+def test_uncertain_begin_retains_slot_then_closes_known_zero_effect_job(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    store.set_state("applied_config_version", "8")
+    store.set_state("applied_config_content_sha256", "a" * 64)
+    trace = []
+    safety = FakeJobSafety(
+        trace,
+        store,
+        begin_errors=[
+            JobSafetyError(
+                "JOB_GATE_UNAVAILABLE",
+                "begin response was lost",
+            )
+        ],
+    )
+    uart = FakeUart(trace=trace)
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    processor = CommandProcessor(store, uart, work)
+    command = valid_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(command["commandUid"], command["commandType"], command)
+
+    assert processor.process_next()
+    retained = store.get_work_slot()
+    assert retained is not None
+    assert retained["context"]["job_safety"]["begin_result"] == "UNKNOWN"
+    assert store.get_command(command["commandUid"])["state"] == (
+        "RECOVERY_REQUIRED"
+    )
+    assert uart.calls == []
+
+    assert work.reconcile_pre_action_job_safety_failure() is True
+    assert store.get_work_slot() is None
+    assert store.get_command(command["commandUid"])["state"] == "FAILED"
+    assert [entry for entry in trace if entry[0] == "safety"] == [
+        ("safety", "request"),
+        ("safety", "begin"),
+        ("safety", "begin"),
+        ("safety", "complete"),
+    ]
+    store.close()
+
+
+def test_uncertain_action_authorization_is_closed_without_uart_replay(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    store.set_state("applied_config_version", "8")
+    store.set_state("applied_config_content_sha256", "a" * 64)
+    trace = []
+    safety = FakeJobSafety(
+        trace,
+        store,
+        authorize_errors=[
+            JobSafetyError(
+                "JOB_GATE_UNAVAILABLE",
+                "authorization response was lost",
+            )
+        ],
+    )
+    uart = FakeUart(trace=trace)
+    work = WorkManager(
+        store,
+        uart,
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    processor = CommandProcessor(store, uart, work)
+    command = valid_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(command["commandUid"], command["commandType"], command)
+
+    assert processor.process_next()
+    slot = store.get_work_slot()
+    assert slot is not None
+    action = slot["context"]["job_safety"]["actions"][
+        "DELIVERY:START:0"
+    ]
+    assert action["authorization_result"] == "UNKNOWN"
+    assert uart.calls == []
+
+    assert work.reconcile_pre_action_job_safety_failure() is True
+    assert uart.calls == []
+    assert store.get_work_slot() is None
+    assert store.get_command(command["commandUid"])["state"] == "FAILED"
+    assert ("safety", "get_action") in trace
+    store.close()
+
+
+def test_lost_permanent_completion_keeps_slot_until_retry_succeeds(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    store.set_state("applied_config_version", "8")
+    store.set_state("applied_config_content_sha256", "a" * 64)
+    trace = []
+    safety = FakeJobSafety(
+        trace,
+        store,
+        complete_errors=[
+            JobSafetyError(
+                "JOB_GATE_UNAVAILABLE",
+                "completion response was lost",
+            )
+        ],
+    )
+    work = WorkManager(
+        store,
+        FakeUart(trace=trace),
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    command = valid_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+
+    result = work.start_delivery_command(command)
+    assert result["acked"] is True
+    work.finalize_delivery(command["payload"]["sessionUid"])
+
+    retained = store.get_work_slot()
+    assert retained is not None
+    assert retained["context"]["job_safety"][
+        "pending_completion"
+    ]["outcome"] == "SUCCEEDED"
+    # A duplicated business finalization must replay the exact frozen receipt,
+    # not hash pending_completion into a different identity.
+    work.finalize_delivery(command["payload"]["sessionUid"])
+    assert store.get_work_slot() is None
+    assert [item for item in trace if item == ("safety", "complete")] == [
+        ("safety", "complete"),
+        ("safety", "complete"),
+    ]
+    assert len(set(safety.confirmation_digests)) == 1
+    assert len(set(safety.completion_digests)) == 1
+    store.close()
+
+
+def test_terminal_business_transaction_freezes_receipt_before_process_crash(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    updater, safety = make_real_job_safety(tmp_path)
+    command = valid_compat_service_command(
+        "sample-fullness.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+    assert store.claim_next_command() is not None
+    work = WorkManager(
+        store,
+        FakeCompatUart(),
+        None,
+        FakePhotoManager(),
+        job_safety=safety,
+    )
+    original_complete = work._complete_job_safety
+
+    def crash_after_business_commit(*_args, **_kwargs):
+        raise SystemExit("simulated hard stop")
+
+    work._complete_job_safety = crash_after_business_commit
+    with pytest.raises(SystemExit):
+        work.start_fullness_command(command)
+
+    retained = store.get_work_slot()
+    assert retained is not None
+    assert retained["context"]["job_safety"]["pending_completion"][
+        "outcome"
+    ] == "SUCCEEDED"
+    assert store.get_command(command["commandUid"])["state"] == "COMPLETED"
+    assert updater.get_status()["activeJobPermitCount"] == 1
+
+    work._complete_job_safety = original_complete
+    assert work.reconcile_pending_job_safety_completion() is True
+    assert store.get_work_slot() is None
+    status = updater.get_status()
+    assert status["activeJobPermitCount"] == 0
+    assert status["jobGateState"] == "OPEN"
+    updater.close()
     store.close()
 
 

@@ -1,6 +1,7 @@
 [Unit]
 Description=EcoBin permanent local device updater (remote updates disabled)
-After=local-fs.target
+Requires=ecobin-mcu-safe-gpio.service
+After=local-fs.target ecobin-mcu-safe-gpio.service
 StartLimitIntervalSec=0
 
 [Service]

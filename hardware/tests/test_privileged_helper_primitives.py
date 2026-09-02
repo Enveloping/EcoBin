@@ -25,6 +25,7 @@ from device_management.helpers.mcu_flash_primitives import (
     STM32FLASH_BINARY,
     McuFlashPrimitives,
 )
+from device_management.helpers.mcu_flash_recovery import McuApplicationRecovery
 from local_control import LocalControlActionError
 
 pytestmark = pytest.mark.skipif(
@@ -319,9 +320,16 @@ def test_cleanup_refuses_symlink_and_never_removes_its_target(tmp_path: Path) ->
 
 
 class FakeMcuRunner:
-    def __init__(self, *, business_state: str = "inactive", flash_ok: bool = True):
+    def __init__(
+        self,
+        *,
+        business_state: str = "inactive",
+        flash_ok: bool = True,
+        boot0_safe_readback_ok: bool = True,
+    ):
         self.business_state = business_state
         self.flash_ok = flash_ok
+        self.boot0_safe_readback_ok = boot0_safe_readback_ok
         self.levels = {BOOT0_WPI: 0, RESET_GATE_WPI: 0}
         self.calls: list[tuple[list[str], dict[str, Any]]] = []
         self.flashed_payload: bytes | None = None
@@ -335,9 +343,17 @@ class FakeMcuRunner:
                 self.levels[int(argv[2])] = int(argv[3])
                 return SimpleNamespace(returncode=0, stdout="")
             if argv[1] == "read":
+                pin = int(argv[2])
+                level = self.levels[pin]
+                if (
+                    pin == BOOT0_WPI
+                    and level == 0
+                    and not self.boot0_safe_readback_ok
+                ):
+                    level = 1
                 return SimpleNamespace(
                     returncode=0,
-                    stdout=f"{self.levels[int(argv[2])]}\n",
+                    stdout=f"{level}\n",
                 )
             if argv[1] == "mode":
                 return SimpleNamespace(returncode=0, stdout="")
@@ -371,10 +387,19 @@ def _mcu_primitives(
     primitives = McuFlashPrimitives(
         firmware_root=firmware_root,
         updater_uid=os.getuid(),
+        recovery_marker_path=tmp_path / "mcu-application-recovery-required",
         command_runner=runner,
         sleeper=lambda _seconds: None,
     )
     return primitives, runner, update_uid, image
+
+
+def _mcu_flash_payload(update_uid: str, source: str = "TARGET") -> dict[str, str]:
+    return {
+        "updateUid": update_uid,
+        "actionUid": str(uuid.uuid4()),
+        "source": source,
+    }
 
 
 @pytest.mark.parametrize("source", ["TARGET", "ROLLBACK"])
@@ -387,7 +412,8 @@ def test_mcu_flash_uses_fixed_image_gpio_arguments_and_serial(
         source=source,
     )
 
-    result = primitives.flash({"updateUid": update_uid, "source": source})
+    payload = _mcu_flash_payload(update_uid, source)
+    result = primitives.flash(payload)
 
     flash_call = next(call for call in runner.calls if call[0][0] == STM32FLASH_BINARY)
     argv, kwargs = flash_call
@@ -407,7 +433,8 @@ def test_mcu_flash_uses_fixed_image_gpio_arguments_and_serial(
     assert kwargs.get("shell") is None
     assert runner.flashed_payload == image.read_bytes()
     assert runner.levels == {BOOT0_WPI: 0, RESET_GATE_WPI: 0}
-    assert result["disposition"] == "FLASHED_AND_VERIFIED"
+    assert result["actionUid"] == payload["actionUid"]
+    assert result["disposition"] == "FIRMWARE_WRITE_VERIFIED"
     assert result["safeApplicationSelected"] is True
 
 
@@ -421,7 +448,7 @@ def test_mcu_flash_failure_still_restores_and_verifies_safe_application_pins(
     )
 
     with pytest.raises(LocalControlActionError) as raised:
-        primitives.flash({"updateUid": update_uid, "source": "TARGET"})
+        primitives.flash(_mcu_flash_payload(update_uid))
 
     assert raised.value.code == "STM32FLASH_FAILED"
     assert runner.levels == {BOOT0_WPI: 0, RESET_GATE_WPI: 0}
@@ -438,7 +465,7 @@ def test_mcu_flash_refuses_active_business_before_gpio_or_serial(tmp_path: Path)
     )
 
     with pytest.raises(LocalControlActionError) as raised:
-        primitives.flash({"updateUid": update_uid, "source": "TARGET"})
+        primitives.flash(_mcu_flash_payload(update_uid))
 
     assert raised.value.code == "BUSINESS_RUNTIME_ACTIVE"
     assert len(runner.calls) == 1
@@ -459,7 +486,7 @@ def test_mcu_flash_rejects_linked_firmware_before_gpio(
         os.link(real_image, image)
 
     with pytest.raises(LocalControlActionError) as raised:
-        primitives.flash({"updateUid": update_uid, "source": "TARGET"})
+        primitives.flash(_mcu_flash_payload(update_uid))
 
     assert raised.value.code == "FIRMWARE_IMAGE_INVALID"
     assert all(call[0][0] != GPIO_BINARY for call in runner.calls)
@@ -469,7 +496,7 @@ def test_mcu_source_enum_cannot_be_used_as_a_path(tmp_path: Path) -> None:
     primitives, runner, update_uid, _image = _mcu_primitives(tmp_path)
 
     with pytest.raises(LocalControlActionError) as raised:
-        primitives.flash({"updateUid": update_uid, "source": "../../etc/passwd"})
+        primitives.flash(_mcu_flash_payload(update_uid, "../../etc/passwd"))
 
     assert raised.value.code == "REQUEST_INVALID"
     assert runner.calls == []
@@ -478,13 +505,102 @@ def test_mcu_source_enum_cannot_be_used_as_a_path(tmp_path: Path) -> None:
 def test_command_timeouts_are_bounded_and_shell_is_never_enabled(tmp_path: Path) -> None:
     primitives, runner, update_uid, _image = _mcu_primitives(tmp_path)
 
-    primitives.flash({"updateUid": update_uid, "source": "TARGET"})
+    primitives.flash(_mcu_flash_payload(update_uid))
 
     for _argv, kwargs in runner.calls:
         assert kwargs["timeout"] <= 120
         assert kwargs["check"] is False
         assert kwargs.get("shell") is None
         assert kwargs["stdin"] is subprocess.DEVNULL
+
+
+@pytest.mark.parametrize(
+    "action_uid",
+    [None, str(uuid.uuid1()), "123E4567-E89B-42D3-A456-426614174000"],
+)
+def test_mcu_flash_requires_canonical_uuid4_action_uid_before_hardware(
+    tmp_path: Path,
+    action_uid: str | None,
+) -> None:
+    primitives, runner, update_uid, _image = _mcu_primitives(tmp_path)
+    payload: dict[str, Any] = {
+        "updateUid": update_uid,
+        "source": "TARGET",
+    }
+    if action_uid is not None:
+        payload["actionUid"] = action_uid
+
+    with pytest.raises(LocalControlActionError) as raised:
+        primitives.flash(payload)
+
+    assert raised.value.code == "REQUEST_INVALID"
+    assert runner.calls == []
+
+
+def test_fixed_mcu_recovery_selects_application_boot_and_echoes_action_uid(
+    tmp_path: Path,
+) -> None:
+    primitives, runner, update_uid, _image = _mcu_primitives(tmp_path)
+    action_uid = str(uuid.uuid4())
+
+    result = primitives.recover_application(
+        {"updateUid": update_uid, "actionUid": action_uid}
+    )
+
+    gpio_argv = [call[0] for call in runner.calls if call[0][0] == GPIO_BINARY]
+    assert gpio_argv == [
+        [GPIO_BINARY, "mode", str(BOOT0_WPI), "out"],
+        [GPIO_BINARY, "write", str(BOOT0_WPI), "0"],
+        [GPIO_BINARY, "read", str(BOOT0_WPI)],
+        [GPIO_BINARY, "mode", str(RESET_GATE_WPI), "out"],
+        [GPIO_BINARY, "write", str(RESET_GATE_WPI), "1"],
+        [GPIO_BINARY, "write", str(RESET_GATE_WPI), "0"],
+        [GPIO_BINARY, "read", str(BOOT0_WPI)],
+        [GPIO_BINARY, "read", str(RESET_GATE_WPI)],
+    ]
+    assert all(call[0][0] != STM32FLASH_BINARY for call in runner.calls)
+    assert result == {
+        "updateUid": update_uid,
+        "actionUid": action_uid,
+        "disposition": "APPLICATION_BOOT_PATH_SELECTED",
+        "safeApplicationSelected": True,
+        "gpioReadback": {"boot0Level": 0, "resetGateLevel": 0},
+    }
+    assert not (tmp_path / "mcu-application-recovery-required").exists()
+
+
+def test_mcu_recovery_never_asserts_reset_until_safe_boot0_is_proven(
+    tmp_path: Path,
+) -> None:
+    runner = FakeMcuRunner(boot0_safe_readback_ok=False)
+    primitives, runner, update_uid, _image = _mcu_primitives(
+        tmp_path,
+        runner=runner,
+    )
+
+    with pytest.raises(LocalControlActionError) as raised:
+        primitives.recover_application(
+            {"updateUid": update_uid, "actionUid": str(uuid.uuid4())}
+        )
+
+    assert raised.value.code == "MCU_SAFE_RECOVERY_FAILED"
+    gpio_argv = [call[0] for call in runner.calls if call[0][0] == GPIO_BINARY]
+    assert [GPIO_BINARY, "write", str(RESET_GATE_WPI), "1"] not in gpio_argv
+    assert (tmp_path / "mcu-application-recovery-required").exists()
+
+
+def test_systemd_recovery_guard_is_inert_when_no_mutation_was_started(
+    tmp_path: Path,
+) -> None:
+    runner = FakeMcuRunner()
+    recovery = McuApplicationRecovery(
+        marker_path=tmp_path / "mcu-application-recovery-required",
+        command_runner=runner,
+        sleeper=lambda _seconds: None,
+    )
+
+    assert recovery.is_armed() is False
+    assert runner.calls == []
 
 
 @pytest.mark.skipif(

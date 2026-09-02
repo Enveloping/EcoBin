@@ -36,6 +36,7 @@ RUNTIME_APP_FILES = (
     "factory_seal/runtime.py",
     "factory_seal/validation.py",
     "main.py",
+    "job_safety.py",
     "local_control.py",
     "mcu_firmware_package.py",
     "mcu_firmware_updater.py",
@@ -125,6 +126,7 @@ DEVICE_UPDATER_HELPER_FILES = (
     "business_activation_primitives.py",
     "mcu_flash_helper.py",
     "mcu_flash_primitives.py",
+    "mcu_flash_recovery.py",
 )
 
 DEVICE_UPDATER_HELPER_UNIT_FILES = (

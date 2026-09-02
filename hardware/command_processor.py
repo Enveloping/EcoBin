@@ -310,11 +310,41 @@ class CommandProcessor:
                     "MEASURE_EMPTY_BAG_BASELINE",
                 }
             ):
-                self._store.fail_command_and_observe(
-                    command,
-                    error_code,
-                    stage="FAILED",
-                )
+                if error_code == "JOB_GATE_UNAVAILABLE":
+                    slot = self._store.get_work_slot()
+                    context = slot["context"] if slot else {}
+                    slot_command_uid = (
+                        context.get("start_command_uid")
+                        or context.get("command_uid")
+                    )
+                    if slot and slot_command_uid == command_uid:
+                        self._store.mark_command_recovery_required(
+                            command_uid,
+                            error_code,
+                        )
+                    else:
+                        # REQUEST_JOB_PERMIT is safe to retry with the same
+                        # command UID even if the first response was lost.
+                        self._store.fail_command(
+                            command_uid,
+                            error_code,
+                            retryable=True,
+                        )
+                        logger.warning(
+                            "permanent job gate unavailable before local "
+                            "work creation; retrying after consumer backoff: %s",
+                            command_uid,
+                        )
+                        # Tell the outer loop that no useful progress was made.
+                        # It will wait on the command wake event instead of
+                        # immediately reclaiming this same PENDING row.
+                        return False
+                else:
+                    self._store.fail_command_and_observe(
+                        command,
+                        error_code,
+                        stage="FAILED",
+                    )
             elif command.get("commandType") == "START_MCU_FIRMWARE_UPDATE":
                 # Package-acquisition failure atomically changes this command
                 # before exposing its retry fact. Do not overwrite a PENDING
@@ -610,7 +640,7 @@ class CommandProcessor:
         if result.get("acked"):
             return True
         error = _symbol(str(result.get("error") or "UART_FAILURE"))
-        if error == "TIMEOUT":
+        if error == "TIMEOUT" or result.get("physicalEffect") == "UNKNOWN":
             self._store.mark_command_recovery_required(
                 command["commandUid"],
                 "UART_ACK_RESULT_UNKNOWN",

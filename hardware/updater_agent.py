@@ -1,8 +1,8 @@
-"""Stage-three permanent device-updater process.
+"""Permanent updater control process with an opt-in stage-four candidate.
 
-This process deliberately installs only the durable and authenticated local
-control boundary.  Update execution and the permanent job gate remain
-disabled until their later migration stages are implemented and qualified.
+The default remains fail-closed and exposes only diagnosis.  The explicit
+candidate switch enables the durable job-permit and physical-action RPCs; it
+does not enable software updates or either privileged helper.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from local_control import (
     LocalControlActionError,
     LocalControlServer,
 )
-from updater_store import UpdaterStore
+from updater_store import UpdaterStore, UpdaterStoreError
 
 
 logger = logging.getLogger("device-updater")
@@ -42,9 +42,47 @@ DISABLED_UPDATE_ACTIONS = frozenset(
     }
 )
 
+JOB_ACTION_FIELDS = {
+    "REQUEST_JOB_PERMIT": frozenset(
+        {
+            "permitUid",
+            "workUid",
+            "commandUid",
+            "workType",
+            "requestDigestSha256",
+        }
+    ),
+    "BEGIN_JOB": frozenset(
+        {"permitUid", "beginUid", "permitDigestSha256"}
+    ),
+    "GET_JOB_PERMIT": frozenset({"permitUid"}),
+    "ABANDON_JOB_PERMIT": frozenset(
+        {"permitUid", "dispositionUid", "evidenceSha256"}
+    ),
+    "COMPLETE_JOB": frozenset(
+        {"permitUid", "completionUid", "outcome", "completionDigestSha256"}
+    ),
+    "AUTHORIZE_PHYSICAL_ACTION": frozenset(
+        {
+            "actionUid",
+            "armUid",
+            "permitUid",
+            "workUid",
+            "commandUid",
+            "actionKey",
+            "actionKind",
+            "actionDigestSha256",
+        }
+    ),
+    "GET_PHYSICAL_ACTION": frozenset({"actionUid"}),
+    "CONFIRM_PHYSICAL_ACTION": frozenset(
+        {"actionUid", "receiptUid", "outcome", "evidenceDigestSha256"}
+    ),
+}
+
 
 class UpdaterControlHandler:
-    """Expose only truthful stage-three health and status operations."""
+    """Expose truthful status and thin, durable stage-four operations."""
 
     def __init__(self, store: UpdaterStore) -> None:
         self.store = store
@@ -58,13 +96,53 @@ class UpdaterControlHandler:
             "localProtocolMinor": LOCAL_PROTOCOL_MINOR,
         }
 
+    def request_job_permit(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.request_job_permit, payload)
+
+    def begin_job(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.begin_job, payload)
+
+    def get_job_permit(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.get_job_permit, payload)
+
+    def abandon_job_permit(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.abandon_job_permit, payload)
+
+    def complete_job(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.complete_job, payload)
+
+    def authorize_physical_action(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._store_call(self.store.authorize_physical_action, payload)
+
+    def get_physical_action(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.get_physical_action, payload)
+
+    def confirm_physical_action(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._store_call(self.store.confirm_physical_action, payload)
+
+    @staticmethod
+    def _store_call(
+        operation: Callable[[dict[str, Any]], dict[str, Any]],
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            return operation(payload)
+        except UpdaterStoreError as error:
+            raise LocalControlActionError(error.code, str(error)) from error
+
     @staticmethod
     def reject_disabled_update(
         _payload: dict[str, Any],
     ) -> dict[str, Any]:
         raise LocalControlActionError(
             "FEATURE_DISABLED",
-            "device updates are disabled in stage three",
+            "device software updates remain disabled in this candidate",
         )
 
 
@@ -89,7 +167,7 @@ class UpdaterAgent:
             self.store.close()
             raise
         self._started = True
-        logger.info("device updater stage-three control plane ready")
+        logger.info("device updater control plane ready")
 
     def request_stop(self) -> None:
         self._stop_event.set()
@@ -126,14 +204,43 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
     socket_gid = resolve_socket_gid(
         getattr(args, "socket_group", None)
     )
+    candidate_enabled = bool(
+        getattr(args, "enable_stage4_candidate", False)
+    )
+    business_uids: list[int] = []
+    if candidate_enabled:
+        configured_business_uids = getattr(args, "business_uid", None)
+        configured_business_user = getattr(args, "business_user", None)
+        if (
+            configured_business_uids is None
+            and configured_business_user is None
+            and "ecobin-business" in (getattr(args, "allowed_user", None) or ())
+        ):
+            configured_business_user = "ecobin-business"
+        business_uids = resolve_role_uids(
+            configured_business_uids,
+            configured_business_user,
+            role="business",
+        )
+        missing = set(business_uids).difference(allowed_uids)
+        if missing:
+            raise ValueError(
+                "business action UID must also be in the socket allowlist"
+            )
     store = UpdaterStore(
         args.state,
         release_version=args.release_version,
+        enable_stage4_candidate=candidate_enabled,
     )
     store.initialize()
-    handler = UpdaterControlHandler(store)
-    actions = build_control_actions(handler, allowed_uids=allowed_uids)
     try:
+        handler = UpdaterControlHandler(store)
+        actions = build_control_actions(
+            handler,
+            allowed_uids=allowed_uids,
+            business_uids=business_uids,
+            enable_stage4_candidate=candidate_enabled,
+        )
         server = LocalControlServer(
             args.socket,
             protocol_name=UPDATER_LOCAL_PROTOCOL_NAME,
@@ -152,9 +259,11 @@ def build_control_actions(
     handler: UpdaterControlHandler,
     *,
     allowed_uids: Iterable[int],
+    business_uids: Iterable[int] = (),
+    enable_stage4_candidate: bool = False,
 ) -> dict[str, LocalControlAction]:
     action_uids = frozenset(allowed_uids)
-    return {
+    actions = {
         "HEALTH": LocalControlAction(
             handler.get_status,
             payload_fields=frozenset(),
@@ -174,6 +283,74 @@ def build_control_actions(
             for action in DISABLED_UPDATE_ACTIONS
         },
     }
+    if not enable_stage4_candidate:
+        return actions
+    job_uids = frozenset(business_uids)
+    if not job_uids:
+        raise ValueError(
+            "stage-four candidate requires a non-empty business UID set"
+        )
+    if not job_uids.issubset(action_uids):
+        raise ValueError(
+            "business action UIDs must be included in the socket allowlist"
+        )
+    handlers = {
+        "REQUEST_JOB_PERMIT": handler.request_job_permit,
+        "BEGIN_JOB": handler.begin_job,
+        "GET_JOB_PERMIT": handler.get_job_permit,
+        "ABANDON_JOB_PERMIT": handler.abandon_job_permit,
+        "COMPLETE_JOB": handler.complete_job,
+        "AUTHORIZE_PHYSICAL_ACTION": handler.authorize_physical_action,
+        "GET_PHYSICAL_ACTION": handler.get_physical_action,
+        "CONFIRM_PHYSICAL_ACTION": handler.confirm_physical_action,
+    }
+    actions.update(
+        {
+            action: LocalControlAction(
+                handlers[action],
+                payload_fields=fields,
+                allowed_uids=job_uids,
+            )
+            for action, fields in JOB_ACTION_FIELDS.items()
+        }
+    )
+    return actions
+
+
+def resolve_role_uids(
+    role_uids: Iterable[int] | None,
+    role_user: str | None,
+    *,
+    role: str,
+    user_lookup: Callable[[str], int] | None = None,
+) -> list[int]:
+    """Resolve one action role without inheriting root diagnosis access."""
+
+    if not isinstance(role, str) or not role:
+        raise ValueError("action role must be non-empty")
+    resolved: set[int] = set()
+    for uid in role_uids or ():
+        if isinstance(uid, bool) or not isinstance(uid, int) or uid <= 0:
+            raise ValueError(f"--{role}-uid must be positive and non-root")
+        resolved.add(uid)
+    if role_user is not None:
+        if not isinstance(role_user, str) or not role_user:
+            raise ValueError(f"--{role}-user must be non-empty")
+        lookup = user_lookup or _system_user_uid
+        try:
+            uid = lookup(role_user)
+        except KeyError as error:
+            raise ValueError(
+                f"--{role}-user does not exist: {role_user}"
+            ) from error
+        if isinstance(uid, bool) or not isinstance(uid, int) or uid <= 0:
+            raise ValueError(
+                f"--{role}-user has an invalid non-root UID: {role_user}"
+            )
+        resolved.add(uid)
+    if not resolved:
+        raise ValueError(f"stage-four candidate requires a {role} UID")
+    return sorted(resolved)
 
 
 def resolve_allowed_uids(
@@ -300,6 +477,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--socket-group",
         default=os.getenv("ECOBIN_UPDATER_SOCKET_GROUP"),
+    )
+    parser.add_argument(
+        "--enable-stage4-candidate",
+        action="store_true",
+        help=(
+            "enable only the candidate job gate and physical safety ledger; "
+            "software updates and privileged helpers remain disabled"
+        ),
+    )
+    parser.add_argument(
+        "--business-uid",
+        action="append",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--business-user",
+        default=os.getenv("ECOBIN_BUSINESS_USER"),
     )
     return parser
 

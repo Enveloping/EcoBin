@@ -18,26 +18,31 @@ except ImportError:  # pragma: no cover - deployment is Linux-only
 
 from local_control import LocalControlActionError
 
-GPIO_BINARY = "/usr/bin/gpio"
+from .mcu_flash_recovery import (
+    BOOT0_ACTIVE_LEVEL,
+    BOOT0_WPI,
+    BOOT_SETTLE_SECONDS,
+    COMMAND_TIMEOUT_SECONDS,
+    GPIO_BINARY,
+    MCU_RECOVERY_MARKER_PATH,
+    RESET_ACTIVE_LEVEL,
+    RESET_ASSERT_SECONDS,
+    RESET_GATE_WPI,
+    SAFE_LEVEL,
+    McuApplicationRecovery,
+)
+
 STM32FLASH_BINARY = "/usr/bin/stm32flash"
 SERIAL_DEVICE = "/dev/ttyS5"
 BUSINESS_SERVICE = "ecobin-hardware.service"
 SYSTEMCTL = "/usr/bin/systemctl"
 FIRMWARE_ROOT = Path("/var/lib/ecobin/updater/mcu-firmware")
-BOOT0_WPI = 2
-RESET_GATE_WPI = 5
-BOOT0_ACTIVE_LEVEL = 1
-RESET_ACTIVE_LEVEL = 1
-SAFE_LEVEL = 0
 FLASH_BASE = 0x08000000
 FLASH_BAUDRATE = 115200
 FLASH_SERIAL_MODE = "8e1"
 FLASH_RETRIES = 3
 MAX_FIRMWARE_BYTES = 4 * 1024 * 1024
-COMMAND_TIMEOUT_SECONDS = 5
 FLASH_TIMEOUT_SECONDS = 120
-RESET_ASSERT_SECONDS = 0.05
-BOOT_SETTLE_SECONDS = 0.2
 OUTPUT_LIMIT = 1024
 _PRINTABLE_OUTPUT = re.compile(r"[^\x09\x0a\x0d\x20-\x7e]")
 
@@ -50,6 +55,7 @@ class McuFlashPrimitives:
         *,
         firmware_root: Path = FIRMWARE_ROOT,
         updater_uid: int,
+        recovery_marker_path: Path = MCU_RECOVERY_MARKER_PATH,
         command_runner: Any = subprocess.run,
         sleeper: Any = time.sleep,
     ) -> None:
@@ -63,10 +69,16 @@ class McuFlashPrimitives:
         self.updater_uid = updater_uid
         self._run_command = command_runner
         self._sleep = sleeper
+        self._application_recovery = McuApplicationRecovery(
+            marker_path=recovery_marker_path,
+            command_runner=command_runner,
+            sleeper=sleeper,
+        )
 
     def flash(self, payload: dict[str, Any]) -> dict[str, Any]:
-        update_uid = _require_uuid4(payload["updateUid"], "updateUid")
-        source = payload["source"]
+        update_uid = _require_uuid4(payload.get("updateUid"), "updateUid")
+        action_uid = _require_uuid4(payload.get("actionUid"), "actionUid")
+        source = payload.get("source")
         if source not in {"TARGET", "ROLLBACK"}:
             raise LocalControlActionError(
                 "REQUEST_INVALID",
@@ -80,17 +92,21 @@ class McuFlashPrimitives:
         flash_result: dict[str, Any] | None = None
         operation_error: Exception | None = None
         recovery_error: Exception | None = None
+        recovery_armed = False
         try:
+            self._application_recovery.arm()
+            recovery_armed = True
             try:
                 self._enter_bootloader()
                 flash_result = self._run_flash(descriptor, image_size)
             except Exception as error:  # noqa: BLE001 - safe GPIO recovery is mandatory
                 operation_error = error
             finally:
-                try:
-                    self._restore_safe_application()
-                except Exception as error:  # noqa: BLE001 - report any unsafe pin state
-                    recovery_error = error
+                if recovery_armed:
+                    try:
+                        self._restore_safe_application()
+                    except Exception as error:  # noqa: BLE001 - report unsafe pins
+                        recovery_error = error
         finally:
             os.close(descriptor)
         if recovery_error is not None:
@@ -112,10 +128,27 @@ class McuFlashPrimitives:
             )
         return {
             "updateUid": update_uid,
+            "actionUid": action_uid,
             "source": source,
-            "disposition": "FLASHED_AND_VERIFIED",
+            # stm32flash verifies the written bytes.  Application startup and
+            # protocol health are separate, unprivileged updater checks.
+            "disposition": "FIRMWARE_WRITE_VERIFIED",
             **flash_result,
             "safeApplicationSelected": True,
+        }
+
+    def recover_application(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Run the one fixed application-boot recovery action."""
+
+        update_uid = _require_uuid4(payload.get("updateUid"), "updateUid")
+        action_uid = _require_uuid4(payload.get("actionUid"), "actionUid")
+        self._require_business_inactive()
+        self._application_recovery.arm(allow_existing=True)
+        result = self._application_recovery.restore_and_disarm()
+        return {
+            "updateUid": update_uid,
+            "actionUid": action_uid,
+            **result,
         }
 
     def _require_business_inactive(self) -> None:
@@ -266,15 +299,7 @@ class McuFlashPrimitives:
         self._require_gpio_level(RESET_GATE_WPI, SAFE_LEVEL)
 
     def _restore_safe_application(self) -> None:
-        self._gpio("mode", str(BOOT0_WPI), "out")
-        self._gpio("mode", str(RESET_GATE_WPI), "out")
-        self._gpio("write", str(BOOT0_WPI), str(SAFE_LEVEL))
-        self._gpio("write", str(RESET_GATE_WPI), str(RESET_ACTIVE_LEVEL))
-        self._sleep(RESET_ASSERT_SECONDS)
-        self._gpio("write", str(RESET_GATE_WPI), str(SAFE_LEVEL))
-        self._sleep(BOOT_SETTLE_SECONDS)
-        self._require_gpio_level(BOOT0_WPI, SAFE_LEVEL)
-        self._require_gpio_level(RESET_GATE_WPI, SAFE_LEVEL)
+        self._application_recovery.restore_and_disarm()
 
     def _require_gpio_level(self, pin: int, expected: int) -> None:
         result = self._gpio("read", str(pin))

@@ -268,9 +268,23 @@ def verify_stage_three_health(
     if (
         updater.get("component") != "DEVICE_UPDATER"
         or updater.get("status") != "READY"
+        or updater.get("schemaVersion") != 2
+        or updater.get("stage4CandidateEnabled") is not False
         or updater.get("updatesEnabled") is not False
-        or updater.get("jobGateMode") != "NOT_ENFORCED_STAGE3"
-        or updater.get("maintenanceState") != "IDLE"
+        or updater.get("jobGateMode") != "DISABLED"
+        or updater.get("jobGateState") != "LOCKED"
+        or updater.get("jobPermitRpcEnabled") is not False
+        or updater.get("maintenanceState") != "LOCKED"
+        or updater.get("maintenanceOwnerUid") is not None
+        or updater.get("maintenanceType") is not None
+        or updater.get("maintenanceFenceToken") is not None
+        or updater.get("reconciliationRequired") is not False
+        or updater.get("blockReasonCode") != "STAGE4_CANDIDATE_DISABLED"
+        or updater.get("activeJobPermitCount") != 0
+        or updater.get("unreconciledPhysicalActionCount") != 0
+        or updater.get("businessUpdateEnabled") is not False
+        or updater.get("mcuUpdateEnabled") is not False
+        or updater.get("privilegedHelperMutationEnabled") is not False
     ):
         raise BusinessRuntimePreflightError(
             "device updater did not report the safe stage-three posture"
