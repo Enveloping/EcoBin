@@ -19,6 +19,12 @@ spring:
     init:
       mode: never
 
+  servlet:
+    multipart:
+      # 平台管理员上传业务发布包时先落到临时文件；业务校验器仍会再次执行精确大小上限。
+      max-file-size: 1536MB
+      max-request-size: 1537MB
+
 # JWT 配置
 jwt:
   secret: ${jwtSecret}
@@ -76,6 +82,17 @@ ecobin:
         slow-query-threshold-ms: 200
 
   device:
+    business-release:
+      # 业务程序发布包使用独立私有桶；对象路径由后端固定生成。
+      secret-id: ${businessReleaseCosSecretId:}
+      secret-key: ${businessReleaseCosSecretKey:}
+      region: ${businessReleaseCosRegion:}
+      bucket-name: ${businessReleaseCosBucketName:}
+      base-prefix: ${businessReleaseCosBasePrefix:edge-runtime/releases}
+      fake-directory: ${businessReleaseFakeDirectory:${java.io.tmpdir}/ecobin-business-release-artifacts}
+      signing-public-keys-directory: ${businessReleaseSigningPublicKeysDirectory:}
+      # V64 控制面只能演练计划，任何环境都不得在本阶段打开真实下发。
+      remote-dispatch-enabled: ${businessReleaseRemoteDispatchEnabled:false}
     enrollment:
       # 全局 K1 只用于设备第一次注册；生产值必须通过 /run/secrets 注入。
       enabled: ${deviceEnrollmentEnabled:false}

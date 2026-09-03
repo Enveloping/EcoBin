@@ -33,6 +33,8 @@
         <pulsar.version>4.1.3</pulsar.version>
         <jjwt.version>0.12.6</jjwt.version>
         <datasource-proxy.version>1.11.0</datasource-proxy.version>
+        <cos-sdk.version>5.6.246</cos-sdk.version>
+        <commons-compress.version>1.28.0</commons-compress.version>
     </properties>
 
     <dependencyManagement>
@@ -79,6 +81,16 @@
                 <groupId>com.qcloud</groupId>
                 <artifactId>cos-sts_api</artifactId>
                 <version>3.1.1</version>
+            </dependency>
+            <dependency>
+                <groupId>com.qcloud</groupId>
+                <artifactId>cos_api</artifactId>
+                <version>${cos-sdk.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-compress</artifactId>
+                <version>${commons-compress.version}</version>
             </dependency>
 
             <!-- 中国移动 OneNet 北向消息队列（Pulsar 客户端，版本对齐官方 SDK demo/平台 broker） -->

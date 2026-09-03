@@ -1,12 +1,14 @@
 package org.enveloping.ecobin.integration.fake;
 
 import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
+import org.enveloping.ecobin.device.api.port.BusinessReleaseArtifactStoragePort;
 import org.enveloping.ecobin.device.api.port.OneNetDeviceProvisioningPort;
 import org.enveloping.ecobin.funds.api.port.MerchantTransferChannelPort;
 import org.enveloping.ecobin.funds.api.port.MerchantTransferAuthorizationChannelPort;
 import org.enveloping.ecobin.funds.api.port.NativePaymentChannelPort;
 import org.enveloping.ecobin.identity.api.port.WechatMiniProgramCodePort;
 import org.enveloping.ecobin.integration.config.ExternalAdapterModeProperties;
+import org.enveloping.ecobin.integration.cos.BusinessReleaseArtifactProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -37,6 +39,12 @@ public class FakeExternalAdapterConfiguration {
     @Bean
     CosUploadCredentialPort fakeCosUploadCredentialPort() {
         return new FakeCosUploadCredentialAdapter();
+    }
+
+    @Bean
+    BusinessReleaseArtifactStoragePort fakeBusinessReleaseArtifactStoragePort(
+            BusinessReleaseArtifactProperties properties) {
+        return new FakeBusinessReleaseArtifactStorage(properties);
     }
 
     @Bean

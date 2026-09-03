@@ -1,9 +1,8 @@
 @{
-    CatalogVersion = 32
+    CatalogVersion = 33
 
     ReadOnlyTables = @(
         "iam_permission_definition"
-        "dev_edge_software_release"
     )
 
     SlotTables = @(
@@ -204,6 +203,44 @@
             "capabilities_json"
             "observed_at"
             "received_at"
+            "lock_version"
+            "updated_at"
+        )
+        dev_edge_software_release_sequence = @(
+            "last_release_sequence"
+            "lock_version"
+            "updated_at"
+        )
+        dev_edge_software_release_control = @(
+            "release_status"
+            "verification_operation_uid"
+            "package_sha256"
+            "package_size"
+            "signature_sha256"
+            "signature_bytes"
+            "signing_key_id"
+            "declaration_id"
+            "verification_error_code"
+            "verification_error_message"
+            "verified_by_platform_admin_id"
+            "verified_at"
+            "approved_by_platform_admin_id"
+            "approved_at"
+            "suspended_by_platform_admin_id"
+            "suspended_at"
+            "suspension_reason"
+            "retired_by_platform_admin_id"
+            "retired_at"
+            "retirement_reason"
+            "artifact_uploaded_at"
+            "lock_version"
+            "updated_at"
+        )
+        dev_edge_software_rollout = @(
+            "rollout_status"
+            "stopped_by_platform_admin_id"
+            "stopped_at"
+            "stop_reason"
             "lock_version"
             "updated_at"
         )

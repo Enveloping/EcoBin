@@ -4410,6 +4410,232 @@
         }
       }
     },
+    "/api/v1/web/platform/business-releases/readiness": {
+      "get": {
+        "operationId": "getPlatformBusinessReleaseReadiness",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Check private artifact storage, verification keys and the hard-disabled dispatch boundary",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"description": "Business release control-plane readiness", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseReadinessEnvelope"}}}},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/business-releases": {
+      "get": {
+        "operationId": "listPlatformBusinessReleases",
+        "tags": ["Orange Pi business releases"],
+        "summary": "List Orange Pi business-runtime releases",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"}
+        ],
+        "responses": {
+          "200": {"description": "Business release page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleasePageEnvelope"}}}},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"}
+        }
+      },
+      "post": {
+        "operationId": "createPlatformBusinessReleaseDraft",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Create a business-runtime release draft and allocate its identity and private object paths",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateBusinessReleaseDraftRequest"}}}},
+        "responses": {
+          "201": {"description": "Release draft created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/business-releases/{releaseUid}": {
+      "parameters": [{"name": "releaseUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "get": {
+        "operationId": "getPlatformBusinessRelease",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Read a business-runtime release and its append-only audit history",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"description": "Business release detail", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseEnvelope"}}}},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/business-releases/{releaseUid}/artifacts": {
+      "parameters": [{"name": "releaseUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "post": {
+        "operationId": "uploadPlatformBusinessReleaseArtifacts",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Store one immutable business package and its offline signature at backend-generated private paths",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/IdempotencyKey"},
+          {"name": "signingKeyId", "in": "query", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$"}},
+          {"name": "reason", "in": "query", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 500}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"multipart/form-data": {"schema": {
+            "type": "object", "additionalProperties": false,
+            "required": ["package", "signature"],
+            "properties": {
+              "package": {"type": "string", "format": "binary"},
+              "signature": {"type": "string", "format": "binary"}
+            }
+          }}}
+        },
+        "responses": {
+          "200": {"description": "Artifacts stored and frozen", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
+        }
+      }
+    },
+    "/api/v1/web/platform/business-releases/{releaseUid}/verifications": {
+      "parameters": [{"name": "releaseUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "post": {
+        "operationId": "verifyPlatformBusinessRelease",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Read back and verify the digest, Ed25519 signature, package layout and compatibility declaration",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseActionRequest"}}}},
+        "responses": {
+          "200": {"description": "Verification reached a durable pass or failure state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/business-releases/{releaseUid}/approvals": {
+      "parameters": [{"name": "releaseUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "post": {
+        "operationId": "approvePlatformBusinessRelease",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Approve a verified release as a distinct audited administrator action",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseActionRequest"}}}},
+        "responses": {
+          "200": {"description": "Release approved", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"}, "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}, "404": {"$ref": "#/components/responses/NotFoundProblem"}, "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/business-releases/{releaseUid}/suspensions": {
+      "parameters": [{"name": "releaseUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "post": {
+        "operationId": "suspendPlatformBusinessRelease",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Suspend creation of new rollout plans for a release",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseActionRequest"}}}},
+        "responses": {
+          "200": {"description": "Release suspended", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"}, "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}, "404": {"$ref": "#/components/responses/NotFoundProblem"}, "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/business-releases/{releaseUid}/resumptions": {
+      "parameters": [{"name": "releaseUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "post": {
+        "operationId": "resumePlatformBusinessRelease",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Resume rollout-plan creation for a suspended release",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseActionRequest"}}}},
+        "responses": {
+          "200": {"description": "Release resumed", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"}, "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}, "404": {"$ref": "#/components/responses/NotFoundProblem"}, "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/business-releases/{releaseUid}/retirements": {
+      "parameters": [{"name": "releaseUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "post": {
+        "operationId": "retirePlatformBusinessRelease",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Permanently retire a ready or suspended release while retaining evidence",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseActionRequest"}}}},
+        "responses": {
+          "200": {"description": "Release retired", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"}, "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}, "404": {"$ref": "#/components/responses/NotFoundProblem"}, "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/business-releases/rollouts": {
+      "get": {
+        "operationId": "listPlatformBusinessReleaseRollouts",
+        "tags": ["Orange Pi business releases"],
+        "summary": "List non-dispatching business-runtime rollout plans",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [{"$ref": "#/components/parameters/Page"}, {"$ref": "#/components/parameters/PageSize"}],
+        "responses": {
+          "200": {"description": "Business rollout page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessRolloutPageEnvelope"}}}},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}
+        }
+      },
+      "post": {
+        "operationId": "createPlatformBusinessReleaseRollout",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Freeze an eligible-device snapshot into validation and selectable-sized waves without dispatch",
+        "description": "Every selected device must pass compatibility checks against its current installed-software fact. This endpoint never creates a reliable task and never calls OneNet.",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateBusinessRolloutRequest"}}}},
+        "responses": {
+          "201": {"description": "Rollout plan created without device dispatch", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessRolloutEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"}, "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}, "404": {"$ref": "#/components/responses/NotFoundProblem"}, "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/business-releases/rollouts/{rolloutUid}": {
+      "parameters": [{"name": "rolloutUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "get": {
+        "operationId": "getPlatformBusinessReleaseRollout",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Read a rollout plan, frozen eligibility evidence and append-only actions",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"description": "Business rollout detail", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessRolloutEnvelope"}}}},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}, "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/business-releases/rollouts/{rolloutUid}/stoppages": {
+      "parameters": [{"name": "rolloutUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "post": {
+        "operationId": "stopPlatformBusinessReleaseRollout",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Permanently stop an undispatched rollout plan",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseActionRequest"}}}},
+        "responses": {
+          "200": {"description": "Rollout stopped without affecting devices", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessRolloutEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"}, "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}, "404": {"$ref": "#/components/responses/NotFoundProblem"}, "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
     "/api/v1/web/platform/mcu-firmware-releases": {
       "get": {
         "operationId": "listPlatformMcuFirmwareReleases",
@@ -14808,6 +15034,220 @@
           },
           "fetchedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
         }
+      },
+      "CreateBusinessReleaseDraftRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["versionName"],
+        "properties": {
+          "versionName": {"type": "string", "minLength": 5, "maxLength": 32, "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"},
+          "releaseNotes": {"type": ["string", "null"], "maxLength": 1000}
+        }
+      },
+      "BusinessReleaseActionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reason"],
+        "properties": {"reason": {"type": "string", "minLength": 1, "maxLength": 500}}
+      },
+      "CreateBusinessRolloutRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["releaseUid", "validationHardwareSn", "reason"],
+        "properties": {
+          "releaseUid": {"$ref": "#/components/schemas/UuidV4"},
+          "validationHardwareSn": {"$ref": "#/components/schemas/HardwareSn"},
+          "targetHardwareSns": {"type": "array", "maxItems": 1000, "uniqueItems": true, "items": {"$ref": "#/components/schemas/HardwareSn"}},
+          "batchSize": {"type": ["integer", "null"], "minimum": 1, "maximum": 100, "default": 3},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        }
+      },
+      "BusinessReleaseReadiness": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifactStorageAvailable", "artifactStorageMessage", "signingKeysAvailable", "signingKeysMessage", "remoteDispatchEnabled", "dispatchMessage"],
+        "properties": {
+          "artifactStorageAvailable": {"type": "boolean"},
+          "artifactStorageMessage": {"type": "string", "minLength": 1},
+          "signingKeysAvailable": {"type": "boolean"},
+          "signingKeysMessage": {"type": "string", "minLength": 1},
+          "remoteDispatchEnabled": {"type": "boolean", "const": false},
+          "dispatchMessage": {"type": "string", "minLength": 1}
+        }
+      },
+      "BusinessReleaseCompatibility": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["packageFormatVersion", "backendCommandContractVersion", "deviceEventContractVersion", "communicationBusinessProtocol", "updaterBusinessProtocol", "uartProtocol", "requiredMcuCapabilities", "providedBusinessCapabilities"],
+        "properties": {
+          "packageFormatVersion": {"type": "integer", "minimum": 1},
+          "backendCommandContractVersion": {"type": "integer", "minimum": 1},
+          "deviceEventContractVersion": {"type": "integer", "minimum": 1},
+          "communicationBusinessProtocol": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
+          "updaterBusinessProtocol": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
+          "uartProtocol": {"type": "string", "minLength": 1, "maxLength": 64},
+          "requiredMcuCapabilities": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+          "providedBusinessCapabilities": {"type": "string", "pattern": "^[0-9a-f]{16}$"}
+        }
+      },
+      "BusinessReleaseAction": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "actionLabel", "resultingStatus", "resultingStatusLabel", "requestedBy", "reason", "createdAt"],
+        "properties": {
+          "action": {"type": "string", "enum": ["CREATE", "UPLOAD", "START_VERIFICATION", "VERIFICATION_PASSED", "VERIFICATION_FAILED", "APPROVE", "SUSPEND", "RESUME", "RETIRE"]},
+          "actionLabel": {"type": "string", "minLength": 1},
+          "resultingStatus": {"$ref": "#/components/schemas/BusinessReleaseStatus"},
+          "resultingStatusLabel": {"type": "string", "minLength": 1},
+          "requestedBy": {"type": "string", "minLength": 1},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+          "createdAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        }
+      },
+      "BusinessReleaseStatus": {
+        "type": "string",
+        "enum": ["DRAFT", "VERIFYING", "VERIFICATION_FAILED", "AWAITING_APPROVAL", "READY", "SUSPENDED", "RETIRED"]
+      },
+      "BusinessRelease": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["releaseUid", "versionName", "releaseSequence", "status", "statusLabel", "statusDescription", "packageObjectKey", "signatureObjectKey", "packageSha256", "packageSize", "signatureSha256", "signingKeyId", "artifactUploaded", "verificationErrorMessage", "releaseNotes", "createdBy", "verifiedBy", "verifiedAt", "approvedBy", "approvedAt", "suspendedBy", "suspendedAt", "suspensionReason", "retiredBy", "retiredAt", "retirementReason", "createdAt", "updatedAt", "compatibility", "actions"],
+        "properties": {
+          "releaseUid": {"$ref": "#/components/schemas/UuidV4"},
+          "versionName": {"type": "string", "minLength": 5, "maxLength": 32, "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"},
+          "releaseSequence": {"type": "integer", "format": "int64", "minimum": 1, "maximum": 9007199254740991},
+          "status": {"$ref": "#/components/schemas/BusinessReleaseStatus"},
+          "statusLabel": {"type": "string", "minLength": 1},
+          "statusDescription": {"type": "string", "minLength": 1},
+          "packageObjectKey": {"type": "string", "pattern": "^edge-runtime/releases/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/package\\.tar\\.gz$"},
+          "signatureObjectKey": {"type": "string", "pattern": "^edge-runtime/releases/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/package\\.sig$"},
+          "packageSha256": {"oneOf": [{"$ref": "#/components/schemas/Sha256Hex"}, {"type": "null"}]},
+          "packageSize": {"type": ["integer", "null"], "format": "int64", "minimum": 1, "maximum": 1610612736},
+          "signatureSha256": {"oneOf": [{"$ref": "#/components/schemas/Sha256Hex"}, {"type": "null"}]},
+          "signingKeyId": {"type": ["string", "null"], "maxLength": 64},
+          "artifactUploaded": {"type": "boolean"},
+          "verificationErrorMessage": {"type": ["string", "null"], "maxLength": 500},
+          "releaseNotes": {"type": ["string", "null"], "maxLength": 1000},
+          "createdBy": {"type": "string", "minLength": 1},
+          "verifiedBy": {"type": ["string", "null"]},
+          "verifiedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "approvedBy": {"type": ["string", "null"]},
+          "approvedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "suspendedBy": {"type": ["string", "null"]},
+          "suspendedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "suspensionReason": {"type": ["string", "null"], "maxLength": 500},
+          "retiredBy": {"type": ["string", "null"]},
+          "retiredAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "retirementReason": {"type": ["string", "null"], "maxLength": 500},
+          "createdAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "updatedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "compatibility": {"oneOf": [{"$ref": "#/components/schemas/BusinessReleaseCompatibility"}, {"type": "null"}]},
+          "actions": {"type": "array", "items": {"$ref": "#/components/schemas/BusinessReleaseAction"}}
+        }
+      },
+      "BusinessReleaseDeployment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deploymentUid", "hardwareSn", "tenantCode", "organizationCode", "kind", "kindLabel", "waveNo", "status", "statusLabel", "eligibilitySummary", "sourceManagementStateSequence", "currentBusinessReleaseUid", "currentBusinessReleaseSequence", "plannedAt"],
+        "properties": {
+          "deploymentUid": {"$ref": "#/components/schemas/UuidV4"},
+          "hardwareSn": {"$ref": "#/components/schemas/HardwareSn"},
+          "tenantCode": {"type": ["string", "null"]},
+          "organizationCode": {"type": ["string", "null"]},
+          "kind": {"type": "string", "enum": ["VALIDATION", "WAVE"]},
+          "kindLabel": {"type": "string", "minLength": 1},
+          "waveNo": {"type": "integer", "minimum": 0, "maximum": 1000},
+          "status": {"type": "string", "const": "PLANNED"},
+          "statusLabel": {"type": "string", "minLength": 1},
+          "eligibilitySummary": {"type": "string", "minLength": 1},
+          "sourceManagementStateSequence": {"type": "integer", "format": "int64", "minimum": 1, "maximum": 9007199254740991},
+          "currentBusinessReleaseUid": {"$ref": "#/components/schemas/UuidV4"},
+          "currentBusinessReleaseSequence": {"type": "integer", "format": "int64", "minimum": 1, "maximum": 9007199254740991},
+          "plannedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        }
+      },
+      "BusinessRolloutAction": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "actionLabel", "resultingStatus", "resultingStatusLabel", "requestedBy", "reason", "createdAt"],
+        "properties": {
+          "action": {"type": "string", "enum": ["CREATE", "STOP"]},
+          "actionLabel": {"type": "string", "minLength": 1},
+          "resultingStatus": {"type": "string", "enum": ["DRAFT", "STOPPED"]},
+          "resultingStatusLabel": {"type": "string", "minLength": 1},
+          "requestedBy": {"type": "string", "minLength": 1},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+          "createdAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        }
+      },
+      "BusinessRollout": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rolloutUid", "release", "status", "statusLabel", "batchSize", "maximumWaveNo", "validationHardwareSn", "observationWindowMinutes", "downloadTimeoutMinutes", "drainTimeoutMinutes", "maximumRetryCount", "remoteDispatchEnabled", "reason", "createdBy", "stoppedBy", "stoppedAt", "stopReason", "createdAt", "updatedAt", "deployments", "actions"],
+        "properties": {
+          "rolloutUid": {"$ref": "#/components/schemas/UuidV4"},
+          "release": {"$ref": "#/components/schemas/BusinessRelease"},
+          "status": {"type": "string", "enum": ["DRAFT", "STOPPED"]},
+          "statusLabel": {"type": "string", "minLength": 1},
+          "batchSize": {"type": "integer", "minimum": 1, "maximum": 100},
+          "maximumWaveNo": {"type": "integer", "minimum": 0, "maximum": 1000},
+          "validationHardwareSn": {"$ref": "#/components/schemas/HardwareSn"},
+          "observationWindowMinutes": {"type": "integer", "minimum": 1},
+          "downloadTimeoutMinutes": {"type": "integer", "minimum": 1},
+          "drainTimeoutMinutes": {"type": "integer", "minimum": 1},
+          "maximumRetryCount": {"type": "integer", "minimum": 0, "maximum": 10},
+          "remoteDispatchEnabled": {"type": "boolean", "const": false},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+          "createdBy": {"type": "string", "minLength": 1},
+          "stoppedBy": {"type": ["string", "null"]},
+          "stoppedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "stopReason": {"type": ["string", "null"], "maxLength": 500},
+          "createdAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "updatedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "deployments": {"type": "array", "items": {"$ref": "#/components/schemas/BusinessReleaseDeployment"}},
+          "actions": {"type": "array", "items": {"$ref": "#/components/schemas/BusinessRolloutAction"}}
+        }
+      },
+      "BusinessReleasePage": {
+        "type": "object", "additionalProperties": false,
+        "required": ["items", "page", "pageSize", "total"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/BusinessRelease"}},
+          "page": {"type": "integer", "minimum": 1}, "pageSize": {"type": "integer", "minimum": 1, "maximum": 100}, "total": {"type": "integer", "format": "int64", "minimum": 0}
+        }
+      },
+      "BusinessRolloutPage": {
+        "type": "object", "additionalProperties": false,
+        "required": ["items", "page", "pageSize", "total"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/BusinessRollout"}},
+          "page": {"type": "integer", "minimum": 1}, "pageSize": {"type": "integer", "minimum": 1, "maximum": 100}, "total": {"type": "integer", "format": "int64", "minimum": 0}
+        }
+      },
+      "BusinessReleaseReadinessEnvelope": {
+        "type": "object", "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {"code": {"type": "string", "const": "OK"}, "data": {"$ref": "#/components/schemas/BusinessReleaseReadiness"}, "requestId": {"type": "string"}}
+      },
+      "BusinessReleaseEnvelope": {
+        "type": "object", "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {"code": {"type": "string", "const": "OK"}, "data": {"$ref": "#/components/schemas/BusinessRelease"}, "requestId": {"type": "string"}}
+      },
+      "BusinessReleasePageEnvelope": {
+        "type": "object", "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {"code": {"type": "string", "const": "OK"}, "data": {"$ref": "#/components/schemas/BusinessReleasePage"}, "requestId": {"type": "string"}}
+      },
+      "BusinessRolloutEnvelope": {
+        "type": "object", "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {"code": {"type": "string", "const": "OK"}, "data": {"$ref": "#/components/schemas/BusinessRollout"}, "requestId": {"type": "string"}}
+      },
+      "BusinessRolloutPageEnvelope": {
+        "type": "object", "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {"code": {"type": "string", "const": "OK"}, "data": {"$ref": "#/components/schemas/BusinessRolloutPage"}, "requestId": {"type": "string"}}
       },
       "RegisterMcuFirmwareReleaseRequest": {
         "type": "object",

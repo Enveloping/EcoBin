@@ -4530,6 +4530,233 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/business-releases/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Check private artifact storage, verification keys and the hard-disabled dispatch boundary */
+        get: operations["getPlatformBusinessReleaseReadiness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/business-releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Orange Pi business-runtime releases */
+        get: operations["listPlatformBusinessReleases"];
+        put?: never;
+        /** Create a business-runtime release draft and allocate its identity and private object paths */
+        post: operations["createPlatformBusinessReleaseDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/business-releases/{releaseUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        /** Read a business-runtime release and its append-only audit history */
+        get: operations["getPlatformBusinessRelease"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/business-releases/{releaseUid}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Store one immutable business package and its offline signature at backend-generated private paths */
+        post: operations["uploadPlatformBusinessReleaseArtifacts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/business-releases/{releaseUid}/verifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read back and verify the digest, Ed25519 signature, package layout and compatibility declaration */
+        post: operations["verifyPlatformBusinessRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/business-releases/{releaseUid}/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a verified release as a distinct audited administrator action */
+        post: operations["approvePlatformBusinessRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/business-releases/{releaseUid}/suspensions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Suspend creation of new rollout plans for a release */
+        post: operations["suspendPlatformBusinessRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/business-releases/{releaseUid}/resumptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume rollout-plan creation for a suspended release */
+        post: operations["resumePlatformBusinessRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/business-releases/{releaseUid}/retirements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Permanently retire a ready or suspended release while retaining evidence */
+        post: operations["retirePlatformBusinessRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/business-releases/rollouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List non-dispatching business-runtime rollout plans */
+        get: operations["listPlatformBusinessReleaseRollouts"];
+        put?: never;
+        /**
+         * Freeze an eligible-device snapshot into validation and selectable-sized waves without dispatch
+         * @description Every selected device must pass compatibility checks against its current installed-software fact. This endpoint never creates a reliable task and never calls OneNet.
+         */
+        post: operations["createPlatformBusinessReleaseRollout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/business-releases/rollouts/{rolloutUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        /** Read a rollout plan, frozen eligibility evidence and append-only actions */
+        get: operations["getPlatformBusinessReleaseRollout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/business-releases/rollouts/{rolloutUid}/stoppages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Permanently stop an undispatched rollout plan */
+        post: operations["stopPlatformBusinessReleaseRollout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/mcu-firmware-releases": {
         parameters: {
             query?: never;
@@ -8722,6 +8949,186 @@ export interface components {
             blockingCode: string | null;
             nextActionCodes: components["schemas"]["DeviceFactoryProgressActionCode"][];
             fetchedAt: components["schemas"]["UtcTimestamp"];
+        };
+        CreateBusinessReleaseDraftRequest: {
+            versionName: string;
+            releaseNotes?: string | null;
+        };
+        BusinessReleaseActionRequest: {
+            reason: string;
+        };
+        CreateBusinessRolloutRequest: {
+            releaseUid: components["schemas"]["UuidV4"];
+            validationHardwareSn: components["schemas"]["HardwareSn"];
+            targetHardwareSns?: components["schemas"]["HardwareSn"][];
+            /** @default 3 */
+            batchSize: number | null;
+            reason: string;
+        };
+        BusinessReleaseReadiness: {
+            artifactStorageAvailable: boolean;
+            artifactStorageMessage: string;
+            signingKeysAvailable: boolean;
+            signingKeysMessage: string;
+            /** @constant */
+            remoteDispatchEnabled: false;
+            dispatchMessage: string;
+        };
+        BusinessReleaseCompatibility: {
+            packageFormatVersion: number;
+            backendCommandContractVersion: number;
+            deviceEventContractVersion: number;
+            communicationBusinessProtocol: string;
+            updaterBusinessProtocol: string;
+            uartProtocol: string;
+            requiredMcuCapabilities: string;
+            providedBusinessCapabilities: string;
+        };
+        BusinessReleaseAction: {
+            /** @enum {string} */
+            action: "CREATE" | "UPLOAD" | "START_VERIFICATION" | "VERIFICATION_PASSED" | "VERIFICATION_FAILED" | "APPROVE" | "SUSPEND" | "RESUME" | "RETIRE";
+            actionLabel: string;
+            resultingStatus: components["schemas"]["BusinessReleaseStatus"];
+            resultingStatusLabel: string;
+            requestedBy: string;
+            reason: string;
+            createdAt: components["schemas"]["UtcTimestamp"];
+        };
+        /** @enum {string} */
+        BusinessReleaseStatus: "DRAFT" | "VERIFYING" | "VERIFICATION_FAILED" | "AWAITING_APPROVAL" | "READY" | "SUSPENDED" | "RETIRED";
+        BusinessRelease: {
+            releaseUid: components["schemas"]["UuidV4"];
+            versionName: string;
+            /** Format: int64 */
+            releaseSequence: number;
+            status: components["schemas"]["BusinessReleaseStatus"];
+            statusLabel: string;
+            statusDescription: string;
+            packageObjectKey: string;
+            signatureObjectKey: string;
+            packageSha256: components["schemas"]["Sha256Hex"] | null;
+            /** Format: int64 */
+            packageSize: number | null;
+            signatureSha256: components["schemas"]["Sha256Hex"] | null;
+            signingKeyId: string | null;
+            artifactUploaded: boolean;
+            verificationErrorMessage: string | null;
+            releaseNotes: string | null;
+            createdBy: string;
+            verifiedBy: string | null;
+            verifiedAt: components["schemas"]["UtcTimestamp"] | null;
+            approvedBy: string | null;
+            approvedAt: components["schemas"]["UtcTimestamp"] | null;
+            suspendedBy: string | null;
+            suspendedAt: components["schemas"]["UtcTimestamp"] | null;
+            suspensionReason: string | null;
+            retiredBy: string | null;
+            retiredAt: components["schemas"]["UtcTimestamp"] | null;
+            retirementReason: string | null;
+            createdAt: components["schemas"]["UtcTimestamp"];
+            updatedAt: components["schemas"]["UtcTimestamp"];
+            compatibility: components["schemas"]["BusinessReleaseCompatibility"] | null;
+            actions: components["schemas"]["BusinessReleaseAction"][];
+        };
+        BusinessReleaseDeployment: {
+            deploymentUid: components["schemas"]["UuidV4"];
+            hardwareSn: components["schemas"]["HardwareSn"];
+            tenantCode: string | null;
+            organizationCode: string | null;
+            /** @enum {string} */
+            kind: "VALIDATION" | "WAVE";
+            kindLabel: string;
+            waveNo: number;
+            /** @constant */
+            status: "PLANNED";
+            statusLabel: string;
+            eligibilitySummary: string;
+            /** Format: int64 */
+            sourceManagementStateSequence: number;
+            currentBusinessReleaseUid: components["schemas"]["UuidV4"];
+            /** Format: int64 */
+            currentBusinessReleaseSequence: number;
+            plannedAt: components["schemas"]["UtcTimestamp"];
+        };
+        BusinessRolloutAction: {
+            /** @enum {string} */
+            action: "CREATE" | "STOP";
+            actionLabel: string;
+            /** @enum {string} */
+            resultingStatus: "DRAFT" | "STOPPED";
+            resultingStatusLabel: string;
+            requestedBy: string;
+            reason: string;
+            createdAt: components["schemas"]["UtcTimestamp"];
+        };
+        BusinessRollout: {
+            rolloutUid: components["schemas"]["UuidV4"];
+            release: components["schemas"]["BusinessRelease"];
+            /** @enum {string} */
+            status: "DRAFT" | "STOPPED";
+            statusLabel: string;
+            batchSize: number;
+            maximumWaveNo: number;
+            validationHardwareSn: components["schemas"]["HardwareSn"];
+            observationWindowMinutes: number;
+            downloadTimeoutMinutes: number;
+            drainTimeoutMinutes: number;
+            maximumRetryCount: number;
+            /** @constant */
+            remoteDispatchEnabled: false;
+            reason: string;
+            createdBy: string;
+            stoppedBy: string | null;
+            stoppedAt: components["schemas"]["UtcTimestamp"] | null;
+            stopReason: string | null;
+            createdAt: components["schemas"]["UtcTimestamp"];
+            updatedAt: components["schemas"]["UtcTimestamp"];
+            deployments: components["schemas"]["BusinessReleaseDeployment"][];
+            actions: components["schemas"]["BusinessRolloutAction"][];
+        };
+        BusinessReleasePage: {
+            items: components["schemas"]["BusinessRelease"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        BusinessRolloutPage: {
+            items: components["schemas"]["BusinessRollout"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        BusinessReleaseReadinessEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["BusinessReleaseReadiness"];
+            requestId: string;
+        };
+        BusinessReleaseEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["BusinessRelease"];
+            requestId: string;
+        };
+        BusinessReleasePageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["BusinessReleasePage"];
+            requestId: string;
+        };
+        BusinessRolloutEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["BusinessRollout"];
+            requestId: string;
+        };
+        BusinessRolloutPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["BusinessRolloutPage"];
+            requestId: string;
         };
         RegisterMcuFirmwareReleaseRequest: {
             releaseUid: components["schemas"]["UuidV4"];
@@ -16146,6 +16553,437 @@ export interface operations {
             403: components["responses"]["ForbiddenProblem"];
             409: components["responses"]["ConflictProblem"];
             422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getPlatformBusinessReleaseReadiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Business release control-plane readiness */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessReleaseReadinessEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    listPlatformBusinessReleases: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Business release page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessReleasePageEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    createPlatformBusinessReleaseDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBusinessReleaseDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Release draft created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessReleaseEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getPlatformBusinessRelease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Business release detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessReleaseEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    uploadPlatformBusinessReleaseArtifacts: {
+        parameters: {
+            query: {
+                signingKeyId: string;
+                reason: string;
+            };
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    package: string;
+                    /** Format: binary */
+                    signature: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Artifacts stored and frozen */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessReleaseEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    verifyPlatformBusinessRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessReleaseActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Verification reached a durable pass or failure state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessReleaseEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    approvePlatformBusinessRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessReleaseActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Release approved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessReleaseEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    suspendPlatformBusinessRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessReleaseActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Release suspended */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessReleaseEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    resumePlatformBusinessRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessReleaseActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Release resumed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessReleaseEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    retirePlatformBusinessRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                releaseUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessReleaseActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Release retired */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessReleaseEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listPlatformBusinessReleaseRollouts: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Business rollout page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessRolloutPageEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    createPlatformBusinessReleaseRollout: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBusinessRolloutRequest"];
+            };
+        };
+        responses: {
+            /** @description Rollout plan created without device dispatch */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessRolloutEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getPlatformBusinessReleaseRollout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Business rollout detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessRolloutEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    stopPlatformBusinessReleaseRollout: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessReleaseActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Rollout stopped without affecting devices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessRolloutEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
         };
     };
     listPlatformMcuFirmwareReleases: {

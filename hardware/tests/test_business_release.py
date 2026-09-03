@@ -21,8 +21,20 @@ from install.business_release import (
     BUSINESS_ARCHIVE_PREFIX,
     BUSINESS_ARTIFACT_KIND,
     BUSINESS_RELEASE_FORMAT_VERSION,
+    BACKEND_COMMAND_CONTRACT_VERSION,
+    COMMUNICATION_BUSINESS_PROTOCOL_MAJOR,
+    COMMUNICATION_BUSINESS_PROTOCOL_MINOR,
+    DEVICE_EVENT_CONTRACT_VERSION,
     PYTHON_SERIES,
+    PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX,
+    REQUIRED_FIXED_FRAME_REVISION,
+    REQUIRED_MCU_CAPABILITY_BITMAP_HEX,
     TARGET_PLATFORM,
+    UART_PROTOCOL_FAMILY,
+    UART_PROTOCOL_MAJOR,
+    UART_PROTOCOL_MINOR,
+    UPDATER_BUSINESS_PROTOCOL_MAJOR,
+    UPDATER_BUSINESS_PROTOCOL_MINOR,
     business_allowlist_sha256,
     validate_business_release_tree,
     write_sha256sums,
@@ -70,6 +82,27 @@ def _make_release(root: Path) -> Path:
                 f"ECOBIN_EDGE_SCHEMA_VERSION={EDGE_SCHEMA_VERSION}\n",
                 "ECOBIN_SOURCE_DATE_EPOCH=1\n",
                 f"ECOBIN_BUSINESS_ALLOWLIST_SHA256={business_allowlist_sha256()}\n",
+                "ECOBIN_BACKEND_COMMAND_CONTRACT_VERSION="
+                f"{BACKEND_COMMAND_CONTRACT_VERSION}\n",
+                "ECOBIN_DEVICE_EVENT_CONTRACT_VERSION="
+                f"{DEVICE_EVENT_CONTRACT_VERSION}\n",
+                "ECOBIN_COMMUNICATION_BUSINESS_PROTOCOL_MAJOR="
+                f"{COMMUNICATION_BUSINESS_PROTOCOL_MAJOR}\n",
+                "ECOBIN_COMMUNICATION_BUSINESS_PROTOCOL_MINOR="
+                f"{COMMUNICATION_BUSINESS_PROTOCOL_MINOR}\n",
+                "ECOBIN_UPDATER_BUSINESS_PROTOCOL_MAJOR="
+                f"{UPDATER_BUSINESS_PROTOCOL_MAJOR}\n",
+                "ECOBIN_UPDATER_BUSINESS_PROTOCOL_MINOR="
+                f"{UPDATER_BUSINESS_PROTOCOL_MINOR}\n",
+                f"ECOBIN_UART_PROTOCOL_FAMILY={UART_PROTOCOL_FAMILY}\n",
+                f"ECOBIN_UART_PROTOCOL_MAJOR={UART_PROTOCOL_MAJOR}\n",
+                f"ECOBIN_UART_PROTOCOL_MINOR={UART_PROTOCOL_MINOR}\n",
+                "ECOBIN_REQUIRED_FIXED_FRAME_REVISION="
+                f"{REQUIRED_FIXED_FRAME_REVISION}\n",
+                "ECOBIN_REQUIRED_MCU_CAPABILITY_BITMAP_HEX="
+                f"{REQUIRED_MCU_CAPABILITY_BITMAP_HEX}\n",
+                "ECOBIN_PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX="
+                f"{PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX}\n",
             )
         ),
         encoding="utf-8",
@@ -307,6 +340,8 @@ def test_release_tree_requires_exact_identity_and_checksums(tmp_path: Path) -> N
     )
 
     assert manifest["ECOBIN_RELEASE_ID"] == RELEASE_ID
+    assert manifest["ECOBIN_BACKEND_COMMAND_CONTRACT_VERSION"] == "2"
+    assert manifest["ECOBIN_REQUIRED_FIXED_FRAME_REVISION"] == "2"
     (release / "app/main.py").write_text("changed\n", encoding="utf-8")
     with pytest.raises(Exception, match="checksum mismatch"):
         validate_business_release_tree(release)

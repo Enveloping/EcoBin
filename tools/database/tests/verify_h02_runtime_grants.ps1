@@ -11,8 +11,8 @@ $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 $f07BootstrapPath = Join-Path $PSScriptRoot "../verify-f07-bootstrap.ps1"
 $f07BootstrapSource = Get-Content -LiteralPath $f07BootstrapPath -Raw
 
-if ($catalog.CatalogVersion -ne 32) {
-    throw "H-02 runtime grant catalog must be V32 for the V63 target"
+if ($catalog.CatalogVersion -ne 33) {
+    throw "H-02 runtime grant catalog must be V33 for the V64 target"
 }
 
 if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
@@ -21,9 +21,9 @@ if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
     throw "H-02 provisioning must reject dirty migrations and record provenance"
 }
 
-if ($provisionSource -notmatch '\$tables\.Count -ne 123' -or
-        $provisionSource -notmatch 'Expected 123 domain tables') {
-    throw "H-02 provisioning must enforce the V63 123-table shape"
+if ($provisionSource -notmatch '\$tables\.Count -ne 129' -or
+        $provisionSource -notmatch 'Expected 129 domain tables') {
+    throw "H-02 provisioning must enforce the V64 129-table shape"
 }
 if ($provisionSource -notmatch
         'id, asset_uid, device_public_code, hardware_sn' -or
@@ -41,7 +41,7 @@ if ($provisionSource -notmatch
 }
 if ($provisionSource -notmatch (
         '(?s)if \(-not \$skipMigration\) \{.*?' +
-        'Invoke-FlywayMigration -Target 63.*?' +
+        'Invoke-FlywayMigration -Target 64.*?' +
         '\r?\n    \}\r?\n\r?\n' +
         '    # Converge the trigger definer even when.*?' +
         '    Invoke-RootSql -Sql @"\r?\n' +
@@ -53,7 +53,7 @@ if ($provisionSource -notmatch (
         'GRANT TRIGGER ON \$database\.\*\r?\n' +
         "\s+TO 'ecobin_trigger_definer'@'%';\r?\n" +
         'GRANT SELECT \(')) {
-    throw "V63 resumed environments must revoke legacy and converge grants"
+    throw "V64 resumed environments must revoke legacy and converge grants"
 }
 if ($provisionSource -notmatch
         '\$expectedTriggerDefinerGrants = @\(' -or
@@ -78,15 +78,15 @@ $target39Index = $provisionSource.IndexOf(
     "Invoke-FlywayMigration -Target 39")
 $v39GrantIndex = $provisionSource.IndexOf(
     "V39 installs the current channel/account trigger shapes")
-$target63Index = $provisionSource.IndexOf(
-    "Invoke-FlywayMigration -Target 63")
+$target64Index = $provisionSource.IndexOf(
+    "Invoke-FlywayMigration -Target 64")
 if (
     $legacyGrantIndex -lt 0 -or
     $target36Index -le $legacyGrantIndex -or
     $v36GrantIndex -le $target36Index -or
     $target39Index -le $v36GrantIndex -or
     $v39GrantIndex -le $target39Index -or
-    $target63Index -le $v39GrantIndex
+    $target64Index -le $v39GrantIndex
 ) {
     throw "H-02 must grant each historical trigger before data backfills"
 }
@@ -107,19 +107,19 @@ if ($f07BootstrapSource -notmatch
         'deviceAssetManagementTriggerReady\s*=\s*\$true') {
     throw "F-07 must execute the V63 new-asset trigger with final definer grants"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 63') {
-    throw "H-02 provisioning must migrate through V63"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 64') {
+    throw "H-02 provisioning must migrate through V64"
 }
-if ($provisionSource -notmatch '\$historyCount -ne 63' -or
+if ($provisionSource -notmatch '\$historyCount -ne 64' -or
         $provisionSource -notmatch
-            'Expected sixty-three successful Flyway migrations') {
-    throw "H-02 provisioning must verify all 63 migrations"
+            'Expected sixty-four successful Flyway migrations') {
+    throw "H-02 provisioning must verify all 64 migrations"
 }
 if ($provisionSource -notmatch
-        '\$existingDomainTableCount -eq 123\s+-and\s+' +
-        '\$existingHistoryCount -eq 63\s+-and\s+' +
-        '\$existingMaxVersion -eq 63' -or
-        $provisionSource -notmatch '\$existingMaxVersion -lt 63' -or
+        '\$existingDomainTableCount -eq 129\s+-and\s+' +
+        '\$existingHistoryCount -eq 64\s+-and\s+' +
+        '\$existingMaxVersion -eq 64' -or
+        $provisionSource -notmatch '\$existingMaxVersion -lt 64' -or
         $provisionSource -notmatch
         '\$existingHistoryCount -eq 60\s+-and\s+' +
         '\$existingMaxVersion -eq 60' -or
@@ -128,16 +128,21 @@ if ($provisionSource -notmatch
         '\$existingMaxVersion -eq 61' -or
         $provisionSource -notmatch
         '\$existingHistoryCount -eq 62\s+-and\s+' +
-        '\$existingMaxVersion -eq 62') {
-    throw "H-02 migrated resume must recognize V60/V61/V62 and target V63"
+        '\$existingMaxVersion -eq 62' -or
+        $provisionSource -notmatch
+        '\$existingHistoryCount -eq 63\s+-and\s+' +
+        '\$existingMaxVersion -eq 63') {
+    throw "H-02 migrated resume must recognize V60-V63 and target V64"
 }
-if ($f07BootstrapSource -notmatch '\$tableCount -ne 124' -or
+if ($f07BootstrapSource -notmatch '\$tableCount -ne 130' -or
         $f07BootstrapSource -notmatch
-            'correct target must contain 123 domain tables plus Flyway history' -or
-        $f07BootstrapSource -notmatch 'targetVersion\s*=\s*63' -or
-        $f07BootstrapSource -notmatch 'domainTables\s*=\s*123' -or
+            'correct target must contain 129 domain tables plus Flyway history' -or
+        $f07BootstrapSource -notmatch 'targetVersion\s*=\s*64' -or
+        $f07BootstrapSource -notmatch 'domainTables\s*=\s*129' -or
         $f07BootstrapSource -notmatch
-            'correctV63Ready\s*=\s*\$true' -or
+            'correctV64Ready\s*=\s*\$true' -or
+        $f07BootstrapSource -notmatch
+            'businessReleaseControlPlaneV64\s*=\s*\$true' -or
         $f07BootstrapSource -notmatch
             'mcuRemoteUpdateCapabilityV60\s*=\s*\$true' -or
         $f07BootstrapSource -notmatch
@@ -156,8 +161,8 @@ if ($f07BootstrapSource -notmatch '\$tableCount -ne 124' -or
             'sealedClockQualityRequired\s*=\s*\$true' -or
         $f07BootstrapSource -match 'correct V56|correctV56Ready') {
     throw (
-        "F-07 bootstrap verification must report the V63 shape: " +
-        "123 domain tables plus Flyway history"
+        "F-07 bootstrap verification must report the V64 shape: " +
+        "129 domain tables plus Flyway history"
     )
 }
 if ($provisionSource -notmatch
@@ -275,8 +280,47 @@ foreach ($entry in $softwareCompatibilityGrantShape.GetEnumerator()) {
         throw "Device software compatibility UPDATE grants differ for $($entry.Key)"
     }
 }
-if ($catalog.ReadOnlyTables -notcontains "dev_edge_software_release") {
-    throw "Runtime must not register or mutate edge software releases"
+if ($catalog.ReadOnlyTables -contains "dev_edge_software_release" -or
+        $catalog.UpdateColumns.ContainsKey("dev_edge_software_release")) {
+    throw "V64 runtime must insert but never update immutable release declarations"
+}
+foreach ($table in @(
+    "dev_edge_software_release_sequence",
+    "dev_edge_software_release_control",
+    "dev_edge_software_rollout"
+)) {
+    if (-not $catalog.UpdateColumns.ContainsKey($table)) {
+        throw "V64 runtime UPDATE grant is missing $table"
+    }
+}
+$releaseControlUpdateColumns = @(
+    "release_status"
+    "verification_operation_uid"
+    "package_sha256"
+    "package_size"
+    "signature_sha256"
+    "signature_bytes"
+    "signing_key_id"
+    "declaration_id"
+    "verification_error_code"
+    "verification_error_message"
+    "verified_by_platform_admin_id"
+    "verified_at"
+    "approved_by_platform_admin_id"
+    "approved_at"
+    "suspended_by_platform_admin_id"
+    "suspended_at"
+    "suspension_reason"
+    "retired_by_platform_admin_id"
+    "retired_at"
+    "retirement_reason"
+    "artifact_uploaded_at"
+    "lock_version"
+    "updated_at"
+)
+if (@(Compare-Object $releaseControlUpdateColumns `
+            @($catalog.UpdateColumns.dev_edge_software_release_control)).Count -ne 0) {
+    throw "V64 business release control UPDATE grants differ"
 }
 if ($catalog.ReadOnlyTables -contains "dev_device_software_fact" -or
         $catalog.SlotTables -contains "dev_device_software_fact" -or

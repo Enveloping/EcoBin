@@ -4,6 +4,7 @@ import {
   AuditOutlined,
   BankOutlined,
   CloudSyncOutlined,
+  CloudUploadOutlined,
   CloudServerOutlined,
   DollarOutlined,
   IdcardOutlined,
@@ -39,6 +40,7 @@ const DeviceManagementPage = lazy(
   () => import('@/pages/device-management'),
 );
 const McuFirmwarePage = lazy(() => import('@/pages/mcu-firmware'));
+const BusinessReleasesPage = lazy(() => import('@/pages/business-releases'));
 const OperationalGovernancePage = lazy(
   () => import('@/pages/operational-governance'),
 );
@@ -187,6 +189,14 @@ export const appRoutes: AppRoute[] = [
     name: 'MCU 固件灰度',
     icon: <CloudSyncOutlined />,
     element: <McuFirmwarePage />,
+    allOf: ['device.manage'],
+    accountTypes: PLATFORM,
+  },
+  {
+    path: '/business-releases',
+    name: '香橙派业务更新',
+    icon: <CloudUploadOutlined />,
+    element: <BusinessReleasesPage />,
     allOf: ['device.manage'],
     accountTypes: PLATFORM,
   },
@@ -381,6 +391,7 @@ export function menuRoutesFor(
     '/staff',
     '/devices',
     '/mcu-firmware',
+    '/business-releases',
     '/bag-labels',
   ] as const) {
     const route = visibleRoute(session, path);

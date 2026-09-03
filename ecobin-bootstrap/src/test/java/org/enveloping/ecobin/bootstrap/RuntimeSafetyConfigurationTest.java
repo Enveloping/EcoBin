@@ -82,7 +82,8 @@ class RuntimeSafetyConfigurationTest {
             "V60__mcu_remote_update_capability.sql",
             "V61__onenet_external_request_observability.sql",
             "V62__factory_progress_task_lookup.sql",
-            "V63__device_software_compatibility_receive_plane.sql"
+            "V63__device_software_compatibility_receive_plane.sql",
+            "V64__business_runtime_release_control_plane.sql"
     };
 
     @Test

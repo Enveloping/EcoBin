@@ -761,3 +761,32 @@ test('wallet preview accepts only the latest organization-user request', () => {
   assert.equal(guard.accepts(oldOrganization, newOrganizationKey), false);
   assert.equal(guard.accepts(newOrganization, newOrganizationKey), true);
 });
+
+test('business runtime release page is platform-only and cannot dispatch', () => {
+  const api = readFileSync(
+    new URL('src/api/businessReleases.ts', webRoot),
+    'utf8',
+  );
+  const page = readFileSync(
+    new URL('src/pages/business-releases/index.tsx', webRoot),
+    'utf8',
+  );
+  const routes = readFileSync(
+    new URL('src/router/routes.tsx', webRoot),
+    'utf8',
+  );
+
+  assert.match(api, /uploadBusinessReleaseArtifacts/);
+  assert.match(api, /createBusinessRollout/);
+  assert.match(api, /stopBusinessRollout/);
+  assert.doesNotMatch(
+    api,
+    /validation-starts|wave-advancements|reliable-tasks|OneNet/,
+  );
+  assert.match(page, /当前阶段只建立发布和灰度计划，不会向设备下发更新/);
+  assert.doesNotMatch(page, />\s*(?:启动更新|下发下一批)\s*</);
+  assert.match(
+    routes,
+    /path: '\/business-releases',[\s\S]*?allOf: \['device\.manage'\],[\s\S]*?accountTypes: PLATFORM/,
+  );
+});

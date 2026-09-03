@@ -58,6 +58,18 @@ BUSINESS_ARTIFACT_KIND = "orangepi-business-runtime"
 PYTHON_SERIES = "3.11"
 TARGET_PLATFORM = "linux-arm64"
 BUSINESS_ARCHIVE_PREFIX = "ecobin-business-"
+BACKEND_COMMAND_CONTRACT_VERSION = "2"
+DEVICE_EVENT_CONTRACT_VERSION = "2"
+COMMUNICATION_BUSINESS_PROTOCOL_MAJOR = "1"
+COMMUNICATION_BUSINESS_PROTOCOL_MINOR = "0"
+UPDATER_BUSINESS_PROTOCOL_MAJOR = "1"
+UPDATER_BUSINESS_PROTOCOL_MINOR = "0"
+UART_PROTOCOL_FAMILY = "FIXED_FRAME"
+UART_PROTOCOL_MAJOR = "NONE"
+UART_PROTOCOL_MINOR = "NONE"
+REQUIRED_FIXED_FRAME_REVISION = "2"
+REQUIRED_MCU_CAPABILITY_BITMAP_HEX = "0000000000000000"
+PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX = "0000000000000000"
 BUSINESS_PACKAGE_TOP_LEVEL = frozenset(
     {
         "app",
@@ -83,6 +95,18 @@ BUSINESS_MANIFEST_KEYS = frozenset(
         "ECOBIN_EDGE_SCHEMA_VERSION",
         "ECOBIN_SOURCE_DATE_EPOCH",
         "ECOBIN_BUSINESS_ALLOWLIST_SHA256",
+        "ECOBIN_BACKEND_COMMAND_CONTRACT_VERSION",
+        "ECOBIN_DEVICE_EVENT_CONTRACT_VERSION",
+        "ECOBIN_COMMUNICATION_BUSINESS_PROTOCOL_MAJOR",
+        "ECOBIN_COMMUNICATION_BUSINESS_PROTOCOL_MINOR",
+        "ECOBIN_UPDATER_BUSINESS_PROTOCOL_MAJOR",
+        "ECOBIN_UPDATER_BUSINESS_PROTOCOL_MINOR",
+        "ECOBIN_UART_PROTOCOL_FAMILY",
+        "ECOBIN_UART_PROTOCOL_MAJOR",
+        "ECOBIN_UART_PROTOCOL_MINOR",
+        "ECOBIN_REQUIRED_FIXED_FRAME_REVISION",
+        "ECOBIN_REQUIRED_MCU_CAPABILITY_BITMAP_HEX",
+        "ECOBIN_PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX",
     }
 )
 BUSINESS_RELEASE_ENV_KEYS = frozenset(
@@ -137,7 +161,7 @@ def validate_business_release_id(value: str) -> str:
 def validate_version_name(value: str) -> str:
     if not isinstance(value, str) or VERSION_NAME_PATTERN.fullmatch(value) is None:
         raise ReleaseValidationError("business version name must be semantic version text")
-    if len(value) > 64:
+    if len(value) > 32:
         raise ReleaseValidationError("business version name is too long")
     return value
 
@@ -149,7 +173,7 @@ def validate_release_sequence(value: object) -> int:
         sequence = int(value)
     except (TypeError, ValueError):
         raise ReleaseValidationError("business release sequence is invalid") from None
-    if str(sequence) != str(value) or not 1 <= sequence <= 2_147_483_647:
+    if str(sequence) != str(value) or not 1 <= sequence <= 9_007_199_254_740_991:
         raise ReleaseValidationError("business release sequence is invalid")
     return sequence
 
@@ -228,6 +252,32 @@ def validate_business_release_tree(
         != business_allowlist_sha256()
     ):
         raise ReleaseValidationError("business source allowlist differs")
+    expected_compatibility = {
+        "ECOBIN_BACKEND_COMMAND_CONTRACT_VERSION":
+            BACKEND_COMMAND_CONTRACT_VERSION,
+        "ECOBIN_DEVICE_EVENT_CONTRACT_VERSION": DEVICE_EVENT_CONTRACT_VERSION,
+        "ECOBIN_COMMUNICATION_BUSINESS_PROTOCOL_MAJOR":
+            COMMUNICATION_BUSINESS_PROTOCOL_MAJOR,
+        "ECOBIN_COMMUNICATION_BUSINESS_PROTOCOL_MINOR":
+            COMMUNICATION_BUSINESS_PROTOCOL_MINOR,
+        "ECOBIN_UPDATER_BUSINESS_PROTOCOL_MAJOR":
+            UPDATER_BUSINESS_PROTOCOL_MAJOR,
+        "ECOBIN_UPDATER_BUSINESS_PROTOCOL_MINOR":
+            UPDATER_BUSINESS_PROTOCOL_MINOR,
+        "ECOBIN_UART_PROTOCOL_FAMILY": UART_PROTOCOL_FAMILY,
+        "ECOBIN_UART_PROTOCOL_MAJOR": UART_PROTOCOL_MAJOR,
+        "ECOBIN_UART_PROTOCOL_MINOR": UART_PROTOCOL_MINOR,
+        "ECOBIN_REQUIRED_FIXED_FRAME_REVISION":
+            REQUIRED_FIXED_FRAME_REVISION,
+        "ECOBIN_REQUIRED_MCU_CAPABILITY_BITMAP_HEX":
+            REQUIRED_MCU_CAPABILITY_BITMAP_HEX,
+        "ECOBIN_PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX":
+            PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX,
+    }
+    if any(manifest[key] != value for key, value in expected_compatibility.items()):
+        raise ReleaseValidationError(
+            "business compatibility declaration differs from this runtime"
+        )
 
     release_environment = _parse_env_file(release_root / "release.env")
     if set(release_environment) != BUSINESS_RELEASE_ENV_KEYS or release_environment != {
@@ -432,6 +482,18 @@ __all__ = [
     "BUSINESS_APP_FILES",
     "BUSINESS_ARTIFACT_KIND",
     "BUSINESS_RELEASE_FORMAT_VERSION",
+    "BACKEND_COMMAND_CONTRACT_VERSION",
+    "COMMUNICATION_BUSINESS_PROTOCOL_MAJOR",
+    "COMMUNICATION_BUSINESS_PROTOCOL_MINOR",
+    "DEVICE_EVENT_CONTRACT_VERSION",
+    "PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX",
+    "REQUIRED_FIXED_FRAME_REVISION",
+    "REQUIRED_MCU_CAPABILITY_BITMAP_HEX",
+    "UART_PROTOCOL_FAMILY",
+    "UART_PROTOCOL_MAJOR",
+    "UART_PROTOCOL_MINOR",
+    "UPDATER_BUSINESS_PROTOCOL_MAJOR",
+    "UPDATER_BUSINESS_PROTOCOL_MINOR",
     "business_allowlist_sha256",
     "extract_verified_business_archive",
     "safe_extract_business_archive_stream",

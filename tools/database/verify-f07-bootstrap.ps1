@@ -278,7 +278,8 @@ WHERE table_schema = '$Database'
       'flyway_schema_history',
       'iam_permission_definition',
       'dev_runtime_snapshot_policy',
-      'dev_remote_support_port_slot'
+      'dev_remote_support_port_slot',
+      'dev_edge_software_release_sequence'
   );
 PREPARE row_count_statement FROM @row_count_sql;
 EXECUTE row_count_statement;
@@ -403,7 +404,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V63 application exited before readiness`n$diagnostic"
+            throw "correct V64 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -441,7 +442,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V63 application did not become ready; " +
+    throw "correct V64 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -1269,8 +1270,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 63) {
-        throw "correct target must contain 63 successful Flyway migrations"
+    if ($historyCount -ne 64) {
+        throw "correct target must contain 64 successful Flyway migrations"
     }
 
     Invoke-MySql -Database "" -Sql @"
@@ -1348,8 +1349,26 @@ SELECT COUNT(*) FROM information_schema.tables
 WHERE table_schema = '$($databaseNames.Correct)'
   AND table_type = 'BASE TABLE';
 "@)
-    if ($tableCount -ne 124) {
-        throw "correct target must contain 123 domain tables plus Flyway history"
+    if ($tableCount -ne 130) {
+        throw "correct target must contain 129 domain tables plus Flyway history"
+    }
+    $businessReleaseControlTableCount = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT COUNT(*)
+FROM information_schema.tables
+WHERE table_schema = '$($databaseNames.Correct)'
+  AND table_name IN (
+      'dev_edge_software_release_sequence',
+      'dev_edge_software_release_control',
+      'dev_edge_software_release_action',
+      'dev_edge_software_rollout',
+      'dev_edge_software_deployment',
+      'dev_edge_software_rollout_action'
+  );
+"@)
+    if ($businessReleaseControlTableCount -ne 6) {
+        throw "V64 business release control-plane tables are incomplete"
     }
     $permissionCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
@@ -1659,8 +1678,8 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 63
-        domainTables = 123
+        targetVersion = 64
+        domainTables = 129
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
         runtimePrincipal = $runtimePrincipal
@@ -1668,7 +1687,8 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV63Ready = $true
+        correctV64Ready = $true
+        businessReleaseControlPlaneV64 = $true
         deviceAssetManagementTriggerReady = $true
         bagLabelBatchLimit500 = $true
         mcuRemoteUpdateCapabilityV60 = $true
