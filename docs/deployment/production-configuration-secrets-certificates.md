@@ -117,7 +117,7 @@ defaultPlatformAdminEnabled=true
 externalMode=fake
 ecobinLogPath=/var/log/ecobin/backend
 miniappDeviceEntryBaseUrl=https://www.jinshoubao.com/device-entry/
-ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01,hardware-runtime-20260830-11,hardware-runtime-20260831-12,hardware-runtime-20260831-13,hardware-runtime-20260903-17
+ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01,hardware-runtime-20260830-11,hardware-runtime-20260831-12,hardware-runtime-20260831-13,hardware-runtime-20260903-19
 onenetSubscriptionEnabled=false
 deviceEnrollmentEnabled=false
 remoteSupportEnabled=false
@@ -143,7 +143,7 @@ defaultPlatformAdminEnabled=true
 externalMode=real
 ecobinLogPath=/var/log/ecobin/backend
 miniappDeviceEntryBaseUrl=https://www.jinshoubao.com/device-entry/
-ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01,hardware-runtime-20260830-11,hardware-runtime-20260831-12,hardware-runtime-20260831-13,hardware-runtime-20260903-17
+ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01,hardware-runtime-20260830-11,hardware-runtime-20260831-12,hardware-runtime-20260831-13,hardware-runtime-20260903-19
 TZ=UTC
 
 iotSubscriptionName=<OneNet北向订阅名称>
@@ -171,10 +171,10 @@ wechatPayTransferSceneId=1010
 `edgeSoftwareVersion` 不在该列表时，机器验收会明确失败为
 `UNSUPPORTED_EDGE_SOFTWARE`，不能通过人工修改验收结果绕过。
 
-已被淘汰且不再作为下一次写卡源的候选版本不能保留在允许列表。v15 与 v16 均未写卡，且
-v16 缺少后来在 v17 补入的更新器私有目录用户组修复，因此允许列表只保留实际服役版本和
-当前唯一准备写卡验收的 v17。为了让 v17 写卡后的首次机器验收能够进行，可以预先允许这一个
-已完成离线复验的下一候选；保留其他候选制品用于追溯不等于允许设备以该版本通过机器验收。
+已被淘汰且不再作为下一次写卡源的候选版本不能保留在允许列表。v15 至 v18 均未成为实际
+写卡版本，因此允许列表继续保留实际服役的 v13，并将已完成离线复验的 v19 作为当前唯一
+准备写卡验收的候选。为了让 v19 写卡后的首次机器验收能够进行，可以预先允许这一个候选；
+保留其他候选制品用于追溯不等于允许设备以对应版本通过机器验收。
 
 这里不允许出现 `wechatAppid`、`wechatSecret`、`miniappSecretStoreDirectory`、
 `wechatPayApiV3Key`、数据库密码或任何 COS/OneNet Secret。前面三项已经从当前设计中

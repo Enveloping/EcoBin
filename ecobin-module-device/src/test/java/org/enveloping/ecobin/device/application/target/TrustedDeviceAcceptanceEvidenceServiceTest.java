@@ -62,13 +62,21 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
     @Test
     void configuredRuntimeVersionIsAcceptedButRetiredCandidatesAndUnknownVersionAreRejected() {
         TrustedDeviceAcceptanceEvidenceService service = service(
-                "0.1.0, hardware-runtime-20260903-17");
+                "hardware-runtime-20260831-13, hardware-runtime-20260903-19");
         LocalDateTime observedAt = LocalDateTime.of(
                 2026, 9, 3, 2, 0);
         var asset = new TrustedDeviceAcceptanceEvidenceService.AssetState(
                 1L, DEVICE_PUBLIC_CODE, 1, 1L, new byte[32],
                 "PENDING", 0L, true, true);
 
+        assertThat(service.failures(
+                asset,
+                withEdgeSoftwareVersion(
+                        healthyEvidence(false, false),
+                        "hardware-runtime-20260831-13"),
+                observedAt,
+                observedAt.plusSeconds(1)))
+                .isEmpty();
         assertThat(service.failures(
                 asset,
                 withEdgeSoftwareVersion(
@@ -90,6 +98,22 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 withEdgeSoftwareVersion(
                         healthyEvidence(false, false),
                         "hardware-runtime-20260903-17"),
+                observedAt,
+                observedAt.plusSeconds(1)))
+                .containsExactly("UNSUPPORTED_EDGE_SOFTWARE");
+        assertThat(service.failures(
+                asset,
+                withEdgeSoftwareVersion(
+                        healthyEvidence(false, false),
+                        "hardware-runtime-20260903-18"),
+                observedAt,
+                observedAt.plusSeconds(1)))
+                .containsExactly("UNSUPPORTED_EDGE_SOFTWARE");
+        assertThat(service.failures(
+                asset,
+                withEdgeSoftwareVersion(
+                        healthyEvidence(false, false),
+                        "hardware-runtime-20260903-19"),
                 observedAt,
                 observedAt.plusSeconds(1)))
                 .isEmpty();
