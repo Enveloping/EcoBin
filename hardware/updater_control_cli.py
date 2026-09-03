@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Root-only control for the stage-four gate and local MCU candidate."""
+"""Root-only control for the local device-update candidate."""
 
 from __future__ import annotations
 
@@ -41,6 +41,24 @@ def build_parser() -> argparse.ArgumentParser:
     mcu_queue.add_argument("--command-uid", required=True)
     mcu_queue.add_argument("--target-package-sha256", required=True)
     mcu_queue.add_argument("--rollback-package-sha256", required=True)
+    business_status = commands.add_parser(
+        "business-status",
+        help="read the active business update candidate or one update record",
+    )
+    business_status.add_argument("--update-uid")
+    business_queue = commands.add_parser(
+        "business-queue",
+        help="queue one fixed incoming/<update UID> signed business package",
+    )
+    business_queue.add_argument("--update-uid", required=True)
+    business_queue.add_argument("--deployment-uid", required=True)
+    business_queue.add_argument("--command-uid", required=True)
+    business_queue.add_argument("--release-id", required=True)
+    business_queue.add_argument("--version-name", required=True)
+    business_queue.add_argument("--release-sequence", required=True, type=int)
+    business_queue.add_argument("--package-sha256", required=True)
+    business_queue.add_argument("--package-size", required=True, type=int)
+    business_queue.add_argument("--signing-key-id", required=True)
     for name, help_text in (
         ("activate", "activate the current candidate cycle with evidence"),
         ("lock", "immediately apply the durable safety lock"),
@@ -74,6 +92,22 @@ def _request_for(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             "commandUid": args.command_uid,
             "targetPackageSha256": args.target_package_sha256,
             "rollbackPackageSha256": args.rollback_package_sha256,
+        }
+    if args.command == "business-status":
+        if args.update_uid is None:
+            return "GET_STATUS", {}
+        return "GET_BUSINESS_UPDATE", {"updateUid": args.update_uid}
+    if args.command == "business-queue":
+        return "QUEUE_LOCAL_BUSINESS_UPDATE", {
+            "updateUid": args.update_uid,
+            "deploymentUid": args.deployment_uid,
+            "commandUid": args.command_uid,
+            "releaseId": args.release_id,
+            "versionName": args.version_name,
+            "releaseSequence": args.release_sequence,
+            "packageSha256": args.package_sha256,
+            "packageSize": args.package_size,
+            "signingKeyId": args.signing_key_id,
         }
     payload = {
         "operationUid": args.operation_uid,

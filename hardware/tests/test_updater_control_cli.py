@@ -133,6 +133,60 @@ def test_root_cli_queues_only_fixed_mcu_package_identities(
     ]
 
 
+def test_root_cli_queues_only_fixed_business_package_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _RecordingClient.calls = []
+    monkeypatch.setattr(updater_control_cli, "_effective_uid", lambda: 0)
+    monkeypatch.setattr(
+        updater_control_cli,
+        "LocalControlClient",
+        _RecordingClient,
+    )
+
+    assert updater_control_cli.main(
+        [
+            "--socket",
+            "/test/updater.sock",
+            "business-queue",
+            "--update-uid",
+            "11111111-1111-4111-8111-111111111111",
+            "--deployment-uid",
+            "22222222-2222-4222-8222-222222222222",
+            "--command-uid",
+            "33333333-3333-4333-8333-333333333333",
+            "--release-id",
+            "44444444-4444-4444-8444-444444444444",
+            "--version-name",
+            "1.2.3",
+            "--release-sequence",
+            "7",
+            "--package-sha256",
+            "a" * 64,
+            "--package-size",
+            "53750778",
+            "--signing-key-id",
+            "business_2026",
+        ]
+    ) == 0
+    assert _RecordingClient.calls == [
+        (
+            "QUEUE_LOCAL_BUSINESS_UPDATE",
+            {
+                "updateUid": "11111111-1111-4111-8111-111111111111",
+                "deploymentUid": "22222222-2222-4222-8222-222222222222",
+                "commandUid": "33333333-3333-4333-8333-333333333333",
+                "releaseId": "44444444-4444-4444-8444-444444444444",
+                "versionName": "1.2.3",
+                "releaseSequence": 7,
+                "packageSha256": "a" * 64,
+                "packageSize": 53750778,
+                "signingKeyId": "business_2026",
+            },
+        )
+    ]
+
+
 @pytest.mark.parametrize(
     ("arguments", "expected"),
     [
@@ -151,6 +205,42 @@ def test_root_cli_queues_only_fixed_mcu_package_identities(
     ],
 )
 def test_root_cli_reads_mcu_candidate_status(
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: list[str],
+    expected: tuple[str, dict[str, object]],
+) -> None:
+    _RecordingClient.calls = []
+    monkeypatch.setattr(updater_control_cli, "_effective_uid", lambda: 0)
+    monkeypatch.setattr(
+        updater_control_cli,
+        "LocalControlClient",
+        _RecordingClient,
+    )
+
+    assert updater_control_cli.main(
+        ["--socket", "/test/updater.sock", *arguments]
+    ) == 0
+    assert _RecordingClient.calls == [expected]
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        (["business-status"], ("GET_STATUS", {})),
+        (
+            [
+                "business-status",
+                "--update-uid",
+                "11111111-1111-4111-8111-111111111111",
+            ],
+            (
+                "GET_BUSINESS_UPDATE",
+                {"updateUid": "11111111-1111-4111-8111-111111111111"},
+            ),
+        ),
+    ],
+)
+def test_root_cli_reads_business_candidate_status(
     monkeypatch: pytest.MonkeyPatch,
     arguments: list[str],
     expected: tuple[str, dict[str, object]],
