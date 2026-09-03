@@ -428,21 +428,48 @@ def _lexists(path: Path) -> bool:
 
 
 def _validate_runtime_fence_unit_bytes(raw: bytes, unit_name: str) -> None:
+    if b"\x00" in raw:
+        raise MaintenanceInstallError(
+            f"systemd unit contains a NUL byte: {unit_name}"
+        )
+    if any(
+        byte not in (0x09, 0x0A, 0x0D) and not 0x20 <= byte <= 0x7E
+        for byte in raw
+    ):
+        raise MaintenanceInstallError(
+            f"systemd unit contains non-ASCII or unsafe control bytes: {unit_name}"
+        )
+    if any(
+        byte == 0x0D and (index + 1 == len(raw) or raw[index + 1] != 0x0A)
+        for index, byte in enumerate(raw)
+    ):
+        raise MaintenanceInstallError(
+            f"systemd unit contains a bare carriage return: {unit_name}"
+        )
     try:
-        unit_lines = raw.decode("utf-8").splitlines()
+        unit_lines = raw.decode("utf-8").split("\n")
     except UnicodeError as exc:
         raise MaintenanceInstallError(
             f"systemd unit is not valid UTF-8: {unit_name}"
         ) from exc
+    systemd_ascii_whitespace = " \t\r"
+    normalized_lines = [
+        line.strip(systemd_ascii_whitespace) for line in unit_lines
+    ]
+    section_headers = [
+        (index, line)
+        for index, line in enumerate(normalized_lines)
+        if line.startswith("[") and line.endswith("]")
+    ]
+    unit_section_starts = [
+        index for index, header in section_headers if header == "[Unit]"
+    ]
     try:
-        if unit_lines.count("[Unit]") != 1:
+        if len(unit_section_starts) != 1:
             raise ValueError
-        unit_section_start = unit_lines.index("[Unit]")
+        unit_section_start = unit_section_starts[0]
         unit_section_end = next(
-            index
-            for index in range(unit_section_start + 1, len(unit_lines))
-            if unit_lines[index].startswith("[")
-            and unit_lines[index].endswith("]")
+            index for index, _header in section_headers if index > unit_section_start
         )
     except (ValueError, StopIteration):
         raise MaintenanceInstallError(
@@ -454,23 +481,45 @@ def _validate_runtime_fence_unit_bytes(raw: bytes, unit_name: str) -> None:
     # Unit section at all.  Managed units do not need continuations, so reject
     # them everywhere and keep the parser/manager interpretation identical.
     for line in unit_lines:
-        physical = line.rstrip()
+        physical = line.rstrip(systemd_ascii_whitespace)
         if physical.endswith("\\"):
             raise MaintenanceInstallError(
                 f"systemd unit uses unsafe line continuation: {unit_name}"
             )
-    condition_entries = [
-        (index, line.strip())
-        for index, line in enumerate(unit_lines)
-        if line.strip().startswith("ConditionPathExists")
-    ]
-    if condition_entries != [
-        (unit_section_start + offset, RUNTIME_START_FENCE_CONDITION)
-        for offset, line in enumerate(
-            unit_lines[unit_section_start:unit_section_end]
-        )
-        if line.strip() == RUNTIME_START_FENCE_CONDITION
-    ] or len(condition_entries) != 1:
+    exact_fence_entries: list[int] = []
+    for index, stripped in enumerate(normalized_lines):
+        if not stripped.startswith("Condition"):
+            continue
+        key, separator, value = stripped.partition("=")
+        key = key.strip(systemd_ascii_whitespace)
+        if not separator or not re.fullmatch(
+            r"Condition[A-Za-z][A-Za-z0-9]*", key
+        ):
+            raise MaintenanceInstallError(
+                f"systemd unit has malformed runtime conditions: {unit_name}"
+            )
+        value = value.strip(systemd_ascii_whitespace)
+        if not value:
+            raise MaintenanceInstallError(
+                f"systemd unit resets runtime conditions: {unit_name}"
+            )
+        if not unit_section_start < index < unit_section_end:
+            raise MaintenanceInstallError(
+                f"systemd unit has a runtime condition outside Unit: {unit_name}"
+            )
+
+        if key != "ConditionPathExists":
+            continue
+
+        references_fence = value.lstrip("!|") == RUNTIME_START_FENCE
+        if stripped == RUNTIME_START_FENCE_CONDITION:
+            exact_fence_entries.append(index)
+        elif references_fence:
+            raise MaintenanceInstallError(
+                f"systemd unit has a conflicting runtime start fence: {unit_name}"
+            )
+
+    if len(exact_fence_entries) != 1:
         raise MaintenanceInstallError(
             f"systemd unit lacks the exact runtime start fence: {unit_name}"
         )

@@ -49,6 +49,7 @@ from system.device_management_maintenance_installer import (
     MaintenanceInstaller,
     MaintenanceProcessInterrupted,
     RollbackDeferredForBusyState,
+    _validate_runtime_fence_unit_bytes,
     build_payload_manifest,
     load_and_validate_payload,
     target_files,
@@ -928,6 +929,211 @@ def test_payload_manifest_is_an_exact_authenticated_allowlist(tmp_path: Path) ->
     assert len(manifest.files) > 20
 
 
+def test_payload_allows_nonconflicting_conditions_in_the_unit_section(
+    tmp_path: Path,
+) -> None:
+    payload, _digest = _make_payload(tmp_path)
+    relative = "systemd/ecobin-business-permission-preflight.service"
+    raw = (payload / relative).read_bytes().replace(
+        f"{RUNTIME_START_FENCE_CONDITION}\n".encode(),
+        (
+            f"{RUNTIME_START_FENCE_CONDITION}\n"
+            "ConditionPathExists=/etc/ecobin/hardware.env\n"
+            "ConditionPathIsDirectory=/var/lib/ecobin\n"
+        ).encode(),
+        1,
+    )
+    digest = _rewrite_payload_file_and_manifest(payload, relative, raw)
+
+    manifest = load_and_validate_payload(payload, digest)
+
+    assert relative in manifest.files
+
+
+@pytest.mark.parametrize("placement", ("before", "after"))
+def test_payload_rejects_cross_type_condition_reset_around_runtime_fence(
+    tmp_path: Path,
+    placement: str,
+) -> None:
+    payload, _digest = _make_payload(tmp_path)
+    relative = "systemd/ecobin-updater.service"
+    raw = (payload / relative).read_bytes()
+    reset = b"ConditionPathIsDirectory=\n"
+    if placement == "before":
+        raw = raw.replace(b"[Unit]\n", b"[Unit]\n" + reset, 1)
+    else:
+        raw = raw.replace(
+            f"{RUNTIME_START_FENCE_CONDITION}\n".encode(),
+            f"{RUNTIME_START_FENCE_CONDITION}\n".encode() + reset,
+            1,
+        )
+    digest = _rewrite_payload_file_and_manifest(payload, relative, raw)
+
+    with pytest.raises(MaintenanceInstallError, match="resets runtime conditions"):
+        load_and_validate_payload(payload, digest)
+
+
+def test_payload_rejects_cross_type_condition_without_assignment(
+    tmp_path: Path,
+) -> None:
+    payload, _digest = _make_payload(tmp_path)
+    relative = "systemd/ecobin-updater.service"
+    raw = (payload / relative).read_bytes().replace(
+        f"{RUNTIME_START_FENCE_CONDITION}\n".encode(),
+        (
+            f"{RUNTIME_START_FENCE_CONDITION}\n"
+            "ConditionPathIsDirectory\n"
+        ).encode(),
+        1,
+    )
+    digest = _rewrite_payload_file_and_manifest(payload, relative, raw)
+
+    with pytest.raises(MaintenanceInstallError, match="malformed runtime conditions"):
+        load_and_validate_payload(payload, digest)
+
+
+def test_payload_accepts_systemd_crlf_unit_lines(tmp_path: Path) -> None:
+    payload, _digest = _make_payload(tmp_path)
+    relative = "systemd/ecobin-updater.service"
+    raw = (payload / relative).read_bytes().replace(b"\n", b"\r\n")
+    digest = _rewrite_payload_file_and_manifest(payload, relative, raw)
+
+    manifest = load_and_validate_payload(payload, digest)
+
+    assert relative in manifest.files
+
+
+@pytest.mark.parametrize(
+    "joined_separator",
+    ("\r", "\v", "\f", "\u0085", "\u2028", "\u2029"),
+    ids=(
+        "cr",
+        "vertical-tab",
+        "form-feed",
+        "nel",
+        "line-separator",
+        "paragraph-separator",
+    ),
+)
+def test_payload_rejects_non_lf_text_joined_to_runtime_fence_tail(
+    tmp_path: Path,
+    joined_separator: str,
+) -> None:
+    payload, _digest = _make_payload(tmp_path)
+    relative = "systemd/ecobin-updater.service"
+    raw = (payload / relative).read_bytes().replace(
+        f"{RUNTIME_START_FENCE_CONDITION}\n".encode(),
+        (
+            f"{RUNTIME_START_FENCE_CONDITION}{joined_separator}"
+            "X-EcoBin-Joined=true\n"
+        ).encode("utf-8"),
+        1,
+    )
+    digest = _rewrite_payload_file_and_manifest(payload, relative, raw)
+
+    with pytest.raises(
+        MaintenanceInstallError,
+        match="bare carriage return|non-ASCII or unsafe control bytes",
+    ):
+        load_and_validate_payload(payload, digest)
+
+
+@pytest.mark.parametrize("placement", ("prefix", "trailing-edge"))
+def test_payload_rejects_nbsp_around_runtime_fence_line(
+    tmp_path: Path,
+    placement: str,
+) -> None:
+    payload, _digest = _make_payload(tmp_path)
+    relative = "systemd/ecobin-updater.service"
+    replacement = (
+        "\u00a0" + RUNTIME_START_FENCE_CONDITION
+        if placement == "prefix"
+        else RUNTIME_START_FENCE_CONDITION + "\u00a0"
+    )
+    raw = (payload / relative).read_bytes().replace(
+        f"{RUNTIME_START_FENCE_CONDITION}\n".encode(),
+        f"{replacement}\n".encode("utf-8"),
+        1,
+    )
+    digest = _rewrite_payload_file_and_manifest(payload, relative, raw)
+
+    with pytest.raises(
+        MaintenanceInstallError,
+        match="non-ASCII or unsafe control bytes",
+    ):
+        load_and_validate_payload(payload, digest)
+
+
+@pytest.mark.parametrize(
+    "hidden_section",
+    (
+        b"[Service]\rX-EcoBin-Hidden=true\n",
+        b"[Service]\x00X-EcoBin-Hidden=true\n",
+    ),
+    ids=("bare-cr", "nul"),
+)
+def test_payload_rejects_hidden_service_section_before_runtime_fence(
+    tmp_path: Path,
+    hidden_section: bytes,
+) -> None:
+    payload, _digest = _make_payload(tmp_path)
+    relative = "systemd/ecobin-updater.service"
+    raw = (payload / relative).read_bytes().replace(
+        f"{RUNTIME_START_FENCE_CONDITION}\n".encode(),
+        hidden_section + f"{RUNTIME_START_FENCE_CONDITION}\n".encode(),
+        1,
+    )
+    digest = _rewrite_payload_file_and_manifest(payload, relative, raw)
+
+    with pytest.raises(
+        MaintenanceInstallError,
+        match="NUL byte|bare carriage return",
+    ):
+        load_and_validate_payload(payload, digest)
+
+
+@pytest.mark.parametrize("injected", (b"\x00", b"\r"), ids=("nul", "bare-cr"))
+def test_runtime_fence_validator_rejects_unsafe_byte_at_every_boundary(
+    injected: bytes,
+) -> None:
+    raw = (
+        b"[Unit]\n"
+        + f"{RUNTIME_START_FENCE_CONDITION}\n".encode()
+        + b"[Service]\nType=oneshot\n"
+    )
+    for offset in range(len(raw) + 1):
+        candidate = raw[:offset] + injected + raw[offset:]
+        if injected == b"\r" and offset < len(raw) and raw[offset] == 0x0A:
+            _validate_runtime_fence_unit_bytes(candidate, "every-boundary.service")
+            continue
+        with pytest.raises(
+            MaintenanceInstallError,
+            match="NUL byte|bare carriage return",
+        ):
+            _validate_runtime_fence_unit_bytes(candidate, "every-boundary.service")
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    (b"\x01", b"\x7f", "\u00e9".encode("utf-8")),
+    ids=("c0-control", "delete", "non-ascii"),
+)
+def test_runtime_fence_validator_rejects_other_unsafe_bytes(
+    unsafe: bytes,
+) -> None:
+    raw = (
+        b"[Unit]\n"
+        + f"{RUNTIME_START_FENCE_CONDITION}\n".encode()
+        + b"[Service]\nType=oneshot\n"
+    )
+
+    with pytest.raises(
+        MaintenanceInstallError,
+        match="non-ASCII or unsafe control bytes",
+    ):
+        _validate_runtime_fence_unit_bytes(raw + unsafe, "unsafe-byte.service")
+
+
 @pytest.mark.parametrize(
     "mutate",
     (
@@ -941,9 +1147,33 @@ def test_payload_manifest_is_an_exact_authenticated_allowlist(tmp_path: Path) ->
         ),
         lambda raw: raw
         + b"\n[Unit]\nConditionPathExists=\n",
+        lambda raw: raw.replace(
+            f"{RUNTIME_START_FENCE_CONDITION}\n".encode(),
+            (
+                f"{RUNTIME_START_FENCE_CONDITION}\n"
+                f"{RUNTIME_START_FENCE_CONDITION}\n"
+            ).encode(),
+            1,
+        ),
+        lambda raw: raw.replace(
+            f"{RUNTIME_START_FENCE_CONDITION}\n".encode(),
+            (
+                f"{RUNTIME_START_FENCE_CONDITION}\n"
+                f"ConditionPathExists={RUNTIME_START_FENCE}\n"
+            ).encode(),
+            1,
+        ),
+        lambda raw: raw
+        + b"\nConditionPathExists=/etc/ecobin/outside-unit\n",
+        lambda raw: raw.replace(
+            f"{RUNTIME_START_FENCE_CONDITION}\n".encode(),
+            b"",
+            1,
+        )
+        + f"\n{RUNTIME_START_FENCE_CONDITION}\n".encode(),
     ),
 )
-def test_payload_rejects_missing_or_reset_runtime_start_fence(
+def test_payload_rejects_unsafe_runtime_start_fence_conditions(
     tmp_path: Path,
     mutate,
 ) -> None:
@@ -952,7 +1182,7 @@ def test_payload_rejects_missing_or_reset_runtime_start_fence(
     raw = (payload / relative).read_bytes()
     digest = _rewrite_payload_file_and_manifest(payload, relative, mutate(raw))
 
-    with pytest.raises(MaintenanceInstallError, match="runtime start fence|Unit section"):
+    with pytest.raises(MaintenanceInstallError, match="runtime|Unit section"):
         load_and_validate_payload(payload, digest)
 
 

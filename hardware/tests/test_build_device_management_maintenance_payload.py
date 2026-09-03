@@ -188,6 +188,28 @@ def test_builds_exact_canonical_payload_and_validates_it(tmp_path: Path) -> None
             assert stat.S_IMODE(path.lstat().st_mode) == expected_mode
 
 
+def test_builds_and_validates_payload_from_real_repository_sources(
+    tmp_path: Path,
+) -> None:
+    trust = tmp_path / "runtime-trust"
+    _make_trust(trust)
+    output = tmp_path / "payload"
+    hardware_source = Path(__file__).resolve().parents[1]
+
+    result = build_device_management_maintenance_payload(
+        output,
+        trust,
+        IDENTITY,
+        hardware_source_root=hardware_source,
+    )
+
+    preflight = "systemd/ecobin-business-permission-preflight.service"
+    assert preflight in result.manifest.files
+    assert (output / preflight).read_bytes() == (
+        hardware_source / "ecobin-business-permission-preflight.service"
+    ).read_bytes()
+
+
 def test_build_is_reproducible_and_accepts_an_existing_empty_output(
     tmp_path: Path,
 ) -> None:
