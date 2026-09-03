@@ -62,7 +62,8 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
     @Test
     void configuredRuntimeVersionIsAcceptedButRetiredCandidatesAndUnknownVersionAreRejected() {
         TrustedDeviceAcceptanceEvidenceService service = service(
-                "hardware-runtime-20260831-13, hardware-runtime-20260903-19");
+                "hardware-runtime-20260831-13, hardware-runtime-20260903-19, "
+                        + "hardware-runtime-20260903-20");
         LocalDateTime observedAt = LocalDateTime.of(
                 2026, 9, 3, 2, 0);
         var asset = new TrustedDeviceAcceptanceEvidenceService.AssetState(
@@ -114,6 +115,14 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 withEdgeSoftwareVersion(
                         healthyEvidence(false, false),
                         "hardware-runtime-20260903-19"),
+                observedAt,
+                observedAt.plusSeconds(1)))
+                .isEmpty();
+        assertThat(service.failures(
+                asset,
+                withEdgeSoftwareVersion(
+                        healthyEvidence(false, false),
+                        "hardware-runtime-20260903-20"),
                 observedAt,
                 observedAt.plusSeconds(1)))
                 .isEmpty();
