@@ -462,6 +462,35 @@ class ImageToolingTest(unittest.TestCase):
         self.assertNotIn("https://", installer)
         self.assertNotIn("latest", installer.lower())
 
+    def test_business_release_has_a_locked_arm64_build_entry(self) -> None:
+        launcher = (TOOL_ROOT / "run-business-builder.sh").read_text(
+            encoding="utf-8"
+        )
+        bootstrap = (TOOL_ROOT / "bootstrap-builder.sh").read_text(
+            encoding="utf-8"
+        )
+        builder = (
+            TOOL_ROOT.parents[1] / "hardware/install/build_business_release.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("builder.lock", launcher)
+        self.assertIn("dst=/workspace,readonly", launcher)
+        self.assertIn(
+            "dst=/business-input/signing-private.pem,readonly", launcher
+        )
+        self.assertIn(
+            "formal business releases require a clean repository", launcher
+        )
+        self.assertIn("repository status could not be verified", launcher)
+        self.assertIn("signing private key permissions are unsafe", launcher)
+        self.assertIn("--business-release-only", launcher)
+        self.assertNotIn("--privileged", launcher)
+        self.assertIn("--business-release-only", bootstrap)
+        self.assertIn("hardware/install/build_business_release.py", bootstrap)
+        self.assertIn('"business-release",', bootstrap)
+        self.assertIn('"business",', builder)
+        self.assertIn("_verify_business_environment", builder)
+
     def test_target_image_contains_dns_and_trusted_time_runtime(self) -> None:
         package_lock = (TOOL_ROOT / "apt-packages.lock").read_text(
             encoding="utf-8"
@@ -495,6 +524,11 @@ class ImageToolingTest(unittest.TestCase):
         self.assertIn("builder.lock", launcher)
         self.assertIn("dst=/workspace,readonly", launcher)
         self.assertIn("runtime-trust,readonly", launcher)
+        self.assertIn("business-trust,readonly", launcher)
+        self.assertIn(
+            "MCU, runtime and business trust directories must be separate",
+            launcher,
+        )
         self.assertIn("--software-payload-only", launcher)
         self.assertIn("repository status could not be verified", launcher)
         self.assertIn("uv sync", builder)
@@ -1312,6 +1346,7 @@ class ImageToolingTest(unittest.TestCase):
             "bootstrap-builder.sh",
             "build-image.sh",
             "build-software-payload.sh",
+            "run-business-builder.sh",
             "run-builder.sh",
             "run-payload-builder.sh",
             "sanitize-candidate.sh",

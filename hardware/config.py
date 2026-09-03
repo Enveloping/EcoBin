@@ -73,11 +73,6 @@ import math
 import os
 import re
 from pathlib import Path
-from device_credentials import (
-    credentials_path_from_environment,
-    effective_onenet_credentials,
-    load_device_credentials,
-)
 from simulated_camera import is_simulated_camera_source
 
 
@@ -164,7 +159,10 @@ def _first_environment_value(*names: str) -> str:
     return ""
 
 # ── 注册后设备凭证 ──
-DEVICE_CREDENTIALS_PATH = credentials_path_from_environment()
+DEVICE_CREDENTIALS_PATH = os.getenv(
+    "ECOBIN_DEVICE_CREDENTIALS_PATH",
+    "/etc/ecobin/device-credentials.json",
+).strip()
 BUSINESS_IDENTITY_PATH = os.getenv(
     "ECOBIN_BUSINESS_IDENTITY_PATH",
     "/var/lib/ecobin/business/device-identity.json",
@@ -184,6 +182,16 @@ if CLOUD_TRANSPORT_MODE == "local-proxy":
     _default_mqtt_host = "studio-mqtt.heclouds.com"
     _default_mqtt_port = 1883
 else:
+    # Device credentials belong only to the legacy direct-OneNet posture.
+    # Keeping this import inside that branch lets replaceable proxy-only
+    # business packages omit all credential parsing code.
+    from device_credentials import (
+        credentials_path_from_environment,
+        effective_onenet_credentials,
+        load_device_credentials,
+    )
+
+    DEVICE_CREDENTIALS_PATH = credentials_path_from_environment()
     DEVICE_CREDENTIALS = load_device_credentials(DEVICE_CREDENTIALS_PATH)
     _onenet_credentials = effective_onenet_credentials(DEVICE_CREDENTIALS)
     PRODUCT_ID = _onenet_credentials.product_id

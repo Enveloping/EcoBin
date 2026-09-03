@@ -23,8 +23,9 @@ from local_control import LocalControlActionError
 SYSTEMCTL = "/usr/bin/systemctl"
 BUSINESS_SERVICE = "ecobin-hardware.service"
 CANDIDATE_BUSINESS_SERVICE = "ecobin-business.service"
+UPDATABLE_BUSINESS_SERVICE = "ecobin-business-updatable-candidate.service"
 _FIXED_BUSINESS_SERVICES = frozenset(
-    {BUSINESS_SERVICE, CANDIDATE_BUSINESS_SERVICE}
+    {BUSINESS_SERVICE, CANDIDATE_BUSINESS_SERVICE, UPDATABLE_BUSINESS_SERVICE}
 )
 BUSINESS_ROOT = Path("/opt/ecobin/business")
 RELEASE_ROOT = BUSINESS_ROOT / "releases"
@@ -34,6 +35,7 @@ BUSINESS_DATABASE = Path("/var/lib/ecobin/business/edge.db")
 UPDATER_ROOT = Path("/var/lib/ecobin/updater")
 STAGING_ROOT = UPDATER_ROOT / "staging"
 SNAPSHOT_ROOT = Path("/var/lib/ecobin/privileged/business-snapshots")
+RESTORE_MARKER_NAME = ".restore-in-progress.json"
 RELEASE_MARKER = ".ecobin-release.json"
 MAX_RELEASE_FILES = 20_000
 MAX_RELEASE_BYTES = 2 * 1024 * 1024 * 1024
@@ -100,7 +102,30 @@ class BusinessActivationPrimitives:
         self._run_command = command_runner
 
     def status(self, _payload: dict[str, Any]) -> dict[str, Any]:
-        return {"businessRuntimeState": self._service_state()}
+        installed_release_uids = self._installed_release_uids()
+        current_release_uid = _read_release_link(self.current_link, self.release_root)
+        previous_release_uid = _read_release_link(self.previous_link, self.release_root)
+        current_release = (
+            self._require_matching_release(
+                self.release_root / current_release_uid,
+                None,
+                current_release_uid,
+            )
+            if current_release_uid is not None
+            else None
+        )
+        return {
+            "businessRuntimeState": self._service_state(),
+            "currentReleaseUid": current_release_uid,
+            "previousReleaseUid": previous_release_uid,
+            "currentRelease": current_release,
+            "installedReleaseCount": len(installed_release_uids),
+        }
+
+    def service_state(self) -> str:
+        """Return only the fixed unit state without inspecting release files."""
+
+        return self._service_state()
 
     def stop(self, payload: dict[str, Any]) -> dict[str, Any]:
         update_uid = _require_uuid4(payload["updateUid"], "updateUid")
@@ -201,7 +226,44 @@ class BusinessActivationPrimitives:
             _require_regular_file(self.database_path, "business database")
         temporary = database_parent / f".edge.db.restore.{update_uid}.tmp"
         _unlink_regular_if_present(temporary, "database restore temporary file")
+        diagnostic = snapshot.parent / "failed-edge.db"
+        diagnostic_temporary = snapshot.parent / f".failed-edge.db.{update_uid}.tmp"
+        _unlink_regular_if_present(
+            diagnostic_temporary,
+            "failed database diagnostic temporary file",
+        )
+        restore_marker = self.snapshot_root / RESTORE_MARKER_NAME
+        diagnostic_retained = False
         try:
+            if not diagnostic.exists() and not diagnostic.is_symlink():
+                try:
+                    _sqlite_backup(
+                        self.database_path,
+                        diagnostic_temporary,
+                        uid=self.privileged_uid,
+                        gid=self.privileged_gid,
+                        mode=0o600,
+                    )
+                    _verify_sqlite_database(diagnostic_temporary)
+                    os.replace(diagnostic_temporary, diagnostic)
+                    _fsync_directory(snapshot.parent)
+                    diagnostic_retained = True
+                except (LocalControlActionError, OSError):
+                    # The failed candidate database is diagnostic evidence,
+                    # not a prerequisite for restoring the known-good
+                    # snapshot.  A corrupt current database is exactly the
+                    # case in which its SQLite backup may be impossible.
+                    _unlink_regular_if_present(
+                        diagnostic_temporary,
+                        "failed database diagnostic temporary file",
+                    )
+            else:
+                _require_regular_file(diagnostic, "failed business database")
+                try:
+                    _verify_sqlite_database(diagnostic)
+                    diagnostic_retained = True
+                except LocalControlActionError:
+                    diagnostic_retained = False
             _sqlite_backup(
                 snapshot,
                 temporary,
@@ -210,6 +272,12 @@ class BusinessActivationPrimitives:
                 mode=0o600,
             )
             _verify_sqlite_database(temporary)
+            _create_or_require_restore_marker(
+                restore_marker,
+                update_uid,
+                uid=self.privileged_uid,
+                gid=self.privileged_gid,
+            )
             for suffix in ("-wal", "-shm"):
                 _unlink_regular_if_present(
                     Path(f"{self.database_path}{suffix}"),
@@ -217,8 +285,14 @@ class BusinessActivationPrimitives:
                 )
             os.replace(temporary, self.database_path)
             _fsync_directory(database_parent)
+            _remove_matching_restore_marker(restore_marker, update_uid)
+            _fsync_directory(self.snapshot_root)
         except Exception:
             _unlink_regular_if_present(temporary, "database restore temporary file")
+            _unlink_regular_if_present(
+                diagnostic_temporary,
+                "failed database diagnostic temporary file",
+            )
             raise
         return {
             "updateUid": update_uid,
@@ -227,11 +301,25 @@ class BusinessActivationPrimitives:
                 self.database_path,
                 "business database",
             ).st_size,
+            "diagnosticDatabaseRetained": diagnostic_retained,
         }
 
     def install_release(self, payload: dict[str, Any]) -> dict[str, Any]:
         update_uid = _require_uuid4(payload["updateUid"], "updateUid")
         release_uid = _require_uuid4(payload["releaseUid"], "releaseUid")
+        package_sha256 = _optional_sha256(payload.get("packageSha256"))
+        version_name = _optional_version_name(payload.get("versionName"))
+        release_sequence = _optional_positive_integer(
+            payload.get("releaseSequence"), "releaseSequence"
+        )
+        metadata_values = (package_sha256, version_name, release_sequence)
+        if any(value is not None for value in metadata_values) and not all(
+            value is not None for value in metadata_values
+        ):
+            raise LocalControlActionError(
+                "REQUEST_INVALID",
+                "business release metadata must be supplied together",
+            )
         self._require_service_inactive()
         _require_real_directory(self.release_root, "business release root")
         source_update = self.staging_root / update_uid
@@ -242,7 +330,15 @@ class BusinessActivationPrimitives:
 
         destination = self.release_root / release_uid
         if destination.exists() or destination.is_symlink():
-            self._require_matching_release(destination, update_uid, release_uid)
+            marker = self._require_matching_release(
+                destination, update_uid, release_uid
+            )
+            _require_expected_marker_metadata(
+                marker,
+                package_sha256=package_sha256,
+                version_name=version_name,
+                release_sequence=release_sequence,
+            )
             return {
                 "updateUid": update_uid,
                 "releaseUid": release_uid,
@@ -264,10 +360,18 @@ class BusinessActivationPrimitives:
                 counter=counter,
             )
             marker = {
-                "schemaVersion": 1,
+                "schemaVersion": 2 if package_sha256 is not None else 1,
                 "updateUid": update_uid,
                 "releaseUid": release_uid,
             }
+            if package_sha256 is not None:
+                marker.update(
+                    {
+                        "packageSha256": package_sha256,
+                        "versionName": version_name,
+                        "releaseSequence": release_sequence,
+                    }
+                )
             _write_fixed_json(
                 temporary / RELEASE_MARKER,
                 marker,
@@ -356,6 +460,47 @@ class BusinessActivationPrimitives:
             "disposition": "ROLLED_BACK",
         }
 
+    def deactivate_release(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Remove only the first bridge-to-package current link.
+
+        This is the rollback primitive for the one-time migration from the
+        image-owned proxy bridge.  It never deletes a release and refuses to
+        run once a normal previous-release link exists.
+        """
+
+        update_uid = _require_uuid4(payload["updateUid"], "updateUid")
+        release_uid = _require_uuid4(payload["releaseUid"], "releaseUid")
+        self._require_service_inactive()
+        current_release_uid = _read_release_link(
+            self.current_link,
+            self.release_root,
+        )
+        previous_release_uid = _read_release_link(
+            self.previous_link,
+            self.release_root,
+        )
+        if previous_release_uid is not None:
+            raise LocalControlActionError(
+                "RELEASE_IDENTITY_CONFLICT",
+                "bridge rollback is unavailable after a stable package baseline exists",
+            )
+        if current_release_uid is None:
+            disposition = "ALREADY_DEACTIVATED"
+        elif current_release_uid != release_uid:
+            raise LocalControlActionError(
+                "RELEASE_IDENTITY_CONFLICT",
+                "current business release differs from the bridge rollback target",
+            )
+        else:
+            self.current_link.unlink()
+            _fsync_directory(self.business_root)
+            disposition = "DEACTIVATED"
+        return {
+            "updateUid": update_uid,
+            "releaseUid": release_uid,
+            "disposition": disposition,
+        }
+
     def cleanup_staging(self, payload: dict[str, Any]) -> dict[str, Any]:
         update_uid = _require_uuid4(payload["updateUid"], "updateUid")
         update_directory = self.staging_root / update_uid
@@ -387,17 +532,37 @@ class BusinessActivationPrimitives:
                 "business database snapshot root is not helper-controlled",
             )
 
+    def _installed_release_uids(self) -> tuple[str, ...]:
+        _require_real_directory(self.release_root, "business release root")
+        release_uids: list[str] = []
+        for entry in sorted(self.release_root.iterdir(), key=lambda item: item.name):
+            try:
+                release_uid = _require_uuid4(entry.name, "releaseUid")
+            except LocalControlActionError as error:
+                raise LocalControlActionError(
+                    "RELEASE_TREE_INVALID",
+                    "business release root contains an unexpected entry",
+                ) from error
+            self._require_matching_release(entry, None, release_uid)
+            release_uids.append(release_uid)
+        return tuple(release_uids)
+
     def _require_matching_release(
         self,
         release_path: Path,
         update_uid: str | None,
         release_uid: str,
-    ) -> None:
+    ) -> dict[str, Any]:
         _require_real_directory(release_path, "installed business release")
         marker_path = release_path / RELEASE_MARKER
         marker = _read_fixed_json(marker_path)
+        schema_version = marker.get("schemaVersion")
         expected_fields = {"schemaVersion", "updateUid", "releaseUid"}
-        if set(marker) != expected_fields:
+        if schema_version == 2:
+            expected_fields.update(
+                {"packageSha256", "versionName", "releaseSequence"}
+            )
+        if schema_version not in {1, 2} or set(marker) != expected_fields:
             raise LocalControlActionError(
                 "RELEASE_TREE_INVALID",
                 "installed business release marker is invalid",
@@ -410,7 +575,7 @@ class BusinessActivationPrimitives:
                 "RELEASE_TREE_INVALID",
                 "installed business release marker identity is invalid",
             ) from error
-        if marker.get("schemaVersion") != 1 or marker_release_uid != release_uid:
+        if marker_release_uid != release_uid:
             raise LocalControlActionError(
                 "RELEASE_TREE_INVALID",
                 "installed business release marker does not match",
@@ -420,6 +585,13 @@ class BusinessActivationPrimitives:
                 "RELEASE_IDENTITY_CONFLICT",
                 "installed business release belongs to another update",
             )
+        if schema_version == 2:
+            _optional_sha256(marker["packageSha256"])
+            _optional_version_name(marker["versionName"])
+            _optional_positive_integer(
+                marker["releaseSequence"], "releaseSequence"
+            )
+        return marker
 
     def _require_service_inactive(self) -> None:
         if self._service_state() != "INACTIVE":
@@ -924,6 +1096,45 @@ def _write_fixed_json(
         os.close(descriptor)
 
 
+def _create_or_require_restore_marker(
+    path: Path,
+    update_uid: str,
+    *,
+    uid: int,
+    gid: int,
+) -> None:
+    expected = {"schemaVersion": 1, "updateUid": update_uid}
+    if path.exists() or path.is_symlink():
+        details = _require_regular_file(path, "database restore marker")
+        if (
+            details.st_uid != uid
+            or details.st_gid != gid
+            or stat.S_IMODE(details.st_mode) != 0o600
+            or _read_fixed_json(path) != expected
+        ):
+            raise LocalControlActionError(
+                "DATABASE_RESTORE_CONFLICT",
+                "another or invalid database restore marker is present",
+            )
+        return
+    _write_fixed_json(path, expected, uid=uid, gid=gid, mode=0o600)
+    _fsync_directory(path.parent)
+
+
+def _remove_matching_restore_marker(path: Path, update_uid: str) -> None:
+    details = _require_regular_file(path, "database restore marker")
+    if (
+        stat.S_IMODE(details.st_mode) != 0o600
+        or _read_fixed_json(path)
+        != {"schemaVersion": 1, "updateUid": update_uid}
+    ):
+        raise LocalControlActionError(
+            "DATABASE_RESTORE_CONFLICT",
+            "database restore marker identity changed",
+        )
+    path.unlink()
+
+
 def _read_fixed_json(path: Path) -> dict[str, Any]:
     _require_regular_file(path, "business release marker")
     descriptor = os.open(
@@ -1053,6 +1264,67 @@ def _optional_action_uid(payload: dict[str, Any]) -> str | None:
     if value is None:
         return None
     return _require_uuid4(value, "actionUid")
+
+
+def _optional_sha256(value: Any) -> str | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise LocalControlActionError(
+            "REQUEST_INVALID", "packageSha256 must be lowercase SHA-256"
+        )
+    return value
+
+
+def _optional_version_name(value: Any) -> str | None:
+    if value is None:
+        return None
+    import re
+
+    pattern = (
+        r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+        r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+        r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\Z"
+    )
+    if not isinstance(value, str) or len(value) > 64 or re.fullmatch(pattern, value) is None:
+        raise LocalControlActionError(
+            "REQUEST_INVALID", "versionName must be semantic version text"
+        )
+    return value
+
+
+def _optional_positive_integer(value: Any, field: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise LocalControlActionError(
+            "REQUEST_INVALID", f"{field} must be a positive integer"
+        )
+    return value
+
+
+def _require_expected_marker_metadata(
+    marker: dict[str, Any],
+    *,
+    package_sha256: str | None,
+    version_name: str | None,
+    release_sequence: int | None,
+) -> None:
+    if package_sha256 is None:
+        return
+    if (
+        marker.get("packageSha256") != package_sha256
+        or marker.get("versionName") != version_name
+        or marker.get("releaseSequence") != release_sequence
+    ):
+        raise LocalControlActionError(
+            "RELEASE_IDENTITY_CONFLICT",
+            "installed business release metadata differs",
+        )
 
 
 def _require_uuid4(value: Any, field: str) -> str:

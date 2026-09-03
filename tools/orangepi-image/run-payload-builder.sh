@@ -11,6 +11,7 @@ runtime_signature=""
 runtime_signing_key_id=""
 runtime_trust_directory=""
 mcu_trust_directory=""
+business_trust_directory=""
 enrollment_env=""
 cellular_env=""
 payload_id=""
@@ -32,6 +33,7 @@ while [[ $# -gt 0 ]]; do
         --runtime-signing-key-id) runtime_signing_key_id="$2"; shift 2 ;;
         --runtime-trust-dir) runtime_trust_directory="$2"; shift 2 ;;
         --mcu-trust-dir) mcu_trust_directory="$2"; shift 2 ;;
+        --business-trust-dir) business_trust_directory="$2"; shift 2 ;;
         --enrollment-env) enrollment_env="$2"; shift 2 ;;
         --cellular-env) cellular_env="$2"; shift 2 ;;
         --payload-id) payload_id="$2"; shift 2 ;;
@@ -50,7 +52,8 @@ for command_name in docker git python3 readlink stat; do
 done
 for value in "${output_directory}" "${runtime_archive}" "${runtime_sha256}" \
     "${runtime_signature}" "${runtime_signing_key_id}" "${runtime_trust_directory}" \
-    "${mcu_trust_directory}" "${enrollment_env}" "${cellular_env}" \
+    "${mcu_trust_directory}" "${business_trust_directory}" \
+    "${enrollment_env}" "${cellular_env}" \
     "${payload_id}" "${runtime_release_id}" "${enrollment_release_id}" \
     "${remote_release_id}" "${factory_release_id}" "${first_boot_release_id}"; do
     [[ -n "${value}" ]] || fail "all payload builder inputs are required"
@@ -65,11 +68,16 @@ for variable_name in runtime_archive runtime_signature enrollment_env cellular_e
         || fail "payload input file is unsafe"
     printf -v "${variable_name}" '%s' "$(readlink -f -- "${value}")"
 done
-for variable_name in runtime_trust_directory mcu_trust_directory; do
+for variable_name in runtime_trust_directory mcu_trust_directory \
+    business_trust_directory; do
     value="${!variable_name}"
     [[ -d "${value}" && ! -L "${value}" ]] || fail "payload trust directory is unsafe"
     printf -v "${variable_name}" '%s' "$(readlink -f -- "${value}")"
 done
+[[ "${runtime_trust_directory}" != "${mcu_trust_directory}" \
+    && "${runtime_trust_directory}" != "${business_trust_directory}" \
+    && "${mcu_trust_directory}" != "${business_trust_directory}" ]] \
+    || fail "MCU, runtime and business trust directories must be separate"
 if ! repository_status="$(git -C "${repository_root}" status \
     --porcelain --untracked-files=normal)"; then
     fail "repository status could not be verified"
@@ -109,6 +117,7 @@ docker run --rm --platform "${builder_platform}" \
     --mount "type=bind,src=${runtime_signature},dst=/payload-input/runtime.sig,readonly" \
     --mount "type=bind,src=${runtime_trust_directory},dst=/payload-input/runtime-trust,readonly" \
     --mount "type=bind,src=${mcu_trust_directory},dst=/payload-input/mcu-trust,readonly" \
+    --mount "type=bind,src=${business_trust_directory},dst=/payload-input/business-trust,readonly" \
     --mount "type=bind,src=${enrollment_env},dst=/payload-input/enrollment.env,readonly" \
     --mount "type=bind,src=${cellular_env},dst=/payload-input/cellular.env,readonly" \
     --mount "type=bind,src=${output_parent},dst=/output" \
@@ -121,6 +130,7 @@ docker run --rm --platform "${builder_platform}" \
     --runtime-signing-key-id "${runtime_signing_key_id}" \
     --runtime-trust-dir /payload-input/runtime-trust \
     --mcu-trust-dir /payload-input/mcu-trust \
+    --business-trust-dir /payload-input/business-trust \
     --enrollment-env /payload-input/enrollment.env \
     --cellular-env /payload-input/cellular.env \
     --payload-id "${payload_id}" \

@@ -12,8 +12,10 @@ from typing import Any
 import pytest
 
 from device_management.helpers import privileged_control
+from device_management.helpers import business_activation_primitives as business_primitives_module
 from device_management.helpers.business_activation_primitives import (
     BUSINESS_SERVICE,
+    RESTORE_MARKER_NAME,
     SYSTEMCTL,
     SYSTEMCTL_STATUS_TIMEOUT_SECONDS,
     BusinessActivationPrimitives,
@@ -228,6 +230,67 @@ def test_sqlite_snapshot_is_consistent_and_restore_replaces_only_business_db(
     ] == "ALREADY_CREATED"
 
 
+def test_restore_prioritizes_known_good_snapshot_when_failed_database_is_corrupt(
+    tmp_path: Path,
+) -> None:
+    primitives, _runner, _runtime, _updater, database = _business_primitives(
+        tmp_path
+    )
+    update_uid = str(uuid.uuid4())
+    primitives.snapshot_database({"updateUid": update_uid})
+    database.write_bytes(b"not a sqlite database")
+
+    restored = primitives.restore_database({"updateUid": update_uid})
+
+    assert restored["disposition"] == "RESTORED"
+    assert restored["diagnosticDatabaseRetained"] is False
+    assert _read_database_value(database) == "before"
+
+
+def test_restore_marker_blocks_start_until_interrupted_restore_is_retried(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primitives, _runner, _runtime, _updater, database = _business_primitives(
+        tmp_path
+    )
+    update_uid = str(uuid.uuid4())
+    primitives.snapshot_database({"updateUid": update_uid})
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute("UPDATE fact SET value = 'after'")
+        connection.commit()
+    finally:
+        connection.close()
+
+    original_remove = business_primitives_module._remove_matching_restore_marker
+
+    def interrupt_after_database_replace(_path: Path, _update_uid: str) -> None:
+        raise OSError("simulated power loss after database replacement")
+
+    monkeypatch.setattr(
+        business_primitives_module,
+        "_remove_matching_restore_marker",
+        interrupt_after_database_replace,
+    )
+    with pytest.raises(OSError, match="simulated power loss"):
+        primitives.restore_database({"updateUid": update_uid})
+
+    marker = primitives.snapshot_root / RESTORE_MARKER_NAME
+    assert marker.is_file()
+    assert _read_database_value(database) == "before"
+
+    monkeypatch.setattr(
+        business_primitives_module,
+        "_remove_matching_restore_marker",
+        original_remove,
+    )
+    restored = primitives.restore_database({"updateUid": update_uid})
+    assert restored["disposition"] == "RESTORED"
+    assert not marker.exists()
+    assert _read_database_value(database) == "before"
+
+
 def test_release_install_copies_plain_tree_without_executing_package_code(
     tmp_path: Path,
 ) -> None:
@@ -321,6 +384,37 @@ def test_activation_and_rollback_only_switch_valid_installed_uuid_releases(
     assert rolled_back["replacedReleaseUid"] == second_release
     assert os.readlink(runtime / "current") == f"releases/{first_release}"
     assert os.readlink(runtime / "previous") == f"releases/{second_release}"
+
+
+def test_first_release_can_be_deactivated_only_for_image_bridge_rollback(
+    tmp_path: Path,
+) -> None:
+    primitives, _runner, runtime, updater, _database = _business_primitives(
+        tmp_path
+    )
+    update_uid = str(uuid.uuid4())
+    release_uid = str(uuid.uuid4())
+    _stage_release(updater, update_uid, release_uid)
+    primitives.install_release(
+        {"updateUid": update_uid, "releaseUid": release_uid}
+    )
+    primitives.activate_release(
+        {"updateUid": update_uid, "releaseUid": release_uid}
+    )
+
+    status = primitives.status({})
+    first = primitives.deactivate_release(
+        {"updateUid": update_uid, "releaseUid": release_uid}
+    )
+    second = primitives.deactivate_release(
+        {"updateUid": update_uid, "releaseUid": release_uid}
+    )
+
+    assert status["installedReleaseCount"] == 1
+    assert status["currentReleaseUid"] == release_uid
+    assert first["disposition"] == "DEACTIVATED"
+    assert second["disposition"] == "ALREADY_DEACTIVATED"
+    assert not os.path.lexists(runtime / "current")
 
 
 def test_cleanup_refuses_symlink_and_never_removes_its_target(tmp_path: Path) -> None:

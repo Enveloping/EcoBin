@@ -69,6 +69,7 @@ CELLULAR_FIELDS = frozenset(
 SAFE_CELLULAR_CONNECTION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 MCU_PUBLIC_KEY_NAME = re.compile(r"^[A-Z0-9][A-Z0-9_.-]{0,63}\.pem$")
 RUNTIME_PUBLIC_KEY_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}\.pem$")
+BUSINESS_PUBLIC_KEY_NAME = RUNTIME_PUBLIC_KEY_NAME
 ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
 MIN_PUBLIC_KEY_PEM_BYTES = 100
 MAX_PUBLIC_KEY_PEM_BYTES = 1024
@@ -123,6 +124,7 @@ LEGACY_MAIN_UNITS = (
 
 MAIN_UNITS = (
     "ecobin-business.service",
+    "ecobin-business-updatable-candidate.service",
     "ecobin-communication-proxy.service",
     "ecobin-communication.service",
     *LEGACY_MAIN_UNITS,
@@ -188,6 +190,7 @@ STATIC_UNIT_NAMES = frozenset(
         "ecobin-device-management-preflight.service",
         "ecobin-business-permission-preflight.service",
         "ecobin-business.service",
+        "ecobin-business-updatable-candidate.service",
         "ecobin-communication.service",
         "ecobin-communication-proxy.service",
         "ecobin-enrollment.service",
@@ -203,6 +206,8 @@ STATIC_UNIT_NAMES = frozenset(
         "ecobin-hardware.service",
         "ecobin-mcu-flash-helper.socket",
         "ecobin-mcu-flash-helper@.service",
+        "ecobin-business-release-activation-candidate-helper.socket",
+        "ecobin-business-release-activation-candidate-helper@.service",
         "ecobin-remote-support.service",
         "ecobin-runtime-gate.service",
         "ecobin-runtime.target",
@@ -213,6 +218,7 @@ STATIC_UNIT_NAMES = frozenset(
 
 STATIC_UNIT_INSTANCE_PREFIXES = (
     "ecobin-business-activation-helper@",
+    "ecobin-business-release-activation-candidate-helper@",
     "ecobin-mcu-flash-helper@",
 )
 
@@ -561,7 +567,7 @@ def _validate_cellular_config(path: Path) -> None:
         raise ImageSoftwareError("cellular HTTPS probe URL is invalid")
 
 
-def _validate_ed25519_public_key_pem(path: Path) -> None:
+def _validate_ed25519_public_key_pem(path: Path) -> bytes:
     try:
         pem = path.read_bytes()
         text = pem.decode("ascii")
@@ -583,6 +589,7 @@ def _validate_ed25519_public_key_pem(path: Path) -> None:
         ED25519_SPKI_PREFIX
     ):
         raise ImageSoftwareError("trusted public key is not Ed25519")
+    return der[len(ED25519_SPKI_PREFIX) :]
 
 
 def _validate_public_key_store(
@@ -590,7 +597,7 @@ def _validate_public_key_store(
     *,
     name_pattern: re.Pattern[str],
     require_root_ownership: bool = False,
-) -> None:
+) -> frozenset[bytes]:
     try:
         directory_details = path.lstat()
     except OSError as exc:
@@ -614,6 +621,7 @@ def _validate_public_key_store(
     if not 1 <= len(entries) <= MAX_PUBLIC_KEYS_PER_STORE:
         raise ImageSoftwareError("controlled trust directory key count is invalid")
 
+    key_materials: set[bytes] = set()
     for key in entries:
         try:
             details = key.lstat()
@@ -637,12 +645,37 @@ def _validate_public_key_store(
             and (details.st_uid != 0 or details.st_gid != 0)
         ):
             raise ImageSoftwareError("controlled trust public key is not owned by root")
-        _validate_ed25519_public_key_pem(key)
+        key_material = _validate_ed25519_public_key_pem(key)
+        if key_material in key_materials:
+            raise ImageSoftwareError(
+                "controlled trust directory contains a duplicate public key"
+            )
+        key_materials.add(key_material)
+    return frozenset(key_materials)
 
 
-def validate_trust_directories(mcu_trust: Path, runtime_trust: Path) -> None:
-    _validate_public_key_store(mcu_trust, name_pattern=MCU_PUBLIC_KEY_NAME)
-    _validate_public_key_store(runtime_trust, name_pattern=RUNTIME_PUBLIC_KEY_NAME)
+def validate_trust_directories(
+    mcu_trust: Path,
+    runtime_trust: Path,
+    business_trust: Path,
+) -> None:
+    mcu_keys = _validate_public_key_store(
+        mcu_trust, name_pattern=MCU_PUBLIC_KEY_NAME
+    )
+    runtime_keys = _validate_public_key_store(
+        runtime_trust, name_pattern=RUNTIME_PUBLIC_KEY_NAME
+    )
+    business_keys = _validate_public_key_store(
+        business_trust, name_pattern=BUSINESS_PUBLIC_KEY_NAME
+    )
+    if (
+        mcu_keys & runtime_keys
+        or mcu_keys & business_keys
+        or runtime_keys & business_keys
+    ):
+        raise ImageSoftwareError(
+            "MCU, runtime and business trust stores must use independent public keys"
+        )
 
 
 def _require_python_launcher(venv: Path) -> None:
@@ -802,6 +835,7 @@ def _validate_payload_semantics(payload_root: Path, lock: dict[str, Any]) -> Non
     validate_trust_directories(
         payload_root / "trust/mcu-release-keys",
         payload_root / "trust/runtime-release-keys",
+        payload_root / "trust/business-release-keys",
     )
 
 
@@ -1234,6 +1268,10 @@ def install_image_software(
         payload_root / "trust/mcu-release-keys",
         share_ecobin / "mcu-release-keys",
     )
+    _copy_tree(
+        payload_root / "trust/business-release-keys",
+        share_ecobin / "business-release-keys",
+    )
     _write_device_management_release_environment(
         share_ecobin / "device-management-release.env",
         components,
@@ -1356,6 +1394,15 @@ def _audit_public_mcu_trust_store(rootfs: Path, installed: Path) -> None:
     _validate_public_key_store(
         installed,
         name_pattern=MCU_PUBLIC_KEY_NAME,
+        require_root_ownership=True,
+    )
+
+
+def _audit_public_business_trust_store(rootfs: Path, installed: Path) -> None:
+    _assert_root_owned_directory_chain(rootfs, installed)
+    _validate_public_key_store(
+        installed,
+        name_pattern=BUSINESS_PUBLIC_KEY_NAME,
         require_root_ownership=True,
     )
 
@@ -1807,6 +1854,8 @@ def audit_image_software(
         _audit_public_runtime_trust_store(rootfs, public_runtime_trust)
         public_mcu_trust = rootfs / "usr/share/ecobin/mcu-release-keys"
         _audit_public_mcu_trust_store(rootfs, public_mcu_trust)
+        public_business_trust = rootfs / "usr/share/ecobin/business-release-keys"
+        _audit_public_business_trust_store(rootfs, public_business_trust)
         if payload_root is not None:
             _assert_tree_matches(
                 public_runtime_trust,
@@ -1815,6 +1864,10 @@ def audit_image_software(
             _assert_tree_matches(
                 public_mcu_trust,
                 payload_root / "trust/mcu-release-keys",
+            )
+            _assert_tree_matches(
+                public_business_trust,
+                payload_root / "trust/business-release-keys",
             )
         _assert_tree_matches_lock(
             public_runtime_trust,
@@ -1825,6 +1878,11 @@ def audit_image_software(
             public_mcu_trust,
             lock,
             "trust/mcu-release-keys",
+        )
+        _assert_tree_matches_lock(
+            public_business_trust,
+            lock,
+            "trust/business-release-keys",
         )
         release_environment = (
             rootfs / "usr/share/ecobin/device-management-release.env"
@@ -1861,6 +1919,7 @@ def audit_image_software(
     validate_trust_directories(
         rootfs / "etc/ecobin/mcu-release-keys",
         rootfs / "etc/ecobin/runtime-release-keys",
+        rootfs / "usr/share/ecobin/business-release-keys",
     )
     _audit_units(
         rootfs,
@@ -1886,6 +1945,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--git-commit")
     parser.add_argument("--mcu-trust", type=Path)
     parser.add_argument("--runtime-trust", type=Path)
+    parser.add_argument("--business-trust", type=Path)
     return parser.parse_args(argv)
 
 
@@ -1903,11 +1963,15 @@ def main(argv: list[str] | None = None) -> int:
                 expected_git_commit=args.git_commit,
             )
         elif args.command == "validate-trust":
-            if not args.mcu_trust or not args.runtime_trust:
+            if not args.mcu_trust or not args.runtime_trust or not args.business_trust:
                 raise ImageSoftwareError(
-                    "validate-trust requires MCU and runtime trust directories"
+                    "validate-trust requires MCU, runtime and business trust directories"
                 )
-            validate_trust_directories(args.mcu_trust, args.runtime_trust)
+            validate_trust_directories(
+                args.mcu_trust,
+                args.runtime_trust,
+                args.business_trust,
+            )
         elif args.command == "install":
             if not all(
                 (

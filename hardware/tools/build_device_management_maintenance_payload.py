@@ -4,8 +4,8 @@
 The resulting directory is intentionally transport-only.  The live-device
 installer authenticates its canonical manifest by a SHA-256 value delivered
 out of band before it changes the device.  This builder copies only the
-permanent communication/updater allowlist and public runtime-release trust
-keys; it never reads device credentials or signing private keys.
+permanent communication/updater allowlist and the public runtime/business
+release trust keys; it never reads device credentials or signing private keys.
 """
 
 from __future__ import annotations
@@ -235,31 +235,40 @@ def _fixed_sources(hardware_root: Path) -> Mapping[str, bytes]:
     return sources
 
 
-def _trust_sources(runtime_trust_dir: Path) -> Mapping[str, bytes]:
-    trust_root = _absolute_without_resolving(runtime_trust_dir)
-    _assert_directory_chain(trust_root, "runtime trust directory")
+def _trust_sources(
+    trust_dir: Path,
+    *,
+    description: str,
+    payload_directory: str,
+) -> Mapping[str, bytes]:
+    trust_root = _absolute_without_resolving(trust_dir)
+    _assert_directory_chain(trust_root, f"{description} trust directory")
     try:
         entries = sorted(os.scandir(trust_root), key=lambda item: item.name)
     except OSError as exc:
-        raise PayloadBuildError("runtime trust directory cannot be enumerated") from exc
+        raise PayloadBuildError(
+            f"{description} trust directory cannot be enumerated"
+        ) from exc
     if not 1 <= len(entries) <= MAX_TRUST_KEYS:
         raise PayloadBuildError(
-            f"runtime trust directory must contain 1 to {MAX_TRUST_KEYS} public keys"
+            f"{description} trust directory must contain 1 to "
+            f"{MAX_TRUST_KEYS} public keys"
         )
 
     result: dict[str, bytes] = {}
     for entry in entries:
         if not RUNTIME_KEY_NAME.fullmatch(entry.name):
             raise PayloadBuildError(
-                f"runtime trust directory contains an unexpected entry: {entry.name}"
+                f"{description} trust directory contains an unexpected entry: "
+                f"{entry.name}"
             )
         relative = entry.name
         content = _read_regular_file(
             trust_root,
             relative,
-            description="runtime public trust key",
+            description=f"{description} public trust key",
         )
-        result[f"trust/runtime-release-keys/{entry.name}"] = content
+        result[f"trust/{payload_directory}/{entry.name}"] = content
     return result
 
 
@@ -377,6 +386,7 @@ def _publish(staging: Path, reservation: _OutputReservation) -> None:
 def build_device_management_maintenance_payload(
     output: Path,
     runtime_trust_dir: Path,
+    business_trust_dir: Path,
     identity: PayloadIdentity,
     *,
     hardware_source_root: Path = HARDWARE_SOURCE_ROOT,
@@ -387,30 +397,56 @@ def build_device_management_maintenance_payload(
     reservation = _reserve_output(output)
     hardware_root = _absolute_without_resolving(hardware_source_root)
     _assert_directory_chain(hardware_root, "hardware source root")
-    trust_root = _absolute_without_resolving(runtime_trust_dir)
-    try:
-        trust_root.relative_to(reservation.path)
-    except ValueError:
-        pass
-    else:
-        raise PayloadBuildError("runtime trust directory must not be inside output")
-    try:
-        reservation.path.relative_to(trust_root)
-    except ValueError:
-        pass
-    else:
-        raise PayloadBuildError("output must not be inside the runtime trust directory")
+    trust_roots = {
+        "runtime": _absolute_without_resolving(runtime_trust_dir),
+        "business": _absolute_without_resolving(business_trust_dir),
+    }
+    if trust_roots["runtime"] == trust_roots["business"]:
+        raise PayloadBuildError(
+            "runtime and business trust directories must be separate"
+        )
+    for description, trust_root in trust_roots.items():
+        try:
+            trust_root.relative_to(reservation.path)
+        except ValueError:
+            pass
+        else:
+            raise PayloadBuildError(
+                f"{description} trust directory must not be inside output"
+            )
+        try:
+            reservation.path.relative_to(trust_root)
+        except ValueError:
+            pass
+        else:
+            raise PayloadBuildError(
+                f"output must not be inside the {description} trust directory"
+            )
 
     files = dict(_fixed_sources(hardware_root))
     files[RELEASE_ENV_PAYLOAD] = (
         f"ECOBIN_COMMUNICATION_AGENT_VERSION={identity.communication_release_id}\n"
         f"ECOBIN_DEVICE_UPDATER_VERSION={identity.updater_release_id}\n"
     ).encode("ascii")
-    files.update(_trust_sources(trust_root))
+    files.update(
+        _trust_sources(
+            trust_roots["runtime"],
+            description="runtime",
+            payload_directory="runtime-release-keys",
+        )
+    )
+    files.update(
+        _trust_sources(
+            trust_roots["business"],
+            description="business",
+            payload_directory="business-release-keys",
+        )
+    )
     fixed_actual = {
         relative
         for relative in files
         if not relative.startswith("trust/runtime-release-keys/")
+        and not relative.startswith("trust/business-release-keys/")
     }
     if fixed_actual != _expected_fixed_payload_files():
         raise PayloadBuildError(
@@ -475,6 +511,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--runtime-trust-dir", required=True, type=Path)
+    parser.add_argument("--business-trust-dir", required=True, type=Path)
     parser.add_argument("--payload-id", required=True)
     parser.add_argument("--communication-release-id", required=True)
     parser.add_argument("--updater-release-id", required=True)
@@ -490,6 +527,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = build_device_management_maintenance_payload(
             arguments.output,
             arguments.runtime_trust_dir,
+            arguments.business_trust_dir,
             PayloadIdentity(
                 payload_id=arguments.payload_id,
                 source_git_commit=arguments.source_git_commit,

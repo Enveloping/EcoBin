@@ -23,6 +23,7 @@ POLICY = HelperPolicy(
         "businessServicesRequiredInactive": [
             "ecobin-hardware.service",
             "ecobin-business.service",
+            "ecobin-business-updatable-candidate.service",
         ],
     },
     primitive_actions=("FLASH_MCU_FIRMWARE", "RECOVER_MCU_APPLICATION"),

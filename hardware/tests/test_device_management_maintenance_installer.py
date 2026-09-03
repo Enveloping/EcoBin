@@ -77,8 +77,10 @@ def _write(path: Path, value: bytes, mode: int = 0o644) -> None:
     os.chmod(path, mode)
 
 
-def _public_key() -> bytes:
-    der = bytes.fromhex("302a300506032b6570032100") + bytes(range(32))
+def _public_key(seed: int) -> bytes:
+    der = bytes.fromhex("302a300506032b6570032100") + bytes(
+        (seed + index) % 256 for index in range(32)
+    )
     body = base64.b64encode(der).decode("ascii")
     return (
         "-----BEGIN PUBLIC KEY-----\n"
@@ -115,7 +117,8 @@ def _make_payload(tmp_path: Path) -> tuple[Path, str]:
             f"ECOBIN_DEVICE_UPDATER_VERSION={UPDATER_RELEASE}\n"
         ).encode(),
     )
-    _write(payload / "trust/runtime-release-keys/factory_2026.pem", _public_key())
+    _write(payload / "trust/runtime-release-keys/factory_2026.pem", _public_key(1))
+    _write(payload / "trust/business-release-keys/business_2026.pem", _public_key(101))
     digest = write_payload_manifest(
         payload,
         payload_id=PAYLOAD_ID,
@@ -927,6 +930,44 @@ def test_payload_manifest_is_an_exact_authenticated_allowlist(tmp_path: Path) ->
     assert manifest.communication_release_id == COMMUNICATION_RELEASE
     assert manifest.updater_release_id == UPDATER_RELEASE
     assert len(manifest.files) > 20
+
+
+def test_payload_rejects_runtime_key_reused_for_business_releases(
+    tmp_path: Path,
+) -> None:
+    payload, _digest = _make_payload(tmp_path)
+    runtime_key = payload / "trust/runtime-release-keys/factory_2026.pem"
+    relative = "trust/business-release-keys/business_2026.pem"
+    digest = _rewrite_payload_file_and_manifest(
+        payload,
+        relative,
+        runtime_key.read_bytes(),
+    )
+
+    with pytest.raises(MaintenanceInstallError, match="independent public keys"):
+        load_and_validate_payload(payload, digest)
+
+
+@pytest.mark.parametrize(
+    "payload_key",
+    (
+        "trust/runtime-release-keys/factory_2026.pem",
+        "trust/business-release-keys/business_2026.pem",
+    ),
+)
+def test_preflight_rejects_payload_key_reused_from_installed_mcu_trust(
+    tmp_path: Path,
+    payload_key: str,
+) -> None:
+    payload, digest = _make_payload(tmp_path)
+    rootfs, fake, _runtime = _make_rootfs(tmp_path)
+    _write(
+        rootfs / "usr/share/ecobin/mcu-release-keys/RELEASE_2026_01.pem",
+        (payload / payload_key).read_bytes(),
+    )
+
+    with pytest.raises(MaintenanceInstallError, match="independent public keys"):
+        _installer(rootfs, fake).preflight(payload, digest, **_confirmations())
 
 
 def test_payload_allows_nonconflicting_conditions_in_the_unit_section(

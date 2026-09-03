@@ -456,6 +456,34 @@ def test_environment_builder_is_default_off_and_status_is_read_only() -> None:
     ] == "LEGACY_DIRECT"
 
 
+def test_environment_health_reports_database_and_live_sqlite_sidecar_bytes(
+    tmp_path,
+) -> None:
+    database = tmp_path / "edge.db"
+    database.write_bytes(b"database")
+    (tmp_path / "edge.db-wal").write_bytes(b"wal")
+    (tmp_path / "edge.db-shm").write_bytes(b"shared")
+    lookup = {
+        "ecobin-communication": 101,
+        "ecobin-business": 103,
+        "ecobin-updater": 102,
+    }
+    service = build_business_control_service_from_environment(
+        release_version="1.2.3",
+        job_permit_enforced=False,
+        business_database_path=database,
+        environment={
+            "ECOBIN_BUSINESS_CONTROL_MODE": "status",
+            "ECOBIN_BUSINESS_CONTROL_SOCKET": "/run/test/business.sock",
+        },
+        user_uid_lookup=lookup.__getitem__,
+        group_gid_lookup=lambda _name: 201,
+    )
+
+    assert service is not None
+    assert service.controller.health({})["businessDatabaseSize"] == 17
+
+
 def test_environment_candidate_requires_gate_and_resolves_updater_identity() -> None:
     lookup = {
         "ecobin-communication": 101,

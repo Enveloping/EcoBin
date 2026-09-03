@@ -173,10 +173,13 @@ def test_cutover_candidate_units_are_static_mutually_exclusive_and_non_root() ->
     assert "--mode proxy-candidate" in communication
     assert "--enable-stage4-candidate" in updater
     assert "--enable-mcu-update-candidate" in updater
+    assert "--enable-business-update-candidate" in updater
     assert "/opt/ecobin/updater/current/.venv/bin/python" in updater
     assert "--mcu-update-state /var/lib/ecobin/updater/mcu-updates.db" in updater
     assert "--mcu-firmware-root /var/lib/ecobin/updater/mcu-firmware" in updater
     assert "--mcu-signing-keys /usr/share/ecobin/mcu-release-keys" in updater
+    assert "--business-signing-keys /usr/share/ecobin/business-release-keys" in updater
+    assert "ReadOnlyPaths=/usr/share/ecobin/business-release-keys" in updater
     assert "User=ecobin-communication" in communication
     assert "User=ecobin-updater" in updater
     assert "User=ecobin-business" in business
@@ -203,6 +206,20 @@ def test_cutover_candidate_units_are_static_mutually_exclusive_and_non_root() ->
     assert "ecobin-communication-proxy.service" not in runtime_target
     assert "ecobin-updater-candidate.service" not in runtime_target
     assert "ecobin-business.service" not in runtime_target
+    assert "ecobin-business-updatable-candidate.service" not in runtime_target
+
+
+def test_replaceable_business_service_is_static_and_power_loss_fenced() -> None:
+    business = _unit("ecobin-business-updatable-candidate.service")
+
+    assert "User=ecobin-business" in business
+    assert "WorkingDirectory=/opt/ecobin/business/current/app" in business
+    assert "EnvironmentFile=/opt/ecobin/business/current/release.env" in business
+    assert "ExecStart=/opt/ecobin/business/current/.venv/bin/python" in business
+    assert "business-snapshots/.restore-in-progress.json" in business
+    assert "Conflicts=ecobin-hardware.service ecobin-business.service" in business
+    assert "ECOBIN_CLOUD_TRANSPORT_MODE=local-proxy" in business
+    assert "[Install]" not in business
 
 
 def test_candidate_root_helpers_are_static_updater_authorized_and_offline() -> None:
@@ -211,6 +228,11 @@ def test_candidate_root_helpers_are_static_updater_authorized_and_offline() -> N
             "ecobin-business-activation-candidate-helper.socket",
             "ecobin-business-activation-candidate-helper@.service",
             "business-activation-candidate.sock",
+        ),
+        (
+            "ecobin-business-release-activation-candidate-helper.socket",
+            "ecobin-business-release-activation-candidate-helper@.service",
+            "business-release-activation-candidate.sock",
         ),
         (
             "ecobin-mcu-flash-candidate-helper.socket",
@@ -245,6 +267,7 @@ def test_candidate_root_helpers_are_static_updater_authorized_and_offline() -> N
 
     updater = _unit("ecobin-updater-candidate.service")
     assert "Wants=ecobin-business-activation-candidate-helper.socket " in updater
+    assert "ecobin-business-release-activation-candidate-helper.socket" in updater
     assert "ecobin-mcu-flash-candidate-helper.socket" in updater
 
 

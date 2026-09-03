@@ -12,6 +12,7 @@ import pytest
 from device_management.helpers import (
     business_activation_candidate_helper,
     business_activation_helper,
+    business_release_activation_candidate_helper,
     mcu_flash_candidate_helper,
     mcu_flash_helper,
 )
@@ -283,9 +284,80 @@ def test_stage4_candidate_authorizes_exact_payload_before_root_primitive(
 
 def test_candidate_business_helper_publishes_fixed_start_timeout() -> None:
     assert business_activation_candidate_helper.POLICY.fixed_configuration == {
-        "businessService": "ecobin-business.service",
+        "businessServices": [
+            "ecobin-business.service",
+            "ecobin-business-updatable-candidate.service",
+        ],
         "serviceControlTimeoutSeconds": 190,
     }
+
+
+def test_business_release_helper_publishes_fixed_bridge_and_release_paths() -> None:
+    configuration = (
+        business_release_activation_candidate_helper.POLICY.fixed_configuration
+    )
+
+    assert configuration == {
+        "businessService": "ecobin-business-updatable-candidate.service",
+        "bridgeBusinessService": "ecobin-business.service",
+        "businessReleaseRoot": "/opt/ecobin/business/releases",
+        "businessCurrentLink": "/opt/ecobin/business/current",
+        "businessDatabase": "/var/lib/ecobin/business/edge.db",
+        "stagingRoot": "/var/lib/ecobin/updater/staging",
+        "snapshotRoot": "/var/lib/ecobin/privileged/business-snapshots",
+        "serviceControlTimeoutSeconds": 190,
+    }
+    assert business_release_activation_candidate_helper.POLICY.stage == 6
+
+
+def test_mcu_business_helper_selects_bridge_or_replaceable_current_release() -> None:
+    class Primitive:
+        def __init__(self, state: str, current_release_uid: str | None) -> None:
+            self.state = state
+            self.current_release_uid = current_release_uid
+            self.calls: list[str] = []
+
+        def status(self, _payload):
+            return {
+                "businessRuntimeState": self.state,
+                "currentReleaseUid": self.current_release_uid,
+                "previousReleaseUid": None,
+                "currentRelease": None,
+                "installedReleaseCount": (
+                    1 if self.current_release_uid is not None else 0
+                ),
+            }
+
+        def service_state(self):
+            return self.state
+
+        def start(self, _payload):
+            self.calls.append("start")
+            self.state = "ACTIVE"
+            return {"businessRuntimeState": "ACTIVE"}
+
+        def stop(self, _payload):
+            self.calls.append("stop")
+            self.state = "INACTIVE"
+            return {"businessRuntimeState": "INACTIVE"}
+
+    bridge = Primitive("ACTIVE", None)
+    updatable = Primitive("INACTIVE", None)
+    actions = (
+        business_release_activation_candidate_helper.BusinessReleaseCandidateActions(
+            updatable, bridge  # type: ignore[arg-type]
+        )
+    )
+    actions.stop_selected({})
+    actions.start_selected({})
+    assert bridge.calls == ["stop", "start"]
+    assert updatable.calls == []
+
+    bridge.state = "INACTIVE"
+    updatable.current_release_uid = "11111111-1111-4111-8111-111111111111"
+    actions.stop_selected({})
+    actions.start_selected({})
+    assert updatable.calls == ["stop", "start"]
 
 
 def test_stage4_authorization_failure_never_enters_lock_or_primitive() -> None:

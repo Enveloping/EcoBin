@@ -38,6 +38,7 @@ BUSINESS_SERVICE = "ecobin-hardware.service"
 BUSINESS_SERVICES = (
     BUSINESS_SERVICE,
     "ecobin-business.service",
+    "ecobin-business-updatable-candidate.service",
 )
 SYSTEMCTL = "/usr/bin/systemctl"
 FIRMWARE_ROOT = Path("/var/lib/ecobin/updater/mcu-firmware")

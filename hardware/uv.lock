@@ -142,6 +142,11 @@ version = "0.1.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]
+business = [
+    { name = "cos-python-sdk-v5" },
+    { name = "opencv-python-headless" },
+    { name = "pyserial" },
+]
 communication = [
     { name = "paho-mqtt" },
 ]
@@ -176,6 +181,11 @@ updater = [
 [package.metadata]
 
 [package.metadata.requires-dev]
+business = [
+    { name = "cos-python-sdk-v5", specifier = ">=1.9.44" },
+    { name = "opencv-python-headless", specifier = ">=4.10.0.84,<5" },
+    { name = "pyserial", specifier = ">=3.5" },
+]
 communication = [{ name = "paho-mqtt", specifier = ">=2.1.0" }]
 dev = [
     { name = "cos-python-sdk-v5", specifier = ">=1.9.44" },

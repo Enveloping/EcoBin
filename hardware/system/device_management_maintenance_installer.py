@@ -65,7 +65,12 @@ SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 RUNTIME_KEY_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}\.pem$")
+MCU_KEY_NAME = re.compile(r"^[A-Z0-9][A-Z0-9_.-]{0,63}\.pem$")
 ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
+MCU_TRUST_STORE_PATHS = (
+    "/usr/share/ecobin/mcu-release-keys",
+    "/etc/ecobin/mcu-release-keys",
+)
 
 LEGACY_SERVICE = "ecobin-hardware.service"
 RUNTIME_TARGET = "ecobin-runtime.target"
@@ -81,6 +86,7 @@ BOOT_ID = re.compile(
 )
 MAIN_UNIT_FILES = (
     "ecobin-business.service",
+    "ecobin-business-updatable-candidate.service",
     "ecobin-communication-proxy.service",
     "ecobin-communication.service",
     "ecobin-updater.service",
@@ -91,6 +97,7 @@ MAIN_UNIT_FILES = (
 HELPER_UNIT_FILES = tuple(DEVICE_UPDATER_HELPER_UNIT_FILES)
 HELPER_INSTANCE_PREFIXES = (
     "ecobin-business-activation-helper@",
+    "ecobin-business-release-activation-candidate-helper@",
     "ecobin-mcu-flash-helper@",
 )
 START_UNITS = (
@@ -528,12 +535,12 @@ def _validate_runtime_fence_unit_bytes(raw: bytes, unit_name: str) -> None:
         )
 
 
-def _validate_ed25519_public_key(path: Path) -> None:
+def _validate_ed25519_public_key(path: Path) -> bytes:
     try:
         raw = path.read_bytes()
         text = raw.decode("ascii")
     except (OSError, UnicodeError) as exc:
-        raise MaintenanceInstallError("runtime trust key is not ASCII PEM") from exc
+        raise MaintenanceInstallError("release trust key is not ASCII PEM") from exc
     lines = text.splitlines()
     if (
         not 100 <= len(raw) <= 1024
@@ -542,15 +549,47 @@ def _validate_ed25519_public_key(path: Path) -> None:
         or lines[-1] != "-----END PUBLIC KEY-----"
         or any(not line or len(line) > 64 for line in lines[1:-1])
     ):
-        raise MaintenanceInstallError("runtime trust key is not a public-key PEM")
+        raise MaintenanceInstallError("release trust key is not a public-key PEM")
     try:
         der = base64.b64decode("".join(lines[1:-1]), validate=True)
     except (ValueError, binascii.Error) as exc:
-        raise MaintenanceInstallError("runtime trust key PEM is malformed") from exc
+        raise MaintenanceInstallError("release trust key PEM is malformed") from exc
     if len(der) != len(ED25519_SPKI_PREFIX) + 32 or not der.startswith(
         ED25519_SPKI_PREFIX
     ):
-        raise MaintenanceInstallError("runtime trust key is not Ed25519")
+        raise MaintenanceInstallError("release trust key is not Ed25519")
+    return der[len(ED25519_SPKI_PREFIX) :]
+
+
+def _payload_trust_key_materials(
+    payload_root: Path,
+    manifest: MaintenanceManifest,
+) -> dict[str, frozenset[bytes]]:
+    trust_keys: dict[str, set[bytes]] = {"runtime": set(), "business": set()}
+    for relative in sorted(manifest.files):
+        trust_kind = None
+        if relative.startswith("trust/runtime-release-keys/"):
+            trust_kind = "runtime"
+        elif relative.startswith("trust/business-release-keys/"):
+            trust_kind = "business"
+        if trust_kind is None:
+            continue
+        key_material = _validate_ed25519_public_key(
+            payload_root.joinpath(*PurePosixPath(relative).parts)
+        )
+        if key_material in trust_keys[trust_kind]:
+            raise MaintenanceInstallError(
+                f"maintenance {trust_kind} trust store contains a duplicate public key"
+            )
+        trust_keys[trust_kind].add(key_material)
+    if trust_keys["runtime"] & trust_keys["business"]:
+        raise MaintenanceInstallError(
+            "runtime and business trust stores must use independent public keys"
+        )
+    return {
+        name: frozenset(keys)
+        for name, keys in trust_keys.items()
+    }
 
 
 def _expected_fixed_payload_files() -> set[str]:
@@ -717,15 +756,32 @@ def _parse_manifest_document(document: object, manifest_sha256: str) -> Maintena
     fixed = _expected_fixed_payload_files()
     actual = set(parsed_files)
     trust_files = actual - fixed
-    if actual - trust_files != fixed:
-        raise MaintenanceInstallError("maintenance payload fixed allowlist is incomplete")
-    if not 1 <= len(trust_files) <= MAX_TRUST_KEYS or any(
-        not path.startswith("trust/runtime-release-keys/")
-        or not RUNTIME_KEY_NAME.fullmatch(PurePosixPath(path).name)
-        or len(PurePosixPath(path).parts) != 3
+    runtime_trust_files = {
+        path
         for path in trust_files
+        if path.startswith("trust/runtime-release-keys/")
+    }
+    business_trust_files = {
+        path
+        for path in trust_files
+        if path.startswith("trust/business-release-keys/")
+    }
+    if actual - trust_files != fixed or trust_files != (
+        runtime_trust_files | business_trust_files
     ):
-        raise MaintenanceInstallError("maintenance runtime trust allowlist is invalid")
+        raise MaintenanceInstallError("maintenance payload fixed allowlist is incomplete")
+    for description, paths in (
+        ("runtime", runtime_trust_files),
+        ("business", business_trust_files),
+    ):
+        if not 1 <= len(paths) <= MAX_TRUST_KEYS or any(
+            not RUNTIME_KEY_NAME.fullmatch(PurePosixPath(path).name)
+            or len(PurePosixPath(path).parts) != 3
+            for path in paths
+        ):
+            raise MaintenanceInstallError(
+                f"maintenance {description} trust allowlist is invalid"
+            )
 
     return MaintenanceManifest(
         payload_id=payload_id,
@@ -792,13 +848,7 @@ def load_and_validate_payload(
                 f"maintenance payload file mode differs from manifest: {relative}"
             )
 
-    trust_paths = sorted(
-        path for path in manifest.files if path.startswith("trust/runtime-release-keys/")
-    )
-    for relative in trust_paths:
-        _validate_ed25519_public_key(
-            payload_root.joinpath(*PurePosixPath(relative).parts)
-        )
+    _payload_trust_key_materials(payload_root, manifest)
 
     expected_env = (
         f"ECOBIN_COMMUNICATION_AGENT_VERSION={manifest.communication_release_id}\n"
@@ -964,6 +1014,14 @@ def target_files(manifest: MaintenanceManifest) -> tuple[TargetFile, ...]:
                 TargetFile(
                     relative,
                     f"/usr/share/ecobin/runtime-release-keys/{PurePosixPath(relative).name}",
+                    0o644,
+                )
+            )
+        elif relative.startswith("trust/business-release-keys/"):
+            targets.append(
+                TargetFile(
+                    relative,
+                    f"/usr/share/ecobin/business-release-keys/{PurePosixPath(relative).name}",
                     0o644,
                 )
             )
@@ -1176,6 +1234,62 @@ class MaintenanceInstaller:
                 f"{description} mode is not {expected_mode:04o}"
             )
         return details
+
+    def _installed_mcu_trust_keys(self) -> frozenset[bytes]:
+        keys: set[bytes] = set()
+        for absolute in MCU_TRUST_STORE_PATHS:
+            directory = self._path(absolute)
+            if not _lexists(directory):
+                continue
+            self._assert_safe_directory(
+                directory,
+                f"installed MCU trust directory {absolute}",
+                expected_mode=0o755,
+            )
+            try:
+                entries = sorted(directory.iterdir(), key=lambda item: item.name)
+            except OSError as exc:
+                raise MaintenanceInstallError(
+                    "installed MCU trust directory is unavailable"
+                ) from exc
+            if not 1 <= len(entries) <= MAX_TRUST_KEYS:
+                raise MaintenanceInstallError(
+                    "installed MCU trust directory key count is invalid"
+                )
+            directory_keys: set[bytes] = set()
+            for entry in entries:
+                if MCU_KEY_NAME.fullmatch(entry.name) is None:
+                    raise MaintenanceInstallError(
+                        "installed MCU trust directory contains an unsupported name"
+                    )
+                details = self._assert_safe_regular(
+                    entry,
+                    "installed MCU trust public key",
+                )
+                if self._metadata_mode(entry, details) != 0o644:
+                    raise MaintenanceInstallError(
+                        "installed MCU trust public key mode is not 0644"
+                    )
+                key_material = _validate_ed25519_public_key(entry)
+                if key_material in directory_keys:
+                    raise MaintenanceInstallError(
+                        "installed MCU trust directory contains a duplicate public key"
+                    )
+                directory_keys.add(key_material)
+            keys.update(directory_keys)
+        return frozenset(keys)
+
+    def _assert_payload_trust_is_independent_from_installed_mcu(
+        self,
+        payload_root: Path,
+        manifest: MaintenanceManifest,
+    ) -> None:
+        payload_keys = _payload_trust_key_materials(payload_root, manifest)
+        mcu_keys = self._installed_mcu_trust_keys()
+        if mcu_keys & (payload_keys["runtime"] | payload_keys["business"]):
+            raise MaintenanceInstallError(
+                "MCU, runtime and business trust stores must use independent public keys"
+            )
 
     def _read_image_identity(self) -> dict[str, str]:
         identities: list[dict[str, str]] = []
@@ -2213,6 +2327,7 @@ class MaintenanceInstaller:
             "/opt/ecobin/updater",
             "/usr/lib/ecobin/device-management",
             "/usr/share/ecobin/runtime-release-keys",
+            "/usr/share/ecobin/business-release-keys",
         ):
             if _lexists(self._path(root)):
                 raise MaintenanceInstallError(f"refusing to take over unknown tree: {root}")
@@ -2245,6 +2360,10 @@ class MaintenanceInstaller:
         expected_legacy_service: str,
     ) -> dict[str, Any]:
         manifest = load_and_validate_payload(payload_root, expected_manifest_sha256)
+        self._assert_payload_trust_is_independent_from_installed_mcu(
+            payload_root,
+            manifest,
+        )
         self._assert_host_tools()
         identity, legacy = self._assert_expected_device(
             manifest,
@@ -2781,12 +2900,14 @@ class MaintenanceInstaller:
             "/opt/ecobin/updater/releases": 0o755,
             f"/opt/ecobin/updater/releases/{manifest.updater_release_id}": 0o755,
             f"/opt/ecobin/updater/releases/{manifest.updater_release_id}/app": 0o755,
+            f"/opt/ecobin/updater/releases/{manifest.updater_release_id}/app/install": 0o755,
             f"/opt/ecobin/updater/releases/{manifest.updater_release_id}/helpers": 0o755,
             "/usr/lib/ecobin": 0o755,
             "/usr/lib/ecobin/device-management": 0o755,
             "/usr/lib/ecobin/device-management/helpers": 0o755,
             "/usr/share/ecobin": 0o755,
             "/usr/share/ecobin/runtime-release-keys": 0o755,
+            "/usr/share/ecobin/business-release-keys": 0o755,
             "/etc/systemd/system/ecobin-runtime.target.d": 0o755,
         }
         return managed_roots

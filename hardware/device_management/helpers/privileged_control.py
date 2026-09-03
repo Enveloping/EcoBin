@@ -96,7 +96,7 @@ class HelperPolicy:
             raise ValueError("helper protocol and component must be configured")
         if isinstance(self.stage, bool) or not isinstance(self.stage, int):
             raise ValueError("helper stage must be an integer")
-        if self.stage not in {3, 4}:
+        if self.stage not in {3, 4, 6}:
             raise ValueError("helper stage is unsupported")
         if not isinstance(self.mutation_enabled, bool):
             raise ValueError("helper mutation flag must be boolean")

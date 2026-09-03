@@ -99,6 +99,7 @@ def test_health_and_status_report_truthful_default_locked_capabilities(
             "businessUpdateEnabled": False,
             "mcuUpdateEnabled": False,
             "mcuUpdateCandidateEnabled": False,
+            "businessUpdateCandidateEnabled": False,
             "privilegedHelperMutationEnabled": False,
             "localProtocolName": "ecobin.updater.control",
             "localProtocolMajor": 1,
@@ -372,6 +373,160 @@ def test_mcu_candidate_cannot_be_enabled_without_stage4_gate(tmp_path: Path) -> 
                 allowed_uids={0},
                 enable_mcu_update_candidate=True,
             )
+    finally:
+        store.close()
+
+
+def test_business_candidate_adds_only_root_local_queue_query_and_authorization(
+    tmp_path: Path,
+) -> None:
+    class Coordinator:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def get_status(self):
+            return {"candidateEnabled": True, "activeUpdate": None}
+
+        def queue_local(self, payload):
+            self.calls.append(("queue", payload))
+            return {"disposition": "ACCEPTED"}
+
+        def get_update(self, payload):
+            self.calls.append(("get", payload))
+            return {"updateUid": payload["updateUid"]}
+
+        def authorize_privileged_action(self, payload):
+            self.calls.append(("authorize", payload))
+            return {"authorized": True}
+
+    store = UpdaterStore(
+        tmp_path / "updater.db",
+        release_version="updater-v2",
+        enable_stage4_candidate=True,
+    )
+    store.initialize()
+    try:
+        coordinator = Coordinator()
+        handler = updater_agent.UpdaterControlHandler(
+            store,
+            business_coordinator=coordinator,
+        )
+        actions = updater_agent.build_control_actions(
+            handler,
+            allowed_uids={0, 3102},
+            business_uids={3102},
+            enable_stage4_candidate=True,
+            enable_business_update_candidate=True,
+        )
+
+        for action, fields in (
+            updater_agent.ROOT_BUSINESS_CANDIDATE_ACTION_FIELDS.items()
+        ):
+            assert actions[action].payload_fields == fields
+            assert actions[action].allowed_uids == frozenset({0})
+        authorization = actions["AUTHORIZE_PRIVILEGED_HELPER_ACTION"]
+        assert authorization.allowed_uids == frozenset({0})
+        assert "START_BUSINESS_UPDATE" in actions
+        with pytest.raises(LocalControlActionError) as remote:
+            actions["START_BUSINESS_UPDATE"].handler({})
+        assert remote.value.code == "FEATURE_DISABLED"
+        status = actions["GET_STATUS"].handler({})
+        assert status["businessUpdateCandidateEnabled"] is True
+        assert status["privilegedHelperMutationEnabled"] is True
+        assert status["businessUpdateCandidate"]["activeUpdate"] is None
+    finally:
+        store.close()
+
+
+def test_business_candidate_cannot_be_enabled_without_stage4_gate(
+    tmp_path: Path,
+) -> None:
+    store = UpdaterStore(
+        tmp_path / "updater.db",
+        release_version="updater-v1",
+    )
+    store.initialize()
+    try:
+        with pytest.raises(ValueError, match="stage-four"):
+            updater_agent.build_control_actions(
+                updater_agent.UpdaterControlHandler(
+                    store,
+                    business_coordinator=object(),
+                ),
+                allowed_uids={0},
+                enable_business_update_candidate=True,
+            )
+    finally:
+        store.close()
+
+
+def test_business_and_mcu_updates_are_mutually_exclusive_at_queue_boundary(
+    tmp_path: Path,
+) -> None:
+    class Coordinator:
+        def __init__(self, active_update=None) -> None:
+            self.active_update = active_update
+            self.queued = []
+
+        def get_status(self):
+            return {"activeUpdate": self.active_update}
+
+        def queue_local(self, payload):
+            self.queued.append(payload)
+            return {"disposition": "ACCEPTED"}
+
+    store = UpdaterStore(
+        tmp_path / "updater.db",
+        release_version="updater-v1",
+        enable_stage4_candidate=True,
+    )
+    store.initialize()
+    try:
+        mcu = Coordinator(active_update={"updateUid": _uid(801)})
+        business = Coordinator()
+        handler = updater_agent.UpdaterControlHandler(store, mcu, business)
+
+        with pytest.raises(LocalControlActionError) as business_blocked:
+            handler.queue_local_business_update({"kind": "business"})
+        assert business_blocked.value.code == "MCU_UPDATE_BUSY"
+        assert business.queued == []
+
+        mcu.active_update = None
+        business.active_update = {"updateUid": _uid(802)}
+        with pytest.raises(LocalControlActionError) as mcu_blocked:
+            handler.queue_local_mcu_update({"kind": "mcu"})
+        assert mcu_blocked.value.code == "BUSINESS_UPDATE_BUSY"
+        assert mcu.queued == []
+    finally:
+        store.close()
+
+
+def test_software_update_queue_fails_closed_when_other_journal_is_unreadable(
+    tmp_path: Path,
+) -> None:
+    class BrokenCoordinator:
+        def get_status(self):
+            raise RuntimeError("database unavailable")
+
+    class BusinessCoordinator:
+        def queue_local(self, _payload):
+            raise AssertionError("queue must not be reached")
+
+    store = UpdaterStore(
+        tmp_path / "updater.db",
+        release_version="updater-v1",
+        enable_stage4_candidate=True,
+    )
+    store.initialize()
+    try:
+        handler = updater_agent.UpdaterControlHandler(
+            store,
+            BrokenCoordinator(),
+            BusinessCoordinator(),
+        )
+        with pytest.raises(LocalControlActionError) as blocked:
+            handler.queue_local_business_update({"kind": "business"})
+        assert blocked.value.code == "UPDATE_COORDINATION_UNAVAILABLE"
     finally:
         store.close()
 
@@ -651,5 +806,9 @@ def test_cli_defaults_match_permanent_updater_paths(monkeypatch) -> None:
     assert args.allowed_user is None
     assert args.socket_group is None
     assert args.enable_stage4_candidate is False
+    assert args.enable_business_update_candidate is False
+    assert args.business_package_root == "/var/lib/ecobin/updater/business-packages"
+    assert args.business_staging_root == "/var/lib/ecobin/updater/staging"
+    assert args.business_signing_keys == "/usr/share/ecobin/business-release-keys"
     assert args.business_uid is None
     assert args.business_user is None

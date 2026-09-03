@@ -15,6 +15,10 @@ case "${1:-}" in
         build_mode=runtime-release
         shift
         ;;
+    --business-release-only)
+        build_mode=business-release
+        shift
+        ;;
 esac
 builder_lock="${script_directory}/builder.lock"
 # The locked debian:bookworm-slim base deliberately has no CA bundle.  For the
@@ -111,7 +115,12 @@ mapping = {
     "zstd": "zstd",
 }
 build_mode = sys.argv[2]
-if build_mode not in {"image", "runtime-release", "software-payload"}:
+if build_mode not in {
+    "image",
+    "runtime-release",
+    "business-release",
+    "software-payload",
+}:
     raise SystemExit("builder mode is invalid")
 image_only_tools = {
     "e2fsprogs",
@@ -314,6 +323,9 @@ apt-get clean
 rm -rf -- /var/lib/apt/lists/*
 if [[ "${build_mode}" = runtime-release ]]; then
     exec python3 /workspace/hardware/install/build_runtime_release.py "$@"
+fi
+if [[ "${build_mode}" = business-release ]]; then
+    exec python3 /workspace/hardware/install/build_business_release.py "$@"
 fi
 if [[ "${build_mode}" = software-payload ]]; then
     exec bash "${script_directory}/build-software-payload.sh" "$@"

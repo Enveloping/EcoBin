@@ -75,6 +75,10 @@ Consequently, merely extracting and auditing that base is expected to fail.
   signed hardware-runtime archive and creates three additional relocatable
   Python 3.11 environments from `hardware/uv.lock`.
 - `run-payload-builder.sh`: digest-pinned outer launcher for the payload build.
+- `run-runtime-builder.sh`: digest-pinned builder for the image-owned hardware
+  runtime used during factory enrollment and migration.
+- `run-business-builder.sh`: digest-pinned builder for a signed, replaceable
+  proxy-only business release and its business-only dependency wheelhouse.
 - `lib/generate_software_payload_lock.py`: validates every required component,
   production batch configuration, signature-verification evidence and current
   runtime source before writing an exact file inventory.
@@ -191,6 +195,7 @@ tools/orangepi-image/run-payload-builder.sh \
   --runtime-signing-key-id factory_2026 \
   --runtime-trust-dir /controlled/trust/runtime-release-keys \
   --mcu-trust-dir /controlled/trust/mcu-release-keys \
+  --business-trust-dir /controlled/trust/business-release-keys \
   --enrollment-env /controlled/config/enrollment.env \
   --cellular-env /controlled/config/cellular.env \
   --payload-id software-payload-001 \
@@ -213,6 +218,9 @@ limited to 32 characters so they fit the device software-fact contract. The
 installer and auditor can still read historical five-component schema-v1
 metadata, but a new image build rejects it. The payload contains no K1, setup
 AP password or private signing key.
+The business-release trust directory is independent from the runtime and MCU
+trust directories. It contains only root-installed Ed25519 public keys; the
+corresponding private key remains outside the repository and image.
 The updater component also carries the two fixed root-helper implementations
 and a boot-scoped probe that calls both helpers as the real updater user.
 Stage-three images keep every helper mutation disabled; installing these files
@@ -220,12 +228,32 @@ does not enable business-runtime or MCU remote updates.
 `enrollment.env` has exactly the production HTTPS URL, `K1` key ID and
 `SELF_ENROLLMENT` mode. `cellular.env` must exactly satisfy the Air780E RNDIS
 schema-v2/HIL parser; USB VID/PID remain runtime diagnostics and are forbidden
-batch fields. The two trust directories may contain only bounded, regular
-Ed25519 `PUBLIC KEY` PEM files named with their respective MCU or runtime key-ID
-grammar. A missing venv, an unsigned/unverified runtime archive, a Git/source
+batch fields. The three trust directories may contain only bounded, regular
+Ed25519 `PUBLIC KEY` PEM files named with their respective MCU, runtime or
+business key-ID grammar. A missing venv, an unsigned/unverified runtime archive, a Git/source
 mismatch, an empty component release ID, a secret/legacy config field, a
 private key/certificate/extra trust file, or any modified file prevents a
 `LOCKED` payload from being produced.
+
+After the permanent communication proxy and updater boundary has been
+accepted, build a replaceable business-only package in the same locked ARM64
+builder. The repository must be clean and the signing key must be an external,
+single-link file inaccessible to group and other users:
+
+```bash
+tools/orangepi-image/run-business-builder.sh \
+  --output-dir /controlled/business/business-1.1.0 \
+  --release-id 11111111-1111-4111-8111-111111111111 \
+  --version-name 1.1.0 \
+  --release-sequence 2 \
+  --signing-private-key /controlled/keys/business-signing-private.pem
+```
+
+The output is one deterministic business archive, its SHA-256 file and its
+detached signature. It contains business code, the business-only locked ARM64
+wheelhouse and an empty first-version migration directory. It does not contain
+the OneNet client, device credentials, permanent communication agent, device
+updater, systemd units or signing key.
 
 ## Candidate build (Linux/WSL)
 

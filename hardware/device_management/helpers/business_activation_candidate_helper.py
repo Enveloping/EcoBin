@@ -9,7 +9,11 @@ except ImportError:  # pragma: no cover - deployment is Linux-only
 
 from .business_activation_primitives import (
     CANDIDATE_BUSINESS_SERVICE,
+    UPDATABLE_BUSINESS_SERVICE,
     BusinessActivationPrimitives,
+)
+from .business_release_activation_candidate_helper import (
+    BusinessReleaseCandidateActions,
 )
 from .privileged_control import HelperAction, HelperPolicy, serve_systemd_connection
 from .updater_mutation_authorizer import build_authorizer
@@ -22,7 +26,10 @@ POLICY = HelperPolicy(
     protocol_name=PROTOCOL_NAME,
     component=COMPONENT,
     fixed_configuration={
-        "businessService": CANDIDATE_BUSINESS_SERVICE,
+        "businessServices": [
+            CANDIDATE_BUSINESS_SERVICE,
+            UPDATABLE_BUSINESS_SERVICE,
+        ],
         "serviceControlTimeoutSeconds": CANDIDATE_SERVICE_CONTROL_TIMEOUT_SECONDS,
     },
     primitive_actions=(
@@ -44,7 +51,7 @@ def build_actions(updater_uid: int) -> dict[str, HelperAction]:
         raise RuntimeError("required EcoBin runtime account does not exist") from error
     if updater.pw_uid != updater_uid:
         raise RuntimeError("resolved ecobin-updater identity changed")
-    primitives = BusinessActivationPrimitives(
+    bridge = BusinessActivationPrimitives(
         business_uid=business.pw_uid,
         business_gid=business.pw_gid,
         updater_uid=updater.pw_uid,
@@ -52,10 +59,23 @@ def build_actions(updater_uid: int) -> dict[str, HelperAction]:
         business_service=CANDIDATE_BUSINESS_SERVICE,
         service_control_timeout_seconds=CANDIDATE_SERVICE_CONTROL_TIMEOUT_SECONDS,
     )
+    updatable = BusinessActivationPrimitives(
+        business_uid=business.pw_uid,
+        business_gid=business.pw_gid,
+        updater_uid=updater.pw_uid,
+        updater_gid=updater.pw_gid,
+        business_service=UPDATABLE_BUSINESS_SERVICE,
+        service_control_timeout_seconds=CANDIDATE_SERVICE_CONTROL_TIMEOUT_SECONDS,
+    )
+    primitives = BusinessReleaseCandidateActions(updatable, bridge)
     mutation_fields = frozenset({"updateUid", "actionUid"})
     return {
-        "STOP_BUSINESS_RUNTIME": HelperAction(primitives.stop, mutation_fields),
-        "START_BUSINESS_RUNTIME": HelperAction(primitives.start, mutation_fields),
+        "STOP_BUSINESS_RUNTIME": HelperAction(
+            primitives.stop_selected, mutation_fields
+        ),
+        "START_BUSINESS_RUNTIME": HelperAction(
+            primitives.start_selected, mutation_fields
+        ),
     }
 
 

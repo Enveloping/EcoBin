@@ -12,6 +12,11 @@ runtime = [
     "paho-mqtt>=2.1.0",
     "pyserial>=3.5",
 ]
+business = [
+    "cos-python-sdk-v5>=1.9.44",
+    "opencv-python-headless>=4.10.0.84,<5",
+    "pyserial>=3.5",
+]
 enrollment = [
     "cryptography>=45.0.0,<47",
     "requests>=2.34.2",
@@ -27,6 +32,7 @@ updater = [
 ]
 dev = [
     { include-group = "runtime" },
+    { include-group = "business" },
     { include-group = "enrollment" },
     { include-group = "remote-support" },
     { include-group = "communication" },

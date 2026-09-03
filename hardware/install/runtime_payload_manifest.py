@@ -58,6 +58,31 @@ RUNTIME_APP_FILES = (
     "work_manager.py",
 )
 
+# Replaceable business-runtime packages are created only after OneNet
+# ownership and MCU-update orchestration have moved into the permanent device
+# management layer.  Keep their inventory explicit rather than deriving it at
+# build time: a review must make any future boundary change visible.  The
+# Omitted modules either open the OneNet device connection/read its key,
+# implement the legacy business-owned MCU updater, or provide a root-only GPIO
+# helper that is installed by the immutable image instead.
+BUSINESS_APP_FILES = tuple(
+    name
+    for name in RUNTIME_APP_FILES
+    if name
+    not in {
+        "direct_onenet_transport.py",
+        "device_acceptance.py",
+        "device_credentials.py",
+        "factory_progress.py",
+        "factory_seal/runtime.py",
+        "mqtt_client.py",
+        "mcu_firmware_package.py",
+        "mcu_firmware_updater.py",
+        "system/mcu_safe_gpio.py",
+        "system/orangepi_boot_config.py",
+    }
+)
+
 # Schema-v1 image payloads predate the local communication/control boundary.
 # Auditing an already-built v1 image must keep using that historical exact
 # source inventory; adding the stage-three client modules does not silently
@@ -123,7 +148,14 @@ COMMUNICATION_AGENT_FILES = (
 )
 
 DEVICE_UPDATER_FILES = (
+    "business_update_coordinator.py",
+    "business_update_package.py",
+    "business_update_store.py",
     "device_management_preflight.py",
+    "install/__init__.py",
+    "install/business_release.py",
+    "install/runtime_payload_manifest.py",
+    "install/runtime_release.py",
     "local_control.py",
     "mcu_firmware_package.py",
     "mcu_update_coordinator.py",
@@ -140,6 +172,7 @@ DEVICE_UPDATER_HELPER_FILES = (
     "business_activation_helper.py",
     "business_activation_candidate_helper.py",
     "business_activation_primitives.py",
+    "business_release_activation_candidate_helper.py",
     "mcu_flash_helper.py",
     "mcu_flash_candidate_helper.py",
     "mcu_flash_primitives.py",
@@ -154,6 +187,8 @@ DEVICE_UPDATER_HELPER_UNIT_FILES = (
     "ecobin-mcu-flash-helper@.service",
     "ecobin-business-activation-candidate-helper.socket",
     "ecobin-business-activation-candidate-helper@.service",
+    "ecobin-business-release-activation-candidate-helper.socket",
+    "ecobin-business-release-activation-candidate-helper@.service",
     "ecobin-mcu-flash-candidate-helper.socket",
     "ecobin-mcu-flash-candidate-helper@.service",
 )

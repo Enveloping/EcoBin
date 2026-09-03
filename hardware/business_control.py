@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import threading
 import uuid
 from collections.abc import Callable, Iterable, Mapping
@@ -478,6 +479,7 @@ class BusinessControlController:
         management_architecture_generation: str = "LEGACY_DIRECT",
         cloud_connection_owner: str = "BUSINESS_RUNTIME",
         job_permit_enforced: bool = False,
+        business_database_size_provider: Callable[[], int] | None = None,
     ) -> None:
         self.release_version = _require_release_version(release_version)
         if not isinstance(maintenance_handoff_enabled, bool):
@@ -510,6 +512,11 @@ class BusinessControlController:
         )
         self._cloud_connection_owner = cloud_connection_owner
         self._job_permit_enforced = job_permit_enforced
+        if business_database_size_provider is not None and not callable(
+            business_database_size_provider
+        ):
+            raise ValueError("business database size provider must be callable")
+        self._business_database_size_provider = business_database_size_provider
         now = (utc_now or (lambda: datetime.now(timezone.utc)))()
         self.started_at = _format_utc(now)
         instance_uid = instance_uid_factory()
@@ -550,7 +557,7 @@ class BusinessControlController:
     def health(self, _payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
             status = self._status
-        return {
+        result = {
             "component": BUSINESS_COMPONENT,
             "status": status,
             "runtimeInstanceUid": self.runtime_instance_uid,
@@ -567,6 +574,16 @@ class BusinessControlController:
             "maintenanceHandoffEnabled": self._maintenance_handoff_enabled,
             "cloudProxyIngressEnabled": self._cloud_proxy_ingress_enabled,
         }
+        if self._business_database_size_provider is not None:
+            database_size = self._business_database_size_provider()
+            if (
+                isinstance(database_size, bool)
+                or not isinstance(database_size, int)
+                or database_size < 0
+            ):
+                raise RuntimeError("business database size is invalid")
+            result["businessDatabaseSize"] = database_size
+        return result
 
     def deliver_cloud_service_request(
         self,
@@ -1148,6 +1165,7 @@ def build_business_control_service(
     management_architecture_generation: str = "LEGACY_DIRECT",
     cloud_connection_owner: str = "BUSINESS_RUNTIME",
     job_permit_enforced: bool = False,
+    business_database_size_provider: Callable[[], int] | None = None,
 ) -> BusinessControlService:
     """Build the adapter without resolving accounts or weakening UID checks."""
 
@@ -1183,6 +1201,7 @@ def build_business_control_service(
         management_architecture_generation=management_architecture_generation,
         cloud_connection_owner=cloud_connection_owner,
         job_permit_enforced=job_permit_enforced,
+        business_database_size_provider=business_database_size_provider,
     )
     actions = {
         "HEALTH": LocalControlAction(
@@ -1298,6 +1317,7 @@ def build_business_control_service_from_environment(
     mcu_maintenance_port: McuMaintenanceHandoffPort | None = None,
     cloud_proxy_ingress: CloudProxyIngressPort | None = None,
     enable_cloud_proxy_candidate: bool = False,
+    business_database_path: str | Path | None = None,
     environment: Mapping[str, str] | None = None,
     user_uid_lookup: Callable[[str], int] | None = None,
     group_gid_lookup: Callable[[str], int] | None = None,
@@ -1364,6 +1384,28 @@ def build_business_control_service_from_environment(
         "ecobin-business-ipc", gid_lookup
     )
     candidate_enabled = mode == "candidate"
+    database_size_provider = None
+    if business_database_path is not None:
+        database_path = Path(business_database_path)
+
+        def database_size_provider() -> int:
+            total = 0
+            for candidate, required in (
+                (database_path, True),
+                (Path(f"{database_path}-wal"), False),
+                (Path(f"{database_path}-shm"), False),
+            ):
+                try:
+                    details = candidate.lstat()
+                except FileNotFoundError:
+                    if required:
+                        raise RuntimeError("business database is unavailable") from None
+                    continue
+                if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+                    raise RuntimeError("business database storage path is unsafe")
+                total += details.st_size
+            return total
+
     return build_business_control_service(
         socket_path,
         release_version=release_version,
@@ -1397,6 +1439,7 @@ def build_business_control_service_from_environment(
             else "BUSINESS_RUNTIME"
         ),
         job_permit_enforced=job_permit_enforced,
+        business_database_size_provider=database_size_provider,
     )
 
 

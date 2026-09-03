@@ -56,38 +56,23 @@ from business_control import (
     build_business_control_service_from_environment,
 )
 from device_identity import DeviceIdentity
-from direct_onenet_transport import DirectOneNetTransport
 from local_proxy_cloud_transport import LocalProxyCloudTransport
 from photo_manager import PhotoManager
 from work_manager import CleanUnlockDecisionDeferred, WorkManager
 from job_safety import JobSafetyError, build_job_safety_from_environment
 from command_processor import CommandProcessor
-from device_acceptance import DeviceAcceptanceRunner
 from edge_boot import boot_sequence, recover_after_online_mcu_hello
 from fixed_frame_health_recovery import (
     FixedFrameHealthRecoveryController,
     runtime_uart_state,
 )
 from fixed_frame_mcu_maintenance import FixedFrameMcuMaintenancePort
-from factory_progress import (
-    DEFAULT_RUNTIME_PROGRESS_PATH,
-    RuntimeProgressWriter,
-)
 from device_entry_url_refresh import DeviceEntryUrlRefreshController
 from remote_support_control import (
     RemoteSupportControlClient,
     RemoteSupportStatusBridge,
     RemoteSupportUnavailable,
 )
-from mcu_firmware_updater import (
-    CosFirmwareDownloader,
-    FirmwarePackageCache,
-    McuFirmwareUpdater,
-    Stm32FlashRunner,
-    WiringOpBootControl,
-    load_release_public_keys,
-)
-from factory_seal.runtime import RuntimeFactorySealAuthorizer
 from factory_seal.admission import FactorySealProductionGate
 from factory_seal.validation import FactorySealPaths
 from trusted_clock import ClockHealthMonitor
@@ -163,6 +148,11 @@ def _build_cloud_transport(*, job_permit_enforced: bool):
 
     mode = os.getenv(CLOUD_TRANSPORT_MODE_ENVIRONMENT, "direct").strip().lower()
     if mode == "direct":
+        # The direct transport is deliberately a migration-only dependency.
+        # Import it only in the legacy posture so a post-cut-over business
+        # release can omit the OneNet client and device-key handling code.
+        from direct_onenet_transport import DirectOneNetTransport
+
         return (
             DirectOneNetTransport(
                 product_id=PRODUCT_ID,
@@ -209,12 +199,7 @@ class EcoBinEdge:
         self._remote_support_bridge_last_warning_at = 0.0
         self._runtime_ready = False
         self.clock_monitor = ClockHealthMonitor()
-        self.factory_progress = RuntimeProgressWriter(
-            os.getenv(
-                "ECOBIN_FACTORY_PROGRESS_PATH",
-                str(DEFAULT_RUNTIME_PROGRESS_PATH),
-            )
-        )
+        self.factory_progress = None
 
         config_validate()
         # Stage-four wiring is installed as a default-off candidate.  When a
@@ -230,9 +215,7 @@ class EcoBinEdge:
         # -- EdgeStore (SQLite) --
         self.store = EdgeStore(EDGE_STORE_PATH)
         self.store.initialize()
-        self.factory_seal_authorizer = RuntimeFactorySealAuthorizer(
-            self.store
-        )
+        self.factory_seal_authorizer = None
         self.factory_seal_gate = FactorySealProductionGate(
             FactorySealPaths(edge_store=Path(EDGE_STORE_PATH))
         )
@@ -280,6 +263,26 @@ class EcoBinEdge:
         self.cloud_transport, cloud_proxy_enabled = _build_cloud_transport(
             job_permit_enforced=self.job_safety.enabled,
         )
+        if not cloud_proxy_enabled:
+            # Device acceptance, seal authorization and the first-boot
+            # progress projection belong to the image-owned factory posture.
+            # A replaceable post-seal business package deliberately omits
+            # these modules and retains only read-only seal admission.
+            from factory_progress import (
+                DEFAULT_RUNTIME_PROGRESS_PATH,
+                RuntimeProgressWriter,
+            )
+            from factory_seal.runtime import RuntimeFactorySealAuthorizer
+
+            self.factory_progress = RuntimeProgressWriter(
+                os.getenv(
+                    "ECOBIN_FACTORY_PROGRESS_PATH",
+                    str(DEFAULT_RUNTIME_PROGRESS_PATH),
+                )
+            )
+            self.factory_seal_authorizer = RuntimeFactorySealAuthorizer(
+                self.store
+            )
         self.business_control = (
             build_business_control_service_from_environment(
                 release_version=EDGE_SOFTWARE_VERSION,
@@ -289,6 +292,7 @@ class EcoBinEdge:
                     self.cloud_transport if cloud_proxy_enabled else None
                 ),
                 enable_cloud_proxy_candidate=cloud_proxy_enabled,
+                business_database_path=EDGE_STORE_PATH,
             )
         )
 
@@ -319,16 +323,20 @@ class EcoBinEdge:
             self.photo,
             job_safety=self.job_safety,
         )
-        self.acceptance = DeviceAcceptanceRunner(
-            self.store,
-            self.uart,
-            self.photo,
-            self.cos_uploader,
-            device_name=DEVICE_NAME,
-            mcu_remote_update_capable=MCU_REMOTE_UPDATE_CAPABLE,
-            edge_software_version=EDGE_SOFTWARE_VERSION,
-            progress_callback=self._report_p8_progress,
-        )
+        self.acceptance = None
+        if not cloud_proxy_enabled:
+            from device_acceptance import DeviceAcceptanceRunner
+
+            self.acceptance = DeviceAcceptanceRunner(
+                self.store,
+                self.uart,
+                self.photo,
+                self.cos_uploader,
+                device_name=DEVICE_NAME,
+                mcu_remote_update_capable=MCU_REMOTE_UPDATE_CAPABLE,
+                edge_software_version=EDGE_SOFTWARE_VERSION,
+                progress_callback=self._report_p8_progress,
+            )
         self.remote_support = RemoteSupportControlClient(
             REMOTE_SUPPORT_CONTROL_SOCKET,
         )
@@ -338,6 +346,17 @@ class EcoBinEdge:
         )
         self.mcu_updater = None
         if MCU_UPDATE_ENABLED:
+            # The business-owned updater is another migration-only module.
+            # Permanent-updater business releases do not carry these files.
+            from mcu_firmware_updater import (
+                CosFirmwareDownloader,
+                FirmwarePackageCache,
+                McuFirmwareUpdater,
+                Stm32FlashRunner,
+                WiringOpBootControl,
+                load_release_public_keys,
+            )
+
             release_keys = load_release_public_keys(
                 Path(MCU_SIGNING_PUBLIC_KEYS_DIR)
             )
@@ -438,7 +457,7 @@ class EcoBinEdge:
         )
         self.cloud_transport.on_connected = self._on_cloud_connected
         self.cloud_transport.on_disconnected = self._on_cloud_disconnected
-        if isinstance(self.cloud_transport, DirectOneNetTransport):
+        if not cloud_proxy_enabled:
             self.cloud_transport.on_mqtt_state_observed = (
                 self._on_direct_mqtt_state_observed
             )
@@ -583,6 +602,8 @@ class EcoBinEdge:
         self._report_factory_progress(**values)
 
     def _report_factory_progress(self, **values) -> None:
+        if self.factory_progress is None:
+            return
         try:
             self.factory_progress.report(**values)
         except Exception as error:
@@ -592,6 +613,8 @@ class EcoBinEdge:
             )
 
     def _can_clear_runtime_error(self) -> bool:
+        if self.factory_progress is None:
+            return True
         current = self.factory_progress.snapshot()
         return bool(
             current["serviceState"] != "FAILED"

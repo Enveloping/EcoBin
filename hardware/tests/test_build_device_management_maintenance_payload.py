@@ -98,28 +98,31 @@ def _public_key(seed: int) -> bytes:
     return b"-----BEGIN PUBLIC KEY-----\n" + body + b"\n-----END PUBLIC KEY-----\n"
 
 
-def _make_trust(root: Path) -> None:
+def _make_trust(root: Path, seed: int) -> None:
     root.mkdir()
-    _write(root / "current.pem", _public_key(1))
-    _write(root / "previous.pem", _public_key(2))
+    _write(root / "current.pem", _public_key(seed))
+    _write(root / "previous.pem", _public_key(seed + 1))
 
 
-def _fixture_roots(tmp_path: Path) -> tuple[Path, Path]:
+def _fixture_roots(tmp_path: Path) -> tuple[Path, Path, Path]:
     source = tmp_path / "hardware-source"
     source.mkdir()
     _make_hardware_source(source)
-    trust = tmp_path / "runtime-trust"
-    _make_trust(trust)
-    return source, trust
+    runtime_trust = tmp_path / "runtime-trust"
+    business_trust = tmp_path / "business-trust"
+    _make_trust(runtime_trust, 1)
+    _make_trust(business_trust, 101)
+    return source, runtime_trust, business_trust
 
 
 def test_builds_exact_canonical_payload_and_validates_it(tmp_path: Path) -> None:
-    source, trust = _fixture_roots(tmp_path)
+    source, runtime_trust, business_trust = _fixture_roots(tmp_path)
     output = tmp_path / "payload"
 
     result = build_device_management_maintenance_payload(
         output,
-        trust,
+        runtime_trust,
+        business_trust,
         IDENTITY,
         hardware_source_root=source,
     )
@@ -147,6 +150,8 @@ def test_builds_exact_canonical_payload_and_validates_it(tmp_path: Path) -> None
     expected_files = _expected_fixed_payload_files() | {
         "trust/runtime-release-keys/current.pem",
         "trust/runtime-release-keys/previous.pem",
+        "trust/business-release-keys/current.pem",
+        "trust/business-release-keys/previous.pem",
     }
     actual_files = {
         path.relative_to(output).as_posix()
@@ -191,14 +196,17 @@ def test_builds_exact_canonical_payload_and_validates_it(tmp_path: Path) -> None
 def test_builds_and_validates_payload_from_real_repository_sources(
     tmp_path: Path,
 ) -> None:
-    trust = tmp_path / "runtime-trust"
-    _make_trust(trust)
+    runtime_trust = tmp_path / "runtime-trust"
+    business_trust = tmp_path / "business-trust"
+    _make_trust(runtime_trust, 1)
+    _make_trust(business_trust, 101)
     output = tmp_path / "payload"
     hardware_source = Path(__file__).resolve().parents[1]
 
     result = build_device_management_maintenance_payload(
         output,
-        trust,
+        runtime_trust,
+        business_trust,
         IDENTITY,
         hardware_source_root=hardware_source,
     )
@@ -213,16 +221,16 @@ def test_builds_and_validates_payload_from_real_repository_sources(
 def test_build_is_reproducible_and_accepts_an_existing_empty_output(
     tmp_path: Path,
 ) -> None:
-    source, trust = _fixture_roots(tmp_path)
+    source, runtime_trust, business_trust = _fixture_roots(tmp_path)
     first = tmp_path / "first"
     second = tmp_path / "second"
     second.mkdir()
 
     first_result = build_device_management_maintenance_payload(
-        first, trust, IDENTITY, hardware_source_root=source
+        first, runtime_trust, business_trust, IDENTITY, hardware_source_root=source
     )
     second_result = build_device_management_maintenance_payload(
-        second, trust, IDENTITY, hardware_source_root=source
+        second, runtime_trust, business_trust, IDENTITY, hardware_source_root=source
     )
 
     assert first_result.manifest_sha256 == second_result.manifest_sha256
@@ -241,48 +249,82 @@ def test_build_is_reproducible_and_accepts_an_existing_empty_output(
 
 
 def test_refuses_nonempty_or_nested_trust_output(tmp_path: Path) -> None:
-    source, trust = _fixture_roots(tmp_path)
+    source, runtime_trust, business_trust = _fixture_roots(tmp_path)
     nonempty = tmp_path / "nonempty"
     _write(nonempty / "keep.txt", b"owned by caller\n")
 
     with pytest.raises(PayloadBuildError, match="must not exist or must be an empty"):
         build_device_management_maintenance_payload(
-            nonempty, trust, IDENTITY, hardware_source_root=source
+            nonempty,
+            runtime_trust,
+            business_trust,
+            IDENTITY,
+            hardware_source_root=source,
         )
     assert (nonempty / "keep.txt").read_bytes() == b"owned by caller\n"
 
     with pytest.raises(PayloadBuildError, match="inside the runtime trust"):
         build_device_management_maintenance_payload(
-            trust / "payload", trust, IDENTITY, hardware_source_root=source
+            runtime_trust / "payload",
+            runtime_trust,
+            business_trust,
+            IDENTITY,
+            hardware_source_root=source,
         )
 
 
 def test_refuses_unexpected_or_non_public_trust_material_without_publishing(
     tmp_path: Path,
 ) -> None:
-    source, trust = _fixture_roots(tmp_path)
-    _write(trust / "README.txt", b"unexpected\n")
+    source, runtime_trust, business_trust = _fixture_roots(tmp_path)
+    _write(runtime_trust / "README.txt", b"unexpected\n")
     output = tmp_path / "payload"
 
     with pytest.raises(PayloadBuildError, match="unexpected entry"):
         build_device_management_maintenance_payload(
-            output, trust, IDENTITY, hardware_source_root=source
+            output,
+            runtime_trust,
+            business_trust,
+            IDENTITY,
+            hardware_source_root=source,
         )
     assert not output.exists()
 
-    (trust / "README.txt").unlink()
-    (trust / "current.pem").write_bytes(
+    (runtime_trust / "README.txt").unlink()
+    (runtime_trust / "current.pem").write_bytes(
         b"-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"
     )
     with pytest.raises(PayloadBuildError, match="validator rejected"):
         build_device_management_maintenance_payload(
-            output, trust, IDENTITY, hardware_source_root=source
+            output,
+            runtime_trust,
+            business_trust,
+            IDENTITY,
+            hardware_source_root=source,
+        )
+    assert not output.exists()
+
+
+def test_refuses_a_runtime_key_reused_as_a_business_key(tmp_path: Path) -> None:
+    source, runtime_trust, business_trust = _fixture_roots(tmp_path)
+    (business_trust / "current.pem").write_bytes(
+        (runtime_trust / "current.pem").read_bytes()
+    )
+    output = tmp_path / "payload"
+
+    with pytest.raises(PayloadBuildError, match="independent public keys"):
+        build_device_management_maintenance_payload(
+            output,
+            runtime_trust,
+            business_trust,
+            IDENTITY,
+            hardware_source_root=source,
         )
     assert not output.exists()
 
 
 def test_refuses_invalid_identity_before_creating_output(tmp_path: Path) -> None:
-    source, trust = _fixture_roots(tmp_path)
+    source, runtime_trust, business_trust = _fixture_roots(tmp_path)
     output = tmp_path / "payload"
     bad = PayloadIdentity(
         payload_id=IDENTITY.payload_id,
@@ -295,13 +337,17 @@ def test_refuses_invalid_identity_before_creating_output(tmp_path: Path) -> None
 
     with pytest.raises(PayloadBuildError, match="40 lowercase hexadecimal"):
         build_device_management_maintenance_payload(
-            output, trust, bad, hardware_source_root=source
+            output,
+            runtime_trust,
+            business_trust,
+            bad,
+            hardware_source_root=source,
         )
     assert not output.exists()
 
 
 def test_refuses_symlinked_repository_source(tmp_path: Path) -> None:
-    source, trust = _fixture_roots(tmp_path)
+    source, runtime_trust, business_trust = _fixture_roots(tmp_path)
     source_file = source / "communication_agent.py"
     replacement = source / "replacement.py"
     replacement.write_bytes(source_file.read_bytes())
@@ -314,6 +360,10 @@ def test_refuses_symlinked_repository_source(tmp_path: Path) -> None:
 
     with pytest.raises(PayloadBuildError, match="must be a regular file"):
         build_device_management_maintenance_payload(
-            output, trust, IDENTITY, hardware_source_root=source
+            output,
+            runtime_trust,
+            business_trust,
+            IDENTITY,
+            hardware_source_root=source,
         )
     assert not output.exists()

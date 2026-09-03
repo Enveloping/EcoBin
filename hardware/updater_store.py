@@ -1607,10 +1607,12 @@ class UpdaterStore:
         fence_token: int,
         *,
         allow_recovery_lock: bool = True,
+        maintenance_type: str = "MCU_FIRMWARE_UPDATE",
     ) -> dict[str, Any]:
         """Prove one exact update still owns the drained maintenance fence."""
 
         owner = _require_uuid4(owner_update_uid, "ownerUpdateUid")
+        kind = _require_token(maintenance_type, "maintenanceType")
         if (
             isinstance(fence_token, bool)
             or not isinstance(fence_token, int)
@@ -1633,7 +1635,7 @@ class UpdaterStore:
                 self._candidate_activation_state(connection) != "ACTIVE"
                 or lock is None
                 or lock["owner_update_uid"] != owner
-                or lock["maintenance_type"] != "MCU_FIRMWARE_UPDATE"
+                or lock["maintenance_type"] != kind
                 or lock["fence_token"] != fence_token
                 or state["job_gate_state"] not in accepted_states
                 or state["maintenance_state"] not in accepted_states
@@ -1650,10 +1652,13 @@ class UpdaterStore:
         self,
         owner_update_uid: str,
         fence_token: int,
+        *,
+        maintenance_type: str = "MCU_FIRMWARE_UPDATE",
     ) -> dict[str, Any]:
         """Restore an interrupted, observed-safe update to MAINTENANCE."""
 
         owner = _require_uuid4(owner_update_uid, "ownerUpdateUid")
+        kind = _require_token(maintenance_type, "maintenanceType")
         if (
             isinstance(fence_token, bool)
             or not isinstance(fence_token, int)
@@ -1679,7 +1684,7 @@ class UpdaterStore:
                 self._candidate_activation_state(connection) != "ACTIVE"
                 or lock is None
                 or lock["owner_update_uid"] != owner
-                or lock["maintenance_type"] != "MCU_FIRMWARE_UPDATE"
+                or lock["maintenance_type"] != kind
                 or lock["fence_token"] != fence_token
                 or self._count_nonterminal_permits(connection)
                 or self._count_unresolved_actions(connection)
@@ -1721,10 +1726,13 @@ class UpdaterStore:
         self,
         owner_update_uid: str,
         fence_token: int,
+        *,
+        maintenance_type: str = "MCU_FIRMWARE_UPDATE",
     ) -> dict[str, Any]:
         """Restore an interrupted pre-hardware drain without opening work."""
 
         owner = _require_uuid4(owner_update_uid, "ownerUpdateUid")
+        kind = _require_token(maintenance_type, "maintenanceType")
         if (
             isinstance(fence_token, bool)
             or not isinstance(fence_token, int)
@@ -1750,7 +1758,7 @@ class UpdaterStore:
                 self._candidate_activation_state(connection) != "ACTIVE"
                 or lock is None
                 or lock["owner_update_uid"] != owner
-                or lock["maintenance_type"] != "MCU_FIRMWARE_UPDATE"
+                or lock["maintenance_type"] != kind
                 or lock["phase"] != "DRAINING"
                 or lock["fence_token"] != fence_token
                 or self._count_nonterminal_permits(connection)
@@ -1789,11 +1797,13 @@ class UpdaterStore:
         fence_token: int,
         *,
         reason_code: str,
+        maintenance_type: str = "MCU_FIRMWARE_UPDATE",
     ) -> dict[str, Any]:
         """Retain the exact MCU fence when neither image is proven safe."""
 
         owner = _require_uuid4(owner_update_uid, "ownerUpdateUid")
         reason = _require_token(reason_code, "reasonCode")
+        kind = _require_token(maintenance_type, "maintenanceType")
         if (
             isinstance(fence_token, bool)
             or not isinstance(fence_token, int)
@@ -1811,7 +1821,7 @@ class UpdaterStore:
             if (
                 lock is None
                 or lock["owner_update_uid"] != owner
-                or lock["maintenance_type"] != "MCU_FIRMWARE_UPDATE"
+                or lock["maintenance_type"] != kind
                 or lock["fence_token"] != fence_token
             ):
                 raise UpdaterStoreError(
@@ -1841,10 +1851,12 @@ class UpdaterStore:
         *,
         outcome: str,
         evidence_sha256: str,
+        maintenance_type: str = "MCU_FIRMWARE_UPDATE",
     ) -> dict[str, Any]:
         """Release only a verified target/rollback using its exact fence."""
 
         owner = _require_uuid4(owner_update_uid, "ownerUpdateUid")
+        kind = _require_token(maintenance_type, "maintenanceType")
         if outcome not in {"SUCCEEDED", "ROLLED_BACK"}:
             raise UpdaterStoreError(
                 "MAINTENANCE_OUTCOME_INVALID",
@@ -1876,7 +1888,7 @@ class UpdaterStore:
                 self._candidate_activation_state(connection) != "ACTIVE"
                 or lock is None
                 or lock["owner_update_uid"] != owner
-                or lock["maintenance_type"] != "MCU_FIRMWARE_UPDATE"
+                or lock["maintenance_type"] != kind
                 or lock["fence_token"] != fence_token
                 or state["job_gate_state"] not in {"MAINTENANCE", "LOCKED"}
                 or self._count_nonterminal_permits(connection)
@@ -1906,10 +1918,12 @@ class UpdaterStore:
         fence_token: int,
         *,
         evidence_sha256: str,
+        maintenance_type: str = "MCU_FIRMWARE_UPDATE",
     ) -> dict[str, Any]:
         """Reopen work only while an MCU update is still waiting to drain."""
 
         owner = _require_uuid4(owner_update_uid, "ownerUpdateUid")
+        kind = _require_token(maintenance_type, "maintenanceType")
         _require_sha256(evidence_sha256, "evidenceSha256")
         if (
             isinstance(fence_token, bool)
@@ -1942,7 +1956,7 @@ class UpdaterStore:
                 self._candidate_activation_state(connection) != "ACTIVE"
                 or lock is None
                 or lock["owner_update_uid"] != owner
-                or lock["maintenance_type"] != "MCU_FIRMWARE_UPDATE"
+                or lock["maintenance_type"] != kind
                 or lock["fence_token"] != fence_token
                 or lock["phase"] != "DRAINING"
                 or state["job_gate_state"] != "DRAINING"

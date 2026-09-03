@@ -11,6 +11,7 @@ runtime_signature=""
 runtime_signing_key_id=""
 runtime_trust_directory=""
 mcu_trust_directory=""
+business_trust_directory=""
 enrollment_env=""
 cellular_env=""
 payload_id=""
@@ -43,6 +44,7 @@ while [[ $# -gt 0 ]]; do
         --runtime-signing-key-id) runtime_signing_key_id="$2"; shift 2 ;;
         --runtime-trust-dir) runtime_trust_directory="$2"; shift 2 ;;
         --mcu-trust-dir) mcu_trust_directory="$2"; shift 2 ;;
+        --business-trust-dir) business_trust_directory="$2"; shift 2 ;;
         --enrollment-env) enrollment_env="$2"; shift 2 ;;
         --cellular-env) cellular_env="$2"; shift 2 ;;
         --payload-id) payload_id="$2"; shift 2 ;;
@@ -66,7 +68,8 @@ python3 -c 'import sys; assert sys.version_info[:2] == (3, 11)' \
     || fail "payload build requires Python 3.11"
 for value in "${output_directory}" "${runtime_archive}" "${runtime_sha256}" \
     "${runtime_signature}" "${runtime_signing_key_id}" "${runtime_trust_directory}" \
-    "${mcu_trust_directory}" "${enrollment_env}" "${cellular_env}" \
+    "${mcu_trust_directory}" "${business_trust_directory}" \
+    "${enrollment_env}" "${cellular_env}" \
     "${payload_id}" "${runtime_release_id}" "${enrollment_release_id}" \
     "${remote_release_id}" "${factory_release_id}" "${first_boot_release_id}"; do
     [[ -n "${value}" ]] || fail "all controlled payload inputs are required"
@@ -78,7 +81,8 @@ done
 for file in "${runtime_archive}" "${runtime_signature}" "${enrollment_env}" "${cellular_env}"; do
     [[ -f "${file}" && ! -L "${file}" ]] || fail "payload input file is unsafe"
 done
-for directory in "${runtime_trust_directory}" "${mcu_trust_directory}"; do
+for directory in "${runtime_trust_directory}" "${mcu_trust_directory}" \
+    "${business_trust_directory}"; do
     [[ -d "${directory}" && ! -L "${directory}" ]] || fail "payload trust directory is unsafe"
 done
 [[ "$(sha256sum -- "${runtime_archive}" | awk '{print $1}')" = "${runtime_sha256}" ]] \
@@ -131,7 +135,8 @@ make_locked_venv() {
 python3 "${repository_root}/hardware/system/image_software_installer.py" \
     validate-trust \
     --mcu-trust "${mcu_trust_directory}" \
-    --runtime-trust "${runtime_trust_directory}"
+    --runtime-trust "${runtime_trust_directory}" \
+    --business-trust "${business_trust_directory}"
 
 tool_venv="${staging_directory}/.verification-venv"
 verification_inputs="${staging_directory}/.verification-inputs"
@@ -163,14 +168,22 @@ for name in cloud_transport.py communication_agent.py communication_credentials.
     install -m 0644 -- "${repository_root}/hardware/${name}" \
         "${staging_directory}/components/communication-agent/app/${name}"
 done
-for name in device_management_preflight.py local_control.py \
+for name in business_update_coordinator.py business_update_package.py \
+    business_update_store.py device_management_preflight.py local_control.py \
     mcu_firmware_package.py mcu_update_coordinator.py mcu_update_package.py \
     mcu_update_store.py updater_agent.py updater_control_cli.py updater_store.py; do
     install -m 0644 -- "${repository_root}/hardware/${name}" \
         "${staging_directory}/components/device-updater/app/${name}"
 done
+mkdir -m 0755 -- "${staging_directory}/components/device-updater/app/install"
+for name in __init__.py business_release.py runtime_payload_manifest.py \
+    runtime_release.py; do
+    install -m 0644 -- "${repository_root}/hardware/install/${name}" \
+        "${staging_directory}/components/device-updater/app/install/${name}"
+done
 for name in __init__.py privileged_control.py business_activation_helper.py \
     business_activation_candidate_helper.py business_activation_primitives.py \
+    business_release_activation_candidate_helper.py \
     mcu_flash_helper.py mcu_flash_candidate_helper.py mcu_flash_primitives.py \
     mcu_flash_recovery.py updater_mutation_authorizer.py; do
     install -m 0644 -- \
@@ -182,6 +195,8 @@ for name in ecobin-business-activation-helper.socket \
     ecobin-mcu-flash-helper.socket ecobin-mcu-flash-helper@.service \
     ecobin-business-activation-candidate-helper.socket \
     ecobin-business-activation-candidate-helper@.service \
+    ecobin-business-release-activation-candidate-helper.socket \
+    ecobin-business-release-activation-candidate-helper@.service \
     ecobin-mcu-flash-candidate-helper.socket \
     ecobin-mcu-flash-candidate-helper@.service; do
     install -m 0644 -- \
@@ -209,6 +224,8 @@ cp -a --no-preserve=ownership -- "${mcu_trust_directory}" \
     "${staging_directory}/trust/mcu-release-keys"
 cp -a --no-preserve=ownership -- "${runtime_trust_directory}" \
     "${staging_directory}/trust/runtime-release-keys"
+cp -a --no-preserve=ownership -- "${business_trust_directory}" \
+    "${staging_directory}/trust/business-release-keys"
 chmod 0600 -- "${staging_directory}/config/"*.env
 find "${staging_directory}/trust" -type d -exec chmod 0755 -- {} +
 find "${staging_directory}/trust" -type f -exec chmod 0644 -- {} +

@@ -1,9 +1,9 @@
-"""Permanent updater control process with an opt-in stage-four candidate.
+"""Permanent updater control process with opt-in local update candidates.
 
 The default remains fail-closed and exposes only diagnosis.  One explicit
 candidate switch enables the durable job-permit and physical-action RPCs; a
 second, image-only switch enables the root-triggered MCU migration candidate.
-Remote business and MCU update commands remain disabled in both postures.
+Remote business and MCU update commands remain disabled in every posture.
 """
 
 from __future__ import annotations
@@ -32,6 +32,9 @@ logger = logging.getLogger("device-updater")
 
 DEFAULT_STATE_PATH = "/var/lib/ecobin/updater/updater.db"
 DEFAULT_MCU_UPDATE_STATE_PATH = "/var/lib/ecobin/updater/mcu-updates.db"
+DEFAULT_BUSINESS_PACKAGE_ROOT = "/var/lib/ecobin/updater/business-packages"
+DEFAULT_BUSINESS_STAGING_ROOT = "/var/lib/ecobin/updater/staging"
+DEFAULT_BUSINESS_SIGNING_KEYS = "/usr/share/ecobin/business-release-keys"
 DEFAULT_SOCKET_PATH = "/run/ecobin/updater/control.sock"
 UPDATER_LOCAL_PROTOCOL_NAME = "ecobin.updater.control"
 
@@ -155,13 +158,37 @@ ROOT_MCU_CANDIDATE_ACTION_FIELDS = {
     ),
 }
 
+ROOT_BUSINESS_CANDIDATE_ACTION_FIELDS = {
+    "QUEUE_LOCAL_BUSINESS_UPDATE": frozenset(
+        {
+            "updateUid",
+            "deploymentUid",
+            "commandUid",
+            "releaseId",
+            "versionName",
+            "releaseSequence",
+            "packageSha256",
+            "packageSize",
+            "signingKeyId",
+        }
+    ),
+    "GET_BUSINESS_UPDATE": frozenset({"updateUid"}),
+}
+
 
 class UpdaterControlHandler:
     """Expose truthful status and thin, durable stage-four operations."""
 
-    def __init__(self, store: UpdaterStore, mcu_coordinator: Any | None = None) -> None:
+    def __init__(
+        self,
+        store: UpdaterStore,
+        mcu_coordinator: Any | None = None,
+        business_coordinator: Any | None = None,
+    ) -> None:
         self.store = store
         self.mcu_coordinator = mcu_coordinator
+        self.business_coordinator = business_coordinator
+        self._software_update_queue_lock = threading.Lock()
 
     def get_status(self, _payload: dict[str, Any]) -> dict[str, Any]:
         result = {
@@ -173,9 +200,15 @@ class UpdaterControlHandler:
         }
         coordinator = self.mcu_coordinator
         result["mcuUpdateCandidateEnabled"] = coordinator is not None
-        result["privilegedHelperMutationEnabled"] = coordinator is not None
+        result["privilegedHelperMutationEnabled"] = (
+            coordinator is not None or self.business_coordinator is not None
+        )
         if coordinator is not None:
             result["mcuUpdateCandidate"] = coordinator.get_status()
+        business_coordinator = self.business_coordinator
+        result["businessUpdateCandidateEnabled"] = business_coordinator is not None
+        if business_coordinator is not None:
+            result["businessUpdateCandidate"] = business_coordinator.get_status()
         return result
 
     def get_stage4_reconciliation_status(
@@ -266,16 +299,90 @@ class UpdaterControlHandler:
         return self._store_call(self.store.confirm_physical_action, payload)
 
     def queue_local_mcu_update(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._coordinator_call("queue_local", payload)
+        with self._software_update_queue_lock:
+            self._require_other_update_idle(
+                self.business_coordinator,
+                code="BUSINESS_UPDATE_BUSY",
+                message="a business runtime update is still active",
+            )
+            return self._coordinator_call("queue_local", payload)
 
     def get_mcu_update(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._coordinator_call("get_update", payload)
+
+    def queue_local_business_update(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        with self._software_update_queue_lock:
+            self._require_other_update_idle(
+                self.mcu_coordinator,
+                code="MCU_UPDATE_BUSY",
+                message="an MCU firmware update is still active",
+            )
+            return self._business_coordinator_call("queue_local", payload)
+
+    def get_business_update(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._business_coordinator_call("get_update", payload)
 
     def authorize_privileged_helper_action(
         self,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
+        component = payload.get("helperComponent")
+        if component == "BUSINESS_RELEASE_ACTIVATION_CANDIDATE_HELPER":
+            return self._business_coordinator_call(
+                "authorize_privileged_action", payload
+            )
         return self._coordinator_call("authorize_privileged_action", payload)
+
+    def _business_coordinator_call(
+        self,
+        operation_name: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        coordinator = self.business_coordinator
+        if coordinator is None:
+            raise LocalControlActionError(
+                "FEATURE_DISABLED",
+                "business update candidate is not enabled",
+            )
+        operation = getattr(coordinator, operation_name)
+        try:
+            return operation(payload)
+        except Exception as error:
+            try:
+                from business_update_coordinator import (
+                    BusinessUpdateCoordinatorError,
+                )
+            except ImportError:
+                BusinessUpdateCoordinatorError = ()  # type: ignore[assignment,misc]
+            if isinstance(error, BusinessUpdateCoordinatorError):
+                raise LocalControlActionError(error.code, str(error)) from error
+            raise
+
+    @staticmethod
+    def _require_other_update_idle(
+        coordinator: Any | None,
+        *,
+        code: str,
+        message: str,
+    ) -> None:
+        if coordinator is None:
+            return
+        try:
+            status = coordinator.get_status()
+        except Exception as error:
+            raise LocalControlActionError(
+                "UPDATE_COORDINATION_UNAVAILABLE",
+                "the other software update journal could not be confirmed",
+            ) from error
+        if not isinstance(status, dict) or "activeUpdate" not in status:
+            raise LocalControlActionError(
+                "UPDATE_COORDINATION_UNAVAILABLE",
+                "the other software update journal returned invalid status",
+            )
+        if status["activeUpdate"] is not None:
+            raise LocalControlActionError(code, message)
 
     def _coordinator_call(
         self,
@@ -326,10 +433,12 @@ class UpdaterAgent:
         store: UpdaterStore,
         server: LocalControlServer,
         mcu_coordinator: Any | None = None,
+        business_coordinator: Any | None = None,
     ) -> None:
         self.store = store
         self.server = server
         self.mcu_coordinator = mcu_coordinator
+        self.business_coordinator = business_coordinator
         self._stop_event = threading.Event()
         self._started = False
 
@@ -340,7 +449,11 @@ class UpdaterAgent:
             self.server.start()
             if self.mcu_coordinator is not None:
                 self.mcu_coordinator.start()
+            if self.business_coordinator is not None:
+                self.business_coordinator.start()
         except Exception:
+            if self.business_coordinator is not None:
+                self.business_coordinator.stop()
             if self.mcu_coordinator is not None:
                 self.mcu_coordinator.stop()
             self.server.stop()
@@ -361,6 +474,13 @@ class UpdaterAgent:
                 raise RuntimeError(
                     "MCU update coordinator failed"
                 ) from self.mcu_coordinator.failure
+            if (
+                self.business_coordinator is not None
+                and self.business_coordinator.failure is not None
+            ):
+                raise RuntimeError(
+                    "business update coordinator failed"
+                ) from self.business_coordinator.failure
             if not self.server.wait_stopped(timeout_seconds=0.25):
                 continue
             if self._stop_event.is_set():
@@ -376,6 +496,8 @@ class UpdaterAgent:
 
     def stop(self) -> None:
         self.request_stop()
+        if self.business_coordinator is not None:
+            self.business_coordinator.stop()
         if self.mcu_coordinator is not None:
             self.mcu_coordinator.stop()
         if self._started:
@@ -383,6 +505,8 @@ class UpdaterAgent:
             self._started = False
         if self.mcu_coordinator is not None:
             self.mcu_coordinator.journal.close()
+        if self.business_coordinator is not None:
+            self.business_coordinator.journal.close()
         self.store.close()
         logger.info("device updater stopped")
 
@@ -401,9 +525,16 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
     mcu_candidate_enabled = bool(
         getattr(args, "enable_mcu_update_candidate", False)
     )
+    business_candidate_enabled = bool(
+        getattr(args, "enable_business_update_candidate", False)
+    )
     if mcu_candidate_enabled and not candidate_enabled:
         raise ValueError(
             "MCU update candidate requires the stage-four job gate candidate"
+        )
+    if business_candidate_enabled and not candidate_enabled:
+        raise ValueError(
+            "business update candidate requires the stage-four job gate candidate"
         )
     business_uids: list[int] = []
     if candidate_enabled:
@@ -432,6 +563,7 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
     )
     store.initialize()
     mcu_coordinator = None
+    business_coordinator = None
     try:
         if mcu_candidate_enabled:
             from mcu_update_coordinator import McuUpdateCoordinator
@@ -449,13 +581,34 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
                     args.mcu_hardware_compatibility,
                 ),
             )
-        handler = UpdaterControlHandler(store, mcu_coordinator)
+        if business_candidate_enabled:
+            from business_update_coordinator import BusinessUpdateCoordinator
+            from business_update_package import BusinessReleasePackageStager
+            from business_update_store import BusinessUpdateStore
+
+            business_journal = BusinessUpdateStore(args.state)
+            business_journal.initialize()
+            business_coordinator = BusinessUpdateCoordinator(
+                safety_store=store,
+                journal=business_journal,
+                package_stager=BusinessReleasePackageStager(
+                    args.business_package_root,
+                    args.business_staging_root,
+                    args.business_signing_keys,
+                ),
+            )
+        handler = UpdaterControlHandler(
+            store,
+            mcu_coordinator,
+            business_coordinator,
+        )
         actions = build_control_actions(
             handler,
             allowed_uids=allowed_uids,
             business_uids=business_uids,
             enable_stage4_candidate=candidate_enabled,
             enable_mcu_update_candidate=mcu_candidate_enabled,
+            enable_business_update_candidate=business_candidate_enabled,
         )
         server = LocalControlServer(
             args.socket,
@@ -466,11 +619,18 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
             socket_gid=socket_gid,
         )
     except Exception:
+        if business_coordinator is not None:
+            business_coordinator.journal.close()
         if mcu_coordinator is not None:
             mcu_coordinator.journal.close()
         store.close()
         raise
-    return UpdaterAgent(store, server, mcu_coordinator)
+    return UpdaterAgent(
+        store,
+        server,
+        mcu_coordinator,
+        business_coordinator,
+    )
 
 
 def build_control_actions(
@@ -480,6 +640,7 @@ def build_control_actions(
     business_uids: Iterable[int] = (),
     enable_stage4_candidate: bool = False,
     enable_mcu_update_candidate: bool = False,
+    enable_business_update_candidate: bool = False,
 ) -> dict[str, LocalControlAction]:
     action_uids = frozenset(allowed_uids)
     if 0 not in action_uids:
@@ -522,6 +683,18 @@ def build_control_actions(
             for action, fields in ROOT_JOB_GATE_ACTION_FIELDS.items()
         }
     )
+    if enable_mcu_update_candidate or enable_business_update_candidate:
+        if not enable_stage4_candidate:
+            raise ValueError(
+                "local update candidates require the stage-four candidate"
+            )
+        actions["AUTHORIZE_PRIVILEGED_HELPER_ACTION"] = LocalControlAction(
+            handler.authorize_privileged_helper_action,
+            payload_fields=ROOT_MCU_CANDIDATE_ACTION_FIELDS[
+                "AUTHORIZE_PRIVILEGED_HELPER_ACTION"
+            ],
+            allowed_uids=root_uids,
+        )
     if enable_mcu_update_candidate:
         if not enable_stage4_candidate:
             raise ValueError(
@@ -530,9 +703,6 @@ def build_control_actions(
         mcu_handlers = {
             "QUEUE_LOCAL_MCU_UPDATE": handler.queue_local_mcu_update,
             "GET_MCU_UPDATE": handler.get_mcu_update,
-            "AUTHORIZE_PRIVILEGED_HELPER_ACTION": (
-                handler.authorize_privileged_helper_action
-            ),
         }
         actions.update(
             {
@@ -542,6 +712,22 @@ def build_control_actions(
                     allowed_uids=root_uids,
                 )
                 for action, fields in ROOT_MCU_CANDIDATE_ACTION_FIELDS.items()
+                if action != "AUTHORIZE_PRIVILEGED_HELPER_ACTION"
+            }
+        )
+    if enable_business_update_candidate:
+        business_handlers = {
+            "QUEUE_LOCAL_BUSINESS_UPDATE": handler.queue_local_business_update,
+            "GET_BUSINESS_UPDATE": handler.get_business_update,
+        }
+        actions.update(
+            {
+                action: LocalControlAction(
+                    business_handlers[action],
+                    payload_fields=fields,
+                    allowed_uids=root_uids,
+                )
+                for action, fields in ROOT_BUSINESS_CANDIDATE_ACTION_FIELDS.items()
             }
         )
     if not enable_stage4_candidate:
@@ -767,6 +953,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--enable-business-update-candidate",
+        action="store_true",
+        help=(
+            "enable only the root-triggered local signed business update "
+            "candidate; remote update commands remain disabled"
+        ),
+    )
+    parser.add_argument(
         "--mcu-update-state",
         default=os.getenv(
             "ECOBIN_MCU_UPDATE_STATE_PATH",
@@ -792,6 +986,27 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.getenv(
             "ECOBIN_MCU_HARDWARE_COMPATIBILITY",
             "ECOBIN_MAINBOARD_V1.1",
+        ),
+    )
+    parser.add_argument(
+        "--business-package-root",
+        default=os.getenv(
+            "ECOBIN_BUSINESS_PACKAGE_ROOT",
+            DEFAULT_BUSINESS_PACKAGE_ROOT,
+        ),
+    )
+    parser.add_argument(
+        "--business-staging-root",
+        default=os.getenv(
+            "ECOBIN_BUSINESS_STAGING_ROOT",
+            DEFAULT_BUSINESS_STAGING_ROOT,
+        ),
+    )
+    parser.add_argument(
+        "--business-signing-keys",
+        default=os.getenv(
+            "ECOBIN_BUSINESS_SIGNING_KEYS",
+            DEFAULT_BUSINESS_SIGNING_KEYS,
         ),
     )
     parser.add_argument(

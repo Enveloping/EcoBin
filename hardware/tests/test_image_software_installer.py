@@ -67,7 +67,14 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
         "trusted_clock.py",
     }
     assert set(DEVICE_UPDATER_FILES) == {
+        "business_update_coordinator.py",
+        "business_update_package.py",
+        "business_update_store.py",
         "device_management_preflight.py",
+        "install/__init__.py",
+        "install/business_release.py",
+        "install/runtime_payload_manifest.py",
+        "install/runtime_release.py",
         "local_control.py",
         "mcu_firmware_package.py",
         "mcu_update_coordinator.py",
@@ -83,6 +90,7 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
         "business_activation_helper.py",
         "business_activation_candidate_helper.py",
         "business_activation_primitives.py",
+        "business_release_activation_candidate_helper.py",
         "mcu_flash_helper.py",
         "mcu_flash_candidate_helper.py",
         "mcu_flash_primitives.py",
@@ -96,6 +104,8 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
         "ecobin-mcu-flash-helper@.service",
         "ecobin-business-activation-candidate-helper.socket",
         "ecobin-business-activation-candidate-helper@.service",
+        "ecobin-business-release-activation-candidate-helper.socket",
+        "ecobin-business-release-activation-candidate-helper@.service",
         "ecobin-mcu-flash-candidate-helper.socket",
         "ecobin-mcu-flash-candidate-helper@.service",
     }
@@ -292,7 +302,9 @@ def _make_payload(
         app = payload / "components" / component / "app"
         app.mkdir(parents=True)
         for name in files:
-            (app / name).write_bytes((HARDWARE_ROOT / name).read_bytes())
+            target = app / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((HARDWARE_ROOT / name).read_bytes())
     _make_venv(payload / "components/communication-agent/.venv")
     _make_venv(payload / "components/device-updater/.venv")
     updater_root = payload / "components/device-updater"
@@ -339,6 +351,7 @@ def _make_payload(
     for name, key_name, fill in (
         ("mcu-release-keys", "RELEASE_2026_01.pem", 1),
         ("runtime-release-keys", "factory_2026.pem", 2),
+        ("business-release-keys", "business_2026.pem", 3),
     ):
         directory = payload / "trust" / name
         directory.mkdir(parents=True)
@@ -693,7 +706,9 @@ def test_payload_lock_refuses_extra_or_malformed_cellular_facts(
     assert not (payload / "software-payload.lock.json").exists()
 
 
-@pytest.mark.parametrize("mutation", ["private-key", "extra-file", "empty-key"])
+@pytest.mark.parametrize(
+    "mutation", ["private-key", "extra-file", "empty-key", "reused-key"]
+)
 def test_payload_lock_refuses_unsafe_trust_store_entries(
     tmp_path: Path, mutation: str
 ) -> None:
@@ -707,9 +722,13 @@ def test_payload_lock_refuses_unsafe_trust_store_entries(
                 "not a trust key\n",
                 encoding="ascii",
             )
-        else:
+        elif mutation == "empty-key":
             (payload / "trust/runtime-release-keys/factory_2026.pem").write_bytes(
                 b""
+            )
+        else:
+            (payload / "trust/business-release-keys/business_2026.pem").write_bytes(
+                (payload / "trust/runtime-release-keys/factory_2026.pem").read_bytes()
             )
 
     payload, _git_commit, digest = _make_payload(
@@ -960,6 +979,11 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
     assert (
         rootfs / "usr/share/ecobin/runtime-release-keys/factory_2026.pem"
     ).read_bytes() == (payload / "trust/runtime-release-keys/factory_2026.pem").read_bytes()
+    assert (
+        rootfs / "usr/share/ecobin/business-release-keys/business_2026.pem"
+    ).read_bytes() == (
+        payload / "trust/business-release-keys/business_2026.pem"
+    ).read_bytes()
     private_release = rootfs / "etc/ecobin/image-release.json"
     public_release = rootfs / "usr/share/ecobin/image-release.json"
     assert public_release.read_bytes() == private_release.read_bytes()
