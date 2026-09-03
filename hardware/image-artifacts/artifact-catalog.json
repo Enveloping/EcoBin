@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-03T13:39:58.372Z",
+  "catalogedAt": "2026-09-03T14:51:40.097Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -485,9 +485,14 @@
       "sha256": "3b52f4b57cf1dccc7e2b9f40d3bbb4fbd844c0ab265c402f5c9044af3259a4fe"
     },
     {
+      "path": "evidence/hil-stage4-mcu-real-hil-20260903-21/README.md",
+      "bytes": 6785,
+      "sha256": "d0741d0896d1d00077037f040e80c47c99e5bb80d1589e97e224d81d3e7fcd09"
+    },
+    {
       "path": "evidence/hil-stage4-mcu-updater-20260903-20/README.md",
-      "bytes": 7625,
-      "sha256": "503cd5fe91e121e78dd3ab75f00d10d16de0884b2c9b80d9f6678ee3800f7fca"
+      "bytes": 7983,
+      "sha256": "bbe92805ff43a51fa8d7cdcdd78c7bc73ba524a48add182a7f9e450435210362"
     },
     {
       "path": "evidence/hil-updater-directory-groups-20260903-17/README.md",
@@ -620,6 +625,13 @@
       "sha256": "9d09a4fd667768e05ea14d50dc3599c394a4b7cb141b25f19f1916a888fc5779"
     },
     {
+      "path": "local/audit-v21-final.sh",
+      "bytes": 9659,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "1ebfdc1ab6e0ad29ee561aa408c58b7f68e1bd7ac43d95c92fbb015c0ac6af73"
+    },
+    {
       "path": "local/build-v10-hil-factory-image.sh",
       "bytes": 15222,
       "classification": "LOCAL_ARTIFACT",
@@ -732,6 +744,20 @@
       "sha256": "e75293bf2f2cdf025660ebf0a05877b9638eedaff7066cf9407adfa10c04c587"
     },
     {
+      "path": "local/build-v21-candidate.sh",
+      "bytes": 1946,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "345521ff39093d09b962c8ababed1f693bf5f39db5b242b29aba20bfe053bc2b"
+    },
+    {
+      "path": "local/build-v21-hil-factory-image.sh",
+      "bytes": 9449,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "14dc84e7d7c3e473544ab7edafd54f2bc3bdfd4d02b582e2fd3123bfadff2a75"
+    },
+    {
       "path": "local/build-v8.sh",
       "bytes": 9646,
       "classification": "LOCAL_ARTIFACT",
@@ -800,6 +826,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "a22d761b64154659acafafdbfe50c9f36cb6c53f7cd941873c7cbff35cffc5e8"
+    },
+    {
+      "path": "local/deploy-v21-backend-allowlist.sh",
+      "bytes": 1642,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "cade503e2c9e005bfc88856daf280797b6f4dd6e1c3549b3aee4e37692cbeac2"
     },
     {
       "path": "local/factory-secret/builds/hil-factory-20260827-01/ecobin-orangepi-zero3-0.1.0-single-card.20260827.1-hil-factory.img",
@@ -1320,6 +1353,34 @@
       "sha256": "e8c6b3cb97a1bec7ee6249e4e73837e12612cb8fadcfa2f43c575762e22db175"
     },
     {
+      "path": "local/factory-secret/builds/hil-factory-login-20260903-21-stage4-mcu-real-hil/build-and-offline-verification.log",
+      "bytes": 1345,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "2786adaa981c43ed88f03a4f76594c7078afb76d617846d769df2f6d67327f20"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260903-21-stage4-mcu-real-hil/ecobin-orangepi-zero3-0.1.0-single-card.20260903.21-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "d0d7199b23433b9929363cd2ba0be5a4fbaddc57d2fa54a7541ca49818946bab"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260903-21-stage4-mcu-real-hil/ecobin-orangepi-zero3-0.1.0-single-card.20260903.21-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "d6b9857edb408dc3acd9d870f44e0cd95af037c62e370a78f6dc43efc3d4bd70"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260903-21-stage4-mcu-real-hil/offline-verification.log",
+      "bytes": 915,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "236079f5df57561c7a56f366782bc8201baddd31d8d3fb3401a2ceaba8b79a7b"
+    },
+    {
       "path": "local/factory-secret/config/cellular.env",
       "bytes": 464,
       "classification": "SECRET_INPUT",
@@ -1822,6 +1883,13 @@
       "sha256": "44ea870f0ae9c6d5ef6aef50c1c4e5c0949be7cb2a104ededa9097d7ca5de2b9"
     },
     {
+      "path": "local/source-bundles/repository-d97bcca2.bundle",
+      "bytes": 53467125,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "b253d40c723999d7bed91c63bf2f74ae0fb37c0214731ae2ba69eb99f0a5b1c3"
+    },
+    {
       "path": "local/source-bundles/repository-e265534a.bundle",
       "bytes": 53340127,
       "classification": "SOURCE_SNAPSHOT",
@@ -1981,6 +2049,27 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "d525824b9d5f1a8533e18c58939f8a3f96011b54cf9c2aaa0ef24ec118d4c770"
+    },
+    {
+      "path": "local/verify-v21-backend-allowlist.sh",
+      "bytes": 2226,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "f409682c384803c61a5f5ef5ffbac292c4840604a1fbcb27b71b8d7f18b5359b"
+    },
+    {
+      "path": "local/verify-v21-candidate-trust.sh",
+      "bytes": 2030,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "45ad1807c9be020b4085df5acd103949bbfe223dee624ef4558871d97003f9c9"
+    },
+    {
+      "path": "local/verify-v21-hil-factory-image.sh",
+      "bytes": 7517,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "375fae71028631726daefd585eedf09db6e33a5daf9a1979fa14e0862d2628ef"
     },
     {
       "path": "local/verify-v8.sh",

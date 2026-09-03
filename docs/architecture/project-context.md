@@ -102,7 +102,7 @@
 
 > [!IMPORTANT]
 > 2026-09-03，提交 `119fa06d9ae05ba408e4b43fb37ebed52ed459d0` 完成第四阶段永久 MCU
-> 更新仓库候选，并已构建 v20 无秘密候选和受控 HIL 镜像。镜像版本为
+> 更新仓库候选，并构建了 v20 无秘密候选和受控 HIL 镜像。镜像版本为
 > `0.1.0-single-card.20260903.20`，业务运行时为 `hardware-runtime-20260903-20`；候选/HIL
 > SHA-256 分别为 `43fc3c778099f13b447fd7268bbc939a75724f072a060408dc814aa4d4494e38` 和
 > `ae7d4f9aa2321477311a82e162a0ee5d1d132acf0085308088f82069a96eb99b`。Windows 全量
@@ -110,11 +110,22 @@
 > 默认关闭、无网络、本机固件队列边界审计通过。证据见
 > [`hil-stage4-mcu-updater-20260903-20`](../../hardware/image-artifacts/evidence/hil-stage4-mcu-updater-20260903-20/README.md)。
 >
-> 生产允许列表已通过配置提交 `0da1a25c` 在保留 v19 的同时追加
-> `hardware-runtime-20260903-20`，生产预检、双容器健康、回环请求和秘密隔离复核通过；记录见
+> v20 曾通过配置提交 `0da1a25c` 在保留 v19 的同时加入生产机器验收允许列表；记录见
 > [`v20 后端允许列表部署记录`](../operations/orangepi-v20-backend-allowlist-deployment-2026-09-03.md)。
-> v20 仍未写卡或进行真实 MCU 烧录、回滚和断电故障注入，生产设备继续运行 v19，通信代理
-> 所有权切换、候选更新服务和全部远程更新入口保持关闭。
+> 准备真实 MCU HIL 时确认原公钥对应的签名私钥不可用，因此没有绕过验签或沿用 v20 身份；
+> v20 从未写卡，现已从允许列表移除并保留为历史离线候选。
+>
+> v21 从干净提交 `d97bcca2a6d4943e8c72094b65036d2765cefbac` 完整重建，镜像身份为
+> `0.1.0-single-card.20260903.21` / `hardware-runtime-20260903-21`。候选加入仓库外生成的 HIL
+> 专用 MCU 公钥，HIL 副本只在 root 专用暂存区预置一对已签名目标/回滚包；私钥不在仓库、
+> WSL、受控构建目录或镜像中。候选/HIL SHA-256 分别为
+> `2aebb70134cc6b75d61d6fba67d62760f872fbf91152284d76a48580afb129c0` 和
+> `d0d7199b23433b9929363cd2ba0be5a4fbaddc57d2fa54a7541ca49818946bab`，综合离线审计通过；证据见
+> [`hil-stage4-mcu-real-hil-20260903-21`](../../hardware/image-artifacts/evidence/hil-stage4-mcu-real-hil-20260903-21/README.md)。
+> 生产允许列表已通过配置提交 `d7aff1d0` 从 v19+v20 切换为 v19+v21，并完成独立健康核验；记录见
+> [`v21 后端允许列表部署记录`](../operations/orangepi-v21-backend-allowlist-deployment-2026-09-03.md)。
+> v21 仍未写卡或触发真实 MCU 烧录，通信代理所有权切换、候选更新服务和全部远程更新入口
+> 保持关闭。
 
 > [!IMPORTANT]
 > 2026-08-31 已实施设备出厂接入的双观察面：香橙派热点网页用九节点移动端进度链展示
