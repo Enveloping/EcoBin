@@ -212,7 +212,12 @@ mapping = {
     "zstd": "zstd",
 }
 build_mode = sys.argv[2]
-if build_mode not in {"image", "runtime-release", "software-payload"}:
+if build_mode not in {
+    "image",
+    "runtime-release",
+    "business-release",
+    "software-payload",
+}:
     raise SystemExit("builder mode is invalid")
 image_only_tools = {
     "e2fsprogs",

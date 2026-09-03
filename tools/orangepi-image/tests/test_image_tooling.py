@@ -487,7 +487,7 @@ class ImageToolingTest(unittest.TestCase):
         self.assertNotIn("--privileged", launcher)
         self.assertIn("--business-release-only", bootstrap)
         self.assertIn("hardware/install/build_business_release.py", bootstrap)
-        self.assertIn('"business-release",', bootstrap)
+        self.assertEqual(bootstrap.count('"business-release",'), 2)
         self.assertIn('"business",', builder)
         self.assertIn("_verify_business_environment", builder)
 
