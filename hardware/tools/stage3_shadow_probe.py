@@ -141,8 +141,16 @@ def _exercise_updater(work_root: Path) -> dict[str, Any]:
             _require(status["status"] == "READY", "updater is not ready")
             _require(status["schemaVersion"] == 3, "updater schema differs")
             _require(
+                status["jobGateControlExtensionVersion"] == 1,
+                "updater job-gate extension differs",
+            )
+            _require(
                 status["stage4CandidateEnabled"] is False,
                 "stage-four candidate unexpectedly enabled",
+            )
+            _require(
+                status["candidateActivationState"] == "REQUIRED",
+                "disabled candidate retained a prior activation",
             )
             _require(
                 status["updatesEnabled"] is False,
@@ -205,6 +213,9 @@ def _exercise_updater(work_root: Path) -> dict[str, Any]:
         "inProcessLifecycleRuns": 2,
         "secondLifecycleCreatedNewRuntimeIdentity": True,
         "stage4CandidateEnabled": final_status["stage4CandidateEnabled"],
+        "candidateActivationState": final_status[
+            "candidateActivationState"
+        ],
         "updatesEnabled": final_status["updatesEnabled"],
         "jobGateMode": final_status["jobGateMode"],
         "jobGateState": final_status["jobGateState"],

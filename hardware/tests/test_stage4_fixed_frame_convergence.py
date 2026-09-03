@@ -23,6 +23,19 @@ from updater_store import UpdaterStore, UpdaterStoreError
 from work_manager import WorkManager
 
 
+def _activate_candidate(updater: UpdaterStore) -> None:
+    status = updater.get_status()
+    updater.activate_stage4_job_gate(
+        {
+            "operationUid": "90000000-0000-4000-8000-000000000002",
+            "evidenceDigest": "f" * 64,
+            "expectedManagementStateSequence": status[
+                "managementStateSequence"
+            ],
+        }
+    )
+
+
 class FakeCompatUart:
     compatibility_mode = True
 
@@ -273,7 +286,7 @@ def _runtime(tmp_path) -> Stage4Runtime:
         enable_stage4_candidate=True,
     )
     updater.initialize()
-    updater.transition_job_gate("OPEN")
+    _activate_candidate(updater)
     client = CapturingStoreClient(updater)
     safety = PermanentJobSafety(client)
     uart = FakeCompatUart()

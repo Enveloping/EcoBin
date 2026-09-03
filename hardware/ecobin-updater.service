@@ -1,5 +1,6 @@
 [Unit]
 Description=EcoBin permanent local device updater (remote updates disabled)
+ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
 Requires=ecobin-mcu-safe-gpio.service
 After=local-fs.target ecobin-mcu-safe-gpio.service
 StartLimitIntervalSec=0

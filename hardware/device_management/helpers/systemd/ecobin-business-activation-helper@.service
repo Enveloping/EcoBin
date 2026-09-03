@@ -1,5 +1,6 @@
 [Unit]
 Description=EcoBin one-shot business activation helper
+ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
 
 [Service]
 Type=exec

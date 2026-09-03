@@ -50,6 +50,8 @@ def test_health_gate_requires_truthful_disabled_stage_three_posture() -> None:
         "component": "DEVICE_UPDATER",
         "status": "READY",
         "schemaVersion": 3,
+        "jobGateControlExtensionVersion": 1,
+        "candidateActivationState": "REQUIRED",
         "stage4CandidateEnabled": False,
         "updatesEnabled": False,
         "jobGateMode": "DISABLED",
@@ -87,9 +89,29 @@ def test_health_gate_requires_truthful_disabled_stage_three_posture() -> None:
                 communication,
                 {**updater, "schemaVersion": unknown_schema_version},
             )
+    for unknown_extension_version in (0, 2, None):
+        with pytest.raises(BusinessRuntimePreflightError, match="updater"):
+            verify_stage_three_health(
+                communication,
+                {
+                    **updater,
+                    "jobGateControlExtensionVersion": (
+                        unknown_extension_version
+                    ),
+                },
+            )
+    for unsafe_activation_state in ("ACTIVE", "UNKNOWN", None):
+        with pytest.raises(BusinessRuntimePreflightError, match="updater"):
+            verify_stage_three_health(
+                communication,
+                {
+                    **updater,
+                    "candidateActivationState": unsafe_activation_state,
+                },
+            )
 
 
-def test_health_gate_accepts_real_default_schema_v3_updater_store(
+def test_health_gate_accepts_real_schema_v3_updater_extension(
     tmp_path: Path,
 ) -> None:
     communication = {
@@ -107,6 +129,8 @@ def test_health_gate_accepts_real_default_schema_v3_updater_store(
         status = UpdaterControlHandler(store).get_status({})
 
         assert status["schemaVersion"] == 3
+        assert status["jobGateControlExtensionVersion"] == 1
+        assert status["candidateActivationState"] == "REQUIRED"
         assert status["stage4CandidateEnabled"] is False
         assert status["jobGateState"] == "LOCKED"
         verify_stage_three_health(communication, status)

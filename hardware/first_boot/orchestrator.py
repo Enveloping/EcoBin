@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 import signal
 import threading
-from typing import Protocol, Sequence
+from typing import Callable, Protocol, Sequence
 
 from factory_seal.controller import FactorySealController
 from factory_seal.portal_server import FactorySealPortalServer
@@ -26,18 +27,41 @@ class StageActions(Protocol):
 
 class SystemdStageActions:
     _RUNTIME_TARGET = "ecobin-runtime.target"
-    _RUNTIME_MEMBERS = (
+    _BASE_RUNTIME_MEMBERS = (
+        "ecobin-hardware.service",
+        "ecobin-remote-support.service",
+    )
+    _MANAGED_RUNTIME_MEMBERS = (
         "ecobin-communication.service",
         "ecobin-updater.service",
         "ecobin-business-activation-helper.socket",
         "ecobin-mcu-flash-helper.socket",
         "ecobin-device-management-preflight.service",
-        "ecobin-hardware.service",
-        "ecobin-remote-support.service",
+    )
+    _MANAGED_UNIT_FILES = _MANAGED_RUNTIME_MEMBERS + (
+        "ecobin-business-permission-preflight.service",
+        "ecobin-business-activation-helper@.service",
+        "ecobin-mcu-flash-helper@.service",
+    )
+    _MAINTENANCE_ACTIVE_MARKER = (
+        "/var/lib/ecobin/device-management-maintenance/active.json"
+    )
+    _MAINTENANCE_PENDING_MARKER = (
+        "/var/lib/ecobin/device-management-maintenance/pending.json"
+    )
+    _RUNTIME_START_FENCE = (
+        "/var/lib/ecobin/device-management-maintenance/"
+        "runtime-start-blocked.json"
     )
 
-    def __init__(self, runner: CommandRunner | None = None) -> None:
+    def __init__(
+        self,
+        runner: CommandRunner | None = None,
+        *,
+        path_exists: Callable[[str], bool] = os.path.exists,
+    ) -> None:
         self._runner = runner or CommandRunner()
+        self._path_exists = path_exists
 
     def apply(self, stage: FirstBootStage, facts: FirstBootFacts) -> str:
         unit: str | None = None
@@ -89,12 +113,30 @@ class SystemdStageActions:
             return self._start(self._RUNTIME_TARGET)
 
         failed = False
-        for unit in self._RUNTIME_MEMBERS:
+        for unit in self._runtime_members():
             if self._is_active(unit):
                 continue
             if self._start(unit) != "NONE":
                 failed = True
         return "STAGE_SERVICE_FAILED" if failed else "NONE"
+
+    def _runtime_members(self) -> tuple[str, ...]:
+        transition_active = self._path_exists(
+            self._MAINTENANCE_PENDING_MARKER
+        ) or self._path_exists(self._RUNTIME_START_FENCE)
+        managed_layer_complete = self._path_exists(
+            self._MAINTENANCE_ACTIVE_MARKER
+        ) and all(
+            self._path_exists(f"/etc/systemd/system/{unit}")
+            for unit in self._MANAGED_UNIT_FILES
+        )
+        if managed_layer_complete and not transition_active:
+            return self._BASE_RUNTIME_MEMBERS + self._MANAGED_RUNTIME_MEMBERS
+        # A pending install/rollback belongs exclusively to the maintenance
+        # installer.  With no active marker we are on the legacy image
+        # baseline.  In both cases first-boot keeps the actual business and
+        # remote-support services available but never races managed starts.
+        return self._BASE_RUNTIME_MEMBERS
 
     def _start_if_inactive(self, unit: str) -> str:
         if self._is_active(unit):

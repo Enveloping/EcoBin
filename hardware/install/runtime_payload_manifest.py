@@ -116,6 +116,7 @@ DEVICE_UPDATER_FILES = (
     "device_management_preflight.py",
     "local_control.py",
     "updater_agent.py",
+    "updater_control_cli.py",
     "updater_store.py",
 )
 

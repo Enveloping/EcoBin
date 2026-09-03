@@ -160,7 +160,7 @@ for name in communication_agent.py communication_store.py local_control.py; do
         "${staging_directory}/components/communication-agent/app/${name}"
 done
 for name in device_management_preflight.py local_control.py updater_agent.py \
-    updater_store.py; do
+    updater_control_cli.py updater_store.py; do
     install -m 0644 -- "${repository_root}/hardware/${name}" \
         "${staging_directory}/components/device-updater/app/${name}"
 done

@@ -1,5 +1,6 @@
 [Unit]
 Description=EcoBin boot-scoped privileged-helper health preflight
+ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
 Requires=ecobin-business-activation-helper.socket ecobin-mcu-flash-helper.socket
 After=local-fs.target ecobin-business-activation-helper.socket ecobin-mcu-flash-helper.socket
 

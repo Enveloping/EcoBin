@@ -60,6 +60,7 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
         "device_management_preflight.py",
         "local_control.py",
         "updater_agent.py",
+        "updater_control_cli.py",
         "updater_store.py",
     }
     assert set(DEVICE_UPDATER_HELPER_FILES) == {
@@ -84,6 +85,7 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
     assert "communication_store.py" not in RUNTIME_APP_FILES
     assert "updater_agent.py" not in RUNTIME_APP_FILES
     assert "updater_store.py" not in RUNTIME_APP_FILES
+    assert "updater_control_cli.py" not in RUNTIME_APP_FILES
     assert isinstance(LEGACY_RUNTIME_APP_FILES, tuple)
     assert len(LEGACY_RUNTIME_APP_FILES) == 40
     assert "business_control.py" not in LEGACY_RUNTIME_APP_FILES

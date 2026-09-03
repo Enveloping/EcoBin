@@ -27,6 +27,19 @@ def _uid(number: int) -> str:
     return f"00000000-0000-4000-8000-{number:012x}"
 
 
+def _activate_candidate(store: UpdaterStore) -> None:
+    status = store.get_status()
+    store.activate_stage4_job_gate(
+        {
+            "operationUid": _uid(900),
+            "evidenceDigest": "f" * 64,
+            "expectedManagementStateSequence": status[
+                "managementStateSequence"
+            ],
+        }
+    )
+
+
 def _build_agent(tmp_path: Path) -> tuple[
     updater_agent.UpdaterAgent,
     LocalControlClient,
@@ -63,6 +76,8 @@ def test_health_and_status_report_truthful_default_locked_capabilities(
             "component": "DEVICE_UPDATER",
             "status": "READY",
             "schemaVersion": 3,
+            "jobGateControlExtensionVersion": 1,
+            "candidateActivationState": "REQUIRED",
             "runtimeInstanceUid": status["runtimeInstanceUid"],
             "releaseVersion": "updater-v1",
             "startedAt": status["startedAt"],
@@ -160,18 +175,41 @@ def test_disabled_action_handlers_have_no_state_side_effect(
             "HEALTH",
             "GET_STATUS",
             *updater_agent.DISABLED_UPDATE_ACTIONS,
+            *updater_agent.ROOT_JOB_GATE_ACTION_FIELDS,
         }
         assert all(
             specification.payload_fields == frozenset()
-            for specification in actions.values()
+            for action, specification in actions.items()
+            if action not in {
+                "ACTIVATE_STAGE4_JOB_GATE",
+                "LOCK_STAGE4_JOB_GATE",
+            }
         )
-        assert all(
-            specification.allowed_uids == frozenset({0})
-            for specification in actions.values()
-        )
+        for action, fields in (
+            updater_agent.ROOT_JOB_GATE_ACTION_FIELDS.items()
+        ):
+            assert actions[action].payload_fields == fields
+            assert actions[action].allowed_uids == frozenset({0})
         for action in updater_agent.DISABLED_UPDATE_ACTIONS:
             with pytest.raises(LocalControlActionError) as raised:
                 actions[action].handler({})
+            assert raised.value.code == "FEATURE_DISABLED"
+        assert actions["GET_STAGE4_RECONCILIATION_STATUS"].handler({})[
+            "stage4CandidateEnabled"
+        ] is False
+        gate_payload = {
+            "operationUid": _uid(80),
+            "evidenceDigest": "8" * 64,
+            "expectedManagementStateSequence": before[
+                "managementStateSequence"
+            ],
+        }
+        for action in (
+            "ACTIVATE_STAGE4_JOB_GATE",
+            "LOCK_STAGE4_JOB_GATE",
+        ):
+            with pytest.raises(LocalControlActionError) as raised:
+                actions[action].handler(gate_payload)
             assert raised.value.code == "FEATURE_DISABLED"
 
         assert store.get_status() == before
@@ -205,6 +243,7 @@ def test_candidate_actions_use_exact_payloads_and_business_only_uid(
 
         assert set(updater_agent.JOB_ACTION_FIELDS).issubset(actions)
         assert "AUTHORIZE_PHYSICAL_ACTION" not in actions
+        assert "TRANSITION_JOB_GATE" not in actions
         assert {
             "PREPARE_PHYSICAL_ACTION",
             "ARM_PHYSICAL_ACTION",
@@ -239,6 +278,11 @@ def test_candidate_actions_use_exact_payloads_and_business_only_uid(
         for action, expected_fields in updater_agent.JOB_ACTION_FIELDS.items():
             assert actions[action].payload_fields == expected_fields
             assert actions[action].allowed_uids == frozenset({3102})
+        for action, expected_fields in (
+            updater_agent.ROOT_JOB_GATE_ACTION_FIELDS.items()
+        ):
+            assert actions[action].payload_fields == expected_fields
+            assert actions[action].allowed_uids == frozenset({0})
         assert actions["HEALTH"].allowed_uids == frozenset(
             {0, 3101, 3102}
         )
@@ -269,7 +313,7 @@ def test_agent_rejects_edge_rollback_token_takeover_and_cancellation(
     )
     store.initialize()
     try:
-        store.transition_job_gate("OPEN")
+        _activate_candidate(store)
         store.request_job_permit(
             {
                 "permitUid": _uid(1),
@@ -358,6 +402,18 @@ def test_candidate_requires_non_root_business_identity() -> None:
 
             @staticmethod
             def reject_disabled_update(_payload):
+                return {}
+
+            @staticmethod
+            def get_stage4_reconciliation_status(_payload):
+                return {}
+
+            @staticmethod
+            def activate_stage4_job_gate(_payload):
+                return {}
+
+            @staticmethod
+            def lock_stage4_job_gate(_payload):
                 return {}
 
         updater_agent.build_control_actions(

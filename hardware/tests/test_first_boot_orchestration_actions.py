@@ -37,6 +37,17 @@ def _start_calls(runner: RecordingRunner) -> list[tuple[str, ...]]:
     return [call for call in runner.calls if call[1] == "start"]
 
 
+def _installed_management_paths() -> set[str]:
+    actions = SystemdStageActions
+    return {
+        actions._MAINTENANCE_ACTIVE_MARKER,
+        *(
+            f"/etc/systemd/system/{unit}"
+            for unit in actions._MANAGED_UNIT_FILES
+        ),
+    }
+
+
 def _passed(**overrides: object) -> FirstBootFacts:
     values: dict[str, object] = {
         "system_prepared": True,
@@ -119,7 +130,11 @@ def test_active_runtime_target_restarts_every_inactive_independent_member() -> N
             "ecobin-remote-support.service",
         }
     )
-    actions = SystemdStageActions(runner)
+    installed_paths = _installed_management_paths()
+    actions = SystemdStageActions(
+        runner,
+        path_exists=installed_paths.__contains__,
+    )
 
     assert actions.apply(
         FirstBootStage.COMPLETE,
@@ -131,12 +146,67 @@ def test_active_runtime_target_restarts_every_inactive_independent_member() -> N
     ) == "NONE"
 
     assert [call[-1] for call in _start_calls(runner)] == [
+        "ecobin-hardware.service",
         "ecobin-communication.service",
         "ecobin-updater.service",
         "ecobin-business-activation-helper.socket",
         "ecobin-mcu-flash-helper.socket",
         "ecobin-device-management-preflight.service",
+    ]
+
+
+@pytest.mark.parametrize(
+    "transition_path",
+    (
+        None,
+        SystemdStageActions._MAINTENANCE_PENDING_MARKER,
+        SystemdStageActions._RUNTIME_START_FENCE,
+    ),
+)
+def test_legacy_or_transition_runtime_never_restarts_removed_management_units(
+    transition_path: str | None,
+) -> None:
+    runner = RecordingRunner(
+        active_units={
+            "ecobin-runtime.target",
+            "ecobin-remote-support.service",
+        }
+    )
+    paths = {transition_path} if transition_path is not None else set()
+    actions = SystemdStageActions(runner, path_exists=paths.__contains__)
+
+    assert actions.apply(
+        FirstBootStage.COMPLETE,
+        _passed(
+            sealed_exists=True,
+            sealed_valid=True,
+            sealed_cleanup_complete=True,
+        ),
+    ) == "NONE"
+
+    assert [call[-1] for call in _start_calls(runner)] == [
         "ecobin-hardware.service",
+    ]
+
+
+def test_active_marker_without_every_managed_unit_file_stays_on_legacy_members() -> None:
+    runner = RecordingRunner(
+        active_units={"ecobin-runtime.target", "ecobin-remote-support.service"}
+    )
+    paths = _installed_management_paths()
+    paths.remove("/etc/systemd/system/ecobin-updater.service")
+    actions = SystemdStageActions(runner, path_exists=paths.__contains__)
+
+    assert actions.apply(
+        FirstBootStage.COMPLETE,
+        _passed(
+            sealed_exists=True,
+            sealed_valid=True,
+            sealed_cleanup_complete=True,
+        ),
+    ) == "NONE"
+    assert [call[-1] for call in _start_calls(runner)] == [
+        "ecobin-hardware.service"
     ]
 
 

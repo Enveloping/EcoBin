@@ -1,10 +1,12 @@
 """Private durable safety state for the permanent device updater.
 
-Schema version three separates durable physical-action preparation from the
-last-moment permission to write to hardware.  The candidate remains
-fail-closed unless the process is started with its explicit enable flag.
-Software update execution and privileged-helper mutations remain outside this
-module and disabled.
+Schema version three may carry an application-level append-only extension for
+the root-owned stage-four job-gate activation and safety-lock operations.  The
+extension deliberately leaves the base schema version unchanged so the prior
+default-off updater can still open the database during a software rollback.
+The candidate remains fail-closed unless the process is started with its
+explicit enable flag.  Software update execution and privileged-helper
+mutations remain outside this module and disabled.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from typing import Any
 
 
 UPDATER_SCHEMA_VERSION = 3
+JOB_GATE_CONTROL_EXTENSION_VERSION = 1
 UPDATER_COMPONENT = "DEVICE_UPDATER"
 MAX_RELEASE_VERSION_LENGTH = 32
 
@@ -69,6 +72,21 @@ _ACTIVE_JOB_LOCK_REASONS = frozenset(
     }
 )
 
+_PRISTINE_ROLLBACK_SCHEMA_TABLES = frozenset(
+    {
+        "schema_version",
+        "updater_runtime_instance",
+        "updater_management_state",
+        "maintenance_lock",
+        "job_permit",
+        "physical_action_ledger",
+        "physical_action_v2_evidence_quarantine",
+        "job_gate_control_extension",
+        "job_gate_control_operation",
+        "operator_job_gate_lock",
+    }
+)
+
 
 class UpdaterStoreError(RuntimeError):
     """A stable failure that can safely cross the local-control boundary."""
@@ -76,6 +94,10 @@ class UpdaterStoreError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class PristineRollbackStateUsed(RuntimeError):
+    """The database is valid, but permanent-layer safety history now exists."""
 
 
 class UpdaterStore:
@@ -135,8 +157,11 @@ class UpdaterStore:
                 elif version != UPDATER_SCHEMA_VERSION:
                     raise RuntimeError("updater database schema is incompatible")
                 self._verify_v3_schema(connection)
+                self._ensure_job_gate_control_extension(connection)
+                self._verify_job_gate_control_extension(connection)
                 self._apply_runtime_candidate_posture(connection)
                 self._verify_v3_invariants(connection)
+                self._verify_job_gate_control_invariants(connection)
 
                 instance_uid = _new_instance_uid(self._instance_uid_factory)
                 started_at = _format_utc(self._utc_now())
@@ -204,7 +229,7 @@ class UpdaterStore:
         )
 
     def _create_v3_schema(self, connection: sqlite3.Connection) -> None:
-        """Create the current schema through the audited v2 migration path."""
+        """Create legacy schema three through the audited v2 migration path."""
 
         self._create_v2_schema(connection)
         self._migrate_v2_to_v3(connection)
@@ -570,6 +595,101 @@ class UpdaterStore:
         )"""
 
     @staticmethod
+    def _job_gate_control_metadata_schema_statement() -> str:
+        return """CREATE TABLE job_gate_control_extension (
+            singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            extension_version INTEGER NOT NULL
+                CHECK (extension_version = 1),
+            candidate_activation_state TEXT NOT NULL CHECK (
+                candidate_activation_state IN ('REQUIRED', 'ACTIVE')),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"""
+
+    @staticmethod
+    def _job_gate_control_operation_schema_statement() -> str:
+        return """CREATE TABLE job_gate_control_operation (
+            operation_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation_uid TEXT NOT NULL UNIQUE
+                CHECK (length(operation_uid) = 36
+                       AND operation_uid = lower(operation_uid)
+                       AND operation_uid NOT GLOB '*[^0-9a-f-]*'),
+            operation_kind TEXT NOT NULL CHECK (operation_kind IN
+                ('INITIAL_ACTIVATION', 'SAFETY_LOCK')),
+            evidence_digest_sha256 TEXT NOT NULL
+                CHECK (length(evidence_digest_sha256) = 64
+                       AND evidence_digest_sha256 =
+                           lower(evidence_digest_sha256)
+                       AND evidence_digest_sha256 NOT GLOB
+                           '*[^0-9a-f]*'),
+            expected_management_state_sequence INTEGER NOT NULL
+                CHECK (expected_management_state_sequence >= 1),
+            previous_management_state_sequence INTEGER NOT NULL
+                CHECK (previous_management_state_sequence >= 1),
+            resulting_management_state_sequence INTEGER NOT NULL
+                CHECK (resulting_management_state_sequence >= 1),
+            previous_job_gate_state TEXT NOT NULL CHECK (
+                previous_job_gate_state IN
+                    ('OPEN', 'DRAINING', 'MAINTENANCE', 'LOCKED')),
+            previous_block_reason_code TEXT,
+            resulting_job_gate_state TEXT NOT NULL CHECK (
+                resulting_job_gate_state IN ('OPEN', 'LOCKED')),
+            resulting_block_reason_code TEXT,
+            state_changed INTEGER NOT NULL CHECK (state_changed IN (0, 1)),
+            created_at TEXT NOT NULL,
+            CHECK (expected_management_state_sequence =
+                   previous_management_state_sequence),
+            CHECK (
+                (operation_kind = 'INITIAL_ACTIVATION'
+                 AND previous_job_gate_state = 'LOCKED'
+                 AND previous_block_reason_code =
+                     'STAGE4_ACTIVATION_REQUIRED'
+                 AND resulting_job_gate_state = 'OPEN'
+                 AND resulting_block_reason_code IS NULL
+                 AND state_changed = 1
+                 AND resulting_management_state_sequence =
+                     previous_management_state_sequence + 1)
+                OR
+                (operation_kind = 'SAFETY_LOCK'
+                 AND resulting_job_gate_state = 'LOCKED'
+                 AND resulting_block_reason_code = 'MANUAL_SAFETY_LOCK'
+                 AND ((state_changed = 0
+                       AND previous_job_gate_state = 'LOCKED'
+                       AND previous_block_reason_code =
+                           'MANUAL_SAFETY_LOCK'
+                       AND resulting_management_state_sequence =
+                           previous_management_state_sequence)
+                      OR
+                      (state_changed = 1
+                       AND resulting_management_state_sequence =
+                           previous_management_state_sequence + 1))))
+        )"""
+
+    @staticmethod
+    def _operator_job_gate_lock_schema_statement() -> str:
+        return """CREATE TABLE operator_job_gate_lock (
+            singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            operation_uid TEXT NOT NULL UNIQUE REFERENCES
+                job_gate_control_operation(operation_uid),
+            acquired_management_state_sequence INTEGER NOT NULL
+                CHECK (acquired_management_state_sequence >= 1),
+            underlying_job_gate_state TEXT NOT NULL CHECK (
+                underlying_job_gate_state IN
+                    ('OPEN', 'DRAINING', 'MAINTENANCE', 'LOCKED')),
+            underlying_maintenance_state TEXT NOT NULL CHECK (
+                underlying_maintenance_state IN
+                    ('IDLE', 'DRAINING', 'MAINTENANCE', 'LOCKED')),
+            underlying_reconciliation_required INTEGER NOT NULL CHECK (
+                underlying_reconciliation_required IN (0, 1)),
+            underlying_block_reason_code TEXT,
+            underlying_maintenance_phase TEXT CHECK (
+                underlying_maintenance_phase IS NULL OR
+                underlying_maintenance_phase IN
+                    ('DRAINING', 'MAINTENANCE', 'RECOVERY', 'LOCKED')),
+            acquired_at TEXT NOT NULL
+        )"""
+
+    @staticmethod
     def _verify_v2_schema(connection: sqlite3.Connection) -> None:
         rows = connection.execute(
             "SELECT singleton_id, version FROM schema_version ORDER BY singleton_id"
@@ -601,7 +721,7 @@ class UpdaterStore:
         rows = connection.execute(
             "SELECT singleton_id, version FROM schema_version ORDER BY singleton_id"
         ).fetchall()
-        if [(row[0], row[1]) for row in rows] != [(1, UPDATER_SCHEMA_VERSION)]:
+        if [(row[0], row[1]) for row in rows] != [(1, 3)]:
             raise RuntimeError("updater database schema is incompatible")
         expected = {
             "schema_version",
@@ -638,6 +758,94 @@ class UpdaterStore:
         if quick_check is None or quick_check[0] != "ok":
             raise RuntimeError("updater database integrity check failed")
 
+    def _ensure_job_gate_control_extension(
+        self,
+        connection: sqlite3.Connection,
+    ) -> None:
+        expected = {
+            "job_gate_control_extension",
+            "job_gate_control_operation",
+            "operator_job_gate_lock",
+        }
+        actual = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        present = expected.intersection(actual)
+        if present and present != expected:
+            raise RuntimeError(
+                "updater job-gate control extension is incomplete"
+            )
+        if present:
+            return
+        for statement in (
+            self._job_gate_control_metadata_schema_statement(),
+            self._job_gate_control_operation_schema_statement(),
+            self._operator_job_gate_lock_schema_statement(),
+        ):
+            connection.execute(statement)
+        now = _format_utc(self._utc_now())
+        connection.execute(
+            """INSERT INTO job_gate_control_extension (
+                   singleton_id, extension_version,
+                   candidate_activation_state, created_at, updated_at
+               ) VALUES (1, ?, 'REQUIRED', ?, ?)""",
+            (
+                JOB_GATE_CONTROL_EXTENSION_VERSION,
+                now,
+                now,
+            ),
+        )
+
+    @staticmethod
+    def _verify_job_gate_control_extension(
+        connection: sqlite3.Connection,
+    ) -> None:
+        rows = connection.execute(
+            """SELECT singleton_id, extension_version,
+                      candidate_activation_state
+               FROM job_gate_control_extension ORDER BY singleton_id"""
+        ).fetchall()
+        if [(row[0], row[1], row[2]) for row in rows] not in [
+            [(1, JOB_GATE_CONTROL_EXTENSION_VERSION, "REQUIRED")],
+            [(1, JOB_GATE_CONTROL_EXTENSION_VERSION, "ACTIVE")],
+        ]:
+            raise RuntimeError(
+                "updater job-gate control extension is incompatible"
+            )
+        expected_schemas = {
+            "job_gate_control_extension": (
+                UpdaterStore._job_gate_control_metadata_schema_statement()
+            ),
+            "job_gate_control_operation": (
+                UpdaterStore._job_gate_control_operation_schema_statement()
+            ),
+            "operator_job_gate_lock": (
+                UpdaterStore._operator_job_gate_lock_schema_statement()
+            ),
+        }
+        for table, expected_schema in expected_schemas.items():
+            row = connection.execute(
+                """SELECT sql FROM sqlite_master
+                   WHERE type='table' AND name=?""",
+                (table,),
+            ).fetchone()
+            if (
+                row is None
+                or _normalize_schema_sql(row[0])
+                != _normalize_schema_sql(expected_schema)
+            ):
+                raise RuntimeError(
+                    "updater job-gate control extension is incompatible"
+                )
+        foreign_key_check = connection.execute(
+            "PRAGMA foreign_key_check"
+        ).fetchall()
+        if foreign_key_check:
+            raise RuntimeError("updater database integrity check failed")
+
     def _apply_runtime_candidate_posture(
         self,
         connection: sqlite3.Connection,
@@ -648,7 +856,29 @@ class UpdaterStore:
         maintenance_lock = connection.execute(
             "SELECT 1 FROM maintenance_lock WHERE singleton_id=1"
         ).fetchone()
+        operator_lock = connection.execute(
+            "SELECT 1 FROM operator_job_gate_lock WHERE singleton_id=1"
+        ).fetchone()
         now = _format_utc(self._utc_now())
+        activation_state = self._candidate_activation_state(connection)
+        if (
+            (
+                not self.enable_stage4_candidate
+                or not state["stage4_candidate_enabled"]
+            )
+            and activation_state != "REQUIRED"
+        ):
+            # A disabled runtime invalidates the prior enable cycle.  The base
+            # state check is equally important: an older rollback binary knows
+            # nothing about this extension, but it still persists DISABLED in
+            # the v3 base table.  A later forward start must honour that fact.
+            connection.execute(
+                """UPDATE job_gate_control_extension
+                   SET candidate_activation_state='REQUIRED', updated_at=?
+                   WHERE singleton_id=1""",
+                (now,),
+            )
+            activation_state = "REQUIRED"
         preserved_explicit_lock = (
             state["job_gate_state"] == "LOCKED"
             and state["block_reason_code"] is not None
@@ -660,22 +890,26 @@ class UpdaterStore:
         if not self.enable_stage4_candidate:
             reconciliation = bool(
                 unresolved_actions or active_permits or maintenance_lock
-                or state["reconciliation_required"]
+                or operator_lock or state["reconciliation_required"]
             )
             reason = (
-                state["block_reason_code"]
-                if reconciliation and state["block_reason_code"]
-                else "STAGE4_CANDIDATE_DISABLED"
+                "MANUAL_SAFETY_LOCK"
+                if operator_lock
+                else (
+                    state["block_reason_code"]
+                    if reconciliation and state["block_reason_code"]
+                    else "STAGE4_CANDIDATE_DISABLED"
+                )
             )
             desired = (0, "DISABLED", "LOCKED", "LOCKED", int(reconciliation), reason)
-        elif preserved_explicit_lock:
+        elif operator_lock:
             desired = (
                 1,
                 "ENFORCED",
                 "LOCKED",
                 "LOCKED",
                 1,
-                state["block_reason_code"],
+                "MANUAL_SAFETY_LOCK",
             )
         elif unresolved_actions:
             desired = (
@@ -704,6 +938,24 @@ class UpdaterStore:
                 1,
                 "MAINTENANCE_RECOVERY_REQUIRED",
             )
+        elif activation_state == "REQUIRED":
+            desired = (
+                1,
+                "ENFORCED",
+                "LOCKED",
+                "LOCKED",
+                1,
+                "STAGE4_ACTIVATION_REQUIRED",
+            )
+        elif preserved_explicit_lock:
+            desired = (
+                1,
+                "ENFORCED",
+                "LOCKED",
+                "LOCKED",
+                1,
+                state["block_reason_code"],
+            )
         elif (
             not state["stage4_candidate_enabled"]
             or state["block_reason_code"] == "STAGE4_CANDIDATE_DISABLED"
@@ -711,7 +963,7 @@ class UpdaterStore:
             # Merely starting the candidate binary must not activate the
             # physical-job boundary.  Stage three's low-privilege hardware
             # evidence is a separate, controlled prerequisite.  A migration
-            # operator must explicitly transition this locked state to OPEN
+            # operator must use the evidence-bearing activation operation
             # after that evidence has been reviewed.
             desired = (
                 1,
@@ -772,6 +1024,124 @@ class UpdaterStore:
         if state["job_gate_state"] in {"DRAINING", "MAINTENANCE"} and locks != 1:
             raise RuntimeError("updater maintenance lock is inconsistent")
 
+    @staticmethod
+    def _verify_job_gate_control_invariants(
+        connection: sqlite3.Connection,
+    ) -> None:
+        state = UpdaterStore._management_row(connection)
+        activation_state = UpdaterStore._candidate_activation_state(connection)
+        operations = connection.execute(
+            """SELECT * FROM job_gate_control_operation
+               ORDER BY operation_sequence"""
+        ).fetchall()
+        for operation in operations:
+            try:
+                parsed_uid = uuid.UUID(operation["operation_uid"])
+            except (ValueError, AttributeError) as error:
+                raise RuntimeError(
+                    "updater job-gate evidence is incompatible"
+                ) from error
+            if (
+                parsed_uid.version != 4
+                or str(parsed_uid) != operation["operation_uid"]
+                or _SHA256_PATTERN.fullmatch(
+                    operation["evidence_digest_sha256"]
+                ) is None
+                or operation["expected_management_state_sequence"]
+                != operation["previous_management_state_sequence"]
+                or operation["state_changed"] not in (0, 1)
+            ):
+                raise RuntimeError(
+                    "updater job-gate evidence is incompatible"
+                )
+            previous_sequence = operation[
+                "previous_management_state_sequence"
+            ]
+            resulting_sequence = operation[
+                "resulting_management_state_sequence"
+            ]
+            changed = operation["state_changed"] == 1
+            if operation["operation_kind"] == "INITIAL_ACTIVATION":
+                valid_transition = (
+                    changed
+                    and operation["previous_job_gate_state"] == "LOCKED"
+                    and operation["previous_block_reason_code"]
+                    == "STAGE4_ACTIVATION_REQUIRED"
+                    and operation["resulting_job_gate_state"] == "OPEN"
+                    and operation["resulting_block_reason_code"] is None
+                    and resulting_sequence == previous_sequence + 1
+                )
+            elif operation["operation_kind"] == "SAFETY_LOCK":
+                valid_transition = (
+                    operation["resulting_job_gate_state"] == "LOCKED"
+                    and operation["resulting_block_reason_code"]
+                    == "MANUAL_SAFETY_LOCK"
+                    and (
+                        (changed and resulting_sequence == previous_sequence + 1)
+                        or (
+                            not changed
+                            and operation["previous_job_gate_state"]
+                            == "LOCKED"
+                            and operation["previous_block_reason_code"]
+                            == "MANUAL_SAFETY_LOCK"
+                            and resulting_sequence == previous_sequence
+                        )
+                    )
+                )
+            else:
+                valid_transition = False
+            if not valid_transition:
+                raise RuntimeError(
+                    "updater job-gate evidence is incompatible"
+                )
+        activation_count = sum(
+            operation["operation_kind"] == "INITIAL_ACTIVATION"
+            for operation in operations
+        )
+        if (
+            (activation_state == "ACTIVE" and activation_count == 0)
+            or (
+                activation_state == "REQUIRED"
+                and state["job_gate_state"] == "OPEN"
+            )
+            or (
+                not state["stage4_candidate_enabled"]
+                and activation_state != "REQUIRED"
+            )
+        ):
+            raise RuntimeError(
+                "updater candidate activation state is inconsistent"
+            )
+        operator_locks = connection.execute(
+            "SELECT * FROM operator_job_gate_lock"
+        ).fetchall()
+        if len(operator_locks) > 1:
+            raise RuntimeError("updater operator safety lock is incompatible")
+        if not operator_locks:
+            return
+        operator_lock = operator_locks[0]
+        operation = connection.execute(
+            """SELECT * FROM job_gate_control_operation
+               WHERE operation_uid=?""",
+            (operator_lock["operation_uid"],),
+        ).fetchone()
+        if (
+            operator_lock["singleton_id"] != 1
+            or operation is None
+            or operation["operation_kind"] != "SAFETY_LOCK"
+            or operator_lock["acquired_management_state_sequence"]
+            != operation["resulting_management_state_sequence"]
+            or operator_lock["underlying_job_gate_state"]
+            != operation["previous_job_gate_state"]
+            or operator_lock["underlying_block_reason_code"]
+            != operation["previous_block_reason_code"]
+            or state["job_gate_state"] != "LOCKED"
+            or state["maintenance_state"] != "LOCKED"
+            or not state["reconciliation_required"]
+            or state["block_reason_code"] != "MANUAL_SAFETY_LOCK"
+        ):
+            raise RuntimeError("updater operator safety lock is incompatible")
+
     def get_status(self) -> dict[str, Any]:
         """Return actual persisted capability and fail-closed gate facts."""
 
@@ -784,6 +1154,7 @@ class UpdaterStore:
                 (instance_uid,),
             ).fetchone()
             state = self._management_row(connection)
+            activation_state = self._candidate_activation_state(connection)
             maintenance = connection.execute(
                 """SELECT owner_update_uid, maintenance_type, phase, fence_token
                    FROM maintenance_lock WHERE singleton_id=1"""
@@ -793,6 +1164,10 @@ class UpdaterStore:
             return {
                 "component": instance["component"],
                 "schemaVersion": UPDATER_SCHEMA_VERSION,
+                "jobGateControlExtensionVersion": (
+                    JOB_GATE_CONTROL_EXTENSION_VERSION
+                ),
+                "candidateActivationState": activation_state,
                 "runtimeInstanceUid": instance_uid,
                 "releaseVersion": instance["release_version"],
                 "startedAt": instance["started_at"],
@@ -821,6 +1196,256 @@ class UpdaterStore:
                 "privilegedHelperMutationEnabled": False,
             }
 
+    def get_job_gate_reconciliation_status(self) -> dict[str, Any]:
+        """Return the root operator's persisted gate and evidence view."""
+
+        with self._lock:
+            connection = self._require_connection()
+            return self._job_gate_reconciliation_result(connection)
+
+    def activate_stage4_job_gate(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Perform the exact evidence-bearing activation for this cycle."""
+
+        operation_uid, evidence_digest, expected_sequence = (
+            self._job_gate_operation_request(payload)
+        )
+        with self._transaction() as connection:
+            state = self._require_candidate(connection)
+            duplicate = self._existing_job_gate_operation(
+                connection,
+                operation_uid=operation_uid,
+                operation_kind="INITIAL_ACTIVATION",
+                evidence_digest=evidence_digest,
+                expected_sequence=expected_sequence,
+            )
+            if duplicate is not None:
+                unchanged_activation = (
+                    self._candidate_activation_state(connection) == "ACTIVE"
+                    and state["management_state_sequence"]
+                    == duplicate["resulting_management_state_sequence"]
+                    and state["job_gate_state"] == "OPEN"
+                    and state["block_reason_code"] is None
+                )
+                if unchanged_activation:
+                    return self._job_gate_operation_result(
+                        duplicate,
+                        disposition="DUPLICATE",
+                    )
+                raise UpdaterStoreError(
+                    "STAGE4_ACTIVATION_NOT_ALLOWED",
+                    "the recorded activation no longer represents the current candidate state",
+                )
+
+            self._require_management_sequence(state, expected_sequence)
+            if connection.execute(
+                "SELECT 1 FROM operator_job_gate_lock WHERE singleton_id=1"
+            ).fetchone() is not None:
+                raise UpdaterStoreError(
+                    "OPERATOR_SAFETY_LOCK_ACTIVE",
+                    "the operator safety lock prevents initial activation",
+                )
+            if (
+                self._candidate_activation_state(connection) != "REQUIRED"
+                or state["job_gate_mode"] != "ENFORCED"
+                or state["job_gate_state"] != "LOCKED"
+                or state["maintenance_state"] != "LOCKED"
+                or not state["reconciliation_required"]
+                or state["block_reason_code"]
+                != "STAGE4_ACTIVATION_REQUIRED"
+            ):
+                raise UpdaterStoreError(
+                    "STAGE4_ACTIVATION_NOT_ALLOWED",
+                    "the job gate is not awaiting its initial activation",
+                )
+            if connection.execute(
+                "SELECT 1 FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone() is not None:
+                raise UpdaterStoreError(
+                    "MAINTENANCE_RECOVERY_REQUIRED",
+                    "a maintenance lock prevents initial activation",
+                )
+            if self._count_nonterminal_permits(connection):
+                raise UpdaterStoreError(
+                    "JOB_ACTIVE",
+                    "an unfinished job prevents initial activation",
+                )
+            if self._count_unresolved_actions(connection):
+                raise UpdaterStoreError(
+                    "RECONCILIATION_REQUIRED",
+                    "an unconfirmed physical action prevents initial activation",
+                )
+
+            now = _format_utc(self._utc_now())
+            resulting_sequence = expected_sequence + 1
+            updated = connection.execute(
+                """UPDATE updater_management_state
+                   SET management_state_sequence=?, job_gate_state='OPEN',
+                       maintenance_state='IDLE', reconciliation_required=0,
+                       block_reason_code=NULL, updated_at=?
+                   WHERE singleton_id=1
+                     AND management_state_sequence=?
+                     AND stage4_candidate_enabled=1
+                     AND job_gate_mode='ENFORCED'
+                     AND job_gate_state='LOCKED'
+                     AND maintenance_state='LOCKED'
+                     AND reconciliation_required=1
+                     AND block_reason_code='STAGE4_ACTIVATION_REQUIRED'""",
+                (resulting_sequence, now, expected_sequence),
+            )
+            if updated.rowcount != 1:
+                raise UpdaterStoreError(
+                    "MANAGEMENT_SEQUENCE_MISMATCH",
+                    "the updater management state changed before activation",
+                )
+            operation = self._insert_job_gate_operation(
+                connection,
+                operation_uid=operation_uid,
+                operation_kind="INITIAL_ACTIVATION",
+                evidence_digest=evidence_digest,
+                expected_sequence=expected_sequence,
+                previous_sequence=expected_sequence,
+                resulting_sequence=resulting_sequence,
+                previous_gate_state="LOCKED",
+                previous_block_reason_code="STAGE4_ACTIVATION_REQUIRED",
+                resulting_gate_state="OPEN",
+                resulting_block_reason_code=None,
+                state_changed=True,
+                created_at=now,
+            )
+            activated = connection.execute(
+                """UPDATE job_gate_control_extension
+                   SET candidate_activation_state='ACTIVE', updated_at=?
+                   WHERE singleton_id=1
+                     AND candidate_activation_state='REQUIRED'""",
+                (now,),
+            )
+            if activated.rowcount != 1:
+                raise UpdaterStoreError(
+                    "STAGE4_ACTIVATION_NOT_ALLOWED",
+                    "the candidate activation state changed before activation",
+                )
+            return self._job_gate_operation_result(
+                operation,
+                disposition="ACCEPTED",
+            )
+
+    def lock_stage4_job_gate(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Immediately fail closed without erasing outstanding work facts."""
+
+        operation_uid, evidence_digest, expected_sequence = (
+            self._job_gate_operation_request(payload)
+        )
+        with self._transaction() as connection:
+            duplicate = self._existing_job_gate_operation(
+                connection,
+                operation_uid=operation_uid,
+                operation_kind="SAFETY_LOCK",
+                evidence_digest=evidence_digest,
+                expected_sequence=expected_sequence,
+            )
+            if duplicate is not None:
+                return self._job_gate_operation_result(
+                    duplicate,
+                    disposition="DUPLICATE",
+                )
+
+            state = self._require_candidate(connection)
+            self._require_management_sequence(state, expected_sequence)
+            previous_gate_state = state["job_gate_state"]
+            previous_reason = state["block_reason_code"]
+            maintenance = connection.execute(
+                """SELECT phase FROM maintenance_lock
+                   WHERE singleton_id=1"""
+            ).fetchone()
+            operator_lock = connection.execute(
+                """SELECT 1 FROM operator_job_gate_lock
+                   WHERE singleton_id=1"""
+            ).fetchone()
+            now = _format_utc(self._utc_now())
+            resulting_reason = "MANUAL_SAFETY_LOCK"
+            changed = not (
+                previous_gate_state == "LOCKED"
+                and state["maintenance_state"] == "LOCKED"
+                and state["reconciliation_required"]
+                and previous_reason == resulting_reason
+            )
+
+            if changed:
+                resulting_sequence = expected_sequence + 1
+                updated = connection.execute(
+                    """UPDATE updater_management_state
+                       SET management_state_sequence=?,
+                           job_gate_state='LOCKED',
+                           maintenance_state='LOCKED',
+                           reconciliation_required=1,
+                           block_reason_code=?, updated_at=?
+                       WHERE singleton_id=1
+                         AND management_state_sequence=?
+                         AND stage4_candidate_enabled=1""",
+                    (
+                        resulting_sequence,
+                        resulting_reason,
+                        now,
+                        expected_sequence,
+                    ),
+                )
+                if updated.rowcount != 1:
+                    raise UpdaterStoreError(
+                        "MANAGEMENT_SEQUENCE_MISMATCH",
+                        "the updater management state changed before locking",
+                    )
+            else:
+                resulting_sequence = expected_sequence
+
+            operation = self._insert_job_gate_operation(
+                connection,
+                operation_uid=operation_uid,
+                operation_kind="SAFETY_LOCK",
+                evidence_digest=evidence_digest,
+                expected_sequence=expected_sequence,
+                previous_sequence=expected_sequence,
+                resulting_sequence=resulting_sequence,
+                previous_gate_state=previous_gate_state,
+                previous_block_reason_code=previous_reason,
+                resulting_gate_state="LOCKED",
+                resulting_block_reason_code=resulting_reason,
+                state_changed=changed,
+                created_at=now,
+            )
+            if operator_lock is None:
+                connection.execute(
+                    """INSERT INTO operator_job_gate_lock (
+                           singleton_id, operation_uid,
+                           acquired_management_state_sequence,
+                           underlying_job_gate_state,
+                           underlying_maintenance_state,
+                           underlying_reconciliation_required,
+                           underlying_block_reason_code,
+                           underlying_maintenance_phase,
+                           acquired_at
+                       ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        operation_uid,
+                        resulting_sequence,
+                        previous_gate_state,
+                        state["maintenance_state"],
+                        state["reconciliation_required"],
+                        previous_reason,
+                        maintenance["phase"] if maintenance else None,
+                        now,
+                    ),
+                )
+            return self._job_gate_operation_result(
+                operation,
+                disposition="ACCEPTED",
+            )
+
     def transition_job_gate(
         self,
         target_state: str,
@@ -835,6 +1460,39 @@ class UpdaterStore:
         with self._transaction() as connection:
             state = self._require_candidate(connection)
             current = state["job_gate_state"]
+            if connection.execute(
+                "SELECT 1 FROM operator_job_gate_lock WHERE singleton_id=1"
+            ).fetchone() is not None:
+                raise UpdaterStoreError(
+                    "OPERATOR_SAFETY_LOCK_ACTIVE",
+                    "the operator safety lock requires an exact release operation",
+                )
+            if (
+                self._candidate_activation_state(connection) != "ACTIVE"
+                or state["block_reason_code"] == "STAGE4_ACTIVATION_REQUIRED"
+            ):
+                # While the current runtime posture awaits evidence-bearing
+                # activation, *all* generic transitions are forbidden.  The
+                # persisted marker survives reasons temporarily replaced by
+                # active-job or physical-action reconciliation; the reason
+                # check is an additional fail-closed consistency guard.
+                raise UpdaterStoreError(
+                    "JOB_GATE_RELEASE_NOT_ALLOWED",
+                    "job-gate activation requires the exact evidence-bearing operation",
+                )
+            if (
+                target == "OPEN"
+                and current == "LOCKED"
+                and state["block_reason_code"]
+                in {
+                    "STAGE4_ACTIVATION_REQUIRED",
+                    "MANUAL_SAFETY_LOCK",
+                }
+            ):
+                raise UpdaterStoreError(
+                    "JOB_GATE_RELEASE_NOT_ALLOWED",
+                    "this job-gate lock requires an exact release operation",
+                )
             allowed = {
                 "OPEN": {"DRAINING", "LOCKED"},
                 "DRAINING": {"OPEN", "MAINTENANCE", "LOCKED"},
@@ -960,10 +1618,19 @@ class UpdaterStore:
                 ))
                 if actual != identity:
                     raise _conflict("JOB_PERMIT_CONFLICT", "job permit identity conflicts")
-                return self._permit_result(existing, disposition="DUPLICATE")
+                return self._permit_result(
+                    existing,
+                    disposition="DUPLICATE",
+                    may_start=self._permit_may_start(connection, existing),
+                )
             state = self._management_row(connection)
             if state["job_gate_state"] != "OPEN":
                 raise UpdaterStoreError("JOB_GATE_CLOSED", "job gate does not accept new work")
+            if self._candidate_activation_state(connection) != "ACTIVE":
+                raise UpdaterStoreError(
+                    "JOB_GATE_CLOSED",
+                    "job gate has no activation for the current candidate cycle",
+                )
             if self._count_nonterminal_permits(connection):
                 raise UpdaterStoreError("DEVICE_BUSY", "another device job is active")
             now = _format_utc(self._utc_now())
@@ -983,7 +1650,11 @@ class UpdaterStore:
                 raise UpdaterStoreError("DEVICE_BUSY", "another device job is active") from error
             row = self._permit_row(connection, permit_uid)
             assert row is not None
-            return self._permit_result(row, disposition="ACCEPTED")
+            return self._permit_result(
+                row,
+                disposition="ACCEPTED",
+                may_start=self._permit_may_start(connection, row),
+            )
 
     def begin_job(self, payload: dict[str, Any]) -> dict[str, Any]:
         permit_uid = _require_uuid4(payload.get("permitUid"), "permitUid")
@@ -1002,6 +1673,11 @@ class UpdaterStore:
                 raise _conflict(
                     "JOB_BEGIN_DIGEST_CONFLICT",
                     "job begin digest does not match the granted request",
+                )
+            if self._candidate_activation_state(connection) != "ACTIVE":
+                raise UpdaterStoreError(
+                    "JOB_GATE_CLOSED",
+                    "the granted job cannot start before candidate activation",
                 )
             gate = self._management_row(connection)
             can_resume_after_restart = (
@@ -1118,9 +1794,11 @@ class UpdaterStore:
         with self._lock:
             connection = self._require_connection()
             self._require_candidate(connection)
+            row = self._require_permit(connection, permit_uid)
             return self._permit_result(
-                self._require_permit(connection, permit_uid),
+                row,
                 disposition="FOUND",
+                may_start=self._permit_may_start(connection, row),
             )
 
     def prepare_physical_action(
@@ -1706,6 +2384,10 @@ class UpdaterStore:
         state = self._management_row(connection)
         if not state["stage4_candidate_enabled"]:
             return
+        if connection.execute(
+            "SELECT 1 FROM operator_job_gate_lock WHERE singleton_id=1"
+        ).fetchone() is not None:
+            return
         unresolved = self._count_unresolved_actions(connection)
         active = self._count_nonterminal_permits(connection)
         maintenance = connection.execute("SELECT 1 FROM maintenance_lock").fetchone()
@@ -1761,7 +2443,29 @@ class UpdaterStore:
                 (now,),
             )
             return
-        if maintenance is None and state["job_gate_state"] == "LOCKED" and state["block_reason_code"] in _AUTO_RESOLVABLE_LOCK_REASONS:
+        if (
+            maintenance is None
+            and self._candidate_activation_state(connection) == "REQUIRED"
+        ):
+            # Resolving an inherited job must not silently activate a new
+            # candidate cycle.  This fact lives outside the visible lock
+            # reason because active-job and physical-action reconciliation can
+            # temporarily take precedence over STAGE4_ACTIVATION_REQUIRED.
+            connection.execute(
+                """UPDATE updater_management_state
+                   SET management_state_sequence=management_state_sequence+1,
+                       job_gate_state='LOCKED', maintenance_state='LOCKED',
+                       reconciliation_required=1,
+                       block_reason_code='STAGE4_ACTIVATION_REQUIRED',
+                       updated_at=? WHERE singleton_id=1""",
+                (now,),
+            )
+            return
+        if (
+            maintenance is None
+            and state["job_gate_state"] == "LOCKED"
+            and state["block_reason_code"] in _AUTO_RESOLVABLE_LOCK_REASONS
+        ):
             connection.execute(
                 """UPDATE updater_management_state
                    SET management_state_sequence=management_state_sequence+1,
@@ -1772,7 +2476,12 @@ class UpdaterStore:
             )
 
     @staticmethod
-    def _permit_result(row: sqlite3.Row, *, disposition: str) -> dict[str, Any]:
+    def _permit_result(
+        row: sqlite3.Row,
+        *,
+        disposition: str,
+        may_start: bool | None = None,
+    ) -> dict[str, Any]:
         state = row["state"]
         return {
             "disposition": disposition,
@@ -1782,7 +2491,7 @@ class UpdaterStore:
             "workType": row["work_type"],
             "requestDigestSha256": row["request_digest_sha256"],
             "state": state,
-            "mayStart": state == "GRANTED",
+            "mayStart": state == "GRANTED" if may_start is None else may_start,
             "beginUid": row["begin_uid"],
             "permitDigestSha256": row["permit_digest_sha256"],
             "dispositionUid": row["disposition_uid"],
@@ -1823,6 +2532,261 @@ class UpdaterStore:
             "evidenceDigestSha256": row["evidence_digest_sha256"],
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
+        }
+
+    @staticmethod
+    def _job_gate_operation_request(
+        payload: dict[str, Any],
+    ) -> tuple[str, str, int]:
+        return (
+            _require_uuid4(payload.get("operationUid"), "operationUid"),
+            _require_sha256(payload.get("evidenceDigest"), "evidenceDigest"),
+            _require_positive_int(
+                payload.get("expectedManagementStateSequence"),
+                "expectedManagementStateSequence",
+            ),
+        )
+
+    @staticmethod
+    def _require_management_sequence(
+        state: sqlite3.Row,
+        expected_sequence: int,
+    ) -> None:
+        if state["management_state_sequence"] != expected_sequence:
+            raise UpdaterStoreError(
+                "MANAGEMENT_SEQUENCE_MISMATCH",
+                "the expected updater management state sequence does not match",
+            )
+
+    @staticmethod
+    def _job_gate_operation_row(
+        connection: sqlite3.Connection,
+        operation_uid: str,
+    ) -> sqlite3.Row | None:
+        return connection.execute(
+            """SELECT * FROM job_gate_control_operation
+               WHERE operation_uid=?""",
+            (operation_uid,),
+        ).fetchone()
+
+    def _existing_job_gate_operation(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        operation_uid: str,
+        operation_kind: str,
+        evidence_digest: str,
+        expected_sequence: int,
+    ) -> sqlite3.Row | None:
+        row = self._job_gate_operation_row(connection, operation_uid)
+        if row is None:
+            return None
+        identity = (
+            row["operation_kind"],
+            row["evidence_digest_sha256"],
+            row["expected_management_state_sequence"],
+        )
+        if identity != (
+            operation_kind,
+            evidence_digest,
+            expected_sequence,
+        ):
+            raise _conflict(
+                "JOB_GATE_CONTROL_OPERATION_CONFLICT",
+                "job-gate control operation identity conflicts",
+            )
+        return row
+
+    def _insert_job_gate_operation(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        operation_uid: str,
+        operation_kind: str,
+        evidence_digest: str,
+        expected_sequence: int,
+        previous_sequence: int,
+        resulting_sequence: int,
+        previous_gate_state: str,
+        previous_block_reason_code: str | None,
+        resulting_gate_state: str,
+        resulting_block_reason_code: str | None,
+        state_changed: bool,
+        created_at: str,
+    ) -> sqlite3.Row:
+        connection.execute(
+            """INSERT INTO job_gate_control_operation (
+                   operation_uid, operation_kind,
+                   evidence_digest_sha256,
+                   expected_management_state_sequence,
+                   previous_management_state_sequence,
+                   resulting_management_state_sequence,
+                   previous_job_gate_state,
+                   previous_block_reason_code,
+                   resulting_job_gate_state,
+                   resulting_block_reason_code,
+                   state_changed, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                operation_uid,
+                operation_kind,
+                evidence_digest,
+                expected_sequence,
+                previous_sequence,
+                resulting_sequence,
+                previous_gate_state,
+                previous_block_reason_code,
+                resulting_gate_state,
+                resulting_block_reason_code,
+                int(state_changed),
+                created_at,
+            ),
+        )
+        row = self._job_gate_operation_row(connection, operation_uid)
+        if row is None:
+            raise RuntimeError("job-gate control evidence was not persisted")
+        return row
+
+    @staticmethod
+    def _job_gate_operation_result(
+        row: sqlite3.Row,
+        *,
+        disposition: str | None,
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "operationSequence": row["operation_sequence"],
+            "operationUid": row["operation_uid"],
+            "operationKind": row["operation_kind"],
+            "evidenceDigest": row["evidence_digest_sha256"],
+            "expectedManagementStateSequence": row[
+                "expected_management_state_sequence"
+            ],
+            "previousManagementStateSequence": row[
+                "previous_management_state_sequence"
+            ],
+            "resultingManagementStateSequence": row[
+                "resulting_management_state_sequence"
+            ],
+            "previousJobGateState": row["previous_job_gate_state"],
+            "previousBlockReasonCode": row[
+                "previous_block_reason_code"
+            ],
+            "resultingJobGateState": row["resulting_job_gate_state"],
+            "resultingBlockReasonCode": row[
+                "resulting_block_reason_code"
+            ],
+            "stateChanged": bool(row["state_changed"]),
+            "createdAt": row["created_at"],
+        }
+        if disposition is not None:
+            result["disposition"] = disposition
+        return result
+
+    def _job_gate_reconciliation_result(
+        self,
+        connection: sqlite3.Connection,
+    ) -> dict[str, Any]:
+        state = self._management_row(connection)
+        maintenance = connection.execute(
+            """SELECT phase FROM maintenance_lock
+               WHERE singleton_id=1"""
+        ).fetchone()
+        maintenance_present = maintenance is not None
+        operator_lock = connection.execute(
+            """SELECT operator_job_gate_lock.*,
+                      job_gate_control_operation.evidence_digest_sha256
+               FROM operator_job_gate_lock
+               JOIN job_gate_control_operation USING (operation_uid)
+               WHERE operator_job_gate_lock.singleton_id=1"""
+        ).fetchone()
+        active_permits = self._count_nonterminal_permits(connection)
+        unresolved_actions = self._count_unresolved_actions(connection)
+        latest = connection.execute(
+            """SELECT * FROM job_gate_control_operation
+               ORDER BY operation_sequence DESC LIMIT 1"""
+        ).fetchone()
+        initial_activation_eligible = bool(
+            self._candidate_activation_state(connection) == "REQUIRED"
+            and state["stage4_candidate_enabled"]
+            and state["job_gate_mode"] == "ENFORCED"
+            and state["job_gate_state"] == "LOCKED"
+            and state["maintenance_state"] == "LOCKED"
+            and state["reconciliation_required"]
+            and state["block_reason_code"]
+            == "STAGE4_ACTIVATION_REQUIRED"
+            and not maintenance_present
+            and operator_lock is None
+            and active_permits == 0
+            and unresolved_actions == 0
+        )
+        return {
+            "schemaVersion": UPDATER_SCHEMA_VERSION,
+            "jobGateControlExtensionVersion": (
+                JOB_GATE_CONTROL_EXTENSION_VERSION
+            ),
+            "candidateActivationState": self._candidate_activation_state(
+                connection
+            ),
+            "stage4CandidateEnabled": bool(
+                state["stage4_candidate_enabled"]
+            ),
+            "managementStateSequence": state[
+                "management_state_sequence"
+            ],
+            "jobGateMode": state["job_gate_mode"],
+            "jobGateState": state["job_gate_state"],
+            "maintenanceState": state["maintenance_state"],
+            "reconciliationRequired": bool(
+                state["reconciliation_required"]
+            ),
+            "blockReasonCode": state["block_reason_code"],
+            "maintenanceLockPresent": maintenance_present,
+            "maintenancePhase": (
+                maintenance["phase"] if maintenance is not None else None
+            ),
+            "operatorSafetyLockActive": operator_lock is not None,
+            "operatorSafetyLock": (
+                {
+                    "operationUid": operator_lock["operation_uid"],
+                    "evidenceDigest": operator_lock[
+                        "evidence_digest_sha256"
+                    ],
+                    "acquiredManagementStateSequence": operator_lock[
+                        "acquired_management_state_sequence"
+                    ],
+                    "underlyingJobGateState": operator_lock[
+                        "underlying_job_gate_state"
+                    ],
+                    "underlyingMaintenanceState": operator_lock[
+                        "underlying_maintenance_state"
+                    ],
+                    "underlyingReconciliationRequired": bool(
+                        operator_lock[
+                            "underlying_reconciliation_required"
+                        ]
+                    ),
+                    "underlyingBlockReasonCode": operator_lock[
+                        "underlying_block_reason_code"
+                    ],
+                    "underlyingMaintenancePhase": operator_lock[
+                        "underlying_maintenance_phase"
+                    ],
+                    "acquiredAt": operator_lock["acquired_at"],
+                }
+                if operator_lock is not None
+                else None
+            ),
+            "activeJobPermitCount": active_permits,
+            "unreconciledPhysicalActionCount": unresolved_actions,
+            "initialActivationEligible": initial_activation_eligible,
+            "lastControlOperation": (
+                self._job_gate_operation_result(
+                    latest,
+                    disposition=None,
+                )
+                if latest is not None
+                else None
+            ),
         }
 
     def _require_candidate(self, connection: sqlite3.Connection) -> sqlite3.Row:
@@ -1887,6 +2851,20 @@ class UpdaterStore:
             )
 
     @staticmethod
+    def _candidate_activation_state(
+        connection: sqlite3.Connection,
+    ) -> str:
+        row = connection.execute(
+            """SELECT candidate_activation_state
+               FROM job_gate_control_extension WHERE singleton_id=1"""
+        ).fetchone()
+        if row is None or row[0] not in {"REQUIRED", "ACTIVE"}:
+            raise RuntimeError(
+                "updater candidate activation state is unavailable"
+            )
+        return str(row[0])
+
+    @staticmethod
     def _management_row(connection: sqlite3.Connection) -> sqlite3.Row:
         row = connection.execute(
             "SELECT * FROM updater_management_state WHERE singleton_id=1"
@@ -1894,6 +2872,24 @@ class UpdaterStore:
         if row is None:
             raise RuntimeError("updater durable state is unavailable")
         return row
+
+    @staticmethod
+    def _permit_may_start(
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+    ) -> bool:
+        if row["state"] != "GRANTED":
+            return False
+        state = UpdaterStore._management_row(connection)
+        if (
+            not state["stage4_candidate_enabled"]
+            or UpdaterStore._candidate_activation_state(connection) != "ACTIVE"
+        ):
+            return False
+        return state["job_gate_state"] in {"OPEN", "DRAINING"} or (
+            state["job_gate_state"] == "LOCKED"
+            and state["block_reason_code"] == "ACTIVE_JOB_RECONCILIATION"
+        )
 
     @staticmethod
     def _permit_row(connection: sqlite3.Connection, permit_uid: str) -> sqlite3.Row | None:
@@ -2014,8 +3010,317 @@ class UpdaterStore:
                 raise PermissionError("updater database permissions are too broad")
 
 
+def inspect_pristine_stage3_rollback_state(
+    path: str | os.PathLike[str],
+) -> dict[str, Any]:
+    """Read-only proof that removing the permanent updater cannot orphan facts.
+
+    This deliberately does not construct :class:`UpdaterStore`: construction
+    would migrate or rewrite runtime posture.  The maintenance installer calls
+    this once while the updater is online and again after it has been stopped.
+    A normal read-only SQLite connection is required so committed WAL content
+    remains visible; ``immutable=1`` would be unsafe here.
+    """
+
+    database = Path(path).absolute()
+    connection: sqlite3.Connection | None = None
+    try:
+        present_sidecars = {
+            suffix
+            for suffix in ("-wal", "-shm", "-journal")
+            if os.path.lexists(Path(f"{database}{suffix}"))
+        }
+        if present_sidecars not in (set(), {"-wal", "-shm"}):
+            # Opening WAL without its shared-memory partner may make SQLite
+            # create a new -shm file in the managed directory, even for a
+            # mode=ro URI.  A hot rollback journal is equally unsuitable for
+            # an uninstall proof.  Fail without opening or changing either.
+            raise RuntimeError(
+                "updater rollback database sidecars are incomplete"
+            )
+        sidecars_present = bool(present_sidecars)
+        if sidecars_present:
+            connection = sqlite3.connect(
+                f"{database.as_uri()}?mode=ro",
+                uri=True,
+                timeout=5.0,
+            )
+        else:
+            # A closed WAL database can cause SQLite to create fresh -wal/-shm
+            # files even through a mode=ro URI when the directory is writable.
+            # Deserializing the single, checkpointed main file avoids touching
+            # the managed state directory.  The online path above is mandatory
+            # whenever sidecars exist so committed WAL facts are never missed.
+            raw_database = bytearray(database.read_bytes())
+            if (
+                len(raw_database) < 100
+                or raw_database[:16] != b"SQLite format 3\x00"
+                or raw_database[18] not in (1, 2)
+                or raw_database[19] not in (1, 2)
+            ):
+                raise RuntimeError("updater rollback database is unreadable")
+            # deserialize() otherwise tries to open filesystem WAL sidecars
+            # because the checkpointed image retains WAL read/write markers in
+            # header bytes 18/19.  Normalize only this in-memory copy to the
+            # rollback journal marker; the managed database is never changed.
+            raw_database[18] = 1
+            raw_database[19] = 1
+            connection = sqlite3.connect(":memory:", timeout=5.0)
+            connection.deserialize(bytes(raw_database))
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only=ON")
+        if connection.execute("PRAGMA query_only").fetchone()[0] != 1:
+            raise RuntimeError("updater rollback inspection is not read-only")
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA busy_timeout=5000")
+        connection.execute("BEGIN")
+
+        UpdaterStore._verify_v3_schema(connection)
+        UpdaterStore._verify_job_gate_control_extension(connection)
+        UpdaterStore._verify_v3_invariants(connection)
+        UpdaterStore._verify_job_gate_control_invariants(connection)
+
+        v2_statements = UpdaterStore._v2_schema_statements()
+        expected_base_schemas = {
+            "schema_version": v2_statements[0],
+            "updater_runtime_instance": v2_statements[1],
+            "updater_management_state": v2_statements[2],
+            "maintenance_lock": v2_statements[3],
+            "job_permit": v2_statements[4],
+            "physical_action_ledger": (
+                UpdaterStore._v3_physical_action_schema_statement()
+            ),
+            "physical_action_v2_evidence_quarantine": (
+                UpdaterStore._v3_legacy_evidence_schema_statement()
+            ),
+        }
+        for table, expected_schema in expected_base_schemas.items():
+            row = connection.execute(
+                """SELECT sql FROM sqlite_master
+                   WHERE type='table' AND name=?""",
+                (table,),
+            ).fetchone()
+            if (
+                row is None
+                or _normalize_schema_sql(row[0])
+                != _normalize_schema_sql(expected_schema)
+            ):
+                raise RuntimeError(
+                    "updater rollback refuses a changed base schema"
+                )
+
+        explicit_indexes = connection.execute(
+            """SELECT name, sql FROM sqlite_master
+               WHERE type='index' AND name NOT LIKE 'sqlite_%'
+               ORDER BY name"""
+        ).fetchall()
+        if (
+            len(explicit_indexes) != 1
+            or explicit_indexes[0]["name"] != "one_nonterminal_job_permit"
+            or _normalize_schema_sql(explicit_indexes[0]["sql"])
+            != _normalize_schema_sql(v2_statements[5])
+        ):
+            raise RuntimeError("updater rollback refuses changed safety indexes")
+        if connection.execute(
+            """SELECT 1 FROM sqlite_master
+               WHERE type IN ('view', 'trigger') AND name NOT LIKE 'sqlite_%'
+               LIMIT 1"""
+        ).fetchone() is not None:
+            raise RuntimeError(
+                "updater rollback refuses unknown database behavior"
+            )
+
+        actual_tables = {
+            row[0]
+            for row in connection.execute(
+                """SELECT name FROM sqlite_master
+                   WHERE type='table' AND name NOT LIKE 'sqlite_%'"""
+            ).fetchall()
+        }
+        if actual_tables != _PRISTINE_ROLLBACK_SCHEMA_TABLES:
+            raise RuntimeError(
+                "updater rollback refuses an unknown database extension"
+            )
+        internal_tables = {
+            row[0]
+            for row in connection.execute(
+                """SELECT name FROM sqlite_master
+                   WHERE type='table' AND name LIKE 'sqlite_%'"""
+            ).fetchall()
+        }
+        if internal_tables != {"sqlite_sequence"}:
+            raise RuntimeError(
+                "updater rollback refuses unknown SQLite internal state"
+            )
+        sequence_rows = {
+            row[0]: row[1]
+            for row in connection.execute(
+                "SELECT name, seq FROM sqlite_sequence ORDER BY name"
+            ).fetchall()
+        }
+        if sequence_rows != {"physical_action_ledger": 0}:
+            # Both AUTOINCREMENT tables represent irreversible control/action
+            # history.  Deleting their rows must not make that history look as
+            # though it never existed; sqlite_sequence is the residual fact.
+            # The v2-to-v3 empty-table rebuild deterministically leaves the
+            # physical ledger at sequence zero, which is the sole pristine
+            # internal baseline.
+            raise PristineRollbackStateUsed(
+                "updater rollback refuses deleted control or action history"
+            )
+
+        state = connection.execute(
+            """SELECT singleton_id, management_state_sequence,
+                      stage4_candidate_enabled, updates_enabled,
+                      job_gate_mode, job_gate_state, maintenance_state,
+                      reconciliation_required, block_reason_code,
+                      business_update_enabled, mcu_update_enabled
+               FROM updater_management_state"""
+        ).fetchall()
+        if len(state) != 1:
+            raise RuntimeError("updater rollback management state is incompatible")
+        management = state[0]
+        sequence = management["management_state_sequence"]
+        if (
+            isinstance(sequence, bool)
+            or not isinstance(sequence, int)
+            or sequence < 1
+            or tuple(
+                management[key]
+                for key in (
+                    "singleton_id",
+                    "stage4_candidate_enabled",
+                    "updates_enabled",
+                    "job_gate_mode",
+                    "job_gate_state",
+                    "maintenance_state",
+                    "reconciliation_required",
+                    "block_reason_code",
+                    "business_update_enabled",
+                    "mcu_update_enabled",
+                )
+            )
+            != (
+                1,
+                0,
+                0,
+                "DISABLED",
+                "LOCKED",
+                "LOCKED",
+                0,
+                "STAGE4_CANDIDATE_DISABLED",
+                0,
+                0,
+            )
+        ):
+            raise PristineRollbackStateUsed(
+                "updater rollback requires the pristine disabled posture"
+            )
+
+        extension = connection.execute(
+            """SELECT extension_version, candidate_activation_state
+               FROM job_gate_control_extension WHERE singleton_id=1"""
+        ).fetchone()
+        if (
+            extension is None
+            or extension["extension_version"]
+            != JOB_GATE_CONTROL_EXTENSION_VERSION
+            or extension["candidate_activation_state"] != "REQUIRED"
+        ):
+            raise PristineRollbackStateUsed(
+                "updater rollback requires an unused candidate activation"
+            )
+
+        nonempty_tables = tuple(
+            table
+            for table in (
+                "job_gate_control_operation",
+                "job_permit",
+                "physical_action_ledger",
+                "physical_action_v2_evidence_quarantine",
+                "maintenance_lock",
+                "operator_job_gate_lock",
+            )
+            if connection.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone()
+            is not None
+        )
+        if nonempty_tables:
+            raise PristineRollbackStateUsed(
+                "updater rollback refuses persisted control or safety facts"
+            )
+
+        runtime_instance_count = connection.execute(
+            "SELECT COUNT(*) FROM updater_runtime_instance"
+        ).fetchone()[0]
+        if (
+            isinstance(runtime_instance_count, bool)
+            or not isinstance(runtime_instance_count, int)
+            or runtime_instance_count < 1
+        ):
+            raise RuntimeError(
+                "updater rollback requires an initialized updater database"
+            )
+        return {
+            "schemaVersion": UPDATER_SCHEMA_VERSION,
+            "controlExtensionVersion": JOB_GATE_CONTROL_EXTENSION_VERSION,
+            "candidateActivationState": "REQUIRED",
+            "managementStateSequence": sequence,
+            "runtimeInstanceCount": runtime_instance_count,
+        }
+    except sqlite3.Error as error:
+        raise RuntimeError("updater rollback database is unreadable") from error
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def _conflict(code: str, message: str) -> UpdaterStoreError:
     return UpdaterStoreError(code, message)
+
+
+def _normalize_schema_sql(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, str):
+        return ()
+    tokens: list[str] = []
+    index = 0
+    while index < len(value):
+        character = value[index]
+        if character.isspace():
+            index += 1
+            continue
+        if character in {"'", '"', "`", "["}:
+            quote_start = character
+            quote_end = "]" if character == "[" else character
+            quoted = [character]
+            index += 1
+            while index < len(value):
+                current = value[index]
+                quoted.append(current)
+                index += 1
+                if current != quote_end:
+                    continue
+                if index < len(value) and value[index] == quote_end:
+                    quoted.append(value[index])
+                    index += 1
+                    continue
+                break
+            tokens.append(f"quoted:{quote_start}:{''.join(quoted)}")
+            continue
+        if character.isalnum() or character in {"_", "$"}:
+            end = index + 1
+            while end < len(value) and (
+                value[end].isalnum() or value[end] in {"_", "$"}
+            ):
+                end += 1
+            tokens.append(f"word:{value[index:end].casefold()}")
+            index = end
+            continue
+        # Punctuation remains a distinct token.  Whitespace can be ignored
+        # without ever merging adjacent SQL words, so `work_uid TEXT` cannot
+        # collide with the different identifier `work_uidtext`.
+        tokens.append(f"punct:{character}")
+        index += 1
+    return tuple(tokens)
 
 
 def _require_uuid4(value: Any, field: str) -> str:
@@ -2033,6 +3338,15 @@ def _require_uuid4(value: Any, field: str) -> str:
 def _require_sha256(value: Any, field: str) -> str:
     if not isinstance(value, str) or _SHA256_PATTERN.fullmatch(value) is None:
         raise UpdaterStoreError("REQUEST_INVALID", f"{field} must be a lowercase SHA-256 digest")
+    return value
+
+
+def _require_positive_int(value: Any, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise UpdaterStoreError(
+            "REQUEST_INVALID",
+            f"{field} must be a positive integer",
+        )
     return value
 
 

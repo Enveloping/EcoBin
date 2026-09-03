@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-02T21:09:44.994Z",
+  "catalogedAt": "2026-09-03T05:30:45.891Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -563,6 +563,11 @@
       "path": "evidence/hil-v9-time-sync-enrollment-recovery-20260830-01/verification.json",
       "bytes": 1556,
       "sha256": "492a99c06b082f191080aa799c384149292dc42471cc4806c951985871d91cd8"
+    },
+    {
+      "path": "evidence/stage4-controlled-gate-mcu-handoff-20260903/README.md",
+      "bytes": 10854,
+      "sha256": "c46554c6f1b739ce4eced8df6dc39223813bb7bbeb5270555d97e901fd4c753c"
     },
     {
       "path": "evidence/target-media-qualification-evidence-20260827.json",

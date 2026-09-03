@@ -23,6 +23,19 @@ from updater_store import UpdaterStore, UpdaterStoreError
 from work_manager import WorkManager
 
 
+def _activate_candidate(updater: UpdaterStore) -> None:
+    status = updater.get_status()
+    updater.activate_stage4_job_gate(
+        {
+            "operationUid": "90000000-0000-4000-8000-000000000003",
+            "evidenceDigest": "f" * 64,
+            "expectedManagementStateSequence": status[
+                "managementStateSequence"
+            ],
+        }
+    )
+
+
 class CountingCompatUart:
     compatibility_mode = True
 
@@ -251,7 +264,7 @@ def _start_uncertain_baseline(
         enable_stage4_candidate=True,
     )
     updater.initialize()
-    updater.transition_job_gate("OPEN")
+    _activate_candidate(updater)
     client = FaultInjectingUpdaterClient(
         updater,
         live_commit_then_unavailable=(
@@ -475,7 +488,7 @@ def _seed_armed_action(tmp_path) -> tuple[
         enable_stage4_candidate=True,
     )
     updater.initialize()
-    updater.transition_job_gate("OPEN")
+    _activate_candidate(updater)
     client = FaultInjectingUpdaterClient(updater)
     safety = PermanentJobSafety(client)
     command_uid = str(uuid.uuid4())

@@ -1,5 +1,6 @@
 [Unit]
 Description=EcoBin permanent local communication agent (silent installation)
+ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
 After=local-fs.target
 StartLimitIntervalSec=0
 

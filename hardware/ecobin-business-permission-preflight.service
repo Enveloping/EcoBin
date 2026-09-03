@@ -1,5 +1,6 @@
 [Unit]
 Description=EcoBin future business-runtime permission preflight
+ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
 Requires=ecobin-communication.service ecobin-updater.service
 After=local-fs.target ecobin-communication.service ecobin-updater.service
 ConditionPathExists=/etc/ecobin/hardware.env

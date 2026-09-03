@@ -114,6 +114,24 @@ JOB_ACTION_FIELDS = {
     ),
 }
 
+ROOT_JOB_GATE_ACTION_FIELDS = {
+    "GET_STAGE4_RECONCILIATION_STATUS": frozenset(),
+    "ACTIVATE_STAGE4_JOB_GATE": frozenset(
+        {
+            "operationUid",
+            "evidenceDigest",
+            "expectedManagementStateSequence",
+        }
+    ),
+    "LOCK_STAGE4_JOB_GATE": frozenset(
+        {
+            "operationUid",
+            "evidenceDigest",
+            "expectedManagementStateSequence",
+        }
+    ),
+}
+
 
 class UpdaterControlHandler:
     """Expose truthful status and thin, durable stage-four operations."""
@@ -129,6 +147,30 @@ class UpdaterControlHandler:
             "localProtocolMajor": LOCAL_PROTOCOL_MAJOR,
             "localProtocolMinor": LOCAL_PROTOCOL_MINOR,
         }
+
+    def get_stage4_reconciliation_status(
+        self,
+        _payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self.store.get_job_gate_reconciliation_status()
+
+    def activate_stage4_job_gate(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._store_call(
+            self.store.activate_stage4_job_gate,
+            payload,
+        )
+
+    def lock_stage4_job_gate(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._store_call(
+            self.store.lock_stage4_job_gate,
+            payload,
+        )
 
     def request_job_permit(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._store_call(self.store.request_job_permit, payload)
@@ -330,6 +372,9 @@ def build_control_actions(
     enable_stage4_candidate: bool = False,
 ) -> dict[str, LocalControlAction]:
     action_uids = frozenset(allowed_uids)
+    if 0 not in action_uids:
+        raise ValueError("updater socket allowlist must include root UID 0")
+    root_uids = frozenset({0})
     actions = {
         "HEALTH": LocalControlAction(
             handler.get_status,
@@ -350,6 +395,23 @@ def build_control_actions(
             for action in DISABLED_UPDATE_ACTIONS
         },
     }
+    root_handlers = {
+        "GET_STAGE4_RECONCILIATION_STATUS": (
+            handler.get_stage4_reconciliation_status
+        ),
+        "ACTIVATE_STAGE4_JOB_GATE": handler.activate_stage4_job_gate,
+        "LOCK_STAGE4_JOB_GATE": handler.lock_stage4_job_gate,
+    }
+    actions.update(
+        {
+            action: LocalControlAction(
+                root_handlers[action],
+                payload_fields=fields,
+                allowed_uids=root_uids,
+            )
+            for action, fields in ROOT_JOB_GATE_ACTION_FIELDS.items()
+        }
+    )
     if not enable_stage4_candidate:
         return actions
     job_uids = frozenset(business_uids)

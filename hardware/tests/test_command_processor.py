@@ -38,6 +38,19 @@ from work_manager import (
 from updater_store import UpdaterStore, UpdaterStoreError
 
 
+def _activate_candidate(updater: UpdaterStore) -> None:
+    status = updater.get_status()
+    updater.activate_stage4_job_gate(
+        {
+            "operationUid": "90000000-0000-4000-8000-000000000001",
+            "evidenceDigest": "f" * 64,
+            "expectedManagementStateSequence": status[
+                "managementStateSequence"
+            ],
+        }
+    )
+
+
 class FakeUart:
     def __init__(self, trace=None):
         self.calls = []
@@ -425,7 +438,7 @@ def make_real_job_safety(tmp_path):
         enable_stage4_candidate=True,
     )
     updater.initialize()
-    updater.transition_job_gate("OPEN")
+    _activate_candidate(updater)
     return updater, PermanentJobSafety(StoreBackedUpdaterClient(updater))
 
 
@@ -1449,7 +1462,7 @@ def test_lost_arm_response_retries_same_token_and_writes_uart_once(tmp_path):
         enable_stage4_candidate=True,
     )
     updater.initialize()
-    updater.transition_job_gate("OPEN")
+    _activate_candidate(updater)
     client = LoseFirstArmResponseClient(StoreBackedUpdaterClient(updater))
     safety = PermanentJobSafety(client)
     uart = FakeUart()

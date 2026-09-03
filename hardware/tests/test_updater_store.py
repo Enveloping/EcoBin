@@ -10,7 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from updater_store import UpdaterStore, UpdaterStoreError
+from updater_store import (
+    PristineRollbackStateUsed,
+    UpdaterStore,
+    UpdaterStoreError,
+    _normalize_schema_sql,
+    inspect_pristine_stage3_rollback_state,
+)
 
 
 def _now() -> datetime:
@@ -39,9 +45,31 @@ def _activate_candidate(store: UpdaterStore) -> None:
     assert status["jobGateState"] == "LOCKED"
     assert status["reconciliationRequired"] is True
     assert status["blockReasonCode"] == "STAGE4_ACTIVATION_REQUIRED"
-    opened = store.transition_job_gate("OPEN")
-    assert opened["jobGateState"] == "OPEN"
-    assert opened["reconciliationRequired"] is False
+    opened = store.activate_stage4_job_gate(
+        {
+            "operationUid": _uid(900),
+            "evidenceDigest": "f" * 64,
+            "expectedManagementStateSequence": status[
+                "managementStateSequence"
+            ],
+        }
+    )
+    assert opened["resultingJobGateState"] == "OPEN"
+    assert opened["stateChanged"] is True
+    assert store.get_status()["reconciliationRequired"] is False
+
+
+def _operator_lock(store: UpdaterStore, number: int) -> None:
+    status = store.get_status()
+    store.lock_stage4_job_gate(
+        {
+            "operationUid": _uid(number),
+            "evidenceDigest": "e" * 64,
+            "expectedManagementStateSequence": status[
+                "managementStateSequence"
+            ],
+        }
+    )
 
 
 def _uid(number: int) -> str:
@@ -181,6 +209,8 @@ def _create_v1_database(path: Path) -> None:
                 "2026-09-01T00:00:00.000Z",
             ),
         )
+    if os.name == "posix":
+        path.chmod(0o600)
 
 
 def _create_v2_database_with_uncertain_action(path: Path) -> None:
@@ -272,7 +302,50 @@ def _create_v2_database_with_confirmed_action(
         )
 
 
-def test_store_defaults_to_locked_disabled_v3_and_persists_real_instances(
+def _create_v3_database_with_uncertain_action(path: Path) -> None:
+    _create_v2_database_with_uncertain_action(path)
+    legacy = UpdaterStore(
+        path,
+        release_version="stage4-v3",
+        utc_now=_now,
+    )
+    with sqlite3.connect(path) as connection:
+        connection.row_factory = sqlite3.Row
+        legacy._migrate_v2_to_v3(connection)
+    if os.name == "posix":
+        path.chmod(0o600)
+
+
+def _create_v3_open_database_without_extension(path: Path) -> None:
+    timestamp = "2026-09-01T00:00:00.000Z"
+    legacy = UpdaterStore(
+        path,
+        release_version="stage4-v3",
+        utc_now=_now,
+    )
+    with sqlite3.connect(path) as connection:
+        connection.row_factory = sqlite3.Row
+        legacy._create_v3_schema(connection)
+        connection.execute(
+            """INSERT INTO updater_runtime_instance
+                   VALUES (?, 'DEVICE_UPDATER', 'stage4-v3', ?)""",
+            (_uid(100), timestamp),
+        )
+        connection.execute(
+            """UPDATE updater_management_state
+               SET management_state_sequence=9,
+                   stage4_candidate_enabled=1,
+                   job_gate_mode='ENFORCED', job_gate_state='OPEN',
+                   maintenance_state='IDLE', reconciliation_required=0,
+                   block_reason_code=NULL, updated_at=?
+               WHERE singleton_id=1""",
+            (timestamp,),
+        )
+    if os.name == "posix":
+        path.chmod(0o600)
+
+
+def test_store_keeps_schema_v3_and_installs_gate_control_extension(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "updater.db"
@@ -290,6 +363,8 @@ def test_store_defaults_to_locked_disabled_v3_and_persists_real_instances(
     assert first_status == {
         "component": "DEVICE_UPDATER",
         "schemaVersion": 3,
+        "jobGateControlExtensionVersion": 1,
+        "candidateActivationState": "REQUIRED",
         "runtimeInstanceUid": first_status["runtimeInstanceUid"],
         "releaseVersion": "updater-v1",
         "startedAt": "2026-09-02T08:30:00.000Z",
@@ -350,11 +425,14 @@ def test_store_defaults_to_locked_disabled_v3_and_persists_real_instances(
             "job_permit",
             "physical_action_ledger",
             "maintenance_lock",
+            "job_gate_control_extension",
+            "job_gate_control_operation",
+            "operator_job_gate_lock",
         }.issubset(tables)
     second.close()
 
 
-def test_v1_migrates_in_one_start_to_locked_v3_without_losing_instances(
+def test_v1_migrates_in_one_start_to_locked_v3_with_extension(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "updater.db"
@@ -364,6 +442,7 @@ def test_v1_migrates_in_one_start_to_locked_v3_without_losing_instances(
     try:
         status = store.get_status()
         assert status["schemaVersion"] == 3
+        assert status["jobGateControlExtensionVersion"] == 1
         assert status["stage4CandidateEnabled"] is False
         assert status["jobGateState"] == "LOCKED"
         assert status["blockReasonCode"] == "STAGE4_CANDIDATE_DISABLED"
@@ -415,6 +494,876 @@ def test_v1_migration_rolls_back_all_ddl_when_a_late_statement_fails(
             """SELECT name FROM sqlite_master
                WHERE type='table' AND name='physical_action_ledger'"""
         ).fetchone() is None
+
+
+def test_existing_v3_atomically_gains_extension_without_losing_safety_facts(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    _create_v3_database_with_uncertain_action(path)
+
+    store = _store(path, "stage4-extension-v1", candidate=True)
+    try:
+        status = store.get_status()
+        action = store.get_physical_action({"actionUid": _uid(5)})
+
+        assert status["schemaVersion"] == 3
+        assert status["jobGateControlExtensionVersion"] == 1
+        assert status["jobGateState"] == "LOCKED"
+        assert status["activeJobPermitCount"] == 1
+        assert status["unreconciledPhysicalActionCount"] == 1
+        assert action["state"] == "ARMED"
+        with sqlite3.connect(path) as connection:
+            assert connection.execute(
+                "SELECT version FROM schema_version"
+            ).fetchone() == (3,)
+            assert connection.execute(
+                "SELECT COUNT(*) FROM updater_runtime_instance"
+            ).fetchone() == (2,)
+            assert connection.execute(
+                "SELECT COUNT(*) FROM job_gate_control_operation"
+            ).fetchone() == (0,)
+    finally:
+        store.close()
+
+
+def test_schema_v3_extension_is_accepted_by_legacy_subset_verifier(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    store = _store(path, "stage4-extension-v1")
+    store.close()
+
+    with sqlite3.connect(path) as connection:
+        connection.row_factory = sqlite3.Row
+        UpdaterStore._verify_v3_schema(connection)
+        assert connection.execute(
+            "SELECT version FROM schema_version"
+        ).fetchone()[0] == 3
+        assert connection.execute(
+            """SELECT extension_version
+               FROM job_gate_control_extension"""
+        ).fetchone()[0] == 1
+
+
+def test_legacy_v3_open_gate_without_activation_evidence_is_relocked(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    _create_v3_open_database_without_extension(path)
+
+    store = _store(path, "stage4-extension-v1", candidate=True)
+    try:
+        status = store.get_status()
+        assert status["managementStateSequence"] == 10
+        assert status["jobGateState"] == "LOCKED"
+        assert status["reconciliationRequired"] is True
+        assert status["blockReasonCode"] == "STAGE4_ACTIVATION_REQUIRED"
+        assert store.get_job_gate_reconciliation_status()[
+            "initialActivationEligible"
+        ] is True
+        with sqlite3.connect(path) as connection:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM job_gate_control_operation"
+            ).fetchone() == (0,)
+    finally:
+        store.close()
+
+
+def test_resolving_legacy_permit_without_activation_keeps_gate_locked(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    _create_v3_open_database_without_extension(path)
+    timestamp = "2026-09-01T00:00:00.000Z"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """INSERT INTO job_permit (
+                   permit_uid, work_uid, command_uid, work_type,
+                   request_digest_sha256, state, grant_gate_sequence,
+                   created_at, updated_at
+               ) VALUES (?, ?, ?, 'DELIVERY', ?, 'GRANTED', 9, ?, ?)""",
+            (
+                _uid(1),
+                _uid(2),
+                _uid(3),
+                "a" * 64,
+                timestamp,
+                timestamp,
+            ),
+        )
+
+    store = _store(path, "stage4-extension-v1", candidate=True)
+    try:
+        inherited = store.get_status()
+        assert inherited["candidateActivationState"] == "REQUIRED"
+        assert inherited["activeJobPermitCount"] == 1
+        assert inherited["blockReasonCode"] == "ACTIVE_JOB_RECONCILIATION"
+        assert store.request_job_permit(_permit_payload())["mayStart"] is False
+        assert store.get_job_permit({"permitUid": _uid(1)})["mayStart"] is False
+        with pytest.raises(UpdaterStoreError) as begin_without_activation:
+            store.begin_job(_begin_payload())
+        assert begin_without_activation.value.code == "JOB_GATE_CLOSED"
+
+        store.abandon_job_permit(
+            {
+                "permitUid": _uid(1),
+                "dispositionUid": _uid(108),
+                "evidenceSha256": "8" * 64,
+            }
+        )
+        waiting = store.get_status()
+        assert waiting["jobGateState"] == "LOCKED"
+        assert waiting["candidateActivationState"] == "REQUIRED"
+        assert waiting["reconciliationRequired"] is True
+        assert waiting["blockReasonCode"] == "STAGE4_ACTIVATION_REQUIRED"
+        with pytest.raises(UpdaterStoreError) as new_permit:
+            store.request_job_permit(_permit_payload(20))
+        assert new_permit.value.code == "JOB_GATE_CLOSED"
+        with sqlite3.connect(path) as connection:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM job_gate_control_operation"
+            ).fetchone() == (0,)
+    finally:
+        store.close()
+
+
+def test_v3_extension_creation_failure_rolls_back_every_extension_table(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    _create_v3_database_with_uncertain_action(path)
+
+    class BrokenMigrationStore(UpdaterStore):
+        @staticmethod
+        def _operator_job_gate_lock_schema_statement() -> str:
+            return "THIS IS NOT SQL"
+
+    store = BrokenMigrationStore(
+        path,
+        release_version="stage4-extension-v1",
+    )
+    with pytest.raises(sqlite3.DatabaseError):
+        store.initialize()
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            "SELECT version FROM schema_version"
+        ).fetchone() == (3,)
+        for extension_table in (
+            "job_gate_control_extension",
+            "job_gate_control_operation",
+            "operator_job_gate_lock",
+        ):
+            assert connection.execute(
+                """SELECT name FROM sqlite_master
+                   WHERE type='table' AND name=?""",
+                (extension_table,),
+            ).fetchone() is None
+        assert connection.execute(
+            "SELECT COUNT(*) FROM physical_action_ledger"
+        ).fetchone() == (1,)
+
+
+def test_initial_activation_is_evidence_bearing_idempotent_and_conflict_safe(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    store = _store(path, "stage4", candidate=True)
+    try:
+        waiting = store.get_job_gate_reconciliation_status()
+        payload = {
+            "operationUid": _uid(101),
+            "evidenceDigest": "1" * 64,
+            "expectedManagementStateSequence": waiting[
+                "managementStateSequence"
+            ],
+        }
+        assert waiting["initialActivationEligible"] is True
+        assert waiting["lastControlOperation"] is None
+
+        with pytest.raises(UpdaterStoreError) as stale:
+            store.activate_stage4_job_gate(
+                {
+                    **payload,
+                    "operationUid": _uid(102),
+                    "expectedManagementStateSequence": (
+                        payload["expectedManagementStateSequence"] + 1
+                    ),
+                }
+            )
+        assert stale.value.code == "MANAGEMENT_SEQUENCE_MISMATCH"
+
+        accepted = store.activate_stage4_job_gate(payload)
+        duplicate = store.activate_stage4_job_gate(payload)
+        assert accepted["disposition"] == "ACCEPTED"
+        assert accepted["operationKind"] == "INITIAL_ACTIVATION"
+        assert accepted["evidenceDigest"] == "1" * 64
+        assert accepted["previousJobGateState"] == "LOCKED"
+        assert accepted["resultingJobGateState"] == "OPEN"
+        assert accepted["stateChanged"] is True
+        assert duplicate == {**accepted, "disposition": "DUPLICATE"}
+
+        with pytest.raises(UpdaterStoreError) as conflict:
+            store.activate_stage4_job_gate(
+                {**payload, "evidenceDigest": "2" * 64}
+            )
+        assert (
+            conflict.value.code
+            == "JOB_GATE_CONTROL_OPERATION_CONFLICT"
+        )
+        with pytest.raises(UpdaterStoreError) as second_activation:
+            store.activate_stage4_job_gate(
+                {
+                    "operationUid": _uid(103),
+                    "evidenceDigest": "3" * 64,
+                    "expectedManagementStateSequence": accepted[
+                        "resultingManagementStateSequence"
+                    ],
+                }
+            )
+        assert second_activation.value.code == (
+            "STAGE4_ACTIVATION_NOT_ALLOWED"
+        )
+
+        reconciled = store.get_job_gate_reconciliation_status()
+        assert reconciled["jobGateState"] == "OPEN"
+        assert reconciled["initialActivationEligible"] is False
+        assert reconciled["lastControlOperation"] == {
+            key: value
+            for key, value in accepted.items()
+            if key != "disposition"
+        }
+        with sqlite3.connect(path) as connection:
+            assert connection.execute(
+                """SELECT operation_uid, operation_kind,
+                          evidence_digest_sha256,
+                          previous_management_state_sequence,
+                          resulting_management_state_sequence
+                   FROM job_gate_control_operation"""
+            ).fetchall() == [
+                (
+                    _uid(101),
+                    "INITIAL_ACTIVATION",
+                    "1" * 64,
+                    payload["expectedManagementStateSequence"],
+                    payload["expectedManagementStateSequence"] + 1,
+                )
+            ]
+    finally:
+        store.close()
+
+
+def test_initial_activation_failure_rolls_back_gate_evidence_and_marker(
+    tmp_path: Path,
+) -> None:
+    class BrokenActivationStore(UpdaterStore):
+        def _insert_job_gate_operation(
+            self,
+            *args: object,
+            **kwargs: object,
+        ) -> sqlite3.Row:
+            raise RuntimeError("injected activation evidence failure")
+
+    path = tmp_path / "updater.db"
+    store = BrokenActivationStore(
+        path,
+        release_version="stage4-broken-activation",
+        enable_stage4_candidate=True,
+        utc_now=_now,
+    )
+    store.initialize()
+    try:
+        waiting = store.get_status()
+        with pytest.raises(RuntimeError, match="injected activation"):
+            store.activate_stage4_job_gate(
+                {
+                    "operationUid": _uid(104),
+                    "evidenceDigest": "4" * 64,
+                    "expectedManagementStateSequence": waiting[
+                        "managementStateSequence"
+                    ],
+                }
+            )
+
+        unchanged = store.get_status()
+        assert unchanged["managementStateSequence"] == waiting[
+            "managementStateSequence"
+        ]
+        assert unchanged["candidateActivationState"] == "REQUIRED"
+        assert unchanged["jobGateState"] == "LOCKED"
+        assert unchanged["blockReasonCode"] == "STAGE4_ACTIVATION_REQUIRED"
+        with sqlite3.connect(path) as connection:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM job_gate_control_operation"
+            ).fetchone() == (0,)
+    finally:
+        store.close()
+
+
+def test_activation_required_and_operator_lock_cannot_use_generic_open(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    store = _store(path, "stage4", candidate=True)
+    waiting = store.get_status()
+    with pytest.raises(UpdaterStoreError) as generic_open:
+        store.transition_job_gate("OPEN")
+    assert generic_open.value.code == "JOB_GATE_RELEASE_NOT_ALLOWED"
+
+    locked = store.lock_stage4_job_gate(
+        {
+            "operationUid": _uid(105),
+            "evidenceDigest": "9" * 64,
+            "expectedManagementStateSequence": waiting[
+                "managementStateSequence"
+            ],
+        }
+    )
+    with pytest.raises(UpdaterStoreError) as operator_open:
+        store.transition_job_gate("OPEN")
+    assert operator_open.value.code == "OPERATOR_SAFETY_LOCK_ACTIVE"
+    with pytest.raises(UpdaterStoreError) as operator_activation:
+        store.activate_stage4_job_gate(
+            {
+                "operationUid": _uid(106),
+                "evidenceDigest": "a" * 64,
+                "expectedManagementStateSequence": locked[
+                    "resultingManagementStateSequence"
+                ],
+            }
+        )
+    assert operator_activation.value.code == "OPERATOR_SAFETY_LOCK_ACTIVE"
+    reconciliation = store.get_job_gate_reconciliation_status()
+    assert reconciliation["operatorSafetyLock"][
+        "underlyingBlockReasonCode"
+    ] == "STAGE4_ACTIVATION_REQUIRED"
+    store.close()
+
+    restarted = _store(path, "stage4", candidate=True)
+    try:
+        status = restarted.get_status()
+        assert status["jobGateState"] == "LOCKED"
+        assert status["blockReasonCode"] == "MANUAL_SAFETY_LOCK"
+        assert restarted.get_job_gate_reconciliation_status()[
+            "operatorSafetyLockActive"
+        ] is True
+    finally:
+        restarted.close()
+
+
+def test_generic_locked_transition_cannot_erase_initial_activation_requirement(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "updater.db", "stage4", candidate=True)
+    try:
+        waiting = store.get_status()
+
+        with pytest.raises(UpdaterStoreError) as rewrite:
+            store.transition_job_gate(
+                "LOCKED",
+                block_reason_code="UPDATE_FAILED",
+            )
+        assert rewrite.value.code == "JOB_GATE_RELEASE_NOT_ALLOWED"
+
+        unchanged = store.get_status()
+        assert unchanged["managementStateSequence"] == waiting[
+            "managementStateSequence"
+        ]
+        assert unchanged["jobGateState"] == "LOCKED"
+        assert unchanged["maintenanceState"] == "LOCKED"
+        assert unchanged["reconciliationRequired"] is True
+        assert unchanged["blockReasonCode"] == "STAGE4_ACTIVATION_REQUIRED"
+
+        with pytest.raises(UpdaterStoreError) as generic_open:
+            store.transition_job_gate("OPEN")
+        assert generic_open.value.code == "JOB_GATE_RELEASE_NOT_ALLOWED"
+        with pytest.raises(UpdaterStoreError) as not_activated:
+            store.request_job_permit(_permit_payload())
+        assert not_activated.value.code == "JOB_GATE_CLOSED"
+    finally:
+        store.close()
+
+
+def test_reenabled_candidate_requires_fresh_exact_activation(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    first = _store(path, "stage4-first", candidate=True)
+    first_waiting = first.get_status()
+    _activate_candidate(first)
+    first.close()
+
+    disabled = _store(path, "stage4-disabled", candidate=False)
+    try:
+        assert disabled.get_status()["blockReasonCode"] == (
+            "STAGE4_CANDIDATE_DISABLED"
+        )
+    finally:
+        disabled.close()
+
+    reenabled = _store(path, "stage4-reenabled", candidate=True)
+    try:
+        waiting = reenabled.get_status()
+        assert waiting["blockReasonCode"] == "STAGE4_ACTIVATION_REQUIRED"
+
+        with pytest.raises(UpdaterStoreError) as stale_activation:
+            reenabled.activate_stage4_job_gate(
+                {
+                    "operationUid": _uid(900),
+                    "evidenceDigest": "f" * 64,
+                    "expectedManagementStateSequence": first_waiting[
+                        "managementStateSequence"
+                    ],
+                }
+            )
+        assert stale_activation.value.code == "STAGE4_ACTIVATION_NOT_ALLOWED"
+
+        with pytest.raises(UpdaterStoreError) as rewrite:
+            reenabled.transition_job_gate(
+                "LOCKED",
+                block_reason_code="UPDATE_FAILED",
+            )
+        assert rewrite.value.code == "JOB_GATE_RELEASE_NOT_ALLOWED"
+        with pytest.raises(UpdaterStoreError) as generic_open:
+            reenabled.transition_job_gate("OPEN")
+        assert generic_open.value.code == "JOB_GATE_RELEASE_NOT_ALLOWED"
+
+        activated = reenabled.activate_stage4_job_gate(
+            {
+                "operationUid": _uid(107),
+                "evidenceDigest": "b" * 64,
+                "expectedManagementStateSequence": waiting[
+                    "managementStateSequence"
+                ],
+            }
+        )
+        assert activated["resultingJobGateState"] == "OPEN"
+    finally:
+        reenabled.close()
+
+
+def test_forward_start_detects_disable_written_by_extension_unaware_binary(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    first = _store(path, "stage4-first", candidate=True)
+    _activate_candidate(first)
+    first.close()
+
+    # This is the base-v3 posture an older default-off updater writes.  That
+    # binary intentionally ignores extension tables, so ACTIVE remains stale.
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """UPDATE updater_management_state
+               SET management_state_sequence=management_state_sequence+1,
+                   stage4_candidate_enabled=0, job_gate_mode='DISABLED',
+                   job_gate_state='LOCKED', maintenance_state='LOCKED',
+                   reconciliation_required=0,
+                   block_reason_code='STAGE4_CANDIDATE_DISABLED'
+               WHERE singleton_id=1"""
+        )
+        assert connection.execute(
+            """SELECT candidate_activation_state
+               FROM job_gate_control_extension WHERE singleton_id=1"""
+        ).fetchone() == ("ACTIVE",)
+
+    forward = _store(path, "stage4-forward", candidate=True)
+    try:
+        status = forward.get_status()
+        assert status["candidateActivationState"] == "REQUIRED"
+        assert status["jobGateState"] == "LOCKED"
+        assert status["reconciliationRequired"] is True
+        assert status["blockReasonCode"] == "STAGE4_ACTIVATION_REQUIRED"
+        with pytest.raises(UpdaterStoreError) as generic_open:
+            forward.transition_job_gate("OPEN")
+        assert generic_open.value.code == "JOB_GATE_RELEASE_NOT_ALLOWED"
+    finally:
+        forward.close()
+
+
+def test_reenabled_candidate_does_not_reuse_activation_after_job_drains(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    first = _store(path, "stage4-first", candidate=True)
+    _activate_candidate(first)
+    first.request_job_permit(_permit_payload())
+    first.close()
+
+    disabled = _store(path, "stage4-disabled", candidate=False)
+    try:
+        disabled_status = disabled.get_status()
+        assert disabled_status["candidateActivationState"] == "REQUIRED"
+        assert disabled_status["activeJobPermitCount"] == 1
+    finally:
+        disabled.close()
+
+    reenabled = _store(path, "stage4-reenabled", candidate=True)
+    try:
+        inherited = reenabled.get_status()
+        assert inherited["candidateActivationState"] == "REQUIRED"
+        assert inherited["blockReasonCode"] == "ACTIVE_JOB_RECONCILIATION"
+
+        reenabled.abandon_job_permit(
+            {
+                "permitUid": _uid(1),
+                "dispositionUid": _uid(109),
+                "evidenceSha256": "9" * 64,
+            }
+        )
+        waiting = reenabled.get_status()
+        assert waiting["jobGateState"] == "LOCKED"
+        assert waiting["candidateActivationState"] == "REQUIRED"
+        assert waiting["blockReasonCode"] == "STAGE4_ACTIVATION_REQUIRED"
+
+        with pytest.raises(UpdaterStoreError) as rewrite:
+            reenabled.transition_job_gate(
+                "LOCKED",
+                block_reason_code="UPDATE_FAILED",
+            )
+        assert rewrite.value.code == "JOB_GATE_RELEASE_NOT_ALLOWED"
+
+        activated = reenabled.activate_stage4_job_gate(
+            {
+                "operationUid": _uid(110),
+                "evidenceDigest": "c" * 64,
+                "expectedManagementStateSequence": waiting[
+                    "managementStateSequence"
+                ],
+            }
+        )
+        assert activated["resultingJobGateState"] == "OPEN"
+        assert reenabled.get_status()["candidateActivationState"] == "ACTIVE"
+    finally:
+        reenabled.close()
+
+
+def test_reenabled_candidate_does_not_reopen_after_active_job_completes(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    first = _store(path, "stage4-first", candidate=True)
+    _activate_candidate(first)
+    first.request_job_permit(_permit_payload())
+    first.begin_job(_begin_payload())
+    first.close()
+
+    disabled = _store(path, "stage4-disabled", candidate=False)
+    disabled.close()
+
+    reenabled = _store(path, "stage4-reenabled", candidate=True)
+    try:
+        inherited = reenabled.get_status()
+        assert inherited["candidateActivationState"] == "REQUIRED"
+        assert inherited["blockReasonCode"] == "ACTIVE_JOB_RECONCILIATION"
+
+        reenabled.complete_job(
+            {
+                "permitUid": _uid(1),
+                "completionUid": _uid(111),
+                "outcome": "SUCCEEDED",
+                "completionDigestSha256": "d" * 64,
+            }
+        )
+        waiting = reenabled.get_status()
+        assert waiting["activeJobPermitCount"] == 0
+        assert waiting["candidateActivationState"] == "REQUIRED"
+        assert waiting["jobGateState"] == "LOCKED"
+        assert waiting["blockReasonCode"] == "STAGE4_ACTIVATION_REQUIRED"
+        with pytest.raises(UpdaterStoreError) as new_permit:
+            reenabled.request_job_permit(_permit_payload(20))
+        assert new_permit.value.code == "JOB_GATE_CLOSED"
+    finally:
+        reenabled.close()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("operationUid", "not-a-uuid"),
+        ("evidenceDigest", "A" * 64),
+        ("evidenceDigest", "a" * 63),
+        ("expectedManagementStateSequence", True),
+        ("expectedManagementStateSequence", 0),
+    ],
+)
+def test_job_gate_control_rejects_invalid_operation_identity(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    store = _store(tmp_path / "updater.db", "stage4", candidate=True)
+    try:
+        status = store.get_status()
+        payload: dict[str, object] = {
+            "operationUid": _uid(110),
+            "evidenceDigest": "4" * 64,
+            "expectedManagementStateSequence": status[
+                "managementStateSequence"
+            ],
+        }
+        payload[field] = value
+        with pytest.raises(UpdaterStoreError) as invalid:
+            store.activate_stage4_job_gate(payload)
+        assert invalid.value.code == "REQUEST_INVALID"
+        assert store.get_status()["jobGateState"] == "LOCKED"
+    finally:
+        store.close()
+
+
+def test_disabled_candidate_rejects_new_root_gate_mutations(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    store = _store(path, "stage3")
+    try:
+        status = store.get_status()
+        payload = {
+            "operationUid": _uid(120),
+            "evidenceDigest": "5" * 64,
+            "expectedManagementStateSequence": status[
+                "managementStateSequence"
+            ],
+        }
+        for operation in (
+            store.activate_stage4_job_gate,
+            store.lock_stage4_job_gate,
+        ):
+            with pytest.raises(UpdaterStoreError) as disabled:
+                operation(payload)
+            assert disabled.value.code == "FEATURE_DISABLED"
+        with sqlite3.connect(path) as connection:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM job_gate_control_operation"
+            ).fetchone() == (0,)
+    finally:
+        store.close()
+
+
+def test_safety_lock_is_idempotent_and_retains_nonterminal_permit(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    store = _store(path, "stage4", candidate=True)
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        before = store.get_status()
+        payload = {
+            "operationUid": _uid(130),
+            "evidenceDigest": "6" * 64,
+            "expectedManagementStateSequence": before[
+                "managementStateSequence"
+            ],
+        }
+
+        accepted = store.lock_stage4_job_gate(payload)
+        duplicate = store.lock_stage4_job_gate(payload)
+        assert accepted["disposition"] == "ACCEPTED"
+        assert accepted["operationKind"] == "SAFETY_LOCK"
+        assert accepted["stateChanged"] is True
+        assert accepted["resultingJobGateState"] == "LOCKED"
+        assert accepted["resultingBlockReasonCode"] == "MANUAL_SAFETY_LOCK"
+        assert duplicate == {**accepted, "disposition": "DUPLICATE"}
+
+        locked = store.get_status()
+        assert locked["activeJobPermitCount"] == 1
+        assert locked["jobGateState"] == "LOCKED"
+        assert locked["managementStateSequence"] == accepted[
+            "resultingManagementStateSequence"
+        ]
+        noop = store.lock_stage4_job_gate(
+            {
+                "operationUid": _uid(131),
+                "evidenceDigest": "7" * 64,
+                "expectedManagementStateSequence": locked[
+                    "managementStateSequence"
+                ],
+            }
+        )
+        assert noop["stateChanged"] is False
+        assert noop["previousManagementStateSequence"] == (
+            noop["resultingManagementStateSequence"]
+        )
+        reconciliation = store.get_job_gate_reconciliation_status()
+        assert reconciliation["activeJobPermitCount"] == 1
+        assert reconciliation["operatorSafetyLockActive"] is True
+        assert reconciliation["operatorSafetyLock"]["operationUid"] == (
+            _uid(130)
+        )
+        assert reconciliation["operatorSafetyLock"][
+            "underlyingBlockReasonCode"
+        ] is None
+        with sqlite3.connect(path) as connection:
+            assert connection.execute(
+                """SELECT state FROM job_permit WHERE permit_uid=?""",
+                (_uid(1),),
+            ).fetchone() == ("GRANTED",)
+            assert connection.execute(
+                "SELECT COUNT(*) FROM job_gate_control_operation"
+            ).fetchone() == (3,)
+    finally:
+        store.close()
+
+
+def test_safety_lock_retains_maintenance_and_unconfirmed_action_facts(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    store = _store(path, "stage4", candidate=True)
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        store.transition_job_gate(
+            "DRAINING",
+            owner_update_uid=_uid(140),
+            maintenance_type="MCU_FIRMWARE_UPDATE",
+        )
+        store.begin_job(_begin_payload())
+        _prepare_and_arm(store)
+        before = store.get_status()
+        assert before["jobGateState"] == "LOCKED"
+
+        locked = store.lock_stage4_job_gate(
+            {
+                "operationUid": _uid(141),
+                "evidenceDigest": "8" * 64,
+                "expectedManagementStateSequence": before[
+                    "managementStateSequence"
+                ],
+            }
+        )
+        assert locked["stateChanged"] is True
+        after = store.get_status()
+        assert after["blockReasonCode"] == "MANUAL_SAFETY_LOCK"
+        assert after["maintenanceOwnerUid"] == _uid(140)
+        assert after["activeJobPermitCount"] == 1
+        assert after["unreconciledPhysicalActionCount"] == 1
+        reconciliation = store.get_job_gate_reconciliation_status()
+        assert reconciliation["maintenancePhase"] == "DRAINING"
+        assert reconciliation["operatorSafetyLockActive"] is True
+        assert reconciliation["operatorSafetyLock"] == {
+            "operationUid": _uid(141),
+            "evidenceDigest": "8" * 64,
+            "acquiredManagementStateSequence": locked[
+                "resultingManagementStateSequence"
+            ],
+            "underlyingJobGateState": "LOCKED",
+            "underlyingMaintenanceState": "LOCKED",
+            "underlyingReconciliationRequired": True,
+            "underlyingBlockReasonCode": (
+                "DRAINING_ACTION_UNCONFIRMED"
+            ),
+            "underlyingMaintenancePhase": "DRAINING",
+            "acquiredAt": "2026-09-02T08:30:00.000Z",
+        }
+        with sqlite3.connect(path) as connection:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM maintenance_lock"
+            ).fetchone() == (1,)
+            assert connection.execute(
+                "SELECT state FROM job_permit WHERE permit_uid=?",
+                (_uid(1),),
+            ).fetchone() == ("ACTIVE",)
+            assert connection.execute(
+                "SELECT state FROM physical_action_ledger WHERE action_uid=?",
+                (_uid(5),),
+            ).fetchone() == ("ARMED",)
+            assert connection.execute(
+                "SELECT phase FROM maintenance_lock"
+            ).fetchone() == ("DRAINING",)
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize("maintenance_phase", ["DRAINING", "MAINTENANCE"])
+def test_operator_lock_preserves_underlying_maintenance_phase(
+    tmp_path: Path,
+    maintenance_phase: str,
+) -> None:
+    path = tmp_path / "updater.db"
+    store = _store(path, "stage4", candidate=True)
+    try:
+        _activate_candidate(store)
+        store.transition_job_gate(
+            "DRAINING",
+            owner_update_uid=_uid(145),
+            maintenance_type="MCU_FIRMWARE_UPDATE",
+        )
+        if maintenance_phase == "MAINTENANCE":
+            store.transition_job_gate("MAINTENANCE")
+        before = store.get_status()
+        store.lock_stage4_job_gate(
+            {
+                "operationUid": _uid(146),
+                "evidenceDigest": "b" * 64,
+                "expectedManagementStateSequence": before[
+                    "managementStateSequence"
+                ],
+            }
+        )
+
+        reconciliation = store.get_job_gate_reconciliation_status()
+        assert reconciliation["maintenanceState"] == "LOCKED"
+        assert reconciliation["maintenancePhase"] == maintenance_phase
+        assert reconciliation["operatorSafetyLock"][
+            "underlyingMaintenancePhase"
+        ] == maintenance_phase
+        assert reconciliation["operatorSafetyLock"][
+            "underlyingBlockReasonCode"
+        ] == (
+            "MAINTENANCE_DRAINING"
+            if maintenance_phase == "DRAINING"
+            else "MAINTENANCE_ACTIVE"
+        )
+        with pytest.raises(UpdaterStoreError) as release:
+            store.transition_job_gate("OPEN")
+        assert release.value.code == "OPERATOR_SAFETY_LOCK_ACTIVE"
+        with sqlite3.connect(path) as connection:
+            assert connection.execute(
+                "SELECT phase FROM maintenance_lock"
+            ).fetchone() == (maintenance_phase,)
+    finally:
+        store.close()
+
+
+def test_operator_lock_prevents_auto_reopen_after_action_reconciliation(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "updater.db", "stage4", candidate=True)
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        store.begin_job(_begin_payload())
+        _prepare_and_arm(store)
+        before = store.get_status()
+        store.lock_stage4_job_gate(
+            {
+                "operationUid": _uid(147),
+                "evidenceDigest": "c" * 64,
+                "expectedManagementStateSequence": before[
+                    "managementStateSequence"
+                ],
+            }
+        )
+        store.confirm_physical_action(_confirmation_payload())
+        store.complete_job(
+            {
+                "permitUid": _uid(1),
+                "completionUid": _uid(148),
+                "outcome": "SUCCEEDED",
+                "completionDigestSha256": "d" * 64,
+            }
+        )
+
+        status = store.get_status()
+        assert status["activeJobPermitCount"] == 0
+        assert status["unreconciledPhysicalActionCount"] == 0
+        assert status["jobGateState"] == "LOCKED"
+        assert status["blockReasonCode"] == "MANUAL_SAFETY_LOCK"
+    finally:
+        store.close()
 
 
 def test_candidate_permit_and_physical_action_complete_durable_handshake(
@@ -1221,10 +2170,7 @@ def test_manual_gate_lock_blocks_preparing_actions(
         _activate_candidate(store)
         store.request_job_permit(_permit_payload())
         store.begin_job(_begin_payload())
-        store.transition_job_gate(
-            "LOCKED",
-            block_reason_code="MANUAL_SAFETY_LOCK",
-        )
+        _operator_lock(store, 160)
 
         with pytest.raises(UpdaterStoreError) as prepare_closed:
             store.prepare_physical_action(
@@ -1402,10 +2348,7 @@ def test_restart_preserves_explicit_manual_lock_over_active_job_state(
     if with_unresolved_action:
         first.begin_job(_begin_payload())
         _prepare_and_arm(first)
-    first.transition_job_gate(
-        "LOCKED",
-        block_reason_code="MANUAL_SAFETY_LOCK",
-    )
+    _operator_lock(first, 161)
     first.close()
 
     second = _store(path, "stage4", candidate=True)
@@ -1457,6 +2400,46 @@ def test_store_rejects_incompatible_schema_without_registering_run(
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE name='updater_runtime_instance'"
         ).fetchone() is None
+
+
+def test_pristine_stage3_rollback_inspection_accepts_only_initial_posture(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    store = _store(path, "updater-v1")
+    store.close()
+
+    result = inspect_pristine_stage3_rollback_state(path)
+
+    assert result["schemaVersion"] == 3
+    assert result["candidateActivationState"] == "REQUIRED"
+    assert result["runtimeInstanceCount"] == 1
+
+
+def test_pristine_stage3_rollback_inspection_rejects_deleted_history_sequence(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    store = _store(path, "updater-v1")
+    store.close()
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE sqlite_sequence SET seq=1 WHERE name='physical_action_ledger'"
+        )
+
+    with pytest.raises(
+        PristineRollbackStateUsed, match="deleted control or action history"
+    ):
+        inspect_pristine_stage3_rollback_state(path)
+
+
+def test_schema_sql_normalizer_never_merges_adjacent_identifiers() -> None:
+    assert _normalize_schema_sql("work_uid TEXT") != _normalize_schema_sql(
+        "work_uidtext"
+    )
+    assert _normalize_schema_sql(
+        "CREATE TABLE demo (Value TEXT)"
+    ) == _normalize_schema_sql(" create\n table DEMO( value text ) ")
 
 
 @pytest.mark.parametrize(

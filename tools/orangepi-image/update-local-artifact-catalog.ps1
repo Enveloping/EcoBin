@@ -44,7 +44,11 @@ function Get-LocalClassification([string] $RelativePath, [string] $Extension) {
 
 $localArtifacts = [System.Collections.Generic.List[object]]::new()
 $localFiles = Get-ChildItem -LiteralPath $resolvedLocalRoot -Recurse -Force -File |
-    Where-Object Name -ne '.gitkeep' |
+    Where-Object {
+        $_.Name -ne '.gitkeep' -and
+        $_.Extension -notin @('.pyc', '.pyo') -and
+        $_.FullName -notmatch '[\\/](__pycache__|\.pytest_cache)[\\/]'
+    } |
     Sort-Object FullName
 foreach ($file in $localFiles) {
     $relativePath = Get-RelativeArtifactPath $file.FullName

@@ -37,7 +37,7 @@
 ### `architecture/` — 架构与领域设计
 
 - [项目上下文](architecture/project-context.md)
-- [香橙派业务程序发布与远程更新设计](architecture/orangepi-business-runtime-release-and-update-design.md)：区分出厂程序、可替换业务程序和永久设备管理层，记录九阶段迁移顺序；第一、二阶段已完成，第三阶段已在当前 v13 设备完成受控原位安装及在线低权限验收，v17 已完成离线构建；第四阶段只有默认关闭的安全候选，业务程序更新下行仍未开放。
+- [香橙派业务程序发布与远程更新设计](architecture/orangepi-business-runtime-release-and-update-design.md)：区分出厂程序、可替换业务程序和永久设备管理层，记录九阶段迁移顺序；第一、二阶段已完成，第三阶段已在当前 v13 设备完成受控原位安装及在线低权限验收，v17 已完成离线构建；第四阶段的凭证激活、人工安全锁、MCU 维护交接协议、永久层卸载事实门禁及可断电恢复的维护事务已形成默认关闭基础，但新增代码尚未进入 v17，业务程序更新下行仍未开放。
 - [V52 设备自注册、厂家初始袋与按需远程维护](architecture/device-enrollment-factory-acceptance-remote-support-v52.md)
 - [V52 设备出厂与远程维护代码审查](review/device-enrollment-factory-remote-support-v52-review-2026-08-15.md)
 - [V53 投递自动审核与自动提现](architecture/delivery-auto-review-and-withdrawal-v53.md)

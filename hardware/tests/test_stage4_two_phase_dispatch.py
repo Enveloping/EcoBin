@@ -18,6 +18,19 @@ ACTION_KEY = "DELIVERY:START:0"
 DISPATCH_TOKEN = "stage4-test-dispatch-token-0123456789abcdef"
 
 
+def _activate_candidate(updater: UpdaterStore) -> None:
+    status = updater.get_status()
+    updater.activate_stage4_job_gate(
+        {
+            "operationUid": "90000000-0000-4000-8000-000000000004",
+            "evidenceDigest": "f" * 64,
+            "expectedManagementStateSequence": status[
+                "managementStateSequence"
+            ],
+        }
+    )
+
+
 class ContextStore:
     def __init__(self) -> None:
         self.contexts: list[dict] = []
@@ -234,7 +247,7 @@ def _manager(
         enable_stage4_candidate=True,
     )
     updater.initialize()
-    updater.transition_job_gate("OPEN")
+    _activate_candidate(updater)
     client = StoreClient(
         updater,
         lose_arm_responses=lose_arm_responses,

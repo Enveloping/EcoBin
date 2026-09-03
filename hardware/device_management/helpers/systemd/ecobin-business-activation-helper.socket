@@ -1,5 +1,6 @@
 [Unit]
 Description=EcoBin on-demand business activation helper socket
+ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
 
 [Socket]
 ListenStream=/run/ecobin/privileged/business-activation.sock

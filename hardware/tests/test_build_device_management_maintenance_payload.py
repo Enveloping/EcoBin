@@ -20,6 +20,7 @@ from system.device_management_maintenance_installer import (
     MANIFEST_NAME,
     PREFLIGHT_PAYLOAD,
     RELEASE_ENV_PAYLOAD,
+    RUNTIME_START_FENCE_CONDITION,
     SYSUSERS_PAYLOAD,
     TMPFILES_PAYLOAD,
     _expected_fixed_payload_files,
@@ -57,11 +58,26 @@ def _make_hardware_source(root: Path) -> None:
             f"helper:{name}\n".encode(),
         )
     for name in MAIN_UNIT_FILES:
-        _write(root / name, f"main-unit:{name}\n".encode())
+        _write(
+            root / name,
+            (
+                "[Unit]\n"
+                f"Description=Test fixture for {name}\n"
+                f"{RUNTIME_START_FENCE_CONDITION}\n"
+                "\n[Service]\n"
+                "ExecStart=/bin/true\n"
+            ).encode(),
+        )
     for name in HELPER_UNIT_FILES:
         _write(
             root / "device_management/helpers/systemd" / name,
-            f"helper-unit:{name}\n".encode(),
+            (
+                "[Unit]\n"
+                f"Description=Test fixture for {name}\n"
+                f"{RUNTIME_START_FENCE_CONDITION}\n"
+                "\n[Service]\n"
+                "ExecStart=/bin/true\n"
+            ).encode(),
         )
     _write(
         root / "device_management/config/sysusers.d/ecobin-device-runtime.conf",

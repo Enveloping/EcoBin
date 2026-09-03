@@ -515,6 +515,7 @@ class ImageToolingTest(unittest.TestCase):
         self.assertIn("components/device-updater/helpers", builder)
         self.assertIn("components/device-updater/systemd", builder)
         self.assertIn("device_management_preflight.py", builder)
+        self.assertIn("updater_control_cli.py", builder)
         self.assertIn("business_activation_primitives.py", builder)
         self.assertIn("mcu_flash_primitives.py", builder)
         self.assertIn("mcu_flash_recovery.py", builder)
