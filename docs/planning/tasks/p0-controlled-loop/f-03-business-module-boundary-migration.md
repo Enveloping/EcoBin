@@ -13,6 +13,10 @@ implementation_authorized: true
 
 # F-03｜funds、device、recycling、operations 边界搬迁
 
+> [!NOTE]
+> 本任务完成时的目标是九模块。2026-07-29 清理不可达旧栈后，`ecobin-common` 已退出，
+> 当前根 reactor 为八模块；本文件其余内容保留为原任务验收口径。
+
 > `status: done` 表示 F-03 已按授权完成旧行为等价的模块边界搬迁；目标新业务仍由
 > 后续纵向任务实施。
 

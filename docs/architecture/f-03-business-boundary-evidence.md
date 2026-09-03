@@ -3,6 +3,10 @@
 > 验证日期：2026-07-25
 > 任务：[F-03 funds、device、recycling、operations 边界搬迁](../planning/tasks/p0-controlled-loop/f-03-business-module-boundary-migration.md)
 
+> [!NOTE]
+> 本文记录 F-03 验收时的九模块历史证据。2026-07-29 清理不可达旧栈后，
+> `ecobin-common` 及其五个旧栈专用类型已删除，当前根 reactor 为八模块；下文原始验收数字不作改写。
+
 ## 1. 实施结果
 
 - 根 Maven reactor 已收口为 common、framework、identity、device、funds、recycling、

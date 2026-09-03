@@ -19,7 +19,7 @@
 - `rec_`：投递交易、清运、袋和容量，由 recycling 模块写入。
 - `fund_`：钱包、机构额度、充值、提现和微信资金渠道事实，由 funds 模块写入。
 - `ops_`：可靠执行、审计、隔离、对账和告警，由 operations 模块写入。
-- common、framework、integration 和 bootstrap 不拥有业务表；integration 只把外部协议转换为 inbox 或业务端口输入，Flyway 集中放在 bootstrap 不改变表的业务所有权。
+- framework、integration 和 bootstrap 不拥有业务表；integration 只把外部协议转换为 inbox 或业务端口输入，Flyway 集中放在 bootstrap 不改变表的业务所有权。
 - 第一版 V1 只创建 M0 闭环和其正确性约束实际需要的表；M1/M2 能力以后通过前向迁移增加，不创建没有用例、只有“以后可能用到”的空表。
 - `ops_` 记录可能是平台级、租户级、机构级或暂未识别作用域，因此作为 D-002 的技术控制面例外：从 MyBatis 自动租户拦截中排除，只能通过 operations 端口访问。`scope_kind=TENANT` 时必须只有 `tenant_id`，`scope_kind=ORGANIZATION` 时必须同时具有 `tenant_id + organization_id` 并满足复合外键，`PLATFORM/UNRESOLVED` 时两者都为空；任何情况都不得伪造默认租户。
 - 2026-07-24 收口并已执行的首版共 **83 张历史表**：identity 14 张、device 16 张、recycling 24 张、funds 20 张、operations 9 张。2026-08-01 取消清运审核并允许清运记录直接修改后，V20 删除 `rec_clean_revision`、新增 `rec_clean_record_change`，目标业务清单仍为 **83 张表**（recycling 24 张）；V20 实施前实际 schema 同样是 83 张，但两套清运结构语义不同。原投递周期候选表已删除；会话内继续开关门只属于香橙派本地流程，不以另一张云端表保存。

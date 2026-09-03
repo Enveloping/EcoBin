@@ -13,6 +13,10 @@ implementation_authorized: true
 
 # F-01｜九模块骨架与 integration 提取
 
+> [!NOTE]
+> 任务名称和结果描述的是 2026-07-24 的历史实施范围。2026-07-29 清理不可达旧栈后，
+> `ecobin-common` 已退出，当前根 reactor 为八模块。
+
 > `status: done`：H-01 回退基线已经完成，九个目标模块骨架和 integration 边界已经
 > 实施并通过全量构建与测试；旧 system/business 只作为 F-02/F-03 的显式过渡模块保留。
 

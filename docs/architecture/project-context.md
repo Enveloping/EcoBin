@@ -301,8 +301,7 @@
 
 EcoBin 是智慧环保回收箱系统：Spring Boot 4.0.6 + Java 21 的 Maven 多模块后端，配套 Web 管理后台、微信小程序和香橙派设备程序。
 
-- `ecobin-common`：极小纯 Java 共享内核，只保留响应、异常和通用角色值。
-- `ecobin-framework`：Security/JWT、多租户和通用基础设施；F-01 后不再保存外部平台实现。
+- `ecobin-framework`：Security/JWT、通用 Web 响应与异常契约、多租户和通用基础设施；F-01 后不再保存外部平台实现。
 - `ecobin-module-identity`：F-02 已承接原 system 的管理员、租户、用户和认证行为，并建立可信执行上下文与公开身份边界。
 - `ecobin-module-device`：设备、投口、设备会话，并通过迁移期公开端口提供设备查询与统计。
 - `ecobin-module-funds`：F-03 已承接旧钱包、提现行为，并保留 F-02 首次注册事务参与端口。
@@ -316,9 +315,10 @@ EcoBin 是智慧环保回收箱系统：Spring Boot 4.0.6 + Java 21 的 Maven �
 
 后端结构、命令和通用约定见根目录 `CLAUDE.md`。
 
-当前已是 common、framework、identity、device、funds、recycling、operations、
-integration、bootstrap 共 9 个模块的终态物理 reactor；原 `system` 已在 F-02 退出，
-原 `business` 已在 F-03 搬迁并退出，跨业务模块只导入 `.api`。完整依赖和事务规则见
+当前已是 framework、identity、device、funds、recycling、operations、integration、
+bootstrap 共 8 个模块的终态物理 reactor；原 `system` 已在 F-02 退出，原 `business`
+已在 F-03 搬迁并退出，`ecobin-common` 又随不可达旧栈于 2026-07-29 删除。跨业务模块只
+导入 `.api`，通用 Web 技术契约由 framework 提供。完整依赖和事务规则见
 [`system-architecture-draft.md`](../planning/system-architecture-draft.md) 与
 [`I-051～I-055`](../planning/interface-design/11-module-ports-machine-contracts-i051-i055.md)。
 
@@ -545,7 +545,7 @@ P0-FOLLOWUP-01；H-03 的 F-11 依赖已经解除并转为 `ready`，V-09 的 V-
 
 实施入口已经明确：
 
-- 保持旧行为的最终 9 模块物理边界已经完成，后续目标业务必须在该边界内通过公开
+- 当前最终 8 模块物理边界已经完成，后续目标业务必须在该边界内通过公开
   `.api` 端口实现，不能恢复旧 system/business 大模块；
 - V1～V31 已完成前向迁移和 MySQL 权威验证；V32～V51 保留既有身份、设备、可靠任务和资金状态演进；V52 增加设备自注册、OneNet 供应、厂家验收小程序、初始袋标签占用和按需远程维护；V53 增加投递自动审核、提现审核规则与自动提现决策；V54 增加自动审核金额阈值和订单快照；V55 增加 MCU 固件发布、灰度部署和进度事实；V56 增加封存授权与设备验收代次；V57 取消微信/设备外部时间与后端时间之间的数据库先后约束，增加显式时钟质量和授权展示包有效期；V58 显式拒绝封存空时钟质量并允许微信缺失渠道创建时间时继续收敛；V59 将单批袋码和批内序号上限扩大到 500；V60 增加验收证据及设备资产的 MCU 远程升级线路能力三态事实；V61 为可靠任务尝试增加可空的外部技术请求号诊断字段；V62 为出厂进度轮询增加按设备资产和任务类型定位可靠任务的非唯一索引；V63 增加业务发布声明、永久管理层与设备软件实际状态、管理架构代次和兼容性投影接收面；F-07 又完成固定 V1 marker，当前代码已推进为
   V63 epoch/readiness guard、最小 `ecobin_app` 空业务库启动和 Fake 外联硬阻断；

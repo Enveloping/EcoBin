@@ -56,13 +56,14 @@ ecobin-bootstrap
 - 当前没有独立目标实例、V1～V10、数据库身份供应、epoch guard 或成对切换设施。
 
 这些事实说明目标能力不能通过在旧 `business` 和旧表上继续加字段、Controller 或状态值完成。
-本节保留为实施前审计证据，不代表 2026-07-24 的当前 reactor。
+本节保留为实施前审计证据，不代表后续已经完成收口的当前 reactor。
 
-### 2.2 截至 2026-07-26 的实施进展
+### 2.2 截至 2026-07-29 的实施进展
 
 - F-01 已建立九个目标模块，F-02 已把旧 system 行为迁入 identity 并使 system 退出；
-  F-03 已把旧 business 行为迁入 funds、recycling、operations，并收口为最终 9 子模块
-  reactor。
+  F-03 已把旧 business 行为迁入 funds、recycling、operations，并一度收口为 9 子模块
+  reactor。2026-07-29 清理不可达旧栈时，`ecobin-common` 中仅供旧栈使用的五个类型与
+  模块本身一并删除，当前最终 reactor 为 8 个子模块。
 - 首次注册同事务参与端口、不可伪造 FK 构造引用和可信会话上下文已经实施；F-03 又建立
   device/funds/recycling 的迁移期公开端口和模块边界门禁，JDK 21 下共 82 项 Java
   测试通过。
@@ -81,7 +82,7 @@ ecobin-bootstrap
 
 只有同时满足以下条件，后续纵向业务切片才可以在目标结构上实施：
 
-- 根 POM 只声明 9 个目标模块，旧 `system`、`business` 不再存在；
+- 根 POM 只声明 8 个当前模块，旧 `common`、`system`、`business` 不再存在；
 - 每个模块只导入允许的上游模块，跨业务模块只导入 `.api`；
 - OneNet、COS、微信 SDK 及协议实现只位于 `ecobin-integration`；
 - 每个业务模块显式配置自己的 Mapper 扫描；bootstrap 不再通配扫描；
@@ -92,14 +93,13 @@ ecobin-bootstrap
 - 正式 seed 用例可以幂等创建试点组织结构，但不能伪造重量基准、余额或业务历史；
 - Fake 外部适配器启动时不会接收真实 OneNet、COS、微信入口或调用真实设备/资金渠道。
 
-## 3. 九模块物理施工图
+## 3. 当前八模块物理施工图
 
 ### 3.1 POM 依赖
 
 依赖方向固定如下，箭头表示“左侧依赖右侧”：
 
 ```text
-framework  → common
 identity   → framework
 device     → framework + identity
 funds      → framework + identity
@@ -113,8 +113,7 @@ bootstrap  → 全部模块
 
 | 模块 | 详细设计要求 |
 |---|---|
-| `ecobin-common` | 纯 Java、小型、无 Spring/MyBatis/外部 SDK；只保留真正跨域稳定的值类型、错误契约和通用响应。 |
-| `ecobin-framework` | Spring/Web/Security/MyBatis/事务、可信执行上下文和稳定技术端口；不得保存 OneNet、COS、微信业务适配器。 |
+| `ecobin-framework` | Spring/Web/Security/MyBatis/事务、通用 Web 响应与异常契约、可信执行上下文和稳定技术端口；不得保存 OneNet、COS、微信业务适配器。 |
 | `ecobin-module-identity` | 租户、机构、小程序、人员、用户、认证、会话、能力与授权。 |
 | `ecobin-module-device` | 资产、部署、投口、配置、运行状态、占位、投递 session、设备命令与物理证据。 |
 | `ecobin-module-funds` | 用户钱包、机构账户、充值、提现、微信支付/转账业务状态和不可变资金明细。 |
@@ -414,7 +413,7 @@ PREPARED
 | 草案 ID | 标题 | 类型 | 依赖 | 独立验收结果 |
 |---|---|---|---|---|
 | FND-01 | 旧栈恢复基线与所有权盘点 | HITL | 无 | 旧应用+旧库在隔离环境整对恢复，实例/卷/入口清单完整。 |
-| FND-02 | 九模块边界搬迁 | AFK | 当前构建基线 | 9 POM、显式 MapperScan、跨模块仅 `.api`、旧行为测试通过。 |
+| FND-02 | 模块边界搬迁 | AFK | 当前构建基线 | 当前 8 POM、显式 MapperScan、跨模块仅 `.api`、旧 `common/system/business` 均不再进入构建。 |
 | FND-03 | 目标 MySQL 8.4 与 V1～V10 | AFK + 主审 | 冻结数据库基线 | 两个空库安装一致，83 表及约束矩阵通过，失败半库不能启动。 |
 | FND-04 | 数据库身份、GRANT 与 epoch guard | HITL | FND-03 | 正向 DML 与权限负测通过，运行容器无 owner 凭证，启动不迁移。 |
 | FND-05 | inbox 与可靠任务 tracer | AFK | FND-02、FND-03 | 收件/任务原子、租约接管、崩溃重投和业务回滚均通过真实 MySQL 测试。 |

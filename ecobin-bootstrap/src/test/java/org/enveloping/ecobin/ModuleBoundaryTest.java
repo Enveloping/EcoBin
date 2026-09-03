@@ -91,6 +91,7 @@ class ModuleBoundaryTest {
                 "ecobin-module-operations",
                 "ecobin-integration",
                 "ecobin-bootstrap"), modules);
+        assertFalse(Files.exists(root.resolve("ecobin-common/pom.xml")));
         assertFalse(Files.exists(root.resolve("ecobin-module-system/pom.xml")));
         assertFalse(Files.exists(root.resolve("ecobin-module-business/pom.xml")));
         assertFalse(rootPom.contains("ecobin-module-system"));

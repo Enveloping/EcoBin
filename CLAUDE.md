@@ -24,7 +24,7 @@
 - 香橙派反向 SSH 由独立 `ecobin-remote-support.service` 持有；普通硬件进程只通过本地 Socket 下发意图并桥接状态，重启 `ecobin-hardware.service` 不应断开现有维护连接。首次切换和凭据边界见 [`hardware/docs/enrollment-and-remote-support.md`](hardware/docs/enrollment-and-remote-support.md)。
 - V53 投递自动审核和审核后自动提现以 [`delivery-auto-review-and-withdrawal-v53.md`](docs/architecture/delivery-auto-review-and-withdrawal-v53.md) 为准：机构分别维护投递审核规则和提现审核规则，每次保存由系统自动生成不可变版本；异常投递始终转人工；自动提现只处理本次首次审核产生的正返现，业务条件不满足时安全跳过且不事后补建。
 - V54 投递审核金额阈值和 Web 配置中心以 [`delivery-review-amount-limit-and-configuration-center-v54.md`](docs/architecture/delivery-review-amount-limit-and-configuration-center-v54.md) 为准：自动模式必须设置单笔结算金额上限，超过上限的正常订单等待人工审核；提现复用现有单次硬上限；Web 只收拢投递审核和提现两类机构规则。
-- 当前仓库已由 F-03 收口为最终九模块 reactor。独立目标数据库迁移已推进到 V63：V52 共 112 张领域表，V53 新增自动提现决策事实，V54 扩展投递规则和订单快照，V55 新增 5 张 MCU 固件发布/灰度表，V56 新增封存授权表和设备验收代次，V57 将微信/设备外部时间改为诊断证据并补充授权展示包有效期，V58 补强空时钟质量、缺失微信创建时间和授权恢复不变量，V59 将单批袋码及批内序号上限扩展为 500，V60 增加可空的 MCU 远程升级线路能力事实，V61 为可靠任务尝试增加 OneNet 等外部平台技术请求号诊断字段，V62 为出厂进度查询增加可靠任务定位索引，V63 增加设备软件实际状态、管理架构代次、业务准入和兼容性投影；当前为 123 张领域表、76 条有效权限定义。2026-08-29 已在全新腾讯云 CDB 空库完成 V1～V60、最小权限账号和初始超级管理员供应；当前现场 Web/后端实际写入的现用测试库也已核对为 V60，部署要求 V63 的新后端前必须先依次完成 V61、V62、V63 前向迁移，但生产 CDB 入口切换、旧业务数据迁移和 COS 迁移均未执行。项目负责人明确把现用数据库和现用 COS 视为测试环境：租户/机构分配、配置、皮重、投递、清运等流程继续在这里验证；只有测试完成后才迁移并开始按生产环境对待，旧测试业务数据仍不迁移。指定设备已永久分配测试租户和机构，配置 v1 精确 `APPLIED`，初始空袋皮重已完成，当前下一步是小程序扫码投递。现场事实见 [`h-02-target-database-evidence.md`](docs/operations/h-02-target-database-evidence.md) 和 [`h-03-fixed-frame-mcu-hil-acceptance.md`](docs/planning/tasks/p0-controlled-loop/h-03-fixed-frame-mcu-hil-acceptance.md)。
+- 当前仓库是最终八模块 reactor。F-03 曾收口为包含 `ecobin-common` 的九模块结构；2026-07-29 清理不可达旧栈时，`ecobin-common` 中仅服务旧栈的五个类型与模块本身一并删除，通用 Web 响应和异常契约由 framework 承担，业务值类型继续由各所有权模块的 `.api` 定义。独立目标数据库迁移已推进到 V63：V52 共 112 张领域表，V53 新增自动提现决策事实，V54 扩展投递规则和订单快照，V55 新增 5 张 MCU 固件发布/灰度表，V56 新增封存授权表和设备验收代次，V57 将微信/设备外部时间改为诊断证据并补充授权展示包有效期，V58 补强空时钟质量、缺失微信创建时间和授权恢复不变量，V59 将单批袋码及批内序号上限扩展为 500，V60 增加可空的 MCU 远程升级线路能力事实，V61 为可靠任务尝试增加 OneNet 等外部平台技术请求号诊断字段，V62 为出厂进度查询增加可靠任务定位索引，V63 增加设备软件实际状态、管理架构代次、业务准入和兼容性投影；当前为 123 张领域表、76 条有效权限定义。2026-08-29 已在全新腾讯云 CDB 空库完成 V1～V60、最小权限账号和初始超级管理员供应；当前现场 Web/后端实际写入的现用测试库也已核对为 V60，部署要求 V63 的新后端前必须先依次完成 V61、V62、V63 前向迁移，但生产 CDB 入口切换、旧业务数据迁移和 COS 迁移均未执行。项目负责人明确把现用数据库和现用 COS 视为测试环境：租户/机构分配、配置、皮重、投递、清运等流程继续在这里验证；只有测试完成后才迁移并开始按生产环境对待，旧测试业务数据仍不迁移。指定设备已永久分配测试租户和机构，配置 v1 精确 `APPLIED`，初始空袋皮重已完成，当前下一步是小程序扫码投递。现场事实见 [`h-02-target-database-evidence.md`](docs/operations/h-02-target-database-evidence.md) 和 [`h-03-fixed-frame-mcu-hil-acceptance.md`](docs/planning/tasks/p0-controlled-loop/h-03-fixed-frame-mcu-hil-acceptance.md)。
 - 近期交付重点仍是公司自用的受控 P0：用户投递及其审核返现、清运换袋、机构充值和真实微信零钱提现闭环。真实资金、物理门控、租户/机构隔离和失败恢复不能因时间紧张而省略。
 - P0 是近期承诺范围，M0 是 P0 通过受控真实验收后的里程碑，M1 才是公司自用正式上线准备；三者不能混用。
 
@@ -47,7 +47,7 @@
 
 | 范围 | 当前运行事实 | 冻结目标 |
 |---|---|---|
-| 后端模块 | 最终 9 模块 reactor 已完成；system/business 已退出，跨业务模块只经 `.api`，外部适配位于 integration | 9 模块物理边界已完成；后续在冻结边界内实现目标纵向业务 |
+| 后端模块 | 最终 8 模块 reactor 已完成；common/system/business 已退出，跨业务模块只经 `.api`，外部适配位于 integration | 8 模块物理边界已完成；后续在冻结边界内实现目标纵向业务 |
 | 数据库 | 旧栈恢复单元仍是 V1～V14/13 张主要表；目标 V1～V63 为 123 张领域表，迁移只由独立 Maven 作业执行，新运行制品不含 Flyway 运行库或迁移脚本，并以固定 V1 marker + V63 guard 检查；服务器实际版本部署前必须现场核对并补齐到 V63 | 新旧应用/数据库成对隔离；V36～V53 保留既有永久资产、共享小程序、设备契约、资金状态与自动审核/提现演进；V54 增加投递自动审核金额阈值及订单快照；V55 增加 MCU 固件发布、灰度部署和进度事实；V56 增加封存授权与设备验收代次；V57 取消跨机器时钟的数据库先后约束，增加显式时钟质量和微信授权展示包有效期；V58 补强恢复不变量和缺失渠道时间的终态收敛；V59 扩展单批袋码约束至 500；V60 增加 MCU 远程升级线路能力三态事实；V61 增加可靠任务尝试的外部技术请求号诊断字段；V62 增加出厂进度可靠任务定位索引；V63 增加设备软件接收事实、管理代次、业务准入与兼容性投影 |
 | Web 会话 | `localStorage` Bearer JWT，旧角色/路由 | 同源 `Secure + HttpOnly` Cookie、SPA CSRF、服务端 `jti` 会话和实时能力复核 |
 | 小程序 | 旧普通用户/清运身份与接口 | 普通/清运 `aud=miniapp`；工作人员经 Web 人工绑定后用独立 `aud=miniapp-staff` 免密进入当前机构精简管理页 |
@@ -65,10 +65,9 @@
 
 > 模块化单体 Spring Boot + 单一 MySQL 主库 + 香橙派边缘协调器 + MCU 实时控制 + OneNet/COS/微信外部适配器
 
-目标 Maven 模块：
+当前 Maven 模块：
 
-- `ecobin-common`：极小纯 Java 共享内核；
-- `ecobin-framework`：Spring/Web/Security、可信执行上下文、租户/机构防线、MyBatis 和事务骨架；
+- `ecobin-framework`：Spring/Web/Security、通用响应与异常契约、可信执行上下文、租户/机构防线、MyBatis 和事务骨架；
 - `ecobin-module-identity`：平台、租户、机构、工作人员、机构用户、认证和授权；
 - `ecobin-module-device`：永久物理资产及归属、自动机器验收、投口、配置/健康、整机占位、投递会话和设备结果；
 - `ecobin-module-funds`：用户钱包、机构资金、充值、免确认收款授权、提现和微信转账业务状态；
@@ -151,7 +150,7 @@
 详细设计和任务拆分至少要回答：
 
 1. 首个纵向切片的入口、应用用例、模块端口、表、可靠任务、边缘状态和验收证据；
-2. 目标 9 模块的物理创建、代码搬迁和旧 `system/business` 删除顺序；
+2. 当前 8 模块的物理边界、代码搬迁和旧 `common/system/business` 删除结果；
 3. 新数据库 V1～V63 的 DDL/Flyway、种子数据、数据库账号和旧新应用/数据库成对切换；
 4. HTTP OpenAPI、OneNet Schema、UART Registry 和各端实现的先后关系；
 5. 后端、Web、小程序、香橙派和 MCU 每个任务的依赖、完成条件与手工联调点；
