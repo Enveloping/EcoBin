@@ -93,6 +93,7 @@
 - [投递全链路联调复盘与复跑手册](operations/delivery-e2e-integration-retrospective-2026-08-02.md)：V25 真实云链路、模拟 MCU/双摄的故障分层、复跑顺序和证据清单。
 - [香橙派 v17 后端允许列表部署记录](operations/orangepi-v17-backend-allowlist-deployment-2026-09-03.md)：记录 v17 加入、未写卡 v15/v16 移除、可恢复配置备份以及生产重载和健康核验结果，不包含运行秘密。
 - [香橙派 v19 后端允许列表部署记录](operations/orangepi-v19-backend-allowlist-deployment-2026-09-03.md)：记录第四阶段镜像身份替换 v17、v15/v16/v18 继续排除、并发安全回退、可恢复配置备份以及生产重载和健康核验结果；允许版本不代表已经写卡或通过真机验收。
+- [香橙派 v20 后端允许列表部署记录](operations/orangepi-v20-backend-allowlist-deployment-2026-09-03.md)：记录在保留当前 v19 的同时追加 v20、可恢复配置备份、生产重载和独立健康核验；允许版本不代表真实 MCU 更新已通过或远程更新已开放。
 
 ### `flows/` — 流程图与可视化说明
 

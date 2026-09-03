@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-03T13:30:39.451Z",
+  "catalogedAt": "2026-09-03T13:39:58.372Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -486,8 +486,8 @@
     },
     {
       "path": "evidence/hil-stage4-mcu-updater-20260903-20/README.md",
-      "bytes": 7521,
-      "sha256": "2685d5ee2c65a093814888ac005ce821c8fe110ed7025b1425eb45b8962dd2e7"
+      "bytes": 7625,
+      "sha256": "503cd5fe91e121e78dd3ab75f00d10d16de0884b2c9b80d9f6678ee3800f7fca"
     },
     {
       "path": "evidence/hil-updater-directory-groups-20260903-17/README.md",
@@ -793,6 +793,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "0ccd6a0bdcdbd8f938cd950eeffc2e6b8b3d4b8a7eb9bdd4147161cf5b438d54"
+    },
+    {
+      "path": "local/deploy-v20-backend-allowlist.sh",
+      "bytes": 1452,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a22d761b64154659acafafdbfe50c9f36cb6c53f7cd941873c7cbff35cffc5e8"
     },
     {
       "path": "local/factory-secret/builds/hil-factory-20260827-01/ecobin-orangepi-zero3-0.1.0-single-card.20260827.1-hil-factory.img",

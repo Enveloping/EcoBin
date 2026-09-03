@@ -101,6 +101,22 @@
 > 信任策略仍未完成。
 
 > [!IMPORTANT]
+> 2026-09-03，提交 `119fa06d9ae05ba408e4b43fb37ebed52ed459d0` 完成第四阶段永久 MCU
+> 更新仓库候选，并已构建 v20 无秘密候选和受控 HIL 镜像。镜像版本为
+> `0.1.0-single-card.20260903.20`，业务运行时为 `hardware-runtime-20260903-20`；候选/HIL
+> SHA-256 分别为 `43fc3c778099f13b447fd7268bbc939a75724f072a060408dc814aa4d4494e38` 和
+> `ae7d4f9aa2321477311a82e162a0ee5d1d132acf0085308088f82069a96eb99b`。Windows 全量
+> `1809 passed, 101 skipped, 5 subtests passed`、Linux/Python 3.11 专项 159 项以及镜像
+> 默认关闭、无网络、本机固件队列边界审计通过。证据见
+> [`hil-stage4-mcu-updater-20260903-20`](../../hardware/image-artifacts/evidence/hil-stage4-mcu-updater-20260903-20/README.md)。
+>
+> 生产允许列表已通过配置提交 `0da1a25c` 在保留 v19 的同时追加
+> `hardware-runtime-20260903-20`，生产预检、双容器健康、回环请求和秘密隔离复核通过；记录见
+> [`v20 后端允许列表部署记录`](../operations/orangepi-v20-backend-allowlist-deployment-2026-09-03.md)。
+> v20 仍未写卡或进行真实 MCU 烧录、回滚和断电故障注入，生产设备继续运行 v19，通信代理
+> 所有权切换、候选更新服务和全部远程更新入口保持关闭。
+
+> [!IMPORTANT]
 > 2026-08-31 已实施设备出厂接入的双观察面：香橙派热点网页用九节点移动端进度链展示
 > P7、蜂窝/校时、注册/K1 清理、正式服务/OneNet、厂家绑袋、P8、云端判定/授权和单向封存；
 > 平台设备详情用一致性快照展示袋码数量、P8 可靠任务、权威绑定证据、最新历史证据、封存
