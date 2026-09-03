@@ -35,8 +35,9 @@ from config import (
     PHOTO_GRANT_EXPIRY_SKEW_SECONDS, PHOTO_RETENTION_HOURS,
     TRUSTED_COS_ENVIRONMENT, COS_REQUEST_TIMEOUT_SECONDS,
     REMOTE_SUPPORT_CONTROL_SOCKET,
-    DEVICE_CREDENTIALS,
-    MCU_UPDATE_ENABLED, MCU_BOOT0_WPI, MCU_RESET_WPI,
+    DEVICE_CREDENTIALS, BUSINESS_IDENTITY,
+    MCU_UPDATE_ENABLED, MCU_REMOTE_UPDATE_CAPABLE,
+    MCU_BOOT0_WPI, MCU_RESET_WPI,
     MCU_BOOT0_ACTIVE_LEVEL, MCU_RESET_ACTIVE_LEVEL,
     MCU_HARDWARE_COMPATIBILITY, MCU_SIGNING_PUBLIC_KEYS_DIR,
     MCU_FIRMWARE_CACHE_DIR, STM32FLASH_PATH, GPIO_PATH,
@@ -51,8 +52,12 @@ from edge_identity import (
 )
 from business_message_handler import BusinessMessageHandler
 from business_outbox_relay import BusinessOutboxRelay
+from business_control import (
+    build_business_control_service_from_environment,
+)
 from device_identity import DeviceIdentity
 from direct_onenet_transport import DirectOneNetTransport
+from local_proxy_cloud_transport import LocalProxyCloudTransport
 from photo_manager import PhotoManager
 from work_manager import CleanUnlockDecisionDeferred, WorkManager
 from job_safety import JobSafetyError, build_job_safety_from_environment
@@ -63,6 +68,7 @@ from fixed_frame_health_recovery import (
     FixedFrameHealthRecoveryController,
     runtime_uart_state,
 )
+from fixed_frame_mcu_maintenance import FixedFrameMcuMaintenancePort
 from factory_progress import (
     DEFAULT_RUNTIME_PROGRESS_PATH,
     RuntimeProgressWriter,
@@ -102,8 +108,15 @@ _SYSTEMD_READY_BOOT_STATUSES = frozenset(
         # work, but the Edge process must remain available to report and
         # recover that update.  It is therefore process-ready for systemd.
         "MCU_UPDATE_FAILED_LOCKED",
+        # The permanent updater owns the job gate while this process exposes
+        # only the bounded MCU observe/quiesce/verify control surface.
+        "MCU_UPDATE_MAINTENANCE",
     }
 )
+
+CLOUD_TRANSPORT_MODE_ENVIRONMENT = "ECOBIN_CLOUD_TRANSPORT_MODE"
+COMMUNICATION_SOCKET_ENVIRONMENT = "ECOBIN_COMMUNICATION_SOCKET"
+DEFAULT_COMMUNICATION_SOCKET = "/run/ecobin/communication/control.sock"
 
 
 def notify_systemd_ready(boot_status: str) -> None:
@@ -143,6 +156,41 @@ def _require_stage4_mcu_update_boundary(
             "MCU updater; MCU update orchestration has not moved to the "
             "permanent updater"
         )
+
+
+def _build_cloud_transport(*, job_permit_enforced: bool):
+    """Build direct or permanent-agent transport from one explicit mode."""
+
+    mode = os.getenv(CLOUD_TRANSPORT_MODE_ENVIRONMENT, "direct").strip().lower()
+    if mode == "direct":
+        return (
+            DirectOneNetTransport(
+                product_id=PRODUCT_ID,
+                device_name=DEVICE_NAME,
+                device_key=DEVICE_KEY,
+                mqtt_host=MQTT_HOST,
+                mqtt_port=MQTT_PORT,
+                clean_session=MQTT_CLEAN_SESSION,
+            ),
+            False,
+        )
+    if mode != "local-proxy":
+        raise ValueError(
+            f"{CLOUD_TRANSPORT_MODE_ENVIRONMENT} must be direct or local-proxy"
+        )
+    if not job_permit_enforced:
+        raise RuntimeError(
+            "local cloud proxy requires the permanent job gate before cut-over"
+        )
+    socket_path = os.getenv(
+        COMMUNICATION_SOCKET_ENVIRONMENT,
+        DEFAULT_COMMUNICATION_SOCKET,
+    ).strip()
+    if not socket_path or not Path(socket_path).is_absolute():
+        raise ValueError(
+            f"{COMMUNICATION_SOCKET_ENVIRONMENT} must be an absolute path"
+        )
+    return LocalProxyCloudTransport(socket_path), True
 
 
 class EcoBinEdge:
@@ -190,9 +238,13 @@ class EcoBinEdge:
         )
         _seed_enrolled_device_entry_url(
             self.store,
-            DEVICE_CREDENTIALS.device_entry_url
-            if DEVICE_CREDENTIALS is not None
-            else None,
+            (
+                DEVICE_CREDENTIALS.device_entry_url
+                if DEVICE_CREDENTIALS is not None
+                else BUSINESS_IDENTITY.device_entry_url
+                if BUSINESS_IDENTITY is not None
+                else None
+            ),
         )
 
         # -- 读取 boot ID --
@@ -214,13 +266,30 @@ class EcoBinEdge:
             MCU_SIMULATED,
             self.store.get_device_entry_url,
         )
-
-        # -- Current direct implementation of the stable cloud boundary --
-        self.cloud_transport = DirectOneNetTransport(
-            product_id=PRODUCT_ID, device_name=DEVICE_NAME,
-            device_key=DEVICE_KEY,
-            mqtt_host=MQTT_HOST, mqtt_port=MQTT_PORT,
-            clean_session=MQTT_CLEAN_SESSION,
+        maintenance_port = None
+        if MCU_PROTOCOL_MODE == "fixed-frame":
+            maintenance_port = FixedFrameMcuMaintenancePort(
+                self.uart,
+                active_work_reader=self.store.get_work_slot,
+                shutdown_requested=self._exit_flag.is_set,
+                maintenance_authorizer=(
+                    self.job_safety.require_mcu_maintenance
+                ),
+            )
+        # -- Selected implementation of the stable cloud boundary --
+        self.cloud_transport, cloud_proxy_enabled = _build_cloud_transport(
+            job_permit_enforced=self.job_safety.enabled,
+        )
+        self.business_control = (
+            build_business_control_service_from_environment(
+                release_version=EDGE_SOFTWARE_VERSION,
+                job_permit_enforced=self.job_safety.enabled,
+                mcu_maintenance_port=maintenance_port,
+                cloud_proxy_ingress=(
+                    self.cloud_transport if cloud_proxy_enabled else None
+                ),
+                enable_cloud_proxy_candidate=cloud_proxy_enabled,
+            )
         )
 
         # -- Photo Manager --
@@ -256,7 +325,7 @@ class EcoBinEdge:
             self.photo,
             self.cos_uploader,
             device_name=DEVICE_NAME,
-            mcu_remote_update_capable=MCU_UPDATE_ENABLED,
+            mcu_remote_update_capable=MCU_REMOTE_UPDATE_CAPABLE,
             edge_software_version=EDGE_SOFTWARE_VERSION,
             progress_callback=self._report_p8_progress,
         )
@@ -369,9 +438,10 @@ class EcoBinEdge:
         )
         self.cloud_transport.on_connected = self._on_cloud_connected
         self.cloud_transport.on_disconnected = self._on_cloud_disconnected
-        self.cloud_transport.on_mqtt_state_observed = (
-            self._on_direct_mqtt_state_observed
-        )
+        if isinstance(self.cloud_transport, DirectOneNetTransport):
+            self.cloud_transport.on_mqtt_state_observed = (
+                self._on_direct_mqtt_state_observed
+            )
 
         # -- Signal handlers --
         signal.signal(signal.SIGINT, self._on_signal)
@@ -381,6 +451,13 @@ class EcoBinEdge:
         logger.info("signal %d, shutting down...", signum)
         self._report_factory_progress(service_state="STOPPING")
         self._exit_flag.set()
+        if self.business_control is not None:
+            try:
+                self.business_control.request_stop()
+            except Exception:
+                logger.exception(
+                    "failed to fence the business local control service"
+                )
         try:
             self.cloud_transport.disconnect()
         except Exception:
@@ -525,6 +602,30 @@ class EcoBinEdge:
     def _factory_progress_loop(self):
         logger.info("factory progress heartbeat started")
         while not self._exit_flag.wait(5.0):
+            business_control = getattr(self, "business_control", None)
+            if (
+                business_control is not None
+                and not business_control.is_running
+            ):
+                failure = business_control.failure
+                logger.critical(
+                    "business local control service stopped unexpectedly: %s",
+                    (
+                        type(failure).__name__
+                        if failure is not None
+                        else "unknown failure"
+                    ),
+                )
+                self._report_factory_progress(
+                    service_state="FAILED",
+                    last_error_code="BUSINESS_CONTROL_FAILED",
+                )
+                self._exit_flag.set()
+                try:
+                    self.cloud_transport.disconnect()
+                except Exception:
+                    pass
+                break
             self._report_factory_progress(
                 uart_state=self._current_uart_progress_state(),
                 mqtt_state=(
@@ -553,11 +654,39 @@ class EcoBinEdge:
             p8_phase="IDLE",
             last_error_code=None,
         )
+        if self.business_control is not None:
+            try:
+                self.business_control.start()
+            except Exception:
+                logger.exception("business local control service failed to start")
+                self._report_factory_progress(
+                    service_state="FAILED",
+                    last_error_code="BUSINESS_CONTROL_FAILED",
+                )
+                self._shutdown()
+                return
         threading.Thread(
             target=self._factory_progress_loop,
             daemon=True,
             name="factory-progress",
         ).start()
+        try:
+            permanent_mcu_maintenance = (
+                self.job_safety.get_mcu_maintenance_status()
+            )
+        except JobSafetyError:
+            logger.exception("permanent MCU maintenance state is unavailable")
+            self._report_factory_progress(
+                service_state="FAILED",
+                last_error_code="MCU_MAINTENANCE_STATE_UNAVAILABLE",
+            )
+            self._shutdown()
+            return
+        if permanent_mcu_maintenance is not None:
+            self._run_permanent_mcu_maintenance_mode(
+                permanent_mcu_maintenance
+            )
+            return
         # Clock repair starts before business recovery, but clock uncertainty
         # is diagnostic only and never blocks physical work or event creation.
         self._poll_clock_health()
@@ -672,6 +801,19 @@ class EcoBinEdge:
         if self._exit_flag.is_set():
             self._shutdown()
             return
+        if self.business_control is not None:
+            try:
+                self.business_control.mark_ready()
+            except Exception:
+                logger.exception(
+                    "business local control service failed before readiness"
+                )
+                self._report_factory_progress(
+                    service_state="FAILED",
+                    last_error_code="BUSINESS_CONTROL_FAILED",
+                )
+                self._shutdown()
+                return
         notify_systemd_ready(result["status"])
         self._runtime_ready = True
 
@@ -689,6 +831,54 @@ class EcoBinEdge:
 
         # -- Selected cloud transport main loop --
         self.cloud_transport.run_forever()
+        self._shutdown()
+
+    def _run_permanent_mcu_maintenance_mode(
+        self,
+        maintenance: dict[str, object],
+    ) -> None:
+        """Stay alive only as the updater's unprivileged MCU verification arm."""
+
+        if self.business_control is None:
+            raise RuntimeError(
+                "permanent MCU maintenance requires the business control service"
+            )
+        update_uid = maintenance["updateUid"]
+        logger.warning(
+            "starting MCU maintenance-only business mode: update=%s",
+            update_uid,
+        )
+        try:
+            self.business_control.mark_ready()
+            notify_systemd_ready("MCU_UPDATE_MAINTENANCE")
+        except Exception:
+            logger.exception("MCU maintenance control surface failed readiness")
+            self._shutdown()
+            return
+        self._runtime_ready = True
+        self._report_factory_progress(
+            service_state="MAINTENANCE",
+            uart_state="STARTING",
+            mqtt_state="DISCONNECTED",
+            last_error_code=None,
+        )
+        while not self._exit_flag.wait(0.5):
+            if not self.business_control.is_running:
+                logger.critical("business control stopped during MCU maintenance")
+                break
+            try:
+                current = self.job_safety.get_mcu_maintenance_status()
+            except JobSafetyError:
+                logger.exception("lost permanent MCU maintenance state")
+                break
+            if current is None:
+                logger.info(
+                    "MCU maintenance released; restarting full business runtime"
+                )
+                break
+            if current["updateUid"] != update_uid:
+                logger.critical("MCU maintenance owner changed unexpectedly")
+                break
         self._shutdown()
 
     def _uart_event_loop(self):
@@ -1155,6 +1345,13 @@ class EcoBinEdge:
         self._runtime_ready = False
         self._report_factory_progress(service_state="STOPPING")
         self._exit_flag.set()
+        if self.business_control is not None:
+            try:
+                self.business_control.stop()
+            except Exception:
+                logger.exception(
+                    "business local control service did not stop cleanly"
+                )
         try:
             self.uart.close()
         except Exception:

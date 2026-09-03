@@ -136,6 +136,21 @@ class DisabledJobSafety:
     def complete_job(self, *args: Any, **kwargs: Any) -> None:
         del args, kwargs
 
+    def require_mcu_maintenance(
+        self,
+        update_uid: str,
+        stage: str,
+        **bindings: str,
+    ) -> None:
+        del update_uid, stage, bindings
+        raise JobSafetyError(
+            "MCU_MAINTENANCE_NOT_AUTHORIZED",
+            "permanent MCU maintenance is not enabled",
+        )
+
+    def get_mcu_maintenance_status(self) -> None:
+        return None
+
 
 class PermanentJobSafety:
     """Fail-closed caller for updater-owned permits and action receipts."""
@@ -532,6 +547,206 @@ class PermanentJobSafety:
                 str(result.get("errorCode") or "JOB_COMPLETION_UNCONFIRMED"),
                 "permanent updater did not confirm job completion",
             )
+
+    def require_mcu_maintenance(
+        self,
+        update_uid: str,
+        stage: str,
+        *,
+        handoff_uid: str,
+        observation_evidence_sha256: str | None = None,
+        quiesce_evidence_sha256: str | None = None,
+        expected_firmware_identity_sha256: str | None = None,
+        observed_flash_evidence_sha256: str | None = None,
+    ) -> None:
+        """Prove the updater journal authorizes this exact MCU handoff."""
+
+        owner_uid = _require_uuid4(update_uid, "updateUid")
+        expected_handoff_uid = _require_uuid4(handoff_uid, "handoffUid")
+        if stage not in {"QUIESCE", "VERIFY"}:
+            raise ValueError("MCU maintenance stage is invalid")
+        if stage == "QUIESCE":
+            expected_observation = _require_sha256(
+                observation_evidence_sha256,
+                "observationEvidenceSha256",
+            )
+            if any(
+                value is not None
+                for value in (
+                    quiesce_evidence_sha256,
+                    expected_firmware_identity_sha256,
+                    observed_flash_evidence_sha256,
+                )
+            ):
+                raise ValueError("MCU quiesce authorization bindings are invalid")
+            expected_quiesce = None
+            expected_identity = None
+            expected_flash = None
+        else:
+            expected_quiesce = _require_sha256(
+                quiesce_evidence_sha256,
+                "quiesceEvidenceSha256",
+            )
+            expected_identity = _require_sha256(
+                expected_firmware_identity_sha256,
+                "expectedFirmwareIdentitySha256",
+            )
+            expected_flash = _require_sha256(
+                observed_flash_evidence_sha256,
+                "observedFlashEvidenceSha256",
+            )
+            if observation_evidence_sha256 is not None:
+                raise ValueError("MCU verification authorization bindings are invalid")
+            expected_observation = None
+        status = self._request("GET_STATUS", {})
+        candidate = status.get("mcuUpdateCandidate")
+        active_update = (
+            candidate.get("activeUpdate")
+            if isinstance(candidate, Mapping)
+            else None
+        )
+        common = bool(
+            status.get("candidateActivationState") == "ACTIVE"
+            and status.get("stage4CandidateEnabled") is True
+            and status.get("jobGateMode") == "ENFORCED"
+            and status.get("jobPermitRpcEnabled") is True
+            and status.get("mcuUpdateCandidateEnabled") is True
+            and status.get("maintenanceOwnerUid") == owner_uid
+            and status.get("maintenanceType") == "MCU_FIRMWARE_UPDATE"
+            and isinstance(status.get("maintenanceFenceToken"), int)
+            and not isinstance(status.get("maintenanceFenceToken"), bool)
+            and status["maintenanceFenceToken"] > 0
+            and status.get("activeJobPermitCount") == 0
+            and status.get("unreconciledPhysicalActionCount") == 0
+            and isinstance(active_update, Mapping)
+            and active_update.get("updateUid") == owner_uid
+            and active_update.get("handoffUid") == expected_handoff_uid
+            and active_update.get("maintenanceFenceToken")
+            == status.get("maintenanceFenceToken")
+        )
+        if stage == "QUIESCE":
+            authorized = bool(
+                common
+                and status.get("jobGateState") == "MAINTENANCE"
+                and status.get("maintenanceState") == "MAINTENANCE"
+                and status.get("maintenancePhase") == "MAINTENANCE"
+                and status.get("reconciliationRequired") is False
+                and active_update.get("state")
+                in {
+                    "INITIAL_QUIESCE",
+                    "PREPARING_TARGET_RETRY",
+                    "PREPARING_ROLLBACK",
+                }
+                and active_update.get("observationEvidenceSha256")
+                == expected_observation
+            )
+        else:
+            update_state = active_update.get("state") if common else None
+            journal_identity = None
+            if update_state == "VERIFYING_TARGET":
+                journal_identity = active_update.get("targetIdentitySha256")
+            elif update_state == "VERIFYING_ROLLBACK":
+                journal_identity = active_update.get("rollbackIdentitySha256")
+            authorized = bool(
+                common
+                and status.get("jobGateState") in {"MAINTENANCE", "LOCKED"}
+                and status.get("maintenanceState")
+                in {"MAINTENANCE", "LOCKED"}
+                and status.get("maintenancePhase")
+                in {"MAINTENANCE", "LOCKED"}
+                and update_state in {"VERIFYING_TARGET", "VERIFYING_ROLLBACK"}
+                and active_update.get("quiesceEvidenceSha256")
+                == expected_quiesce
+                and active_update.get("lastFlashEvidenceSha256")
+                == expected_flash
+                and journal_identity == expected_identity
+            )
+        if not authorized:
+            raise JobSafetyError(
+                "MCU_MAINTENANCE_NOT_AUTHORIZED",
+                "permanent updater did not confirm a drained MCU maintenance fence",
+            )
+
+    def get_mcu_maintenance_status(self) -> dict[str, Any] | None:
+        """Return the exact permanent MCU hold used for control-only boot."""
+
+        status = self._request("GET_STATUS", {})
+        if status.get("maintenanceType") != "MCU_FIRMWARE_UPDATE":
+            return None
+        candidate = status.get("mcuUpdateCandidate")
+        active_update = (
+            candidate.get("activeUpdate")
+            if isinstance(candidate, Mapping)
+            else None
+        )
+        owner_uid = _require_uuid4(
+            status.get("maintenanceOwnerUid"),
+            "maintenanceOwnerUid",
+        )
+        fence = status.get("maintenanceFenceToken")
+        if (
+            isinstance(fence, bool)
+            or not isinstance(fence, int)
+            or fence < 1
+            or status.get("candidateActivationState") != "ACTIVE"
+            or status.get("stage4CandidateEnabled") is not True
+            or status.get("jobGateMode") != "ENFORCED"
+            or status.get("jobPermitRpcEnabled") is not True
+            or status.get("mcuUpdateCandidateEnabled") is not True
+            or not isinstance(active_update, Mapping)
+            or active_update.get("updateUid") != owner_uid
+            or active_update.get("maintenanceFenceToken") != fence
+        ):
+            raise JobSafetyError(
+                "MCU_MAINTENANCE_STATE_INVALID",
+                "permanent MCU maintenance state is internally inconsistent",
+            )
+        phase = status.get("maintenancePhase")
+        if phase == "DRAINING":
+            # The MCU and UART have not been handed off yet.  The full
+            # business runtime must be allowed to recover an interrupted job
+            # and expose the observation endpoint, while the permanent gate
+            # remains DRAINING/LOCKED and still rejects every new job.
+            gate_pair = (
+                status.get("jobGateState"),
+                status.get("maintenanceState"),
+            )
+            if (
+                gate_pair not in {
+                    ("DRAINING", "DRAINING"),
+                    ("LOCKED", "LOCKED"),
+                }
+                or active_update.get("state")
+                not in {
+                    "DRAINING",
+                    "INITIAL_OBSERVE",
+                    "RECOVERING",
+                    "DEFERRED",
+                    "REJECTED",
+                }
+            ):
+                raise JobSafetyError(
+                    "MCU_MAINTENANCE_STATE_INVALID",
+                    "pre-hardware MCU drain state is internally inconsistent",
+                )
+            return None
+        if (
+            phase not in {"MAINTENANCE", "LOCKED"}
+            or status.get("jobGateState") not in {"MAINTENANCE", "LOCKED"}
+            or status.get("maintenanceState") not in {"MAINTENANCE", "LOCKED"}
+            or status.get("activeJobPermitCount") != 0
+            or status.get("unreconciledPhysicalActionCount") != 0
+        ):
+            raise JobSafetyError(
+                "MCU_MAINTENANCE_STATE_INVALID",
+                "permanent MCU maintenance state is internally inconsistent",
+            )
+        return {
+            "updateUid": owner_uid,
+            "maintenanceFenceToken": fence,
+            "jobGateState": status["jobGateState"],
+            "maintenancePhase": phase,
+        }
 
     def _request(
         self,

@@ -19,8 +19,10 @@ Restart=always
 RestartSec=5
 TimeoutStartSec=180
 KillSignal=SIGTERM
-TimeoutStopSec=15
+TimeoutStopSec=25
 Environment=ECOBIN_CONFIG_MODE=production
+Environment=ECOBIN_BUSINESS_CONTROL_MODE=status
+Environment=ECOBIN_BUSINESS_CONTROL_SOCKET=/run/ecobin/business/control.sock
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 UMask=0077

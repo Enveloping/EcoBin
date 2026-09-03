@@ -38,6 +38,9 @@ def test_store_records_immutable_process_starts_across_restarts(tmp_path: Path):
         "outboundBusinessEventCount": 0,
         "outboundSendAttemptCount": 0,
         "outboundPlatformConfirmedCount": 0,
+        "proxyExtensionVersion": 1,
+        "proxyPendingOutboundCount": 0,
+        "proxyUndeliveredPlatformResultCount": 0,
     }
     with sqlite3.connect(path) as connection:
         assert connection.execute(
@@ -388,6 +391,160 @@ def test_outbound_event_attempts_and_platform_confirmation_are_monotonic(
             "confirmation_sha256": "e" * 64,
             "received_at": "2030-01-02T03:04:05.678Z",
         }
+    finally:
+        store.close()
+
+
+def test_proxy_inbound_response_is_durable_and_content_bound(tmp_path: Path):
+    path = tmp_path / "communication.db"
+    command_uid = "10000000-0000-4000-8000-000000000001"
+    params = {
+        "scalarFields": {
+            "commandUid": command_uid,
+            "opaqueBusinessField": "kept-verbatim",
+        }
+    }
+    first = CommunicationStore(path, utc_now=lambda: NOW)
+    first.initialize()
+    accepted = first.receive_proxy_inbound_command(
+        command_uid,
+        "startDeliverySession",
+        params,
+    )
+    assert accepted["disposition"] == "ACCEPTED"
+    assert accepted["responseData"] is None
+    assert first.mark_proxy_inbound_business_accepted(
+        command_uid,
+        accepted["contentSha256"],
+        {"receiptState": "ACCEPTED", "commandUid": command_uid},
+    ) == "ACCEPTED"
+    first.close()
+
+    reopened = CommunicationStore(path, utc_now=lambda: NOW)
+    reopened.initialize()
+    try:
+        duplicate = reopened.receive_proxy_inbound_command(
+            command_uid,
+            "startDeliverySession",
+            params,
+        )
+        assert duplicate == {
+            "disposition": "DUPLICATE_BUSINESS_ACCEPTED",
+            "contentSha256": accepted["contentSha256"],
+            "responseData": {
+                "commandUid": command_uid,
+                "receiptState": "ACCEPTED",
+            },
+        }
+        changed = reopened.receive_proxy_inbound_command(
+            command_uid,
+            "startCleanOperation",
+            params,
+        )
+        assert changed["disposition"] == "CONFLICT"
+        assert reopened.mark_proxy_inbound_business_accepted(
+            command_uid,
+            accepted["contentSha256"],
+            {"receiptState": "REJECTED"},
+        ) == "CONFLICT"
+    finally:
+        reopened.close()
+
+
+def test_proxy_outbound_generation_survives_restart_and_retries_after_result(
+    tmp_path: Path,
+):
+    path = tmp_path / "communication.db"
+    event_uid = "20000000-0000-4000-8000-000000000001"
+    params = {
+        "edgeEventSequence": 42,
+        "eventUid": event_uid,
+        "payload": {"workUid": "work-1"},
+    }
+    first = CommunicationStore(path, utc_now=lambda: NOW)
+    first.initialize()
+    assert first.submit_proxy_outbound_event(
+        event_uid,
+        "DELIVERY_COMPLETE",
+        params,
+    )["dispatchGeneration"] == 1
+    claimed = first.claim_next_proxy_outbound_event()
+    assert claimed["eventUid"] == event_uid
+    assert claimed["dispatchGeneration"] == 1
+    assert first.acknowledge_proxy_transport(event_uid) == "ACCEPTED"
+    first.close()
+
+    reopened = CommunicationStore(path, utc_now=lambda: NOW)
+    reopened.initialize()
+    try:
+        # A process restart makes the old in-flight result uncertain and
+        # exposes the same immutable generation for another send attempt.
+        assert reopened.recover_proxy_sends() == 1
+        retried = reopened.claim_next_proxy_outbound_event()
+        assert retried["dispatchGeneration"] == 1
+        assert retried["attemptSequence"] == 2
+
+        platform = reopened.record_proxy_platform_result(42, 200)
+        assert platform["eventUid"] == event_uid
+        assert platform["dispatchGeneration"] == 1
+        assert reopened.get_status()["proxyPendingOutboundCount"] == 0
+        assert reopened.get_status()[
+            "proxyUndeliveredPlatformResultCount"
+        ] == 1
+        assert reopened.list_undelivered_proxy_platform_results() == [
+            platform
+        ]
+        assert reopened.mark_proxy_platform_result_delivered(
+            platform["resultUid"]
+        ) == "ACCEPTED"
+
+        # The business outbox may deliberately retry an immutable fact until
+        # its own backend confirmation arrives.  That opens generation two;
+        # it never mutates the original payload or event identity.
+        duplicate = reopened.submit_proxy_outbound_event(
+            event_uid,
+            "DELIVERY_COMPLETE",
+            params,
+        )
+        assert duplicate["disposition"] == "DUPLICATE"
+        assert duplicate["dispatchGeneration"] == 2
+        second = reopened.claim_next_proxy_outbound_event()
+        assert second["dispatchGeneration"] == 2
+
+        conflict = reopened.submit_proxy_outbound_event(
+            event_uid,
+            "DELIVERY_COMPLETE",
+            {**params, "payload": {"workUid": "different"}},
+        )
+        assert conflict["disposition"] == "CONFLICT"
+    finally:
+        reopened.close()
+
+
+def test_proxy_rpc_retry_does_not_create_parallel_outbound_generations(
+    tmp_path: Path,
+):
+    store = CommunicationStore(tmp_path / "communication.db", utc_now=lambda: NOW)
+    store.initialize()
+    event_uid = "20000000-0000-4000-8000-000000000001"
+    params = {"edgeEventSequence": 1, "eventUid": event_uid}
+    try:
+        first = store.submit_proxy_outbound_event(
+            event_uid,
+            "DEVICE_RUNTIME_SNAPSHOT",
+            params,
+        )
+        repeated = store.submit_proxy_outbound_event(
+            event_uid,
+            "DEVICE_RUNTIME_SNAPSHOT",
+            params,
+        )
+        assert first["dispatchGeneration"] == 1
+        assert repeated["dispatchGeneration"] == 1
+        assert store.claim_next_proxy_outbound_event()[
+            "dispatchGeneration"
+        ] == 1
+        assert store.claim_next_proxy_outbound_event() is None
     finally:
         store.close()
 

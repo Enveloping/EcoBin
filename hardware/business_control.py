@@ -10,14 +10,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import threading
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
 from local_control import (
@@ -31,13 +32,18 @@ from local_control import (
 
 BUSINESS_PROTOCOL_NAME = "ecobin.business.control"
 BUSINESS_COMPONENT = "BUSINESS_RUNTIME"
+BUSINESS_CONTROL_MODE_ENVIRONMENT = "ECOBIN_BUSINESS_CONTROL_MODE"
+BUSINESS_CONTROL_SOCKET_ENVIRONMENT = "ECOBIN_BUSINESS_CONTROL_SOCKET"
+DEFAULT_BUSINESS_CONTROL_SOCKET = "/run/ecobin/business/control.sock"
+
+_BUSINESS_CONTROL_MODES = frozenset({"disabled", "status", "candidate"})
 
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 _FIRMWARE_VERSION_PATTERN = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+-]{0,31}\Z")
 _QUERY_STATUSES = frozenset(
     {"OK", "TIMEOUT", "PROTOCOL_ERROR", "NOT_PERFORMED", "UNKNOWN"}
 )
-MCU_MAINTENANCE_EVIDENCE_SCHEMA_VERSION = 1
+MCU_MAINTENANCE_EVIDENCE_SCHEMA_VERSION = 2
 MCU_MAINTENANCE_EVIDENCE_DOMAIN = "ecobin.business.mcu-maintenance-evidence"
 _EVIDENCE_STAGES = frozenset({"OBSERVE", "QUIESCE", "VERIFY"})
 
@@ -47,6 +53,9 @@ _PORT_ERROR_MESSAGES = {
     "MCU_QUIESCE_FAILED": "MCU could not be quiesced for update",
     "MCU_VERIFICATION_FAILED": "MCU post-update verification failed",
     "MCU_UART_UNAVAILABLE": "MCU application UART is unavailable",
+    "MCU_MAINTENANCE_NOT_AUTHORIZED": (
+        "permanent updater did not authorize MCU maintenance"
+    ),
 }
 
 
@@ -298,6 +307,7 @@ def mcu_maintenance_evidence_sha256(
     expected_observation_sha256: str | None = None,
     expected_firmware_identity_sha256: str | None = None,
     observed_flash_evidence_sha256: str | None = None,
+    quiesce_evidence_sha256: str | None = None,
 ) -> str:
     """Compute the versioned, stage-separated canonical evidence digest."""
 
@@ -314,6 +324,7 @@ def mcu_maintenance_evidence_sha256(
                 expected_observation_sha256,
                 expected_firmware_identity_sha256,
                 observed_flash_evidence_sha256,
+                quiesce_evidence_sha256,
             )
         ):
             raise ValueError("observation evidence cannot carry update bindings")
@@ -329,6 +340,7 @@ def mcu_maintenance_evidence_sha256(
             for value in (
                 expected_firmware_identity_sha256,
                 observed_flash_evidence_sha256,
+                quiesce_evidence_sha256,
             )
         ):
             raise ValueError("quiesce evidence bindings are invalid")
@@ -348,6 +360,10 @@ def mcu_maintenance_evidence_sha256(
             observed_flash_evidence_sha256,
             "observedFlashEvidenceSha256",
         )
+        quiesce_evidence_sha256 = _require_sha256_value(
+            quiesce_evidence_sha256,
+            "quiesceEvidenceSha256",
+        )
         if expected_observation_sha256 is not None:
             raise ValueError("verification evidence bindings are invalid")
         bindings = {
@@ -355,6 +371,7 @@ def mcu_maintenance_evidence_sha256(
             "handoffUid": handoff_uid,
             "expectedFirmwareIdentitySha256": expected_firmware_identity_sha256,
             "observedFlashEvidenceSha256": observed_flash_evidence_sha256,
+            "quiesceEvidenceSha256": quiesce_evidence_sha256,
         }
     document = {
         "domain": MCU_MAINTENANCE_EVIDENCE_DOMAIN,
@@ -386,6 +403,14 @@ class McuMaintenanceHandoffPort(Protocol):
         expected_observation_sha256: str,
     ) -> McuMaintenanceEvidence: ...
 
+    def quiesce_mcu_for_recovery(
+        self,
+        *,
+        update_uid: str,
+        handoff_uid: str,
+        expected_observation_sha256: str,
+    ) -> McuMaintenanceEvidence: ...
+
     def verify_mcu_after_update(
         self,
         *,
@@ -393,8 +418,28 @@ class McuMaintenanceHandoffPort(Protocol):
         handoff_uid: str,
         expected_firmware_identity_sha256: str,
         observed_flash_evidence_sha256: str,
+        quiesce_evidence_sha256: str,
     ) -> McuMaintenanceEvidence: ...
 
+
+class CloudProxyIngressPort(Protocol):
+    """Business callbacks exposed only to the permanent communication UID."""
+
+    def deliver_service_request(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]: ...
+
+    def complete_service_reply(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]: ...
+
+    def deliver_legacy_command(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]: ...
+
+    def deliver_platform_result(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]: ...
 
 @dataclass
 class _MaintenanceCall:
@@ -428,14 +473,43 @@ class BusinessControlController:
         instance_uid_factory: Callable[[], uuid.UUID] = uuid.uuid4,
         mcu_maintenance_port: McuMaintenanceHandoffPort | None = None,
         maintenance_handoff_enabled: bool = False,
+        cloud_proxy_ingress: CloudProxyIngressPort | None = None,
+        cloud_proxy_ingress_enabled: bool = False,
+        management_architecture_generation: str = "LEGACY_DIRECT",
+        cloud_connection_owner: str = "BUSINESS_RUNTIME",
+        job_permit_enforced: bool = False,
     ) -> None:
         self.release_version = _require_release_version(release_version)
         if not isinstance(maintenance_handoff_enabled, bool):
             raise ValueError("maintenance handoff candidate flag must be boolean")
         if maintenance_handoff_enabled:
             _require_mcu_maintenance_port(mcu_maintenance_port)
+        if not isinstance(cloud_proxy_ingress_enabled, bool):
+            raise ValueError("cloud proxy ingress flag must be boolean")
+        if cloud_proxy_ingress_enabled:
+            _require_cloud_proxy_ingress(cloud_proxy_ingress)
+        if management_architecture_generation not in {
+            "LEGACY_DIRECT",
+            "STAGE4_BRIDGE",
+            "LOCAL_PROXY",
+        }:
+            raise ValueError("management architecture generation is invalid")
+        if cloud_connection_owner not in {
+            "BUSINESS_RUNTIME",
+            "COMMUNICATION_AGENT",
+        }:
+            raise ValueError("cloud connection owner is invalid")
+        if not isinstance(job_permit_enforced, bool):
+            raise ValueError("job-permit enforcement flag must be boolean")
         self._mcu_maintenance_port = mcu_maintenance_port
         self._maintenance_handoff_enabled = maintenance_handoff_enabled
+        self._cloud_proxy_ingress = cloud_proxy_ingress
+        self._cloud_proxy_ingress_enabled = cloud_proxy_ingress_enabled
+        self._management_architecture_generation = (
+            management_architecture_generation
+        )
+        self._cloud_connection_owner = cloud_connection_owner
+        self._job_permit_enforced = job_permit_enforced
         now = (utc_now or (lambda: datetime.now(timezone.utc)))()
         self.started_at = _format_utc(now)
         instance_uid = instance_uid_factory()
@@ -485,14 +559,60 @@ class BusinessControlController:
             "localProtocolName": BUSINESS_PROTOCOL_NAME,
             "localProtocolMajor": LOCAL_PROTOCOL_MAJOR,
             "localProtocolMinor": LOCAL_PROTOCOL_MINOR,
-            # These values describe the real migration state.  Shipping the
-            # socket adapter must not be confused with completing the OneNet
-            # ownership cutover or enabling the stage-four safety gate.
-            "managementArchitectureGeneration": "LEGACY_DIRECT",
-            "cloudConnectionOwner": "BUSINESS_RUNTIME",
-            "jobPermitEnforced": False,
+            "managementArchitectureGeneration": (
+                self._management_architecture_generation
+            ),
+            "cloudConnectionOwner": self._cloud_connection_owner,
+            "jobPermitEnforced": self._job_permit_enforced,
             "maintenanceHandoffEnabled": self._maintenance_handoff_enabled,
+            "cloudProxyIngressEnabled": self._cloud_proxy_ingress_enabled,
         }
+
+    def deliver_cloud_service_request(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        self._require_runtime_ready()
+        return self._require_cloud_proxy_ingress().deliver_service_request(
+            payload
+        )
+
+    def complete_cloud_service_reply(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        # Completion belongs to a request already persisted while READY.  It
+        # remains valid during an orderly stop and cannot create new work.
+        return self._require_cloud_proxy_ingress().complete_service_reply(
+            payload
+        )
+
+    def deliver_legacy_cloud_command(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        self._require_runtime_ready()
+        return self._require_cloud_proxy_ingress().deliver_legacy_command(
+            payload
+        )
+
+    def deliver_cloud_event_result(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        self._require_runtime_ready()
+        return self._require_cloud_proxy_ingress().deliver_platform_result(
+            payload
+        )
+
+    def _require_cloud_proxy_ingress(self) -> CloudProxyIngressPort:
+        ingress = self._cloud_proxy_ingress
+        if not self._cloud_proxy_ingress_enabled or ingress is None:
+            raise LocalControlActionError(
+                "FEATURE_DISABLED",
+                "local cloud proxy ingress is not enabled",
+            )
+        return ingress
 
     def observe_mcu_maintenance_state(
         self,
@@ -594,6 +714,87 @@ class BusinessControlController:
             execute,
         )
 
+    def quiesce_mcu_for_recovery(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Repeat F2 after a failed target while tolerating an F1 fault.
+
+        F3 must still prove a responsive application and safe application
+        mode.  Only the sensor self-test requirement is relaxed so a target
+        that failed F1 can be replaced by the known-good rollback image.
+        """
+
+        _require_action_payload(
+            payload,
+            frozenset(
+                {"updateUid", "handoffUid", "expectedObservationSha256"}
+            ),
+        )
+        update_uid = _require_uuid4_value(payload["updateUid"], "updateUid")
+        handoff_uid = _require_uuid4_value(payload["handoffUid"], "handoffUid")
+        expected_observation_sha256 = _require_action_sha256_value(
+            payload["expectedObservationSha256"],
+            "expectedObservationSha256",
+        )
+        port = self._require_enabled_mcu_maintenance_port()
+        self._require_runtime_ready()
+        request_sha256 = _canonical_request_sha256(
+            "RECOVERY_QUIESCE",
+            payload,
+        )
+
+        def execute() -> dict[str, Any]:
+            with self._maintenance_state_lock:
+                observation = self._latest_observation
+            if (
+                observation is None
+                or observation[0] != expected_observation_sha256
+                or not _is_application_identity_observation(observation[1])
+            ):
+                raise LocalControlActionError(
+                    "MCU_OBSERVATION_MISMATCH",
+                    "expected recovery observation is unavailable or no longer current",
+                )
+            evidence = self._require_evidence(
+                self._invoke_maintenance_port(
+                    lambda: port.quiesce_mcu_for_recovery(
+                        update_uid=update_uid,
+                        handoff_uid=handoff_uid,
+                        expected_observation_sha256=expected_observation_sha256,
+                    )
+                )
+            )
+            if not _is_confirmed_recovery_quiesce(evidence):
+                raise LocalControlActionError(
+                    "MCU_QUIESCE_UNCONFIRMED",
+                    "F3 recovery maintenance mode and UART handoff were not confirmed",
+                )
+            digest = mcu_maintenance_evidence_sha256(
+                "QUIESCE",
+                evidence,
+                update_uid=update_uid,
+                handoff_uid=handoff_uid,
+                expected_observation_sha256=expected_observation_sha256,
+            )
+            with self._maintenance_state_lock:
+                self._latest_observation = None
+            return {
+                "updateUid": update_uid,
+                "handoffUid": handoff_uid,
+                "expectedObservationSha256": expected_observation_sha256,
+                "recoveryHandoff": True,
+                **self._render_evidence("QUIESCE", digest, evidence),
+            }
+
+        return self._run_idempotent_maintenance_action(
+            "QUIESCE",
+            update_uid,
+            handoff_uid,
+            request_sha256,
+            execute,
+        )
+
     def verify_mcu_after_update(
         self,
         payload: dict[str, Any],
@@ -606,6 +807,7 @@ class BusinessControlController:
                     "handoffUid",
                     "expectedFirmwareIdentitySha256",
                     "observedFlashEvidenceSha256",
+                    "quiesceEvidenceSha256",
                 }
             ),
         )
@@ -619,12 +821,20 @@ class BusinessControlController:
             payload["observedFlashEvidenceSha256"],
             "observedFlashEvidenceSha256",
         )
+        quiesce_sha256 = _require_action_sha256_value(
+            payload["quiesceEvidenceSha256"],
+            "quiesceEvidenceSha256",
+        )
         port = self._require_enabled_mcu_maintenance_port()
         self._require_runtime_ready()
         request_sha256 = _canonical_request_sha256("VERIFY", payload)
 
         def execute() -> dict[str, Any]:
-            self._require_completed_quiesce(update_uid, handoff_uid)
+            self._require_consistent_local_quiesce(
+                update_uid,
+                handoff_uid,
+                quiesce_sha256,
+            )
             evidence = self._require_evidence(
                 self._invoke_maintenance_port(
                     lambda: port.verify_mcu_after_update(
@@ -632,6 +842,7 @@ class BusinessControlController:
                         handoff_uid=handoff_uid,
                         expected_firmware_identity_sha256=expected_identity_sha256,
                         observed_flash_evidence_sha256=observed_flash_sha256,
+                        quiesce_evidence_sha256=quiesce_sha256,
                     )
                 )
             )
@@ -657,12 +868,14 @@ class BusinessControlController:
                 handoff_uid=handoff_uid,
                 expected_firmware_identity_sha256=expected_identity_sha256,
                 observed_flash_evidence_sha256=observed_flash_sha256,
+                quiesce_evidence_sha256=quiesce_sha256,
             )
             return {
                 "updateUid": update_uid,
                 "handoffUid": handoff_uid,
                 "expectedFirmwareIdentitySha256": expected_identity_sha256,
                 "observedFlashEvidenceSha256": observed_flash_sha256,
+                "quiesceEvidenceSha256": quiesce_sha256,
                 **self._render_evidence("VERIFY", digest, evidence),
             }
 
@@ -712,17 +925,32 @@ class BusinessControlController:
             **evidence.to_wire(),
         }
 
-    def _require_completed_quiesce(
-        self, update_uid: str, handoff_uid: str
+    def _require_consistent_local_quiesce(
+        self,
+        update_uid: str,
+        handoff_uid: str,
+        quiesce_evidence_sha256: str,
     ) -> None:
         with self._maintenance_state_lock:
             record = self._maintenance_calls.get(
                 ("QUIESCE", update_uid, handoff_uid)
             )
-        if record is None or record.state != "SUCCEEDED":
+        # A normal verification runs in a freshly started business process,
+        # so the pre-flash in-memory call record is expected to be absent.
+        # The fixed-frame port independently checks the supplied digest and
+        # handoff identity against the permanent updater journal.  If this
+        # process does still have a record (for example in unit tests or a
+        # no-restart diagnostic), it must agree exactly.
+        if record is None:
+            return
+        if (
+            record.state != "SUCCEEDED"
+            or not isinstance(record.result, Mapping)
+            or record.result.get("evidenceSha256") != quiesce_evidence_sha256
+        ):
             raise LocalControlActionError(
                 "MCU_HANDOFF_NOT_CONFIRMED",
-                "the matching MCU quiesce handoff is not confirmed",
+                "the durable MCU quiesce evidence conflicts with the local handoff",
             )
 
     def _run_idempotent_maintenance_action(
@@ -890,11 +1118,16 @@ class BusinessControlService:
         return self.server.failure
 
     def stop(self) -> None:
-        self.controller.mark_stopping()
+        self.request_stop()
         self.controller.wait_for_maintenance_idle()
         if self._started:
             self.server.stop()
             self._started = False
+
+    def request_stop(self) -> None:
+        """Reject new maintenance calls without blocking the signal path."""
+
+        self.controller.mark_stopping()
 
 
 def build_business_control_service(
@@ -903,11 +1136,18 @@ def build_business_control_service(
     release_version: str,
     allowed_uids: Iterable[int],
     socket_gid: int,
+    socket_parent_uids: Iterable[int] | None = None,
     utc_now: Callable[[], datetime] | None = None,
     instance_uid_factory: Callable[[], uuid.UUID] = uuid.uuid4,
     enable_mcu_maintenance_candidate: bool = False,
     mcu_maintenance_port: McuMaintenanceHandoffPort | None = None,
     updater_uids: Iterable[int] = (),
+    enable_cloud_proxy_candidate: bool = False,
+    cloud_proxy_ingress: CloudProxyIngressPort | None = None,
+    communication_uids: Iterable[int] = (),
+    management_architecture_generation: str = "LEGACY_DIRECT",
+    cloud_connection_owner: str = "BUSINESS_RUNTIME",
+    job_permit_enforced: bool = False,
 ) -> BusinessControlService:
     """Build the adapter without resolving accounts or weakening UID checks."""
 
@@ -922,12 +1162,27 @@ def build_business_control_service(
             allow_root=False,
         )
         _require_mcu_maintenance_port(mcu_maintenance_port)
+    if not isinstance(enable_cloud_proxy_candidate, bool):
+        raise ValueError("cloud proxy candidate flag must be boolean")
+    communication_action_uids: frozenset[int] = frozenset()
+    if enable_cloud_proxy_candidate:
+        communication_action_uids = _require_uid_set(
+            communication_uids,
+            "communication_uids",
+            allow_root=False,
+        )
+        _require_cloud_proxy_ingress(cloud_proxy_ingress)
     controller = BusinessControlController(
         release_version,
         utc_now=utc_now,
         instance_uid_factory=instance_uid_factory,
         mcu_maintenance_port=mcu_maintenance_port,
         maintenance_handoff_enabled=enable_mcu_maintenance_candidate,
+        cloud_proxy_ingress=cloud_proxy_ingress,
+        cloud_proxy_ingress_enabled=enable_cloud_proxy_candidate,
+        management_architecture_generation=management_architecture_generation,
+        cloud_connection_owner=cloud_connection_owner,
+        job_permit_enforced=job_permit_enforced,
     )
     actions = {
         "HEALTH": LocalControlAction(
@@ -960,6 +1215,17 @@ def build_business_control_service(
                     ),
                     allowed_uids=updater_action_uids,
                 ),
+                "QUIESCE_MCU_FOR_RECOVERY": LocalControlAction(
+                    controller.quiesce_mcu_for_recovery,
+                    payload_fields=frozenset(
+                        {
+                            "updateUid",
+                            "handoffUid",
+                            "expectedObservationSha256",
+                        }
+                    ),
+                    allowed_uids=updater_action_uids,
+                ),
                 "VERIFY_MCU_AFTER_UPDATE": LocalControlAction(
                     controller.verify_mcu_after_update,
                     payload_fields=frozenset(
@@ -968,9 +1234,46 @@ def build_business_control_service(
                             "handoffUid",
                             "expectedFirmwareIdentitySha256",
                             "observedFlashEvidenceSha256",
+                            "quiesceEvidenceSha256",
                         }
                     ),
                     allowed_uids=updater_action_uids,
+                ),
+            }
+        )
+    if enable_cloud_proxy_candidate:
+        actions.update(
+            {
+                "DELIVER_CLOUD_SERVICE_REQUEST": LocalControlAction(
+                    controller.deliver_cloud_service_request,
+                    payload_fields=frozenset(
+                        {
+                            "deliveryId",
+                            "requestId",
+                            "serviceId",
+                            "params",
+                            "receivedAt",
+                            "clockQuality",
+                        }
+                    ),
+                    allowed_uids=communication_action_uids,
+                ),
+                "COMPLETE_CLOUD_SERVICE_REPLY": LocalControlAction(
+                    controller.complete_cloud_service_reply,
+                    payload_fields=frozenset({"deliveryId"}),
+                    allowed_uids=communication_action_uids,
+                ),
+                "DELIVER_LEGACY_CLOUD_COMMAND": LocalControlAction(
+                    controller.deliver_legacy_cloud_command,
+                    payload_fields=frozenset({"deliveryId", "command"}),
+                    allowed_uids=communication_action_uids,
+                ),
+                "DELIVER_CLOUD_EVENT_RESULT": LocalControlAction(
+                    controller.deliver_cloud_event_result,
+                    payload_fields=frozenset(
+                        {"resultUid", "edgeEventSequence", "code"}
+                    ),
+                    allowed_uids=communication_action_uids,
                 ),
             }
         )
@@ -978,11 +1281,123 @@ def build_business_control_service(
         socket_path,
         protocol_name=BUSINESS_PROTOCOL_NAME,
         actions=actions,
-        allowed_uids=action_uids | updater_action_uids,
+        allowed_uids=(
+            action_uids | updater_action_uids | communication_action_uids
+        ),
+        socket_parent_uids=socket_parent_uids,
         socket_mode=0o660,
         socket_gid=socket_gid,
     )
     return BusinessControlService(controller, server)
+
+
+def build_business_control_service_from_environment(
+    *,
+    release_version: str,
+    job_permit_enforced: bool,
+    mcu_maintenance_port: McuMaintenanceHandoffPort | None = None,
+    cloud_proxy_ingress: CloudProxyIngressPort | None = None,
+    enable_cloud_proxy_candidate: bool = False,
+    environment: Mapping[str, str] | None = None,
+    user_uid_lookup: Callable[[str], int] | None = None,
+    group_gid_lookup: Callable[[str], int] | None = None,
+) -> BusinessControlService | None:
+    """Build the production adapter from one explicit, default-off mode.
+
+    ``status`` exposes truthful health to the permanent local agents without
+    enabling a hardware mutation.  ``candidate`` additionally exposes the
+    three MCU handoff calls, but only when the permanent job gate is already
+    enforced.  Account names are resolved at process start so image-specific
+    numeric IDs never become part of the release.
+    """
+
+    values = os.environ if environment is None else environment
+    raw_mode = values.get(BUSINESS_CONTROL_MODE_ENVIRONMENT, "disabled")
+    if not isinstance(raw_mode, str):
+        raise ValueError(
+            f"{BUSINESS_CONTROL_MODE_ENVIRONMENT} must be text"
+        )
+    mode = raw_mode.strip().lower()
+    if mode not in _BUSINESS_CONTROL_MODES:
+        raise ValueError(
+            f"{BUSINESS_CONTROL_MODE_ENVIRONMENT} must be disabled, status, "
+            "or candidate"
+        )
+    if mode == "disabled":
+        return None
+    if not isinstance(job_permit_enforced, bool):
+        raise ValueError("job-permit enforcement flag must be boolean")
+    if mode == "candidate" and not job_permit_enforced:
+        raise ValueError(
+            "MCU maintenance handoff requires the permanent job gate"
+        )
+    if enable_cloud_proxy_candidate and mode != "candidate":
+        raise ValueError(
+            "local cloud proxy requires candidate business control mode"
+        )
+
+    socket_value = values.get(
+        BUSINESS_CONTROL_SOCKET_ENVIRONMENT,
+        DEFAULT_BUSINESS_CONTROL_SOCKET,
+    )
+    if not isinstance(socket_value, str) or not socket_value:
+        raise ValueError(
+            f"{BUSINESS_CONTROL_SOCKET_ENVIRONMENT} must be non-empty"
+        )
+    socket_path = Path(socket_value)
+    if not (
+        socket_path.is_absolute()
+        or PurePosixPath(socket_value).is_absolute()
+    ):
+        raise ValueError(
+            f"{BUSINESS_CONTROL_SOCKET_ENVIRONMENT} must be absolute"
+        )
+
+    uid_lookup = user_uid_lookup or _system_user_uid
+    gid_lookup = group_gid_lookup or _system_group_gid
+    communication_uid = _lookup_positive_uid(
+        "ecobin-communication", uid_lookup
+    )
+    business_uid = _lookup_positive_uid("ecobin-business", uid_lookup)
+    updater_uid = _lookup_positive_uid("ecobin-updater", uid_lookup)
+    socket_gid = _lookup_nonnegative_gid(
+        "ecobin-business-ipc", gid_lookup
+    )
+    candidate_enabled = mode == "candidate"
+    return build_business_control_service(
+        socket_path,
+        release_version=release_version,
+        allowed_uids={0, communication_uid, updater_uid},
+        socket_gid=socket_gid,
+        socket_parent_uids={0, business_uid},
+        enable_mcu_maintenance_candidate=candidate_enabled,
+        mcu_maintenance_port=(
+            mcu_maintenance_port if candidate_enabled else None
+        ),
+        updater_uids={updater_uid} if candidate_enabled else (),
+        enable_cloud_proxy_candidate=enable_cloud_proxy_candidate,
+        cloud_proxy_ingress=(
+            cloud_proxy_ingress if enable_cloud_proxy_candidate else None
+        ),
+        communication_uids=(
+            {communication_uid} if enable_cloud_proxy_candidate else ()
+        ),
+        management_architecture_generation=(
+            "LOCAL_PROXY"
+            if enable_cloud_proxy_candidate
+            else (
+                "STAGE4_BRIDGE"
+                if job_permit_enforced
+                else "LEGACY_DIRECT"
+            )
+        ),
+        cloud_connection_owner=(
+            "COMMUNICATION_AGENT"
+            if enable_cloud_proxy_candidate
+            else "BUSINESS_RUNTIME"
+        ),
+        job_permit_enforced=job_permit_enforced,
+    )
 
 
 def _require_action_payload(
@@ -1066,12 +1481,63 @@ def _require_uid_set(
     return result
 
 
+def _lookup_positive_uid(
+    username: str,
+    lookup: Callable[[str], int],
+) -> int:
+    try:
+        uid = lookup(username)
+    except KeyError as error:
+        raise ValueError(
+            f"required local control user does not exist: {username}"
+        ) from error
+    if isinstance(uid, bool) or not isinstance(uid, int) or uid <= 0:
+        raise ValueError(
+            f"required local control user has an invalid UID: {username}"
+        )
+    return uid
+
+
+def _lookup_nonnegative_gid(
+    group_name: str,
+    lookup: Callable[[str], int],
+) -> int:
+    try:
+        gid = lookup(group_name)
+    except KeyError as error:
+        raise ValueError(
+            f"required local control group does not exist: {group_name}"
+        ) from error
+    if isinstance(gid, bool) or not isinstance(gid, int) or gid < 0:
+        raise ValueError(
+            f"required local control group has an invalid GID: {group_name}"
+        )
+    return gid
+
+
+def _system_user_uid(username: str) -> int:
+    try:
+        import pwd
+    except ImportError as error:  # pragma: no cover - target OS is Linux
+        raise RuntimeError("system user lookup is unavailable") from error
+    return pwd.getpwnam(username).pw_uid
+
+
+def _system_group_gid(group_name: str) -> int:
+    try:
+        import grp
+    except ImportError as error:  # pragma: no cover - target OS is Linux
+        raise RuntimeError("system group lookup is unavailable") from error
+    return grp.getgrnam(group_name).gr_gid
+
+
 def _require_mcu_maintenance_port(
     port: McuMaintenanceHandoffPort | None,
 ) -> McuMaintenanceHandoffPort:
     required_methods = (
         "observe_mcu_maintenance_state",
         "quiesce_mcu_for_update",
+        "quiesce_mcu_for_recovery",
         "verify_mcu_after_update",
     )
     if port is None or any(
@@ -1079,6 +1545,23 @@ def _require_mcu_maintenance_port(
     ):
         raise ValueError("MCU maintenance handoff port is invalid")
     return port
+
+
+def _require_cloud_proxy_ingress(
+    ingress: CloudProxyIngressPort | None,
+) -> CloudProxyIngressPort:
+    required_methods = (
+        "deliver_service_request",
+        "complete_service_reply",
+        "deliver_legacy_command",
+        "deliver_platform_result",
+    )
+    if ingress is None or any(
+        not callable(getattr(ingress, method, None))
+        for method in required_methods
+    ):
+        raise ValueError("cloud proxy ingress port is invalid")
+    return ingress
 
 
 def _canonical_request_sha256(stage: str, payload: dict[str, Any]) -> str:
@@ -1105,6 +1588,7 @@ def _is_application_observation(evidence: McuMaintenanceEvidence) -> bool:
         and f3.status_code == 0
         and f3.safe_flags == 0x0F
         and f3.firmware_identity is not None
+        and _is_healthy_f1(evidence.f1)
         and evidence.uart_handed_off is False
     )
 
@@ -1117,21 +1601,55 @@ def _is_confirmed_quiesce(evidence: McuMaintenanceEvidence) -> bool:
         and f3.status_code == 0
         and f3.safe_flags == 0x1F
         and f3.firmware_identity is not None
-        and evidence.f1.query_status != "UNKNOWN"
+        and _is_healthy_f1(evidence.f1)
+        and evidence.uart_handed_off is True
+    )
+
+
+def _is_application_identity_observation(
+    evidence: McuMaintenanceEvidence,
+) -> bool:
+    f3 = evidence.f3
+    return bool(
+        f3.query_status == "OK"
+        and f3.mode == 1
+        and f3.status_code == 0
+        and f3.safe_flags == 0x0F
+        and f3.firmware_identity is not None
+        and evidence.uart_handed_off is False
+    )
+
+
+def _is_confirmed_recovery_quiesce(
+    evidence: McuMaintenanceEvidence,
+) -> bool:
+    f3 = evidence.f3
+    return bool(
+        f3.query_status == "OK"
+        and f3.mode == 2
+        and f3.status_code == 0
+        and f3.safe_flags == 0x1F
+        and f3.firmware_identity is not None
         and evidence.uart_handed_off is True
     )
 
 
 def _is_confirmed_verification(evidence: McuMaintenanceEvidence) -> bool:
     f3 = evidence.f3
-    f1 = evidence.f1
     return (
         f3.query_status == "OK"
         and f3.mode == 1
         and f3.status_code == 0
         and f3.safe_flags == 0x0F
         and f3.firmware_identity is not None
-        and f1.query_status == "OK"
+        and _is_healthy_f1(evidence.f1)
+        and evidence.uart_handed_off is False
+    )
+
+
+def _is_healthy_f1(f1: McuF1Evidence) -> bool:
+    return bool(
+        f1.query_status == "OK"
         and f1.communication_healthy is True
         and f1.valid_flags == 3
         and f1.weight_grams is not None
@@ -1139,7 +1657,6 @@ def _is_confirmed_verification(evidence: McuMaintenanceEvidence) -> bool:
         and isinstance(f1.infrared_blocked, bool)
         and f1.smoke_state in {"NORMAL", "ALARM"}
         and f1.smoke_sensor_health == "OK"
-        and evidence.uart_handed_off is False
     )
 
 

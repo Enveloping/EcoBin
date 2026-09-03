@@ -19,6 +19,7 @@ ExecStartPre=/opt/ecobin/enrollment/.venv/bin/python /opt/ecobin/enrollment/secr
 ExecStart=/opt/ecobin/enrollment/.venv/bin/python /opt/ecobin/enrollment/enrollment_bootstrap.py --cleanup-file /opt/ecobin/enrollment/device_enrollment.py
 ExecStartPost=/opt/ecobin/enrollment/.venv/bin/python /opt/ecobin/enrollment/maintenance_ssh_setup.py
 ExecStartPost=/opt/ecobin/enrollment/.venv/bin/python /opt/ecobin/enrollment/remote_support_credentials.py
+ExecStartPost=/opt/ecobin/enrollment/.venv/bin/python /opt/ecobin/enrollment/device_runtime_projection.py
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=60

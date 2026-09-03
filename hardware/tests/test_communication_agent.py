@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import json
 import os
 import socket
 import sys
@@ -40,6 +42,8 @@ def test_controller_exposes_explicit_stage_three_disabled_boundaries(tmp_path: P
             "localProtocolMajor": 1,
             "localProtocolMinor": 0,
             "onenetOwnership": "DISABLED",
+            "cloudConnectionState": "DISABLED",
+            "businessEventIngress": "DISABLED",
             "remoteUpdateRouting": "DISABLED",
         }
         assert status["runtimeInstanceUid"] == start["startUid"]
@@ -185,6 +189,14 @@ def test_parser_supports_all_runtime_identity_options():
             "ecobin-updater",
             "--socket-group",
             "ecobin-ipc",
+            "--mode",
+            "proxy-candidate",
+            "--credentials",
+            "/state/onenet.json",
+            "--business-socket",
+            "/run/business.sock",
+            "--business-user",
+            "ecobin-business",
         ]
     )
 
@@ -194,6 +206,10 @@ def test_parser_supports_all_runtime_identity_options():
     assert args.allowed_uid == [17]
     assert args.allowed_user == ["ecobin-business", "ecobin-updater"]
     assert args.socket_group == "ecobin-ipc"
+    assert args.mode == "proxy-candidate"
+    assert args.credentials == "/state/onenet.json"
+    assert args.business_socket == "/run/business.sock"
+    assert args.business_user == "ecobin-business"
 
 
 def test_release_version_must_be_injected_by_the_image(tmp_path: Path):
@@ -240,13 +256,100 @@ def test_systemd_ready_and_stopping_support_abstract_socket(monkeypatch):
     ]
 
 
-def test_agent_source_has_no_onenet_mqtt_or_inet_dependencies():
+def test_status_only_import_path_has_no_direct_paho_or_inet_dependency():
     source = Path(communication_agent.__file__).read_text(encoding="utf-8")
     lowered = source.casefold()
     assert "import paho" not in lowered
     assert "device_credentials" not in lowered
     assert "af_inet" not in lowered
     assert "mqtt_client" not in lowered
+
+
+def test_proxy_candidate_builds_one_business_only_event_ingress(
+    tmp_path,
+    monkeypatch,
+):
+    credential = tmp_path / "onenet.json"
+    credential.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "productId": "product-1",
+                "deviceName": "SN-0001",
+                "deviceKey": base64.b64encode(b"device-secret").decode(),
+                "mqttHost": "studio-mqtt.heclouds.com",
+                "mqttPort": 1883,
+            }
+        ),
+        encoding="utf-8",
+    )
+    if os.name == "posix":
+        credential.chmod(0o600)
+    monkeypatch.setitem(
+        sys.modules,
+        "pwd",
+        SimpleNamespace(
+            getpwnam=lambda name: SimpleNamespace(
+                pw_uid={"ecobin-business": 101}[name]
+            )
+        ),
+    )
+
+    import direct_onenet_transport
+
+    class FakeDirectTransport:
+        def __init__(self, **kwargs):
+            self.arguments = kwargs
+            self.connected = False
+            self.on_service_request = None
+            self.on_legacy_command_received = None
+            self.on_event_transport_ack = None
+            self.on_event_platform_result = None
+            self.on_connected = None
+            self.on_disconnected = None
+
+        def disconnect(self):
+            self.connected = False
+
+        def run_forever(self):
+            return None
+
+        def send_event(self, _event):
+            return False
+
+    monkeypatch.setattr(
+        direct_onenet_transport,
+        "DirectOneNetTransport",
+        FakeDirectTransport,
+    )
+    args = argparse.Namespace(
+        state=str(tmp_path / "communication.db"),
+        socket=str(tmp_path / "control.sock"),
+        release_version="communication-4.0.0",
+        mode="proxy-candidate",
+        credentials=str(credential),
+        business_socket=str(tmp_path / "business.sock"),
+        business_user="ecobin-business",
+        dependency_root=str(tmp_path),
+        allowed_uid=[0],
+        allowed_user=None,
+        socket_group=None,
+    )
+
+    agent = communication_agent.build_agent(args)
+    try:
+        assert set(agent.server.actions) == {
+            "HEALTH",
+            "GET_STATUS",
+            "SUBMIT_BUSINESS_EVENT",
+        }
+        assert agent.server.actions[
+            "SUBMIT_BUSINESS_EVENT"
+        ].allowed_uids == frozenset({101})
+        assert agent.server.allowed_uids == frozenset({0, 101})
+        assert agent.controller.router is agent.router
+    finally:
+        agent.stop()
 
 
 @pytest.mark.skipif(

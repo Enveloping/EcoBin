@@ -94,6 +94,81 @@ def test_root_cli_status_uses_socket_without_mutation_payload(
     ]
 
 
+def test_root_cli_queues_only_fixed_mcu_package_identities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _RecordingClient.calls = []
+    monkeypatch.setattr(updater_control_cli, "_effective_uid", lambda: 0)
+    monkeypatch.setattr(
+        updater_control_cli,
+        "LocalControlClient",
+        _RecordingClient,
+    )
+
+    assert updater_control_cli.main(
+        [
+            "--socket",
+            "/test/updater.sock",
+            "mcu-queue",
+            "--update-uid",
+            "11111111-1111-4111-8111-111111111111",
+            "--command-uid",
+            "22222222-2222-4222-8222-222222222222",
+            "--target-package-sha256",
+            "a" * 64,
+            "--rollback-package-sha256",
+            "b" * 64,
+        ]
+    ) == 0
+    assert _RecordingClient.calls == [
+        (
+            "QUEUE_LOCAL_MCU_UPDATE",
+            {
+                "updateUid": "11111111-1111-4111-8111-111111111111",
+                "commandUid": "22222222-2222-4222-8222-222222222222",
+                "targetPackageSha256": "a" * 64,
+                "rollbackPackageSha256": "b" * 64,
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        (["mcu-status"], ("GET_STATUS", {})),
+        (
+            [
+                "mcu-status",
+                "--update-uid",
+                "11111111-1111-4111-8111-111111111111",
+            ],
+            (
+                "GET_MCU_UPDATE",
+                {"updateUid": "11111111-1111-4111-8111-111111111111"},
+            ),
+        ),
+    ],
+)
+def test_root_cli_reads_mcu_candidate_status(
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: list[str],
+    expected: tuple[str, dict[str, object]],
+) -> None:
+    _RecordingClient.calls = []
+    monkeypatch.setattr(updater_control_cli, "_effective_uid", lambda: 0)
+    monkeypatch.setattr(
+        updater_control_cli,
+        "LocalControlClient",
+        _RecordingClient,
+    )
+
+    assert updater_control_cli.main(
+        ["--socket", "/test/updater.sock", *arguments]
+    ) == 0
+    assert _RecordingClient.calls == [expected]
+
+
 def test_cli_refuses_non_root_before_opening_control_socket(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -122,6 +197,8 @@ def test_cli_has_no_database_or_generic_transition_interface() -> None:
     assert "sqlite3" not in source
     assert "updater_store" not in source
     assert "transition" not in source.casefold()
+    assert "--package-path" not in source
+    assert "--firmware-path" not in source
     parser = updater_control_cli.build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["transition"])

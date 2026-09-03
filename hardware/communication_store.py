@@ -8,6 +8,8 @@ qualified before the later ownership cut-over.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import sqlite3
@@ -22,7 +24,9 @@ from typing import Any
 
 
 SCHEMA_VERSION = 2
+PROXY_EXTENSION_VERSION = 1
 MAX_RELEASE_VERSION_LENGTH = 32
+MAX_PROXY_JSON_BYTES = 192 * 1024
 
 INBOUND_RECEIVED = "RECEIVED"
 INBOUND_BUSINESS_ACCEPTED = "BUSINESS_ACCEPTED"
@@ -91,6 +95,8 @@ class CommunicationStore:
                         "communication database schema is incompatible"
                     )
                 self._verify_v2_schema(connection)
+                self._ensure_proxy_extension(connection)
+                self._verify_proxy_extension(connection)
                 self._require_quick_check(connection)
                 connection.execute("COMMIT")
             except Exception:
@@ -460,6 +466,241 @@ class CommunicationStore:
         if not required_triggers.issubset(trigger_names):
             raise RuntimeError("communication database schema is incompatible")
 
+    def _ensure_proxy_extension(self, connection: sqlite3.Connection) -> None:
+        """Install an additive proxy ledger that old stage-three code ignores.
+
+        The base schema deliberately remains version two.  A device can carry
+        this default-off candidate and still boot the previous status-only
+        communication agent before OneNet ownership has been switched.
+        """
+
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        extension_tables = {
+            "communication_proxy_extension",
+            "inbound_proxy_payload",
+            "outbound_proxy_event",
+            "outbound_proxy_platform_result",
+            "outbound_proxy_result_delivery",
+        }
+        present = tables & extension_tables
+        if present:
+            if present != extension_tables:
+                raise RuntimeError(
+                    "communication proxy extension is incomplete"
+                )
+            return
+
+        statements = (
+            """CREATE TABLE communication_proxy_extension (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                extension_version INTEGER NOT NULL
+                    CHECK (extension_version = 1),
+                installed_at TEXT NOT NULL
+            )""",
+            """CREATE TABLE inbound_proxy_payload (
+                command_uid TEXT PRIMARY KEY,
+                service_id TEXT NOT NULL CHECK (
+                    length(service_id) BETWEEN 1 AND 128
+                ),
+                params_json TEXT NOT NULL CHECK (
+                    length(params_json) BETWEEN 2 AND 196608
+                ),
+                response_json TEXT CHECK (
+                    response_json IS NULL
+                    OR length(response_json) BETWEEN 2 AND 196608
+                ),
+                FOREIGN KEY (command_uid)
+                    REFERENCES inbound_command_ledger(command_uid)
+            )""",
+            """CREATE TABLE outbound_proxy_event (
+                event_uid TEXT PRIMARY KEY,
+                event_type TEXT NOT NULL CHECK (
+                    length(event_type) BETWEEN 1 AND 128
+                ),
+                params_json TEXT NOT NULL CHECK (
+                    length(params_json) BETWEEN 2 AND 196608
+                ),
+                edge_event_sequence INTEGER NOT NULL UNIQUE CHECK (
+                    edge_event_sequence BETWEEN 1 AND 9999999999999
+                ),
+                requested_generation INTEGER NOT NULL DEFAULT 1 CHECK (
+                    requested_generation > 0
+                ),
+                completed_generation INTEGER NOT NULL DEFAULT 0 CHECK (
+                    completed_generation >= 0
+                    AND completed_generation <= requested_generation
+                ),
+                active_generation INTEGER CHECK (
+                    active_generation IS NULL
+                    OR (
+                        active_generation > completed_generation
+                        AND active_generation <= requested_generation
+                    )
+                ),
+                active_attempt_uid TEXT,
+                retry_not_before TEXT,
+                CHECK (
+                    (active_generation IS NULL
+                     AND active_attempt_uid IS NULL)
+                    OR
+                    (active_generation IS NOT NULL
+                     AND active_attempt_uid IS NOT NULL)
+                ),
+                FOREIGN KEY (event_uid)
+                    REFERENCES outbound_business_event_ledger(event_uid),
+                FOREIGN KEY (active_attempt_uid)
+                    REFERENCES outbound_send_attempt(attempt_uid)
+            )""",
+            """CREATE TABLE outbound_proxy_platform_result (
+                result_uid TEXT PRIMARY KEY,
+                event_uid TEXT NOT NULL,
+                dispatch_generation INTEGER NOT NULL CHECK (
+                    dispatch_generation > 0
+                ),
+                edge_event_sequence INTEGER NOT NULL CHECK (
+                    edge_event_sequence BETWEEN 1 AND 9999999999999
+                ),
+                result_code INTEGER NOT NULL,
+                received_at TEXT NOT NULL,
+                FOREIGN KEY (event_uid)
+                    REFERENCES outbound_business_event_ledger(event_uid)
+            )""",
+            """CREATE TABLE outbound_proxy_result_delivery (
+                result_uid TEXT PRIMARY KEY,
+                delivered_at TEXT NOT NULL,
+                FOREIGN KEY (result_uid)
+                    REFERENCES outbound_proxy_platform_result(result_uid)
+            )""",
+            """CREATE TRIGGER communication_proxy_extension_no_update
+               BEFORE UPDATE ON communication_proxy_extension
+               BEGIN SELECT RAISE(ABORT, 'proxy extension marker is immutable'); END""",
+            """CREATE TRIGGER communication_proxy_extension_no_delete
+               BEFORE DELETE ON communication_proxy_extension
+               BEGIN SELECT RAISE(ABORT, 'proxy extension marker is immutable'); END""",
+            """CREATE TRIGGER inbound_proxy_payload_no_delete
+               BEFORE DELETE ON inbound_proxy_payload
+               BEGIN SELECT RAISE(ABORT, 'inbound proxy payload is append-only'); END""",
+            """CREATE TRIGGER inbound_proxy_payload_monotonic_update
+               BEFORE UPDATE ON inbound_proxy_payload
+               WHEN OLD.command_uid <> NEW.command_uid
+                 OR OLD.service_id <> NEW.service_id
+                 OR OLD.params_json <> NEW.params_json
+                 OR OLD.response_json IS NOT NULL
+                 OR NEW.response_json IS NULL
+               BEGIN SELECT RAISE(ABORT, 'inbound proxy payload update is not monotonic'); END""",
+            """CREATE TRIGGER outbound_proxy_event_no_delete
+               BEFORE DELETE ON outbound_proxy_event
+               BEGIN SELECT RAISE(ABORT, 'outbound proxy event is append-only'); END""",
+            """CREATE TRIGGER outbound_proxy_event_monotonic_update
+               BEFORE UPDATE ON outbound_proxy_event
+               WHEN OLD.event_uid <> NEW.event_uid
+                 OR OLD.event_type <> NEW.event_type
+                 OR OLD.params_json <> NEW.params_json
+                 OR OLD.edge_event_sequence <> NEW.edge_event_sequence
+                 OR NEW.requested_generation < OLD.requested_generation
+                 OR NEW.completed_generation < OLD.completed_generation
+               BEGIN SELECT RAISE(ABORT, 'outbound proxy event update is not monotonic'); END""",
+            """CREATE TRIGGER outbound_proxy_result_no_update
+               BEFORE UPDATE ON outbound_proxy_platform_result
+               BEGIN SELECT RAISE(ABORT, 'proxy platform result is immutable'); END""",
+            """CREATE TRIGGER outbound_proxy_result_no_delete
+               BEFORE DELETE ON outbound_proxy_platform_result
+               BEGIN SELECT RAISE(ABORT, 'proxy platform result is append-only'); END""",
+            """CREATE TRIGGER outbound_proxy_delivery_no_update
+               BEFORE UPDATE ON outbound_proxy_result_delivery
+               BEGIN SELECT RAISE(ABORT, 'proxy result delivery is immutable'); END""",
+            """CREATE TRIGGER outbound_proxy_delivery_no_delete
+               BEFORE DELETE ON outbound_proxy_result_delivery
+               BEGIN SELECT RAISE(ABORT, 'proxy result delivery is append-only'); END""",
+        )
+        for statement in statements:
+            connection.execute(statement)
+        connection.execute(
+            """INSERT INTO communication_proxy_extension
+               (singleton_id, extension_version, installed_at)
+               VALUES (
+                   1, ?,
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+               )""",
+            (PROXY_EXTENSION_VERSION,),
+        )
+
+    @staticmethod
+    def _verify_proxy_extension(connection: sqlite3.Connection) -> None:
+        expected = {
+            "communication_proxy_extension": (
+                "singleton_id",
+                "extension_version",
+                "installed_at",
+            ),
+            "inbound_proxy_payload": (
+                "command_uid",
+                "service_id",
+                "params_json",
+                "response_json",
+            ),
+            "outbound_proxy_event": (
+                "event_uid",
+                "event_type",
+                "params_json",
+                "edge_event_sequence",
+                "requested_generation",
+                "completed_generation",
+                "active_generation",
+                "active_attempt_uid",
+                "retry_not_before",
+            ),
+            "outbound_proxy_platform_result": (
+                "result_uid",
+                "event_uid",
+                "dispatch_generation",
+                "edge_event_sequence",
+                "result_code",
+                "received_at",
+            ),
+            "outbound_proxy_result_delivery": (
+                "result_uid",
+                "delivered_at",
+            ),
+        }
+        for table, columns in expected.items():
+            _require_exact_columns(connection, table, columns)
+        marker = connection.execute(
+            """SELECT singleton_id, extension_version
+               FROM communication_proxy_extension"""
+        ).fetchall()
+        if [tuple(row) for row in marker] != [(1, PROXY_EXTENSION_VERSION)]:
+            raise RuntimeError(
+                "communication proxy extension is incompatible"
+            )
+        trigger_names = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='trigger'"
+            )
+        }
+        required = {
+            "communication_proxy_extension_no_update",
+            "communication_proxy_extension_no_delete",
+            "inbound_proxy_payload_no_delete",
+            "inbound_proxy_payload_monotonic_update",
+            "outbound_proxy_event_no_delete",
+            "outbound_proxy_event_monotonic_update",
+            "outbound_proxy_result_no_update",
+            "outbound_proxy_result_no_delete",
+            "outbound_proxy_delivery_no_update",
+            "outbound_proxy_delivery_no_delete",
+        }
+        if not required.issubset(trigger_names):
+            raise RuntimeError(
+                "communication proxy extension is incompatible"
+            )
+
     def record_process_start(self, release_version: str) -> dict[str, Any]:
         version = _require_release_version(release_version)
         start_uid = str(uuid.uuid4())
@@ -553,6 +794,138 @@ class CommunicationStore:
                 (command_uid,),
             ).fetchone()
         return dict(row) if row is not None else None
+
+    def receive_proxy_inbound_command(
+        self,
+        command_uid: str,
+        service_id: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist one ordinary cloud command before contacting business."""
+
+        command_uid = _require_uuid4(command_uid, "command UID")
+        service_id = _require_proxy_identifier(service_id, "service ID")
+        params_json, content_sha256 = _canonical_proxy_document(
+            "ecobin.communication.inbound-command",
+            {"serviceId": service_id, "params": params},
+        )
+        # Store only the raw params in the payload row.  The digest above also
+        # binds the service identifier so the same command UID cannot cross
+        # service routes without producing a conflict.
+        raw_params_json = _canonical_proxy_json(params, "service params")
+        now = self._now_text()
+        with self.transaction() as connection:
+            ledger = connection.execute(
+                """SELECT content_sha256, state
+                   FROM inbound_command_ledger WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+            if ledger is None:
+                connection.execute(
+                    """INSERT INTO inbound_command_ledger
+                       (command_uid, content_sha256, state, received_at)
+                       VALUES (?, ?, 'RECEIVED', ?)""",
+                    (command_uid, content_sha256, now),
+                )
+                connection.execute(
+                    """INSERT INTO inbound_proxy_payload
+                       (command_uid, service_id, params_json)
+                       VALUES (?, ?, ?)""",
+                    (command_uid, service_id, raw_params_json),
+                )
+                return {
+                    "disposition": "ACCEPTED",
+                    "contentSha256": content_sha256,
+                    "responseData": None,
+                }
+
+            payload = connection.execute(
+                """SELECT service_id, params_json, response_json
+                   FROM inbound_proxy_payload WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+            if (
+                ledger["content_sha256"] != content_sha256
+                or payload is None
+                or payload["service_id"] != service_id
+                or payload["params_json"] != raw_params_json
+            ):
+                return {
+                    "disposition": "CONFLICT",
+                    "contentSha256": content_sha256,
+                    "responseData": None,
+                }
+            response = (
+                json.loads(payload["response_json"])
+                if payload["response_json"] is not None
+                else None
+            )
+            return {
+                "disposition": (
+                    "DUPLICATE_BUSINESS_ACCEPTED"
+                    if ledger["state"] == INBOUND_BUSINESS_ACCEPTED
+                    else "DUPLICATE_RECEIVED"
+                ),
+                "contentSha256": content_sha256,
+                "responseData": response,
+            }
+
+    def mark_proxy_inbound_business_accepted(
+        self,
+        command_uid: str,
+        content_sha256: str,
+        response_data: dict[str, Any],
+    ) -> str:
+        """Atomically bind the business response to permanent acceptance."""
+
+        command_uid = _require_uuid4(command_uid, "command UID")
+        content_sha256 = _require_sha256(content_sha256, "command content SHA-256")
+        response_json = _canonical_proxy_json(
+            response_data,
+            "business response",
+        )
+        now = self._now_text()
+        with self.transaction() as connection:
+            ledger = connection.execute(
+                """SELECT content_sha256, state
+                   FROM inbound_command_ledger WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+            payload = connection.execute(
+                """SELECT response_json FROM inbound_proxy_payload
+                   WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+            if ledger is None or payload is None:
+                return "UNKNOWN"
+            if ledger["content_sha256"] != content_sha256:
+                return "CONFLICT"
+            if ledger["state"] == INBOUND_BUSINESS_ACCEPTED:
+                return (
+                    "DUPLICATE"
+                    if payload["response_json"] == response_json
+                    else "CONFLICT"
+                )
+            if payload["response_json"] is not None:
+                raise RuntimeError(
+                    "proxy response exists before business acceptance"
+                )
+            response_updated = connection.execute(
+                """UPDATE inbound_proxy_payload SET response_json=?
+                   WHERE command_uid=? AND response_json IS NULL""",
+                (response_json, command_uid),
+            )
+            ledger_updated = connection.execute(
+                """UPDATE inbound_command_ledger
+                   SET state='BUSINESS_ACCEPTED', business_accepted_at=?
+                   WHERE command_uid=? AND state='RECEIVED'""",
+                (now, command_uid),
+            )
+            if response_updated.rowcount != 1 or ledger_updated.rowcount != 1:
+                raise RuntimeError(
+                    "proxy inbound command did not advance atomically"
+                )
+            return "ACCEPTED"
 
     def receive_outbound_business_event(
         self,
@@ -785,6 +1158,453 @@ class CommunicationStore:
         )
         return result
 
+    def submit_proxy_outbound_event(
+        self,
+        event_uid: str,
+        event_type: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Durably accept one business-to-cloud delivery request.
+
+        At most one generation remains outstanding.  Repeating an RPC whose
+        response was lost therefore does not grow an unbounded queue.  Once a
+        cloud result completed that generation, a later business retry opens
+        exactly one new generation for the same immutable event.
+        """
+
+        event_uid = _require_uuid4(event_uid, "event UID")
+        event_type = _require_proxy_identifier(event_type, "event type")
+        params_json = _canonical_proxy_json(params, "event params")
+        _document_json, content_sha256 = _canonical_proxy_document(
+            "ecobin.communication.outbound-event",
+            {"eventType": event_type, "params": params},
+        )
+        edge_sequence = params.get("edgeEventSequence")
+        if (
+            isinstance(edge_sequence, bool)
+            or not isinstance(edge_sequence, int)
+            or not 1 <= edge_sequence <= 9_999_999_999_999
+        ):
+            raise ValueError(
+                "event params require a 13-digit edgeEventSequence"
+            )
+        now = self._now_text()
+        with self.transaction() as connection:
+            ledger = connection.execute(
+                """SELECT content_sha256, state
+                   FROM outbound_business_event_ledger WHERE event_uid=?""",
+                (event_uid,),
+            ).fetchone()
+            if ledger is None:
+                connection.execute(
+                    """INSERT INTO outbound_business_event_ledger
+                       (event_uid, content_sha256, state, created_at)
+                       VALUES (?, ?, 'PENDING', ?)""",
+                    (event_uid, content_sha256, now),
+                )
+                connection.execute(
+                    """INSERT INTO outbound_proxy_event
+                       (event_uid, event_type, params_json,
+                        edge_event_sequence)
+                       VALUES (?, ?, ?, ?)""",
+                    (event_uid, event_type, params_json, edge_sequence),
+                )
+                return {
+                    "disposition": "ACCEPTED",
+                    "contentSha256": content_sha256,
+                    "dispatchGeneration": 1,
+                }
+
+            proxy = connection.execute(
+                "SELECT * FROM outbound_proxy_event WHERE event_uid=?",
+                (event_uid,),
+            ).fetchone()
+            if (
+                ledger["content_sha256"] != content_sha256
+                or proxy is None
+                or proxy["event_type"] != event_type
+                or proxy["params_json"] != params_json
+                or proxy["edge_event_sequence"] != edge_sequence
+            ):
+                return {
+                    "disposition": "CONFLICT",
+                    "contentSha256": content_sha256,
+                    "dispatchGeneration": None,
+                }
+            requested = int(proxy["requested_generation"])
+            completed = int(proxy["completed_generation"])
+            if requested == completed and proxy["active_generation"] is None:
+                requested += 1
+                updated = connection.execute(
+                    """UPDATE outbound_proxy_event
+                       SET requested_generation=?, retry_not_before=NULL
+                       WHERE event_uid=?
+                         AND requested_generation=completed_generation
+                         AND active_generation IS NULL""",
+                    (requested, event_uid),
+                )
+                if updated.rowcount != 1:
+                    raise RuntimeError(
+                        "proxy outbound generation did not advance"
+                    )
+            return {
+                "disposition": "DUPLICATE",
+                "contentSha256": content_sha256,
+                "dispatchGeneration": requested,
+            }
+
+    def claim_next_proxy_outbound_event(self) -> dict[str, Any] | None:
+        """Claim one pending generation and append its durable send attempt."""
+
+        now = self._now_text()
+        with self.transaction() as connection:
+            row = connection.execute(
+                """SELECT proxy.*, ledger.content_sha256, ledger.state
+                   FROM outbound_proxy_event AS proxy
+                   JOIN outbound_business_event_ledger AS ledger
+                     ON ledger.event_uid=proxy.event_uid
+                   WHERE proxy.completed_generation
+                         < proxy.requested_generation
+                     AND proxy.active_generation IS NULL
+                     AND (proxy.retry_not_before IS NULL
+                          OR proxy.retry_not_before <= ?)
+                   ORDER BY proxy.rowid
+                   LIMIT 1""",
+                (now,),
+            ).fetchone()
+            if row is None:
+                return None
+            attempt_uid = str(uuid.uuid4())
+            sequence = int(
+                connection.execute(
+                    """SELECT COALESCE(MAX(attempt_sequence), 0) + 1
+                       FROM outbound_send_attempt WHERE event_uid=?""",
+                    (row["event_uid"],),
+                ).fetchone()[0]
+            )
+            generation = int(row["completed_generation"]) + 1
+            connection.execute(
+                """INSERT INTO outbound_send_attempt
+                   (attempt_uid, event_uid, attempt_sequence,
+                    content_sha256, outcome, started_at)
+                   VALUES (?, ?, ?, ?, 'STARTED', ?)""",
+                (
+                    attempt_uid,
+                    row["event_uid"],
+                    sequence,
+                    row["content_sha256"],
+                    now,
+                ),
+            )
+            if row["state"] in {OUTBOUND_PENDING, OUTBOUND_SENDING}:
+                updated = connection.execute(
+                    """UPDATE outbound_business_event_ledger
+                       SET state='SENDING', last_send_attempt_at=?
+                       WHERE event_uid=?
+                         AND state IN ('PENDING', 'SENDING')""",
+                    (now, row["event_uid"]),
+                )
+                if updated.rowcount != 1:
+                    raise RuntimeError(
+                        "proxy outbound ledger did not enter sending"
+                    )
+            connection.execute(
+                """UPDATE outbound_proxy_event
+                   SET active_generation=?, active_attempt_uid=?,
+                       retry_not_before=NULL
+                   WHERE event_uid=? AND active_generation IS NULL""",
+                (generation, attempt_uid, row["event_uid"]),
+            )
+            return {
+                "eventUid": row["event_uid"],
+                "eventType": row["event_type"],
+                "params": json.loads(row["params_json"]),
+                "contentSha256": row["content_sha256"],
+                "dispatchGeneration": generation,
+                "attemptUid": attempt_uid,
+                "attemptSequence": sequence,
+            }
+
+    def acknowledge_proxy_transport(self, event_uid: str) -> str:
+        """Record a QoS transport acknowledgement without completing delivery."""
+
+        event_uid = _require_uuid4(event_uid, "event UID")
+        now = self._now_text()
+        with self.transaction() as connection:
+            proxy = connection.execute(
+                """SELECT active_attempt_uid FROM outbound_proxy_event
+                   WHERE event_uid=?""",
+                (event_uid,),
+            ).fetchone()
+            if proxy is None:
+                return "UNKNOWN"
+            attempt_uid = proxy["active_attempt_uid"]
+            if attempt_uid is None:
+                return "DUPLICATE"
+            attempt = connection.execute(
+                """SELECT outcome FROM outbound_send_attempt
+                   WHERE attempt_uid=?""",
+                (attempt_uid,),
+            ).fetchone()
+            if attempt is None:
+                raise RuntimeError("proxy active send attempt is absent")
+            if attempt["outcome"] == SEND_ATTEMPT_STARTED:
+                connection.execute(
+                    """UPDATE outbound_send_attempt
+                       SET outcome='TRANSPORT_ACCEPTED', completed_at=?
+                       WHERE attempt_uid=? AND outcome='STARTED'""",
+                    (now, attempt_uid),
+                )
+                return "ACCEPTED"
+            return (
+                "DUPLICATE"
+                if attempt["outcome"] == "TRANSPORT_ACCEPTED"
+                else "CONFLICT"
+            )
+
+    def fail_proxy_send(
+        self,
+        event_uid: str,
+        *,
+        retry_not_before: datetime,
+        outcome: str = "RETRYABLE_FAILURE",
+    ) -> str:
+        """Close one local send attempt and leave its generation pending."""
+
+        event_uid = _require_uuid4(event_uid, "event UID")
+        if outcome not in {"RETRYABLE_FAILURE", "RESULT_UNKNOWN"}:
+            raise ValueError("proxy retry outcome is invalid")
+        retry_text = self._format_clock_value(retry_not_before)
+        now = self._now_text()
+        with self.transaction() as connection:
+            proxy = connection.execute(
+                """SELECT active_attempt_uid FROM outbound_proxy_event
+                   WHERE event_uid=?""",
+                (event_uid,),
+            ).fetchone()
+            if proxy is None:
+                return "UNKNOWN"
+            attempt_uid = proxy["active_attempt_uid"]
+            if attempt_uid is None:
+                return "DUPLICATE"
+            attempt = connection.execute(
+                "SELECT outcome FROM outbound_send_attempt WHERE attempt_uid=?",
+                (attempt_uid,),
+            ).fetchone()
+            if attempt is None:
+                raise RuntimeError("proxy active send attempt is absent")
+            if attempt["outcome"] == SEND_ATTEMPT_STARTED:
+                connection.execute(
+                    """UPDATE outbound_send_attempt
+                       SET outcome=?, completed_at=?
+                       WHERE attempt_uid=? AND outcome='STARTED'""",
+                    (outcome, now, attempt_uid),
+                )
+            connection.execute(
+                """UPDATE outbound_proxy_event
+                   SET active_generation=NULL, active_attempt_uid=NULL,
+                       retry_not_before=?
+                   WHERE event_uid=? AND active_attempt_uid=?""",
+                (retry_text, event_uid, attempt_uid),
+            )
+            return "ACCEPTED"
+
+    def recover_proxy_sends(self) -> int:
+        """Turn process-interrupted active attempts into retryable uncertainty."""
+
+        now = self._now_text()
+        with self.transaction() as connection:
+            rows = connection.execute(
+                """SELECT event_uid, active_attempt_uid
+                   FROM outbound_proxy_event
+                   WHERE active_attempt_uid IS NOT NULL"""
+            ).fetchall()
+            for row in rows:
+                connection.execute(
+                    """UPDATE outbound_send_attempt
+                       SET outcome='RESULT_UNKNOWN', completed_at=?
+                       WHERE attempt_uid=? AND outcome='STARTED'""",
+                    (now, row["active_attempt_uid"]),
+                )
+                connection.execute(
+                    """UPDATE outbound_proxy_event
+                       SET active_generation=NULL, active_attempt_uid=NULL,
+                           retry_not_before=NULL
+                       WHERE event_uid=?
+                         AND active_attempt_uid=?""",
+                    (row["event_uid"], row["active_attempt_uid"]),
+                )
+            return len(rows)
+
+    def record_proxy_platform_result(
+        self,
+        edge_event_sequence: int,
+        code: int,
+    ) -> dict[str, Any] | None:
+        """Persist one OneNet result and complete its current send generation."""
+
+        if (
+            isinstance(edge_event_sequence, bool)
+            or not isinstance(edge_event_sequence, int)
+            or not 1 <= edge_event_sequence <= 9_999_999_999_999
+        ):
+            raise ValueError("edge event sequence is invalid")
+        if isinstance(code, bool) or not isinstance(code, int):
+            raise ValueError("platform result code is invalid")
+        now = self._now_text()
+        result_uid = str(uuid.uuid4())
+        with self.transaction() as connection:
+            proxy = connection.execute(
+                """SELECT * FROM outbound_proxy_event
+                   WHERE edge_event_sequence=?""",
+                (edge_event_sequence,),
+            ).fetchone()
+            if proxy is None:
+                return None
+            generation = (
+                int(proxy["active_generation"])
+                if proxy["active_generation"] is not None
+                else max(
+                    int(proxy["completed_generation"]),
+                    min(
+                        int(proxy["requested_generation"]),
+                        int(proxy["completed_generation"]) + 1,
+                    ),
+                )
+            )
+            attempt_uid = proxy["active_attempt_uid"]
+            if attempt_uid is not None:
+                connection.execute(
+                    """UPDATE outbound_send_attempt
+                       SET outcome='TRANSPORT_ACCEPTED', completed_at=?
+                       WHERE attempt_uid=? AND outcome='STARTED'""",
+                    (now, attempt_uid),
+                )
+            connection.execute(
+                """INSERT INTO outbound_proxy_platform_result
+                   (result_uid, event_uid, dispatch_generation,
+                    edge_event_sequence, result_code, received_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    result_uid,
+                    proxy["event_uid"],
+                    generation,
+                    edge_event_sequence,
+                    code,
+                    now,
+                ),
+            )
+            connection.execute(
+                """UPDATE outbound_proxy_event
+                   SET completed_generation=MAX(completed_generation, ?),
+                       active_generation=NULL, active_attempt_uid=NULL,
+                       retry_not_before=NULL
+                   WHERE event_uid=?""",
+                (generation, proxy["event_uid"]),
+            )
+            if code in {0, 200}:
+                ledger = connection.execute(
+                    """SELECT state, content_sha256
+                       FROM outbound_business_event_ledger
+                       WHERE event_uid=?""",
+                    (proxy["event_uid"],),
+                ).fetchone()
+                if ledger is None:
+                    raise RuntimeError("proxy outbound ledger is absent")
+                if ledger["state"] != OUTBOUND_PLATFORM_CONFIRMED:
+                    confirmation_sha256 = hashlib.sha256(
+                        (
+                            "ecobin.communication.platform-result\n"
+                            f"{edge_event_sequence}\n{code}"
+                        ).encode("ascii")
+                    ).hexdigest()
+                    connection.execute(
+                        """INSERT INTO outbound_platform_confirmation
+                           (confirmation_uid, event_uid,
+                            confirmation_sha256, received_at)
+                           VALUES (?, ?, ?, ?)""",
+                        (
+                            result_uid,
+                            proxy["event_uid"],
+                            confirmation_sha256,
+                            now,
+                        ),
+                    )
+                    connection.execute(
+                        """UPDATE outbound_business_event_ledger
+                           SET state='PLATFORM_CONFIRMED',
+                               platform_confirmed_at=?
+                           WHERE event_uid=?
+                             AND state IN ('PENDING', 'SENDING')""",
+                        (now, proxy["event_uid"]),
+                    )
+            return {
+                "resultUid": result_uid,
+                "eventUid": proxy["event_uid"],
+                "dispatchGeneration": generation,
+                "edgeEventSequence": edge_event_sequence,
+                "code": code,
+                "receivedAt": now,
+            }
+
+    def list_undelivered_proxy_platform_results(
+        self,
+        *,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ValueError("platform result limit is invalid")
+        with self._lock:
+            rows = self._require_connection().execute(
+                """SELECT result.result_uid, result.event_uid,
+                          result.dispatch_generation,
+                          result.edge_event_sequence, result.result_code,
+                          result.received_at
+                   FROM outbound_proxy_platform_result AS result
+                   LEFT JOIN outbound_proxy_result_delivery AS delivery
+                     ON delivery.result_uid=result.result_uid
+                   WHERE delivery.result_uid IS NULL
+                   ORDER BY result.rowid
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "resultUid": row["result_uid"],
+                "eventUid": row["event_uid"],
+                "dispatchGeneration": int(row["dispatch_generation"]),
+                "edgeEventSequence": int(row["edge_event_sequence"]),
+                "code": int(row["result_code"]),
+                "receivedAt": row["received_at"],
+            }
+            for row in rows
+        ]
+
+    def mark_proxy_platform_result_delivered(self, result_uid: str) -> str:
+        result_uid = _require_uuid4(result_uid, "platform result UID")
+        now = self._now_text()
+        with self.transaction() as connection:
+            result = connection.execute(
+                """SELECT 1 FROM outbound_proxy_platform_result
+                   WHERE result_uid=?""",
+                (result_uid,),
+            ).fetchone()
+            if result is None:
+                return "UNKNOWN"
+            existing = connection.execute(
+                """SELECT 1 FROM outbound_proxy_result_delivery
+                   WHERE result_uid=?""",
+                (result_uid,),
+            ).fetchone()
+            if existing is not None:
+                return "DUPLICATE"
+            connection.execute(
+                """INSERT INTO outbound_proxy_result_delivery
+                   (result_uid, delivered_at) VALUES (?, ?)""",
+                (result_uid, now),
+            )
+            return "ACCEPTED"
+
     def get_status(self) -> dict[str, Any]:
         with self._lock:
             connection = self._require_connection()
@@ -806,7 +1626,14 @@ class CommunicationStore:
                     (SELECT COUNT(*) FROM outbound_business_event_ledger),
                     (SELECT COUNT(*) FROM outbound_send_attempt),
                     (SELECT COUNT(*) FROM outbound_business_event_ledger
-                     WHERE state='PLATFORM_CONFIRMED')"""
+                     WHERE state='PLATFORM_CONFIRMED'),
+                    (SELECT COUNT(*) FROM outbound_proxy_event
+                     WHERE completed_generation < requested_generation),
+                    (SELECT COUNT(*)
+                     FROM outbound_proxy_platform_result AS result
+                     LEFT JOIN outbound_proxy_result_delivery AS delivery
+                       ON delivery.result_uid=result.result_uid
+                     WHERE delivery.result_uid IS NULL)"""
             ).fetchone()
         latest = None
         if row is not None:
@@ -825,6 +1652,9 @@ class CommunicationStore:
             "outboundBusinessEventCount": int(counts[3]),
             "outboundSendAttemptCount": int(counts[4]),
             "outboundPlatformConfirmedCount": int(counts[5]),
+            "proxyExtensionVersion": PROXY_EXTENSION_VERSION,
+            "proxyPendingOutboundCount": int(counts[6]),
+            "proxyUndeliveredPlatformResultCount": int(counts[7]),
         }
 
     @contextmanager
@@ -853,6 +1683,10 @@ class CommunicationStore:
 
     def _now_text(self) -> str:
         value = self._utc_now()
+        return self._format_clock_value(value)
+
+    @staticmethod
+    def _format_clock_value(value: datetime) -> str:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("communication clock must be timezone-aware")
         rendered = value.astimezone(timezone.utc).isoformat(timespec="milliseconds")
@@ -899,3 +1733,42 @@ def _require_release_version(value: str) -> str:
     ):
         raise ValueError("communication release version is invalid")
     return value
+
+
+def _require_proxy_identifier(value: Any, field: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= 128
+        or value != value.strip()
+        or not value.isprintable()
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", value) is None
+    ):
+        raise ValueError(f"{field} is invalid")
+    return value
+
+
+def _canonical_proxy_json(value: Any, field: str) -> str:
+    if not isinstance(value, dict):
+        raise ValueError(f"{field} must be a JSON object")
+    try:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field} must contain JSON values") from error
+    if not 2 <= len(encoded) <= MAX_PROXY_JSON_BYTES:
+        raise ValueError(f"{field} size is invalid")
+    return encoded.decode("utf-8")
+
+
+def _canonical_proxy_document(
+    domain: str,
+    value: dict[str, Any],
+) -> tuple[str, str]:
+    document = {"domain": domain, **value}
+    encoded = _canonical_proxy_json(document, "proxy content")
+    return encoded, hashlib.sha256(encoded.encode("utf-8")).hexdigest()

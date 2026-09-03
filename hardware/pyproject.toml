@@ -19,10 +19,18 @@ enrollment = [
 remote-support = [
     "cryptography>=45.0.0,<47",
 ]
+communication = [
+    "paho-mqtt>=2.1.0",
+]
+updater = [
+    "cryptography>=45.0.0,<47",
+]
 dev = [
     { include-group = "runtime" },
     { include-group = "enrollment" },
     { include-group = "remote-support" },
+    { include-group = "communication" },
+    { include-group = "updater" },
     "python-dotenv>=1.0.0",
     "pytest>=9.0.0,<10",
 ]

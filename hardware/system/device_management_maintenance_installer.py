@@ -80,10 +80,13 @@ BOOT_ID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 MAIN_UNIT_FILES = (
+    "ecobin-business.service",
+    "ecobin-communication-proxy.service",
     "ecobin-communication.service",
     "ecobin-updater.service",
     "ecobin-device-management-preflight.service",
     "ecobin-business-permission-preflight.service",
+    "ecobin-updater-candidate.service",
 )
 HELPER_UNIT_FILES = tuple(DEVICE_UPDATER_HELPER_UNIT_FILES)
 HELPER_INSTANCE_PREFIXES = (

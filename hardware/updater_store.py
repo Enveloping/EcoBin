@@ -1184,6 +1184,9 @@ class UpdaterStore:
                 "maintenanceType": (
                     maintenance["maintenance_type"] if maintenance else None
                 ),
+                "maintenancePhase": (
+                    maintenance["phase"] if maintenance else None
+                ),
                 "maintenanceFenceToken": (
                     maintenance["fence_token"] if maintenance else None
                 ),
@@ -1595,6 +1598,371 @@ class UpdaterStore:
                        reconciliation_required=?, block_reason_code=?, updated_at=?
                    WHERE singleton_id=1""",
                 (target, maintenance_state, reconciliation, reason, now),
+            )
+        return self.get_status()
+
+    def require_update_maintenance(
+        self,
+        owner_update_uid: str,
+        fence_token: int,
+        *,
+        allow_recovery_lock: bool = True,
+    ) -> dict[str, Any]:
+        """Prove one exact update still owns the drained maintenance fence."""
+
+        owner = _require_uuid4(owner_update_uid, "ownerUpdateUid")
+        if (
+            isinstance(fence_token, bool)
+            or not isinstance(fence_token, int)
+            or fence_token < 1
+        ):
+            raise UpdaterStoreError(
+                "MAINTENANCE_FENCE_INVALID",
+                "maintenance fence token is invalid",
+            )
+        with self._lock:
+            connection = self._require_connection()
+            state = self._require_candidate(connection)
+            lock = connection.execute(
+                "SELECT * FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            accepted_states = {"MAINTENANCE"}
+            if allow_recovery_lock:
+                accepted_states.add("LOCKED")
+            if (
+                self._candidate_activation_state(connection) != "ACTIVE"
+                or lock is None
+                or lock["owner_update_uid"] != owner
+                or lock["maintenance_type"] != "MCU_FIRMWARE_UPDATE"
+                or lock["fence_token"] != fence_token
+                or state["job_gate_state"] not in accepted_states
+                or state["maintenance_state"] not in accepted_states
+                or self._count_nonterminal_permits(connection)
+                or self._count_unresolved_actions(connection)
+            ):
+                raise UpdaterStoreError(
+                    "MAINTENANCE_NOT_AUTHORIZED",
+                    "the MCU update does not own a drained maintenance fence",
+                )
+        return self.get_status()
+
+    def resume_update_maintenance(
+        self,
+        owner_update_uid: str,
+        fence_token: int,
+    ) -> dict[str, Any]:
+        """Restore an interrupted, observed-safe update to MAINTENANCE."""
+
+        owner = _require_uuid4(owner_update_uid, "ownerUpdateUid")
+        if (
+            isinstance(fence_token, bool)
+            or not isinstance(fence_token, int)
+            or fence_token < 1
+        ):
+            raise UpdaterStoreError(
+                "MAINTENANCE_FENCE_INVALID",
+                "maintenance fence token is invalid",
+            )
+        with self._transaction() as connection:
+            state = self._require_candidate(connection)
+            lock = connection.execute(
+                "SELECT * FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            if connection.execute(
+                "SELECT 1 FROM operator_job_gate_lock WHERE singleton_id=1"
+            ).fetchone() is not None:
+                raise UpdaterStoreError(
+                    "OPERATOR_SAFETY_LOCK_ACTIVE",
+                    "the operator safety lock prevents maintenance recovery",
+                )
+            if (
+                self._candidate_activation_state(connection) != "ACTIVE"
+                or lock is None
+                or lock["owner_update_uid"] != owner
+                or lock["maintenance_type"] != "MCU_FIRMWARE_UPDATE"
+                or lock["fence_token"] != fence_token
+                or self._count_nonterminal_permits(connection)
+                or self._count_unresolved_actions(connection)
+            ):
+                raise UpdaterStoreError(
+                    "MAINTENANCE_NOT_AUTHORIZED",
+                    "the interrupted MCU update maintenance fence is invalid",
+                )
+            if state["job_gate_state"] == "MAINTENANCE":
+                return self.get_status()
+            if (
+                state["job_gate_state"] != "LOCKED"
+                or state["block_reason_code"]
+                != "MAINTENANCE_RECOVERY_REQUIRED"
+            ):
+                raise UpdaterStoreError(
+                    "MAINTENANCE_RECOVERY_NOT_ALLOWED",
+                    "the current safety lock cannot be resumed automatically",
+                )
+            now = _format_utc(self._utc_now())
+            connection.execute(
+                """UPDATE maintenance_lock
+                   SET phase='MAINTENANCE', updated_at=? WHERE singleton_id=1""",
+                (now,),
+            )
+            connection.execute(
+                """UPDATE updater_management_state
+                   SET management_state_sequence=management_state_sequence+1,
+                       job_gate_state='MAINTENANCE',
+                       maintenance_state='MAINTENANCE',
+                       reconciliation_required=0,
+                       block_reason_code='MAINTENANCE_ACTIVE', updated_at=?
+                   WHERE singleton_id=1""",
+                (now,),
+            )
+        return self.get_status()
+
+    def resume_update_drain(
+        self,
+        owner_update_uid: str,
+        fence_token: int,
+    ) -> dict[str, Any]:
+        """Restore an interrupted pre-hardware drain without opening work."""
+
+        owner = _require_uuid4(owner_update_uid, "ownerUpdateUid")
+        if (
+            isinstance(fence_token, bool)
+            or not isinstance(fence_token, int)
+            or fence_token < 1
+        ):
+            raise UpdaterStoreError(
+                "MAINTENANCE_FENCE_INVALID",
+                "maintenance fence token is invalid",
+            )
+        with self._transaction() as connection:
+            state = self._require_candidate(connection)
+            lock = connection.execute(
+                "SELECT * FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            if connection.execute(
+                "SELECT 1 FROM operator_job_gate_lock WHERE singleton_id=1"
+            ).fetchone() is not None:
+                raise UpdaterStoreError(
+                    "OPERATOR_SAFETY_LOCK_ACTIVE",
+                    "the operator safety lock prevents drain recovery",
+                )
+            if (
+                self._candidate_activation_state(connection) != "ACTIVE"
+                or lock is None
+                or lock["owner_update_uid"] != owner
+                or lock["maintenance_type"] != "MCU_FIRMWARE_UPDATE"
+                or lock["phase"] != "DRAINING"
+                or lock["fence_token"] != fence_token
+                or self._count_nonterminal_permits(connection)
+                or self._count_unresolved_actions(connection)
+            ):
+                raise UpdaterStoreError(
+                    "MAINTENANCE_DRAIN_RECOVERY_NOT_AUTHORIZED",
+                    "the interrupted MCU update drain cannot be resumed",
+                )
+            if state["job_gate_state"] == "DRAINING":
+                return self.get_status()
+            if (
+                state["job_gate_state"] != "LOCKED"
+                or state["maintenance_state"] != "LOCKED"
+                or state["block_reason_code"] != "MAINTENANCE_RECOVERY_REQUIRED"
+            ):
+                raise UpdaterStoreError(
+                    "MAINTENANCE_DRAIN_RECOVERY_NOT_ALLOWED",
+                    "the current safety lock is not an interrupted update drain",
+                )
+            now = _format_utc(self._utc_now())
+            connection.execute(
+                """UPDATE updater_management_state
+                   SET management_state_sequence=management_state_sequence+1,
+                       job_gate_state='DRAINING', maintenance_state='DRAINING',
+                       reconciliation_required=0,
+                       block_reason_code='MAINTENANCE_DRAINING', updated_at=?
+                   WHERE singleton_id=1""",
+                (now,),
+            )
+        return self.get_status()
+
+    def lock_update_maintenance(
+        self,
+        owner_update_uid: str,
+        fence_token: int,
+        *,
+        reason_code: str,
+    ) -> dict[str, Any]:
+        """Retain the exact MCU fence when neither image is proven safe."""
+
+        owner = _require_uuid4(owner_update_uid, "ownerUpdateUid")
+        reason = _require_token(reason_code, "reasonCode")
+        if (
+            isinstance(fence_token, bool)
+            or not isinstance(fence_token, int)
+            or fence_token < 1
+        ):
+            raise UpdaterStoreError(
+                "MAINTENANCE_FENCE_INVALID",
+                "maintenance fence token is invalid",
+            )
+        with self._transaction() as connection:
+            self._require_candidate(connection)
+            lock = connection.execute(
+                "SELECT * FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            if (
+                lock is None
+                or lock["owner_update_uid"] != owner
+                or lock["maintenance_type"] != "MCU_FIRMWARE_UPDATE"
+                or lock["fence_token"] != fence_token
+            ):
+                raise UpdaterStoreError(
+                    "MAINTENANCE_NOT_AUTHORIZED",
+                    "the MCU update maintenance fence is invalid",
+                )
+            now = _format_utc(self._utc_now())
+            connection.execute(
+                """UPDATE maintenance_lock SET phase='LOCKED', updated_at=?
+                   WHERE singleton_id=1""",
+                (now,),
+            )
+            connection.execute(
+                """UPDATE updater_management_state
+                   SET management_state_sequence=management_state_sequence+1,
+                       job_gate_state='LOCKED', maintenance_state='LOCKED',
+                       reconciliation_required=1, block_reason_code=?, updated_at=?
+                   WHERE singleton_id=1""",
+                (reason, now),
+            )
+        return self.get_status()
+
+    def release_update_maintenance(
+        self,
+        owner_update_uid: str,
+        fence_token: int,
+        *,
+        outcome: str,
+        evidence_sha256: str,
+    ) -> dict[str, Any]:
+        """Release only a verified target/rollback using its exact fence."""
+
+        owner = _require_uuid4(owner_update_uid, "ownerUpdateUid")
+        if outcome not in {"SUCCEEDED", "ROLLED_BACK"}:
+            raise UpdaterStoreError(
+                "MAINTENANCE_OUTCOME_INVALID",
+                "MCU maintenance outcome is invalid",
+            )
+        _require_sha256(evidence_sha256, "evidenceSha256")
+        if (
+            isinstance(fence_token, bool)
+            or not isinstance(fence_token, int)
+            or fence_token < 1
+        ):
+            raise UpdaterStoreError(
+                "MAINTENANCE_FENCE_INVALID",
+                "maintenance fence token is invalid",
+            )
+        with self._transaction() as connection:
+            state = self._require_candidate(connection)
+            lock = connection.execute(
+                "SELECT * FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            if connection.execute(
+                "SELECT 1 FROM operator_job_gate_lock WHERE singleton_id=1"
+            ).fetchone() is not None:
+                raise UpdaterStoreError(
+                    "OPERATOR_SAFETY_LOCK_ACTIVE",
+                    "the operator safety lock prevents maintenance release",
+                )
+            if (
+                self._candidate_activation_state(connection) != "ACTIVE"
+                or lock is None
+                or lock["owner_update_uid"] != owner
+                or lock["maintenance_type"] != "MCU_FIRMWARE_UPDATE"
+                or lock["fence_token"] != fence_token
+                or state["job_gate_state"] not in {"MAINTENANCE", "LOCKED"}
+                or self._count_nonterminal_permits(connection)
+                or self._count_unresolved_actions(connection)
+            ):
+                raise UpdaterStoreError(
+                    "MAINTENANCE_RELEASE_NOT_ALLOWED",
+                    "the verified MCU update cannot release this maintenance fence",
+                )
+            now = _format_utc(self._utc_now())
+            connection.execute(
+                "DELETE FROM maintenance_lock WHERE singleton_id=1"
+            )
+            connection.execute(
+                """UPDATE updater_management_state
+                   SET management_state_sequence=management_state_sequence+1,
+                       job_gate_state='OPEN', maintenance_state='IDLE',
+                       reconciliation_required=0, block_reason_code=NULL,
+                       updated_at=? WHERE singleton_id=1""",
+                (now,),
+            )
+        return self.get_status()
+
+    def abort_update_drain(
+        self,
+        owner_update_uid: str,
+        fence_token: int,
+        *,
+        evidence_sha256: str,
+    ) -> dict[str, Any]:
+        """Reopen work only while an MCU update is still waiting to drain."""
+
+        owner = _require_uuid4(owner_update_uid, "ownerUpdateUid")
+        _require_sha256(evidence_sha256, "evidenceSha256")
+        if (
+            isinstance(fence_token, bool)
+            or not isinstance(fence_token, int)
+            or fence_token < 1
+        ):
+            raise UpdaterStoreError(
+                "MAINTENANCE_FENCE_INVALID",
+                "maintenance fence token is invalid",
+            )
+        with self._transaction() as connection:
+            state = self._require_candidate(connection)
+            lock = connection.execute(
+                "SELECT * FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone()
+            if (
+                lock is None
+                and state["job_gate_state"] == "OPEN"
+                and state["maintenance_state"] == "IDLE"
+            ):
+                return self.get_status()
+            if connection.execute(
+                "SELECT 1 FROM operator_job_gate_lock WHERE singleton_id=1"
+            ).fetchone() is not None:
+                raise UpdaterStoreError(
+                    "OPERATOR_SAFETY_LOCK_ACTIVE",
+                    "the operator safety lock prevents drain cancellation",
+                )
+            if (
+                self._candidate_activation_state(connection) != "ACTIVE"
+                or lock is None
+                or lock["owner_update_uid"] != owner
+                or lock["maintenance_type"] != "MCU_FIRMWARE_UPDATE"
+                or lock["fence_token"] != fence_token
+                or lock["phase"] != "DRAINING"
+                or state["job_gate_state"] != "DRAINING"
+                or state["maintenance_state"] != "DRAINING"
+            ):
+                raise UpdaterStoreError(
+                    "MAINTENANCE_DRAIN_ABORT_NOT_ALLOWED",
+                    "only the exact pre-hardware MCU drain may be cancelled",
+                )
+            now = _format_utc(self._utc_now())
+            connection.execute(
+                "DELETE FROM maintenance_lock WHERE singleton_id=1"
+            )
+            connection.execute(
+                """UPDATE updater_management_state
+                   SET management_state_sequence=management_state_sequence+1,
+                       job_gate_state='OPEN', maintenance_state='IDLE',
+                       reconciliation_required=0, block_reason_code=NULL,
+                       updated_at=? WHERE singleton_id=1""",
+                (now,),
             )
         return self.get_status()
 

@@ -1,0 +1,17 @@
+[Unit]
+Description=EcoBin stage-four business activation helper socket
+ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
+Requires=ecobin-updater-candidate.service
+After=ecobin-updater-candidate.service
+
+[Socket]
+ListenStream=/run/ecobin/privileged/business-activation-candidate.sock
+Accept=yes
+SocketUser=root
+SocketGroup=ecobin-privileged-helper-ipc
+SocketMode=0660
+DirectoryMode=0750
+Backlog=8
+MaxConnections=1
+RemoveOnStop=yes
+FlushPending=yes

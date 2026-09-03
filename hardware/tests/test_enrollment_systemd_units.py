@@ -66,6 +66,10 @@ def test_remote_support_service_has_an_independent_lifecycle():
     ) in unit
     assert "--credentials %d/remote-support.json" in unit
     assert "LimitCORE=0" in unit
+    assert "Group=ecobin-business-ipc" in unit
+    assert "--allowed-user ecobin-business" in unit
+    assert "--socket-group ecobin-business-ipc" in unit
+    assert "RuntimeDirectoryMode=0750" in unit
 
 
 def test_enrollment_is_oneshot_retriable_and_deletes_generation_module():
@@ -86,6 +90,7 @@ def test_enrollment_is_oneshot_retriable_and_deletes_generation_module():
         in unit
     )
     assert "remote_support_credentials.py" in unit
+    assert "device_runtime_projection.py" in unit
     assert "LimitCORE=0" in unit
     assert "MemorySwapMax=0" in unit
     assert (

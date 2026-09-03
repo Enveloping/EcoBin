@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import socket
 import stat
 import subprocess
@@ -24,6 +25,7 @@ from typing import Any
 MAX_MESSAGE_BYTES = 256 * 1024
 COMMUNICATION_PROTOCOL = "ecobin.communication.control"
 UPDATER_PROTOCOL = "ecobin.updater.control"
+_DEVICE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}\Z")
 
 
 class BusinessRuntimePreflightError(RuntimeError):
@@ -191,6 +193,59 @@ def probe_socket_directory(path_value: str) -> None:
                 socket_path.unlink()
 
 
+def probe_business_identity(path_value: str) -> None:
+    """Prove the candidate can read only its strict non-secret identity."""
+
+    path = Path(path_value)
+    try:
+        details = path.lstat()
+        raw = path.read_bytes()
+    except OSError as error:
+        raise BusinessRuntimePreflightError(
+            f"business device identity is unavailable: {path}"
+        ) from error
+    if (
+        path.is_symlink()
+        or not stat.S_ISREG(details.st_mode)
+        or details.st_nlink != 1
+        or details.st_uid != os.geteuid()
+        or stat.S_IMODE(details.st_mode) != 0o600
+        or not 1 <= len(raw) <= 4096
+    ):
+        raise BusinessRuntimePreflightError(
+            "business device identity ownership or file shape is unsafe"
+        )
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise BusinessRuntimePreflightError(
+            "business device identity is not valid JSON"
+        ) from error
+    if (
+        not isinstance(document, dict)
+        or set(document)
+        != {
+            "schemaVersion",
+            "assetUid",
+            "deviceName",
+            "modelCode",
+            "expectedPortCount",
+            "deviceEntryUrl",
+        }
+        or type(document["schemaVersion"]) is not int
+        or document["schemaVersion"] != 1
+        or not isinstance(document["deviceName"], str)
+        or _DEVICE_NAME.fullmatch(document["deviceName"]) is None
+        or document["modelCode"] != "EC-M0"
+        or type(document["expectedPortCount"]) is not int
+        or document["expectedPortCount"] != 1
+        or "deviceKey" in raw.decode("utf-8", errors="ignore")
+    ):
+        raise BusinessRuntimePreflightError(
+            "business device identity content is invalid"
+        )
+
+
 def request_health(path_value: str, protocol_name: str) -> dict[str, Any]:
     request_id = str(uuid.uuid4())
     request = {
@@ -279,6 +334,7 @@ def verify_stage_three_health(
         or updater.get("maintenanceState") != "LOCKED"
         or updater.get("maintenanceOwnerUid") is not None
         or updater.get("maintenanceType") is not None
+        or updater.get("maintenancePhase") is not None
         or updater.get("maintenanceFenceToken") is not None
         or updater.get("reconciliationRequired") is not False
         or updater.get("blockReasonCode") != "STAGE4_CANDIDATE_DISABLED"
@@ -286,10 +342,70 @@ def verify_stage_three_health(
         or updater.get("unreconciledPhysicalActionCount") != 0
         or updater.get("businessUpdateEnabled") is not False
         or updater.get("mcuUpdateEnabled") is not False
+        or updater.get("mcuUpdateCandidateEnabled") is not False
         or updater.get("privilegedHelperMutationEnabled") is not False
     ):
         raise BusinessRuntimePreflightError(
             "device updater did not report the safe stage-three posture"
+        )
+
+
+def verify_proxy_candidate_health(
+    communication: dict[str, Any],
+    updater: dict[str, Any],
+) -> None:
+    """Require permanent ownership while allowing fail-closed recovery states."""
+
+    mcu_candidate = updater.get("mcuUpdateCandidate")
+    if (
+        communication.get("component") != "COMMUNICATION_AGENT"
+        or communication.get("status") != "READY"
+        or communication.get("onenetOwnership") != "ENABLED"
+        or communication.get("businessEventIngress") != "ENABLED"
+        or communication.get("cloudConnectionState")
+        not in {"CONNECTED", "DISCONNECTED"}
+        or communication.get("remoteUpdateRouting") != "DISABLED"
+    ):
+        raise BusinessRuntimePreflightError(
+            "communication proxy did not report permanent OneNet ownership"
+        )
+    if (
+        updater.get("component") != "DEVICE_UPDATER"
+        or updater.get("status") != "READY"
+        or updater.get("schemaVersion") != 3
+        or updater.get("jobGateControlExtensionVersion") != 1
+        or updater.get("candidateActivationState") != "ACTIVE"
+        or updater.get("stage4CandidateEnabled") is not True
+        or updater.get("jobGateMode") != "ENFORCED"
+        or updater.get("jobPermitRpcEnabled") is not True
+        or updater.get("jobGateState")
+        not in {"OPEN", "DRAINING", "MAINTENANCE", "LOCKED"}
+        or updater.get("maintenanceState") not in {
+            "IDLE",
+            "DRAINING",
+            "MAINTENANCE",
+            "LOCKED",
+        }
+        or updater.get("businessUpdateEnabled") is not False
+        or updater.get("mcuUpdateEnabled") is not False
+        or updater.get("mcuUpdateCandidateEnabled") is not True
+        or updater.get("privilegedHelperMutationEnabled") is not True
+        or not isinstance(mcu_candidate, dict)
+        or mcu_candidate.get("schemaVersion") != 1
+        or mcu_candidate.get("candidateEnabled") is not True
+        or mcu_candidate.get("remoteTriggerEnabled") is not False
+        or not isinstance(
+            mcu_candidate.get("unresolvedPrivilegedActionCount"),
+            int,
+        )
+        or isinstance(
+            mcu_candidate.get("unresolvedPrivilegedActionCount"),
+            bool,
+        )
+        or mcu_candidate.get("unresolvedPrivilegedActionCount") < 0
+    ):
+        raise BusinessRuntimePreflightError(
+            "device updater did not report the activated job-safety posture"
         )
 
 
@@ -328,6 +444,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--expected-user", default="ecobin-business")
     parser.add_argument(
+        "--posture",
+        choices=("stage-three", "proxy-candidate"),
+        default="stage-three",
+    )
+    parser.add_argument(
         "--serial-device",
         default=os.getenv("ECOBIN_SERIAL_PORT", "/dev/ttyS5"),
     )
@@ -352,6 +473,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--business-socket-directory",
         default="/run/ecobin/business",
+    )
+    parser.add_argument(
+        "--business-identity",
+        default="/var/lib/ecobin/business/device-identity.json",
     )
     parser.add_argument(
         "--communication-socket",
@@ -381,12 +506,17 @@ def main(argv: list[str] | None = None) -> int:
             "business photo directory",
         )
         probe_socket_directory(args.business_socket_directory)
+        if args.posture == "proxy-candidate":
+            probe_business_identity(args.business_identity)
         communication = request_health(
             args.communication_socket,
             COMMUNICATION_PROTOCOL,
         )
         updater = request_health(args.updater_socket, UPDATER_PROTOCOL)
-        verify_stage_three_health(communication, updater)
+        if args.posture == "proxy-candidate":
+            verify_proxy_candidate_health(communication, updater)
+        else:
+            verify_stage_three_health(communication, updater)
         # Close the race with an operator starting the legacy runtime during
         # the probe.  This does not stop or otherwise mutate that service.
         verify_legacy_runtime_stopped()

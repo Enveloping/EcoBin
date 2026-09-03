@@ -7,8 +7,10 @@ import pytest
 
 from system.business_runtime_preflight import (
     BusinessRuntimePreflightError,
+    probe_business_identity,
     probe_private_directory,
     verify_legacy_runtime_stopped,
+    verify_proxy_candidate_health,
     verify_stage_three_health,
 )
 from updater_agent import UpdaterControlHandler
@@ -60,6 +62,7 @@ def test_health_gate_requires_truthful_disabled_stage_three_posture() -> None:
         "maintenanceState": "LOCKED",
         "maintenanceOwnerUid": None,
         "maintenanceType": None,
+        "maintenancePhase": None,
         "maintenanceFenceToken": None,
         "reconciliationRequired": False,
         "blockReasonCode": "STAGE4_CANDIDATE_DISABLED",
@@ -67,6 +70,7 @@ def test_health_gate_requires_truthful_disabled_stage_three_posture() -> None:
         "unreconciledPhysicalActionCount": 0,
         "businessUpdateEnabled": False,
         "mcuUpdateEnabled": False,
+        "mcuUpdateCandidateEnabled": False,
         "privilegedHelperMutationEnabled": False,
     }
 
@@ -136,6 +140,80 @@ def test_health_gate_accepts_real_schema_v3_updater_extension(
         verify_stage_three_health(communication, status)
     finally:
         store.close()
+
+
+def test_proxy_health_gate_requires_permanent_owners_and_active_job_gate() -> None:
+    communication = {
+        "component": "COMMUNICATION_AGENT",
+        "status": "READY",
+        "onenetOwnership": "ENABLED",
+        "businessEventIngress": "ENABLED",
+        "cloudConnectionState": "DISCONNECTED",
+        "remoteUpdateRouting": "DISABLED",
+    }
+    updater = {
+        "component": "DEVICE_UPDATER",
+        "status": "READY",
+        "schemaVersion": 3,
+        "jobGateControlExtensionVersion": 1,
+        "candidateActivationState": "ACTIVE",
+        "stage4CandidateEnabled": True,
+        "jobGateMode": "ENFORCED",
+        "jobPermitRpcEnabled": True,
+        "jobGateState": "LOCKED",
+        "maintenanceState": "LOCKED",
+        "businessUpdateEnabled": False,
+        "mcuUpdateEnabled": False,
+        "mcuUpdateCandidateEnabled": True,
+        "privilegedHelperMutationEnabled": True,
+        "mcuUpdateCandidate": {
+            "schemaVersion": 1,
+            "candidateEnabled": True,
+            "remoteTriggerEnabled": False,
+            "activeUpdate": None,
+            "unresolvedPrivilegedActionCount": 0,
+        },
+    }
+
+    verify_proxy_candidate_health(communication, updater)
+
+    with pytest.raises(BusinessRuntimePreflightError, match="communication"):
+        verify_proxy_candidate_health(
+            {**communication, "onenetOwnership": "DISABLED"},
+            updater,
+        )
+    with pytest.raises(BusinessRuntimePreflightError, match="updater"):
+        verify_proxy_candidate_health(
+            communication,
+            {**updater, "candidateActivationState": "REQUIRED"},
+        )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Unix ownership is required")
+def test_proxy_preflight_reads_strict_business_identity(tmp_path: Path) -> None:
+    import json
+
+    identity = tmp_path / "device-identity.json"
+    identity.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "assetUid": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                "deviceName": "ECM0-TEST",
+                "modelCode": "EC-M0",
+                "expectedPortCount": 1,
+                "deviceEntryUrl": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    identity.chmod(0o600)
+
+    probe_business_identity(str(identity))
+
+    identity.chmod(0o640)
+    with pytest.raises(BusinessRuntimePreflightError, match="unsafe"):
+        probe_business_identity(str(identity))
 
 
 def test_preflight_refuses_to_probe_while_business_runtime_is_active() -> None:

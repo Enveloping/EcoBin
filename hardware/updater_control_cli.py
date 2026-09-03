@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Root-only local control for stage-four job-gate activation and locking."""
+"""Root-only control for the stage-four gate and local MCU candidate."""
 
 from __future__ import annotations
 
@@ -28,6 +28,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="read the persisted job-gate status")
+    mcu_status = commands.add_parser(
+        "mcu-status",
+        help="read the active MCU candidate or one update record",
+    )
+    mcu_status.add_argument("--update-uid")
+    mcu_queue = commands.add_parser(
+        "mcu-queue",
+        help="queue fixed incoming/<update UID> target and rollback packages",
+    )
+    mcu_queue.add_argument("--update-uid", required=True)
+    mcu_queue.add_argument("--command-uid", required=True)
+    mcu_queue.add_argument("--target-package-sha256", required=True)
+    mcu_queue.add_argument("--rollback-package-sha256", required=True)
     for name, help_text in (
         ("activate", "activate the current candidate cycle with evidence"),
         ("lock", "immediately apply the durable safety lock"),
@@ -51,6 +64,17 @@ def _effective_uid() -> int | None:
 def _request_for(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     if args.command == "status":
         return "GET_STAGE4_RECONCILIATION_STATUS", {}
+    if args.command == "mcu-status":
+        if args.update_uid is None:
+            return "GET_STATUS", {}
+        return "GET_MCU_UPDATE", {"updateUid": args.update_uid}
+    if args.command == "mcu-queue":
+        return "QUEUE_LOCAL_MCU_UPDATE", {
+            "updateUid": args.update_uid,
+            "commandUid": args.command_uid,
+            "targetPackageSha256": args.target_package_sha256,
+            "rollbackPackageSha256": args.rollback_package_sha256,
+        }
     payload = {
         "operationUid": args.operation_uid,
         "evidenceDigest": args.evidence_digest,

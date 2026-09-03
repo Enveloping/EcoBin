@@ -1,0 +1,59 @@
+[Unit]
+Description=EcoBin permanent OneNet communication proxy candidate
+ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
+ConditionPathExists=/var/lib/ecobin/communication/onenet-credentials.json
+ConditionPathExists=/opt/ecobin/communication/current/.venv/bin/python
+Wants=network-online.target
+Requires=ecobin-enrollment.service
+After=local-fs.target network-online.target ecobin-enrollment.service
+Conflicts=ecobin-communication.service ecobin-hardware.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=ecobin-communication
+Group=ecobin-communication-ipc
+SupplementaryGroups=ecobin-business-ipc ecobin-updater-ipc
+WorkingDirectory=/opt/ecobin/communication/current/app
+EnvironmentFile=/usr/share/ecobin/device-management-release.env
+ExecStart=/usr/bin/python3 /opt/ecobin/communication/current/app/communication_agent.py --mode proxy-candidate --state /var/lib/ecobin/communication/communication.db --credentials /var/lib/ecobin/communication/onenet-credentials.json --business-socket /run/ecobin/business/control.sock --business-user ecobin-business --socket /run/ecobin/communication/control.sock --socket-group ecobin-communication-ipc --release-version ${ECOBIN_COMMUNICATION_AGENT_VERSION} --allowed-uid 0 --allowed-user ecobin-business --allowed-user ecobin-updater
+Restart=always
+RestartSec=2
+TimeoutStartSec=45
+KillSignal=SIGTERM
+TimeoutStopSec=20
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0007
+LimitCORE=0
+RuntimeDirectory=ecobin/communication
+RuntimeDirectoryMode=0750
+StateDirectory=ecobin/communication
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+DevicePolicy=closed
+InaccessiblePaths=-/etc/ecobin
+InaccessiblePaths=-/var/lib/ecobin/business
+InaccessiblePaths=-/var/lib/ecobin/updater
+ReadOnlyPaths=-/run/ecobin/business
+ReadOnlyPaths=-/run/ecobin/updater

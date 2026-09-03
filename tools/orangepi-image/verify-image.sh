@@ -606,9 +606,11 @@ if [[ -d "${systemd_directory}" ]]; then
                 ecobin-business-activation-helper.socket|\
                 ecobin-business-activation-helper@*.service|\
                 ecobin-business-permission-preflight.service|\
+                ecobin-business.service|\
                 ecobin-device-management-preflight.service|\
                 ecobin-cellular-uplink.service|\
                 ecobin-communication.service|\
+                ecobin-communication-proxy.service|\
                 ecobin-enrollment.service|\
                 ecobin-factory-ap.service|\
                 ecobin-factory-portal.service|\
@@ -619,7 +621,8 @@ if [[ -d "${systemd_directory}" ]]; then
                 ecobin-mcu-flash-helper@*.service|\
                 ecobin-remote-support.service|\
                 ecobin-runtime.target|\
-                ecobin-updater.service)
+                ecobin-updater.service|\
+                ecobin-updater-candidate.service)
                     fail "stage service must not be independently enabled: ${candidate_name}"
                     ;;
                 *.swap|dphys-swapfile*|systemd-swap*|orangepi-zram*|zramswap*|systemd-zram-setup@*)

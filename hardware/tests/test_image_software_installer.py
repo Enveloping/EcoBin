@@ -51,14 +51,28 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
     assert "factory_progress.py" in RUNTIME_APP_FILES
     assert "factory_progress.py" in FACTORY_APP_RUNTIME_FILES
     assert "factory_progress.py" in image_installer.ENROLLMENT_FILES
+    assert "device_runtime_projection.py" in image_installer.ENROLLMENT_FILES
+    assert "business_identity.py" in image_installer.ENROLLMENT_FILES
+    assert "communication_credentials.py" in image_installer.ENROLLMENT_FILES
     assert set(COMMUNICATION_AGENT_FILES) == {
+        "cloud_transport.py",
         "communication_agent.py",
+        "communication_credentials.py",
+        "communication_router.py",
         "communication_store.py",
+        "direct_onenet_transport.py",
         "local_control.py",
+        "onenet_projection_model.json",
+        "onenet_wire.py",
+        "trusted_clock.py",
     }
     assert set(DEVICE_UPDATER_FILES) == {
         "device_management_preflight.py",
         "local_control.py",
+        "mcu_firmware_package.py",
+        "mcu_update_coordinator.py",
+        "mcu_update_package.py",
+        "mcu_update_store.py",
         "updater_agent.py",
         "updater_control_cli.py",
         "updater_store.py",
@@ -67,18 +81,26 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
         "__init__.py",
         "privileged_control.py",
         "business_activation_helper.py",
+        "business_activation_candidate_helper.py",
         "business_activation_primitives.py",
         "mcu_flash_helper.py",
+        "mcu_flash_candidate_helper.py",
         "mcu_flash_primitives.py",
         "mcu_flash_recovery.py",
+        "updater_mutation_authorizer.py",
     }
     assert set(DEVICE_UPDATER_HELPER_UNIT_FILES) == {
         "ecobin-business-activation-helper.socket",
         "ecobin-business-activation-helper@.service",
         "ecobin-mcu-flash-helper.socket",
         "ecobin-mcu-flash-helper@.service",
+        "ecobin-business-activation-candidate-helper.socket",
+        "ecobin-business-activation-candidate-helper@.service",
+        "ecobin-mcu-flash-candidate-helper.socket",
+        "ecobin-mcu-flash-candidate-helper@.service",
     }
     assert "business_control.py" in RUNTIME_APP_FILES
+    assert "fixed_frame_mcu_maintenance.py" in RUNTIME_APP_FILES
     assert "job_safety.py" in RUNTIME_APP_FILES
     assert "local_control.py" in RUNTIME_APP_FILES
     assert "communication_agent.py" not in RUNTIME_APP_FILES
@@ -89,6 +111,7 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
     assert isinstance(LEGACY_RUNTIME_APP_FILES, tuple)
     assert len(LEGACY_RUNTIME_APP_FILES) == 40
     assert "business_control.py" not in LEGACY_RUNTIME_APP_FILES
+    assert "fixed_frame_mcu_maintenance.py" not in LEGACY_RUNTIME_APP_FILES
     assert "local_control.py" not in LEGACY_RUNTIME_APP_FILES
     assert set(FACTORY_APP_RUNTIME_FILES) < set(RUNTIME_APP_FILES)
 
@@ -270,6 +293,8 @@ def _make_payload(
         app.mkdir(parents=True)
         for name in files:
             (app / name).write_bytes((HARDWARE_ROOT / name).read_bytes())
+    _make_venv(payload / "components/communication-agent/.venv")
+    _make_venv(payload / "components/device-updater/.venv")
     updater_root = payload / "components/device-updater"
     for relative, files, source_root in (
         (
@@ -395,7 +420,11 @@ def _convert_payload_to_legacy_v1(
     shutil.rmtree(payload / "components/communication-agent")
     shutil.rmtree(payload / "components/device-updater")
     runtime = payload / "components/hardware-runtime"
-    for name in ("business_control.py", "local_control.py"):
+    for name in (
+        "business_control.py",
+        "fixed_frame_mcu_maintenance.py",
+        "local_control.py",
+    ):
         (runtime / "app" / name).unlink()
     checksum_path = runtime / "SHA256SUMS"
     checksum_path.write_text(
@@ -403,7 +432,11 @@ def _convert_payload_to_legacy_v1(
             line
             for line in checksum_path.read_text(encoding="ascii").splitlines(keepends=True)
             if not line.rstrip().endswith(
-                ("app/business_control.py", "app/local_control.py")
+                (
+                    "app/business_control.py",
+                    "app/fixed_frame_mcu_maintenance.py",
+                    "app/local_control.py",
+                )
             )
         ),
         encoding="ascii",
@@ -473,6 +506,22 @@ def test_payload_lock_is_bound_to_every_file_and_real_component_identity(tmp_pat
             expected_sha256=digest,
             expected_git_commit=git_commit,
         )
+
+
+def test_payload_requires_an_independent_communication_dependency_environment(
+    tmp_path: Path,
+) -> None:
+    def remove_launcher(payload: Path) -> None:
+        (payload / "components/communication-agent/.venv/bin/python").unlink()
+
+    payload, _git_commit, digest = _make_payload(
+        tmp_path,
+        mutate_before_lock=remove_launcher,
+        expect_valid=False,
+    )
+
+    assert digest == ""
+    assert not (payload / "software-payload.lock.json").exists()
 
 
 def test_legacy_v1_payload_remains_readable_but_cannot_build_a_new_image(

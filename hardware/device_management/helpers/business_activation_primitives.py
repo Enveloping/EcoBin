@@ -22,6 +22,10 @@ from local_control import LocalControlActionError
 
 SYSTEMCTL = "/usr/bin/systemctl"
 BUSINESS_SERVICE = "ecobin-hardware.service"
+CANDIDATE_BUSINESS_SERVICE = "ecobin-business.service"
+_FIXED_BUSINESS_SERVICES = frozenset(
+    {BUSINESS_SERVICE, CANDIDATE_BUSINESS_SERVICE}
+)
 BUSINESS_ROOT = Path("/opt/ecobin/business")
 RELEASE_ROOT = BUSINESS_ROOT / "releases"
 CURRENT_LINK = BUSINESS_ROOT / "current"
@@ -34,6 +38,7 @@ RELEASE_MARKER = ".ecobin-release.json"
 MAX_RELEASE_FILES = 20_000
 MAX_RELEASE_BYTES = 2 * 1024 * 1024 * 1024
 SYSTEMCTL_TIMEOUT_SECONDS = 30
+SYSTEMCTL_STATUS_TIMEOUT_SECONDS = 10
 
 
 class BusinessActivationPrimitives:
@@ -52,6 +57,8 @@ class BusinessActivationPrimitives:
         updater_gid: int,
         privileged_uid: int = 0,
         privileged_gid: int = 0,
+        business_service: str = BUSINESS_SERVICE,
+        service_control_timeout_seconds: int = SYSTEMCTL_TIMEOUT_SECONDS,
         command_runner: Any = subprocess.run,
     ) -> None:
         self.business_root = business_root
@@ -78,6 +85,18 @@ class BusinessActivationPrimitives:
         self.updater_gid = updater_gid
         self.privileged_uid = privileged_uid
         self.privileged_gid = privileged_gid
+        if business_service not in _FIXED_BUSINESS_SERVICES:
+            raise ValueError("business service is not a fixed EcoBin unit")
+        if (
+            isinstance(service_control_timeout_seconds, bool)
+            or not isinstance(service_control_timeout_seconds, int)
+            or not 1 <= service_control_timeout_seconds <= 300
+        ):
+            raise ValueError(
+                "service control timeout must be an integer from 1 to 300 seconds"
+            )
+        self.business_service = business_service
+        self.service_control_timeout_seconds = service_control_timeout_seconds
         self._run_command = command_runner
 
     def status(self, _payload: dict[str, Any]) -> dict[str, Any]:
@@ -85,6 +104,7 @@ class BusinessActivationPrimitives:
 
     def stop(self, payload: dict[str, Any]) -> dict[str, Any]:
         update_uid = _require_uuid4(payload["updateUid"], "updateUid")
+        action_uid = _optional_action_uid(payload)
         self._systemctl("stop")
         state = self._service_state()
         if state != "INACTIVE":
@@ -92,13 +112,17 @@ class BusinessActivationPrimitives:
                 "SERVICE_CONTROL_FAILED",
                 "fixed business service did not stop",
             )
-        return {
+        result = {
             "updateUid": update_uid,
             "businessRuntimeState": state,
         }
+        if action_uid is not None:
+            result["actionUid"] = action_uid
+        return result
 
     def start(self, payload: dict[str, Any]) -> dict[str, Any]:
         update_uid = _require_uuid4(payload["updateUid"], "updateUid")
+        action_uid = _optional_action_uid(payload)
         self._systemctl("start")
         state = self._service_state()
         if state != "ACTIVE":
@@ -106,10 +130,13 @@ class BusinessActivationPrimitives:
                 "SERVICE_CONTROL_FAILED",
                 "fixed business service did not become active",
             )
-        return {
+        result = {
             "updateUid": update_uid,
             "businessRuntimeState": state,
         }
+        if action_uid is not None:
+            result["actionUid"] = action_uid
+        return result
 
     def snapshot_database(self, payload: dict[str, Any]) -> dict[str, Any]:
         update_uid = _require_uuid4(payload["updateUid"], "updateUid")
@@ -405,7 +432,8 @@ class BusinessActivationPrimitives:
         if operation not in {"start", "stop"}:
             raise AssertionError("unsupported internal systemctl operation")
         result = self._invoke_fixed_command(
-            [SYSTEMCTL, operation, "--", BUSINESS_SERVICE],
+            [SYSTEMCTL, operation, "--", self.business_service],
+            timeout_seconds=self.service_control_timeout_seconds,
         )
         if int(getattr(result, "returncode", 1)) != 0:
             raise LocalControlActionError(
@@ -421,8 +449,9 @@ class BusinessActivationPrimitives:
                 "--property=ActiveState",
                 "--value",
                 "--",
-                BUSINESS_SERVICE,
+                self.business_service,
             ],
+            timeout_seconds=SYSTEMCTL_STATUS_TIMEOUT_SECONDS,
         )
         if int(getattr(result, "returncode", 1)) != 0:
             return "UNKNOWN"
@@ -435,7 +464,12 @@ class BusinessActivationPrimitives:
             "failed": "FAILED",
         }.get(value, "UNKNOWN")
 
-    def _invoke_fixed_command(self, argv: list[str]) -> Any:
+    def _invoke_fixed_command(
+        self,
+        argv: list[str],
+        *,
+        timeout_seconds: int,
+    ) -> Any:
         try:
             return self._run_command(
                 argv,
@@ -443,7 +477,7 @@ class BusinessActivationPrimitives:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=SYSTEMCTL_TIMEOUT_SECONDS,
+                timeout=timeout_seconds,
                 check=False,
             )
         except Exception as error:
@@ -1012,6 +1046,13 @@ def _fsync_directory(path: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _optional_action_uid(payload: dict[str, Any]) -> str | None:
+    value = payload.get("actionUid")
+    if value is None:
+        return None
+    return _require_uuid4(value, "actionUid")
 
 
 def _require_uuid4(value: Any, field: str) -> str:

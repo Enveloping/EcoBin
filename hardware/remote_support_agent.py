@@ -9,6 +9,7 @@ import signal
 import socket
 import sys
 import threading
+from collections.abc import Iterable
 
 from device_credentials import (
     DEFAULT_REMOTE_SUPPORT_CREDENTIALS_PATH,
@@ -108,7 +109,12 @@ def build_agent(args: argparse.Namespace) -> RemoteSupportAgent:
         args.socket,
         controller=manager,
         store=store,
-        allowed_uids=args.allowed_uid,
+        allowed_uids=resolve_allowed_uids(
+            args.allowed_uid,
+            getattr(args, "allowed_user", None),
+        ),
+        socket_mode=0o660 if getattr(args, "socket_group", None) else 0o600,
+        socket_gid=resolve_socket_gid(getattr(args, "socket_group", None)),
     )
     return RemoteSupportAgent(store, manager, server)
 
@@ -153,8 +159,58 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
     )
+    parser.add_argument("--allowed-user", action="append", default=None)
+    parser.add_argument("--socket-group", default=None)
     parser.add_argument("--migrate-only", action="store_true")
     return parser
+
+
+def resolve_allowed_uids(
+    allowed_uids: Iterable[int] | None,
+    allowed_users: Iterable[str] | None,
+) -> frozenset[int]:
+    result = set(allowed_uids or ())
+    names = tuple(allowed_users or ())
+    if names:
+        try:
+            import pwd
+        except ImportError as error:  # pragma: no cover - Linux target
+            raise RuntimeError("user name lookup is unavailable") from error
+        for name in names:
+            if not isinstance(name, str) or not name:
+                raise ValueError("--allowed-user must be non-empty")
+            try:
+                result.add(pwd.getpwnam(name).pw_uid)
+            except KeyError as error:
+                raise ValueError(
+                    f"allowed remote support user does not exist: {name}"
+                ) from error
+    if any(
+        isinstance(uid, bool) or not isinstance(uid, int) or uid < 0
+        for uid in result
+    ):
+        raise ValueError("--allowed-uid must be non-negative")
+    return frozenset(result)
+
+
+def resolve_socket_gid(group_name: str | None) -> int | None:
+    if group_name is None:
+        return None
+    if not isinstance(group_name, str) or not group_name:
+        raise ValueError("--socket-group must be non-empty")
+    try:
+        import grp
+    except ImportError as error:  # pragma: no cover - Linux target
+        raise RuntimeError("group name lookup is unavailable") from error
+    try:
+        gid = grp.getgrnam(group_name).gr_gid
+    except KeyError as error:
+        raise ValueError(
+            f"remote support socket group does not exist: {group_name}"
+        ) from error
+    if isinstance(gid, bool) or not isinstance(gid, int) or gid < 0:
+        raise ValueError("remote support socket group GID is invalid")
+    return gid
 
 
 def main(argv: list[str] | None = None) -> int:

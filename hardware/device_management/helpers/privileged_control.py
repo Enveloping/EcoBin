@@ -88,10 +88,18 @@ class HelperPolicy:
     component: str
     fixed_configuration: Mapping[str, Any]
     primitive_actions: tuple[str, ...]
+    stage: int = 3
+    mutation_enabled: bool = False
 
     def __post_init__(self) -> None:
         if not self.protocol_name or not self.component:
             raise ValueError("helper protocol and component must be configured")
+        if isinstance(self.stage, bool) or not isinstance(self.stage, int):
+            raise ValueError("helper stage must be an integer")
+        if self.stage not in {3, 4}:
+            raise ValueError("helper stage is unsupported")
+        if not isinstance(self.mutation_enabled, bool):
+            raise ValueError("helper mutation flag must be boolean")
         action_names = self.primitive_actions
         if any(
             not isinstance(action, str) or _ACTION_PATTERN.fullmatch(action) is None
@@ -108,11 +116,8 @@ class HelperPolicy:
             "schemaVersion": 1,
             "component": self.component,
             "status": "READY",
-            "stage": 3,
-            # Stage 3 installs and probes the permanent root boundary, but the
-            # updater does not yet own the durable maintenance hold or physical
-            # action ledger required to invoke any primitive safely.
-            "mutationEnabled": False,
+            "stage": self.stage,
+            "mutationEnabled": self.mutation_enabled,
             "remoteTriggerEnabled": False,
         }
 
@@ -141,6 +146,7 @@ class OneShotPrivilegedHelper:
         actions: Mapping[str, HelperAction],
         peer_uid_reader: Callable[[socket.socket], int] | None = None,
         mutation_guard: Callable[[], AbstractContextManager[None]] | None = None,
+        mutation_authorizer: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         if isinstance(updater_uid, bool) or not isinstance(updater_uid, int):
             raise TypeError("updater UID must be an integer")
@@ -151,6 +157,11 @@ class OneShotPrivilegedHelper:
         self.actions = _validate_actions(actions, policy)
         self._peer_uid_reader = peer_uid_reader or _read_peer_uid
         self._mutation_guard = mutation_guard or _exclusive_mutation_lock
+        if self.policy.mutation_enabled and not callable(mutation_authorizer):
+            raise ValueError(
+                "enabled privileged helper requires an updater authorizer"
+            )
+        self._mutation_authorizer = mutation_authorizer
 
     def handle(self, connection: socket.socket) -> None:
         request_id: str | None = None
@@ -191,15 +202,26 @@ class OneShotPrivilegedHelper:
                 "REQUEST_INVALID",
                 "local helper action is not supported",
             )
-        # The primitive inventory is deliberately present in the controlled
-        # image so its fixed paths and Linux permissions can be audited.  It is
-        # not callable until stage 4 adds the durable maintenance hold and
-        # physical-action receipts.  Reject before payload validation, the
-        # shared mutation lock, and (most importantly) the root handler.
-        raise LocalControlActionError(
-            "FEATURE_DISABLED",
-            "privileged helper mutations are not enabled in this image stage",
-        )
+        if not self.policy.mutation_enabled:
+            # Stage three rejects before inspecting caller-controlled mutation
+            # fields, acquiring the shared lock, or entering a root primitive.
+            raise LocalControlActionError(
+                "FEATURE_DISABLED",
+                "privileged helper mutations are not enabled in this image stage",
+            )
+        _require_exact_fields(payload, specification.payload_fields)
+        authorizer = self._mutation_authorizer
+        if authorizer is None:  # guarded by __init__; keep dispatch fail-closed
+            raise LocalControlActionError(
+                "HELPER_AUTHORIZATION_UNAVAILABLE",
+                "privileged helper authorization is unavailable",
+            )
+        authorizer(action, payload)
+        with self._mutation_guard():
+            result = specification.handler(payload)
+        if not isinstance(result, dict):
+            raise RuntimeError("privileged helper action returned an invalid result")
+        return result
 
 
 def resolve_updater_uid(
@@ -224,6 +246,9 @@ def resolve_updater_uid(
 def serve_systemd_connection(
     policy: HelperPolicy,
     actions_factory: Callable[[int], Mapping[str, HelperAction]],
+    mutation_authorizer_factory: (
+        Callable[[int], Callable[[str, dict[str, Any]], None]] | None
+    ) = None,
 ) -> None:
     """Handle the connected socket supplied by an ``Accept=yes`` unit."""
 
@@ -236,10 +261,16 @@ def serve_systemd_connection(
         if connection.family != socket.AF_UNIX:
             raise RuntimeError("systemd helper connection is not a Unix socket")
         connection.settimeout(REQUEST_TIMEOUT_SECONDS)
+        mutation_authorizer = (
+            mutation_authorizer_factory(updater_uid)
+            if mutation_authorizer_factory is not None
+            else None
+        )
         OneShotPrivilegedHelper(
             policy,
             updater_uid=updater_uid,
             actions=actions_factory(updater_uid),
+            mutation_authorizer=mutation_authorizer,
         ).handle(connection)
 
 

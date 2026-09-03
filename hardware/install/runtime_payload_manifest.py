@@ -10,6 +10,7 @@ from __future__ import annotations
 EDGE_SCHEMA_VERSION = "18"
 
 RUNTIME_APP_FILES = (
+    "business_identity.py",
     "business_control.py",
     "business_message_handler.py",
     "business_outbox_relay.py",
@@ -29,6 +30,7 @@ RUNTIME_APP_FILES = (
     "edge_store_prepare.py",
     "fixed_frame_health_recovery.py",
     "fixed_frame_mcu_adapter.py",
+    "fixed_frame_mcu_maintenance.py",
     "factory_progress.py",
     "factory_seal/__init__.py",
     "factory_seal/admission.py",
@@ -38,6 +40,7 @@ RUNTIME_APP_FILES = (
     "main.py",
     "job_safety.py",
     "local_control.py",
+    "local_proxy_cloud_transport.py",
     "mcu_firmware_package.py",
     "mcu_firmware_updater.py",
     "mqtt_client.py",
@@ -107,14 +110,25 @@ LEGACY_RUNTIME_APP_FILES = (
 # exact inventories so neither component can accidentally import the other's
 # private store implementation.
 COMMUNICATION_AGENT_FILES = (
+    "cloud_transport.py",
     "communication_agent.py",
+    "communication_credentials.py",
+    "communication_router.py",
     "communication_store.py",
+    "direct_onenet_transport.py",
     "local_control.py",
+    "onenet_projection_model.json",
+    "onenet_wire.py",
+    "trusted_clock.py",
 )
 
 DEVICE_UPDATER_FILES = (
     "device_management_preflight.py",
     "local_control.py",
+    "mcu_firmware_package.py",
+    "mcu_update_coordinator.py",
+    "mcu_update_package.py",
+    "mcu_update_store.py",
     "updater_agent.py",
     "updater_control_cli.py",
     "updater_store.py",
@@ -124,10 +138,13 @@ DEVICE_UPDATER_HELPER_FILES = (
     "__init__.py",
     "privileged_control.py",
     "business_activation_helper.py",
+    "business_activation_candidate_helper.py",
     "business_activation_primitives.py",
     "mcu_flash_helper.py",
+    "mcu_flash_candidate_helper.py",
     "mcu_flash_primitives.py",
     "mcu_flash_recovery.py",
+    "updater_mutation_authorizer.py",
 )
 
 DEVICE_UPDATER_HELPER_UNIT_FILES = (
@@ -135,6 +152,10 @@ DEVICE_UPDATER_HELPER_UNIT_FILES = (
     "ecobin-business-activation-helper@.service",
     "ecobin-mcu-flash-helper.socket",
     "ecobin-mcu-flash-helper@.service",
+    "ecobin-business-activation-candidate-helper.socket",
+    "ecobin-business-activation-candidate-helper@.service",
+    "ecobin-mcu-flash-candidate-helper.socket",
+    "ecobin-mcu-flash-candidate-helper@.service",
 )
 
 # The factory/first-boot application is a separate staged application and

@@ -12,7 +12,9 @@ OneNet 迁移优先级: 完整旧进程环境三项 > 注册凭证；禁止部�
 环境变量:
     ECOBIN_CONFIG_MODE     — production（默认）或 development
     ECOBIN_DOTENV_PATH     — 仅 development 使用的显式 dotenv 路径
+    ECOBIN_CLOUD_TRANSPORT_MODE — direct（旧直连）或 local-proxy（永久代理）
     ECOBIN_DEVICE_CREDENTIALS_PATH — 注册后 0600 凭证文件路径
+    ECOBIN_BUSINESS_IDENTITY_PATH — 业务进程的 0600 非秘密设备身份
     ECOBIN_PRODUCT_ID     — OneNet 产品 ID
     ECOBIN_DEVICE_NAME    — 设备名称 = biz_device.sn
     ECOBIN_DEVICE_KEY     — 设备密钥 Base64（必填，无默认值）
@@ -133,6 +135,14 @@ def _configure_environment_source(
 
 
 CONFIG_MODE = _configure_environment_source()
+CLOUD_TRANSPORT_MODE = os.getenv(
+    "ECOBIN_CLOUD_TRANSPORT_MODE",
+    "direct",
+).strip().lower()
+if CLOUD_TRANSPORT_MODE not in {"direct", "local-proxy"}:
+    raise ValueError(
+        "ECOBIN_CLOUD_TRANSPORT_MODE must be direct or local-proxy"
+    )
 
 logger = logging.getLogger("config")
 
@@ -155,11 +165,32 @@ def _first_environment_value(*names: str) -> str:
 
 # ── 注册后设备凭证 ──
 DEVICE_CREDENTIALS_PATH = credentials_path_from_environment()
-DEVICE_CREDENTIALS = load_device_credentials(DEVICE_CREDENTIALS_PATH)
-_onenet_credentials = effective_onenet_credentials(DEVICE_CREDENTIALS)
-PRODUCT_ID = _onenet_credentials.product_id
-DEVICE_NAME = _onenet_credentials.device_name
-DEVICE_KEY = _onenet_credentials.device_key
+BUSINESS_IDENTITY_PATH = os.getenv(
+    "ECOBIN_BUSINESS_IDENTITY_PATH",
+    "/var/lib/ecobin/business/device-identity.json",
+).strip()
+BUSINESS_IDENTITY = None
+if CLOUD_TRANSPORT_MODE == "local-proxy":
+    # Import lazily so historical direct-only runtime inventories remain
+    # bootable.  The proxy business process never opens the root enrollment
+    # bundle and never receives a OneNet key in memory.
+    from business_identity import load_business_identity
+
+    BUSINESS_IDENTITY = load_business_identity(BUSINESS_IDENTITY_PATH)
+    DEVICE_CREDENTIALS = None
+    PRODUCT_ID = ""
+    DEVICE_NAME = BUSINESS_IDENTITY.device_name
+    DEVICE_KEY = ""
+    _default_mqtt_host = "studio-mqtt.heclouds.com"
+    _default_mqtt_port = 1883
+else:
+    DEVICE_CREDENTIALS = load_device_credentials(DEVICE_CREDENTIALS_PATH)
+    _onenet_credentials = effective_onenet_credentials(DEVICE_CREDENTIALS)
+    PRODUCT_ID = _onenet_credentials.product_id
+    DEVICE_NAME = _onenet_credentials.device_name
+    DEVICE_KEY = _onenet_credentials.device_key
+    _default_mqtt_host = _onenet_credentials.mqtt_host
+    _default_mqtt_port = _onenet_credentials.mqtt_port
 
 # ── COS 可信公开环境 ──
 # 同时兼容项目根 .env 使用的 Spring 风格名称；永久密钥不会在设备侧读取。
@@ -188,11 +219,11 @@ TRUSTED_COS_ENVIRONMENT = {
 # ── MQTT ──
 MQTT_HOST = os.getenv(
     "ECOBIN_MQTT_HOST",
-    _onenet_credentials.mqtt_host,
+    _default_mqtt_host,
 )
 MQTT_PORT = int(os.getenv(
     "ECOBIN_MQTT_PORT",
-    str(_onenet_credentials.mqtt_port),
+    str(_default_mqtt_port),
 ))
 MQTT_CLEAN_SESSION = os.getenv("ECOBIN_MQTT_CLEAN_SESSION", "true").lower() in (
     "true",
@@ -280,12 +311,20 @@ if CONFIG_MODE == "production":
         # Importing configuration remains side-effect free. validate() fails
         # closed before the runtime opens UART, MQTT, GPIO or firmware files.
         DEVICE_CAPABILITIES_ERROR = str(error)
-    MCU_UPDATE_ENABLED = bool(
+    MCU_REMOTE_UPDATE_CAPABLE = bool(
         DEVICE_CAPABILITIES
         and DEVICE_CAPABILITIES["mcuRemoteUpdateCapable"]
     )
 else:
-    MCU_UPDATE_ENABLED = _mcu_update_enabled_raw in {"true", "1", "yes"}
+    MCU_REMOTE_UPDATE_CAPABLE = _mcu_update_enabled_raw in {
+        "true", "1", "yes",
+    }
+# Once the permanent proxy is selected, MCU installation belongs to the
+# permanent updater.  The business runtime still reports the board capability
+# but must not instantiate its historical root-owned flasher.
+MCU_UPDATE_ENABLED = (
+    MCU_REMOTE_UPDATE_CAPABLE and CLOUD_TRANSPORT_MODE == "direct"
+)
 _mcu_boot0_wpi_raw = os.getenv("ECOBIN_MCU_BOOT0_WPI", "2").strip()
 _mcu_reset_wpi_raw = os.getenv("ECOBIN_MCU_RESET_WPI", "5").strip()
 MCU_BOOT0_WPI = int(_mcu_boot0_wpi_raw) if _mcu_boot0_wpi_raw else None
@@ -506,11 +545,15 @@ def validate():
         raise ValueError(
             "configured COS base URL differs from bucket and region"
         )
-    for field, value in (
-        ("OneNet productId", PRODUCT_ID),
-        ("OneNet deviceName", DEVICE_NAME),
-        ("OneNet deviceKey", DEVICE_KEY),
-    ):
+    required_identity = [("OneNet deviceName", DEVICE_NAME)]
+    if CLOUD_TRANSPORT_MODE == "direct":
+        required_identity.extend(
+            (
+                ("OneNet productId", PRODUCT_ID),
+                ("OneNet deviceKey", DEVICE_KEY),
+            )
+        )
+    for field, value in required_identity:
         if not value:
             logger.error(
                 "%s 未配置；请完成设备注册或提供完整的旧环境凭证",
@@ -583,24 +626,60 @@ def validate():
             raise ValueError(
                 "production runtime forbids simulated camera sources"
             )
-        _require_path_under(
-            "device credentials path",
-            DEVICE_CREDENTIALS_PATH,
-            "/etc/ecobin",
-        )
+        if CLOUD_TRANSPORT_MODE == "direct":
+            _require_path_under(
+                "device credentials path",
+                DEVICE_CREDENTIALS_PATH,
+                "/etc/ecobin",
+            )
+        else:
+            if any(
+                os.getenv(name)
+                for name in (
+                    "ECOBIN_PRODUCT_ID",
+                    "ECOBIN_DEVICE_NAME",
+                    "ECOBIN_DEVICE_KEY",
+                )
+            ):
+                raise ValueError(
+                    "local proxy business runtime forbids OneNet credential "
+                    "environment variables"
+                )
+            if BUSINESS_IDENTITY_PATH != (
+                "/var/lib/ecobin/business/device-identity.json"
+            ):
+                raise ValueError(
+                    "production local proxy requires the fixed business "
+                    "identity path"
+                )
         _require_path_under(
             "MCU signing public-key directory",
             MCU_SIGNING_PUBLIC_KEYS_DIR,
             "/etc/ecobin",
         )
-        for name, path in (
+        persistent_paths = [
             ("data directory", DATA_DIR),
             ("edge store path", EDGE_STORE_PATH),
             ("edge boot ID path", EDGE_BOOT_ID_PATH),
             ("device configuration path", DEVICE_CONFIG_PATH),
-            ("MCU firmware cache directory", MCU_FIRMWARE_CACHE_DIR),
-        ):
+        ]
+        if MCU_UPDATE_ENABLED:
+            persistent_paths.append(
+                ("MCU firmware cache directory", MCU_FIRMWARE_CACHE_DIR)
+            )
+        for name, path in persistent_paths:
             _require_path_under(name, path, "/var/lib/ecobin")
+        if CLOUD_TRANSPORT_MODE == "local-proxy" and (
+            DATA_DIR != "/var/lib/ecobin/business"
+            or EDGE_STORE_PATH != "/var/lib/ecobin/business/edge.db"
+            or EDGE_BOOT_ID_PATH
+            != "/var/lib/ecobin/business/edge-boot-id"
+            or DEVICE_CONFIG_PATH
+            != "/var/lib/ecobin/business/device-config.json"
+        ):
+            raise ValueError(
+                "production local proxy requires the fixed business state paths"
+            )
         _require_path_under(
             "remote-support control socket",
             REMOTE_SUPPORT_CONTROL_SOCKET,

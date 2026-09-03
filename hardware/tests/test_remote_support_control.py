@@ -68,6 +68,13 @@ def test_control_server_rejects_invalid_peer_uid_configuration(tmp_path: Path):
             store=object(),
             allowed_uids={-1},
         )
+    with pytest.raises(ValueError, match="socket mode"):
+        RemoteSupportControlServer(
+            tmp_path / "control.sock",
+            controller=object(),
+            store=object(),
+            socket_mode=0o666,
+        )
 
 
 @requires_unix_socket

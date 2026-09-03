@@ -15,6 +15,7 @@ from device_management.helpers import privileged_control
 from device_management.helpers.business_activation_primitives import (
     BUSINESS_SERVICE,
     SYSTEMCTL,
+    SYSTEMCTL_STATUS_TIMEOUT_SECONDS,
     BusinessActivationPrimitives,
 )
 from device_management.helpers.mcu_flash_primitives import (
@@ -145,6 +146,27 @@ def test_service_control_uses_only_the_fixed_systemd_unit(tmp_path: Path) -> Non
     assert [SYSTEMCTL, "start", "--", BUSINESS_SERVICE] in command_argv
     assert [SYSTEMCTL, "stop", "--", BUSINESS_SERVICE] in command_argv
     assert all(call[1].get("shell") is None for call in runner.calls)
+
+
+def test_service_control_and_status_use_separate_bounded_timeouts(
+    tmp_path: Path,
+) -> None:
+    primitives, runner, _runtime, _updater, _database = _business_primitives(
+        tmp_path
+    )
+    primitives.service_control_timeout_seconds = 190
+    update_uid = str(uuid.uuid4())
+
+    primitives.start({"updateUid": update_uid})
+
+    start_call = next(
+        call for call in runner.calls if call[0] == [SYSTEMCTL, "start", "--", BUSINESS_SERVICE]
+    )
+    status_call = next(
+        call for call in runner.calls if call[0][1] == "show"
+    )
+    assert start_call[1]["timeout"] == 190
+    assert status_call[1]["timeout"] == SYSTEMCTL_STATUS_TIMEOUT_SECONDS
 
 
 def test_invalid_update_identity_is_rejected_before_systemctl(tmp_path: Path) -> None:

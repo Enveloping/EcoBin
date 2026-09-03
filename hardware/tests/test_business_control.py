@@ -20,6 +20,7 @@ from business_control import (
     McuMaintenanceEvidence,
     McuMaintenancePortError,
     build_business_control_service,
+    build_business_control_service_from_environment,
     mcu_firmware_identity_sha256,
     mcu_maintenance_evidence_sha256,
 )
@@ -108,7 +109,7 @@ def _evidence(
 def _quiesced_evidence() -> McuMaintenanceEvidence:
     return _evidence(
         f3=_f3(mode=2, safe_flags=0x1F),
-        f1=_not_performed_f1(),
+        f1=_f1(),
         uart_handed_off=True,
     )
 
@@ -128,9 +129,34 @@ class FakeMcuMaintenancePort:
         self.calls.append(("QUIESCE", payload))
         return self.quiesce_evidence
 
+    def quiesce_mcu_for_recovery(self, **payload) -> McuMaintenanceEvidence:
+        self.calls.append(("RECOVERY_QUIESCE", payload))
+        return self.quiesce_evidence
+
     def verify_mcu_after_update(self, **payload) -> McuMaintenanceEvidence:
         self.calls.append(("VERIFY", payload))
         return self.verification_evidence
+
+
+class FakeCloudProxyIngress:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def deliver_service_request(self, payload):
+        self.calls.append(("SERVICE", payload))
+        return {"responseData": {"accepted": True}, "afterReplyToken": "d-1"}
+
+    def complete_service_reply(self, payload):
+        self.calls.append(("COMPLETE", payload))
+        return {"disposition": "COMPLETED"}
+
+    def deliver_legacy_command(self, payload):
+        self.calls.append(("LEGACY", payload))
+        return {"disposition": "DELIVERED"}
+
+    def deliver_platform_result(self, payload):
+        self.calls.append(("RESULT", payload))
+        return {"disposition": "DELIVERED"}
 
 
 def _controller() -> BusinessControlController:
@@ -172,9 +198,21 @@ def _quiesce_payload(observation_sha256: str) -> dict:
 
 
 def _verify_payload(**overrides) -> dict:
+    observation_sha256 = mcu_maintenance_evidence_sha256(
+        "OBSERVE",
+        _evidence(),
+    )
+    quiesce_sha256 = mcu_maintenance_evidence_sha256(
+        "QUIESCE",
+        _quiesced_evidence(),
+        update_uid=UPDATE_UID,
+        handoff_uid=HANDOFF_UID,
+        expected_observation_sha256=observation_sha256,
+    )
     result = {
         "updateUid": UPDATE_UID,
         "handoffUid": HANDOFF_UID,
+        "quiesceEvidenceSha256": quiesce_sha256,
         "expectedFirmwareIdentitySha256": FIRMWARE_IDENTITY_SHA256,
         "observedFlashEvidenceSha256": FLASH_SHA256,
     }
@@ -205,6 +243,7 @@ def test_default_status_does_not_claim_permanent_cutover() -> None:
         "cloudConnectionOwner": "BUSINESS_RUNTIME",
         "jobPermitEnforced": False,
         "maintenanceHandoffEnabled": False,
+        "cloudProxyIngressEnabled": False,
     }
     assert controller.health({}) == {**starting, "status": "READY"}
 
@@ -295,6 +334,9 @@ def test_candidate_actions_are_updater_only_with_exact_fields(tmp_path) -> None:
         "QUIESCE_MCU_FOR_UPDATE"
     ].allowed_uids == frozenset({200})
     assert service.server.actions[
+        "QUIESCE_MCU_FOR_RECOVERY"
+    ].allowed_uids == frozenset({200})
+    assert service.server.actions[
         "VERIFY_MCU_AFTER_UPDATE"
     ].allowed_uids == frozenset({200})
     assert service.server.actions[
@@ -308,9 +350,149 @@ def test_candidate_actions_are_updater_only_with_exact_fields(tmp_path) -> None:
     assert service.server.actions["VERIFY_MCU_AFTER_UPDATE"].payload_fields == {
         "updateUid",
         "handoffUid",
+        "quiesceEvidenceSha256",
         "expectedFirmwareIdentitySha256",
         "observedFlashEvidenceSha256",
     }
+
+
+def test_cloud_proxy_actions_are_communication_only_and_forward_when_ready(
+    tmp_path,
+) -> None:
+    parent = tmp_path / "business"
+    parent.mkdir()
+    ingress = FakeCloudProxyIngress()
+    service = build_business_control_service(
+        parent / "control.sock",
+        release_version="1.2.3",
+        allowed_uids={0, 100},
+        socket_gid=5678,
+        enable_cloud_proxy_candidate=True,
+        cloud_proxy_ingress=ingress,
+        communication_uids={201},
+        management_architecture_generation="LOCAL_PROXY",
+        cloud_connection_owner="COMMUNICATION_AGENT",
+        job_permit_enforced=True,
+    )
+    service.controller.mark_ready()
+
+    expected_actions = {
+        "DELIVER_CLOUD_SERVICE_REQUEST",
+        "COMPLETE_CLOUD_SERVICE_REPLY",
+        "DELIVER_LEGACY_CLOUD_COMMAND",
+        "DELIVER_CLOUD_EVENT_RESULT",
+    }
+    assert expected_actions.issubset(service.server.actions)
+    for name in expected_actions:
+        assert service.server.actions[name].allowed_uids == frozenset({201})
+    assert service.server.allowed_uids == frozenset({0, 100, 201})
+    assert service.controller.health({})["cloudProxyIngressEnabled"] is True
+
+    payload = {
+        "resultUid": "40000000-0000-4000-8000-000000000001",
+        "edgeEventSequence": 4,
+        "code": 200,
+    }
+    assert service.controller.deliver_cloud_event_result(payload) == {
+        "disposition": "DELIVERED"
+    }
+    assert ingress.calls == [("RESULT", payload)]
+
+
+def test_cloud_proxy_delivery_fails_closed_before_business_ready(tmp_path) -> None:
+    parent = tmp_path / "business"
+    parent.mkdir()
+    service = build_business_control_service(
+        parent / "control.sock",
+        release_version="1.2.3",
+        allowed_uids={0, 100},
+        socket_gid=5678,
+        enable_cloud_proxy_candidate=True,
+        cloud_proxy_ingress=FakeCloudProxyIngress(),
+        communication_uids={201},
+    )
+
+    with pytest.raises(LocalControlActionError) as raised:
+        service.controller.deliver_legacy_cloud_command(
+            {"deliveryId": "d-1", "command": {}}
+        )
+    assert raised.value.code == "BUSINESS_RUNTIME_NOT_READY"
+
+
+def test_environment_builder_is_default_off_and_status_is_read_only() -> None:
+    lookup = {
+        "ecobin-communication": 101,
+        "ecobin-business": 103,
+        "ecobin-updater": 102,
+    }
+    assert build_business_control_service_from_environment(
+        release_version="1.2.3",
+        job_permit_enforced=False,
+        environment={},
+        user_uid_lookup=lookup.__getitem__,
+        group_gid_lookup=lambda _name: 201,
+    ) is None
+
+    service = build_business_control_service_from_environment(
+        release_version="1.2.3",
+        job_permit_enforced=False,
+        environment={
+            "ECOBIN_BUSINESS_CONTROL_MODE": "status",
+            "ECOBIN_BUSINESS_CONTROL_SOCKET": "/run/test/business.sock",
+        },
+        user_uid_lookup=lookup.__getitem__,
+        group_gid_lookup=lambda name: (
+            201 if name == "ecobin-business-ipc" else -1
+        ),
+    )
+
+    assert service is not None
+    assert set(service.server.actions) == {"HEALTH", "GET_STATUS"}
+    assert service.server.allowed_uids == frozenset({0, 101, 102})
+    assert service.server.socket_gid == 201
+    assert service.server.socket_parent_uids == frozenset({0, 103})
+    assert service.controller.health({})[
+        "managementArchitectureGeneration"
+    ] == "LEGACY_DIRECT"
+
+
+def test_environment_candidate_requires_gate_and_resolves_updater_identity() -> None:
+    lookup = {
+        "ecobin-communication": 101,
+        "ecobin-business": 103,
+        "ecobin-updater": 102,
+    }
+    environment = {
+        "ECOBIN_BUSINESS_CONTROL_MODE": "candidate",
+        "ECOBIN_BUSINESS_CONTROL_SOCKET": "/run/test/business.sock",
+    }
+    with pytest.raises(ValueError, match="permanent job gate"):
+        build_business_control_service_from_environment(
+            release_version="1.2.3",
+            job_permit_enforced=False,
+            mcu_maintenance_port=FakeMcuMaintenancePort(),
+            environment=environment,
+            user_uid_lookup=lookup.__getitem__,
+            group_gid_lookup=lambda _name: 201,
+        )
+
+    service = build_business_control_service_from_environment(
+        release_version="1.2.3",
+        job_permit_enforced=True,
+        mcu_maintenance_port=FakeMcuMaintenancePort(),
+        environment=environment,
+        user_uid_lookup=lookup.__getitem__,
+        group_gid_lookup=lambda _name: 201,
+    )
+
+    assert service is not None
+    assert service.server.actions[
+        "QUIESCE_MCU_FOR_UPDATE"
+    ].allowed_uids == frozenset({102})
+    status = service.controller.health({})
+    assert status["managementArchitectureGeneration"] == "STAGE4_BRIDGE"
+    assert status["jobPermitEnforced"] is True
+    assert status["maintenanceHandoffEnabled"] is True
 
 
 @pytest.mark.parametrize(
@@ -358,6 +540,19 @@ def test_nonzero_f3_status_remains_diagnostic_but_cannot_authorize_quiesce() -> 
     assert [name for name, _ in port.calls] == ["OBSERVE"]
 
 
+def test_unhealthy_f1_observation_cannot_authorize_quiesce() -> None:
+    port = FakeMcuMaintenancePort()
+    port.observation = _evidence(f1=_not_performed_f1())
+    controller, _ = _candidate_controller(port)
+    observation_sha256 = _observe(controller)
+
+    with pytest.raises(LocalControlActionError) as raised:
+        controller.quiesce_mcu_for_update(_quiesce_payload(observation_sha256))
+
+    assert raised.value.code == "MCU_OBSERVATION_MISMATCH"
+    assert [name for name, _ in port.calls] == ["OBSERVE"]
+
+
 @pytest.mark.parametrize(
     "evidence",
     [
@@ -380,6 +575,11 @@ def test_nonzero_f3_status_remains_diagnostic_but_cannot_authorize_quiesce() -> 
             f3=_f3(mode=2, safe_flags=0x1F),
             f1=_not_performed_f1(),
             uart_handed_off=False,
+        ),
+        _evidence(
+            f3=_f3(mode=2, safe_flags=0x1F),
+            f1=_not_performed_f1(),
+            uart_handed_off=True,
         ),
     ],
 )
@@ -497,6 +697,9 @@ def test_verify_accepts_all_explicit_boundary_sensor_facts(
         handoff_uid=HANDOFF_UID,
         expected_firmware_identity_sha256=FIRMWARE_IDENTITY_SHA256,
         observed_flash_evidence_sha256=FLASH_SHA256,
+        quiesce_evidence_sha256=_verify_payload()[
+            "quiesceEvidenceSha256"
+        ],
     )
 
 
@@ -568,14 +771,26 @@ def test_verify_rejects_f3_identity_that_differs_from_expected_digest() -> None:
     assert raised.value.code == "MCU_IDENTITY_MISMATCH"
 
 
-def test_verify_requires_matching_quiesce_stage() -> None:
+def test_verify_after_business_restart_accepts_durable_quiesce_binding() -> None:
     controller, port = _candidate_controller()
 
+    result = controller.verify_mcu_after_update(_verify_payload())
+
+    assert result["evidenceStage"] == "VERIFY"
+    assert [name for name, _ in port.calls] == ["VERIFY"]
+
+
+def test_verify_rejects_durable_quiesce_binding_that_conflicts_locally() -> None:
+    controller, port = _candidate_controller()
+    _prepare_verification(controller)
+
     with pytest.raises(LocalControlActionError) as raised:
-        controller.verify_mcu_after_update(_verify_payload())
+        controller.verify_mcu_after_update(
+            _verify_payload(quiesceEvidenceSha256="e" * 64)
+        )
 
     assert raised.value.code == "MCU_HANDOFF_NOT_CONFIRMED"
-    assert port.calls == []
+    assert [name for name, _ in port.calls].count("VERIFY") == 0
 
 
 def test_same_mutation_is_idempotent_and_does_not_touch_port_twice() -> None:
@@ -733,6 +948,9 @@ def test_digest_changes_for_stage_ids_helper_receipt_and_each_fact_group() -> No
         handoff_uid=HANDOFF_UID,
         expected_firmware_identity_sha256=FIRMWARE_IDENTITY_SHA256,
         observed_flash_evidence_sha256=FLASH_SHA256,
+        quiesce_evidence_sha256=_verify_payload()[
+            "quiesceEvidenceSha256"
+        ],
     )
     variants = [
         (OTHER_UPDATE_UID, HANDOFF_UID, FLASH_SHA256, evidence),
@@ -779,6 +997,9 @@ def test_digest_changes_for_stage_ids_helper_receipt_and_each_fact_group() -> No
             handoff_uid=handoff_uid,
             expected_firmware_identity_sha256=FIRMWARE_IDENTITY_SHA256,
             observed_flash_evidence_sha256=flash_sha256,
+            quiesce_evidence_sha256=_verify_payload()[
+                "quiesceEvidenceSha256"
+            ],
         )
         != base
         for update_uid, handoff_uid, flash_sha256, changed in variants

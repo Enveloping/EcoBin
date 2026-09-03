@@ -142,6 +142,9 @@ version = "0.1.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]
+communication = [
+    { name = "paho-mqtt" },
+]
 dev = [
     { name = "cos-python-sdk-v5" },
     { name = "cryptography" },
@@ -166,10 +169,14 @@ runtime = [
     { name = "paho-mqtt" },
     { name = "pyserial" },
 ]
+updater = [
+    { name = "cryptography" },
+]
 
 [package.metadata]
 
 [package.metadata.requires-dev]
+communication = [{ name = "paho-mqtt", specifier = ">=2.1.0" }]
 dev = [
     { name = "cos-python-sdk-v5", specifier = ">=1.9.44" },
     { name = "cryptography", specifier = ">=45.0.0,<47" },
@@ -192,6 +199,7 @@ runtime = [
     { name = "paho-mqtt", specifier = ">=2.1.0" },
     { name = "pyserial", specifier = ">=3.5" },
 ]
+updater = [{ name = "cryptography", specifier = ">=45.0.0,<47" }]
 
 [[package]]
 name = "idna"

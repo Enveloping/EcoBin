@@ -9,6 +9,7 @@ newline-terminated response.
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import logging
 import math
@@ -72,6 +73,22 @@ class _ProtocolError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+def canonical_local_payload_sha256(value: Any) -> str:
+    """Bind a helper authorization to one exact JSON-compatible payload."""
+
+    try:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("ascii")
+    except (TypeError, ValueError, UnicodeEncodeError) as error:
+        raise ValueError("local control payload is not canonical JSON") from error
+    return hashlib.sha256(encoded).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -200,6 +217,7 @@ class LocalControlServer:
         protocol_major: int = LOCAL_PROTOCOL_MAJOR,
         protocol_minor: int = LOCAL_PROTOCOL_MINOR,
         allowed_uids: Iterable[int] = (0,),
+        socket_parent_uids: Iterable[int] | None = None,
         socket_mode: int = 0o660,
         socket_gid: int | None = None,
         request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
@@ -211,6 +229,11 @@ class LocalControlServer:
         self.protocol_major = _validate_version(protocol_major, "protocol major")
         self.protocol_minor = _validate_version(protocol_minor, "protocol minor")
         self.allowed_uids = _validate_allowed_uids(allowed_uids)
+        self.socket_parent_uids = _validate_allowed_uids(
+            {_effective_uid()}
+            if socket_parent_uids is None
+            else socket_parent_uids
+        )
         self.actions = _validate_actions(actions)
         if any(
             not specification.allowed_uids.issubset(self.allowed_uids)
@@ -372,7 +395,7 @@ class LocalControlServer:
         ):
             raise PermissionError("local control socket parent is not a real directory")
         if os.name == "posix":
-            if parent_metadata.st_uid != os.getuid():
+            if parent_metadata.st_uid not in self.socket_parent_uids:
                 raise PermissionError(
                     "local control socket parent has an unexpected owner"
                 )
@@ -800,6 +823,14 @@ def _validate_allowed_uids(
     ):
         raise ValueError("allowed local control UIDs must be non-negative integers")
     return result
+
+
+def _effective_uid() -> int:
+    if os.name == "posix":
+        return os.getuid()
+    # UID checks are exercised through injected peer credentials on the
+    # Windows development host; the actual runtime is Linux-only.
+    return 0
 
 
 def _validate_protocol_name(value: str) -> str:

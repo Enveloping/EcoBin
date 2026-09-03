@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import socket
 import threading
+from copy import deepcopy
 
 import pytest
 
@@ -34,6 +35,12 @@ ACTION_UID = "39cd4143-69bd-427c-a0c7-cf18d58215fb"
 RECEIPT_UID = "3bb5f17f-45f8-42c9-a056-b196a57f2a8e"
 COMPLETION_UID = "ce9c894b-cda5-410e-9ed0-83d18a2f91db"
 DIGEST = "a" * 64
+HANDOFF_UID = "8e5640b6-0365-455c-bce6-4983753d7590"
+OBSERVATION_DIGEST = "b" * 64
+QUIESCE_DIGEST = "c" * 64
+FLASH_DIGEST = "d" * 64
+TARGET_IDENTITY_DIGEST = "e" * 64
+ROLLBACK_IDENTITY_DIGEST = "f" * 64
 DISPATCH_TOKEN = "dispatch-attempt-token-0123456789abcdef"
 
 
@@ -74,6 +81,9 @@ def test_disabled_port_has_no_socket_or_physical_side_effect() -> None:
         )
         is None
     )
+    with pytest.raises(JobSafetyError) as maintenance:
+        safety.require_mcu_maintenance(PERMIT_UID, "QUIESCE")
+    assert maintenance.value.code == "MCU_MAINTENANCE_NOT_AUTHORIZED"
     assert (
         safety.prepare_physical_action(
             None,
@@ -91,6 +101,208 @@ def test_disabled_port_has_no_socket_or_physical_side_effect() -> None:
         )
         is None
     )
+
+
+def _maintenance_status(**overrides) -> dict:
+    result = {
+        "candidateActivationState": "ACTIVE",
+        "stage4CandidateEnabled": True,
+        "jobGateMode": "ENFORCED",
+        "jobPermitRpcEnabled": True,
+        "jobGateState": "MAINTENANCE",
+        "maintenanceState": "MAINTENANCE",
+        "maintenanceOwnerUid": PERMIT_UID,
+        "maintenanceType": "MCU_FIRMWARE_UPDATE",
+        "maintenancePhase": "MAINTENANCE",
+        "maintenanceFenceToken": 7,
+        "reconciliationRequired": False,
+        "activeJobPermitCount": 0,
+        "unreconciledPhysicalActionCount": 0,
+        "mcuUpdateCandidateEnabled": True,
+        "mcuUpdateCandidate": {
+            "activeUpdate": {
+                "updateUid": PERMIT_UID,
+                "state": "INITIAL_QUIESCE",
+                "handoffUid": HANDOFF_UID,
+                "maintenanceFenceToken": 7,
+                "observationEvidenceSha256": OBSERVATION_DIGEST,
+                "quiesceEvidenceSha256": QUIESCE_DIGEST,
+                "lastFlashEvidenceSha256": FLASH_DIGEST,
+                "targetIdentitySha256": TARGET_IDENTITY_DIGEST,
+                "rollbackIdentitySha256": ROLLBACK_IDENTITY_DIGEST,
+            }
+        },
+    }
+    result.update(overrides)
+    return result
+
+
+def _require_quiesce(safety: PermanentJobSafety) -> None:
+    safety.require_mcu_maintenance(
+        PERMIT_UID,
+        "QUIESCE",
+        handoff_uid=HANDOFF_UID,
+        observation_evidence_sha256=OBSERVATION_DIGEST,
+    )
+
+
+def _require_verify(safety: PermanentJobSafety) -> None:
+    safety.require_mcu_maintenance(
+        PERMIT_UID,
+        "VERIFY",
+        handoff_uid=HANDOFF_UID,
+        quiesce_evidence_sha256=QUIESCE_DIGEST,
+        expected_firmware_identity_sha256=TARGET_IDENTITY_DIGEST,
+        observed_flash_evidence_sha256=FLASH_DIGEST,
+    )
+
+
+def test_mcu_maintenance_requires_exact_permanent_fence() -> None:
+    verify_status = _maintenance_status(
+        jobGateState="LOCKED",
+        maintenanceState="LOCKED",
+        maintenancePhase="LOCKED",
+        reconciliationRequired=True,
+    )
+    verify_status["mcuUpdateCandidate"]["activeUpdate"][
+        "state"
+    ] = "VERIFYING_TARGET"
+    client = FakeClient([_maintenance_status(), verify_status])
+    safety = PermanentJobSafety(client)
+
+    _require_quiesce(safety)
+    _require_verify(safety)
+
+    assert client.calls == [("GET_STATUS", {}), ("GET_STATUS", {})]
+
+
+def test_mcu_maintenance_status_selects_control_only_mode_after_handoff() -> None:
+    safety = PermanentJobSafety(FakeClient([_maintenance_status()]))
+
+    assert safety.get_mcu_maintenance_status() == {
+        "updateUid": PERMIT_UID,
+        "maintenanceFenceToken": 7,
+        "jobGateState": "MAINTENANCE",
+        "maintenancePhase": "MAINTENANCE",
+    }
+
+
+@pytest.mark.parametrize(
+    "gate_state,maintenance_state",
+    [("DRAINING", "DRAINING"), ("LOCKED", "LOCKED")],
+)
+def test_pre_hardware_mcu_drain_keeps_normal_recovery_runtime(
+    gate_state: str,
+    maintenance_state: str,
+) -> None:
+    status = _maintenance_status(
+        jobGateState=gate_state,
+        maintenanceState=maintenance_state,
+        maintenancePhase="DRAINING",
+        reconciliationRequired=gate_state == "LOCKED",
+    )
+    status["mcuUpdateCandidate"]["activeUpdate"]["state"] = "DRAINING"
+    safety = PermanentJobSafety(FakeClient([status]))
+
+    assert safety.get_mcu_maintenance_status() is None
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda status: status["mcuUpdateCandidate"]["activeUpdate"].update(
+            updateUid=WORK_UID
+        ),
+        lambda status: status["mcuUpdateCandidate"]["activeUpdate"].update(
+            maintenanceFenceToken=8
+        ),
+        lambda status: status.update(mcuUpdateCandidateEnabled=False),
+        lambda status: status.update(maintenancePhase="DRAINING"),
+    ],
+)
+def test_mcu_maintenance_status_rejects_cross_generation_or_phase_mismatch(
+    mutate,
+) -> None:
+    status = _maintenance_status()
+    mutate(status)
+    safety = PermanentJobSafety(FakeClient([status]))
+
+    with pytest.raises(JobSafetyError) as raised:
+        safety.get_mcu_maintenance_status()
+
+    assert raised.value.code == "MCU_MAINTENANCE_STATE_INVALID"
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"candidateActivationState": "REQUIRED"},
+        {"jobGateState": "OPEN", "maintenanceState": "IDLE"},
+        {"maintenanceOwnerUid": WORK_UID},
+        {"maintenanceType": "BUSINESS_UPDATE"},
+        {"maintenanceFenceToken": None},
+        {"activeJobPermitCount": 1},
+        {"unreconciledPhysicalActionCount": 1},
+        {"reconciliationRequired": True},
+    ],
+)
+def test_mcu_quiesce_rejects_incomplete_or_changed_fence(override) -> None:
+    safety = PermanentJobSafety(FakeClient([_maintenance_status(**override)]))
+
+    with pytest.raises(JobSafetyError) as raised:
+        _require_quiesce(safety)
+
+    assert raised.value.code == "MCU_MAINTENANCE_NOT_AUTHORIZED"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("updateUid", WORK_UID),
+        ("handoffUid", WORK_UID),
+        ("maintenanceFenceToken", 8),
+        ("observationEvidenceSha256", "9" * 64),
+    ],
+)
+def test_mcu_quiesce_binds_the_exact_persistent_update_record(
+    field: str,
+    value: object,
+) -> None:
+    status = deepcopy(_maintenance_status())
+    status["mcuUpdateCandidate"]["activeUpdate"][field] = value
+    safety = PermanentJobSafety(FakeClient([status]))
+
+    with pytest.raises(JobSafetyError) as raised:
+        _require_quiesce(safety)
+
+    assert raised.value.code == "MCU_MAINTENANCE_NOT_AUTHORIZED"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("state", "STARTING_TARGET_VERIFY"),
+        ("handoffUid", WORK_UID),
+        ("quiesceEvidenceSha256", "9" * 64),
+        ("lastFlashEvidenceSha256", "9" * 64),
+        ("targetIdentitySha256", "9" * 64),
+    ],
+)
+def test_mcu_verification_binds_handoff_flash_and_expected_identity(
+    field: str,
+    value: object,
+) -> None:
+    status = deepcopy(_maintenance_status())
+    status["mcuUpdateCandidate"]["activeUpdate"]["state"] = (
+        "VERIFYING_TARGET"
+    )
+    status["mcuUpdateCandidate"]["activeUpdate"][field] = value
+    safety = PermanentJobSafety(FakeClient([status]))
+
+    with pytest.raises(JobSafetyError) as raised:
+        _require_verify(safety)
+
+    assert raised.value.code == "MCU_MAINTENANCE_NOT_AUTHORIZED"
 
 
 def test_environment_requires_explicit_candidate_and_absolute_socket() -> None:

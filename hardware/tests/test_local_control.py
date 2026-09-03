@@ -243,6 +243,14 @@ def test_peer_validation_cannot_be_disabled_or_empty(tmp_path: Path):
             },
             allowed_uids=set(),
         )
+    with pytest.raises(ValueError, match="non-negative integers"):
+        _server(tmp_path, socket_parent_uids=set())
+
+
+def test_socket_parent_owner_allowlist_is_explicit(tmp_path: Path):
+    server = _server(tmp_path, socket_parent_uids={0, 1234})
+
+    assert server.socket_parent_uids == frozenset({0, 1234})
 
 
 @pytest.mark.parametrize("invalid_timeout", [float("nan"), float("inf")])

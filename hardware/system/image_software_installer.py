@@ -92,6 +92,9 @@ COMPONENT_NAMES = LEGACY_COMPONENT_NAMES + PERMANENT_COMPONENT_NAMES
 FACTORY_APP_PACKAGES = ("factory", "first_boot", "factory_seal")
 
 ENROLLMENT_FILES = (
+    "business_identity.py",
+    "communication_credentials.py",
+    "device_runtime_projection.py",
     "enrollment_bootstrap.py",
     "device_enrollment.py",
     "device_credentials.py",
@@ -119,9 +122,12 @@ LEGACY_MAIN_UNITS = (
 )
 
 MAIN_UNITS = (
+    "ecobin-business.service",
+    "ecobin-communication-proxy.service",
     "ecobin-communication.service",
     *LEGACY_MAIN_UNITS,
     "ecobin-updater.service",
+    "ecobin-updater-candidate.service",
     "ecobin-device-management-preflight.service",
     "ecobin-business-permission-preflight.service",
 )
@@ -181,7 +187,9 @@ STATIC_UNIT_NAMES = frozenset(
         "ecobin-cellular-uplink.service",
         "ecobin-device-management-preflight.service",
         "ecobin-business-permission-preflight.service",
+        "ecobin-business.service",
         "ecobin-communication.service",
+        "ecobin-communication-proxy.service",
         "ecobin-enrollment.service",
         "ecobin-edge-store-prepare.service",
         "ecobin-factory-ap-prepare.service",
@@ -199,6 +207,7 @@ STATIC_UNIT_NAMES = frozenset(
         "ecobin-runtime-gate.service",
         "ecobin-runtime.target",
         "ecobin-updater.service",
+        "ecobin-updater-candidate.service",
     }
 )
 
@@ -752,7 +761,12 @@ def _validate_payload_semantics(payload_root: Path, lock: dict[str, Any]) -> Non
                         "permanent component source differs from repository: "
                         f"{component_name}"
                     )
+        communication_root = (
+            payload_root / components["communicationAgent"]["root"]
+        )
+        _require_python_launcher(communication_root / ".venv")
         updater_root = payload_root / components["deviceUpdater"]["root"]
+        _require_python_launcher(updater_root / ".venv")
         for relative, expected_files, repository_directory in (
             (
                 "helpers",
@@ -1216,6 +1230,10 @@ def install_image_software(
         payload_root / "trust/runtime-release-keys",
         share_ecobin / "runtime-release-keys",
     )
+    _copy_tree(
+        payload_root / "trust/mcu-release-keys",
+        share_ecobin / "mcu-release-keys",
+    )
     _write_device_management_release_environment(
         share_ecobin / "device-management-release.env",
         components,
@@ -1329,6 +1347,15 @@ def _audit_public_runtime_trust_store(rootfs: Path, installed: Path) -> None:
     _validate_public_key_store(
         installed,
         name_pattern=RUNTIME_PUBLIC_KEY_NAME,
+        require_root_ownership=True,
+    )
+
+
+def _audit_public_mcu_trust_store(rootfs: Path, installed: Path) -> None:
+    _assert_root_owned_directory_chain(rootfs, installed)
+    _validate_public_key_store(
+        installed,
+        name_pattern=MCU_PUBLIC_KEY_NAME,
         require_root_ownership=True,
     )
 
@@ -1778,15 +1805,26 @@ def audit_image_software(
     if permanent_layer:
         public_runtime_trust = rootfs / "usr/share/ecobin/runtime-release-keys"
         _audit_public_runtime_trust_store(rootfs, public_runtime_trust)
+        public_mcu_trust = rootfs / "usr/share/ecobin/mcu-release-keys"
+        _audit_public_mcu_trust_store(rootfs, public_mcu_trust)
         if payload_root is not None:
             _assert_tree_matches(
                 public_runtime_trust,
                 payload_root / "trust/runtime-release-keys",
             )
+            _assert_tree_matches(
+                public_mcu_trust,
+                payload_root / "trust/mcu-release-keys",
+            )
         _assert_tree_matches_lock(
             public_runtime_trust,
             lock,
             "trust/runtime-release-keys",
+        )
+        _assert_tree_matches_lock(
+            public_mcu_trust,
+            lock,
+            "trust/mcu-release-keys",
         )
         release_environment = (
             rootfs / "usr/share/ecobin/device-management-release.env"

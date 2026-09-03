@@ -132,6 +132,8 @@ class RemoteSupportControlServer:
         controller: Any,
         store: Any,
         allowed_uids: Iterable[int] | None = (0,),
+        socket_mode: int = 0o600,
+        socket_gid: int | None = None,
         connection_timeout_seconds: float = 2.0,
         socket_factory: Callable[..., socket.socket] = socket.socket,
     ) -> None:
@@ -148,6 +150,16 @@ class RemoteSupportControlServer:
             for uid in self.allowed_uids
         ):
             raise ValueError("allowed control UIDs must be non-negative integers")
+        if socket_mode not in {0o600, 0o660}:
+            raise ValueError("remote support socket mode must be 0600 or 0660")
+        if socket_gid is not None and (
+            isinstance(socket_gid, bool)
+            or not isinstance(socket_gid, int)
+            or socket_gid < 0
+        ):
+            raise ValueError("remote support socket GID must be non-negative")
+        self.socket_mode = socket_mode
+        self.socket_gid = socket_gid
         self.connection_timeout_seconds = connection_timeout_seconds
         self._socket_factory = socket_factory
         self._stop_event = threading.Event()
@@ -233,7 +245,9 @@ class RemoteSupportControlServer:
         listener = self._socket_factory(socket.AF_UNIX, socket.SOCK_STREAM)
         listener.settimeout(0.5)
         listener.bind(str(self.socket_path))
-        os.chmod(self.socket_path, 0o600)
+        if self.socket_gid is not None and os.name == "posix":
+            os.chown(self.socket_path, -1, self.socket_gid)
+        os.chmod(self.socket_path, self.socket_mode)
         listener.listen(8)
         return listener
 

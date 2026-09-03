@@ -35,6 +35,10 @@ from .mcu_flash_recovery import (
 STM32FLASH_BINARY = "/usr/bin/stm32flash"
 SERIAL_DEVICE = "/dev/ttyS5"
 BUSINESS_SERVICE = "ecobin-hardware.service"
+BUSINESS_SERVICES = (
+    BUSINESS_SERVICE,
+    "ecobin-business.service",
+)
 SYSTEMCTL = "/usr/bin/systemctl"
 FIRMWARE_ROOT = Path("/var/lib/ecobin/updater/mcu-firmware")
 FLASH_BASE = 0x08000000
@@ -152,37 +156,38 @@ class McuFlashPrimitives:
         }
 
     def _require_business_inactive(self) -> None:
-        try:
-            result = self._run_command(
-                [
-                    SYSTEMCTL,
-                    "show",
-                    "--property=ActiveState",
-                    "--value",
-                    "--",
-                    BUSINESS_SERVICE,
-                ],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=COMMAND_TIMEOUT_SECONDS,
-                check=False,
-            )
-        except Exception as error:
-            raise LocalControlActionError(
-                "BUSINESS_RUNTIME_STATE_UNKNOWN",
-                "fixed business service state could not be read",
-            ) from error
-        state = str(getattr(result, "stdout", "")).strip().lower()
-        if int(getattr(result, "returncode", 1)) != 0 or state not in {
-            "inactive",
-            "failed",
-        }:
-            raise LocalControlActionError(
-                "BUSINESS_RUNTIME_ACTIVE",
-                "fixed business service must be stopped before MCU flashing",
-            )
+        for business_service in BUSINESS_SERVICES:
+            try:
+                result = self._run_command(
+                    [
+                        SYSTEMCTL,
+                        "show",
+                        "--property=ActiveState",
+                        "--value",
+                        "--",
+                        business_service,
+                    ],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    timeout=COMMAND_TIMEOUT_SECONDS,
+                    check=False,
+                )
+            except Exception as error:
+                raise LocalControlActionError(
+                    "BUSINESS_RUNTIME_STATE_UNKNOWN",
+                    "fixed business service state could not be read",
+                ) from error
+            state = str(getattr(result, "stdout", "")).strip().lower()
+            if int(getattr(result, "returncode", 1)) != 0 or state not in {
+                "inactive",
+                "failed",
+            }:
+                raise LocalControlActionError(
+                    "BUSINESS_RUNTIME_ACTIVE",
+                    "all fixed business services must be stopped before MCU flashing",
+                )
 
     def _open_fixed_firmware(self, image_path: Path) -> tuple[int, int]:
         _require_real_directory(self.firmware_root, "MCU firmware root")

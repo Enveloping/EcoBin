@@ -9,13 +9,27 @@ from typing import Any
 
 import pytest
 
-from device_management.helpers import business_activation_helper, mcu_flash_helper
+from device_management.helpers import (
+    business_activation_candidate_helper,
+    business_activation_helper,
+    mcu_flash_candidate_helper,
+    mcu_flash_helper,
+)
+from device_management.helpers.updater_mutation_authorizer import (
+    UpdaterMutationAuthorizer,
+)
 from device_management.helpers.privileged_control import (
     HelperAction,
     OneShotPrivilegedHelper,
     resolve_updater_uid,
 )
-from local_control import LOCAL_PROTOCOL_MAJOR, LOCAL_PROTOCOL_MINOR
+from local_control import (
+    LOCAL_PROTOCOL_MAJOR,
+    LOCAL_PROTOCOL_MINOR,
+    LocalControlActionError,
+    LocalControlUnavailable,
+    canonical_local_payload_sha256,
+)
 
 HARDWARE_ROOT = Path(__file__).resolve().parents[1]
 UNIT_ROOT = HARDWARE_ROOT / "device_management" / "helpers" / "systemd"
@@ -72,6 +86,7 @@ def invoke(
     peer_uid: int = UPDATER_UID,
     actions: dict[str, HelperAction] | None = None,
     mutation_guard: Any = nullcontext,
+    mutation_authorizer: Any = None,
 ) -> tuple[dict[str, Any], FakeConnection]:
     connection = FakeConnection(document, peer_uid=peer_uid)
     if actions is None:
@@ -85,6 +100,7 @@ def invoke(
         actions=actions,
         peer_uid_reader=lambda candidate: candidate.peer_uid,  # type: ignore[attr-defined]
         mutation_guard=mutation_guard,
+        mutation_authorizer=mutation_authorizer,
     )
     helper.handle(connection)  # type: ignore[arg-type]
     return json.loads(connection.sent.decode("utf-8")), connection
@@ -211,6 +227,159 @@ def test_stage3_rejects_every_primitive_before_lock_or_handler(policy: Any) -> N
 
     assert guard_calls == []
     assert handler_calls == []
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        business_activation_candidate_helper.POLICY,
+        mcu_flash_candidate_helper.POLICY,
+    ],
+)
+def test_stage4_candidate_authorizes_exact_payload_before_root_primitive(
+    policy: Any,
+) -> None:
+    sequence: list[tuple[str, Any]] = []
+    action_name = policy.primitive_actions[0]
+    payload = {
+        "updateUid": "11111111-1111-4111-8111-111111111111",
+        "actionUid": "22222222-2222-4222-8222-222222222222",
+    }
+    if action_name == "FLASH_MCU_FIRMWARE":
+        payload["source"] = "TARGET"
+
+    def authorize(action: str, candidate: dict[str, Any]) -> None:
+        sequence.append(("authorize", (action, dict(candidate))))
+
+    def guard() -> Any:
+        sequence.append(("lock", None))
+        return nullcontext()
+
+    response, _connection = invoke(
+        policy,
+        request(policy.protocol_name, action_name, payload),
+        actions={
+            name: HelperAction(
+                lambda candidate, current=name: sequence.append(
+                    ("handler", (current, dict(candidate)))
+                )
+                or {"completed": True},
+                (
+                    frozenset({"updateUid", "actionUid", "source"})
+                    if name == "FLASH_MCU_FIRMWARE"
+                    else frozenset({"updateUid", "actionUid"})
+                ),
+            )
+            for name in policy.primitive_actions
+        },
+        mutation_guard=guard,
+        mutation_authorizer=authorize,
+    )
+
+    assert response["ok"] is True
+    assert [item[0] for item in sequence] == ["authorize", "lock", "handler"]
+    assert sequence[0][1] == (action_name, payload)
+
+
+def test_candidate_business_helper_publishes_fixed_start_timeout() -> None:
+    assert business_activation_candidate_helper.POLICY.fixed_configuration == {
+        "businessService": "ecobin-business.service",
+        "serviceControlTimeoutSeconds": 190,
+    }
+
+
+def test_stage4_authorization_failure_never_enters_lock_or_primitive() -> None:
+    calls: list[str] = []
+    policy = business_activation_candidate_helper.POLICY
+
+    def reject(_action: str, _payload: dict[str, Any]) -> None:
+        calls.append("authorize")
+        raise LocalControlActionError(
+            "PRIVILEGED_ACTION_NOT_AUTHORIZED",
+            "durable updater rejected the action",
+        )
+
+    response, _connection = invoke(
+        policy,
+        request(
+            policy.protocol_name,
+            "STOP_BUSINESS_RUNTIME",
+            {
+                "updateUid": "11111111-1111-4111-8111-111111111111",
+                "actionUid": "22222222-2222-4222-8222-222222222222",
+            },
+        ),
+        actions={
+            "STOP_BUSINESS_RUNTIME": HelperAction(
+                lambda _payload: calls.append("handler") or {},
+                frozenset({"updateUid", "actionUid"}),
+            ),
+            "START_BUSINESS_RUNTIME": HelperAction(
+                lambda _payload: {},
+                frozenset({"updateUid", "actionUid"}),
+            ),
+        },
+        mutation_guard=lambda: calls.append("lock") or nullcontext(),
+        mutation_authorizer=reject,
+    )
+
+    assert response["ok"] is False
+    assert response["errorCode"] == "PRIVILEGED_ACTION_NOT_AUTHORIZED"
+    assert calls == ["authorize"]
+
+
+def test_updater_mutation_authorizer_binds_component_action_and_payload() -> None:
+    payload = {
+        "updateUid": "11111111-1111-4111-8111-111111111111",
+        "actionUid": "22222222-2222-4222-8222-222222222222",
+    }
+
+    class Client:
+        def __init__(self) -> None:
+            self.request_payload = None
+
+        def request(self, action: str, request_payload: dict[str, Any]) -> dict:
+            assert action == "AUTHORIZE_PRIVILEGED_HELPER_ACTION"
+            self.request_payload = dict(request_payload)
+            return {"authorized": True, **request_payload}
+
+    client = Client()
+    authorizer = UpdaterMutationAuthorizer(
+        "BUSINESS_ACTIVATION_CANDIDATE_HELPER",
+        client=client,  # type: ignore[arg-type]
+    )
+
+    authorizer.authorize("STOP_BUSINESS_RUNTIME", payload)
+
+    assert client.request_payload == {
+        "helperComponent": "BUSINESS_ACTIVATION_CANDIDATE_HELPER",
+        "helperAction": "STOP_BUSINESS_RUNTIME",
+        "updateUid": payload["updateUid"],
+        "actionUid": payload["actionUid"],
+        "payloadSha256": canonical_local_payload_sha256(payload),
+    }
+
+
+def test_updater_mutation_authorizer_fails_closed_when_updater_is_unavailable() -> None:
+    class UnavailableClient:
+        def request(self, _action: str, _payload: dict[str, Any]) -> dict:
+            raise LocalControlUnavailable("socket unavailable")
+
+    authorizer = UpdaterMutationAuthorizer(
+        "BUSINESS_ACTIVATION_CANDIDATE_HELPER",
+        client=UnavailableClient(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(LocalControlActionError) as raised:
+        authorizer.authorize(
+            "STOP_BUSINESS_RUNTIME",
+            {
+                "updateUid": "11111111-1111-4111-8111-111111111111",
+                "actionUid": "22222222-2222-4222-8222-222222222222",
+            },
+        )
+
+    assert raised.value.code == "HELPER_AUTHORIZATION_UNAVAILABLE"
 
 
 def test_non_updater_peer_is_rejected_before_request_is_read() -> None:

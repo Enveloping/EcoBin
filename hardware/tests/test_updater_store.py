@@ -377,6 +377,7 @@ def test_store_keeps_schema_v3_and_installs_gate_control_extension(
         "maintenanceState": "LOCKED",
         "maintenanceOwnerUid": None,
         "maintenanceType": None,
+        "maintenancePhase": None,
         "maintenanceFenceToken": None,
         "reconciliationRequired": False,
         "blockReasonCode": "STAGE4_CANDIDATE_DISABLED",
@@ -2162,6 +2163,65 @@ def test_gate_draining_honours_granted_job_but_rejects_new_permits(
         store.close()
 
 
+def test_exact_pre_hardware_drain_can_be_aborted_without_cancelling_active_job(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "updater.db", "stage4", candidate=True)
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        draining = store.transition_job_gate(
+            "DRAINING",
+            owner_update_uid=_uid(40),
+            maintenance_type="MCU_FIRMWARE_UPDATE",
+        )
+
+        reopened = store.abort_update_drain(
+            _uid(40),
+            draining["maintenanceFenceToken"],
+            evidence_sha256="3" * 64,
+        )
+
+        assert reopened["jobGateState"] == "OPEN"
+        assert reopened["maintenanceOwnerUid"] is None
+        assert reopened["activeJobPermitCount"] == 1
+        assert store.begin_job(_begin_payload())["state"] == "ACTIVE"
+        replay = store.abort_update_drain(
+            _uid(40),
+            draining["maintenanceFenceToken"],
+            evidence_sha256="3" * 64,
+        )
+        assert replay["jobGateState"] == "OPEN"
+    finally:
+        store.close()
+
+
+def test_drain_abort_is_forbidden_after_entering_hardware_maintenance(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "updater.db", "stage4", candidate=True)
+    try:
+        _activate_candidate(store)
+        draining = store.transition_job_gate(
+            "DRAINING",
+            owner_update_uid=_uid(40),
+            maintenance_type="MCU_FIRMWARE_UPDATE",
+        )
+        store.transition_job_gate("MAINTENANCE")
+
+        with pytest.raises(UpdaterStoreError) as raised:
+            store.abort_update_drain(
+                _uid(40),
+                draining["maintenanceFenceToken"],
+                evidence_sha256="3" * 64,
+            )
+
+        assert raised.value.code == "MAINTENANCE_DRAIN_ABORT_NOT_ALLOWED"
+        assert store.get_status()["jobGateState"] == "MAINTENANCE"
+    finally:
+        store.close()
+
+
 def test_manual_gate_lock_blocks_preparing_actions(
     tmp_path: Path,
 ) -> None:
@@ -2332,6 +2392,80 @@ def test_restart_cannot_erase_a_maintenance_fence_with_generic_open(
         retained = second.get_status()
         assert retained["maintenanceOwnerUid"] == owner_uid
         assert retained["maintenanceFenceToken"] == fence
+    finally:
+        second.close()
+
+
+def test_restart_can_resume_only_the_exact_drained_update_wait(tmp_path: Path) -> None:
+    path = tmp_path / "updater.db"
+    owner_uid = _uid(60)
+    first = _store(path, "stage4", candidate=True)
+    _activate_candidate(first)
+    first.transition_job_gate(
+        "DRAINING",
+        owner_update_uid=owner_uid,
+        maintenance_type="MCU_FIRMWARE_UPDATE",
+    )
+    fence = first.get_status()["maintenanceFenceToken"]
+    first.close()
+
+    second = _store(path, "stage4", candidate=True)
+    try:
+        assert second.get_status()["jobGateState"] == "LOCKED"
+        with pytest.raises(UpdaterStoreError) as wrong_owner:
+            second.resume_update_drain(_uid(61), fence)
+        assert wrong_owner.value.code == (
+            "MAINTENANCE_DRAIN_RECOVERY_NOT_AUTHORIZED"
+        )
+
+        resumed = second.resume_update_drain(owner_uid, fence)
+
+        assert resumed["jobGateState"] == "DRAINING"
+        assert resumed["maintenanceOwnerUid"] == owner_uid
+        assert resumed["maintenanceFenceToken"] == fence
+    finally:
+        second.close()
+
+
+def test_restart_drain_waits_for_active_job_reconciliation_before_resume(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "updater.db"
+    owner_uid = _uid(60)
+    first = _store(path, "stage4", candidate=True)
+    _activate_candidate(first)
+    first.request_job_permit(_permit_payload())
+    first.begin_job(_begin_payload())
+    first.transition_job_gate(
+        "DRAINING",
+        owner_update_uid=owner_uid,
+        maintenance_type="MCU_FIRMWARE_UPDATE",
+    )
+    fence = first.get_status()["maintenanceFenceToken"]
+    first.close()
+
+    second = _store(path, "stage4", candidate=True)
+    try:
+        with pytest.raises(UpdaterStoreError) as active:
+            second.resume_update_drain(owner_uid, fence)
+        assert active.value.code == (
+            "MAINTENANCE_DRAIN_RECOVERY_NOT_AUTHORIZED"
+        )
+
+        second.complete_job(
+            {
+                "permitUid": _uid(1),
+                "completionUid": _uid(62),
+                "outcome": "FAILED",
+                "completionDigestSha256": "8" * 64,
+            }
+        )
+        recovered = second.get_status()
+        assert recovered["jobGateState"] == "LOCKED"
+        assert recovered["blockReasonCode"] == "MAINTENANCE_RECOVERY_REQUIRED"
+
+        resumed = second.resume_update_drain(owner_uid, fence)
+        assert resumed["jobGateState"] == "DRAINING"
     finally:
         second.close()
 

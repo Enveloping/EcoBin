@@ -153,27 +153,37 @@ make_locked_venv "${tool_venv}" remote-support
     --destination "${staging_directory}/components/hardware-runtime"
 rm -rf -- "${tool_venv}" "${verification_inputs}"
 
-# These permanent, stdlib-only agents are image components. They deliberately
-# remain outside the replaceable hardware/business runtime release.
-for name in communication_agent.py communication_store.py local_control.py; do
+# These permanent agents are image components. They deliberately remain
+# outside the replaceable hardware/business runtime release.  The OneNet SDK
+# lives in a communication-only environment so this rescue path never depends
+# on the currently active business release.
+for name in cloud_transport.py communication_agent.py communication_credentials.py \
+    communication_router.py communication_store.py direct_onenet_transport.py \
+    local_control.py onenet_projection_model.json onenet_wire.py trusted_clock.py; do
     install -m 0644 -- "${repository_root}/hardware/${name}" \
         "${staging_directory}/components/communication-agent/app/${name}"
 done
-for name in device_management_preflight.py local_control.py updater_agent.py \
-    updater_control_cli.py updater_store.py; do
+for name in device_management_preflight.py local_control.py \
+    mcu_firmware_package.py mcu_update_coordinator.py mcu_update_package.py \
+    mcu_update_store.py updater_agent.py updater_control_cli.py updater_store.py; do
     install -m 0644 -- "${repository_root}/hardware/${name}" \
         "${staging_directory}/components/device-updater/app/${name}"
 done
 for name in __init__.py privileged_control.py business_activation_helper.py \
-    business_activation_primitives.py mcu_flash_helper.py \
-    mcu_flash_primitives.py mcu_flash_recovery.py; do
+    business_activation_candidate_helper.py business_activation_primitives.py \
+    mcu_flash_helper.py mcu_flash_candidate_helper.py mcu_flash_primitives.py \
+    mcu_flash_recovery.py updater_mutation_authorizer.py; do
     install -m 0644 -- \
         "${repository_root}/hardware/device_management/helpers/${name}" \
         "${staging_directory}/components/device-updater/helpers/${name}"
 done
 for name in ecobin-business-activation-helper.socket \
     ecobin-business-activation-helper@.service \
-    ecobin-mcu-flash-helper.socket ecobin-mcu-flash-helper@.service; do
+    ecobin-mcu-flash-helper.socket ecobin-mcu-flash-helper@.service \
+    ecobin-business-activation-candidate-helper.socket \
+    ecobin-business-activation-candidate-helper@.service \
+    ecobin-mcu-flash-candidate-helper.socket \
+    ecobin-mcu-flash-candidate-helper@.service; do
     install -m 0644 -- \
         "${repository_root}/hardware/device_management/helpers/systemd/${name}" \
         "${staging_directory}/components/device-updater/systemd/${name}"
@@ -182,10 +192,16 @@ done
 make_locked_venv "${staging_directory}/components/enrollment-venv" enrollment
 make_locked_venv "${staging_directory}/components/remote-support-venv" remote-support
 make_locked_venv "${staging_directory}/components/factory-test-venv" runtime
+make_locked_venv "${staging_directory}/components/communication-agent/.venv" communication
+make_locked_venv "${staging_directory}/components/device-updater/.venv" updater
 "${staging_directory}/components/enrollment-venv/bin/python" -c 'import cryptography,requests'
 "${staging_directory}/components/remote-support-venv/bin/python" -c 'import cryptography'
 "${staging_directory}/components/factory-test-venv/bin/python" -c \
     'import cv2,paho.mqtt.client,serial,qcloud_cos'
+"${staging_directory}/components/communication-agent/.venv/bin/python" -c \
+    'import paho.mqtt.client'
+"${staging_directory}/components/device-updater/.venv/bin/python" -c \
+    'import cryptography'
 
 cp -- "${enrollment_env}" "${staging_directory}/config/enrollment.env"
 cp -- "${cellular_env}" "${staging_directory}/config/cellular.env"

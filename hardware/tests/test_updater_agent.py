@@ -90,6 +90,7 @@ def test_health_and_status_report_truthful_default_locked_capabilities(
             "maintenanceState": "LOCKED",
             "maintenanceOwnerUid": None,
             "maintenanceType": None,
+            "maintenancePhase": None,
             "maintenanceFenceToken": None,
             "reconciliationRequired": False,
             "blockReasonCode": "STAGE4_CANDIDATE_DISABLED",
@@ -97,6 +98,7 @@ def test_health_and_status_report_truthful_default_locked_capabilities(
             "unreconciledPhysicalActionCount": 0,
             "businessUpdateEnabled": False,
             "mcuUpdateEnabled": False,
+            "mcuUpdateCandidateEnabled": False,
             "privilegedHelperMutationEnabled": False,
             "localProtocolName": "ecobin.updater.control",
             "localProtocolMajor": 1,
@@ -299,6 +301,77 @@ def test_candidate_actions_use_exact_payloads_and_business_only_uid(
             == "STAGE4_ACTIVATION_REQUIRED"
         )
         assert store.get_status()["updatesEnabled"] is False
+    finally:
+        store.close()
+
+
+def test_mcu_candidate_adds_only_root_local_queue_query_and_helper_authorization(
+    tmp_path: Path,
+) -> None:
+    class Coordinator:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def get_status(self):
+            return {"candidateEnabled": True, "activeUpdate": None}
+
+        def queue_local(self, payload):
+            self.calls.append(("queue", payload))
+            return {"disposition": "ACCEPTED"}
+
+        def get_update(self, payload):
+            self.calls.append(("get", payload))
+            return {"updateUid": payload["updateUid"]}
+
+        def authorize_privileged_action(self, payload):
+            self.calls.append(("authorize", payload))
+            return {"authorized": True}
+
+    store = UpdaterStore(
+        tmp_path / "updater.db",
+        release_version="updater-v2",
+        enable_stage4_candidate=True,
+    )
+    store.initialize()
+    try:
+        coordinator = Coordinator()
+        handler = updater_agent.UpdaterControlHandler(store, coordinator)
+        actions = updater_agent.build_control_actions(
+            handler,
+            allowed_uids={0, 3102},
+            business_uids={3102},
+            enable_stage4_candidate=True,
+            enable_mcu_update_candidate=True,
+        )
+
+        for action, fields in updater_agent.ROOT_MCU_CANDIDATE_ACTION_FIELDS.items():
+            assert actions[action].payload_fields == fields
+            assert actions[action].allowed_uids == frozenset({0})
+        assert actions["START_MCU_UPDATE"].allowed_uids == frozenset({0, 3102})
+        with pytest.raises(LocalControlActionError) as remote:
+            actions["START_MCU_UPDATE"].handler({})
+        assert remote.value.code == "FEATURE_DISABLED"
+        status = actions["GET_STATUS"].handler({})
+        assert status["mcuUpdateCandidateEnabled"] is True
+        assert status["privilegedHelperMutationEnabled"] is True
+        assert status["mcuUpdateCandidate"]["activeUpdate"] is None
+    finally:
+        store.close()
+
+
+def test_mcu_candidate_cannot_be_enabled_without_stage4_gate(tmp_path: Path) -> None:
+    store = UpdaterStore(
+        tmp_path / "updater.db",
+        release_version="updater-v1",
+    )
+    store.initialize()
+    try:
+        with pytest.raises(ValueError, match="stage-four"):
+            updater_agent.build_control_actions(
+                updater_agent.UpdaterControlHandler(store, object()),
+                allowed_uids={0},
+                enable_mcu_update_candidate=True,
+            )
     finally:
         store.close()
 

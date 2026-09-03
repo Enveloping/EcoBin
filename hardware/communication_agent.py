@@ -1,8 +1,9 @@
-"""Permanent communication-agent skeleton for the stage-three device image.
+"""Permanent communication agent with a default-off OneNet owner candidate.
 
-This stage deliberately does not own OneNet, route remote updates, read OneNet
-credentials, or open any network socket.  It proves only the permanent process,
-private database, authenticated local control channel, and service lifecycle.
+The installed default remains the stage-three status-only posture.  A later
+controlled cut-over can explicitly select ``proxy-candidate`` after the legacy
+business-owned connection has stopped and a private communication credential
+has been provisioned.
 """
 
 from __future__ import annotations
@@ -11,17 +12,27 @@ import argparse
 import logging
 import os
 import signal
+import site
 import socket
 import sys
 import threading
 from collections.abc import Iterable
 from typing import Any
 
+from communication_credentials import (
+    DEFAULT_COMMUNICATION_CREDENTIALS_PATH,
+    load_communication_credentials,
+)
+from communication_router import (
+    DEFAULT_BUSINESS_SOCKET,
+    CommunicationRouter,
+)
 from communication_store import CommunicationStore, MAX_RELEASE_VERSION_LENGTH
 from local_control import (
     LOCAL_PROTOCOL_MAJOR,
     LOCAL_PROTOCOL_MINOR,
     LocalControlAction,
+    LocalControlActionError,
     LocalControlServer,
 )
 
@@ -31,14 +42,26 @@ logger = logging.getLogger("communication-agent")
 COMMUNICATION_PROTOCOL_NAME = "ecobin.communication.control"
 DEFAULT_STATE_PATH = "/var/lib/ecobin/communication/communication.db"
 DEFAULT_SOCKET_PATH = "/run/ecobin/communication/control.sock"
+COMMUNICATION_MODES = frozenset({"disabled", "proxy-candidate"})
+COMMUNICATION_SITE_PACKAGES = (
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    + "/.venv/lib/python3.11/site-packages"
+)
 
 
 class CommunicationController:
-    """Read-only stage-three RPC surface."""
+    """Status surface plus business-event ingress when explicitly enabled."""
 
-    def __init__(self, store: CommunicationStore, release_version: str) -> None:
+    def __init__(
+        self,
+        store: CommunicationStore,
+        release_version: str,
+        *,
+        router: CommunicationRouter | None = None,
+    ) -> None:
         self.store = store
         self.release_version = release_version
+        self.router = router
         self._current_start: dict[str, Any] | None = None
 
     def record_started(self, start_fact: dict[str, Any]) -> None:
@@ -47,6 +70,7 @@ class CommunicationController:
     def _base_status(self) -> dict[str, Any]:
         if self._current_start is None:
             raise RuntimeError("communication process start fact is unavailable")
+        enabled = self.router is not None
         return {
             "component": "COMMUNICATION_AGENT",
             "status": "READY",
@@ -56,7 +80,13 @@ class CommunicationController:
             "localProtocolName": COMMUNICATION_PROTOCOL_NAME,
             "localProtocolMajor": LOCAL_PROTOCOL_MAJOR,
             "localProtocolMinor": LOCAL_PROTOCOL_MINOR,
-            "onenetOwnership": "DISABLED",
+            "onenetOwnership": "ENABLED" if enabled else "DISABLED",
+            "cloudConnectionState": (
+                "CONNECTED"
+                if enabled and self.router.connected
+                else ("DISCONNECTED" if enabled else "DISABLED")
+            ),
+            "businessEventIngress": "ENABLED" if enabled else "DISABLED",
             "remoteUpdateRouting": "DISABLED",
         }
 
@@ -69,6 +99,18 @@ class CommunicationController:
             **self.store.get_status(),
         }
 
+    def submit_business_event(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        router = self.router
+        if router is None:
+            raise LocalControlActionError(
+                "FEATURE_DISABLED",
+                "OneNet ownership candidate is not enabled",
+            )
+        return router.submit_business_event(payload)
+
 
 class CommunicationAgent:
     def __init__(
@@ -77,11 +119,13 @@ class CommunicationAgent:
         controller: CommunicationController,
         server: LocalControlServer,
         release_version: str,
+        router: CommunicationRouter | None = None,
     ) -> None:
         self.store = store
         self.controller = controller
         self.server = server
         self.release_version = release_version
+        self.router = router
         self._stop_event = threading.Event()
         self._started = False
 
@@ -91,8 +135,17 @@ class CommunicationAgent:
         start_fact = self.store.record_process_start(self.release_version)
         self.controller.record_started(start_fact)
         self.server.start()
+        try:
+            if self.router is not None:
+                self.router.start()
+        except Exception:
+            self.server.stop()
+            raise
         self._started = True
-        logger.info("communication agent ready with OneNet ownership disabled")
+        logger.info(
+            "communication agent ready with OneNet ownership %s",
+            "enabled" if self.router is not None else "disabled",
+        )
 
     def request_stop(self) -> None:
         self._stop_event.set()
@@ -110,9 +163,20 @@ class CommunicationAgent:
                 raise RuntimeError(
                     "communication local control server stopped unexpectedly"
                 )
+            if self.router is not None and not self.router.is_running:
+                failure = self.router.failure
+                if failure is not None:
+                    raise RuntimeError(
+                        "communication router stopped unexpectedly"
+                    ) from failure
+                raise RuntimeError(
+                    "communication router stopped unexpectedly"
+                )
 
     def stop(self) -> None:
         self.request_stop()
+        if self.router is not None:
+            self.router.stop()
         if self._started:
             self.server.stop()
         self.store.close()
@@ -196,29 +260,95 @@ def build_agent(args: argparse.Namespace) -> CommunicationAgent:
         or not args.release_version.isprintable()
     ):
         raise ValueError("--release-version is invalid")
+    mode = getattr(args, "mode", "disabled")
+    if mode not in COMMUNICATION_MODES:
+        raise ValueError("--mode must be disabled or proxy-candidate")
     allowed_uids = resolve_allowed_uids(args.allowed_uid, args.allowed_user)
     action_uids = frozenset(allowed_uids)
     socket_gid = resolve_socket_gid(args.socket_group)
     store = CommunicationStore(args.state)
     store.initialize()
     try:
-        controller = CommunicationController(store, args.release_version)
+        router = None
+        business_uid = None
+        if mode == "proxy-candidate":
+            business_user = getattr(args, "business_user", "ecobin-business")
+            business_uid = _resolve_required_user_uid(business_user)
+            credential = load_communication_credentials(
+                getattr(
+                    args,
+                    "credentials",
+                    DEFAULT_COMMUNICATION_CREDENTIALS_PATH,
+                )
+            )
+            # Keep Paho outside the status-only import path.  The image owns
+            # this dedicated dependency tree; it never comes from the active
+            # replaceable business release.  A legacy source-only maintenance
+            # installation can still run in disabled mode, but cannot be
+            # promoted to OneNet owner without the controlled image payload.
+            dependency_root = getattr(
+                args,
+                "dependency_root",
+                COMMUNICATION_SITE_PACKAGES,
+            )
+            if not os.path.isdir(dependency_root):
+                raise ValueError(
+                    "communication dependency environment is unavailable"
+                )
+            site.addsitedir(dependency_root)
+            from direct_onenet_transport import DirectOneNetTransport
+
+            transport = DirectOneNetTransport(
+                product_id=credential.product_id,
+                device_name=credential.device_name,
+                device_key=credential.device_key,
+                mqtt_host=credential.mqtt_host,
+                mqtt_port=credential.mqtt_port,
+                clean_session=True,
+            )
+            router = CommunicationRouter(
+                store,
+                transport,
+                business_socket=getattr(
+                    args,
+                    "business_socket",
+                    DEFAULT_BUSINESS_SOCKET,
+                ),
+            )
+        controller = CommunicationController(
+            store,
+            args.release_version,
+            router=router,
+        )
+        actions = {
+            "HEALTH": LocalControlAction(
+                controller.health,
+                payload_fields=frozenset(),
+                allowed_uids=action_uids,
+            ),
+            "GET_STATUS": LocalControlAction(
+                controller.get_status,
+                payload_fields=frozenset(),
+                allowed_uids=action_uids,
+            ),
+        }
+        if router is not None and business_uid is not None:
+            actions["SUBMIT_BUSINESS_EVENT"] = LocalControlAction(
+                controller.submit_business_event,
+                payload_fields=frozenset(
+                    {"eventUid", "eventType", "params"}
+                ),
+                allowed_uids=frozenset({business_uid}),
+            )
         server = LocalControlServer(
             args.socket,
             protocol_name=COMMUNICATION_PROTOCOL_NAME,
-            actions={
-                "HEALTH": LocalControlAction(
-                    controller.health,
-                    payload_fields=frozenset(),
-                    allowed_uids=action_uids,
-                ),
-                "GET_STATUS": LocalControlAction(
-                    controller.get_status,
-                    payload_fields=frozenset(),
-                    allowed_uids=action_uids,
-                ),
-            },
-            allowed_uids=allowed_uids,
+            actions=actions,
+            allowed_uids=(
+                allowed_uids
+                if business_uid is None
+                else set(allowed_uids) | {business_uid}
+            ),
             socket_mode=0o660,
             socket_gid=socket_gid,
         )
@@ -230,6 +360,7 @@ def build_agent(args: argparse.Namespace) -> CommunicationAgent:
         controller,
         server,
         args.release_version,
+        router,
     )
 
 
@@ -239,6 +370,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--state",
         default=os.getenv("ECOBIN_COMMUNICATION_STATE_PATH", DEFAULT_STATE_PATH),
     )
+    parser.add_argument(
+        "--mode",
+        choices=sorted(COMMUNICATION_MODES),
+        default=os.getenv("ECOBIN_COMMUNICATION_MODE", "disabled"),
+    )
+    parser.add_argument(
+        "--credentials",
+        default=os.getenv(
+            "ECOBIN_COMMUNICATION_CREDENTIALS_PATH",
+            DEFAULT_COMMUNICATION_CREDENTIALS_PATH,
+        ),
+    )
+    parser.add_argument(
+        "--business-socket",
+        default=os.getenv(
+            "ECOBIN_BUSINESS_CONTROL_SOCKET",
+            DEFAULT_BUSINESS_SOCKET,
+        ),
+    )
+    parser.add_argument("--business-user", default="ecobin-business")
     parser.add_argument(
         "--socket",
         default=os.getenv("ECOBIN_COMMUNICATION_SOCKET", DEFAULT_SOCKET_PATH),
@@ -251,6 +402,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allowed-user", action="append", default=None)
     parser.add_argument("--socket-group", default=None)
     return parser
+
+
+def _resolve_required_user_uid(name: str) -> int:
+    if not isinstance(name, str) or not name:
+        raise ValueError("--business-user must be a non-empty account name")
+    try:
+        import pwd
+    except ImportError as error:  # pragma: no cover - Linux production path
+        raise RuntimeError("user name lookup is unavailable") from error
+    try:
+        uid = pwd.getpwnam(name).pw_uid
+    except KeyError as error:
+        raise ValueError(f"business user does not exist: {name}") from error
+    if isinstance(uid, bool) or not isinstance(uid, int) or uid <= 0:
+        raise ValueError("business user UID must be positive")
+    return uid
 
 
 def main(argv: list[str] | None = None) -> int:

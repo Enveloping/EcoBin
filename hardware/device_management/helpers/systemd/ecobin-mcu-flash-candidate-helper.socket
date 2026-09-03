@@ -1,0 +1,17 @@
+[Unit]
+Description=EcoBin stage-four MCU flash helper socket
+ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
+Requires=ecobin-mcu-safe-gpio.service ecobin-updater-candidate.service
+After=ecobin-mcu-safe-gpio.service ecobin-updater-candidate.service
+
+[Socket]
+ListenStream=/run/ecobin/privileged/mcu-flash-candidate.sock
+Accept=yes
+SocketUser=root
+SocketGroup=ecobin-privileged-helper-ipc
+SocketMode=0660
+DirectoryMode=0750
+Backlog=8
+MaxConnections=1
+RemoveOnStop=yes
+FlushPending=yes

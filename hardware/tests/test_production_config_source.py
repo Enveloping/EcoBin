@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -163,3 +166,74 @@ def test_repository_dotenv_template_is_explicitly_development_only():
     assert "ECOBIN_CONFIG_MODE=development" in content
     assert "/etc/ecobin/hardware.env" in content
     assert "代码目录出现 .env 会拒绝启动" in content
+
+
+def test_local_proxy_configuration_uses_only_the_business_identity(
+    tmp_path: Path,
+) -> None:
+    identity = tmp_path / "device-identity.json"
+    identity.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "assetUid": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                "deviceName": "ECM0-PROXY-TEST",
+                "modelCode": "EC-M0",
+                "expectedPortCount": 1,
+                "deviceEntryUrl": "https://www.jinshoubao.com/d/test",
+            }
+        ),
+        encoding="utf-8",
+    )
+    identity.chmod(0o600)
+    dotenv = tmp_path / "development.env"
+    dotenv.write_text("ECOBIN_TEST_MARKER=1\n", encoding="utf-8")
+    environment = os.environ.copy()
+    for name in (
+        "ECOBIN_PRODUCT_ID",
+        "ECOBIN_DEVICE_NAME",
+        "ECOBIN_DEVICE_KEY",
+    ):
+        environment.pop(name, None)
+    environment.update(
+        {
+            "ECOBIN_CONFIG_MODE": "development",
+            "ECOBIN_DOTENV_PATH": str(dotenv),
+            "ECOBIN_CLOUD_TRANSPORT_MODE": "local-proxy",
+            "ECOBIN_BUSINESS_IDENTITY_PATH": str(identity),
+            "ECOBIN_MCU_UPDATE_ENABLED": "true",
+            "PYTHONPATH": str(HARDWARE),
+        }
+    )
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import json,config; print(json.dumps({"
+                "'device':config.DEVICE_NAME,"
+                "'product':config.PRODUCT_ID,"
+                "'key':config.DEVICE_KEY,"
+                "'credentials':config.DEVICE_CREDENTIALS is None,"
+                "'capable':config.MCU_REMOTE_UPDATE_CAPABLE,"
+                "'legacyUpdater':config.MCU_UPDATE_ENABLED}))"
+            ),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {
+        "device": "ECM0-PROXY-TEST",
+        "product": "",
+        "key": "",
+        "credentials": True,
+        "capable": True,
+        "legacyUpdater": False,
+    }

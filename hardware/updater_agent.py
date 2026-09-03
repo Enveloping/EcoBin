@@ -1,8 +1,9 @@
 """Permanent updater control process with an opt-in stage-four candidate.
 
-The default remains fail-closed and exposes only diagnosis.  The explicit
-candidate switch enables the durable job-permit and physical-action RPCs; it
-does not enable software updates or either privileged helper.
+The default remains fail-closed and exposes only diagnosis.  One explicit
+candidate switch enables the durable job-permit and physical-action RPCs; a
+second, image-only switch enables the root-triggered MCU migration candidate.
+Remote business and MCU update commands remain disabled in both postures.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from updater_store import UpdaterStore, UpdaterStoreError
 logger = logging.getLogger("device-updater")
 
 DEFAULT_STATE_PATH = "/var/lib/ecobin/updater/updater.db"
+DEFAULT_MCU_UPDATE_STATE_PATH = "/var/lib/ecobin/updater/mcu-updates.db"
 DEFAULT_SOCKET_PATH = "/run/ecobin/updater/control.sock"
 UPDATER_LOCAL_PROTOCOL_NAME = "ecobin.updater.control"
 
@@ -132,21 +134,49 @@ ROOT_JOB_GATE_ACTION_FIELDS = {
     ),
 }
 
+ROOT_MCU_CANDIDATE_ACTION_FIELDS = {
+    "QUEUE_LOCAL_MCU_UPDATE": frozenset(
+        {
+            "updateUid",
+            "commandUid",
+            "targetPackageSha256",
+            "rollbackPackageSha256",
+        }
+    ),
+    "GET_MCU_UPDATE": frozenset({"updateUid"}),
+    "AUTHORIZE_PRIVILEGED_HELPER_ACTION": frozenset(
+        {
+            "helperComponent",
+            "helperAction",
+            "updateUid",
+            "actionUid",
+            "payloadSha256",
+        }
+    ),
+}
+
 
 class UpdaterControlHandler:
     """Expose truthful status and thin, durable stage-four operations."""
 
-    def __init__(self, store: UpdaterStore) -> None:
+    def __init__(self, store: UpdaterStore, mcu_coordinator: Any | None = None) -> None:
         self.store = store
+        self.mcu_coordinator = mcu_coordinator
 
     def get_status(self, _payload: dict[str, Any]) -> dict[str, Any]:
-        return {
+        result = {
             **self.store.get_status(),
             "status": "READY",
             "localProtocolName": UPDATER_LOCAL_PROTOCOL_NAME,
             "localProtocolMajor": LOCAL_PROTOCOL_MAJOR,
             "localProtocolMinor": LOCAL_PROTOCOL_MINOR,
         }
+        coordinator = self.mcu_coordinator
+        result["mcuUpdateCandidateEnabled"] = coordinator is not None
+        result["privilegedHelperMutationEnabled"] = coordinator is not None
+        if coordinator is not None:
+            result["mcuUpdateCandidate"] = coordinator.get_status()
+        return result
 
     def get_stage4_reconciliation_status(
         self,
@@ -235,6 +265,41 @@ class UpdaterControlHandler:
     ) -> dict[str, Any]:
         return self._store_call(self.store.confirm_physical_action, payload)
 
+    def queue_local_mcu_update(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._coordinator_call("queue_local", payload)
+
+    def get_mcu_update(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._coordinator_call("get_update", payload)
+
+    def authorize_privileged_helper_action(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._coordinator_call("authorize_privileged_action", payload)
+
+    def _coordinator_call(
+        self,
+        operation_name: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        coordinator = self.mcu_coordinator
+        if coordinator is None:
+            raise LocalControlActionError(
+                "FEATURE_DISABLED",
+                "MCU update candidate is not enabled",
+            )
+        operation = getattr(coordinator, operation_name)
+        try:
+            return operation(payload)
+        except Exception as error:
+            try:
+                from mcu_update_coordinator import McuUpdateCoordinatorError
+            except ImportError:
+                McuUpdateCoordinatorError = ()  # type: ignore[assignment,misc]
+            if isinstance(error, McuUpdateCoordinatorError):
+                raise LocalControlActionError(error.code, str(error)) from error
+            raise
+
     @staticmethod
     def _store_call(
         operation: Callable[[dict[str, Any]], dict[str, Any]],
@@ -260,9 +325,11 @@ class UpdaterAgent:
         self,
         store: UpdaterStore,
         server: LocalControlServer,
+        mcu_coordinator: Any | None = None,
     ) -> None:
         self.store = store
         self.server = server
+        self.mcu_coordinator = mcu_coordinator
         self._stop_event = threading.Event()
         self._started = False
 
@@ -271,7 +338,11 @@ class UpdaterAgent:
             return
         try:
             self.server.start()
+            if self.mcu_coordinator is not None:
+                self.mcu_coordinator.start()
         except Exception:
+            if self.mcu_coordinator is not None:
+                self.mcu_coordinator.stop()
             self.server.stop()
             self.store.close()
             raise
@@ -283,6 +354,13 @@ class UpdaterAgent:
 
     def wait(self) -> None:
         while not self._stop_event.is_set():
+            if (
+                self.mcu_coordinator is not None
+                and self.mcu_coordinator.failure is not None
+            ):
+                raise RuntimeError(
+                    "MCU update coordinator failed"
+                ) from self.mcu_coordinator.failure
             if not self.server.wait_stopped(timeout_seconds=0.25):
                 continue
             if self._stop_event.is_set():
@@ -298,9 +376,13 @@ class UpdaterAgent:
 
     def stop(self) -> None:
         self.request_stop()
+        if self.mcu_coordinator is not None:
+            self.mcu_coordinator.stop()
         if self._started:
             self.server.stop()
             self._started = False
+        if self.mcu_coordinator is not None:
+            self.mcu_coordinator.journal.close()
         self.store.close()
         logger.info("device updater stopped")
 
@@ -316,6 +398,13 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
     candidate_enabled = bool(
         getattr(args, "enable_stage4_candidate", False)
     )
+    mcu_candidate_enabled = bool(
+        getattr(args, "enable_mcu_update_candidate", False)
+    )
+    if mcu_candidate_enabled and not candidate_enabled:
+        raise ValueError(
+            "MCU update candidate requires the stage-four job gate candidate"
+        )
     business_uids: list[int] = []
     if candidate_enabled:
         configured_business_uids = getattr(args, "business_uid", None)
@@ -342,13 +431,31 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
         enable_stage4_candidate=candidate_enabled,
     )
     store.initialize()
+    mcu_coordinator = None
     try:
-        handler = UpdaterControlHandler(store)
+        if mcu_candidate_enabled:
+            from mcu_update_coordinator import McuUpdateCoordinator
+            from mcu_update_package import McuFirmwarePackageStager
+            from mcu_update_store import McuUpdateStore
+
+            mcu_journal = McuUpdateStore(args.mcu_update_state)
+            mcu_journal.initialize()
+            mcu_coordinator = McuUpdateCoordinator(
+                safety_store=store,
+                journal=mcu_journal,
+                package_stager=McuFirmwarePackageStager(
+                    args.mcu_firmware_root,
+                    args.mcu_signing_keys,
+                    args.mcu_hardware_compatibility,
+                ),
+            )
+        handler = UpdaterControlHandler(store, mcu_coordinator)
         actions = build_control_actions(
             handler,
             allowed_uids=allowed_uids,
             business_uids=business_uids,
             enable_stage4_candidate=candidate_enabled,
+            enable_mcu_update_candidate=mcu_candidate_enabled,
         )
         server = LocalControlServer(
             args.socket,
@@ -359,9 +466,11 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
             socket_gid=socket_gid,
         )
     except Exception:
+        if mcu_coordinator is not None:
+            mcu_coordinator.journal.close()
         store.close()
         raise
-    return UpdaterAgent(store, server)
+    return UpdaterAgent(store, server, mcu_coordinator)
 
 
 def build_control_actions(
@@ -370,6 +479,7 @@ def build_control_actions(
     allowed_uids: Iterable[int],
     business_uids: Iterable[int] = (),
     enable_stage4_candidate: bool = False,
+    enable_mcu_update_candidate: bool = False,
 ) -> dict[str, LocalControlAction]:
     action_uids = frozenset(allowed_uids)
     if 0 not in action_uids:
@@ -412,6 +522,28 @@ def build_control_actions(
             for action, fields in ROOT_JOB_GATE_ACTION_FIELDS.items()
         }
     )
+    if enable_mcu_update_candidate:
+        if not enable_stage4_candidate:
+            raise ValueError(
+                "MCU update candidate requires the stage-four candidate"
+            )
+        mcu_handlers = {
+            "QUEUE_LOCAL_MCU_UPDATE": handler.queue_local_mcu_update,
+            "GET_MCU_UPDATE": handler.get_mcu_update,
+            "AUTHORIZE_PRIVILEGED_HELPER_ACTION": (
+                handler.authorize_privileged_helper_action
+            ),
+        }
+        actions.update(
+            {
+                action: LocalControlAction(
+                    mcu_handlers[action],
+                    payload_fields=fields,
+                    allowed_uids=root_uids,
+                )
+                for action, fields in ROOT_MCU_CANDIDATE_ACTION_FIELDS.items()
+            }
+        )
     if not enable_stage4_candidate:
         return actions
     job_uids = frozenset(business_uids)
@@ -622,7 +754,44 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "enable only the candidate job gate and physical safety ledger; "
-            "software updates and privileged helpers remain disabled"
+            "software updates remain disabled unless a separate candidate "
+            "switch is also present"
+        ),
+    )
+    parser.add_argument(
+        "--enable-mcu-update-candidate",
+        action="store_true",
+        help=(
+            "enable only the root-triggered MCU update migration candidate; "
+            "remote MCU update commands remain disabled"
+        ),
+    )
+    parser.add_argument(
+        "--mcu-update-state",
+        default=os.getenv(
+            "ECOBIN_MCU_UPDATE_STATE_PATH",
+            DEFAULT_MCU_UPDATE_STATE_PATH,
+        ),
+    )
+    parser.add_argument(
+        "--mcu-firmware-root",
+        default=os.getenv(
+            "ECOBIN_PERMANENT_MCU_FIRMWARE_ROOT",
+            "/var/lib/ecobin/updater/mcu-firmware",
+        ),
+    )
+    parser.add_argument(
+        "--mcu-signing-keys",
+        default=os.getenv(
+            "ECOBIN_PERMANENT_MCU_SIGNING_KEYS",
+            "/usr/share/ecobin/mcu-release-keys",
+        ),
+    )
+    parser.add_argument(
+        "--mcu-hardware-compatibility",
+        default=os.getenv(
+            "ECOBIN_MCU_HARDWARE_COMPATIBILITY",
+            "ECOBIN_MAINBOARD_V1.1",
         ),
     )
     parser.add_argument(
