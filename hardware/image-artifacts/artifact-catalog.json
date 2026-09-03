@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-03T05:30:45.891Z",
+  "catalogedAt": "2026-09-03T08:08:30.786Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -475,6 +475,11 @@
       "sha256": "3e7ae6b3bf91da4e7ae5f9107468b12538e3fd53c00d06100193d56183f18d1a"
     },
     {
+      "path": "evidence/hil-stage4-maintenance-recovery-20260903-19/README.md",
+      "bytes": 6136,
+      "sha256": "d08e4186dc0455c1c4386c65273d915e1a9b775fe7ef32c75141a83255bf1e39"
+    },
+    {
       "path": "evidence/hil-updater-directory-groups-20260903-17/README.md",
       "bytes": 6484,
       "sha256": "d5af445c43b144c3fad852d4758ed2fb33c95f4b7f4e1d1a68c28778bc3832e8"
@@ -591,6 +596,13 @@
       "sha256": "047a2acec8e9f19d0b7f4a3564cb2fe05adc704e492166a3dd5a08f433ffd6aa"
     },
     {
+      "path": "local/audit-v19-final.sh",
+      "bytes": 14847,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "4f5b44d0da812d543fb6d45f25b775a90c7638565c5555d8f77579716e2584a7"
+    },
+    {
       "path": "local/build-v10-hil-factory-image.sh",
       "bytes": 15222,
       "classification": "LOCAL_ARTIFACT",
@@ -668,6 +680,27 @@
       "sha256": "bb37c56687b71cd541a2cc5cd502c4d42c34dd99975ffa096e389555ce6bd1a4"
     },
     {
+      "path": "local/build-v18-candidate.sh",
+      "bytes": 932,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "89f644d88ed314aa18c4f7fd32b7a36e34b5f194e32a4e18308030332d048768"
+    },
+    {
+      "path": "local/build-v19-candidate.sh",
+      "bytes": 932,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "755e3c41c4524d1e61ceaa18e3df251920500c521bbfc05db6900a11016a6879"
+    },
+    {
+      "path": "local/build-v19-hil-factory-image.sh",
+      "bytes": 1787,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "4e27bee14c6d242f2de9727817ecd212d22a44203854d25cb95558db62db81b7"
+    },
+    {
       "path": "local/build-v8.sh",
       "bytes": 9646,
       "classification": "LOCAL_ARTIFACT",
@@ -722,6 +755,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "97c682e07ce529926cb7819e6e28ad86fe6c29f0e3612c576caa5b14c7d88fe2"
+    },
+    {
+      "path": "local/deploy-v19-backend-allowlist.sh",
+      "bytes": 10126,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "0ccd6a0bdcdbd8f938cd950eeffc2e6b8b3d4b8a7eb9bdd4147161cf5b438d54"
     },
     {
       "path": "local/factory-secret/builds/hil-factory-20260827-01/ecobin-orangepi-zero3-0.1.0-single-card.20260827.1-hil-factory.img",
@@ -1186,6 +1226,34 @@
       "sha256": "6105bf5d111d472abbb494a0d91dcb75feb5db5e65c3583a8e9e96010564485d"
     },
     {
+      "path": "local/factory-secret/builds/hil-factory-login-20260903-19-stage4-maintenance-recovery/build-and-offline-verification.log",
+      "bytes": 1345,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "d0dc82296b125bfc8e7edd4c330db02a6d66a73ad247b014d52d62d11ef8daf7"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260903-19-stage4-maintenance-recovery/ecobin-orangepi-zero3-0.1.0-single-card.20260903.19-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "7e3d9153b70ef001b90434d5d5da68c2153b0976f9dd4e52fc6a387c5ee9f5b4"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260903-19-stage4-maintenance-recovery/ecobin-orangepi-zero3-0.1.0-single-card.20260903.19-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "2b0b50c8ba88c96a3d15634f7dd4eac63909c16d285d52c4dbbd6546f2a0b43d"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260903-19-stage4-maintenance-recovery/offline-verification.log",
+      "bytes": 915,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "b9536d5176baeb75e964f2b01241141e6a668b36cc3836a71f2c043802e6183d"
+    },
+    {
       "path": "local/factory-secret/config/cellular.env",
       "bytes": 464,
       "classification": "SECRET_INPUT",
@@ -1429,6 +1497,13 @@
       "sha256": "0e3d6b102cd53f563eec6ead65996b887e8b8b8de88bf011d525c57477a61910"
     },
     {
+      "path": "local/inspect-v19-rootfs.sh",
+      "bytes": 1444,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b86e62d809233a27391a81103e848ee240f970a08fcbce33827f42ce6bccc5e8"
+    },
+    {
       "path": "local/package-cache/chrony_4.3-2+deb12u1_arm64.deb",
       "bytes": 278288,
       "classification": "LOCAL_ARTIFACT",
@@ -1541,6 +1616,13 @@
       "sha256": "3b7877247ddfa6270c7a403a374015cadb02b99edf0951a7e3af85fd142d0438"
     },
     {
+      "path": "local/source-bundles/repository-60b42b19.bundle",
+      "bytes": 53338900,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "b36c65951004cc4ec7770eb173529ed3e23ba7f6859526e41fa8318abb53e99d"
+    },
+    {
       "path": "local/source-bundles/repository-6725aaa7.bundle",
       "bytes": 52120342,
       "classification": "SOURCE_SNAPSHOT",
@@ -1630,6 +1712,13 @@
       "classification": "SOURCE_SNAPSHOT",
       "digestRecorded": true,
       "sha256": "44ea870f0ae9c6d5ef6aef50c1c4e5c0949be7cb2a104ededa9097d7ca5de2b9"
+    },
+    {
+      "path": "local/source-bundles/repository-e265534a.bundle",
+      "bytes": 53340127,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "66e36686c402be75304dc9f190326318427e8c848556adb2884384f55b67bf3d"
     },
     {
       "path": "local/source-bundles/repository-e3455c84.bundle",
@@ -1770,6 +1859,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "73e0f712d8deb362dcee2a08e676d29c60168bc6733fffc00bb81836940dc4f2"
+    },
+    {
+      "path": "local/verify-v19-hil-factory-image.sh",
+      "bytes": 1837,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a9000e5ac0c45efc04400132bb618790ad24ee67fd2195f603cece733609f324"
     },
     {
       "path": "local/verify-v8.sh",

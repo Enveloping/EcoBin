@@ -37,7 +37,7 @@
 ### `architecture/` — 架构与领域设计
 
 - [项目上下文](architecture/project-context.md)
-- [香橙派业务程序发布与远程更新设计](architecture/orangepi-business-runtime-release-and-update-design.md)：区分出厂程序、可替换业务程序和永久设备管理层，记录九阶段迁移顺序；第一、二阶段已完成，第三阶段已在当前 v13 设备完成受控原位安装及在线低权限验收，v17 已完成离线构建；第四阶段的凭证激活、人工安全锁、MCU 维护交接协议、永久层卸载事实门禁及可断电恢复的维护事务已形成默认关闭基础，但新增代码尚未进入 v17，业务程序更新下行仍未开放。
+- [香橙派业务程序发布与远程更新设计](architecture/orangepi-business-runtime-release-and-update-design.md)：区分出厂程序、可替换业务程序和永久设备管理层，记录九阶段迁移顺序；第一、二阶段已完成，第三阶段已在当前 v13 设备完成受控原位安装及在线低权限验收，v17 保留为历史离线候选；第四阶段代码已进入 v19 镜像，但功能默认关闭且尚未完成写卡、冷启动和真实硬件在环验收，业务程序更新下行仍未开放。
 - [V52 设备自注册、厂家初始袋与按需远程维护](architecture/device-enrollment-factory-acceptance-remote-support-v52.md)
 - [V52 设备出厂与远程维护代码审查](review/device-enrollment-factory-remote-support-v52-review-2026-08-15.md)
 - [V53 投递自动审核与自动提现](architecture/delivery-auto-review-and-withdrawal-v53.md)
@@ -92,6 +92,7 @@
   当前接力状态。
 - [投递全链路联调复盘与复跑手册](operations/delivery-e2e-integration-retrospective-2026-08-02.md)：V25 真实云链路、模拟 MCU/双摄的故障分层、复跑顺序和证据清单。
 - [香橙派 v17 后端允许列表部署记录](operations/orangepi-v17-backend-allowlist-deployment-2026-09-03.md)：记录 v17 加入、未写卡 v15/v16 移除、可恢复配置备份以及生产重载和健康核验结果，不包含运行秘密。
+- [香橙派 v19 后端允许列表部署记录](operations/orangepi-v19-backend-allowlist-deployment-2026-09-03.md)：记录第四阶段镜像身份替换 v17、v15/v16/v18 继续排除、并发安全回退、可恢复配置备份以及生产重载和健康核验结果；允许版本不代表已经写卡或通过真机验收。
 
 ### `flows/` — 流程图与可视化说明
 
