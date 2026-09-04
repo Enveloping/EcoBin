@@ -18,6 +18,8 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionView
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CursorPage;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeliveryNotStartedConfirmationRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeliveryNotStartedConfirmationView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceRuntimeView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceTechnicalIssueView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.FactoryProgressView;
@@ -189,6 +191,25 @@ public class PlatformDeviceAssetController {
                 .location(URI.create(accepted.statusUrl()))
                 .cacheControl(CacheControl.noStore())
                 .body(ok(accepted, request));
+    }
+
+    @PostMapping("/{hardwareSn}/delivery-sessions/{sessionUid}/"
+            + "not-started-confirmations")
+    public ResponseEntity<TargetApiEnvelope<
+            DeliveryNotStartedConfirmationView>> confirmDeliveryNotStarted(
+                    @RequestHeader("Idempotency-Key") UUID operationUid,
+                    @PathVariable String hardwareSn,
+                    @PathVariable UUID sessionUid,
+                    @Valid @RequestBody
+                    DeliveryNotStartedConfirmationRequest body,
+                    HttpServletRequest request) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(ok(application.confirmDeliveryNotStarted(
+                        operationUid,
+                        hardwareSn,
+                        sessionUid,
+                        body), request));
     }
 
     @GetMapping("/{hardwareSn}/configuration-applications/{applicationUid}")

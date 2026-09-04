@@ -40,6 +40,10 @@ export type BaselineMeasurementAttemptRequest =
   Schemas['BaselineMeasurementAttemptRequest'];
 export type BaselineMeasurementAccepted =
   Schemas['BaselineMeasurementAccepted'];
+export type DeliveryNotStartedConfirmationRequest =
+  Schemas['DeliveryNotStartedConfirmationRequest'];
+export type DeliveryNotStartedConfirmation =
+  Schemas['DeliveryNotStartedConfirmation'];
 export type RuntimeSnapshotPolicy = Schemas['RuntimeSnapshotPolicy'];
 export type RuntimeSnapshotPolicyReleaseRequest =
   Schemas['RuntimeSnapshotPolicyReleaseRequest'];
@@ -246,6 +250,25 @@ export function startPlatformBaselineMeasurementAttempt(
     url:
       `${platformDeviceAssetUrl(hardwareSn)}/ports/${portNo}`
       + '/baseline-measurement-attempts',
+    method: 'POST',
+    data,
+    silent: true,
+  });
+}
+
+export function confirmPlatformDeliveryNotStarted(
+  hardwareSn: string,
+  sessionUid: string,
+  data: DeliveryNotStartedConfirmationRequest,
+  intent: CommandIntent,
+) {
+  return intent.execute<
+    DeliveryNotStartedConfirmation,
+    DeliveryNotStartedConfirmationRequest
+  >({
+    url:
+      `${platformDeviceAssetUrl(hardwareSn)}/delivery-sessions/`
+      + `${encodeURIComponent(sessionUid)}/not-started-confirmations`,
     method: 'POST',
     data,
     silent: true,

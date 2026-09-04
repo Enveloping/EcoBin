@@ -48,6 +48,9 @@ class TargetDeviceApplicationBaselineIssueTest {
                         null,
                         null,
                         null,
+                        false,
+                        null,
+                        null,
                         null,
                         200,
                         "10410",
@@ -64,5 +67,98 @@ class TargetDeviceApplicationBaselineIssueTest {
                 "OPEN_RELIABLE_TASK",
                 "RESOLVE_FACTORY_SEAL_TASK_BLOCKER");
         assertThat(issue.nextActions()).doesNotContain("REPLAY_TASK");
+    }
+
+    @Test
+    void uncertainDeliveryOffersOnlyTheExplicitOnsiteClosureWhenEligible() {
+        UUID taskUid = UUID.fromString(
+                "c8eb6ade-8ed1-4723-b601-ae364fc592d5");
+        UUID sessionUid = UUID.fromString(
+                "ccde9147-76e0-4a24-98a5-a3a7dc06aaa6");
+        var issue = TargetDeviceApplication.taskIssue(
+                new TargetDeviceApplication.TechnicalTaskRow(
+                        22L,
+                        taskUid,
+                        "START_DELIVERY_SESSION",
+                        "BLOCKED",
+                        "DEVICE_EVIDENCE_TIMEOUT",
+                        "OneNet accepted but no trusted edge evidence arrived",
+                        LocalDateTime.parse("2026-09-04T15:14:48"),
+                        "RESULT_PENDING_RECOVERY",
+                        sessionUid,
+                        3L,
+                        true,
+                        null,
+                        null,
+                        null,
+                        200,
+                        null,
+                        "accepted without device evidence"));
+
+        assertThat(issue.deliverySessionUid()).isEqualTo(sessionUid);
+        assertThat(issue.deliverySessionVersion()).isEqualTo(3L);
+        assertThat(issue.nextActions()).containsExactly(
+                "CONFIRM_DELIVERY_NOT_STARTED");
+        assertThat(issue.nextActions()).doesNotContain("RESUME", "REPLAY_TASK");
+    }
+
+    @Test
+    void uncertainDeliveryWithoutProofOfSafeClosureStillRequiresSupport() {
+        var issue = TargetDeviceApplication.taskIssue(
+                new TargetDeviceApplication.TechnicalTaskRow(
+                        23L,
+                        UUID.fromString(
+                                "f5499548-df41-4aba-9ba1-9bd9d6714f0d"),
+                        "START_DELIVERY_SESSION",
+                        "BLOCKED",
+                        "DEVICE_EVIDENCE_TIMEOUT",
+                        "device might have started physical work",
+                        LocalDateTime.parse("2026-09-04T15:15:48"),
+                        "RESULT_PENDING_RECOVERY",
+                        UUID.fromString(
+                                "77f35bc9-7d56-4898-8897-247cd03d2e0f"),
+                        4L,
+                        false,
+                        null,
+                        null,
+                        null,
+                        200,
+                        null,
+                        "physical result remains uncertain"));
+
+        assertThat(issue.nextActions()).containsExactly("CONTACT_SUPPORT");
+    }
+
+    @Test
+    void confirmedUnstartedDeliveryExplainsThatUserMustStartAgain() {
+        UUID taskUid = UUID.fromString(
+                "c8eb6ade-8ed1-4723-b601-ae364fc592d5");
+        UUID sessionUid = UUID.fromString(
+                "ccde9147-76e0-4a24-98a5-a3a7dc06aaa6");
+        var issue = TargetDeviceApplication.taskIssue(
+                new TargetDeviceApplication.TechnicalTaskRow(
+                        22L,
+                        taskUid,
+                        "START_DELIVERY_SESSION",
+                        "BLOCKED",
+                        "DEVICE_EVIDENCE_TIMEOUT",
+                        "OneNet accepted but no trusted edge evidence arrived",
+                        LocalDateTime.parse("2026-09-04T15:14:48"),
+                        "PRE_OPEN_ENDED",
+                        sessionUid,
+                        4L,
+                        false,
+                        null,
+                        null,
+                        null,
+                        200,
+                        null,
+                        "accepted without device evidence"));
+
+        assertThat(issue.title()).isEqualTo("原投递已安全结束");
+        assertThat(issue.description())
+                .contains("不会生成投递订单", "重新扫码");
+        assertThat(issue.nextActions()).containsExactly(
+                "USER_RESTART_REQUIRED");
     }
 }

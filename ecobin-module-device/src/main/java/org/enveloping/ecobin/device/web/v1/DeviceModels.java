@@ -203,6 +203,22 @@ public final class DeviceModels {
             long recommendedPollAfterMs) {
     }
 
+    public record DeliveryNotStartedConfirmationRequest(
+            @NotNull UUID expectedTaskUid,
+            @NotNull @Min(0) Long expectedSessionVersion,
+            @NotNull @AssertTrue Boolean causeFixedConfirmed,
+            @NotNull @AssertTrue Boolean deliveryNeverStartedConfirmed,
+            @NotBlank @Size(max = 500) String reason) {
+    }
+
+    public record DeliveryNotStartedConfirmationView(
+            UUID sessionUid,
+            UUID taskUid,
+            String sessionStatus,
+            Instant endedAt,
+            String nextAction) {
+    }
+
     public record DeviceTechnicalIssueView(
             String issueUid,
             String category,
@@ -213,6 +229,8 @@ public final class DeviceModels {
             String description,
             Integer portNo,
             UUID taskUid,
+            UUID deliverySessionUid,
+            Long deliverySessionVersion,
             UUID latestMeasurementUid,
             String blockedReasonCode,
             Integer httpStatus,

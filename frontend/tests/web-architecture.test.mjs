@@ -539,6 +539,34 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.match(commandIntentSource, /requestAccepted/);
 });
 
+test('blocked delivery recovery closes only an onsite-confirmed unstarted session', () => {
+  const apiSource = readFileSync(
+    new URL('src/api/deviceDirectory.ts', webRoot),
+    'utf8',
+  );
+  const drawerSource = readFileSync(
+    new URL(
+      'src/pages/device-management/DeviceAssetDrawer.tsx',
+      webRoot,
+    ),
+    'utf8',
+  );
+  const generatedSource = readFileSync(
+    new URL('src/api/generated/openapi.d.ts', webRoot),
+    'utf8',
+  );
+
+  assert.match(apiSource, /confirmPlatformDeliveryNotStarted/);
+  assert.match(apiSource, /not-started-confirmations/);
+  assert.match(drawerSource, /CONFIRM_DELIVERY_NOT_STARTED/);
+  assert.match(drawerSource, /确认未开始并结束本次投递/);
+  assert.match(drawerSource, /此操作不会再次开门，也不会补建投递订单/);
+  assert.match(drawerSource, /deliveryNeverStartedConfirmed/);
+  assert.match(drawerSource, /causeFixedConfirmed/);
+  assert.match(generatedSource, /DeliveryNotStartedConfirmationRequest/);
+  assert.doesNotMatch(apiSource, /delivery-sessions[\s\S]*?resumptions/);
+});
+
 test('wallet Web slice keeps independent access, generated types and opaque cursors', () => {
   const routeSource = readFileSync(
     new URL('src/router/routes.tsx', webRoot),

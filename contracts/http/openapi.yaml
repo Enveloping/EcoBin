@@ -5083,6 +5083,45 @@
       }
     }
 ,
+    "/api/v1/web/platform/device-assets/{hardwareSn}/delivery-sessions/{sessionUid}/not-started-confirmations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/HardwareSn"},
+        {
+          "name": "sessionUid",
+          "in": "path",
+          "required": true,
+          "schema": {"$ref": "#/components/schemas/UuidV4"}
+        }
+      ],
+      "post": {
+        "operationId": "confirmPlatformDeliveryNotStarted",
+        "tags": ["Device management"],
+        "summary": "Close one blocked delivery only after an operator confirms that physical delivery never started",
+        "description": "This action never replays the original open-door command. The server rechecks the blocked task, expired authorization, absence of trusted edge or physical evidence, and the exact device occupancy in one transaction before ending the session and releasing that occupancy.",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/DeliveryNotStartedConfirmationRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeliveryNotStartedConfirmationOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    }
+,
     "/api/v1/web/platform/device-assets/{hardwareSn}/ports/{portNo}/baseline-measurement-attempts": {
       "parameters": [
         {"$ref": "#/components/parameters/HardwareSn"},
@@ -7501,6 +7540,18 @@
         "content": {
           "application/json": {
             "schema": {"$ref": "#/components/schemas/DeviceTechnicalIssueListEnvelope"}
+          }
+        }
+      },
+      "DeliveryNotStartedConfirmationOk": {
+        "description": "The original delivery was ended without replay and its exact device occupancy was released",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/DeliveryNotStartedConfirmationEnvelope"}
           }
         }
       },
@@ -14578,6 +14629,54 @@
           }
         }
       },
+      "DeliveryNotStartedConfirmationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedTaskUid",
+          "expectedSessionVersion",
+          "causeFixedConfirmed",
+          "deliveryNeverStartedConfirmed",
+          "reason"
+        ],
+        "properties": {
+          "expectedTaskUid": {"$ref": "#/components/schemas/UuidV4"},
+          "expectedSessionVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "causeFixedConfirmed": {
+            "type": "boolean",
+            "const": true,
+            "description": "The operator has checked and removed the cause of the device not responding."
+          },
+          "deliveryNeverStartedConfirmed": {
+            "type": "boolean",
+            "const": true,
+            "description": "The onsite operator confirms that the delivery door never opened and no delivery physical action started."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "DeliveryNotStartedConfirmation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionUid",
+          "taskUid",
+          "sessionStatus",
+          "endedAt",
+          "nextAction"
+        ],
+        "properties": {
+          "sessionUid": {"$ref": "#/components/schemas/UuidV4"},
+          "taskUid": {"$ref": "#/components/schemas/UuidV4"},
+          "sessionStatus": {"type": "string", "const": "PRE_OPEN_ENDED"},
+          "endedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "nextAction": {"type": "string", "const": "USER_RESTART_REQUIRED"}
+        }
+      },
       "DeviceTechnicalIssue": {
         "type": "object",
         "additionalProperties": false,
@@ -14591,6 +14690,8 @@
           "description",
           "portNo",
           "taskUid",
+          "deliverySessionUid",
+          "deliverySessionVersion",
           "latestMeasurementUid",
           "blockedReasonCode",
           "httpStatus",
@@ -14625,6 +14726,18 @@
               {"type": "null"}
             ]
           },
+          "deliverySessionUid": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UuidV4"},
+              {"type": "null"}
+            ]
+          },
+          "deliverySessionVersion": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/ExpectedVersion"},
+              {"type": "null"}
+            ]
+          },
           "latestMeasurementUid": {
             "oneOf": [
               {"$ref": "#/components/schemas/UuidV4"},
@@ -14656,6 +14769,7 @@
                 "RESYNCHRONIZE_CONFIGURATION",
                 "PUBLISH_NEW_CONFIGURATION",
                 "START_MANUAL_BASELINE_MEASUREMENT",
+                "CONFIRM_DELIVERY_NOT_STARTED",
                 "USER_RESTART_REQUIRED",
                 "CLEANER_RESTART_REQUIRED",
                 "CONTACT_SUPPORT"
@@ -15905,6 +16019,16 @@
             "type": "array",
             "items": {"$ref": "#/components/schemas/DeviceTechnicalIssue"}
           },
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "DeliveryNotStartedConfirmationEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/DeliveryNotStartedConfirmation"},
           "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
         }
       },

@@ -34,6 +34,7 @@ import {
 } from '@ant-design/icons';
 import QRCode from 'qrcode';
 import {
+  confirmPlatformDeliveryNotStarted,
   getDeviceConfigurationVersion,
   getOrganizationDeviceRuntime,
   getPlatformDeviceConfigurationApplication,
@@ -138,6 +139,12 @@ interface PlatformConfigurationRecovery {
 interface ManualBaselineAttempt {
   causeFixedConfirmed: boolean;
   emptyBagConfirmed: boolean;
+  reason: string;
+}
+
+interface DeliveryNotStartedConfirmationForm {
+  causeFixedConfirmed: boolean;
+  deliveryNeverStartedConfirmed: boolean;
   reason: string;
 }
 
@@ -1272,6 +1279,8 @@ export default function DeviceAssetDrawer({
   const [configForm] = Form.useForm<DailyConfigurationEdits>();
   const [recoveryForm] = Form.useForm<PlatformConfigurationRecovery>();
   const [baselineForm] = Form.useForm<ManualBaselineAttempt>();
+  const [deliveryRecoveryForm] =
+    Form.useForm<DeliveryNotStartedConfirmationForm>();
   const [evidence, setEvidence] = useState<DeviceAcceptanceEvidence[]>([]);
   const [evidenceExpanded, setEvidenceExpanded] = useState(false);
   const [evidenceLoaded, setEvidenceLoaded] = useState(false);
@@ -1299,6 +1308,10 @@ export default function DeviceAssetDrawer({
   const [recoverySubmitting, setRecoverySubmitting] = useState(false);
   const [baselineSubmitting, setBaselineSubmitting] = useState(false);
   const [baselineIssue, setBaselineIssue] = useState<DeviceTechnicalIssue>();
+  const [deliveryRecoverySubmitting, setDeliveryRecoverySubmitting] =
+    useState(false);
+  const [deliveryRecoveryIssue, setDeliveryRecoveryIssue] =
+    useState<DeviceTechnicalIssue>();
   const [reevaluating, setReevaluating] = useState(false);
   const [entryQrDataUrl, setEntryQrDataUrl] = useState<string>();
   const [entryQrError, setEntryQrError] = useState(false);
@@ -1498,6 +1511,7 @@ export default function DeviceAssetDrawer({
     setLatestVersion(undefined);
     setLatestApplication(undefined);
     setBaselineIssue(undefined);
+    setDeliveryRecoveryIssue(undefined);
     void loadTechnicalIssues();
     void loadConfiguration();
     // The stable identities below intentionally define a new drawer target.
@@ -1826,6 +1840,64 @@ export default function DeviceAssetDrawer({
     }
   };
 
+  const openDeliveryNotStartedConfirmation = (
+    issue: DeviceTechnicalIssue,
+  ) => {
+    if (
+      !issue.taskUid
+      || !issue.deliverySessionUid
+      || issue.deliverySessionVersion == null
+    ) return;
+    deliveryRecoveryForm.setFieldsValue({
+      causeFixedConfirmed: false,
+      deliveryNeverStartedConfirmed: false,
+      reason: '',
+    });
+    setDeliveryRecoveryIssue(issue);
+  };
+
+  const submitDeliveryNotStartedConfirmation = async () => {
+    if (
+      !asset
+      || !deliveryRecoveryIssue?.taskUid
+      || !deliveryRecoveryIssue.deliverySessionUid
+      || deliveryRecoveryIssue.deliverySessionVersion == null
+    ) return;
+    const values = await deliveryRecoveryForm.validateFields();
+    const payload = {
+      expectedTaskUid: deliveryRecoveryIssue.taskUid,
+      expectedSessionVersion:
+        deliveryRecoveryIssue.deliverySessionVersion,
+      causeFixedConfirmed: true as const,
+      deliveryNeverStartedConfirmed: true as const,
+      reason: values.reason,
+    };
+    setDeliveryRecoverySubmitting(true);
+    try {
+      await executeCommand(
+        commandKey(
+          'device.delivery.confirm-not-started',
+          `${asset.hardwareSn}:${deliveryRecoveryIssue.deliverySessionUid}`,
+          payload,
+        ),
+        (intent) => confirmPlatformDeliveryNotStarted(
+          asset.hardwareSn,
+          deliveryRecoveryIssue.deliverySessionUid!,
+          payload,
+          intent,
+        ),
+      );
+      message.success('原投递已安全结束；请让用户重新扫码发起投递');
+      setDeliveryRecoveryIssue(undefined);
+      await Promise.all([loadTechnicalIssues(), loadRuntime()]);
+      onChanged();
+    } catch (error) {
+      message.error(errorMessage(error));
+    } finally {
+      setDeliveryRecoverySubmitting(false);
+    }
+  };
+
   const reevaluateAcceptanceFromIssue = async () => {
     if (!asset) return;
     setReevaluating(true);
@@ -1880,6 +1952,16 @@ export default function DeviceAssetDrawer({
           onClick={() => openManualBaselineAttempt(issue)}
         >
           现场确认后重新测量
+        </Button>
+      )}
+      {issue.nextActions.includes('CONFIRM_DELIVERY_NOT_STARTED') && (
+        <Button
+          size="small"
+          type="primary"
+          danger
+          onClick={() => openDeliveryNotStartedConfirmation(issue)}
+        >
+          确认未开始并结束本次投递
         </Button>
       )}
     </Space>
@@ -2587,6 +2669,58 @@ export default function DeviceAssetDrawer({
             name="reason"
             label="操作原因"
             rules={[{ required: true, message: '请说明本次配置恢复原因' }]}
+          >
+            <Input.TextArea maxLength={500} showCount rows={3} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="结束未实际开始的投递"
+        open={Boolean(deliveryRecoveryIssue)}
+        confirmLoading={deliveryRecoverySubmitting}
+        onOk={() => void submitDeliveryNotStartedConfirmation()}
+        onCancel={() => setDeliveryRecoveryIssue(undefined)}
+        okText="确认未开始并结束本次投递"
+        okButtonProps={{ danger: true }}
+        destroyOnClose
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="此操作不会再次开门，也不会补建投递订单"
+          description="后台会保留原失败记录，结束原投递并释放设备占用。只有现场确认投递门从未打开、设备也从未进入本次投递时才能继续；完成后请让用户重新扫码发起。若门曾打开或你不能确定，请取消并联系技术人员。"
+          style={{ marginBottom: 20 }}
+        />
+        <Form form={deliveryRecoveryForm} layout="vertical">
+          <Form.Item
+            name="causeFixedConfirmed"
+            valuePropName="checked"
+            rules={[{
+              validator: (_, value) => value
+                ? Promise.resolve()
+                : Promise.reject(new Error('请先确认已排除设备无响应原因')),
+            }]}
+          >
+            <Checkbox>我已检查并排除设备无响应的原因</Checkbox>
+          </Form.Item>
+          <Form.Item
+            name="deliveryNeverStartedConfirmed"
+            valuePropName="checked"
+            rules={[{
+              validator: (_, value) => value
+                ? Promise.resolve()
+                : Promise.reject(new Error('请先确认本次投递从未实际开始')),
+            }]}
+          >
+            <Checkbox>
+              我在现场确认投递门从未打开，设备也未进入本次投递
+            </Checkbox>
+          </Form.Item>
+          <Form.Item
+            name="reason"
+            label="现场检查和处理说明"
+            rules={[{ required: true, message: '请记录现场检查和处理结果' }]}
           >
             <Input.TextArea maxLength={500} showCount rows={3} />
           </Form.Item>

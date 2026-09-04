@@ -24,6 +24,8 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceConnectivityView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceInstallationProfileView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeliveryNotStartedConfirmationRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeliveryNotStartedConfirmationView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceManagementReasonView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceManagementStatusView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceManagementSummaryView;
@@ -102,6 +104,82 @@ public class TargetDeviceApplication {
             "ENSURE_DEVICE_CONFIGURATION";
     private static final String CONFIGURATION_TARGET_TYPE =
             "CONFIGURATION_APPLICATION";
+    static final String LOCK_DELIVERY_RECOVERY_SESSION_SQL = """
+            SELECT id, session_uid, tenant_id, organization_id, asset_id,
+                   status, authorization_expires_at,
+                   first_edge_accepted_at, first_physical_progress_at,
+                   device_completed_at, ended_at, end_reason, lock_version
+            FROM dev_delivery_session
+            WHERE session_uid = ?
+              AND asset_id = ?
+            FOR UPDATE
+            """;
+    static final String LOCK_DELIVERY_RECOVERY_COMMAND_TASK_SQL = """
+            SELECT command_row.id AS command_id,
+                   command_row.physical_state,
+                   command_row.edge_accepted_at,
+                   command_row.physical_started_at,
+                   command_row.physical_ended_at,
+                   task.task_uid, task.task_type, task.state AS task_state,
+                   task.blocked_reason_code, task.target_type,
+                   task.target_stable_key, task.lease_token
+            FROM dev_device_command command_row
+            JOIN ops_reliable_task task
+              ON task.source_device_command_id = command_row.id
+            WHERE command_row.delivery_session_id = ?
+              AND command_row.asset_id = ?
+              AND command_row.command_type = 'START_DELIVERY_SESSION'
+            FOR UPDATE
+            """;
+    static final String LOCK_DELIVERY_RECOVERY_OCCUPANCY_SQL = """
+            SELECT occupancy_kind, delivery_session_id
+            FROM dev_device_occupancy
+            WHERE asset_id = ?
+            FOR UPDATE
+            """;
+    static final String LOAD_DELIVERY_RECOVERY_EVIDENCE_SQL = """
+            SELECT EXISTS (
+                       SELECT 1
+                       FROM dev_device_command_event command_event
+                       WHERE command_event.command_id = ?
+                   ) AS command_event_exists,
+                   EXISTS (
+                       SELECT 1
+                       FROM dev_physical_result physical_result
+                       WHERE physical_result.command_id = ?
+                   ) AS physical_result_exists,
+                   EXISTS (
+                       SELECT 1
+                       FROM rec_delivery_order delivery_order
+                       WHERE delivery_order.delivery_session_id = ?
+                   ) AS delivery_order_exists
+            """;
+    static final String CLOSE_CONFIRMED_NOT_STARTED_DELIVERY_SQL = """
+            UPDATE dev_delivery_session
+            SET status = 'PRE_OPEN_ENDED',
+                ended_at = ?,
+                end_reason = 'OPERATOR_CONFIRMED_NOT_STARTED',
+                lock_version = lock_version + 1,
+                updated_at = ?
+            WHERE id = ?
+              AND asset_id = ?
+              AND status = 'RESULT_PENDING_RECOVERY'
+              AND authorization_expires_at <= ?
+              AND first_edge_accepted_at IS NULL
+              AND first_physical_progress_at IS NULL
+              AND device_completed_at IS NULL
+              AND ended_at IS NULL
+              AND end_reason IS NULL
+              AND lock_version = ?
+            """;
+    static final String RELEASE_CONFIRMED_NOT_STARTED_OCCUPANCY_SQL = """
+            DELETE FROM dev_device_occupancy
+            WHERE asset_id = ?
+              AND tenant_id = ?
+              AND organization_id = ?
+              AND occupancy_kind = 'DELIVERY'
+              AND delivery_session_id = ?
+            """;
     private static final Set<String> SAFE_CONFIGURATION_RESYNC_REASONS =
             Set.of(
                     "DEVICE_IDENTITY_UNRESOLVED",
@@ -278,6 +356,60 @@ public class TargetDeviceApplication {
                                task.blocked_diagnostic,
                                task.updated_at,
                                delivery.status AS delivery_status,
+                               delivery.session_uid AS delivery_session_uid,
+                               delivery.lock_version AS delivery_session_version,
+                               CASE
+                                   WHEN task.task_type =
+                                            'START_DELIVERY_SESSION'
+                                    AND task.state = 'BLOCKED'
+                                    AND task.blocked_reason_code =
+                                            'DEVICE_EVIDENCE_TIMEOUT'
+                                    AND task.lease_token IS NULL
+                                    AND task.target_type =
+                                            'DELIVERY_SESSION'
+                                    AND task.target_stable_key =
+                                            delivery.session_uid
+                                    AND delivery.status =
+                                            'RESULT_PENDING_RECOVERY'
+                                    AND delivery.authorization_expires_at
+                                            <= UTC_TIMESTAMP(3)
+                                    AND delivery.first_edge_accepted_at IS NULL
+                                    AND delivery.first_physical_progress_at IS NULL
+                                    AND delivery.device_completed_at IS NULL
+                                    AND delivery.ended_at IS NULL
+                                    AND delivery.end_reason IS NULL
+                                    AND command_row.command_type =
+                                            'START_DELIVERY_SESSION'
+                                    AND command_row.physical_state = 'QUEUED'
+                                    AND command_row.edge_accepted_at IS NULL
+                                    AND command_row.physical_started_at IS NULL
+                                    AND command_row.physical_ended_at IS NULL
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM dev_device_occupancy occupancy
+                                        WHERE occupancy.asset_id = task.source_device_asset_id
+                                          AND occupancy.tenant_id = task.tenant_id
+                                          AND occupancy.organization_id = task.organization_id
+                                          AND occupancy.occupancy_kind = 'DELIVERY'
+                                          AND occupancy.delivery_session_id = delivery.id
+                                    )
+                                    AND NOT EXISTS (
+                                        SELECT 1
+                                        FROM dev_device_command_event command_event
+                                        WHERE command_event.command_id = command_row.id
+                                    )
+                                    AND NOT EXISTS (
+                                        SELECT 1
+                                        FROM dev_physical_result physical_result
+                                        WHERE physical_result.command_id = command_row.id
+                                    )
+                                    AND NOT EXISTS (
+                                        SELECT 1
+                                        FROM rec_delivery_order delivery_order
+                                        WHERE delivery_order.delivery_session_id = delivery.id
+                                    )
+                                   THEN 1 ELSE 0
+                               END AS delivery_not_started_confirmation_available,
                                clean_row.status AS clean_status,
                                application.status AS application_status,
                                application.edge_persisted_at,
@@ -319,6 +451,10 @@ public class TargetDeviceApplication {
                         rs.getString("blocked_diagnostic"),
                         rs.getObject("updated_at", LocalDateTime.class),
                         rs.getString("delivery_status"),
+                        optionalUuid(rs.getString("delivery_session_uid")),
+                        nullableLong(rs, "delivery_session_version"),
+                        rs.getBoolean(
+                                "delivery_not_started_confirmation_available"),
                         rs.getString("clean_status"),
                         rs.getString("application_status"),
                         rs.getObject(
@@ -791,6 +927,247 @@ public class TargetDeviceApplication {
     static String baselineTaskStatusUrl(UUID taskUid) {
         return "/api/v1/web/platform/operations/reliable-tasks/"
                 + Objects.requireNonNull(taskUid, "taskUid");
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public DeliveryNotStartedConfirmationView confirmDeliveryNotStarted(
+            UUID operationUid,
+            String hardwareSn,
+            UUID sessionUid,
+            DeliveryNotStartedConfirmationRequest request) {
+        Scope platform = authorize(true, null, null, "device.manage");
+        String normalizedHardwareSn = normalizeHardwareSn(hardwareSn);
+        if (sessionUid == null
+                || sessionUid.version() != 4
+                || sessionUid.variant() != 2
+                || request == null
+                || request.expectedTaskUid() == null
+                || request.expectedTaskUid().version() != 4
+                || request.expectedTaskUid().variant() != 2
+                || request.expectedSessionVersion() == null
+                || !Boolean.TRUE.equals(request.causeFixedConfirmed())
+                || !Boolean.TRUE.equals(
+                        request.deliveryNeverStartedConfirmed())) {
+            throw invalid("投递恢复请求不完整，必须确认故障已排除且本次投递从未开始");
+        }
+        String reason = required(request.reason(), 500, "reason");
+        var normalizedRequest =
+                new DeliveryNotStartedConfirmationRequest(
+                        request.expectedTaskUid(),
+                        request.expectedSessionVersion(),
+                        true,
+                        true,
+                        reason);
+        return command(
+                operationUid,
+                platform,
+                "device.delivery.confirm-not-started",
+                "DELIVERY_SESSION",
+                sessionUid.toString(),
+                normalizedRequest,
+                DeliveryNotStartedConfirmationView.class,
+                () -> confirmDeliveryNotStarted(
+                        normalizedHardwareSn,
+                        sessionUid,
+                        normalizedRequest,
+                        reason));
+    }
+
+    private CommandResult<DeliveryNotStartedConfirmationView>
+            confirmDeliveryNotStarted(
+                    String hardwareSn,
+                    UUID sessionUid,
+                    DeliveryNotStartedConfirmationRequest request,
+                    String reason) {
+        // 与可信投递完成链采用同一把资产根锁。人工确认和迟到完成事件因此不能
+        // 同时越过检查：先取得锁的一方完成后，后一方必须按最新事实重新判断。
+        Asset asset = asset(hardwareSn, true);
+        List<DeliveryRecoverySessionRow> sessions = jdbc.query(
+                LOCK_DELIVERY_RECOVERY_SESSION_SQL,
+                (rs, ignored) -> new DeliveryRecoverySessionRow(
+                        rs.getLong("id"),
+                        UUID.fromString(rs.getString("session_uid")),
+                        rs.getLong("tenant_id"),
+                        rs.getLong("organization_id"),
+                        rs.getLong("asset_id"),
+                        rs.getString("status"),
+                        rs.getObject(
+                                "authorization_expires_at",
+                                LocalDateTime.class),
+                        rs.getObject(
+                                "first_edge_accepted_at",
+                                LocalDateTime.class),
+                        rs.getObject(
+                                "first_physical_progress_at",
+                                LocalDateTime.class),
+                        rs.getObject(
+                                "device_completed_at",
+                                LocalDateTime.class),
+                        rs.getObject("ended_at", LocalDateTime.class),
+                        rs.getString("end_reason"),
+                        rs.getLong("lock_version")),
+                sessionUid.toString(),
+                asset.id());
+        if (sessions.isEmpty()) {
+            throw new TargetApiException(
+                    404,
+                    "DEVICE.DELIVERY_SESSION_NOT_FOUND",
+                    "该设备不存在对应的投递记录");
+        }
+        if (sessions.size() != 1) {
+            throw invariant();
+        }
+        DeliveryRecoverySessionRow session = sessions.getFirst();
+        requireVersion(
+                session.lockVersion(),
+                request.expectedSessionVersion());
+
+        List<DeliveryRecoveryCommandTaskRow> commandTasks = jdbc.query(
+                LOCK_DELIVERY_RECOVERY_COMMAND_TASK_SQL,
+                (rs, ignored) -> new DeliveryRecoveryCommandTaskRow(
+                        rs.getLong("command_id"),
+                        rs.getString("physical_state"),
+                        rs.getObject(
+                                "edge_accepted_at", LocalDateTime.class),
+                        rs.getObject(
+                                "physical_started_at", LocalDateTime.class),
+                        rs.getObject(
+                                "physical_ended_at", LocalDateTime.class),
+                        UUID.fromString(rs.getString("task_uid")),
+                        rs.getString("task_type"),
+                        rs.getString("task_state"),
+                        rs.getString("blocked_reason_code"),
+                        rs.getString("target_type"),
+                        rs.getString("target_stable_key"),
+                        rs.getString("lease_token")),
+                session.id(),
+                asset.id());
+        if (commandTasks.size() != 1) {
+            throw deliveryRecoveryConflict();
+        }
+        DeliveryRecoveryCommandTaskRow commandTask = commandTasks.getFirst();
+
+        List<DeliveryRecoveryOccupancyRow> occupancies = jdbc.query(
+                LOCK_DELIVERY_RECOVERY_OCCUPANCY_SQL,
+                (rs, ignored) -> new DeliveryRecoveryOccupancyRow(
+                        rs.getString("occupancy_kind"),
+                        nullableLong(rs, "delivery_session_id")),
+                asset.id());
+        DeliveryRecoveryEvidenceRow evidence = jdbc.queryForObject(
+                LOAD_DELIVERY_RECOVERY_EVIDENCE_SQL,
+                (rs, ignored) -> new DeliveryRecoveryEvidenceRow(
+                        rs.getBoolean("command_event_exists"),
+                        rs.getBoolean("physical_result_exists"),
+                        rs.getBoolean("delivery_order_exists")),
+                commandTask.commandId(),
+                commandTask.commandId(),
+                session.id());
+        LocalDateTime now = databaseNow();
+        boolean exactOccupancy = occupancies.size() == 1
+                && "DELIVERY".equals(
+                        occupancies.getFirst().occupancyKind())
+                && Objects.equals(
+                        session.id(),
+                        occupancies.getFirst().deliverySessionId());
+        boolean allowed = canConfirmDeliveryNotStarted(
+                session,
+                commandTask,
+                exactOccupancy,
+                evidence,
+                asset.tenantId(),
+                asset.organizationId(),
+                asset.id(),
+                request.expectedTaskUid(),
+                sessionUid,
+                now);
+        if (!allowed) {
+            throw deliveryRecoveryConflict();
+        }
+
+        requireSingle(jdbc.update(
+                CLOSE_CONFIRMED_NOT_STARTED_DELIVERY_SQL,
+                now,
+                now,
+                session.id(),
+                asset.id(),
+                now,
+                session.lockVersion()));
+        requireSingle(jdbc.update(
+                RELEASE_CONFIRMED_NOT_STARTED_OCCUPANCY_SQL,
+                asset.id(),
+                session.tenantId(),
+                session.organizationId(),
+                session.id()));
+        var response = new DeliveryNotStartedConfirmationView(
+                sessionUid,
+                commandTask.taskUid(),
+                "PRE_OPEN_ENDED",
+                now.toInstant(ZoneOffset.UTC),
+                "USER_RESTART_REQUIRED");
+        return new CommandResult<>(
+                response,
+                Map.of(
+                        "sessionStatus", session.status(),
+                        "sessionVersion", session.lockVersion(),
+                        "taskState", commandTask.taskState()),
+                Map.of(
+                        "sessionStatus", response.sessionStatus(),
+                        "sessionVersion", session.lockVersion() + 1,
+                        "occupancyReleased", true,
+                        "causeFixedConfirmed", true,
+                        "deliveryNeverStartedConfirmed", true,
+                        "originalTaskState", commandTask.taskState()),
+                reason);
+    }
+
+    static boolean canConfirmDeliveryNotStarted(
+            DeliveryRecoverySessionRow session,
+            DeliveryRecoveryCommandTaskRow commandTask,
+            boolean exactOccupancy,
+            DeliveryRecoveryEvidenceRow evidence,
+            Long assetTenantId,
+            Long assetOrganizationId,
+            long assetId,
+            UUID expectedTaskUid,
+            UUID expectedSessionUid,
+            LocalDateTime now) {
+        return session != null
+                && commandTask != null
+                && evidence != null
+                && expectedTaskUid != null
+                && expectedSessionUid != null
+                && now != null
+                && assetTenantId != null
+                && assetOrganizationId != null
+                && session.tenantId() == assetTenantId
+                && session.organizationId() == assetOrganizationId
+                && session.assetId() == assetId
+                && expectedSessionUid.equals(session.sessionUid())
+                && "RESULT_PENDING_RECOVERY".equals(session.status())
+                && session.authorizationExpiresAt() != null
+                && !session.authorizationExpiresAt().isAfter(now)
+                && session.firstEdgeAcceptedAt() == null
+                && session.firstPhysicalProgressAt() == null
+                && session.deviceCompletedAt() == null
+                && session.endedAt() == null
+                && session.endReason() == null
+                && expectedTaskUid.equals(commandTask.taskUid())
+                && "START_DELIVERY_SESSION".equals(commandTask.taskType())
+                && "BLOCKED".equals(commandTask.taskState())
+                && "DEVICE_EVIDENCE_TIMEOUT".equals(
+                        commandTask.blockedReasonCode())
+                && "DELIVERY_SESSION".equals(commandTask.targetType())
+                && expectedSessionUid.toString().equals(
+                        commandTask.targetStableKey())
+                && commandTask.leaseToken() == null
+                && "QUEUED".equals(commandTask.physicalState())
+                && commandTask.edgeAcceptedAt() == null
+                && commandTask.physicalStartedAt() == null
+                && commandTask.physicalEndedAt() == null
+                && exactOccupancy
+                && !evidence.commandEventExists()
+                && !evidence.physicalResultExists()
+                && !evidence.deliveryOrderExists();
     }
 
     private ConfigurationApplicationView configurationApplication(
@@ -3616,18 +3993,29 @@ public class TargetDeviceApplication {
                 category = "DELIVERY";
                 boolean uncertain = "RESULT_PENDING_RECOVERY".equals(
                         task.deliveryStatus());
+                boolean safelyEnded = "PRE_OPEN_ENDED".equals(
+                        task.deliveryStatus());
                 state = uncertain
                         ? "RECOVERY_REQUIRED" : "ACTION_REQUIRED";
                 severity = uncertain ? "CRITICAL" : "WARNING";
                 title = uncertain
                         ? "投递物理结果无法确认"
-                        : "投递启动命令未送达设备";
+                        : safelyEnded
+                                ? "原投递已安全结束"
+                                : "投递启动命令未送达设备";
                 description = uncertain
-                        ? "OneNet 可能已经接收命令，但没有收到可信设备证据；系统保留设备占用，禁止平台重发开门命令。"
-                        : reasonDescription(reason)
-                        + "。原投递已安全结束，故障排除后由用户重新发起。";
+                        ? task.deliveryNotStartedConfirmationAvailable()
+                                ? "原开门授权已经失效，后台也没有收到设备接受、开门或投递结果。系统不会重发开门；现场确认本次投递从未开始后，可以安全结束原投递。"
+                                : "设备云平台可能已经接收启动请求，但后台无法排除设备曾经接受或执行。系统保留设备占用且不会重发开门，请联系技术人员核对现场。"
+                        : safelyEnded
+                                ? "现场已确认设备没有开门或进入投递流程，原投递不会重发，也不会生成投递订单。故障排除后，请让用户重新扫码发起一次新投递。"
+                                : reasonDescription(reason)
+                                + "。原投递已安全结束，故障排除后由用户重新发起。";
                 actions = List.of(uncertain
-                        ? "CONTACT_SUPPORT" : "USER_RESTART_REQUIRED");
+                        ? task.deliveryNotStartedConfirmationAvailable()
+                                ? "CONFIRM_DELIVERY_NOT_STARTED"
+                                : "CONTACT_SUPPORT"
+                        : "USER_RESTART_REQUIRED");
             }
             case "START_CLEAN_OPERATION" -> {
                 category = "CLEANING";
@@ -3658,6 +4046,8 @@ public class TargetDeviceApplication {
                 description,
                 null,
                 task.taskUid(),
+                task.deliverySessionUid(),
+                task.deliverySessionVersion(),
                 null,
                 reason,
                 task.httpStatus(),
@@ -3840,6 +4230,8 @@ public class TargetDeviceApplication {
                 description,
                 row.portNo(),
                 row.taskUid(),
+                null,
+                null,
                 row.measurementUid(),
                 reason,
                 row.httpStatus(),
@@ -4227,6 +4619,10 @@ public class TargetDeviceApplication {
         return rs.wasNull() ? null : value;
     }
 
+    private static UUID optionalUuid(String value) {
+        return value == null ? null : UUID.fromString(value);
+    }
+
     private static Instant instant(ResultSet rs, String column)
             throws SQLException {
         LocalDateTime value = rs.getObject(column, LocalDateTime.class);
@@ -4284,6 +4680,12 @@ public class TargetDeviceApplication {
 
     private static TargetApiException conflict(String code, String message) {
         return new TargetApiException(409, code, message);
+    }
+
+    private static TargetApiException deliveryRecoveryConflict() {
+        return conflict(
+                "DEVICE.DELIVERY_NOT_STARTED_CONFIRMATION_NOT_ALLOWED",
+                "投递事实已经变化，或后台无法确认该记录仍可安全结束；请刷新后重新核对现场");
     }
 
     private static TargetApiException unprocessable(
@@ -4370,6 +4772,48 @@ public class TargetDeviceApplication {
     private record FactoryBag(int portNo, String bagCode) {
     }
 
+    record DeliveryRecoverySessionRow(
+            long id,
+            UUID sessionUid,
+            long tenantId,
+            long organizationId,
+            long assetId,
+            String status,
+            LocalDateTime authorizationExpiresAt,
+            LocalDateTime firstEdgeAcceptedAt,
+            LocalDateTime firstPhysicalProgressAt,
+            LocalDateTime deviceCompletedAt,
+            LocalDateTime endedAt,
+            String endReason,
+            long lockVersion) {
+    }
+
+    record DeliveryRecoveryCommandTaskRow(
+            long commandId,
+            String physicalState,
+            LocalDateTime edgeAcceptedAt,
+            LocalDateTime physicalStartedAt,
+            LocalDateTime physicalEndedAt,
+            UUID taskUid,
+            String taskType,
+            String taskState,
+            String blockedReasonCode,
+            String targetType,
+            String targetStableKey,
+            String leaseToken) {
+    }
+
+    private record DeliveryRecoveryOccupancyRow(
+            String occupancyKind,
+            Long deliverySessionId) {
+    }
+
+    record DeliveryRecoveryEvidenceRow(
+            boolean commandEventExists,
+            boolean physicalResultExists,
+            boolean deliveryOrderExists) {
+    }
+
     record TechnicalTaskRow(
             long taskId,
             UUID taskUid,
@@ -4379,6 +4823,9 @@ public class TargetDeviceApplication {
             String blockedDiagnostic,
             LocalDateTime updatedAt,
             String deliveryStatus,
+            UUID deliverySessionUid,
+            Long deliverySessionVersion,
+            boolean deliveryNotStartedConfirmationAvailable,
             String cleanStatus,
             String applicationStatus,
             LocalDateTime edgePersistedAt,

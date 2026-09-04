@@ -5013,6 +5013,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/delivery-sessions/{sessionUid}/not-started-confirmations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                sessionUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close one blocked delivery only after an operator confirms that physical delivery never started
+         * @description This action never replays the original open-door command. The server rechecks the blocked task, expired authorization, absence of trusted edge or physical evidence, and the exact device occupancy in one transaction before ending the session and releasing that occupancy.
+         */
+        post: operations["confirmPlatformDeliveryNotStarted"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/device-assets/{hardwareSn}/ports/{portNo}/baseline-measurement-attempts": {
         parameters: {
             query?: never;
@@ -8848,6 +8871,30 @@ export interface components {
             statusUrl: components["schemas"]["StatusUrl"];
             recommendedPollAfterMs: number;
         };
+        DeliveryNotStartedConfirmationRequest: {
+            expectedTaskUid: components["schemas"]["UuidV4"];
+            expectedSessionVersion: components["schemas"]["ExpectedVersion"];
+            /**
+             * @description The operator has checked and removed the cause of the device not responding.
+             * @constant
+             */
+            causeFixedConfirmed: true;
+            /**
+             * @description The onsite operator confirms that the delivery door never opened and no delivery physical action started.
+             * @constant
+             */
+            deliveryNeverStartedConfirmed: true;
+            reason: string;
+        };
+        DeliveryNotStartedConfirmation: {
+            sessionUid: components["schemas"]["UuidV4"];
+            taskUid: components["schemas"]["UuidV4"];
+            /** @constant */
+            sessionStatus: "PRE_OPEN_ENDED";
+            endedAt: components["schemas"]["UtcTimestamp"];
+            /** @constant */
+            nextAction: "USER_RESTART_REQUIRED";
+        };
         DeviceTechnicalIssue: {
             issueUid: string;
             /** @enum {string} */
@@ -8861,6 +8908,8 @@ export interface components {
             description: string;
             portNo: number | null;
             taskUid: components["schemas"]["UuidV4"] | null;
+            deliverySessionUid: components["schemas"]["UuidV4"] | null;
+            deliverySessionVersion: components["schemas"]["ExpectedVersion"] | null;
             latestMeasurementUid: components["schemas"]["UuidV4"] | null;
             blockedReasonCode: string | null;
             httpStatus: number | null;
@@ -8869,7 +8918,7 @@ export interface components {
             automaticAttemptNo: number | null;
             automaticAttemptLimit: number | null;
             occurredAt: components["schemas"]["UtcTimestamp"] | null;
-            nextActions: ("WAIT" | "REEVALUATE_ACCEPTANCE" | "OPEN_RELIABLE_TASK" | "RESOLVE_FACTORY_SEAL_TASK_BLOCKER" | "RESYNCHRONIZE_CONFIGURATION" | "PUBLISH_NEW_CONFIGURATION" | "START_MANUAL_BASELINE_MEASUREMENT" | "USER_RESTART_REQUIRED" | "CLEANER_RESTART_REQUIRED" | "CONTACT_SUPPORT")[];
+            nextActions: ("WAIT" | "REEVALUATE_ACCEPTANCE" | "OPEN_RELIABLE_TASK" | "RESOLVE_FACTORY_SEAL_TASK_BLOCKER" | "RESYNCHRONIZE_CONFIGURATION" | "PUBLISH_NEW_CONFIGURATION" | "START_MANUAL_BASELINE_MEASUREMENT" | "CONFIRM_DELIVERY_NOT_STARTED" | "USER_RESTART_REQUIRED" | "CLEANER_RESTART_REQUIRED" | "CONTACT_SUPPORT")[];
         };
         /** @enum {string} */
         DeviceFactoryProgressStage: "DEVICE_ASSET" | "FACTORY_BAGS" | "MACHINE_ACCEPTANCE" | "FACTORY_SEAL_AUTHORIZATION" | "END_FACTORY_MODE" | "FACTORY_SEALED";
@@ -9387,6 +9436,12 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["DeviceTechnicalIssue"][];
+            requestId: string;
+        };
+        DeliveryNotStartedConfirmationEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliveryNotStartedConfirmation"];
             requestId: string;
         };
         DeviceFactoryProgressEnvelope: {
@@ -10102,6 +10157,17 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["DeviceTechnicalIssueListEnvelope"];
+            };
+        };
+        /** @description The original delivery was ended without replay and its exact device occupancy was released */
+        DeliveryNotStartedConfirmationOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryNotStartedConfirmationEnvelope"];
             };
         };
         /** @description A new baseline measurement generation is durable; no physical measurement result is implied */
@@ -17401,6 +17467,34 @@ export interface operations {
             401: components["responses"]["UnauthorizedProblem"];
             403: components["responses"]["ForbiddenProblem"];
             404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    confirmPlatformDeliveryNotStarted: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                sessionUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryNotStartedConfirmationRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DeliveryNotStartedConfirmationOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
         };
     };
     startPlatformBaselineMeasurementAttempt: {
