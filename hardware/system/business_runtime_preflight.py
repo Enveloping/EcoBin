@@ -21,6 +21,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from camera_selection import CameraSelectionError, resolve_camera_roles
 
 MAX_MESSAGE_BYTES = 256 * 1024
 COMMUNICATION_PROTOCOL = "ecobin.communication.control"
@@ -463,6 +464,16 @@ def build_parser() -> argparse.ArgumentParser:
         required=os.getenv("ECOBIN_CAMERA_INSIDE") is None,
     )
     parser.add_argument(
+        "--outside-camera-fallback",
+        default=os.getenv("ECOBIN_CAMERA_OUTSIDE_FALLBACK", ""),
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--inside-camera-fallback",
+        default=os.getenv("ECOBIN_CAMERA_INSIDE_FALLBACK", ""),
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--business-state-directory",
         default="/var/lib/ecobin/business",
     )
@@ -492,11 +503,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        cameras = resolve_camera_roles(
+            outside_primary=args.outside_camera,
+            inside_primary=args.inside_camera,
+            outside_fallback=args.outside_camera_fallback,
+            inside_fallback=args.inside_camera_fallback,
+        )
         verify_runtime_identity(args.expected_user)
         verify_legacy_runtime_stopped()
         probe_device(args.serial_device, "MCU UART")
-        probe_device(args.outside_camera, "outside camera")
-        probe_device(args.inside_camera, "inside camera")
+        probe_device(cameras.outside_source, "outside camera")
+        probe_device(cameras.inside_source, "inside camera")
         probe_private_directory(
             args.business_state_directory,
             "business state directory",
@@ -520,7 +537,7 @@ def main(argv: list[str] | None = None) -> int:
         # Close the race with an operator starting the legacy runtime during
         # the probe.  This does not stop or otherwise mutate that service.
         verify_legacy_runtime_stopped()
-    except BusinessRuntimePreflightError as error:
+    except (BusinessRuntimePreflightError, CameraSelectionError) as error:
         print(f"business-runtime-permission-preflight=FAIL: {error}", file=sys.stderr)
         return 1
     print("business-runtime-permission-preflight=PASS")

@@ -16,6 +16,7 @@ RUNTIME_APP_FILES = (
     "business_outbox_relay.py",
     "business_runtime_cutover_state.py",
     "camera_capture.py",
+    "camera_selection.py",
     "cloud_transport.py",
     "command_processor.py",
     "config.py",
@@ -203,6 +204,7 @@ DEVICE_UPDATER_HELPER_UNIT_FILES = (
 FACTORY_APP_RUNTIME_FILES = (
     "business_runtime_cutover_state.py",
     "camera_capture.py",
+    "camera_selection.py",
     "device_credentials.py",
     "factory_progress.py",
     "fixed_frame_mcu_adapter.py",

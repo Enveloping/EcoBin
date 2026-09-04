@@ -13,6 +13,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from camera_selection import CURRENT_INSIDE_CAMERA, CURRENT_OUTSIDE_CAMERA
 from camera_capture import (
     CAMERA_CAPTURE_FAILED,
     CAMERA_OPEN_FAILED,
@@ -86,14 +87,8 @@ class PhotoManager:
         self,
         store: EdgeStore,
         photo_dir=None,
-        outside_camera_source=(
-            "/dev/v4l/by-id/"
-            "usb-DECXIN_CAMERA_DECXIN_CAMERA_01.00.00-video-index0"
-        ),
-        inside_camera_source=(
-            "/dev/v4l/by-id/"
-            "usb-icSpring_icspring_camera-video-index0"
-        ),
+        outside_camera_source=CURRENT_OUTSIDE_CAMERA,
+        inside_camera_source=CURRENT_INSIDE_CAMERA,
         *,
         device_name="",
         uploader=None,

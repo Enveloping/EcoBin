@@ -56,9 +56,13 @@ OneNet 迁移优先级: 完整旧进程环境三项 > 注册凭证；禁止部�
     ECOBIN_COS_REQUEST_TIMEOUT_SECONDS
                           — COS SDK 网络超时秒数（默认: 15）
     ECOBIN_CAMERA_OUTSIDE — 外部摄像头 V4L2 稳定路径或 simulated:// 源
-                            （当前真机: DECXIN）
+                            （当前真机: HSK/UNIQUESKY）
+    ECOBIN_CAMERA_OUTSIDE_FALLBACK
+                          — 当前外摄缺失时使用的旧型号稳定路径
     ECOBIN_CAMERA_INSIDE  — 内部摄像头 V4L2 稳定路径或 simulated:// 源
-                            （当前真机: icspring）
+                            （当前真机: Generic USB Camera）
+    ECOBIN_CAMERA_INSIDE_FALLBACK
+                          — 当前内摄缺失时使用的旧型号稳定路径
     ECOBIN_PHOTO_UPLOAD_POLL_SECONDS
                           — 照片上传队列轮询秒数（默认: 1）
     ECOBIN_PHOTO_GRANT_EXPIRY_SKEW_SECONDS
@@ -73,6 +77,13 @@ import math
 import os
 import re
 from pathlib import Path
+from camera_selection import (
+    CURRENT_INSIDE_CAMERA,
+    CURRENT_OUTSIDE_CAMERA,
+    LEGACY_INSIDE_CAMERA,
+    LEGACY_OUTSIDE_CAMERA,
+    resolve_camera_roles,
+)
 from simulated_camera import is_simulated_camera_source
 
 
@@ -388,17 +399,26 @@ DEVICE_CONFIG_PATH = (
 )
 
 # ── 摄像头 ──
-CAMERA_OUTSIDE_SOURCE = os.getenv(
-    "ECOBIN_CAMERA_OUTSIDE",
-    (
-        "/dev/v4l/by-id/"
-        "usb-DECXIN_CAMERA_DECXIN_CAMERA_01.00.00-video-index0"
-    ),
-).strip()
-CAMERA_INSIDE_SOURCE = os.getenv(
-    "ECOBIN_CAMERA_INSIDE",
-    "/dev/v4l/by-id/usb-icSpring_icspring_camera-video-index0",
-).strip()
+_camera_selection = resolve_camera_roles(
+    outside_primary=os.getenv(
+        "ECOBIN_CAMERA_OUTSIDE",
+        CURRENT_OUTSIDE_CAMERA,
+    ).strip(),
+    inside_primary=os.getenv(
+        "ECOBIN_CAMERA_INSIDE",
+        CURRENT_INSIDE_CAMERA,
+    ).strip(),
+    outside_fallback=os.getenv(
+        "ECOBIN_CAMERA_OUTSIDE_FALLBACK",
+        LEGACY_OUTSIDE_CAMERA,
+    ).strip(),
+    inside_fallback=os.getenv(
+        "ECOBIN_CAMERA_INSIDE_FALLBACK",
+        LEGACY_INSIDE_CAMERA,
+    ).strip(),
+)
+CAMERA_OUTSIDE_SOURCE = _camera_selection.outside_source
+CAMERA_INSIDE_SOURCE = _camera_selection.inside_source
 # ── 边缘持久存储 ──
 _data_dir = os.getenv("ECOBIN_DATA_DIR", "data")
 _project_root = str(_CONFIG_DIRECTORY)

@@ -237,6 +237,14 @@
 > 失败关闭，取得并复核这些现场证据前不得量产放行。
 
 > [!IMPORTANT]
+> 2026-09-04 通过香橙派串口读取稳定 `/dev/v4l/by-id` 身份并分别采集预览帧，确认当前外摄为
+> HSK/UNIQUESKY（画面朝屏幕），当前内摄为 Generic USB Camera（画面朝天花板）。出厂验收、
+> 日常业务和低权限启动自检统一在服务启动时选择摄像头：当前型号优先，当前型号缺失时外摄
+> 可回退到历史 DECXIN、内摄可回退到历史 icSpring；此前使用的 HSK 外摄与当前外摄具有同一
+> 稳定型号身份，天然继续兼容。新旧型号同时存在时不回退；某个角色的新旧型号都缺失时保持
+> 该角色失败并阻止验收或业务启动，不允许借用另一角色的摄像头，也不依赖 `/dev/videoN`。
+
+> [!IMPORTANT]
 > 2026-08-30 单卡冷启动证明：`ecobin-runtime.target` 为 active 不等于它的 Wants 成员都在
 > 运行；成员自己的瞬时 `ExecCondition` 失败会让 systemd 成功到达 target，却把成员留在
 > inactive。首次启动协调器现在在运行门禁满足后持续核对 `ecobin-hardware.service` 和

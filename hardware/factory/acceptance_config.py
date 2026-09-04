@@ -9,13 +9,13 @@ from pathlib import PurePosixPath
 import re
 from typing import Mapping
 
-
-DEFAULT_OUTSIDE_CAMERA = (
-    "/dev/v4l/by-id/"
-    "usb-DECXIN_CAMERA_DECXIN_CAMERA_01.00.00-video-index0"
-)
-DEFAULT_INSIDE_CAMERA = (
-    "/dev/v4l/by-id/usb-icSpring_icspring_camera-video-index0"
+from camera_selection import (
+    CURRENT_INSIDE_CAMERA,
+    CURRENT_OUTSIDE_CAMERA,
+    CameraSelectionError,
+    LEGACY_INSIDE_CAMERA,
+    LEGACY_OUTSIDE_CAMERA,
+    resolve_camera_roles,
 )
 
 
@@ -71,6 +71,31 @@ class AcceptanceConfiguration:
             raise AcceptanceConfigurationError(
                 "factory acceptance forbids a simulated MCU"
             )
+        try:
+            camera_selection = resolve_camera_roles(
+                outside_primary=_text(
+                    values,
+                    "ECOBIN_CAMERA_OUTSIDE",
+                    CURRENT_OUTSIDE_CAMERA,
+                ),
+                inside_primary=_text(
+                    values,
+                    "ECOBIN_CAMERA_INSIDE",
+                    CURRENT_INSIDE_CAMERA,
+                ),
+                outside_fallback=_text(
+                    values,
+                    "ECOBIN_CAMERA_OUTSIDE_FALLBACK",
+                    LEGACY_OUTSIDE_CAMERA,
+                ),
+                inside_fallback=_text(
+                    values,
+                    "ECOBIN_CAMERA_INSIDE_FALLBACK",
+                    LEGACY_INSIDE_CAMERA,
+                ),
+            )
+        except CameraSelectionError as error:
+            raise AcceptanceConfigurationError(str(error)) from error
         config = cls(
             schema_version=1,
             serial_port=_text(values, "ECOBIN_SERIAL_PORT", "/dev/ttyS5"),
@@ -98,12 +123,8 @@ class AcceptanceConfiguration:
                 values, "ECOBIN_STM32FLASH_PATH", "/usr/bin/stm32flash"
             ),
             gpio_path=_text(values, "ECOBIN_GPIO_PATH", "/usr/bin/gpio"),
-            outside_camera=_text(
-                values, "ECOBIN_CAMERA_OUTSIDE", DEFAULT_OUTSIDE_CAMERA
-            ),
-            inside_camera=_text(
-                values, "ECOBIN_CAMERA_INSIDE", DEFAULT_INSIDE_CAMERA
-            ),
+            outside_camera=camera_selection.outside_source,
+            inside_camera=camera_selection.inside_source,
             weight_target_grams=_integer(
                 values, "ECOBIN_FACTORY_TEST_WEIGHT_GRAMS", 500
             ),

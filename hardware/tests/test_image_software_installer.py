@@ -50,6 +50,8 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
     assert "factory_seal/admission.py" in RUNTIME_APP_FILES
     assert "camera_capture.py" in RUNTIME_APP_FILES
     assert "camera_capture.py" in FACTORY_APP_RUNTIME_FILES
+    assert "camera_selection.py" in RUNTIME_APP_FILES
+    assert "camera_selection.py" in FACTORY_APP_RUNTIME_FILES
     assert "trusted_clock.py" in RUNTIME_APP_FILES
     assert "trusted_clock.py" in FACTORY_APP_RUNTIME_FILES
     assert "factory_progress.py" in RUNTIME_APP_FILES
@@ -1069,6 +1071,9 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
     ).read_bytes() == (
         HARDWARE_ROOT / "system/business_runtime_preflight.py"
     ).read_bytes()
+    assert (
+        rootfs / "usr/lib/ecobin/camera_selection.py"
+    ).read_bytes() == (HARDWARE_ROOT / "camera_selection.py").read_bytes()
     assert (
         rootfs / "usr/lib/ecobin/device-management/local_control.py"
     ).read_bytes() == (HARDWARE_ROOT / "local_control.py").read_bytes()

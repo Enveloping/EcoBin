@@ -93,6 +93,10 @@ EdgeStore 目录，使用与 P8 相同的严格 sealed + SQLite authorization �
 探测必须得到 STM32F103C8 的 device ID `0x0410` 且永不写 Flash，未安装时全程不发
 F2 mode 02、不切换 GPIO、不运行 ROM 工具，并将远程升级能力记为 `false`。
 
+双摄角色使用稳定的 `/dev/v4l/by-id` 候选：外摄首选 HSK/UNIQUESKY、缺失时回退到旧
+DECXIN，内摄首选 Generic USB Camera、缺失时回退到旧 icSpring。新旧型号同时存在时始终
+使用首选；任一角色的候选都不存在时，拍摄失败并阻止验收继续，不能借用另一角色的摄像头。
+
 保留 F3 身份 `factory-sim-1.0.0 / 45434f53494d3031` 表示 MCU 侧传感器、屏幕和执行器
 来自专用模拟固件。页面必须告警，人工步骤不会自动点击，最终报告必须再次显式
 确认并永久保存 `SIMULATED_PERIPHERALS`。

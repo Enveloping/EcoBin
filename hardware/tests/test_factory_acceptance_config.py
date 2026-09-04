@@ -4,6 +4,11 @@ import re
 
 import pytest
 
+from camera_selection import (
+    CURRENT_INSIDE_CAMERA,
+    CURRENT_OUTSIDE_CAMERA,
+    LEGACY_INSIDE_CAMERA,
+)
 from factory.acceptance_config import (
     AcceptanceConfiguration,
     AcceptanceConfigurationError,
@@ -21,6 +26,8 @@ def test_default_configuration_is_the_fixed_production_wiring() -> None:
     assert (config.boot0_active_level, config.reset_active_level) == (1, 1)
     assert config.outside_camera.startswith("/dev/v4l/by-id/")
     assert config.inside_camera.startswith("/dev/v4l/by-id/")
+    assert config.outside_camera == CURRENT_OUTSIDE_CAMERA
+    assert config.inside_camera == CURRENT_INSIDE_CAMERA
     assert not hasattr(config, "camera_warmup_frames")
     assert (config.weight_target_grams, config.weight_tolerance_grams) == (500, 10)
     assert (
@@ -30,6 +37,21 @@ def test_default_configuration_is_the_fixed_production_wiring() -> None:
         config.weight_sample_timeout_ms,
     ) == (3, 2, 100, 3000)
     assert re.fullmatch(r"[0-9a-f]{64}", config.digest())
+
+
+def test_configuration_uses_legacy_camera_only_when_current_model_is_missing(
+    monkeypatch,
+) -> None:
+    present = {CURRENT_OUTSIDE_CAMERA, LEGACY_INSIDE_CAMERA}
+    monkeypatch.setattr(
+        "camera_selection.os.path.exists",
+        lambda source: source in present,
+    )
+
+    config = AcceptanceConfiguration.from_mapping({})
+
+    assert config.outside_camera == CURRENT_OUTSIDE_CAMERA
+    assert config.inside_camera == LEGACY_INSIDE_CAMERA
 
 
 def test_legacy_camera_warmup_frames_is_ignored() -> None:

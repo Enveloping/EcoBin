@@ -151,6 +151,11 @@ DEVICE_MANAGEMENT_CONFIG_FILES = (
 
 DEVICE_MANAGEMENT_SUPPORT_FILES = (
     (
+        "camera_selection.py",
+        "usr/lib/ecobin/camera_selection.py",
+        0o644,
+    ),
+    (
         "system/business_runtime_preflight.py",
         "usr/lib/ecobin/business_runtime_preflight.py",
         0o644,

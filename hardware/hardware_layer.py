@@ -6,8 +6,8 @@ hardware_layer.py — 香橙派 Zero3 硬件抽象层
 
 物理连接（推测，按实际接线调整）：
   - UART: 香橙派 26Pin UART5 (/dev/ttyS5) ←→ 垃圾桶 MCU 串口
-  - 摄像头1 (箱外): DECXIN 的 /dev/v4l/by-id 稳定路径
-  - 摄像头2 (箱内): icspring 的 /dev/v4l/by-id 稳定路径
+  - 摄像头1 (箱外): 首选 HSK/UNIQUESKY，缺失时使用旧 DECXIN
+  - 摄像头2 (箱内): 首选 Generic USB Camera，缺失时使用旧 icSpring
 
 新投递协议使用固定长度二进制帧（当前仅物理投口 1）：
   MCU → 香橙派: AA,{0|1},AA 门状态；BB,{0|1},BB 红外；
@@ -458,7 +458,7 @@ class DualCamera:
     @classmethod
     def capture_both(cls, prefix: str) -> tuple:
         """
-        同时按稳定设备路径拍摄箱外 DECXIN 和箱内 icspring
+        同时按启动时解析出的稳定设备路径拍摄箱外和箱内画面
         :param prefix: 文件前缀，生成 {prefix}_outside.jpg 和 {prefix}_inside.jpg
         :return: (outside_path, inside_path)，失败为 None
         """
