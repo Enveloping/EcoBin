@@ -11,6 +11,7 @@ import com.qcloud.cos.model.PutObjectRequest;
 import com.qcloud.cos.region.Region;
 import jakarta.annotation.PreDestroy;
 import org.enveloping.ecobin.device.api.port.BusinessReleaseArtifactStoragePort;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -34,6 +35,7 @@ public class CosBusinessReleaseArtifactStorage
     private final CosProperties photoProperties;
     private volatile COSClient client;
 
+    @Autowired
     public CosBusinessReleaseArtifactStorage(
             BusinessReleaseArtifactProperties properties,
             CosProperties photoProperties) {

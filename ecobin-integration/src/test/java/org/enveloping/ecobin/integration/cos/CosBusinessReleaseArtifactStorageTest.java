@@ -8,10 +8,13 @@ import com.qcloud.cos.model.PutObjectRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.core.env.MapPropertySource;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,6 +34,25 @@ class CosBusinessReleaseArtifactStorageTest {
 
     @TempDir
     Path temporary;
+
+    @Test
+    void springConstructsRealAdapterWithItsProductionDependencies() {
+        try (AnnotationConfigApplicationContext context =
+                     new AnnotationConfigApplicationContext()) {
+            context.getEnvironment().getPropertySources().addFirst(
+                    new MapPropertySource(
+                            "real-external-mode",
+                            Map.of("ecobin.external.mode", "real")));
+            context.registerBean(BusinessReleaseArtifactProperties.class);
+            context.registerBean(CosProperties.class);
+            context.registerBean(CosBusinessReleaseArtifactStorage.class);
+
+            context.refresh();
+
+            assertThat(context.getBean(
+                    CosBusinessReleaseArtifactStorage.class)).isNotNull();
+        }
+    }
 
     @Test
     void usesAtomicNoOverwriteHeaderWhenBucketNeverEnabledVersioning()
