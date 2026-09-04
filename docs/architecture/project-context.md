@@ -245,6 +245,18 @@
 > 该角色失败并阻止验收或业务启动，不允许借用另一角色的摄像头，也不依赖 `/dev/videoN`。
 
 > [!IMPORTANT]
+> 上述摄像头选择、永久服务真实就绪结果和蜂窝域名解析重试展示已经进入从干净提交
+> `39e52561` 构建的 v26。`0.1.0-single-card.20260904.26` /
+> `hardware-runtime-20260904-26` 的无秘密候选与最终受控 HIL 镜像 SHA-256 分别为
+> `cf7b31b2f4672da5e6ed7375ee6bf64765839b340647087c9502333f182ff58e` 和
+> `79be69b679de96f7731131410557456189b0ec2468c2576cdccf72c719e6fa18`。第一次 HIL
+> 副本因旧签名业务包不符合新增模块后的业务源码白名单而被独立审计拒绝；没有放宽门禁，
+> 而是从 v26 当前源码重建成功/故意失败两份 HIL 包后再次生成镜像。最终候选和 HIL 的
+> 文件系统、精确软件清单、关键源码、四条摄像头配置、包验签、默认关闭、空自动队列和
+> 私钥缺失边界均通过第二套只读审计。v25 从未接纳或写卡；v26 尚未写卡和真机验收，证据见
+> [`v26 永久服务就绪与新旧双摄选择 HIL 候选`](../../hardware/image-artifacts/evidence/hil-runtime-readiness-cameras-20260904-26/README.md)。
+
+> [!IMPORTANT]
 > 2026-08-30 单卡冷启动证明：`ecobin-runtime.target` 为 active 不等于它的 Wants 成员都在
 > 运行；成员自己的瞬时 `ExecCondition` 失败会让 systemd 成功到达 target，却把成员留在
 > inactive。首次启动协调器现在在运行门禁满足后持续核对 `ecobin-hardware.service` 和

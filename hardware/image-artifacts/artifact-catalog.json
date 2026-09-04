@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-04T08:09:05.211Z",
+  "catalogedAt": "2026-09-04T12:30:07.791Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -450,6 +450,16 @@
       "sha256": "f863836a0f8979fcd4db1157ac401f6aff4bee867351ba07268c23da5faeffe2"
     },
     {
+      "path": "evidence/hil-runtime-readiness-cameras-20260904-26/hil-business-signing-public.pem",
+      "bytes": 113,
+      "sha256": "630073cfeef5ea1331cf42cdff9851b441304569f79c1eec8651c8d349cf96ff"
+    },
+    {
+      "path": "evidence/hil-runtime-readiness-cameras-20260904-26/README.md",
+      "bytes": 7516,
+      "sha256": "b64cc4ddedc725f436e99ab3c3d2c278dfa6aba0727b6ee990bc4c9c10f4d430"
+    },
+    {
       "path": "evidence/hil-runtime-traversal-20260903-16/README.md",
       "bytes": 4991,
       "sha256": "0d8a3cfb6b24f8a957ee28a25306c811d001fbe8e5995e735aa649dd46688288"
@@ -683,6 +693,20 @@
       "sha256": "c530112c001b4ee5de434d5bd3ee8aa06007c4ce7f75cfc6b92230ddb24a5d6f"
     },
     {
+      "path": "local/audit-v26-runtime-readiness-cameras-final.sh",
+      "bytes": 6812,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "2a98b0201f242f28bb6f0b95ce807507810aecd45efb19066282f838a9fcd141"
+    },
+    {
+      "path": "local/audit-v26-runtime-readiness-cameras-r2-final.sh",
+      "bytes": 10712,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "d8c93eb924470a5953f75fb4902240e0ef1d53816fb8defe6e5316c3ef87d276"
+    },
+    {
       "path": "local/build-v10-hil-factory-image.sh",
       "bytes": 15222,
       "classification": "LOCAL_ARTIFACT",
@@ -858,6 +882,48 @@
       "sha256": "4897bce5c38601e8accdd19f53d8abd641145380fe254820e45c85fb3ebaa74c"
     },
     {
+      "path": "local/build-v25-business-hil-image.sh",
+      "bytes": 1799,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b19eb8bb57a4e297911f119ea05c171f311862cc58df77bcd91585d649b18a1a"
+    },
+    {
+      "path": "local/build-v25-candidate.sh",
+      "bytes": 1065,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "01147cacdbb640f9aa2faceb7c79010250e2466763c5a7d2002fd48c57b3932f"
+    },
+    {
+      "path": "local/build-v26-business-hil-image-r2.sh",
+      "bytes": 4058,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c9b670ad0a7f6c145f2cd6aa4f7632f6249c1697a6a270a5bf0a9b93a2f4a25a"
+    },
+    {
+      "path": "local/build-v26-business-hil-image.sh",
+      "bytes": 2558,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "ac4e7e3c0c75fcff271a2ceca7bee8b1f231373c31fb59282892a5239a0dedd5"
+    },
+    {
+      "path": "local/build-v26-business-hil-packages.sh",
+      "bytes": 3757,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "ab80d4ee6694ffda0c56a4f6ec83fd0b2310a1de8e6505edaa442111197a0fe4"
+    },
+    {
+      "path": "local/build-v26-candidate.sh",
+      "bytes": 1065,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "ebe9b4dcbd5a2e670249f603ed6583a75cd7fd065165d802f3779b762244c937"
+    },
+    {
       "path": "local/build-v8.sh",
       "bytes": 9646,
       "classification": "LOCAL_ARTIFACT",
@@ -947,6 +1013,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "6a2963322c6fed73338319a5619a8b05401d3b35121faefbedaf196b2b015658"
+    },
+    {
+      "path": "local/deploy-v26-backend-allowlist.sh",
+      "bytes": 1861,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "acb3988f43a0d87c7e16a1a763a48c190d3831a9538c1c5f37131bc2f36608d2"
     },
     {
       "path": "local/factory-secret/builds/hil-factory-login-20260831-13-friendly-copy/build-and-offline-verification.log",
@@ -1248,6 +1321,83 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "d8bea031cc0ffcb88557dd30267dd43454375fbda115cf0099a05091706d5930"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260904-25-runtime-readiness/build-and-offline-verification.log",
+      "bytes": 1345,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "1368eb4172446b70113553aea337afaa8d434b1482545ede7fc5d6189df25c31"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260904-25-runtime-readiness/ecobin-orangepi-zero3-0.1.0-single-card.20260904.25-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "526b5c7a00f6e9a506fecbf922ca8c3146330b48c8ce48daa74ec0ba8ee89881"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260904-25-runtime-readiness/ecobin-orangepi-zero3-0.1.0-single-card.20260904.25-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "d6ec8d948f29f4ab033a4eef9b1e845a5005d1ce2bd809c2394f7dc49a41a64f"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260904-26-runtime-readiness-cameras-r2/build-and-offline-verification.log",
+      "bytes": 1392,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "60cba6472fe1e876f727f40549094126b25b71fbb50387847355dd85282833e0"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260904-26-runtime-readiness-cameras-r2/ecobin-orangepi-zero3-0.1.0-single-card.20260904.26-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "79be69b679de96f7731131410557456189b0ec2468c2576cdccf72c719e6fa18"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260904-26-runtime-readiness-cameras-r2/ecobin-orangepi-zero3-0.1.0-single-card.20260904.26-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "597d1d6b2f8bea2b82d0b50a1b851bc32a47ada0f216872ec7e4a6d7194479eb"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260904-26-runtime-readiness-cameras-r2/independent-audit.log",
+      "bytes": 2513,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "357465ea3500c406eb202ab79f544d85bb1bd5a2a0ffb3ff215c661a72f853d2"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260904-26-runtime-readiness-cameras/build-and-offline-verification.log",
+      "bytes": 1392,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "7e091843cd2b9f1911150c875b2822a0baa04fbebed325fb55cac247f6e1f7b2"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260904-26-runtime-readiness-cameras/ecobin-orangepi-zero3-0.1.0-single-card.20260904.26-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "db75362c6caf067795d5dce273f0532ff22176b7f390e3af5cdc053ff8633d1b"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260904-26-runtime-readiness-cameras/ecobin-orangepi-zero3-0.1.0-single-card.20260904.26-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c5b65218d5d6d7a6675d845799d2ab8020e6d674a714cac74539bf984562d2ec"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260904-26-runtime-readiness-cameras/independent-audit.log",
+      "bytes": 696,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "8b21e7e2224710d3bcd29c4efe250d1382f4efc4878fac14db51b7e083865971"
     },
     {
       "path": "local/factory-secret/config/cellular.env",
@@ -1689,6 +1839,13 @@
       "sha256": "9067ad8817ffd85d32460ce2724836f46ae0ed10ac8c269e5fbf6f3a06937d5d"
     },
     {
+      "path": "local/source-bundles/repository-1baf9468.bundle",
+      "bytes": 53686581,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "68f812428390523663113052614561f6a01fdd14b018d0fd04173bf4279557ea"
+    },
+    {
       "path": "local/source-bundles/repository-1cf3b4ae.bundle",
       "bytes": 52630348,
       "classification": "SOURCE_SNAPSHOT",
@@ -1715,6 +1872,13 @@
       "classification": "SOURCE_SNAPSHOT",
       "digestRecorded": true,
       "sha256": "e21352fa2b40220049ff5deeaa0cea824b888467f20975e13c01cce2853ff139"
+    },
+    {
+      "path": "local/source-bundles/repository-39e52561.bundle",
+      "bytes": 53692741,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "b95d90dd9d23d116539aa660901c8ab839fbddae0e05270175455f86efce3470"
     },
     {
       "path": "local/source-bundles/repository-42cc922c.bundle",
@@ -1967,6 +2131,27 @@
       "classification": "UPSTREAM_SOURCE_ARTIFACT",
       "digestRecorded": true,
       "sha256": "c764b9bdd25e16c7457b63da4b8cf20a9cb571a0d94ae25d98e44e9cf631ea31"
+    },
+    {
+      "path": "local/v26-business-hil-image-r2.log",
+      "bytes": 2200,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "e1491f8df158126b6d4b1304c8995fe6336a0f8b40fb1f2b7713db0eab30bc21"
+    },
+    {
+      "path": "local/v26-business-hil-packages.log",
+      "bytes": 54742,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "c67989e316e9049ab6b07ed9eea591a346a24e96ead1e2910158c5fdaa66aadf"
+    },
+    {
+      "path": "local/v26-business-unhealthy.patch",
+      "bytes": 397,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "def8f7c1c82732742b8bba54854864516628cc38478268abac537cbe83a50cec"
     },
     {
       "path": "local/v8-inspect.sh",
