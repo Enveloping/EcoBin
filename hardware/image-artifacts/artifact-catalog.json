@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-04T12:35:40.675Z",
+  "catalogedAt": "2026-09-04T12:51:22.339Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -450,14 +450,19 @@
       "sha256": "f863836a0f8979fcd4db1157ac401f6aff4bee867351ba07268c23da5faeffe2"
     },
     {
+      "path": "evidence/hil-runtime-readiness-cameras-20260904-26/flash-result-disk1-121220160204-v26.json",
+      "bytes": 689,
+      "sha256": "47d1745951bbcb0ce3df91143af0a8ce7f48226e404d21b6756474a6419fb0b3"
+    },
+    {
       "path": "evidence/hil-runtime-readiness-cameras-20260904-26/hil-business-signing-public.pem",
       "bytes": 113,
       "sha256": "630073cfeef5ea1331cf42cdff9851b441304569f79c1eec8651c8d349cf96ff"
     },
     {
       "path": "evidence/hil-runtime-readiness-cameras-20260904-26/README.md",
-      "bytes": 7781,
-      "sha256": "e0b9cc45d16a965aac7d285bc366bdc56661080e43e66d963d4cd7b073f759e3"
+      "bytes": 8948,
+      "sha256": "d670e93a272dcdf8341fd45b81d8012b18cfe01389fef68a262c2390450d4338"
     },
     {
       "path": "evidence/hil-runtime-traversal-20260903-16/README.md",
@@ -1620,6 +1625,34 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "7994c65a7704f0d4362a1357e32e6aadf809339af0cc0defb0628e054f185aba"
+    },
+    {
+      "path": "local/flash-v26-disk1.exit-code.txt",
+      "bytes": 2,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "local/flash-v26-disk1.progress.log",
+      "bytes": 3433,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "15ecc4f03fd607533d35f0b011917ca8525b1f96b017a2505c056b9ec33adf0a"
+    },
+    {
+      "path": "local/flash-v26-disk1.ps1",
+      "bytes": 1415,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "f980532a6f3850798e32cbc5c95979e31652626cd45975529fba53a6f8734dc7"
+    },
+    {
+      "path": "local/flash-v26-disk1.result.json",
+      "bytes": 706,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "5375ad435b6dd34c9fad8d9ebff958e33a1bcbebe7314b8d59feb60b93c935f8"
     },
     {
       "path": "local/flash-v9-disk1.ps1",

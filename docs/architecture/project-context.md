@@ -257,7 +257,9 @@
 > v13、v19、v21、v23、v24 并加入 v26；可恢复备份、生产预检、双容器健康、回环请求、
 > 秘密隔离探针和独立复核全部通过，记录见
 > [`v26 后端允许列表部署记录`](../operations/orangepi-v26-backend-allowlist-deployment-2026-09-04.md)。
-> v25 从未接纳或写卡；v26 尚未写卡和真机验收，证据见
+> v25 从未接纳或写卡。项目负责人随后确认覆盖序列号 `121220160204`、容量
+> 31,268,536,320 字节的 Windows 磁盘 1；v26 最终 HIL 镜像实际写入和全范围回读均为
+> 2,571,108,352 字节，回读 SHA-256 与源镜像一致。v26 尚未冷启动和真机验收，证据见
 > [`v26 永久服务就绪与新旧双摄选择 HIL 候选`](../../hardware/image-artifacts/evidence/hil-runtime-readiness-cameras-20260904-26/README.md)。
 
 > [!IMPORTANT]
