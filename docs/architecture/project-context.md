@@ -155,8 +155,11 @@
 > 私钥不在仓库或镜像中；第二次独立离线审计通过。证据见
 > [`hil-stage6-business-runtime-update-20260904-23`](../../hardware/image-artifacts/evidence/hil-stage6-business-runtime-update-20260904-23/README.md)。
 > Windows 全量为 `1842 passed, 104 skipped, 5 subtests passed`，镜像工具套件为
-> `63 passed, 8 skipped`。本轮未写 TF 卡或香橙派，v23 也尚未加入后端允许列表；下次窗口仍
-> 必须完成首次成功迁移、第二版本故意失败回滚和关键阶段断电恢复，才能关闭第六阶段。
+> `63 passed, 8 skipped`。项目负责人随后确认 Windows 磁盘 1，v23 HIL 镜像完成
+> 2,571,108,352 字节写入和同范围 SHA-256 回读；测试后端允许列表保留 v13、v19、v21 并加入
+> `hardware-runtime-20260904-23`，可恢复备份、生产预检、双容器健康、回环请求和秘密隔离复核
+> 通过。设备尚未冷启动；仍须完成首次成功迁移、第二版本故意失败回滚和关键阶段断电恢复，
+> 才能关闭第六阶段。
 
 > [!IMPORTANT]
 > 2026-08-31 已实施设备出厂接入的双观察面：香橙派热点网页用九节点移动端进度链展示

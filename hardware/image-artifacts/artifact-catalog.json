@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-03T22:54:53.933Z",
+  "catalogedAt": "2026-09-04T03:15:34.802Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -495,14 +495,19 @@
       "sha256": "bbe92805ff43a51fa8d7cdcdd78c7bc73ba524a48add182a7f9e450435210362"
     },
     {
+      "path": "evidence/hil-stage6-business-runtime-update-20260904-23/flash-result-disk1-121220160204-v23.json",
+      "bytes": 689,
+      "sha256": "aef930b4bbec0913522930df77b5451035870fcb167eeb7bf1f8a386cab5a6b2"
+    },
+    {
       "path": "evidence/hil-stage6-business-runtime-update-20260904-23/hil-business-signing-public.pem",
       "bytes": 113,
       "sha256": "630073cfeef5ea1331cf42cdff9851b441304569f79c1eec8651c8d349cf96ff"
     },
     {
       "path": "evidence/hil-stage6-business-runtime-update-20260904-23/README.md",
-      "bytes": 7247,
-      "sha256": "4a66dfe383e0f1ee35f7666a47af64a6dd3314d335a190d2464d5cfe5060e6f6"
+      "bytes": 7948,
+      "sha256": "31c4fa59b93eacbdec85c364e8f8374da7b22d49a19a41edc5f18c4771d3a747"
     },
     {
       "path": "evidence/hil-updater-directory-groups-20260903-17/README.md",
@@ -892,6 +897,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "cade503e2c9e005bfc88856daf280797b6f4dd6e1c3549b3aee4e37692cbeac2"
+    },
+    {
+      "path": "local/deploy-v23-backend-allowlist.sh",
+      "bytes": 1689,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "abe00f1542a2b1f7d12a61684fb939f2dd3907b60edd3815831d77f75386354b"
     },
     {
       "path": "local/factory-secret/builds/hil-factory-20260827-01/ecobin-orangepi-zero3-0.1.0-single-card.20260827.1-hil-factory.img",
@@ -1648,6 +1660,34 @@
       "sha256": "1323e79fe27518eb60edd711e6e6113ae00a2a6e5a759e45f5c821bb3089a052"
     },
     {
+      "path": "local/flash-v23-disk1.exit-code.txt",
+      "bytes": 2,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "local/flash-v23-disk1.progress.log",
+      "bytes": 3433,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "bce907d141d823b3247ef1c19ffe688f82d13cec3bdd7774c3ef64686df8dd4b"
+    },
+    {
+      "path": "local/flash-v23-disk1.ps1",
+      "bytes": 1410,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "05e90c8c962e95668818cf84480da76c952fe30738dcc29ea2e7177ee78f37e6"
+    },
+    {
+      "path": "local/flash-v23-disk1.result.json",
+      "bytes": 751,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b7036faeb79865caca67bebec9fcbe38cf04ce3df6b3068b4f69033224625716"
+    },
+    {
       "path": "local/flash-v9-disk1.ps1",
       "bytes": 1192,
       "classification": "LOCAL_ARTIFACT",
@@ -2213,6 +2253,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "375fae71028631726daefd585eedf09db6e33a5daf9a1979fa14e0862d2628ef"
+    },
+    {
+      "path": "local/verify-v23-backend-allowlist.sh",
+      "bytes": 2238,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "32054bfefc7e78e94f3508beb76263b5763ee29cfac44608ef72f8643d200608"
     },
     {
       "path": "local/verify-v8.sh",
