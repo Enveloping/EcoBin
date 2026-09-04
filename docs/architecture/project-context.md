@@ -188,7 +188,9 @@
 > v23 的同时加入 v24；可恢复备份、生产预检、双容器健康、回环请求、秘密隔离探针和独立复核
 > 全部通过，记录见
 > [`v24 后端允许列表部署记录`](../operations/orangepi-v24-backend-allowlist-deployment-2026-09-04.md)。
-> v24 尚未写卡或完成真机切换，不能宣称第五阶段或远程更新已经可用。镜像证据见
+> 项目负责人随后确认 Windows 磁盘 1，序列号 `121220160204`；v24 HIL 镜像完成
+> 2,571,108,352 字节写入及同范围回读，回读 SHA-256 与源镜像一致。v24 尚未冷启动或完成
+> 真机切换，不能宣称第五阶段或远程更新已经可用。镜像及写卡证据见
 > [`v24 业务运行时持久切换 HIL 候选`](../../hardware/image-artifacts/evidence/hil-stage5-runtime-cutover-20260904-24/README.md)。
 > 详细边界见
 > [`香橙派业务运行时发布与更新设计`](orangepi-business-runtime-release-and-update-design.md)。

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-04T07:55:52.953Z",
+  "catalogedAt": "2026-09-04T08:09:05.211Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -495,14 +495,19 @@
       "sha256": "bbe92805ff43a51fa8d7cdcdd78c7bc73ba524a48add182a7f9e450435210362"
     },
     {
+      "path": "evidence/hil-stage5-runtime-cutover-20260904-24/flash-result-disk1-121220160204-v24.json",
+      "bytes": 689,
+      "sha256": "7af1df6846847d4eedd7915a19e5348d294e88061b87c0b38c292b032d240dde"
+    },
+    {
       "path": "evidence/hil-stage5-runtime-cutover-20260904-24/hil-business-signing-public.pem",
       "bytes": 113,
       "sha256": "630073cfeef5ea1331cf42cdff9851b441304569f79c1eec8651c8d349cf96ff"
     },
     {
       "path": "evidence/hil-stage5-runtime-cutover-20260904-24/README.md",
-      "bytes": 7390,
-      "sha256": "50da684d2cb817b7342c9bb209d757de26aecd60773a79328ae3d59b150820ca"
+      "bytes": 8016,
+      "sha256": "d2ae5fbb7a4fa30ed15d5da513773981051c26d8d044c485e53b692e9f0191e4"
     },
     {
       "path": "evidence/hil-stage6-business-runtime-update-20260904-23/flash-result-disk1-121220160204-v23.json",
@@ -1437,6 +1442,34 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "b7036faeb79865caca67bebec9fcbe38cf04ce3df6b3068b4f69033224625716"
+    },
+    {
+      "path": "local/flash-v24-disk1.exit-code.txt",
+      "bytes": 2,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "local/flash-v24-disk1.progress.log",
+      "bytes": 3433,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "811e0302576d98a8b34a7a5d33a2039fc3173638ac56c9057dabd5fefb0755ee"
+    },
+    {
+      "path": "local/flash-v24-disk1.ps1",
+      "bytes": 1402,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "ad784c6aa8fb0bac73cfdd05dd37b41b0811dac3f66f6d34038109603c632907"
+    },
+    {
+      "path": "local/flash-v24-disk1.result.json",
+      "bytes": 706,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "7994c65a7704f0d4362a1357e32e6aadf809339af0cc0defb0628e054f185aba"
     },
     {
       "path": "local/flash-v9-disk1.ps1",
