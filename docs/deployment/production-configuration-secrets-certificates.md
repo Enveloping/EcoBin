@@ -117,7 +117,7 @@ defaultPlatformAdminEnabled=true
 externalMode=fake
 ecobinLogPath=/var/log/ecobin/backend
 miniappDeviceEntryBaseUrl=https://www.jinshoubao.com/device-entry/
-ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01,hardware-runtime-20260830-11,hardware-runtime-20260831-12,hardware-runtime-20260831-13,hardware-runtime-20260903-19,hardware-runtime-20260903-21,hardware-runtime-20260904-23,hardware-runtime-20260904-24
+ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01,hardware-runtime-20260830-11,hardware-runtime-20260831-12,hardware-runtime-20260831-13,hardware-runtime-20260903-19,hardware-runtime-20260903-21,hardware-runtime-20260904-23,hardware-runtime-20260904-24,hardware-runtime-20260904-26
 onenetSubscriptionEnabled=false
 deviceEnrollmentEnabled=false
 remoteSupportEnabled=false
@@ -143,7 +143,7 @@ defaultPlatformAdminEnabled=true
 externalMode=real
 ecobinLogPath=/var/log/ecobin/backend
 miniappDeviceEntryBaseUrl=https://www.jinshoubao.com/device-entry/
-ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01,hardware-runtime-20260830-11,hardware-runtime-20260831-12,hardware-runtime-20260831-13,hardware-runtime-20260903-19,hardware-runtime-20260903-21,hardware-runtime-20260904-23,hardware-runtime-20260904-24
+ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01,hardware-runtime-20260830-11,hardware-runtime-20260831-12,hardware-runtime-20260831-13,hardware-runtime-20260903-19,hardware-runtime-20260903-21,hardware-runtime-20260904-23,hardware-runtime-20260904-24,hardware-runtime-20260904-26
 TZ=UTC
 
 iotSubscriptionName=<OneNet北向订阅名称>
@@ -171,10 +171,10 @@ wechatPayTransferSceneId=1010
 `edgeSoftwareVersion` 不在该列表时，机器验收会明确失败为
 `UNSUPPORTED_EDGE_SOFTWARE`，不能通过人工修改验收结果绕过。
 
-已被淘汰且不再作为下一次写卡源的候选版本不能保留在允许列表。v15 至 v18 均未成为实际
-写卡版本，因此允许列表继续保留实际服役的 v13，并将已完成离线复验的 v19 作为当前唯一
-准备写卡验收的候选。为了让 v19 写卡后的首次机器验收能够进行，可以预先允许这一个候选；
-保留其他候选制品用于追溯不等于允许设备以对应版本通过机器验收。
+已被淘汰且不再作为下一次写卡源的候选版本不能保留在允许列表。允许列表保留仍可能由现有
+设备实际报告的版本，并只预先追加已经完成离线复验、准备写卡验收的新候选。当前 v26 用于
+验证永久服务就绪状态、蜂窝域名解析重试展示，以及“新双摄优先、旧型号缺失回退”；加入
+允许列表只使后端能够校验设备稍后实际上报的 v26，不表示镜像已经写卡或取得真机资格。
 
 这里不允许出现 `wechatAppid`、`wechatSecret`、`miniappSecretStoreDirectory`、
 `wechatPayApiV3Key`、数据库密码或任何 COS/OneNet Secret。前面三项已经从当前设计中
