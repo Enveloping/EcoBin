@@ -168,7 +168,8 @@ for name in cloud_transport.py communication_agent.py communication_credentials.
     install -m 0644 -- "${repository_root}/hardware/${name}" \
         "${staging_directory}/components/communication-agent/app/${name}"
 done
-for name in business_update_coordinator.py business_update_package.py \
+for name in business_runtime_cutover.py business_runtime_cutover_state.py \
+    business_update_coordinator.py business_update_package.py \
     business_update_store.py device_management_preflight.py local_control.py \
     mcu_firmware_package.py mcu_update_coordinator.py mcu_update_package.py \
     mcu_update_store.py updater_agent.py updater_control_cli.py updater_store.py; do

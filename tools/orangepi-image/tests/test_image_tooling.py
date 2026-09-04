@@ -548,6 +548,8 @@ class ImageToolingTest(unittest.TestCase):
         self.assertIn("components/device-updater", builder)
         self.assertIn("components/device-updater/helpers", builder)
         self.assertIn("components/device-updater/systemd", builder)
+        self.assertIn("business_runtime_cutover.py", builder)
+        self.assertIn("business_runtime_cutover_state.py", builder)
         self.assertIn("device_management_preflight.py", builder)
         self.assertIn("updater_control_cli.py", builder)
         self.assertIn("business_activation_primitives.py", builder)
