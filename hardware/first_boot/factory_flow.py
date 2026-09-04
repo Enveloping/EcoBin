@@ -15,6 +15,8 @@ from factory_progress import (
     validate_enrollment_progress,
     validate_runtime_progress,
 )
+from factory_seal.runtime_health import validate_runtime_services
+from .cellular_status import parse_cellular_status
 
 from .atomic_json import AtomicJsonFile, OwnershipSetter, root_group_owner
 from .model import FirstBootFacts, FirstBootStage, normalize_error_code
@@ -97,6 +99,7 @@ _SEAL_FIELDS = {
     "statusCode",
     "acceptanceGeneration",
     "authorizationBindingSha256",
+    "runtimeServices",
 }
 _SEAL_STATUS_CODES = {
     "CLOUD_ACCEPTANCE_REQUIRED",
@@ -1050,13 +1053,10 @@ def _validate_acceptance_projection(value: dict[str, Any]) -> None:
 
 
 def _validate_cellular_projection(value: dict[str, Any]) -> None:
-    if (
-        set(value) != {"schemaVersion", "resultCode"}
-        or type(value.get("schemaVersion")) is not int
-        or value["schemaVersion"] != 1
-        or not _is_code(value.get("resultCode"))
-    ):
-        raise ValueError("cellular projection is invalid")
+    try:
+        parse_cellular_status(value)
+    except ValueError as error:
+        raise ValueError("cellular projection is invalid") from error
 
 
 def _validate_seal_source(value: dict[str, object]) -> _SourceSnapshot:
@@ -1069,6 +1069,7 @@ def _validate_seal_source(value: dict[str, object]) -> _SourceSnapshot:
         code = candidate.get("statusCode")
         generation = candidate.get("acceptanceGeneration")
         binding = candidate.get("authorizationBindingSha256")
+        validate_runtime_services(candidate.get("runtimeServices"))
         if (
             not isinstance(authorized, bool)
             or not isinstance(confirm_allowed, bool)

@@ -157,6 +157,25 @@ const STEP_LABELS = Object.freeze({
   SEAL_MARKER_SAVED: "封存结果已安全保存",
 });
 
+const RUNTIME_SERVICE_LABELS = Object.freeze({
+  COMMUNICATION_AGENT: "云端通信服务",
+  DEVICE_UPDATER: "设备更新服务",
+  BUSINESS_ACTIVATION_CONTROL: "业务程序切换授权",
+  MCU_UPDATE_CONTROL: "控制板升级授权",
+  DEVICE_MANAGEMENT_PREFLIGHT: "设备管理启动自检",
+  BUSINESS_RUNTIME: "设备日常业务服务",
+  CELLULAR_UPLINK: "蜂窝联网服务",
+  REMOTE_SUPPORT: "远程维护服务",
+});
+
+const RUNTIME_SERVICE_STATE_META = Object.freeze({
+  ACTIVE: { label: "运行正常", className: "is-ok" },
+  STARTING: { label: "启动中", className: "is-waiting" },
+  INACTIVE: { label: "未运行", className: "is-error" },
+  FAILED: { label: "启动失败", className: "is-error" },
+  UNKNOWN: { label: "无法确认", className: "is-unknown" },
+});
+
 const DETAIL_DESCRIPTIONS = Object.freeze({
   BOOT_READY: "系统准备和出厂热点均已就绪。",
   NOT_RUN: "等待操作员开始本机硬件检查。",
@@ -806,9 +825,93 @@ function updateOperatorPanel(status) {
   byId("seal-confirm").disabled = requestRunning || !sealVisible;
 }
 
+function updateNetworkRetry(status) {
+  const panel = byId("network-retry-panel");
+  const cellular = status.network?.cellular;
+  const resultCode = typeof cellular?.resultCode === "string"
+    ? cellular.resultCode
+    : "STATUS_UNAVAILABLE";
+  const retryScheduled = cellular?.retryScheduled === true;
+  const inNetworkStep = currentFlowNode?.id === "CELLULAR_AND_TIME";
+  panel.hidden = resultCode === "NONE" || (!inNetworkStep && !retryScheduled);
+  if (panel.hidden) return;
+
+  const count = Number.isInteger(cellular?.consecutiveFailureCount)
+    && cellular.consecutiveFailureCount > 0
+    ? cellular.consecutiveFailureCount
+    : 0;
+  const retryInSeconds = Number.isInteger(cellular?.retryInSeconds)
+    && cellular.retryInSeconds >= 0
+    ? cellular.retryInSeconds
+    : null;
+  let retryText = "当前未安排自动重试，请按页面问题提示处理。";
+  if (retryScheduled && retryInSeconds === 0) {
+    retryText = "正在开始下一次自动检测。";
+  } else if (retryScheduled && retryInSeconds !== null) {
+    retryText = `约 ${retryInSeconds} 秒后自动重试。`;
+  } else if (retryScheduled) {
+    retryText = "系统已经安排下一次自动重试。";
+  }
+
+  const detail = resultCode === "CELLULAR_DNS_UNAVAILABLE"
+    ? `后台地址解析连续 ${count || 1} 次未成功。${retryText}`
+    : resultCode === "STATUS_UNAVAILABLE"
+      ? "暂时读取不到蜂窝网络自动重试进度。"
+      : `${errorDescription(resultCode)}${count > 0 ? `，已连续检测 ${count} 次` : ""}。${retryText}`;
+  setTextIfChanged(byId("network-retry-detail"), detail);
+  setTextIfChanged(
+    byId("network-retry-state"),
+    retryScheduled ? "自动重试中" : "需要检查",
+  );
+}
+
+function updateRuntimeServices(status) {
+  const panel = byId("runtime-services-panel");
+  const visibleFrom = [
+    "RUNTIME_AND_MQTT",
+    "FACTORY_BAGS",
+    "CLOUD_EVIDENCE",
+    "CLOUD_DECISION_AND_AUTHORIZATION",
+    "FACTORY_SEAL",
+  ];
+  const shouldShow = visibleFrom.includes(currentFlowNode?.id)
+    || status.factorySeal?.statusCode === "RUNTIME_NOT_HEALTHY";
+  panel.hidden = !shouldShow;
+  if (panel.hidden) return;
+
+  const observed = Array.isArray(status.factorySeal?.runtimeServices)
+    ? status.factorySeal.runtimeServices
+    : [];
+  const list = byId("runtime-services-list");
+  list.replaceChildren();
+  let activeCount = 0;
+  for (const [serviceId, label] of Object.entries(RUNTIME_SERVICE_LABELS)) {
+    const service = observed.find((item) => item?.id === serviceId);
+    const state = typeof service?.state === "string" ? service.state : "UNKNOWN";
+    const meta = RUNTIME_SERVICE_STATE_META[state] || RUNTIME_SERVICE_STATE_META.UNKNOWN;
+    if (state === "ACTIVE") activeCount += 1;
+
+    const item = document.createElement("li");
+    item.className = meta.className;
+    const name = document.createElement("span");
+    name.textContent = label;
+    const result = document.createElement("strong");
+    result.textContent = meta.label;
+    item.append(name, result);
+    list.appendChild(item);
+  }
+  const total = Object.keys(RUNTIME_SERVICE_LABELS).length;
+  setTextIfChanged(
+    byId("runtime-services-summary"),
+    activeCount === total ? `${total} 项均正常` : `${activeCount}/${total} 项正常`,
+  );
+}
+
 function updateStatus(status) {
   currentStatus = status;
   renderFlow(status.factoryFlow);
+  updateNetworkRetry(status);
+  updateRuntimeServices(status);
   updateOperatorPanel(status);
   byId("stage").textContent = firstBootStageLabel(status.stage);
   byId("release").textContent = releaseLabel(status.image?.releaseId);

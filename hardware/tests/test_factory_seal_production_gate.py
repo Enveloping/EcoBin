@@ -173,6 +173,7 @@ def _write_bound_seal(
                 ),
             )
             event["occurredAt"] = cleanup_completed_at
+            event["clockQuality"] = "SYNCED"
             connection.execute(
                 """INSERT INTO event_outbox
                    (event_uid, edge_event_sequence, event_type,

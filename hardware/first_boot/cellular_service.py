@@ -16,7 +16,7 @@ from .cellular_probe import (
     SysfsUsbNetworkInventory,
     select_rndis_device,
 )
-from .cellular_status import CellularStatusStore
+from .cellular_status import CellularStatus, CellularStatusStore
 from .facts import SystemFactsProvider
 from .network_manager import (
     NetworkManagerActivator,
@@ -49,17 +49,42 @@ class CellularResultReporter:
         *,
         path: Path = Path("/run/ecobin/cellular-uplink/status.json"),
         emit: Callable[[str], None] = _emit_status_transition,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._store = CellularStatusStore(path)
         self._emit = emit
+        self._monotonic = monotonic
         self._last_observation: tuple[str, str] | None = None
+        self._last_result_code: str | None = None
+        self._consecutive_failure_count = 0
 
-    def report(self, result_code: str) -> None:
+    def report(
+        self,
+        result_code: str,
+        *,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        if result_code == "NONE":
+            self._consecutive_failure_count = 0
+        elif result_code == self._last_result_code:
+            self._consecutive_failure_count += 1
+        else:
+            self._consecutive_failure_count = 1
+        next_retry_at_monotonic_ms = None
+        if result_code != "NONE" and retry_after_seconds is not None:
+            next_retry_at_monotonic_ms = round(
+                (self._monotonic() + retry_after_seconds) * 1000
+            )
         projection = "OK"
         try:
-            self._store.publish(result_code)
+            self._store.publish(
+                result_code,
+                consecutive_failure_count=self._consecutive_failure_count,
+                next_retry_at_monotonic_ms=next_retry_at_monotonic_ms,
+            )
         except Exception:
             projection = "CELLULAR_STATUS_WRITE_FAILED"
+        self._last_result_code = result_code
         observation = (result_code, projection)
         if observation == self._last_observation:
             return
@@ -71,6 +96,9 @@ class CellularResultReporter:
 
     def current_result(self) -> str | None:
         return self._store.read()
+
+    def current_status(self) -> CellularStatus | None:
+        return self._store.read_status()
 
 
 class CellularProbeDiagnosticReporter:
@@ -220,7 +248,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     signal.signal(signal.SIGINT, stop)
     while not stopping:
         reporter.report(
-            run_once(probe_diagnostic=diagnostic_reporter.report)
+            run_once(probe_diagnostic=diagnostic_reporter.report),
+            retry_after_seconds=args.interval_seconds,
         )
         end = time.monotonic() + args.interval_seconds
         while not stopping and time.monotonic() < end:

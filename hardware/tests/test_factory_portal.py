@@ -28,6 +28,7 @@ from factory.portal import (
     security_headers,
 )
 from factory_seal.errors import FactorySealPortalError
+from factory_seal.runtime_health import active_runtime_services
 from first_boot.factory_flow import _SEAL_STATUS_CODES
 from first_boot.model import FactoryTestStatus, FirstBootStage
 
@@ -74,6 +75,7 @@ class FakeSealPortal:
             "statusCode": self.status_code,
             "acceptanceGeneration": 1 if self.allowed else None,
             "authorizationBindingSha256": "a" * 64 if self.allowed else None,
+            "runtimeServices": active_runtime_services(),
         }
 
     def confirm(self, operator_confirmation_uid: str) -> dict[str, Any]:
@@ -84,6 +86,7 @@ class FakeSealPortal:
             "statusCode": "SEALED_RESPONSE_PENDING",
             "acceptanceGeneration": 1,
             "authorizationBindingSha256": "a" * 64,
+            "runtimeServices": active_runtime_services(),
         }
 
     def acknowledge_presented(
@@ -96,6 +99,7 @@ class FakeSealPortal:
             "statusCode": "SEALED_RESPONSE_PENDING",
             "acceptanceGeneration": 1,
             "authorizationBindingSha256": "a" * 64,
+            "runtimeServices": active_runtime_services(),
         }
 
 
@@ -644,6 +648,12 @@ def test_public_projection_never_copies_secret_shaped_fields(tmp_path: Path) -> 
                 "lastErrorCode": "NONE",
                 "timeTrusted": False,
                 "factoryTestStatus": "NOT_RUN",
+                "cellular": {
+                    "resultCode": "CELLULAR_DNS_UNAVAILABLE",
+                    "consecutiveFailureCount": 3,
+                    "retryScheduled": True,
+                    "retryInSeconds": 9,
+                },
                 "deviceKey": "ONENET-SHOULD-NEVER-LEAK",
                 "credentials": "CREDENTIAL-SHOULD-NEVER-LEAK",
             }
@@ -680,6 +690,12 @@ def test_public_projection_never_copies_secret_shaped_fields(tmp_path: Path) -> 
     assert snapshot["readOnly"] is False
     assert snapshot["factoryTest"]["status"] == "NOT_RUN"
     assert snapshot["network"]["clientWanForwarding"] is False
+    assert snapshot["network"]["cellular"] == {
+        "resultCode": "CELLULAR_DNS_UNAVAILABLE",
+        "consecutiveFailureCount": 3,
+        "retryScheduled": True,
+        "retryInSeconds": 9,
+    }
     assert "SHOULD-NEVER-LEAK" not in encoded
     assert "deviceKey" not in encoded
     assert "credentials" not in encoded
@@ -712,6 +728,11 @@ def test_web_surfaces_time_trust_and_the_precise_uplink_result() -> None:
     assert 'byId("last-error")' in app
     assert "status.system?.timeTrusted" in app
     assert "status.lastErrorCode" in app
+    assert 'id="network-retry-panel"' in index
+    assert 'id="network-retry-detail"' in index
+    assert "status.network?.cellular" in app
+    assert "consecutiveFailureCount" in app
+    assert "retryInSeconds" in app
     for code in (
         "TIME_SYNC_PENDING",
         "TIME_TRUST_QUERY_FAILED",
@@ -724,6 +745,34 @@ def test_web_surfaces_time_trust_and_the_precise_uplink_result() -> None:
         "TIME_SYNC_INTERNAL_ERROR",
     ):
         assert code in app
+
+
+def test_web_surfaces_each_runtime_service_without_unit_names() -> None:
+    web = Path(__file__).parents[1] / "factory" / "web"
+    index = (web / "index.html").read_text(encoding="utf-8")
+    app = (web / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="runtime-services-panel"' in index
+    assert 'id="runtime-services-list"' in index
+    for label in (
+        "云端通信服务",
+        "设备更新服务",
+        "业务程序切换授权",
+        "控制板升级授权",
+        "设备管理启动自检",
+        "设备日常业务服务",
+        "蜂窝联网服务",
+        "远程维护服务",
+    ):
+        assert label in app
+    for internal_name in (
+        "ecobin-communication.service",
+        "ecobin-updater.service",
+        "ecobin-business-activation-helper.socket",
+        "ecobin-mcu-flash-helper.socket",
+    ):
+        assert internal_name not in index
+        assert internal_name not in app
 
 
 def test_camera_review_labels_follow_roles_instead_of_one_camera_model() -> None:

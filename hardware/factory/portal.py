@@ -24,6 +24,11 @@ from first_boot.factory_flow import (
     empty_factory_flow_projection,
     validate_factory_flow_projection,
 )
+from first_boot.status_projection import validate_public_cellular_status
+from factory_seal.runtime_health import (
+    unknown_runtime_services,
+    validate_runtime_services,
+)
 
 from .acceptance_portal_client import (
     AcceptancePortalClient,
@@ -215,6 +220,7 @@ class FactorySealPortalAdapter:
             "statusCode",
             "acceptanceGeneration",
             "authorizationBindingSha256",
+            "runtimeServices",
         }
         if not isinstance(value, dict) or set(value) != exact:
             raise RuntimeError("factory seal projection is invalid")
@@ -243,7 +249,15 @@ class FactorySealPortalAdapter:
             )
         ):
             raise RuntimeError("factory seal projection is invalid")
-        return dict(value)
+        try:
+            runtime_services = validate_runtime_services(
+                value.get("runtimeServices")
+            )
+        except ValueError as error:
+            raise RuntimeError("factory seal projection is invalid") from error
+        result = dict(value)
+        result["runtimeServices"] = runtime_services
+        return result
 
     @staticmethod
     def _unavailable(code: str = "FACTORY_SEAL_NOT_AVAILABLE") -> dict[str, Any]:
@@ -253,6 +267,7 @@ class FactorySealPortalAdapter:
             "statusCode": code,
             "acceptanceGeneration": None,
             "authorizationBindingSha256": None,
+            "runtimeServices": unknown_runtime_services(),
         }
 
     def status(self) -> dict[str, Any]:
@@ -378,6 +393,17 @@ class PortalSnapshotProvider:
         )
         if report_status not in _REPORT_STATUSES:
             report_status = "NOT_RUN"
+        try:
+            cellular_status = validate_public_cellular_status(
+                public_status.get("cellular")
+            )
+        except ValueError:
+            cellular_status = {
+                "resultCode": "STATUS_UNAVAILABLE",
+                "consecutiveFailureCount": 0,
+                "retryScheduled": False,
+                "retryInSeconds": None,
+            }
 
         machine_id = _read_regular_file(self._paths.machine_id, 128)
         machine_summary = "UNAVAILABLE"
@@ -464,6 +490,7 @@ class PortalSnapshotProvider:
                 "portalAddress": f"http://{FACTORY_ADDRESS}/",
                 "clientWanForwarding": False,
                 "allowedLocalServices": ["DHCP", "DNS", "HTTP"],
+                "cellular": cellular_status,
             },
             "factoryTest": {
                 "status": _safe_string(

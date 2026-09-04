@@ -6,6 +6,7 @@ import socket
 import uuid
 
 from .errors import FactorySealPortalError
+from .runtime_health import validate_runtime_services
 
 
 DEFAULT_SOCKET = Path("/run/ecobin/factory-portal/seal-control.sock")
@@ -15,6 +16,7 @@ _STATUS_FIELDS = {
     "statusCode",
     "acceptanceGeneration",
     "authorizationBindingSha256",
+    "runtimeServices",
 }
 
 
@@ -110,6 +112,12 @@ def _request(
         data["confirmAllowed"], bool
     ):
         raise FactorySealPortalError("FACTORY_SEAL_RESPONSE_INVALID")
+    try:
+        data["runtimeServices"] = validate_runtime_services(
+            data["runtimeServices"]
+        )
+    except ValueError:
+        raise FactorySealPortalError("FACTORY_SEAL_RESPONSE_INVALID") from None
     return data
 
 

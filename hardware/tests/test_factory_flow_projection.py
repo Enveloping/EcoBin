@@ -13,6 +13,7 @@ from first_boot.factory_flow import (
     validate_factory_flow_projection,
 )
 from first_boot.model import FactoryTestStatus, FirstBootFacts, FirstBootStage
+from factory_seal.runtime_health import unknown_runtime_services
 
 
 COMMAND_UID = "12345678-1234-4123-8123-123456789abc"
@@ -45,6 +46,7 @@ def _seal(
         "statusCode": status_code,
         "acceptanceGeneration": 1 if authorized else None,
         "authorizationBindingSha256": "a" * 64 if authorized else None,
+        "runtimeServices": unknown_runtime_services(),
     }
 
 
@@ -123,7 +125,15 @@ def _create_empty_delivery_store(paths: FactoryFlowPaths) -> None:
 
 def _write_completed_sources(paths: FactoryFlowPaths) -> None:
     _write(paths.acceptance, _p7_projection())
-    _write(paths.cellular, {"schemaVersion": 1, "resultCode": "NONE"})
+    _write(
+        paths.cellular,
+        {
+            "schemaVersion": 2,
+            "resultCode": "NONE",
+            "consecutiveFailureCount": 0,
+            "nextRetryAtMonotonicMs": None,
+        },
+    )
     _write(
         paths.enrollment,
         {

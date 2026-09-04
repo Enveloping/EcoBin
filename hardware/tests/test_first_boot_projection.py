@@ -8,6 +8,7 @@ import stat
 import pytest
 
 from first_boot.model import FactoryTestStatus, FirstBootFacts, FirstBootStage
+from first_boot.cellular_status import CellularStatus
 from first_boot.status_projection import (
     AccessPointAuthorizationProjector,
     PortalStatusProjector,
@@ -16,10 +17,19 @@ from first_boot.status_projection import (
 )
 
 
-def test_projection_is_exact_four_field_whitelist(tmp_path: Path) -> None:
+def test_projection_is_exact_public_field_whitelist(tmp_path: Path) -> None:
     path = tmp_path / "run" / "status.json"
     owned: list[Path] = []
-    projector = PortalStatusProjector(path, owner=owned.append)
+    projector = PortalStatusProjector(
+        path,
+        owner=owned.append,
+        cellular_status_reader=lambda: CellularStatus(
+            result_code="CELLULAR_DNS_UNAVAILABLE",
+            consecutive_failure_count=3,
+            next_retry_at_monotonic_ms=115_000,
+        ),
+        monotonic=lambda: 100.0,
+    )
     facts = FirstBootFacts(
         factory_test_status=FactoryTestStatus.RUNNING,
         time_trusted=True,
@@ -37,6 +47,12 @@ def test_projection_is_exact_four_field_whitelist(tmp_path: Path) -> None:
         "lastErrorCode": "NONE",
         "timeTrusted": True,
         "factoryTestStatus": "RUNNING",
+        "cellular": {
+            "resultCode": "CELLULAR_DNS_UNAVAILABLE",
+            "consecutiveFailureCount": 3,
+            "retryScheduled": True,
+            "retryInSeconds": 15,
+        },
     }
     assert validate_public_projection(document) == document
     assert owned
@@ -58,6 +74,12 @@ def test_projection_validator_rejects_any_extra_field(extra: dict[str, object]) 
         "lastErrorCode": "NONE",
         "timeTrusted": False,
         "factoryTestStatus": "NOT_RUN",
+        "cellular": {
+            "resultCode": "STATUS_UNAVAILABLE",
+            "consecutiveFailureCount": 0,
+            "retryScheduled": False,
+            "retryInSeconds": None,
+        },
         **extra,
     }
     with pytest.raises(ValueError, match="fields"):

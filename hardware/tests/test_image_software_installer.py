@@ -15,6 +15,10 @@ from pathlib import Path
 import pytest
 
 from factory_seal.validation import FactorySealPaths, collect_local_factory_facts
+from first_boot.management_layer import (
+    ImageManagedLayerPaths,
+    image_managed_layer_complete,
+)
 from install.runtime_release import RUNTIME_APP_FILES as SIGNED_RUNTIME_APP_FILES
 from system import image_software_installer as image_installer
 from system.image_software_installer import (
@@ -168,7 +172,9 @@ for name in sys.argv[2:]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
-        timeout=30,
+        # Windows real-time scanning can briefly hold freshly copied Python
+        # modules.  The Linux image/CI path keeps the tighter bound.
+        timeout=60 if os.name == "nt" else 30,
     )
     assert completed.returncode == 0, completed.stderr
 
@@ -907,6 +913,20 @@ def test_installer_enables_only_early_safety_units_and_audit_detects_drift(
     finally:
         if previous_umask is not None:
             os.umask(previous_umask)
+
+    assert image_managed_layer_complete(
+        ImageManagedLayerPaths(
+            private_image_release=rootfs / "etc/ecobin/image-release.json",
+            public_image_release=rootfs / "usr/share/ecobin/image-release.json",
+            software_payload_lock=(
+                rootfs / "usr/share/ecobin/software-payload.lock.json"
+            ),
+            release_environment=(
+                rootfs / "usr/share/ecobin/device-management-release.env"
+            ),
+        ),
+        expected_owner=None if os.name != "posix" else (0, 0),
+    )
 
     if os.name == "posix":
         assert stat.S_IMODE(ecobin_root.stat().st_mode) == 0o755

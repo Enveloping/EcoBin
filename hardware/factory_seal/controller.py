@@ -17,6 +17,14 @@ from first_boot.atomic_json import AtomicJsonFile
 from onenet_wire import build_event_envelope
 
 from .errors import FactorySealError
+from .runtime_health import (
+    active_runtime_services,
+    inactive_runtime_services,
+    inspect_runtime_services,
+    runtime_services_healthy,
+    unknown_runtime_services,
+    validate_runtime_services,
+)
 from .validation import (
     FactorySealPaths,
     collect_local_factory_facts,
@@ -67,7 +75,15 @@ class FactorySealController:
                 "than response_hold_seconds"
             )
         self.paths = paths
-        self._runtime_healthy = runtime_healthy or _runtime_healthy
+        self._runtime_services = (
+            inspect_runtime_services
+            if runtime_healthy is None
+            else lambda: (
+                active_runtime_services()
+                if runtime_healthy()
+                else inactive_runtime_services()
+            )
+        )
         self._stop_factory = stop_factory or _stop_factory
         self._apply_production_firewall = (
             apply_production_firewall or _apply_production_firewall
@@ -98,6 +114,7 @@ class FactorySealController:
 
     def status(self) -> dict[str, object]:
         with self._lock:
+            runtime_services = self._runtime_service_statuses()
             sealed = self._read_sealed()
             if sealed is not None:
                 row = self._authorization_by_command(
@@ -124,6 +141,7 @@ class FactorySealController:
                         if row is not None
                         else None
                     ),
+                    runtime_services=runtime_services,
                 )
             seal_fact = inspect_sealed_authorization(self.paths)
             if seal_fact.exists:
@@ -137,6 +155,7 @@ class FactorySealController:
                     status_code=seal_fact.status_code,
                     generation=seal_fact.acceptance_generation,
                     binding=seal_fact.authorization_binding_sha256,
+                    runtime_services=runtime_services,
                 )
             row = self._current_authorization()
             if row is None:
@@ -144,6 +163,7 @@ class FactorySealController:
                     authorized=False,
                     confirm_allowed=False,
                     status_code="CLOUD_ACCEPTANCE_REQUIRED",
+                    runtime_services=runtime_services,
                 )
             if row["state"] != "AUTHORIZED":
                 return _public_status(
@@ -158,14 +178,19 @@ class FactorySealController:
                     ),
                     generation=row["acceptance_generation"],
                     binding=row["authorization_binding_sha256"],
+                    runtime_services=runtime_services,
                 )
-            code = self._eligibility_code(row)
+            code = self._eligibility_code(
+                row,
+                runtime_services=runtime_services,
+            )
             return _public_status(
                 authorized=True,
                 confirm_allowed=code == "SEAL_READY",
                 status_code=code,
                 generation=row["acceptance_generation"],
                 binding=row["authorization_binding_sha256"],
+                runtime_services=runtime_services,
             )
 
     def confirm(self, operator_confirmation_uid: str) -> dict[str, object]:
@@ -182,7 +207,11 @@ class FactorySealController:
             row = self._current_authorization()
             if row is None or row["state"] != "AUTHORIZED":
                 raise FactorySealError("FACTORY_SEAL_NOT_AUTHORIZED")
-            code = self._eligibility_code(row)
+            runtime_services = self._runtime_service_statuses()
+            code = self._eligibility_code(
+                row,
+                runtime_services=runtime_services,
+            )
             if code != "SEAL_READY":
                 raise FactorySealError(code)
             sealed_clock = sample_clock()
@@ -211,6 +240,7 @@ class FactorySealController:
                 status_code="SEALED_RESPONSE_PENDING",
                 generation=row["acceptance_generation"],
                 binding=row["authorization_binding_sha256"],
+                runtime_services=runtime_services,
             )
 
     def acknowledge_response_presented(
@@ -335,7 +365,12 @@ class FactorySealController:
         self._response_hold_deadline = None
         self._response_cleanup_not_before = None
 
-    def _eligibility_code(self, row: sqlite3.Row) -> str:
+    def _eligibility_code(
+        self,
+        row: sqlite3.Row,
+        *,
+        runtime_services: list[dict[str, str]] | None = None,
+    ) -> str:
         try:
             facts = collect_local_factory_facts(self.paths)
         except FactorySealError as error:
@@ -377,9 +412,20 @@ class FactorySealController:
             return "DEVICE_CAPABILITIES_INVALID"
         if self._maintenance_lock_exists():
             return "MAINTENANCE_BUSY"
-        if not self._runtime_healthy():
+        observed_runtime_services = (
+            runtime_services
+            if runtime_services is not None
+            else self._runtime_service_statuses()
+        )
+        if not runtime_services_healthy(observed_runtime_services):
             return "RUNTIME_NOT_HEALTHY"
         return "SEAL_READY"
+
+    def _runtime_service_statuses(self) -> list[dict[str, str]]:
+        try:
+            return validate_runtime_services(self._runtime_services())
+        except Exception:
+            return unknown_runtime_services()
 
     def _connection(self) -> sqlite3.Connection:
         connection = sqlite3.connect(
@@ -717,6 +763,7 @@ def _public_status(
     status_code: str,
     generation: int | None = None,
     binding: str | None = None,
+    runtime_services: list[dict[str, str]] | None = None,
 ) -> dict[str, object]:
     return {
         "authorized": authorized,
@@ -724,6 +771,11 @@ def _public_status(
         "statusCode": status_code,
         "acceptanceGeneration": generation,
         "authorizationBindingSha256": binding,
+        "runtimeServices": validate_runtime_services(
+            runtime_services
+            if runtime_services is not None
+            else unknown_runtime_services()
+        ),
     }
 
 
@@ -793,29 +845,7 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _runtime_healthy() -> bool:
-    for unit in (
-        "ecobin-communication.service",
-        "ecobin-updater.service",
-        "ecobin-business-activation-helper.socket",
-        "ecobin-mcu-flash-helper.socket",
-        "ecobin-device-management-preflight.service",
-        "ecobin-hardware.service",
-        "ecobin-cellular-uplink.service",
-        "ecobin-remote-support.service",
-    ):
-        try:
-            result = subprocess.run(
-                ("/usr/bin/systemctl", "is-active", "--quiet", unit),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5,
-                check=False,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return False
-        if result.returncode != 0:
-            return False
-    return True
+    return runtime_services_healthy(inspect_runtime_services())
 
 
 def _stop_factory() -> bool:

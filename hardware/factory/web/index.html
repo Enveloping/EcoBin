@@ -66,6 +66,22 @@
           <span id="issue-code">如需报修，请展开下方诊断信息并提供技术代码。</span>
         </div>
         <ul id="current-substeps" class="substep-list" aria-label="当前步骤详细进度"></ul>
+
+        <section id="network-retry-panel" class="status-insight status-insight--network" hidden aria-labelledby="network-retry-title">
+          <div class="status-insight__head">
+            <strong id="network-retry-title">蜂窝网络自动重试</strong>
+            <span id="network-retry-state" class="micro-state">正在读取</span>
+          </div>
+          <p id="network-retry-detail">正在读取联网检测进度。</p>
+        </section>
+
+        <section id="runtime-services-panel" class="status-insight status-insight--services" hidden aria-labelledby="runtime-services-title">
+          <div class="status-insight__head">
+            <strong id="runtime-services-title">设备日常服务检查</strong>
+            <span id="runtime-services-summary" class="micro-state">正在读取</span>
+          </div>
+          <ul id="runtime-services-list" class="service-check-list" aria-label="设备日常服务逐项检查结果"></ul>
+        </section>
       </section>
 
       <section id="operator-panel" class="operator-panel" aria-labelledby="action-title">

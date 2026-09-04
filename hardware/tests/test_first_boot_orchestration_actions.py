@@ -56,6 +56,14 @@ def _installed_management_paths() -> set[str]:
     }
 
 
+def _image_integrated_management_paths() -> set[str]:
+    actions = SystemdStageActions
+    return {
+        f"/etc/systemd/system/{unit}"
+        for unit in actions._MANAGED_UNIT_FILES
+    }
+
+
 def _passed(**overrides: object) -> FirstBootFacts:
     values: dict[str, object] = {
         "system_prepared": True,
@@ -151,6 +159,34 @@ def test_active_runtime_target_restarts_every_inactive_independent_member() -> N
             sealed_valid=True,
             sealed_cleanup_complete=True,
         ),
+    ) == "NONE"
+
+    assert [call[-1] for call in _start_calls(runner)] == [
+        "ecobin-hardware.service",
+        "ecobin-communication.service",
+        "ecobin-updater.service",
+        "ecobin-business-activation-helper.socket",
+        "ecobin-mcu-flash-helper.socket",
+        "ecobin-device-management-preflight.service",
+    ]
+
+
+def test_image_integrated_management_layer_starts_without_maintenance_marker() -> None:
+    runner = RecordingRunner(
+        active_units={
+            "ecobin-runtime.target",
+            "ecobin-remote-support.service",
+        }
+    )
+    actions = SystemdStageActions(
+        runner,
+        path_exists=_image_integrated_management_paths().__contains__,
+        image_managed_layer_inspector=lambda: True,
+    )
+
+    assert actions.apply(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed(),
     ) == "NONE"
 
     assert [call[-1] for call in _start_calls(runner)] == [

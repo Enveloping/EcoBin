@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
+import time
 from typing import Callable
 
 from .atomic_json import AtomicJsonFile, OwnershipSetter, root_group_owner
+from .cellular_status import CellularStatus, CellularStatusStore
 from .model import FactoryTestStatus, FirstBootFacts, FirstBootStage, normalize_error_code
 
 
@@ -12,6 +15,13 @@ _EXACT_FIELDS = {
     "lastErrorCode",
     "timeTrusted",
     "factoryTestStatus",
+    "cellular",
+}
+_CELLULAR_PUBLIC_FIELDS = {
+    "resultCode",
+    "consecutiveFailureCount",
+    "retryScheduled",
+    "retryInSeconds",
 }
 _AP_EXACT_FIELDS = {"schemaVersion", "allowed", "statusCode"}
 
@@ -23,6 +33,8 @@ class PortalStatusProjector:
         *,
         group_id: int | None = None,
         owner: OwnershipSetter | None = None,
+        cellular_status_reader: Callable[[], CellularStatus | None] | None = None,
+        monotonic: Callable[[], float] | None = None,
     ) -> None:
         if owner is None:
             if group_id is None:
@@ -35,6 +47,10 @@ class PortalStatusProjector:
             owner=owner,
             maximum_bytes=4096,
         )
+        self._cellular_status_reader = (
+            cellular_status_reader or CellularStatusStore().read_status
+        )
+        self._monotonic = monotonic or time.monotonic
 
     def publish(
         self,
@@ -43,11 +59,19 @@ class PortalStatusProjector:
         *,
         error_code: str,
     ) -> None:
+        try:
+            cellular_status = self._cellular_status_reader()
+        except Exception:
+            cellular_status = None
         public = {
             "stage": stage.value,
             "lastErrorCode": normalize_error_code(error_code),
             "timeTrusted": bool(facts.time_trusted),
             "factoryTestStatus": facts.factory_test_status.value,
+            "cellular": _public_cellular_status(
+                cellular_status,
+                now_monotonic=self._monotonic(),
+            ),
         }
         if set(public) != _EXACT_FIELDS:
             raise AssertionError("portal status projection fields drifted")
@@ -114,11 +138,80 @@ def validate_public_projection(value: object) -> dict[str, object]:
         raise ValueError("portal projection error code is invalid")
     if not isinstance(value["timeTrusted"], bool):
         raise ValueError("portal projection timeTrusted is invalid")
+    cellular = validate_public_cellular_status(value.get("cellular"))
     return {
         "stage": stage.value,
         "lastErrorCode": last_error,
         "timeTrusted": value["timeTrusted"],
         "factoryTestStatus": factory_status.value,
+        "cellular": cellular,
+    }
+
+
+def _public_cellular_status(
+    status: CellularStatus | None,
+    *,
+    now_monotonic: float,
+) -> dict[str, object]:
+    if status is None:
+        return {
+            "resultCode": "STATUS_UNAVAILABLE",
+            "consecutiveFailureCount": 0,
+            "retryScheduled": False,
+            "retryInSeconds": None,
+        }
+    retry_scheduled = status.next_retry_at_monotonic_ms is not None
+    retry_in_seconds = (
+        max(
+            0,
+            math.ceil(
+                status.next_retry_at_monotonic_ms / 1000 - now_monotonic
+            ),
+        )
+        if status.next_retry_at_monotonic_ms is not None
+        else None
+    )
+    return {
+        "resultCode": status.result_code,
+        "consecutiveFailureCount": status.consecutive_failure_count,
+        "retryScheduled": retry_scheduled,
+        "retryInSeconds": retry_in_seconds,
+    }
+
+
+def validate_public_cellular_status(value: object) -> dict[str, object]:
+    if not isinstance(value, dict) or set(value) != _CELLULAR_PUBLIC_FIELDS:
+        raise ValueError("portal cellular projection fields are invalid")
+    result_code = value.get("resultCode")
+    failure_count = value.get("consecutiveFailureCount")
+    retry_scheduled = value.get("retryScheduled")
+    retry_in_seconds = value.get("retryInSeconds")
+    if (
+        not isinstance(result_code, str)
+        or normalize_error_code(result_code) != result_code
+        or type(failure_count) is not int
+        or not 0 <= failure_count <= 1_000_000
+        or type(retry_scheduled) is not bool
+        or not (
+            retry_in_seconds is None
+            or (
+                type(retry_in_seconds) is int
+                and 0 <= retry_in_seconds <= 300
+            )
+        )
+        or retry_scheduled != (retry_in_seconds is not None)
+        or (retry_scheduled and failure_count == 0)
+        or (
+            result_code == "NONE"
+            and (failure_count != 0 or retry_scheduled)
+        )
+    ):
+        raise ValueError("portal cellular projection values are invalid")
+    return {
+        "resultCode": result_code,
+        "consecutiveFailureCount": failure_count,
+        "retryScheduled": retry_scheduled,
+        "retryInSeconds": retry_in_seconds,
     }
 
 

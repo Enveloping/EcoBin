@@ -17,6 +17,7 @@ from factory_seal.portal_server import FactorySealPortalServer
 from .command import CommandRunner
 from .facts import FactsProvider, SystemFactsProvider
 from .factory_flow import FactoryFlowProjector
+from .management_layer import image_managed_layer_complete
 from .model import FirstBootFacts, FirstBootStage
 from .state_machine import gate_allows, reconcile
 from .state_store import FirstBootState, FirstBootStateStore
@@ -100,10 +101,14 @@ class SystemdStageActions:
         cutover_inspector: Callable[
             [], BusinessRuntimeCutoverInspection
         ] = inspect_business_runtime_cutover,
+        image_managed_layer_inspector: Callable[
+            [], bool
+        ] = image_managed_layer_complete,
     ) -> None:
         self._runner = runner or CommandRunner()
         self._path_exists = path_exists
         self._cutover_inspector = cutover_inspector
+        self._image_managed_layer_inspector = image_managed_layer_inspector
 
     def apply(self, stage: FirstBootStage, facts: FirstBootFacts) -> str:
         unit: str | None = None
@@ -175,8 +180,17 @@ class SystemdStageActions:
         transition_active = self._path_exists(
             self._MAINTENANCE_PENDING_MARKER
         ) or self._path_exists(self._RUNTIME_START_FENCE)
-        managed_layer_complete = self._path_exists(
-            self._MAINTENANCE_ACTIVE_MARKER
+        image_managed_layer_complete = False
+        if not self._path_exists(self._MAINTENANCE_ACTIVE_MARKER):
+            try:
+                image_managed_layer_complete = bool(
+                    self._image_managed_layer_inspector()
+                )
+            except Exception:
+                image_managed_layer_complete = False
+        managed_layer_complete = (
+            self._path_exists(self._MAINTENANCE_ACTIVE_MARKER)
+            or image_managed_layer_complete
         ) and all(
             self._path_exists(f"/etc/systemd/system/{unit}")
             for unit in self._MANAGED_UNIT_FILES

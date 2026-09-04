@@ -511,13 +511,22 @@ def test_result_reporter_persists_every_cycle_but_logs_only_transitions(
     reporter = cellular_service.CellularResultReporter(
         path=tmp_path / "cellular-uplink" / "status.json",
         emit=messages.append,
+        monotonic=iter((100.0, 101.0, 102.0)).__next__,
     )
 
-    reporter.report("CHRONY_ONLINE_FAILED")
-    reporter.report("CHRONY_ONLINE_FAILED")
+    reporter.report("CHRONY_ONLINE_FAILED", retry_after_seconds=15.0)
+    reporter.report("CHRONY_ONLINE_FAILED", retry_after_seconds=15.0)
+    retrying = reporter.current_status()
+    assert retrying is not None
+    assert retrying.consecutive_failure_count == 2
+    assert retrying.next_retry_at_monotonic_ms == 116_000
     reporter.report("NONE")
 
     assert reporter.current_result() == "NONE"
+    completed = reporter.current_status()
+    assert completed is not None
+    assert completed.consecutive_failure_count == 0
+    assert completed.next_retry_at_monotonic_ms is None
     assert messages == [
         "ecobin-cellular-uplink result=CHRONY_ONLINE_FAILED statusProjection=OK",
         "ecobin-cellular-uplink result=NONE statusProjection=OK",

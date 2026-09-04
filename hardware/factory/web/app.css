@@ -474,6 +474,89 @@ button:disabled {
   background: var(--red);
 }
 
+.status-insight {
+  position: relative;
+  z-index: 1;
+  margin-top: 12px;
+  padding: 14px;
+  background: #f5f5ef;
+  border: 1px solid #dfe2d9;
+  border-left: 4px solid var(--blue);
+  border-radius: 4px 12px 12px 4px;
+}
+
+.status-insight--network {
+  background: var(--amber-soft);
+  border-color: #ead6af;
+  border-left-color: var(--amber);
+}
+
+.status-insight--services {
+  border-left-color: var(--green);
+}
+
+.status-insight__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.status-insight__head > strong {
+  font-size: 13px;
+}
+
+.status-insight > p {
+  margin: 8px 0 0;
+  color: #465149;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.service-check-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 14px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.service-check-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 9px;
+  min-width: 0;
+  padding-top: 7px;
+  border-top: 1px solid #dde1d8;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.service-check-list li > span {
+  min-width: 0;
+}
+
+.service-check-list li > strong {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.service-check-list li.is-ok > strong {
+  color: var(--green);
+}
+
+.service-check-list li.is-waiting > strong {
+  color: var(--amber);
+}
+
+.service-check-list li.is-error > strong,
+.service-check-list li.is-unknown > strong {
+  color: var(--red);
+}
+
 .operator-panel {
   margin-top: 12px;
   padding: 20px;
@@ -739,6 +822,7 @@ button:disabled {
   }
 
   .substep-list,
+  .service-check-list,
   .diagnostics dl {
     grid-template-columns: 1fr;
   }

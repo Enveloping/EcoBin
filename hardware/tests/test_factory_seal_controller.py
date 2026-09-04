@@ -13,6 +13,10 @@ import pytest
 from edge_store import EdgeStore
 from factory_seal.controller import FactorySealController, _runtime_healthy
 from factory_seal.errors import FactorySealError
+from factory_seal.runtime_health import (
+    RUNTIME_SERVICE_DEFINITIONS,
+    inspect_runtime_services,
+)
 from factory_seal.validation import (
     FactorySealPaths,
     canonical_factory_report_sha256,
@@ -264,7 +268,11 @@ def test_confirm_is_sealed_first_and_reconcile_finishes_cleanup(
         emergency=emergency,
     )
 
-    assert controller.status()["statusCode"] == "SEAL_READY"
+    ready = controller.status()
+    assert ready["statusCode"] == "SEAL_READY"
+    assert all(
+        item["state"] == "ACTIVE" for item in ready["runtimeServices"]
+    )
     controller.confirm(str(uuid.uuid4()))
     assert paths.sealed.is_file()
     pending = inspect_sealed_authorization(paths)
@@ -449,21 +457,29 @@ def test_completion_fact_has_exact_binding_and_one_authoritative_instant(
         production=[],
         emergency=[],
     )
-    confirmation_uid = str(uuid.uuid4())
-    controller.confirm(confirmation_uid)
+    sealed_at = "2026-08-22T12:00:00.123Z"
     cleanup_at = "2026-08-22T12:01:00.123Z"
+    clock_samples = iter(
+        (
+            ClockSample("SYNCED", sealed_at, None, sealed_at),
+            ClockSample("SYNCED", cleanup_at, None, cleanup_at),
+        )
+    )
     monkeypatch.setattr(
         "factory_seal.controller.sample_clock",
-        lambda: ClockSample(
-            "SYNCED", cleanup_at, None, cleanup_at
-        ),
+        lambda: next(clock_samples),
     )
+    confirmation_uid = str(uuid.uuid4())
+    controller.confirm(confirmation_uid)
     # Deliberately make the generic envelope builder observe another
     # millisecond.  The persisted completion occurrence must still reuse the
     # cleanup transaction's authoritative timestamp exactly.
     monkeypatch.setattr(
-        "onenet_wire.utc_now_rfc3339",
-        lambda: "2026-08-22T12:01:00.124Z",
+        "onenet_wire.event_clock_fields",
+        lambda: {
+            "occurredAt": "2026-08-22T12:01:00.124Z",
+            "clockQuality": "SYNCED",
+        },
     )
 
     assert controller.reconcile_cleanup() == "SEALED"
@@ -1115,10 +1131,41 @@ def test_every_required_runtime_service_must_be_active(
     inactive_unit: str,
 ) -> None:
     def run(argv, **_kwargs):
+        states = [
+            "inactive" if unit == inactive_unit else "active"
+            for _service_id, unit in RUNTIME_SERVICE_DEFINITIONS
+        ]
         return subprocess.CompletedProcess(
             argv,
-            3 if argv[-1] == inactive_unit else 0,
+            3,
+            stdout="\n".join(states) + "\n",
         )
 
-    monkeypatch.setattr("factory_seal.controller.subprocess.run", run)
+    monkeypatch.setattr("factory_seal.runtime_health.subprocess.run", run)
+    statuses = inspect_runtime_services()
+
+    assert [
+        item["state"]
+        for item in statuses
+        if item["id"]
+        == next(
+            service_id
+            for service_id, unit in RUNTIME_SERVICE_DEFINITIONS
+            if unit == inactive_unit
+        )
+    ] == ["INACTIVE"]
+    assert not _runtime_healthy()
+
+
+def test_runtime_service_inspection_fails_closed_on_incomplete_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def run(argv, **_kwargs):
+        return subprocess.CompletedProcess(argv, 1, stdout="active\n")
+
+    monkeypatch.setattr("factory_seal.runtime_health.subprocess.run", run)
+
+    statuses = inspect_runtime_services()
+
+    assert {item["state"] for item in statuses} == {"UNKNOWN"}
     assert not _runtime_healthy()
