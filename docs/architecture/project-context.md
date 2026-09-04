@@ -184,8 +184,11 @@
 > `0.1.0-single-card.20260904.24` / `hardware-runtime-20260904-24` 无秘密候选和受控 HIL
 > SHA-256 分别为 `5dbdd34de9afed4b0f805ff94147d214ea32a808eef3b1a9b54f0c6a074bab55` 与
 > `d21f54a76796a8c4ea930d856588b373b5fcb63ef575f548acd6b3b70adcfee2`；构建内审和第二套独立
-> 只读审计全部通过。v24 尚未加入测试后端允许列表、写卡或完成真机切换，不能宣称第五阶段或
-> 远程更新已经可用。证据见
+> 只读审计全部通过。测试后端允许列表随后通过配置提交 `31ef4551` 在保留 v13、v19、v21、
+> v23 的同时加入 v24；可恢复备份、生产预检、双容器健康、回环请求、秘密隔离探针和独立复核
+> 全部通过，记录见
+> [`v24 后端允许列表部署记录`](../operations/orangepi-v24-backend-allowlist-deployment-2026-09-04.md)。
+> v24 尚未写卡或完成真机切换，不能宣称第五阶段或远程更新已经可用。镜像证据见
 > [`v24 业务运行时持久切换 HIL 候选`](../../hardware/image-artifacts/evidence/hil-stage5-runtime-cutover-20260904-24/README.md)。
 > 详细边界见
 > [`香橙派业务运行时发布与更新设计`](orangepi-business-runtime-release-and-update-design.md)。

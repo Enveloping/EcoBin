@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-04T07:40:58.703Z",
+  "catalogedAt": "2026-09-04T07:55:52.953Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -501,8 +501,8 @@
     },
     {
       "path": "evidence/hil-stage5-runtime-cutover-20260904-24/README.md",
-      "bytes": 7155,
-      "sha256": "879056b268c6f50908c50650cb8a2b1ba536bb226739cb29cc6c77b8d7bc2e1b"
+      "bytes": 7390,
+      "sha256": "50da684d2cb817b7342c9bb209d757de26aecd60773a79328ae3d59b150820ca"
     },
     {
       "path": "evidence/hil-stage6-business-runtime-update-20260904-23/flash-result-disk1-121220160204-v23.json",
@@ -935,6 +935,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "abe00f1542a2b1f7d12a61684fb939f2dd3907b60edd3815831d77f75386354b"
+    },
+    {
+      "path": "local/deploy-v24-backend-allowlist.sh",
+      "bytes": 1764,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "6a2963322c6fed73338319a5619a8b05401d3b35121faefbedaf196b2b015658"
     },
     {
       "path": "local/factory-secret/builds/hil-factory-login-20260831-13-friendly-copy/build-and-offline-verification.log",
@@ -2018,6 +2025,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "32054bfefc7e78e94f3508beb76263b5763ee29cfac44608ef72f8643d200608"
+    },
+    {
+      "path": "local/verify-v24-backend-allowlist.sh",
+      "bytes": 2415,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "2c93b7be7f280afbef87a6f5c1d30bb215272d683a754562c225405f5b8ab239"
     },
     {
       "path": "local/verify-v8.sh",
