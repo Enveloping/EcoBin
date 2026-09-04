@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-04T12:30:07.791Z",
+  "catalogedAt": "2026-09-04T12:35:40.675Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -456,8 +456,8 @@
     },
     {
       "path": "evidence/hil-runtime-readiness-cameras-20260904-26/README.md",
-      "bytes": 7516,
-      "sha256": "b64cc4ddedc725f436e99ab3c3d2c278dfa6aba0727b6ee990bc4c9c10f4d430"
+      "bytes": 7781,
+      "sha256": "e0b9cc45d16a965aac7d285bc366bdc56661080e43e66d963d4cd7b073f759e3"
     },
     {
       "path": "evidence/hil-runtime-traversal-20260903-16/README.md",
@@ -2250,6 +2250,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "2c93b7be7f280afbef87a6f5c1d30bb215272d683a754562c225405f5b8ab239"
+    },
+    {
+      "path": "local/verify-v26-backend-allowlist.sh",
+      "bytes": 2481,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "e8b5aa8f416f5278cbb9174e2f6e5314fffa86850c4f922883a682570215d19b"
     },
     {
       "path": "local/verify-v8.sh",
