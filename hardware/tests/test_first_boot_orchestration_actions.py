@@ -4,6 +4,10 @@ from pathlib import Path
 
 import pytest
 
+from business_runtime_cutover_state import (
+    BusinessRuntimeCutoverInspection,
+    BusinessRuntimeCutoverMode,
+)
 from first_boot.command import CommandResult
 from first_boot.model import FactoryTestStatus, FirstBootFacts, FirstBootStage
 from first_boot.orchestrator import (
@@ -35,6 +39,10 @@ class RecordingRunner:
 
 def _start_calls(runner: RecordingRunner) -> list[tuple[str, ...]]:
     return [call for call in runner.calls if call[1] == "start"]
+
+
+def _stop_calls(runner: RecordingRunner) -> list[tuple[str, ...]]:
+    return [call for call in runner.calls if call[1] == "stop"]
 
 
 def _installed_management_paths() -> set[str]:
@@ -208,6 +216,85 @@ def test_active_marker_without_every_managed_unit_file_stays_on_legacy_members()
     assert [call[-1] for call in _start_calls(runner)] == [
         "ecobin-hardware.service"
     ]
+
+
+def test_active_cutover_stops_legacy_chain_and_starts_managed_target() -> None:
+    runner = RecordingRunner(
+        active_units={
+            "ecobin-runtime.target",
+            "ecobin-remote-support.service",
+            "ecobin-hardware.service",
+            "ecobin-communication.service",
+            "ecobin-updater.service",
+        }
+    )
+    actions = SystemdStageActions(
+        runner,
+        path_exists=_installed_management_paths().__contains__,
+        cutover_inspector=lambda: BusinessRuntimeCutoverInspection(
+            BusinessRuntimeCutoverMode.ACTIVE
+        ),
+    )
+
+    assert actions.apply(
+        FirstBootStage.COMPLETE,
+        _passed(
+            sealed_exists=True,
+            sealed_valid=True,
+            sealed_cleanup_complete=True,
+        ),
+    ) == "NONE"
+
+    assert [call[-1] for call in _stop_calls(runner)] == [
+        "ecobin-hardware.service",
+        "ecobin-communication.service",
+        "ecobin-updater.service",
+    ]
+    assert [call[-1] for call in _start_calls(runner)] == [
+        "ecobin-business-runtime.target"
+    ]
+
+
+@pytest.mark.parametrize(
+    "mode",
+    (
+        BusinessRuntimeCutoverMode.PREPARING,
+        BusinessRuntimeCutoverMode.INVALID,
+    ),
+)
+def test_incomplete_or_invalid_cutover_stops_both_business_chains(
+    mode: BusinessRuntimeCutoverMode,
+) -> None:
+    runner = RecordingRunner(
+        active_units={
+            "ecobin-runtime.target",
+            "ecobin-remote-support.service",
+            "ecobin-hardware.service",
+            "ecobin-business-runtime.target",
+            "ecobin-communication-proxy.service",
+        }
+    )
+    actions = SystemdStageActions(
+        runner,
+        path_exists=_installed_management_paths().__contains__,
+        cutover_inspector=lambda: BusinessRuntimeCutoverInspection(mode),
+    )
+
+    assert actions.apply(
+        FirstBootStage.COMPLETE,
+        _passed(
+            sealed_exists=True,
+            sealed_valid=True,
+            sealed_cleanup_complete=True,
+        ),
+    ) == "NONE"
+
+    assert {call[-1] for call in _stop_calls(runner)} == {
+        "ecobin-hardware.service",
+        "ecobin-business-runtime.target",
+        "ecobin-communication-proxy.service",
+    }
+    assert _start_calls(runner) == []
 
 
 def test_sealed_cold_boot_starts_only_cellular_then_runtime_never_factory() -> None:

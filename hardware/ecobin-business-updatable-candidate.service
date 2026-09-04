@@ -1,6 +1,8 @@
 [Unit]
 Description=EcoBin replaceable low-privilege business runtime candidate
 ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
+ConditionPathExists=/var/lib/ecobin/privileged/business-runtime-cutover/active.json
+ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/pending.json
 ConditionPathExists=!/var/lib/ecobin/privileged/business-snapshots/.restore-in-progress.json
 ConditionPathExists=/var/lib/ecobin/business/device-identity.json
 ConditionPathExists=/var/lib/ecobin/device-capabilities.json
@@ -8,6 +10,7 @@ ConditionPathExists=/opt/ecobin/business/current/release.env
 Wants=network-online.target ecobin-remote-support.service
 Requires=ecobin-mcu-safe-gpio.service ecobin-enrollment.service ecobin-communication-proxy.service ecobin-updater-candidate.service
 After=network-online.target ecobin-mcu-safe-gpio.service ecobin-enrollment.service ecobin-communication-proxy.service ecobin-updater-candidate.service ecobin-remote-support.service
+PartOf=ecobin-business-runtime.target
 Conflicts=ecobin-hardware.service ecobin-business.service ecobin-factory-test.service
 StartLimitIntervalSec=0
 

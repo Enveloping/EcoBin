@@ -1,6 +1,8 @@
 [Unit]
 Description=EcoBin on-demand MCU flash helper socket
 ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
+ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/pending.json
+ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/active.json
 Requires=ecobin-mcu-safe-gpio.service
 After=ecobin-mcu-safe-gpio.service
 

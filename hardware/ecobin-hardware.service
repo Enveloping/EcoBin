@@ -1,5 +1,7 @@
 [Unit]
 Description=EcoBin Orange Pi hardware gateway
+ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/pending.json
+ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/active.json
 Wants=network-online.target ecobin-remote-support.service
 Requires=ecobin-mcu-safe-gpio.service ecobin-enrollment.service
 After=network-online.target ecobin-mcu-safe-gpio.service ecobin-enrollment.service ecobin-remote-support.service

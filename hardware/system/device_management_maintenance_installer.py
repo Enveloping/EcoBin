@@ -85,6 +85,8 @@ BOOT_ID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 MAIN_UNIT_FILES = (
+    "ecobin-business-runtime-cutover-gate.service",
+    "ecobin-business-runtime.target",
     "ecobin-business.service",
     "ecobin-business-updatable-candidate.service",
     "ecobin-communication-proxy.service",
@@ -202,9 +204,6 @@ LEGACY_GATE_DROP_IN_CONTENT = (
 ).encode("utf-8")
 DROP_IN_CONTENT = (
     "[Unit]\n"
-    "Wants=ecobin-communication.service ecobin-updater.service "
-    "ecobin-business-activation-helper.socket ecobin-mcu-flash-helper.socket\n"
-    "Wants=ecobin-device-management-preflight.service\n"
     "After=ecobin-device-management-preflight.service\n"
 ).encode("utf-8")
 
@@ -225,6 +224,10 @@ ROLLBACK_UNIT_FENCE_DROP_IN_CONTENT = (
 ).encode("utf-8")
 BACKUP_PARENT = "/var/lib/ecobin/device-management-maintenance/backups"
 LOCK_PATH = "/run/ecobin-device-management-maintenance/installer.lock"
+BUSINESS_RUNTIME_CUTOVER_MARKERS = (
+    "/var/lib/ecobin/privileged/business-runtime-cutover/pending.json",
+    "/var/lib/ecobin/privileged/business-runtime-cutover/active.json",
+)
 UPDATER_STATE_DATABASE_PATH = "/var/lib/ecobin/updater/updater.db"
 UPDATER_STATE_SIDECAR_SUFFIXES = ("-wal", "-shm", "-journal")
 MCU_RECOVERY_MARKER = (
@@ -294,6 +297,7 @@ TMPFILES_DIRECTORY_MODES: Mapping[str, int] = {
     "/var/lib/ecobin/updater/mcu-firmware": 0o700,
     "/var/lib/ecobin/privileged": 0o700,
     "/var/lib/ecobin/privileged/business-snapshots": 0o700,
+    "/var/lib/ecobin/privileged/business-runtime-cutover": 0o700,
     "/opt/ecobin/business": 0o750,
     "/opt/ecobin/business/releases": 0o750,
     "/run/ecobin/communication": 0o750,
@@ -303,6 +307,7 @@ TMPFILES_DIRECTORY_MODES: Mapping[str, int] = {
 }
 TMPFILES_REGULAR_PATHS = (
     "/run/ecobin/privileged/mutation.lock",
+    "/run/ecobin/privileged/business-runtime-cutover.lock",
 )
 
 
@@ -474,17 +479,19 @@ def _validate_runtime_fence_unit_bytes(raw: bytes, unit_name: str) -> None:
     unit_section_starts = [
         index for index, header in section_headers if header == "[Unit]"
     ]
-    try:
-        if len(unit_section_starts) != 1:
-            raise ValueError
-        unit_section_start = unit_section_starts[0]
-        unit_section_end = next(
-            index for index, _header in section_headers if index > unit_section_start
-        )
-    except (ValueError, StopIteration):
+    if len(unit_section_starts) != 1:
         raise MaintenanceInstallError(
-            f"systemd unit has no bounded Unit section: {unit_name}"
+            f"systemd unit has no unique Unit section: {unit_name}"
         )
+    unit_section_start = unit_section_starts[0]
+    unit_section_end = next(
+        (
+            index
+            for index, _header in section_headers
+            if index > unit_section_start
+        ),
+        len(normalized_lines),
+    )
     # A continuation immediately before a section header makes that header
     # part of the previous logical line.  Checking only the nominal [Unit]
     # slice would therefore accept a file in which systemd never enters the
@@ -4292,6 +4299,10 @@ class MaintenanceInstaller:
             ),
             "/var/lib/ecobin/privileged": (0, frozenset({0})),
             "/var/lib/ecobin/privileged/business-snapshots": (0, frozenset({0})),
+            "/var/lib/ecobin/privileged/business-runtime-cutover": (
+                0,
+                frozenset({0}),
+            ),
             "/opt/ecobin/business": (
                 0,
                 frozenset({primary_groups["ecobin-business"]}),
@@ -4334,17 +4345,18 @@ class MaintenanceInstaller:
                 raise MaintenanceInstallError(
                     f"managed runtime directory permissions differ: {absolute}"
                 )
-        mutation_lock = self._snapshot(TMPFILES_REGULAR_PATHS[0])
-        if (
-            mutation_lock.get("kind") != "regular"
-            or mutation_lock.get("mode") != 0o600
-            or mutation_lock.get("uid") != 0
-            or mutation_lock.get("gid") != 0
-            or mutation_lock.get("size") != 0
-        ):
-            raise MaintenanceInstallError(
-                "privileged mutation lock permissions differ"
-            )
+        for absolute in TMPFILES_REGULAR_PATHS:
+            lock = self._snapshot(absolute)
+            if (
+                lock.get("kind") != "regular"
+                or lock.get("mode") != 0o600
+                or lock.get("uid") != 0
+                or lock.get("gid") != 0
+                or lock.get("size") != 0
+            ):
+                raise MaintenanceInstallError(
+                    f"privileged runtime lock permissions differ: {absolute}"
+                )
         for absolute in record["rootCodeDirectories"]:
             self._assert_safe_directory(
                 self._path(absolute),
@@ -5100,6 +5112,16 @@ class MaintenanceInstaller:
             "gid": gid,
         }
 
+    def _assert_business_runtime_cutover_not_started(self) -> None:
+        if any(
+            _lexists(self._path(absolute))
+            for absolute in BUSINESS_RUNTIME_CUTOVER_MARKERS
+        ):
+            raise RollbackRefusedForUsedState(
+                "business runtime ownership cutover has started; the permanent "
+                "device-management layer must be repaired or upgraded forward"
+            )
+
     def _inspect_updater_rollback_eligibility(
         self,
         record: Mapping[str, Any],
@@ -5813,6 +5835,7 @@ class MaintenanceInstaller:
             )
 
         try:
+            self._assert_business_runtime_cutover_not_started()
             self._assert_mcu_safety_gate()
             self._assert_legacy_fragment_protected(record)
             self._establish_runtime_start_fence(record)
@@ -6057,6 +6080,7 @@ class MaintenanceInstaller:
         # exact logical predicate can now be read without a WAL race.
         try:
             self._assert_rollback_quiesced(record)
+            self._assert_business_runtime_cutover_not_started()
             self._assert_mcu_safety_gate()
             updater_state_after = self._inspect_updater_rollback_eligibility(
                 record,
@@ -6450,6 +6474,7 @@ class MaintenanceInstaller:
         self._assert_protected_paths_unchanged(record)
         self._assert_hardware_current_unchanged(record)
         self._assert_mcu_safety_gate()
+        self._assert_business_runtime_cutover_not_started()
         updater_eligibility = self._inspect_updater_rollback_eligibility(
             record,
             phase="PRE_FENCE" if apply else "DRY_RUN_METADATA",

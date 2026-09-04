@@ -6,6 +6,11 @@ import signal
 import threading
 from typing import Callable, Protocol, Sequence
 
+from business_runtime_cutover_state import (
+    BusinessRuntimeCutoverInspection,
+    BusinessRuntimeCutoverMode,
+    inspect_business_runtime_cutover,
+)
 from factory_seal.controller import FactorySealController
 from factory_seal.portal_server import FactorySealPortalServer
 
@@ -27,6 +32,7 @@ class StageActions(Protocol):
 
 class SystemdStageActions:
     _RUNTIME_TARGET = "ecobin-runtime.target"
+    _BUSINESS_RUNTIME_TARGET = "ecobin-business-runtime.target"
     _BASE_RUNTIME_MEMBERS = (
         "ecobin-hardware.service",
         "ecobin-remote-support.service",
@@ -38,10 +44,42 @@ class SystemdStageActions:
         "ecobin-mcu-flash-helper.socket",
         "ecobin-device-management-preflight.service",
     )
-    _MANAGED_UNIT_FILES = _MANAGED_RUNTIME_MEMBERS + (
+    _MANAGED_UNIT_FILES = (
+        *_MANAGED_RUNTIME_MEMBERS,
         "ecobin-business-permission-preflight.service",
         "ecobin-business-activation-helper@.service",
         "ecobin-mcu-flash-helper@.service",
+        "ecobin-business-runtime-cutover-gate.service",
+        _BUSINESS_RUNTIME_TARGET,
+        "ecobin-business.service",
+        "ecobin-business-updatable-candidate.service",
+        "ecobin-communication-proxy.service",
+        "ecobin-updater-candidate.service",
+        "ecobin-business-activation-candidate-helper.socket",
+        "ecobin-business-activation-candidate-helper@.service",
+        "ecobin-business-release-activation-candidate-helper.socket",
+        "ecobin-business-release-activation-candidate-helper@.service",
+        "ecobin-mcu-flash-candidate-helper.socket",
+        "ecobin-mcu-flash-candidate-helper@.service",
+    )
+    _LEGACY_RUNTIME_UNITS = (
+        "ecobin-hardware.service",
+        "ecobin-communication.service",
+        "ecobin-updater.service",
+        "ecobin-business-activation-helper.socket",
+        "ecobin-mcu-flash-helper.socket",
+        "ecobin-device-management-preflight.service",
+    )
+    _CUTOVER_RUNTIME_UNITS = (
+        _BUSINESS_RUNTIME_TARGET,
+        "ecobin-business.service",
+        "ecobin-business-updatable-candidate.service",
+        "ecobin-communication-proxy.service",
+        "ecobin-updater-candidate.service",
+        "ecobin-business-runtime-cutover-gate.service",
+        "ecobin-business-activation-candidate-helper.socket",
+        "ecobin-business-release-activation-candidate-helper.socket",
+        "ecobin-mcu-flash-candidate-helper.socket",
     )
     _MAINTENANCE_ACTIVE_MARKER = (
         "/var/lib/ecobin/device-management-maintenance/active.json"
@@ -59,9 +97,13 @@ class SystemdStageActions:
         runner: CommandRunner | None = None,
         *,
         path_exists: Callable[[str], bool] = os.path.exists,
+        cutover_inspector: Callable[
+            [], BusinessRuntimeCutoverInspection
+        ] = inspect_business_runtime_cutover,
     ) -> None:
         self._runner = runner or CommandRunner()
         self._path_exists = path_exists
+        self._cutover_inspector = cutover_inspector
 
     def apply(self, stage: FirstBootStage, facts: FirstBootFacts) -> str:
         unit: str | None = None
@@ -112,8 +154,14 @@ class SystemdStageActions:
         if not self._is_active(self._RUNTIME_TARGET):
             return self._start(self._RUNTIME_TARGET)
 
+        desired, undesired = self._runtime_selection()
         failed = False
-        for unit in self._runtime_members():
+        for unit in undesired:
+            if not self._is_active(unit):
+                continue
+            if self._stop(unit) != "NONE":
+                failed = True
+        for unit in desired:
             if self._is_active(unit):
                 continue
             if self._start(unit) != "NONE":
@@ -121,6 +169,9 @@ class SystemdStageActions:
         return "STAGE_SERVICE_FAILED" if failed else "NONE"
 
     def _runtime_members(self) -> tuple[str, ...]:
+        return self._runtime_selection()[0]
+
+    def _runtime_selection(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
         transition_active = self._path_exists(
             self._MAINTENANCE_PENDING_MARKER
         ) or self._path_exists(self._RUNTIME_START_FENCE)
@@ -130,13 +181,52 @@ class SystemdStageActions:
             self._path_exists(f"/etc/systemd/system/{unit}")
             for unit in self._MANAGED_UNIT_FILES
         )
+        try:
+            cutover_mode = self._cutover_inspector().mode
+        except Exception:
+            cutover_mode = BusinessRuntimeCutoverMode.INVALID
+        if cutover_mode in {
+            BusinessRuntimeCutoverMode.PREPARING,
+            BusinessRuntimeCutoverMode.INVALID,
+        }:
+            return (
+                ("ecobin-remote-support.service",),
+                tuple(
+                    dict.fromkeys(
+                        (*self._LEGACY_RUNTIME_UNITS, *self._CUTOVER_RUNTIME_UNITS)
+                    )
+                ),
+            )
+        if cutover_mode is BusinessRuntimeCutoverMode.ACTIVE:
+            if transition_active or not managed_layer_complete:
+                return (
+                    ("ecobin-remote-support.service",),
+                    tuple(
+                        dict.fromkeys(
+                            (
+                                *self._LEGACY_RUNTIME_UNITS,
+                                *self._CUTOVER_RUNTIME_UNITS,
+                            )
+                        )
+                    ),
+                )
+            return (
+                (
+                    "ecobin-remote-support.service",
+                    self._BUSINESS_RUNTIME_TARGET,
+                ),
+                self._LEGACY_RUNTIME_UNITS,
+            )
         if managed_layer_complete and not transition_active:
-            return self._BASE_RUNTIME_MEMBERS + self._MANAGED_RUNTIME_MEMBERS
+            return (
+                self._BASE_RUNTIME_MEMBERS + self._MANAGED_RUNTIME_MEMBERS,
+                self._CUTOVER_RUNTIME_UNITS,
+            )
         # A pending install/rollback belongs exclusively to the maintenance
         # installer.  With no active marker we are on the legacy image
         # baseline.  In both cases first-boot keeps the actual business and
         # remote-support services available but never races managed starts.
-        return self._BASE_RUNTIME_MEMBERS
+        return self._BASE_RUNTIME_MEMBERS, self._CUTOVER_RUNTIME_UNITS
 
     def _start_if_inactive(self, unit: str) -> str:
         if self._is_active(unit):
@@ -157,6 +247,13 @@ class SystemdStageActions:
     def _start(self, unit: str) -> str:
         result = self._runner.run(
             ("/usr/bin/systemctl", "start", unit),
+            timeout_seconds=30,
+        )
+        return "NONE" if result.return_code == 0 else "STAGE_SERVICE_FAILED"
+
+    def _stop(self, unit: str) -> str:
+        result = self._runner.run(
+            ("/usr/bin/systemctl", "stop", unit),
             timeout_seconds=30,
         )
         return "NONE" if result.return_code == 0 else "STAGE_SERVICE_FAILED"

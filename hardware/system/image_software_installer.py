@@ -123,6 +123,8 @@ LEGACY_MAIN_UNITS = (
 )
 
 MAIN_UNITS = (
+    "ecobin-business-runtime-cutover-gate.service",
+    "ecobin-business-runtime.target",
     "ecobin-business.service",
     "ecobin-business-updatable-candidate.service",
     "ecobin-communication-proxy.service",
@@ -189,6 +191,8 @@ STATIC_UNIT_NAMES = frozenset(
         "ecobin-cellular-uplink.service",
         "ecobin-device-management-preflight.service",
         "ecobin-business-permission-preflight.service",
+        "ecobin-business-runtime-cutover-gate.service",
+        "ecobin-business-runtime.target",
         "ecobin-business.service",
         "ecobin-business-updatable-candidate.service",
         "ecobin-communication.service",

@@ -1,6 +1,8 @@
 [Unit]
 Description=EcoBin permanent local communication agent (silent installation)
 ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
+ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/pending.json
+ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/active.json
 After=local-fs.target
 StartLimitIntervalSec=0
 
@@ -24,6 +26,7 @@ UMask=0007
 LimitCORE=0
 RuntimeDirectory=ecobin/communication
 RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
 StateDirectory=ecobin/communication
 StateDirectoryMode=0700
 NoNewPrivileges=yes

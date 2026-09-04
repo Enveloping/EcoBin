@@ -1,0 +1,10 @@
+[Unit]
+Description=EcoBin managed business runtime
+ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
+ConditionPathExists=/var/lib/ecobin/privileged/business-runtime-cutover/active.json
+ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/pending.json
+Requires=ecobin-business-runtime-cutover-gate.service
+Wants=ecobin-remote-support.service ecobin-updater-candidate.service ecobin-communication-proxy.service
+Wants=ecobin-business.service ecobin-business-updatable-candidate.service
+After=ecobin-business-runtime-cutover-gate.service ecobin-enrollment.service
+Conflicts=ecobin-factory-test.service

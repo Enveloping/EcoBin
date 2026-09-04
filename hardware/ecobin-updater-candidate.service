@@ -1,9 +1,12 @@
 [Unit]
 Description=EcoBin permanent device updater stage-four candidate
 ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
-Requires=ecobin-mcu-safe-gpio.service
+ConditionPathExists=/var/lib/ecobin/privileged/business-runtime-cutover/active.json
+ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/pending.json
+Requires=ecobin-mcu-safe-gpio.service ecobin-business-runtime-cutover-gate.service
 Wants=ecobin-business-activation-candidate-helper.socket ecobin-business-release-activation-candidate-helper.socket ecobin-mcu-flash-candidate-helper.socket
-After=local-fs.target ecobin-mcu-safe-gpio.service
+After=local-fs.target ecobin-mcu-safe-gpio.service ecobin-business-runtime-cutover-gate.service
+PartOf=ecobin-business-runtime.target
 Conflicts=ecobin-updater.service
 StartLimitIntervalSec=0
 
@@ -27,6 +30,7 @@ UMask=0007
 LimitCORE=0
 RuntimeDirectory=ecobin/updater
 RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
 StateDirectory=ecobin/updater
 StateDirectoryMode=0700
 NoNewPrivileges=yes

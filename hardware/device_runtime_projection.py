@@ -122,9 +122,12 @@ def _require_private_parent(path: Path, owner: tuple[int, int]) -> None:
         ) from error
     if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
         raise RuntimeError("runtime projection parent must be a real directory")
+    # systemd applies the service unit's IPC Group= to StateDirectory.  The
+    # directory remains accessible only to its owning UID because its mode is
+    # exactly 0700, so requiring the account's primary GID would reject the
+    # same least-privilege directory after an otherwise valid service start.
     if os.name == "posix" and (
         details.st_uid != owner[0]
-        or details.st_gid != owner[1]
         or stat.S_IMODE(details.st_mode) != 0o700
     ):
         raise RuntimeError(
@@ -151,7 +154,6 @@ def _atomic_write_owned_json(
                 os.name == "posix"
                 and (
                     details.st_uid != owner[0]
-                    or details.st_gid != owner[1]
                     or stat.S_IMODE(details.st_mode) != 0o600
                 )
             )
@@ -200,7 +202,6 @@ def _atomic_write_owned_json(
             os.name == "posix"
             and (
                 details.st_uid != owner[0]
-                or details.st_gid != owner[1]
                 or stat.S_IMODE(details.st_mode) != 0o600
             )
         )

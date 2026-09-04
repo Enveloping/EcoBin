@@ -14,6 +14,7 @@ RUNTIME_APP_FILES = (
     "business_control.py",
     "business_message_handler.py",
     "business_outbox_relay.py",
+    "business_runtime_cutover_state.py",
     "camera_capture.py",
     "cloud_transport.py",
     "command_processor.py",
@@ -71,6 +72,7 @@ BUSINESS_APP_FILES = tuple(
     if name
     not in {
         "direct_onenet_transport.py",
+        "business_runtime_cutover_state.py",
         "device_acceptance.py",
         "device_credentials.py",
         "factory_progress.py",
@@ -148,6 +150,8 @@ COMMUNICATION_AGENT_FILES = (
 )
 
 DEVICE_UPDATER_FILES = (
+    "business_runtime_cutover.py",
+    "business_runtime_cutover_state.py",
     "business_update_coordinator.py",
     "business_update_package.py",
     "business_update_store.py",
@@ -197,6 +201,7 @@ DEVICE_UPDATER_HELPER_UNIT_FILES = (
 # cannot import from /opt/ecobin/hardware/current/app.  These are the exact
 # top-level runtime sources needed by its real systemd entry points.
 FACTORY_APP_RUNTIME_FILES = (
+    "business_runtime_cutover_state.py",
     "camera_capture.py",
     "device_credentials.py",
     "factory_progress.py",

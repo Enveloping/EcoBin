@@ -1,11 +1,15 @@
 [Unit]
 Description=EcoBin low-privilege proxy business runtime candidate
 ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
+ConditionPathExists=/var/lib/ecobin/privileged/business-runtime-cutover/active.json
+ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/pending.json
+ConditionPathExists=!/opt/ecobin/business/current/release.env
 ConditionPathExists=/var/lib/ecobin/business/device-identity.json
 ConditionPathExists=/var/lib/ecobin/device-capabilities.json
 Wants=network-online.target ecobin-remote-support.service
 Requires=ecobin-mcu-safe-gpio.service ecobin-enrollment.service ecobin-communication-proxy.service ecobin-updater-candidate.service
 After=network-online.target ecobin-mcu-safe-gpio.service ecobin-enrollment.service ecobin-communication-proxy.service ecobin-updater-candidate.service ecobin-remote-support.service
+PartOf=ecobin-business-runtime.target
 Conflicts=ecobin-hardware.service ecobin-factory-test.service
 StartLimitIntervalSec=0
 

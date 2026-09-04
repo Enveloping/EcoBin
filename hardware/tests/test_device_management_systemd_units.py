@@ -78,6 +78,14 @@ def test_permanent_state_and_socket_directories_are_least_privilege() -> None:
         "d /var/lib/ecobin/privileged/business-snapshots 0700 root root -"
         in TMPFILES
     )
+    assert (
+        "d /var/lib/ecobin/privileged/business-runtime-cutover 0700 root root -"
+        in TMPFILES
+    )
+    assert (
+        "f /run/ecobin/privileged/business-runtime-cutover.lock 0600 root root -"
+        in TMPFILES
+    )
     assert "/var/lib/ecobin/updater/snapshots" not in TMPFILES
     assert "d /opt/ecobin/business 0750 root ecobin-business -" in TMPFILES
     assert (
@@ -131,8 +139,10 @@ def test_silent_permanent_units_are_local_only_and_independently_sandboxed() -> 
 
     assert "StateDirectory=ecobin/communication" in communication
     assert "RuntimeDirectory=ecobin/communication" in communication
+    assert "RuntimeDirectoryPreserve=yes" in communication
     assert "StateDirectory=ecobin/updater" in updater
     assert "RuntimeDirectory=ecobin/updater" in updater
+    assert "RuntimeDirectoryPreserve=yes" in updater
     assert "ReadOnlyPaths=/usr/share/ecobin/runtime-release-keys" in updater
     assert "Requires=ecobin-mcu-safe-gpio.service" in updater
     assert "After=local-fs.target ecobin-mcu-safe-gpio.service" in updater
@@ -199,6 +209,12 @@ def test_cutover_candidate_units_are_static_mutually_exclusive_and_non_root() ->
     assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in communication
     assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in business
     assert "[Install]" not in communication + updater + business
+    for unit in (communication, updater, business):
+        assert "business-runtime-cutover/active.json" in unit
+        assert "business-runtime-cutover/pending.json" in unit
+        assert "ecobin-business-runtime.target" in unit
+    assert "RuntimeDirectoryPreserve=yes" in communication
+    assert "RuntimeDirectoryPreserve=yes" in updater
 
     runtime_target = (
         HARDWARE / "first_boot/systemd/ecobin-runtime.target"
@@ -207,6 +223,54 @@ def test_cutover_candidate_units_are_static_mutually_exclusive_and_non_root() ->
     assert "ecobin-updater-candidate.service" not in runtime_target
     assert "ecobin-business.service" not in runtime_target
     assert "ecobin-business-updatable-candidate.service" not in runtime_target
+    assert "ecobin-hardware.service" not in runtime_target
+    assert "ecobin-communication.service" not in runtime_target
+    assert "ecobin-updater.service" not in runtime_target
+
+
+def test_managed_runtime_target_is_selected_only_by_valid_cutover_gate() -> None:
+    target = _unit("ecobin-business-runtime.target")
+    gate = _unit("ecobin-business-runtime-cutover-gate.service")
+
+    assert "business-runtime-cutover/active.json" in target
+    assert "business-runtime-cutover/pending.json" in target
+    assert "Requires=ecobin-business-runtime-cutover-gate.service" in target
+    assert "ecobin-updater-candidate.service" in target
+    assert "ecobin-communication-proxy.service" in target
+    assert "Wants=ecobin-business.service" in target
+    assert "ecobin-business-updatable-candidate.service" in target
+    assert "[Install]" not in target
+
+    assert "Type=oneshot" in gate
+    assert "RemainAfterExit=yes" in gate
+    assert "User=root" in gate
+    assert "business_runtime_cutover.py verify-active" in gate
+    assert "PrivateNetwork=yes" in gate
+    assert "ProtectSystem=strict" in gate
+    assert "InaccessiblePaths=-/etc/ecobin" in gate
+    assert "ReadOnlyPaths=/var/lib/ecobin/business" in gate
+    assert "[Install]" not in gate
+
+
+def test_legacy_runtime_units_are_fenced_after_cutover() -> None:
+    for name in (
+        "ecobin-hardware.service",
+        "ecobin-communication.service",
+        "ecobin-updater.service",
+    ):
+        unit = _unit(name)
+        assert "ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/pending.json" in unit
+        assert "ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/active.json" in unit
+    helper_root = HARDWARE / "device_management/helpers/systemd"
+    for name in (
+        "ecobin-business-activation-helper.socket",
+        "ecobin-business-activation-helper@.service",
+        "ecobin-mcu-flash-helper.socket",
+        "ecobin-mcu-flash-helper@.service",
+    ):
+        unit = (helper_root / name).read_text(encoding="utf-8")
+        assert "business-runtime-cutover/pending.json" in unit
+        assert "business-runtime-cutover/active.json" in unit
 
 
 def test_replaceable_business_service_is_static_and_power_loss_fenced() -> None:
@@ -264,6 +328,10 @@ def test_candidate_root_helpers_are_static_updater_authorized_and_offline() -> N
         assert "IPAddressDeny=any" in service_unit
         assert "ReadOnlyPaths=/run/ecobin/updater" in service_unit
         assert "ReadWritePaths=/run/ecobin/privileged/mutation.lock" in service_unit
+        for unit in (socket_unit, service_unit):
+            assert "business-runtime-cutover/active.json" in unit
+            assert "business-runtime-cutover/pending.json" in unit
+            assert "PartOf=ecobin-business-runtime.target" in unit
 
     updater = _unit("ecobin-updater-candidate.service")
     assert "Wants=ecobin-business-activation-candidate-helper.socket " in updater

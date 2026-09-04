@@ -67,6 +67,8 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
         "trusted_clock.py",
     }
     assert set(DEVICE_UPDATER_FILES) == {
+        "business_runtime_cutover.py",
+        "business_runtime_cutover_state.py",
         "business_update_coordinator.py",
         "business_update_package.py",
         "business_update_store.py",
@@ -110,6 +112,8 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
         "ecobin-mcu-flash-candidate-helper@.service",
     }
     assert "business_control.py" in RUNTIME_APP_FILES
+    assert "business_runtime_cutover_state.py" in FACTORY_APP_RUNTIME_FILES
+    assert "business_runtime_cutover_state.py" in DEVICE_UPDATER_FILES
     assert "fixed_frame_mcu_maintenance.py" in RUNTIME_APP_FILES
     assert "job_safety.py" in RUNTIME_APP_FILES
     assert "local_control.py" in RUNTIME_APP_FILES

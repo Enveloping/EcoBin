@@ -1,11 +1,14 @@
 [Unit]
 Description=EcoBin permanent OneNet communication proxy candidate
 ConditionPathExists=!/var/lib/ecobin/device-management-maintenance/runtime-start-blocked.json
+ConditionPathExists=/var/lib/ecobin/privileged/business-runtime-cutover/active.json
+ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/pending.json
 ConditionPathExists=/var/lib/ecobin/communication/onenet-credentials.json
 ConditionPathExists=/opt/ecobin/communication/current/.venv/bin/python
 Wants=network-online.target
-Requires=ecobin-enrollment.service
-After=local-fs.target network-online.target ecobin-enrollment.service
+Requires=ecobin-enrollment.service ecobin-business-runtime-cutover-gate.service
+After=local-fs.target network-online.target ecobin-enrollment.service ecobin-business-runtime-cutover-gate.service
+PartOf=ecobin-business-runtime.target
 Conflicts=ecobin-communication.service ecobin-hardware.service
 StartLimitIntervalSec=0
 
@@ -29,6 +32,7 @@ UMask=0007
 LimitCORE=0
 RuntimeDirectory=ecobin/communication
 RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
 StateDirectory=ecobin/communication
 StateDirectoryMode=0700
 NoNewPrivileges=yes

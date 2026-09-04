@@ -283,6 +283,7 @@ class FakeSystem:
             ),
             "/var/lib/ecobin/privileged": (0, 0),
             "/var/lib/ecobin/privileged/business-snapshots": (0, 0),
+            "/var/lib/ecobin/privileged/business-runtime-cutover": (0, 0),
             "/opt/ecobin/business": (0, primary_gid["ecobin-business"]),
             "/opt/ecobin/business/releases": (
                 0,
@@ -1173,6 +1174,16 @@ def test_runtime_fence_validator_rejects_other_unsafe_bytes(
         match="non-ASCII or unsafe control bytes",
     ):
         _validate_runtime_fence_unit_bytes(raw + unsafe, "unsafe-byte.service")
+
+
+def test_runtime_fence_validator_accepts_a_unit_only_static_target() -> None:
+    raw = (
+        b"[Unit]\n"
+        + f"{RUNTIME_START_FENCE_CONDITION}\n".encode()
+        + b"Description=static target\n"
+    )
+
+    _validate_runtime_fence_unit_bytes(raw, "static.target")
 
 
 @pytest.mark.parametrize(
@@ -2352,6 +2363,30 @@ def test_rollback_dry_run_reads_updater_state_without_mutating_it(
     assert _new_mutating_systemctl_calls(fake, calls_before) == []
     assert not Path(f"{database}-wal").exists()
     assert not Path(f"{database}-shm").exists()
+
+
+@pytest.mark.parametrize("phase", ("pending", "active"))
+def test_rollback_refuses_after_business_runtime_cutover_has_started(
+    tmp_path: Path,
+    phase: str,
+) -> None:
+    payload, digest = _make_payload(tmp_path)
+    rootfs, fake, _runtime = _make_rootfs(tmp_path)
+    installer = _installer(rootfs, fake)
+    installer.install(payload, digest, apply=True, **_confirmations())
+    marker = (
+        rootfs
+        / "var/lib/ecobin/privileged/business-runtime-cutover"
+        / f"{phase}.json"
+    )
+    marker.write_text("{}\n", encoding="utf-8")
+    calls_before = len(fake.calls)
+
+    with pytest.raises(MaintenanceInstallError, match="ownership cutover"):
+        installer.rollback(apply=True, **_confirmations())
+
+    assert _new_mutating_systemctl_calls(fake, calls_before) == []
+    assert (rootfs / "etc/systemd/system/ecobin-updater.service").is_file()
 
 
 def test_second_rollback_check_catches_activation_committed_during_quiesce(
