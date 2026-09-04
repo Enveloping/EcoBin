@@ -202,6 +202,7 @@ def test_state_is_mode_0600_and_survives_replace_interruption(
     assert store.load() == first
     if os.name != "nt":
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o710
     monkeypatch.setattr("first_boot.atomic_json.os.replace", real_replace)
 
 

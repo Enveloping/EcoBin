@@ -29,7 +29,12 @@ class FirstBootStateStore:
         *,
         clock: Callable[[], str] = _utc_now,
     ) -> None:
-        self._file = AtomicJsonFile(path, mode=0o600, directory_mode=0o700)
+        # The business runtime receives read-only access to the separately
+        # protected sealed.json marker through the first-boot directory.  Keep
+        # group execute (traverse) on the shared parent whenever this frequently
+        # written private state file is replaced; state.json itself remains
+        # root-only 0600 and the directory is still not listable by the group.
+        self._file = AtomicJsonFile(path, mode=0o600, directory_mode=0o710)
         self._clock = clock
 
     def load(self) -> FirstBootState | None:
