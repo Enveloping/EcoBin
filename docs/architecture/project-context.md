@@ -178,8 +178,16 @@
 > 目标。旧/新单元还有相反的 systemd 条件，共用运行目录停止后保留；切换与维护安装器、特权
 > 助手共享互斥锁，且切换一旦开始便禁止永久层卸载。Windows 全量为
 > `1861 passed, 107 skipped, 5 subtests passed`，Linux/Python 3.11 权限专项为
-> `46 passed, 1 skipped`。这些只是仓库证据；代码尚未进入新镜像，不能宣称第五阶段或远程更新
-> 已经可用。详细边界见
+> `46 passed, 1 skipped`。提交 `c14fa0d3` 实现上述切换，第一次镜像构建由精确白名单门禁发现
+> shell 载荷入口漏复制两个切换模块并在候选产生前停止；提交 `0aa61fd2` 补齐入口，镜像工具与
+> 安装器专项为 `61 passed, 5 skipped, 24 subtests passed`。从该干净提交构建的
+> `0.1.0-single-card.20260904.24` / `hardware-runtime-20260904-24` 无秘密候选和受控 HIL
+> SHA-256 分别为 `5dbdd34de9afed4b0f805ff94147d214ea32a808eef3b1a9b54f0c6a074bab55` 与
+> `d21f54a76796a8c4ea930d856588b373b5fcb63ef575f548acd6b3b70adcfee2`；构建内审和第二套独立
+> 只读审计全部通过。v24 尚未加入测试后端允许列表、写卡或完成真机切换，不能宣称第五阶段或
+> 远程更新已经可用。证据见
+> [`v24 业务运行时持久切换 HIL 候选`](../../hardware/image-artifacts/evidence/hil-stage5-runtime-cutover-20260904-24/README.md)。
+> 详细边界见
 > [`香橙派业务运行时发布与更新设计`](orangepi-business-runtime-release-and-update-design.md)。
 
 > [!IMPORTANT]

@@ -37,7 +37,7 @@
 ### `architecture/` — 架构与领域设计
 
 - [项目上下文](architecture/project-context.md)
-- [香橙派业务程序发布与远程更新设计](architecture/orangepi-business-runtime-release-and-update-design.md)：区分出厂程序、可替换业务程序和永久设备管理层，记录九阶段迁移顺序；第三阶段已在 v13 完成受控在线验收，第四阶段默认关闭基础已在 v19 完成指定单卡接入和普通业务真机验收，v21 已由项目负责人反馈完成写卡、封存、投递和清运；第六阶段本地签名业务更新链已进入默认关闭的 v23 候选，通过独立离线审计、指定 TF 卡写入与全范围回读并加入测试后端允许列表，但冷启动、安装、失败回滚和断电恢复仍待真机验证，远程下发继续关闭。
+- [香橙派业务程序发布与远程更新设计](architecture/orangepi-business-runtime-release-and-update-design.md)：区分出厂程序、可替换业务程序和永久设备管理层，记录九阶段迁移顺序；第三阶段已在 v13 完成受控在线验收，第四阶段默认关闭基础已在 v19 完成指定单卡接入和普通业务真机验收；v23 已完成写卡、接入、封存、投递和清运，并在第一次所有权试切换发现问题后安全恢复；持久切换修复现已进入 v24 无秘密/HIL 候选并通过两套离线审计，尚待加入允许列表、写卡和真机更新/回滚/断电恢复，远程下发继续关闭。
 - [V52 设备自注册、厂家初始袋与按需远程维护](architecture/device-enrollment-factory-acceptance-remote-support-v52.md)
 - [V52 设备出厂与远程维护代码审查](review/device-enrollment-factory-remote-support-v52-review-2026-08-15.md)
 - [V53 投递自动审核与自动提现](architecture/delivery-auto-review-and-withdrawal-v53.md)
