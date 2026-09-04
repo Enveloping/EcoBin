@@ -164,7 +164,7 @@ def test_business_permission_preflight_is_a_manual_non_root_hardware_gate() -> N
 
     assert "User=ecobin-business" in preflight
     assert "Group=ecobin-business" in preflight
-    assert "SupplementaryGroups=dialout video" in preflight
+    assert "SupplementaryGroups=dialout video ecobin-factory-web" in preflight
     assert "DeviceAllow=/dev/ttyS5 rw" in preflight
     assert "DeviceAllow=char-video4linux rw" in preflight
     assert "PrivateNetwork=yes" in preflight
@@ -203,6 +203,7 @@ def test_cutover_candidate_units_are_static_mutually_exclusive_and_non_root() ->
     assert "User=ecobin-communication" in communication
     assert "User=ecobin-updater" in updater
     assert "User=ecobin-business" in business
+    assert "SupplementaryGroups=dialout video ecobin-factory-web" in business
     assert "User=root" not in communication + updater + business
     assert "Conflicts=ecobin-communication.service ecobin-hardware.service" in communication
     assert "Conflicts=ecobin-updater.service" in updater
@@ -329,6 +330,7 @@ def test_replaceable_business_service_is_static_and_power_loss_fenced() -> None:
     business = _unit("ecobin-business-updatable-candidate.service")
 
     assert "User=ecobin-business" in business
+    assert "SupplementaryGroups=dialout video ecobin-factory-web" in business
     assert "WorkingDirectory=/opt/ecobin/business/current/app" in business
     assert "EnvironmentFile=/opt/ecobin/business/current/release.env" in business
     assert "ExecStart=/usr/bin/env" in business

@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 import stat
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 
 class AtomicWriteError(RuntimeError):
@@ -38,6 +38,7 @@ class AtomicJsonFile:
         directory_mode: int = 0o700,
         owner: OwnershipSetter | None = None,
         maximum_bytes: int = 64 * 1024,
+        compatible_read_modes: Iterable[int] | None = None,
     ) -> None:
         if mode & ~0o777:
             raise ValueError("mode contains unsupported bits")
@@ -48,6 +49,16 @@ class AtomicJsonFile:
         self.directory_mode = directory_mode
         self.owner = owner
         self.maximum_bytes = maximum_bytes
+        self.compatible_read_modes = frozenset(
+            compatible_read_modes if compatible_read_modes is not None else (mode,)
+        )
+        if not self.compatible_read_modes or any(
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value & ~0o777
+            for value in self.compatible_read_modes
+        ):
+            raise ValueError("compatible read mode contains unsupported bits")
 
     def read_object(self) -> dict[str, Any] | None:
         try:
@@ -56,7 +67,10 @@ class AtomicJsonFile:
             return None
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
             raise ValueError("JSON state path must be a regular file")
-        if os.name != "nt" and stat.S_IMODE(info.st_mode) != self.mode:
+        if (
+            os.name != "nt"
+            and stat.S_IMODE(info.st_mode) not in self.compatible_read_modes
+        ):
             raise ValueError("JSON state permissions are invalid")
         if info.st_size < 1 or info.st_size > self.maximum_bytes:
             raise ValueError("JSON state size is invalid")

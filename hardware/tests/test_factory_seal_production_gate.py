@@ -251,6 +251,20 @@ def test_sealed_admission_survives_edge_process_restart(tmp_path: Path) -> None:
     restarted.close()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX modes are required")
+def test_sealed_admission_accepts_root_owned_group_read_projection(
+    tmp_path: Path,
+) -> None:
+    store, paths, gate = _store_and_gate(tmp_path, state="SEALED")
+    paths.sealed.chmod(0o640)
+
+    assert gate.production_ready()
+
+    paths.sealed.chmod(0o644)
+    assert not gate.production_ready()
+    store.close()
+
+
 def test_migrated_v15_sealed_row_without_completion_fact_stays_closed(
     tmp_path: Path,
 ) -> None:

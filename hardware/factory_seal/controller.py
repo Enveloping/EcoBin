@@ -107,9 +107,14 @@ class FactorySealController:
         self._response_cleanup_not_before: float | None = None
         self._sealed_file = AtomicJsonFile(
             paths.sealed,
-            mode=0o600,
-            directory_mode=0o700,
+            # The marker is not secret, but it is authority.  Root remains
+            # its only writer; the factory-web group is read-only so the
+            # post-cut-over ecobin-business process can validate it without
+            # gaining any ability to replace it.
+            mode=0o640,
+            directory_mode=0o710,
             maximum_bytes=8192,
+            compatible_read_modes=(0o600, 0o640),
         )
 
     def status(self) -> dict[str, object]:

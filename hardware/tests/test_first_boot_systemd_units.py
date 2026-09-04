@@ -30,6 +30,7 @@ def test_first_boot_requires_immutable_gpio_and_early_egress_lock() -> None:
     assert "RequiredBy=network-pre.target" in unit
     assert "-m first_boot.orchestrator" in unit
     assert "ReadWritePaths=/var/lib/ecobin/first-boot" in unit
+    assert "StateDirectoryMode=0710" in unit
     assert "ReadWritePaths=/run/ecobin/factory-portal" in unit
     assert "ReadWritePaths=/run/ecobin/factory-network" in unit
     assert "LimitCORE=0" in unit

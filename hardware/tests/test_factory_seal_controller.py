@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import itertools
+import os
 from pathlib import Path
 import sqlite3
+import stat
 import subprocess
 import threading
 import uuid
@@ -577,6 +579,24 @@ def test_unsynced_seal_preserves_raw_local_times_but_emits_no_false_instant(
     assert event["payload"]["completionClockQuality"] == "ESTIMATED"
     assert event["payload"]["sealedAt"] is None
     assert event["payload"]["cleanupCompletedAt"] is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX modes are required")
+def test_new_seal_is_group_readable_but_not_group_writable(
+    tmp_path: Path,
+) -> None:
+    paths, _ = _authorized(tmp_path)
+    controller = _controller(
+        paths,
+        stopped=[],
+        production=[],
+        emergency=[],
+    )
+
+    controller.confirm(str(uuid.uuid4()))
+
+    assert stat.S_IMODE(paths.sealed.stat().st_mode) == 0o640
+    assert stat.S_IMODE(paths.sealed.parent.stat().st_mode) == 0o710
 
 
 def test_legacy_v1_marker_is_upgraded_before_unsynced_cleanup_recovery(

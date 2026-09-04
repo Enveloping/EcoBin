@@ -17,6 +17,7 @@ from .errors import FactorySealError
 
 
 _HEX_64 = re.compile(r"^[0-9a-f]{64}$")
+_SEALED_FILE_MODES = frozenset({0o600, 0o640})
 
 
 @dataclass(frozen=True)
@@ -169,7 +170,7 @@ def inspect_sealed_authorization(
             paths.sealed,
             "SEALED_FACT_INVALID",
             maximum_bytes=8192,
-            required_mode=0o600,
+            required_mode=_SEALED_FILE_MODES,
         )
     except FactorySealError:
         return SealedAuthorizationFact(True, False, "SEALED_FACT_INVALID")
@@ -716,7 +717,7 @@ def _read_json(
     error_code: str,
     *,
     maximum_bytes: int = 64 * 1024,
-    required_mode: int | None = None,
+    required_mode: int | frozenset[int] | None = None,
 ) -> dict[str, Any]:
     try:
         before = path.lstat()
@@ -730,7 +731,12 @@ def _read_json(
         or (
             os.name != "nt"
             and required_mode is not None
-            and stat.S_IMODE(before.st_mode) != required_mode
+            and stat.S_IMODE(before.st_mode)
+            not in (
+                required_mode
+                if isinstance(required_mode, frozenset)
+                else frozenset({required_mode})
+            )
         )
     ):
         raise FactorySealError(error_code)

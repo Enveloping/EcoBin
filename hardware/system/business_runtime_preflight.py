@@ -322,6 +322,78 @@ def probe_device_capabilities(
         )
 
 
+def probe_factory_seal(
+    path_value: str,
+    *,
+    expected_owner_uid: int = 0,
+    expected_group_gid: int | None = None,
+) -> None:
+    """Prove the managed business process can only read the root seal fact."""
+
+    if expected_group_gid is None:
+        try:
+            import grp
+
+            expected_group_gid = grp.getgrnam("ecobin-factory-web").gr_gid
+        except (ImportError, KeyError) as error:
+            raise BusinessRuntimePreflightError(
+                "factory seal reader group is unavailable"
+            ) from error
+    path = Path(path_value)
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = -1
+    try:
+        descriptor = os.open(path, flags)
+        details = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or details.st_nlink != 1
+            or details.st_uid != expected_owner_uid
+            or details.st_gid != expected_group_gid
+            or stat.S_IMODE(details.st_mode) != 0o640
+            or not 2 <= details.st_size <= 8192
+        ):
+            raise BusinessRuntimePreflightError(
+                "factory seal ownership or file shape is unsafe"
+            )
+        remaining = details.st_size
+        chunks: list[bytes] = []
+        while remaining:
+            chunk = os.read(descriptor, remaining)
+            if not chunk:
+                raise BusinessRuntimePreflightError(
+                    "factory seal file ended unexpectedly"
+                )
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+    except BusinessRuntimePreflightError:
+        raise
+    except OSError as error:
+        raise BusinessRuntimePreflightError(
+            f"factory seal cannot be read by ecobin-business: {path}"
+        ) from error
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise BusinessRuntimePreflightError(
+            "factory seal is not valid JSON"
+        ) from error
+    if (
+        not isinstance(document, dict)
+        or document.get("schemaVersion") not in {1, 2}
+        or document.get("status") != "SEALED"
+    ):
+        raise BusinessRuntimePreflightError(
+            "factory seal content is invalid"
+        )
+
+
 def request_health(path_value: str, protocol_name: str) -> dict[str, Any]:
     request_id = str(uuid.uuid4())
     request = {
@@ -569,6 +641,10 @@ def build_parser() -> argparse.ArgumentParser:
         default="/var/lib/ecobin/device-capabilities.json",
     )
     parser.add_argument(
+        "--factory-seal",
+        default="/var/lib/ecobin/first-boot/sealed.json",
+    )
+    parser.add_argument(
         "--communication-socket",
         default="/run/ecobin/communication/control.sock",
     )
@@ -605,6 +681,7 @@ def main(argv: list[str] | None = None) -> int:
         probe_device_capabilities(args.device_capabilities)
         if args.posture == "proxy-candidate":
             probe_business_identity(args.business_identity)
+            probe_factory_seal(args.factory_seal)
         communication = request_health(
             args.communication_socket,
             COMMUNICATION_PROTOCOL,

@@ -20,7 +20,9 @@ TimeoutStopSec=15
 UMask=0077
 LimitCORE=0
 StateDirectory=ecobin/first-boot
-StateDirectoryMode=0700
+# Only the known sealed.json file is group-readable.  Group members may
+# traverse this directory but cannot list or modify first-boot state.
+StateDirectoryMode=0710
 RuntimeDirectory=ecobin/factory-portal
 RuntimeDirectoryMode=0750
 NoNewPrivileges=yes

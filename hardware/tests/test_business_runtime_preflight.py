@@ -10,6 +10,7 @@ from system.business_runtime_preflight import (
     BusinessRuntimePreflightError,
     probe_business_identity,
     probe_device_capabilities,
+    probe_factory_seal,
     probe_private_directory,
     verify_legacy_runtime_stopped,
     verify_proxy_candidate_health,
@@ -273,6 +274,32 @@ def test_preflight_rejects_invalid_device_capability_content(
         )
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Unix ownership is required")
+def test_proxy_preflight_reads_root_published_factory_seal(
+    tmp_path: Path,
+) -> None:
+    sealed = tmp_path / "sealed.json"
+    sealed.write_text(
+        json.dumps({"schemaVersion": 2, "status": "SEALED"}),
+        encoding="utf-8",
+    )
+    sealed.chmod(0o640)
+
+    probe_factory_seal(
+        str(sealed),
+        expected_owner_uid=os.geteuid(),
+        expected_group_gid=os.getegid(),
+    )
+
+    sealed.chmod(0o600)
+    with pytest.raises(BusinessRuntimePreflightError, match="ownership or file shape"):
+        probe_factory_seal(
+            str(sealed),
+            expected_owner_uid=os.geteuid(),
+            expected_group_gid=os.getegid(),
+        )
+
+
 def test_preflight_refuses_to_probe_while_business_runtime_is_active() -> None:
     class Result:
         def __init__(self, returncode: int) -> None:
@@ -303,7 +330,7 @@ def test_systemd_preflight_uses_real_non_root_resource_boundary() -> None:
 
     assert "User=ecobin-business" in unit
     assert "Group=ecobin-business" in unit
-    assert "SupplementaryGroups=dialout video" in unit
+    assert "SupplementaryGroups=dialout video ecobin-factory-web" in unit
     assert "WorkingDirectory=/opt/ecobin/hardware/current/app" in unit
     assert (
         "ExecStart=/opt/ecobin/hardware/current/.venv/bin/python "
