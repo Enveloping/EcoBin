@@ -8,10 +8,10 @@ ConditionPathExists=/var/lib/ecobin/business/device-identity.json
 ConditionPathExists=/var/lib/ecobin/device-capabilities.json
 ConditionPathExists=/opt/ecobin/business/current/release.env
 Wants=network-online.target ecobin-remote-support.service
-Requires=ecobin-mcu-safe-gpio.service ecobin-enrollment.service ecobin-communication-proxy.service ecobin-updater-candidate.service
-After=network-online.target ecobin-mcu-safe-gpio.service ecobin-enrollment.service ecobin-communication-proxy.service ecobin-updater-candidate.service ecobin-remote-support.service
+Requires=ecobin-business-runtime-cutover-gate.service ecobin-mcu-safe-gpio.service ecobin-enrollment.service ecobin-communication-proxy.service ecobin-updater-candidate.service
+After=network-online.target ecobin-business-runtime-cutover-gate.service ecobin-mcu-safe-gpio.service ecobin-enrollment.service ecobin-communication-proxy.service ecobin-updater-candidate.service ecobin-remote-support.service
 PartOf=ecobin-business-runtime.target
-Conflicts=ecobin-hardware.service ecobin-business.service ecobin-factory-test.service
+Conflicts=ecobin-hardware.service ecobin-factory-test.service
 StartLimitIntervalSec=0
 
 [Service]
@@ -24,24 +24,28 @@ WorkingDirectory=/opt/ecobin/business/current/app
 EnvironmentFile=/etc/ecobin/hardware.env
 EnvironmentFile=/opt/ecobin/business/current/release.env
 ExecStartPre=/opt/ecobin/business/current/.venv/bin/python /usr/lib/ecobin/business_runtime_preflight.py --posture proxy-candidate
-ExecStart=/opt/ecobin/business/current/.venv/bin/python /opt/ecobin/business/current/app/main.py
+ExecStart=/usr/bin/env \
+    ECOBIN_CONFIG_MODE=production \
+    ECOBIN_CLOUD_TRANSPORT_MODE=local-proxy \
+    ECOBIN_BUSINESS_IDENTITY_PATH=/var/lib/ecobin/business/device-identity.json \
+    ECOBIN_DEVICE_CAPABILITIES_PATH=/var/lib/ecobin/device-capabilities.json \
+    ECOBIN_STAGE4_JOB_GATE_MODE=candidate \
+    ECOBIN_BUSINESS_CONTROL_MODE=candidate \
+    ECOBIN_BUSINESS_CONTROL_SOCKET=/run/ecobin/business/control.sock \
+    ECOBIN_COMMUNICATION_SOCKET=/run/ecobin/communication/control.sock \
+    ECOBIN_UPDATER_CONTROL_SOCKET=/run/ecobin/updater/control.sock \
+    ECOBIN_DATA_DIR=/var/lib/ecobin/business \
+    ECOBIN_EDGE_STORE_PATH=/var/lib/ecobin/business/edge.db \
+    ECOBIN_EDGE_BOOT_ID_PATH=/var/lib/ecobin/business/edge-boot-id \
+    ECOBIN_DEVICE_CONFIG_PATH=/var/lib/ecobin/business/device-config.json \
+    ECOBIN_MCU_FIRMWARE_CACHE_DIR=/var/lib/ecobin/business/mcu-firmware \
+    /opt/ecobin/business/current/.venv/bin/python \
+    /opt/ecobin/business/current/app/main.py
 Restart=always
 RestartSec=5
 TimeoutStartSec=180
 KillSignal=SIGTERM
 TimeoutStopSec=30
-Environment=ECOBIN_CONFIG_MODE=production
-Environment=ECOBIN_CLOUD_TRANSPORT_MODE=local-proxy
-Environment=ECOBIN_STAGE4_JOB_GATE_MODE=candidate
-Environment=ECOBIN_BUSINESS_CONTROL_MODE=candidate
-Environment=ECOBIN_BUSINESS_CONTROL_SOCKET=/run/ecobin/business/control.sock
-Environment=ECOBIN_COMMUNICATION_SOCKET=/run/ecobin/communication/control.sock
-Environment=ECOBIN_UPDATER_CONTROL_SOCKET=/run/ecobin/updater/control.sock
-Environment=ECOBIN_DATA_DIR=/var/lib/ecobin/business
-Environment=ECOBIN_EDGE_STORE_PATH=/var/lib/ecobin/business/edge.db
-Environment=ECOBIN_EDGE_BOOT_ID_PATH=/var/lib/ecobin/business/edge-boot-id
-Environment=ECOBIN_DEVICE_CONFIG_PATH=/var/lib/ecobin/business/device-config.json
-Environment=ECOBIN_MCU_FIRMWARE_CACHE_DIR=/var/lib/ecobin/business/mcu-firmware
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 UMask=0077

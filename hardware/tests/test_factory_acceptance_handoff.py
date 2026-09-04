@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 from dataclasses import replace
 import json
+import os
 from pathlib import Path
 
 import factory.acceptance_handoff as handoff_module
@@ -125,6 +126,11 @@ def test_handoff_without_update_line_never_touches_boot0_or_nrst(
         "mcu_remote_update_capability",
         lambda _report: False,
     )
+    monkeypatch.setattr(
+        handoff_module,
+        "_resolve_business_capability_owner",
+        lambda: None,
+    )
     config = replace(
         AcceptanceConfiguration.from_mapping({}),
         report_path=str(report_path),
@@ -136,6 +142,7 @@ def test_handoff_without_update_line_never_touches_boot0_or_nrst(
     assert bootloader.calls == []
     capabilities = AtomicJsonFile(
         capabilities_path,
+        file_mode=0o640,
         chmod_existing_parent=False,
     ).read()
     assert capabilities == {
@@ -145,3 +152,5 @@ def test_handoff_without_update_line_never_touches_boot0_or_nrst(
             report
         ),
     }
+    if os.name != "nt":
+        assert capabilities_path.stat().st_mode & 0o777 == 0o640

@@ -704,8 +704,14 @@ class BusinessRuntimeCutover:
             uid=self.business_uid,
             gid=self.business_gid,
         )
-        _verify_sqlite(self.paths.business_database)
-        _require_cutover_baseline_schema(self.paths.business_database)
+        _verify_sqlite(
+            self.paths.business_database,
+            immutable_when_clean=True,
+        )
+        _require_cutover_baseline_schema(
+            self.paths.business_database,
+            immutable_when_clean=True,
+        )
         _require_directory(
             self.paths.business_photos,
             mode=0o700,
@@ -716,6 +722,7 @@ class BusinessRuntimeCutover:
         _require_business_photo_paths(
             self.paths.business_database,
             self.paths.business_photos,
+            immutable_when_clean=True,
         )
         _require_regular(
             self.paths.business_boot_id,
@@ -940,12 +947,19 @@ def _require_regular(
     return details
 
 
-def _verify_sqlite(path: Path) -> None:
+def _verify_sqlite(
+    path: Path,
+    *,
+    immutable_when_clean: bool = False,
+) -> None:
     _require_regular(path, "business SQLite database")
     connection: sqlite3.Connection | None = None
     try:
         connection = sqlite3.connect(
-            _sqlite_read_only_uri(path),
+            _sqlite_read_only_uri(
+                path,
+                immutable_when_clean=immutable_when_clean,
+            ),
             uri=True,
             timeout=10.0,
         )
@@ -1008,11 +1022,18 @@ def _require_expected_schema_and_idle(path: Path) -> None:
         )
 
 
-def _require_cutover_baseline_schema(path: Path) -> None:
+def _require_cutover_baseline_schema(
+    path: Path,
+    *,
+    immutable_when_clean: bool = False,
+) -> None:
     connection: sqlite3.Connection | None = None
     try:
         connection = sqlite3.connect(
-            _sqlite_read_only_uri(path),
+            _sqlite_read_only_uri(
+                path,
+                immutable_when_clean=immutable_when_clean,
+            ),
             uri=True,
             timeout=10.0,
         )
@@ -1042,11 +1063,21 @@ def _require_cutover_baseline_schema(path: Path) -> None:
         )
 
 
-def _require_business_photo_paths(database: Path, photo_root: Path) -> None:
+def _require_business_photo_paths(
+    database: Path,
+    photo_root: Path,
+    *,
+    immutable_when_clean: bool = False,
+) -> None:
     connection: sqlite3.Connection | None = None
     try:
         connection = sqlite3.connect(
-            _sqlite_read_only_uri(database), uri=True, timeout=10.0
+            _sqlite_read_only_uri(
+                database,
+                immutable_when_clean=immutable_when_clean,
+            ),
+            uri=True,
+            timeout=10.0,
         )
         rows = connection.execute(
             "SELECT local_path FROM photo_outbox WHERE tombstoned=0"
@@ -1113,8 +1144,31 @@ def _sqlite_backup(source: Path, destination: Path) -> None:
     _fsync_file(destination)
 
 
-def _sqlite_read_only_uri(path: Path) -> str:
-    return path.resolve().as_uri() + "?mode=ro"
+def _sqlite_read_only_uri(
+    path: Path,
+    *,
+    immutable_when_clean: bool = False,
+) -> str:
+    """Open a quiescent WAL database without creating coordination files.
+
+    SQLite keeps WAL mode in the database header.  After a clean close, the
+    WAL and shared-memory files are normally removed; a conventional
+    read-only connection then still tries to recreate them.  The managed
+    boot gate runs before either business service and mounts its data read
+    only, so immutable mode is safe only in that sidecar-free state.  If a
+    power loss left recovery files behind, keep normal read-only semantics so
+    SQLite reads the committed WAL instead of silently ignoring it.
+    """
+
+    uri = path.resolve().as_uri() + "?mode=ro"
+    if not immutable_when_clean:
+        return uri
+    recovery_paths = tuple(
+        Path(f"{path}{suffix}") for suffix in ("-wal", "-shm", "-journal")
+    )
+    if any(os.path.lexists(candidate) for candidate in recovery_paths):
+        return uri
+    return uri + "&immutable=1"
 
 
 def _read_boot_id(path: Path) -> int:

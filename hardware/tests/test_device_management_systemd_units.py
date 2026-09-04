@@ -18,6 +18,16 @@ def _unit(name: str) -> str:
     return (HARDWARE / name).read_text(encoding="utf-8")
 
 
+def _unit_directives(unit: str, name: str) -> set[str]:
+    prefix = f"{name}="
+    return {
+        value
+        for line in unit.splitlines()
+        if line.startswith(prefix)
+        for value in line.removeprefix(prefix).split()
+    }
+
+
 def test_permanent_accounts_and_socket_groups_are_exact() -> None:
     for user in ("ecobin-communication", "ecobin-business", "ecobin-updater"):
         assert f"u {user} " in SYSUSERS
@@ -209,6 +219,30 @@ def test_cutover_candidate_units_are_static_mutually_exclusive_and_non_root() ->
     assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in communication
     assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in business
     assert "[Install]" not in communication + updater + business
+    assert "ExecStart=/usr/bin/env" in business
+    assert "Requires=ecobin-business-runtime-cutover-gate.service" in business
+    assert "After=" in business
+    assert "ecobin-business-runtime-cutover-gate.service" in business.split(
+        "After=", 1
+    )[1].splitlines()[0]
+    for assignment in (
+        "ECOBIN_CONFIG_MODE=production",
+        "ECOBIN_CLOUD_TRANSPORT_MODE=local-proxy",
+        "ECOBIN_BUSINESS_IDENTITY_PATH=/var/lib/ecobin/business/device-identity.json",
+        "ECOBIN_DEVICE_CAPABILITIES_PATH=/var/lib/ecobin/device-capabilities.json",
+        "ECOBIN_STAGE4_JOB_GATE_MODE=candidate",
+        "ECOBIN_BUSINESS_CONTROL_MODE=candidate",
+        "ECOBIN_BUSINESS_CONTROL_SOCKET=/run/ecobin/business/control.sock",
+        "ECOBIN_COMMUNICATION_SOCKET=/run/ecobin/communication/control.sock",
+        "ECOBIN_UPDATER_CONTROL_SOCKET=/run/ecobin/updater/control.sock",
+        "ECOBIN_DATA_DIR=/var/lib/ecobin/business",
+        "ECOBIN_EDGE_STORE_PATH=/var/lib/ecobin/business/edge.db",
+        "ECOBIN_EDGE_BOOT_ID_PATH=/var/lib/ecobin/business/edge-boot-id",
+        "ECOBIN_DEVICE_CONFIG_PATH=/var/lib/ecobin/business/device-config.json",
+        "ECOBIN_MCU_FIRMWARE_CACHE_DIR=/var/lib/ecobin/business/mcu-firmware",
+    ):
+        assert assignment in business
+        assert f"Environment={assignment}" not in business
     for unit in (communication, updater, business):
         assert "business-runtime-cutover/active.json" in unit
         assert "business-runtime-cutover/pending.json" in unit
@@ -231,6 +265,8 @@ def test_cutover_candidate_units_are_static_mutually_exclusive_and_non_root() ->
 def test_managed_runtime_target_is_selected_only_by_valid_cutover_gate() -> None:
     target = _unit("ecobin-business-runtime.target")
     gate = _unit("ecobin-business-runtime-cutover-gate.service")
+    bridge = _unit("ecobin-business.service")
+    replaceable = _unit("ecobin-business-updatable-candidate.service")
 
     assert "business-runtime-cutover/active.json" in target
     assert "business-runtime-cutover/pending.json" in target
@@ -241,12 +277,28 @@ def test_managed_runtime_target_is_selected_only_by_valid_cutover_gate() -> None
     assert "ecobin-business-updatable-candidate.service" in target
     assert "[Install]" not in target
 
+    # Both candidates must be submitted in the same boot transaction so their
+    # inverse release-pointer conditions can select exactly one.  A direct
+    # Conflicts= edge makes systemd discard one job before it evaluates those
+    # conditions, which can leave neither business runtime running.
+    assert "ConditionPathExists=!/opt/ecobin/business/current/release.env" in bridge
+    assert "ConditionPathExists=/opt/ecobin/business/current/release.env" in replaceable
+    assert "ecobin-business-updatable-candidate.service" not in _unit_directives(
+        bridge, "Conflicts"
+    )
+    assert "ecobin-business.service" not in _unit_directives(
+        replaceable, "Conflicts"
+    )
+
     assert "Type=oneshot" in gate
     assert "RemainAfterExit=yes" in gate
     assert "User=root" in gate
     assert "business_runtime_cutover.py verify-active" in gate
     assert "PrivateNetwork=yes" in gate
     assert "ProtectSystem=strict" in gate
+    assert "CapabilityBoundingSet=CAP_DAC_READ_SEARCH" in gate
+    assert "CAP_DAC_OVERRIDE" not in gate
+    assert "CAP_FOWNER" not in gate
     assert "InaccessiblePaths=-/etc/ecobin" in gate
     assert "ReadOnlyPaths=/var/lib/ecobin/business" in gate
     assert "[Install]" not in gate
@@ -279,9 +331,15 @@ def test_replaceable_business_service_is_static_and_power_loss_fenced() -> None:
     assert "User=ecobin-business" in business
     assert "WorkingDirectory=/opt/ecobin/business/current/app" in business
     assert "EnvironmentFile=/opt/ecobin/business/current/release.env" in business
-    assert "ExecStart=/opt/ecobin/business/current/.venv/bin/python" in business
+    assert "ExecStart=/usr/bin/env" in business
+    assert "/opt/ecobin/business/current/.venv/bin/python" in business
+    assert "Requires=ecobin-business-runtime-cutover-gate.service" in business
+    assert "ecobin-business-runtime-cutover-gate.service" in business.split(
+        "After=", 1
+    )[1].splitlines()[0]
     assert "business-snapshots/.restore-in-progress.json" in business
-    assert "Conflicts=ecobin-hardware.service ecobin-business.service" in business
+    assert "Conflicts=ecobin-hardware.service ecobin-factory-test.service" in business
+    assert "ecobin-business.service" not in _unit_directives(business, "Conflicts")
     assert "ECOBIN_CLOUD_TRANSPORT_MODE=local-proxy" in business
     assert "[Install]" not in business
 

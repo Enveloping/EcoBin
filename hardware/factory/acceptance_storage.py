@@ -3,8 +3,9 @@
 This module intentionally knows nothing about EdgeStore, MQTT, COS, enrollment,
 orders, bags, or production photo storage.  The factory executor owns separate
 JSON files and lock files.  Every committed JSON value is written through a
-0600 temporary file, fsynced, atomically replaced, and followed by a directory
-fsync on Linux.
+private temporary file, fsynced, atomically replaced, and followed by a
+directory fsync on Linux.  Files remain 0600 unless a caller explicitly
+publishes a non-secret fact with a stricter shared-read contract.
 """
 
 from __future__ import annotations
@@ -121,6 +122,9 @@ class AtomicJsonFile:
         fault_hook: FaultHook = None,
         fault_prefix: str = "json",
         chmod_existing_parent: bool = True,
+        file_mode: int = 0o600,
+        owner_uid: int | None = None,
+        owner_gid: int | None = None,
     ) -> None:
         self.path = Path(path)
         if not self.path.is_absolute():
@@ -129,9 +133,27 @@ class AtomicJsonFile:
             raise AcceptanceStorageError("acceptance JSON filename is invalid")
         if not isinstance(chmod_existing_parent, bool):
             raise TypeError("chmod_existing_parent must be boolean")
+        if (
+            type(file_mode) is not int
+            or file_mode < 0
+            or file_mode > 0o777
+        ):
+            raise ValueError("file_mode must be an integer permission mode")
+        if (owner_uid is None) != (owner_gid is None):
+            raise ValueError("owner_uid and owner_gid must be provided together")
+        if owner_uid is not None and (
+            type(owner_uid) is not int
+            or type(owner_gid) is not int
+            or owner_uid < 0
+            or owner_gid < 0
+        ):
+            raise ValueError("file owner IDs must be non-negative integers")
         self._fault_hook = fault_hook
         self._fault_prefix = fault_prefix
         self._chmod_existing_parent = chmod_existing_parent
+        self._file_mode = file_mode
+        self._owner_uid = owner_uid
+        self._owner_gid = owner_gid
         self._mutex = threading.RLock()
 
     def exists(self) -> bool:
@@ -160,9 +182,12 @@ class AtomicJsonFile:
                     raise AcceptanceStorageError(
                         "acceptance JSON is not a regular file"
                     )
-                if os.name != "nt" and metadata.st_mode & 0o077:
+                if (
+                    os.name != "nt"
+                    and stat.S_IMODE(metadata.st_mode) != self._file_mode
+                ):
                     raise AcceptanceStorageError(
-                        "acceptance JSON permissions are not 0600"
+                        "acceptance JSON permissions do not match its contract"
                     )
                 with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
                     descriptor = -1
@@ -223,6 +248,20 @@ class AtomicJsonFile:
                             "acceptance JSON write made no progress"
                         )
                     offset += written
+                if self._owner_uid is not None:
+                    if not hasattr(os, "fchown"):
+                        raise AcceptanceStorageError(
+                            "acceptance JSON ownership cannot be assigned"
+                        )
+                    os.fchown(
+                        descriptor,
+                        self._owner_uid,
+                        self._owner_gid,
+                    )
+                if hasattr(os, "fchmod"):
+                    os.fchmod(descriptor, self._file_mode)
+                else:
+                    os.chmod(temporary, self._file_mode)
                 os.fsync(descriptor)
                 _call_fault(
                     self._fault_hook,
@@ -231,7 +270,7 @@ class AtomicJsonFile:
                 os.close(descriptor)
                 descriptor = -1
                 os.replace(temporary, self.path)
-                os.chmod(self.path, 0o600)
+                os.chmod(self.path, self._file_mode)
                 _call_fault(
                     self._fault_hook,
                     f"{self._fault_prefix}.after_replace",

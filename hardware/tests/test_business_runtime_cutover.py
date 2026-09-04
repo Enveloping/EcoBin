@@ -15,6 +15,7 @@ from business_runtime_cutover import (
     BusinessRuntimeCutoverError,
     CutoverPaths,
     _exclusive_creatable_lock,
+    _sqlite_read_only_uri,
 )
 from business_runtime_cutover_state import (
     BusinessRuntimeCutoverMode,
@@ -405,6 +406,69 @@ def test_active_verification_accepts_a_later_business_schema(
         connection.commit()
 
     assert cutover.verify_active()["runtimeDataVerified"] is True
+
+
+def test_clean_wal_database_uses_immutable_read_only_verification(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "edge.db"
+    connection = sqlite3.connect(database)
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone() == (
+            "wal",
+        )
+        connection.execute("CREATE TABLE facts(value TEXT NOT NULL)")
+        connection.execute("INSERT INTO facts VALUES ('checkpointed')")
+        connection.commit()
+    finally:
+        connection.close()
+
+    # Windows may retain empty WAL bookkeeping files after a clean close;
+    # model the Linux boot state observed on the device explicitly.
+    Path(f"{database}-wal").unlink(missing_ok=True)
+    Path(f"{database}-shm").unlink(missing_ok=True)
+    assert not Path(f"{database}-wal").exists()
+    assert not Path(f"{database}-shm").exists()
+    assert _sqlite_read_only_uri(
+        database,
+        immutable_when_clean=True,
+    ).endswith("?mode=ro&immutable=1")
+
+
+def test_recovery_sidecars_disable_immutable_verification(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "edge.db"
+    writer = sqlite3.connect(database)
+    reader: sqlite3.Connection | None = None
+    try:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+        writer.execute("PRAGMA wal_autocheckpoint=0")
+        writer.execute("CREATE TABLE facts(value TEXT NOT NULL)")
+        writer.execute("INSERT INTO facts VALUES ('committed-in-wal')")
+        writer.commit()
+        assert Path(f"{database}-wal").exists()
+        assert Path(f"{database}-shm").exists()
+        uri = _sqlite_read_only_uri(database, immutable_when_clean=True)
+        assert uri.endswith("?mode=ro")
+        assert "immutable" not in uri
+        reader = sqlite3.connect(uri, uri=True)
+        assert reader.execute("SELECT value FROM facts").fetchone() == (
+            "committed-in-wal",
+        )
+    finally:
+        if reader is not None:
+            reader.close()
+        writer.close()
+
+    journal = Path(f"{database}-journal")
+    journal.touch()
+    try:
+        uri = _sqlite_read_only_uri(database, immutable_when_clean=True)
+        assert uri.endswith("?mode=ro")
+        assert "immutable" not in uri
+    finally:
+        journal.unlink()
 
 
 @pytest.mark.skipif(

@@ -96,6 +96,27 @@ def test_atomic_json_can_preserve_an_existing_shared_parent_mode(
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Unix ownership bits are required")
+def test_atomic_json_can_publish_a_group_read_only_runtime_fact(
+    tmp_path: Path,
+) -> None:
+    path = (tmp_path / "shared" / "device-capabilities.json").absolute()
+
+    document = AtomicJsonFile(
+        path,
+        file_mode=0o640,
+        owner_uid=os.geteuid(),
+        owner_gid=os.getegid(),
+    )
+    document.write({"schemaVersion": 1})
+
+    metadata = path.stat()
+    assert stat.S_IMODE(metadata.st_mode) == 0o640
+    assert metadata.st_uid == os.geteuid()
+    assert metadata.st_gid == os.getegid()
+    assert document.read() == {"schemaVersion": 1}
+
+
 def test_malformed_or_non_object_json_is_rejected(tmp_path: Path) -> None:
     path = (tmp_path / "private" / "state.json").absolute()
     path.parent.mkdir()

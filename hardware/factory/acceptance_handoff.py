@@ -31,6 +31,23 @@ HANDOFF_FACT_PATH = Path("/var/lib/ecobin/first-boot/handoff-safe.json")
 DEVICE_CAPABILITIES_PATH = Path("/var/lib/ecobin/device-capabilities.json")
 INSTANCE_LOCK_PATH = Path("/run/lock/ecobin/factory-handoff.lock")
 UART_LOCK_PATH = Path("/run/lock/ecobin/uart5.lock")
+BUSINESS_RUNTIME_GROUP = "ecobin-business"
+
+
+def _resolve_business_capability_owner() -> tuple[int, int] | None:
+    """Resolve the root-owned, business-group-readable publication owner."""
+
+    if os.name == "nt":  # Unit tests do not have the image's system accounts.
+        return None
+    try:
+        import grp
+
+        group = grp.getgrnam(BUSINESS_RUNTIME_GROUP)
+    except (ImportError, KeyError) as error:
+        raise AcceptanceHardwareError(
+            "BUSINESS_RUNTIME_GROUP_NOT_AVAILABLE"
+        ) from error
+    return (0, group.gr_gid)
 
 
 def _read_release_id() -> str:
@@ -102,9 +119,13 @@ def run_handoff(config: AcceptanceConfiguration) -> dict:
         # Commit capabilities first.  A power loss before the handoff fact
         # leaves runtime admission closed; retry deterministically replaces
         # the same report-bound document.
+        capability_owner = _resolve_business_capability_owner()
         AtomicJsonFile(
             DEVICE_CAPABILITIES_PATH,
             chmod_existing_parent=False,
+            file_mode=0o640,
+            owner_uid=(capability_owner[0] if capability_owner else None),
+            owner_gid=(capability_owner[1] if capability_owner else None),
         ).write(capabilities)
         fact = {
             "schemaVersion": 1,

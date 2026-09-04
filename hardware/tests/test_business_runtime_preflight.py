@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pytest
 from system.business_runtime_preflight import (
     BusinessRuntimePreflightError,
     probe_business_identity,
+    probe_device_capabilities,
     probe_private_directory,
     verify_legacy_runtime_stopped,
     verify_proxy_candidate_health,
@@ -191,8 +193,6 @@ def test_proxy_health_gate_requires_permanent_owners_and_active_job_gate() -> No
 
 @pytest.mark.skipif(os.name == "nt", reason="Unix ownership is required")
 def test_proxy_preflight_reads_strict_business_identity(tmp_path: Path) -> None:
-    import json
-
     identity = tmp_path / "device-identity.json"
     identity.write_text(
         json.dumps(
@@ -214,6 +214,63 @@ def test_proxy_preflight_reads_strict_business_identity(tmp_path: Path) -> None:
     identity.chmod(0o640)
     with pytest.raises(BusinessRuntimePreflightError, match="unsafe"):
         probe_business_identity(str(identity))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Unix ownership is required")
+def test_preflight_reads_root_published_device_capabilities(
+    tmp_path: Path,
+) -> None:
+    capabilities = tmp_path / "device-capabilities.json"
+    capabilities.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "mcuRemoteUpdateCapable": True,
+                "factoryReportSha256": "a" * 64,
+            }
+        ),
+        encoding="utf-8",
+    )
+    capabilities.chmod(0o640)
+
+    probe_device_capabilities(
+        str(capabilities),
+        expected_owner_uid=os.geteuid(),
+        expected_group_gid=os.getegid(),
+    )
+
+    capabilities.chmod(0o600)
+    with pytest.raises(BusinessRuntimePreflightError, match="ownership or file shape"):
+        probe_device_capabilities(
+            str(capabilities),
+            expected_owner_uid=os.geteuid(),
+            expected_group_gid=os.getegid(),
+        )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Unix ownership is required")
+def test_preflight_rejects_invalid_device_capability_content(
+    tmp_path: Path,
+) -> None:
+    capabilities = tmp_path / "device-capabilities.json"
+    capabilities.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "mcuRemoteUpdateCapable": "yes",
+                "factoryReportSha256": "not-a-digest",
+            }
+        ),
+        encoding="utf-8",
+    )
+    capabilities.chmod(0o640)
+
+    with pytest.raises(BusinessRuntimePreflightError, match="content is invalid"):
+        probe_device_capabilities(
+            str(capabilities),
+            expected_owner_uid=os.geteuid(),
+            expected_group_gid=os.getegid(),
+        )
 
 
 def test_preflight_refuses_to_probe_while_business_runtime_is_active() -> None:
