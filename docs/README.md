@@ -95,6 +95,7 @@
 - [香橙派 v19 后端允许列表部署记录](operations/orangepi-v19-backend-allowlist-deployment-2026-09-03.md)：记录第四阶段镜像身份替换 v17、v15/v16/v18 继续排除、并发安全回退、可恢复配置备份以及生产重载和健康核验结果；允许版本不代表已经写卡或通过真机验收。
 - [香橙派 v20 后端允许列表部署记录](operations/orangepi-v20-backend-allowlist-deployment-2026-09-03.md)：记录曾在保留 v19 的同时追加 v20 的历史部署；v20 从未写卡，随后已由 v21 替换。
 - [香橙派 v21 后端允许列表部署记录](operations/orangepi-v21-backend-allowlist-deployment-2026-09-03.md)：记录允许列表从 v19+v20 切换为 v19+v21、可恢复配置备份、生产重载和独立健康核验；允许版本不代表真实 MCU 更新已通过或远程更新已开放。
+- [香橙派 v23 后端允许列表部署记录](operations/orangepi-v23-backend-allowlist-deployment-2026-09-04.md)：记录 v23 指定 TF 卡完整写入回读、在保留 v13/v19/v21 的同时加入后端允许列表、可恢复配置备份、生产重载和独立健康核验；允许版本不代表本地业务更新真机验收或远程下发已经通过。
 
 ### `flows/` — 流程图与可视化说明
 
