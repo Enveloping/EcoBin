@@ -16,6 +16,7 @@ ecobin:
       region: ""
       bucket-name: ""
       download-base-url: ""
+      signing-public-keys-directory: ""
       remote-dispatch-enabled: false
   external:
     mode: fake

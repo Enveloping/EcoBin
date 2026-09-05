@@ -24,6 +24,7 @@ spring:
       # 平台管理员上传业务发布包时先落到临时文件；业务校验器仍会再次执行精确大小上限。
       max-file-size: 1536MB
       max-request-size: 1537MB
+      location: ${businessReleaseUploadDirectory:${java.io.tmpdir}}
 
 # JWT 配置
 jwt:
@@ -93,6 +94,7 @@ ecobin:
       download-base-url: ${businessReleaseDownloadBaseUrl:}
       fake-directory: ${businessReleaseFakeDirectory:${java.io.tmpdir}/ecobin-business-release-artifacts}
       signing-public-keys-directory: ${businessReleaseSigningPublicKeysDirectory:}
+      upload-directory: ${businessReleaseUploadDirectory:${java.io.tmpdir}}
       # 默认关闭；只有完成私有桶、签名密钥和验证设备准备后才可显式开启。
       remote-dispatch-enabled: ${businessReleaseRemoteDispatchEnabled:false}
     enrollment:

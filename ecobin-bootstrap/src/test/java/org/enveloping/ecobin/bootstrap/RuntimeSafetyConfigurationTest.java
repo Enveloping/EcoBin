@@ -114,6 +114,14 @@ class RuntimeSafetyConfigurationTest {
                 "${bagCodeKeyK1}",
                 property(sources, "ecobin.recycling.bag-code.keys.K1"));
         assertEquals(
+                "${businessReleaseUploadDirectory:${java.io.tmpdir}}",
+                property(sources, "spring.servlet.multipart.location"));
+        assertEquals(
+                "${businessReleaseUploadDirectory:${java.io.tmpdir}}",
+                property(
+                        sources,
+                        "ecobin.device.business-release.upload-directory"));
+        assertEquals(
                 false,
                 property(
                         sources,
@@ -199,7 +207,8 @@ class RuntimeSafetyConfigurationTest {
                 "ecobin.device.business-release.secret-key",
                 "ecobin.device.business-release.region",
                 "ecobin.device.business-release.bucket-name",
-                "ecobin.device.business-release.download-base-url")) {
+                "ecobin.device.business-release.download-base-url",
+                "ecobin.device.business-release.signing-public-keys-directory")) {
             assertEquals(
                     "",
                     property(fakeSources, property),

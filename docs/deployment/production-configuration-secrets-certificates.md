@@ -1,7 +1,7 @@
 # EcoBin 生产部署配置、密钥与证书清单
 
 > 适用目标：`ubuntu@115.159.67.35`、Ubuntu 22.04、
-> `https://www.jinshoubao.com`、目标数据库 V63。
+> `https://www.jinshoubao.com`、目标数据库 V66。
 >
 > 本文只记录配置项名称、用途和存放位置，不记录任何真实值。完整的安装、启动、
 > Nginx 切换和回退步骤见
@@ -45,6 +45,8 @@
 │   ├── remote-support-maintenance-user-ca  root:root 0600；条件启用
 │   ├── default-platform-admin-password     root:root 0600
 │   └── ...                                 Real 模式渠道秘密
+├── business-release-keys/                  root:root 0755；只含正式 Ed25519 公钥
+│   └── business_2026.pem                   root:root 0644
 ├── wechatpay/                              root:root 0755
 │   ├── apiclient_cert.pem                  root:root 0644
 │   └── pub_key.pem                         root:root 0644
@@ -52,6 +54,7 @@
 
 /run/ecobin-secrets/backend/                root:10001 0750；启动时生成
 /var/log/ecobin/backend/                    10001:10001 0750；后端持久滚动日志
+/var/lib/ecobin/business-release-upload-tmp/ 10001:10001 0700；发布包临时落盘
 /var/lib/ecobin/releases/<release-id>/      root:root 0750；发布制品和镜像身份记录
 /etc/nginx/sites-available/jinshoubao        Nginx 站点配置
 /etc/letsencrypt/live/www.jinshoubao.com/   Certbot 管理的 HTTPS 证书与私钥
@@ -60,7 +63,8 @@
 `/run/ecobin-secrets` 位于运行时目录，服务器重启后会重新生成。长期原件必须留在
 `/etc/ecobin/secrets`，不能只放在 `/run` 下。`/var/log/ecobin/backend` 是宿主机持久
 目录，由发布安装器和 systemd 以容器用户 `10001:10001`、模式 `0750` 创建；容器重建
-不会删除其中的历史日志。
+不会删除其中的历史日志。发布包临时目录同样由安装器创建，但使用更严格的 `0700`，且只
+挂入后端容器的固定上传路径。
 
 当前试验期在操作机使用仓库外的
 `C:\Users\24217\.ecobin\production\115.159.67.35\` 保存受 ACL 限制的长期原件。
@@ -84,6 +88,7 @@ ECOBIN_WEB_IMAGE=ecobin-local/web:<同一发布ID>
 ECOBIN_WEB_IMAGE_ID=sha256:<服务器构建后的不可变镜像ID>
 ECOBIN_RUNTIME_ENV_FILE=/etc/ecobin/runtime.env
 ECOBIN_BACKEND_LOG_DIRECTORY=/var/log/ecobin/backend
+ECOBIN_BUSINESS_RELEASE_UPLOAD_DIRECTORY=/var/lib/ecobin/business-release-upload-tmp
 ECOBIN_PUBLIC_ORIGIN=https://www.jinshoubao.com
 ECOBIN_WEB_LOOPBACK_PORT=18080
 
@@ -161,6 +166,8 @@ businessReleaseCosRegion=<业务更新包私有桶地域>
 businessReleaseCosBucketName=<与照片桶不同的完整bucket-appId>
 businessReleaseCosBasePrefix=edge-runtime/releases
 businessReleaseDownloadBaseUrl=https://<私有桶对应COS访问域名>
+businessReleaseSigningPublicKeysDirectory=/run/secrets/business-release-keys
+businessReleaseUploadDirectory=/var/lib/ecobin/business-release-upload-tmp
 businessReleaseRemoteDispatchEnabled=false
 
 wechatPayMchid=<公司普通商户号>
@@ -211,7 +218,7 @@ H02_VOLUME_NAME=ecobin-target-mysql84-data
 H02_NETWORK_NAME=ecobin-target-db
 ```
 
-当前服务器目标库的实际版本必须在应用部署前现场核对并前向升级到 V63。V63 是数据库纪元门禁，
+当前服务器目标库的实际版本必须在应用部署前现场核对并前向升级到 V66。V66 是数据库纪元门禁，
 不是可以通过修改 `runtime.env` 绕过的配置项。
 
 ### 3.5 从仓库安装到服务器的固定文件
@@ -279,6 +286,11 @@ YAML 或整个仓库根目录挂进容器。
 - 照片桶允许普通 HTTPS 读取；业务更新包桶必须保持私有读、私有写且从未开启版本控制。
   `businessReleaseRemoteDispatchEnabled=false` 只关闭真实设备下发，不影响管理员上传和后端
   校验业务发布包。
+
+业务发布验签公钥放在 `/etc/ecobin/business-release-keys`，目录为 `root:root 0755`，每把
+公钥以 `<signingKeyId>.pem` 命名并为 `root:root 0644`。暂存脚本会拒绝空目录、链接、额外
+文件、私钥、非 Ed25519 公钥以及错误权限，再把公钥以只读方式复制到后端运行目录。对应私钥
+不得出现在服务器、浏览器、COS、数据库或设备中。
 
 ## 6. 需要的证书和公钥
 
@@ -412,7 +424,7 @@ curl --fail --silent http://127.0.0.1:18080/ >/dev/null
 
 Real 模式切换前还应人工确认：
 
-- [ ] 目标数据库已经是 V63，且共有 123 张领域表、76 条权限定义；
+- [ ] 目标数据库已经是 V66，且共有 131 张领域表、66 条成功迁移和 76 条权限定义；
 - [ ] 发布包来自干净 Git 提交，归档和包内逐文件 SHA-256 校验均通过；
 - [ ] 两个本地镜像的标签、image ID、发布记录和镜像标签一致；
 - [ ] `deployment.env` 与 `runtime.env` 均为 `root:root 0600` 且使用 LF；

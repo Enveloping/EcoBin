@@ -9,6 +9,7 @@ backend_base_image="${ECOBIN_BACKEND_BASE_IMAGE:-eclipse-temurin:21-jre}"
 web_base_image="${ECOBIN_WEB_BASE_IMAGE:-nginx:alpine}"
 allow_dirty_release="${ECOBIN_ALLOW_DIRTY_RELEASE:-false}"
 backend_log_directory="${ECOBIN_BACKEND_LOG_DIRECTORY:-/var/log/ecobin/backend}"
+business_release_upload_directory="${ECOBIN_BUSINESS_RELEASE_UPLOAD_DIRECTORY:-/var/lib/ecobin/business-release-upload-tmp}"
 backend_uid="${ECOBIN_BACKEND_UID:-10001}"
 backend_gid="${ECOBIN_BACKEND_GID:-10001}"
 incoming_directory=""
@@ -100,6 +101,10 @@ set_env_value() {
     && "${backend_log_directory}" != / \
     && "/${backend_log_directory#/}/" != *"/../"* ]] \
     || fail "backend log directory must be a safe absolute path"
+[[ "${business_release_upload_directory}" =~ ^/[A-Za-z0-9._/-]+$ \
+    && "${business_release_upload_directory}" != / \
+    && "/${business_release_upload_directory#/}/" != *"/../"* ]] \
+    || fail "business release upload directory must be a safe absolute path"
 [[ "${backend_uid}" =~ ^[0-9]+$ && "${backend_gid}" =~ ^[0-9]+$ ]] \
     || fail "backend log owner must use numeric UID/GID"
 command -v docker >/dev/null 2>&1 || fail "docker is required"
@@ -324,6 +329,19 @@ install -d -o "${backend_uid}" -g "${backend_gid}" -m 0750 \
 [[ "$(stat -c '%u:%g:%a' "${backend_log_directory}")" = \
     "${backend_uid}:${backend_gid}:750" ]] \
     || fail "backend log directory metadata is invalid"
+if [[ -e "${business_release_upload_directory}" ]]; then
+    [[ -d "${business_release_upload_directory}" \
+        && ! -L "${business_release_upload_directory}" ]] \
+        || fail "business release upload path exists but is not a real directory"
+fi
+install -d -o "${backend_uid}" -g "${backend_gid}" -m 0700 \
+    "${business_release_upload_directory}"
+[[ "$(readlink -f -- "${business_release_upload_directory}")" = \
+    "${business_release_upload_directory}" ]] \
+    || fail "business release upload directory must not traverse symbolic links"
+[[ "$(stat -c '%u:%g:%a' "${business_release_upload_directory}")" = \
+    "${backend_uid}:${backend_gid}:700" ]] \
+    || fail "business release upload directory metadata is invalid"
 deployment_directory="$(dirname -- "${deployment_env}")"
 current_release_id="$(sed -n 's/^ECOBIN_RELEASE_ID=//p' \
     "${deployment_env}" | tail -n 1)"
@@ -353,6 +371,8 @@ set_env_value "${deployment_temp}" ECOBIN_WEB_IMAGE "${web_image}"
 set_env_value "${deployment_temp}" ECOBIN_WEB_IMAGE_ID "${web_image_id}"
 set_env_value "${deployment_temp}" ECOBIN_BACKEND_LOG_DIRECTORY \
     "${backend_log_directory}"
+set_env_value "${deployment_temp}" ECOBIN_BUSINESS_RELEASE_UPLOAD_DIRECTORY \
+    "${business_release_upload_directory}"
 chown root:root "${deployment_temp}"
 chmod 0600 "${deployment_temp}"
 mv -f -- "${deployment_temp}" "${deployment_env}"

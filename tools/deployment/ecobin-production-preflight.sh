@@ -60,6 +60,39 @@ require_root_controlled_file() {
     fi
 }
 
+require_runtime_business_release_public_keys() {
+    local directory="${runtime_secret_root}/backend/business-release-keys"
+    local entries=()
+    local public_key
+    local key_name
+    local key_der_hex
+
+    [[ -d "${directory}" && ! -L "${directory}" ]] \
+        || fail "runtime business release public-key directory is missing or unsafe"
+    [[ "$(stat -c '%u:%g:%a' "${directory}")" = 0:10001:750 ]] \
+        || fail "runtime business release public-key directory metadata is invalid"
+    shopt -s nullglob dotglob
+    entries=("${directory}"/*)
+    shopt -u nullglob dotglob
+    [[ "${#entries[@]}" -gt 0 ]] \
+        || fail "runtime business release public-key directory is empty"
+    for public_key in "${entries[@]}"; do
+        key_name="$(basename -- "${public_key}")"
+        [[ "${key_name}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,63}\.pem$ \
+            && -f "${public_key}" && ! -L "${public_key}" ]] \
+            || fail "runtime business release public-key entry is invalid: ${key_name}"
+        [[ "$(stat -c '%u:%g:%a:%h' "${public_key}")" = 0:10001:440:1 ]] \
+            || fail "runtime business release public-key metadata is invalid: ${key_name}"
+        if ! key_der_hex="$({
+            openssl pkey -pubin -in "${public_key}" -outform DER 2>/dev/null
+        } | od -An -tx1 | tr -d '[:space:]')"; then
+            fail "runtime business release public key is not valid PEM: ${key_name}"
+        fi
+        [[ "${key_der_hex}" =~ ^302a300506032b6570032100[0-9a-f]{64}$ ]] \
+            || fail "runtime business release public key is not Ed25519: ${key_name}"
+    done
+}
+
 [[ "$(id -u)" = 0 ]] || fail "production preflight must run as root"
 require_root_controlled_file "${compose_file}"
 require_root_controlled_file "${deployment_env}"
@@ -80,6 +113,8 @@ web_image="$(env_value "${deployment_env}" ECOBIN_WEB_IMAGE)"
 web_image_id="$(env_value "${deployment_env}" ECOBIN_WEB_IMAGE_ID)"
 backend_log_directory="$(env_value \
     "${deployment_env}" ECOBIN_BACKEND_LOG_DIRECTORY)"
+business_release_upload_directory="$(env_value \
+    "${deployment_env}" ECOBIN_BUSINESS_RELEASE_UPLOAD_DIRECTORY)"
 
 [[ "${backend_log_directory}" =~ ^/[A-Za-z0-9._/-]+$ \
     && "${backend_log_directory}" != / \
@@ -93,6 +128,19 @@ backend_log_directory="$(env_value \
 [[ "$(stat -c '%u:%g:%a' "${backend_log_directory}")" = \
     10001:10001:750 ]] \
     || fail "backend persistent log directory metadata must be 10001:10001:750"
+[[ "${business_release_upload_directory}" =~ ^/[A-Za-z0-9._/-]+$ \
+    && "${business_release_upload_directory}" != / \
+    && "/${business_release_upload_directory#/}/" != *"/../"* ]] \
+    || fail "business release upload directory must be a safe absolute path"
+[[ -d "${business_release_upload_directory}" \
+    && ! -L "${business_release_upload_directory}" ]] \
+    || fail "business release upload directory is missing or is a link"
+[[ "$(readlink -f -- "${business_release_upload_directory}")" = \
+    "${business_release_upload_directory}" ]] \
+    || fail "business release upload directory traverses a symbolic link"
+[[ "$(stat -c '%u:%g:%a' "${business_release_upload_directory}")" = \
+    10001:10001:700 ]] \
+    || fail "business release upload directory metadata must be 10001:10001:700"
 
 [[ "${image_mode}" = local ]] \
     || fail "ECOBIN_IMAGE_MODE must be local"
@@ -180,6 +228,9 @@ configured_log_path="$(optional_env_value "${runtime_env}" ecobinLogPath)"
     || fail "ecobinLogPath must match the backend container log mount"
 [[ "$(env_value "${runtime_env}" TZ)" = UTC ]] \
     || fail "production runtime timezone must be UTC"
+[[ "$(env_value "${runtime_env}" businessReleaseUploadDirectory)" \
+    = /var/lib/ecobin/business-release-upload-tmp ]] \
+    || fail "businessReleaseUploadDirectory must use the fixed container path"
 
 external_mode="$(env_value "${runtime_env}" externalMode \
     | tr '[:upper:]' '[:lower:]')"
@@ -251,6 +302,7 @@ external_non_secret_keys=(
     businessReleaseCosBucketName
     businessReleaseCosBasePrefix
     businessReleaseDownloadBaseUrl
+    businessReleaseSigningPublicKeysDirectory
     businessReleaseRemoteDispatchEnabled
     wechatPayMchid
     wechatPayMerchantSerialNumber
@@ -303,11 +355,21 @@ else
     [[ "${release_base_url}" \
         = "https://${release_bucket}.cos.${release_region}.myqcloud.com" ]] \
         || fail "business release download URL must match its bucket and region"
+    [[ "$(env_value "${runtime_env}" \
+        businessReleaseSigningPublicKeysDirectory)" \
+        = /run/secrets/business-release-keys ]] \
+        || fail "business release public keys must use the staged read-only path"
+    require_runtime_business_release_public_keys
     release_dispatch="$(env_value \
         "${runtime_env}" businessReleaseRemoteDispatchEnabled \
         | tr '[:upper:]' '[:lower:]')"
     [[ "${release_dispatch}" = true || "${release_dispatch}" = false ]] \
         || fail "businessReleaseRemoteDispatchEnabled must be true or false"
+fi
+
+if [[ "${external_mode}" = fake ]]; then
+    [[ ! -e "${runtime_secret_root}/backend/business-release-keys" ]] \
+        || fail "Fake mode must not retain business release public keys"
 fi
 
 [[ "$(stat -c '%u:%g:%a' "${runtime_secret_root}/backend")" = \

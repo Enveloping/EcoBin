@@ -171,6 +171,23 @@ docker run \
                 test -r "/run/secrets/wechatpay/${file_name}"
                 test ! -w "/run/secrets/wechatpay/${file_name}"
             done
+            test -d /run/secrets/business-release-keys
+            key_count=0
+            for public_key in /run/secrets/business-release-keys/*; do
+                test -f "${public_key}"
+                test -r "${public_key}"
+                test ! -w "${public_key}"
+                case "$(basename "${public_key}")" in
+                    *.pem) ;;
+                    *) exit 1 ;;
+                esac
+                grep -q "BEGIN PUBLIC KEY" "${public_key}"
+                if grep -q "PRIVATE KEY" "${public_key}"; then
+                    exit 1
+                fi
+                key_count=$((key_count + 1))
+            done
+            test "${key_count}" -gt 0
         else
             for file_name in \
                 iotAccessId \
@@ -181,7 +198,8 @@ docker run \
                 businessReleaseCosSecretId \
                 businessReleaseCosSecretKey \
                 wechatPayApiV3Key \
-                wechatpay
+                wechatpay \
+                business-release-keys
             do
                 test ! -e "/run/secrets/${file_name}"
             done

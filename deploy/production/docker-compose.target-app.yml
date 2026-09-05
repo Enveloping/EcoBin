@@ -28,6 +28,12 @@ services:
         read_only: false
         bind:
           create_host_path: false
+      - type: bind
+        source: ${ECOBIN_BUSINESS_RELEASE_UPLOAD_DIRECTORY:-/var/lib/ecobin/business-release-upload-tmp}
+        target: /var/lib/ecobin/business-release-upload-tmp
+        read_only: false
+        bind:
+          create_host_path: false
     networks:
       target-app:
         aliases:

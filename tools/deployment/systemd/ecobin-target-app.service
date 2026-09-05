@@ -12,6 +12,7 @@ Type=oneshot
 RemainAfterExit=yes
 EnvironmentFile=/etc/ecobin/deployment.env
 ExecStartPre=/usr/bin/install -d -o 10001 -g 10001 -m 0750 ${ECOBIN_BACKEND_LOG_DIRECTORY}
+ExecStartPre=/usr/bin/install -d -o 10001 -g 10001 -m 0700 ${ECOBIN_BUSINESS_RELEASE_UPLOAD_DIRECTORY}
 ExecStartPre=/usr/local/sbin/ecobin-production-preflight
 ExecStart=/usr/local/sbin/ecobin-target-app-compose up
 ExecReload=/usr/local/sbin/ecobin-target-app-compose reload

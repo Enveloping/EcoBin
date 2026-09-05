@@ -2,7 +2,7 @@
 
 > 适用主机：`115.159.67.35`（Ubuntu 22.04）
 > 当前公网入口：`https://www.jinshoubao.com`
-> 目标数据库纪元：V63
+> 目标数据库纪元：V66
 > 本文只描述目标栈。旧 `ecobin-web`、`ecobin-backend`、`ecobin-mysql`
 > 容器和旧数据卷必须继续保留，不能与目标栈交叉连接。
 
@@ -82,12 +82,15 @@ ecobin-target-mysql84:3306
 │   ├── remote-support-maintenance-user-ca  root:root 0600；仅远程维护开启时使用
 │   ├── default-platform-admin-password     root:root 0600
 │   └── ...                                 Real 模式渠道秘密
+├── business-release-keys/                  root:root 0755；仅正式 Ed25519 公钥
+│   └── business_2026.pem                   root:root 0644
 └── wechatpay/                              root:root 0755
     ├── apiclient_cert.pem                  root:root 0644
     └── pub_key.pem                         root:root 0644
 
 /run/ecobin-secrets/backend/                root:10001 0750；每次启动重新生成
 /var/log/ecobin/backend/                    10001:10001 0750；容器重建后继续保留
+/var/lib/ecobin/business-release-upload-tmp/ 10001:10001 0700；只用于发布包临时落盘
 /var/lib/ecobin/releases/<release-id>/      root:root 0750；发布制品和镜像身份记录
 ```
 
@@ -163,6 +166,7 @@ ECOBIN_BACKEND_IMAGE=ecobin-local/backend:<release-id>
 ECOBIN_BACKEND_IMAGE_ID=sha256:<本机不可变镜像ID>
 ECOBIN_WEB_IMAGE=ecobin-local/web:<release-id>
 ECOBIN_WEB_IMAGE_ID=sha256:<本机不可变镜像ID>
+ECOBIN_BUSINESS_RELEASE_UPLOAD_DIRECTORY=/var/lib/ecobin/business-release-upload-tmp
 ```
 
 标签只是方便辨认，不能独立作为信任依据。预检还会要求：标签当前指向的 image ID、
@@ -173,8 +177,8 @@ ECOBIN_WEB_IMAGE_ID=sha256:<本机不可变镜像ID>
 镜像。已经受控导入基础镜像而外网暂时不可用时，可在执行安装脚本前设置
 `ECOBIN_PULL_RUNTIME_BASE_IMAGES=false`；这不允许省略最终 image ID 校验。
 
-后端镜像固定以 `10001:10001` 运行，根文件系统只读，只允许写 `/tmp` 的 64 MiB
-临时文件系统。
+后端镜像固定以 `10001:10001` 运行，根文件系统只读。普通临时数据仍只允许写 `/tmp` 的
+64 MiB 临时文件系统；业务发布包上传单独写入宿主机受限目录，避免大包耗尽容器内存盘。
 
 Web 根文件系统同样只读，只给 Nginx 缓存、PID 和临时文件配置小型 tmpfs。
 
@@ -234,6 +238,8 @@ Real 必须一次性满足 OneNet 上下行、COS 和微信支付平台级配置
 | `businessReleaseCosBucketName` | 与照片桶不同的完整 `bucket-appId` |
 | `businessReleaseCosBasePrefix` | 固定 `edge-runtime/releases` |
 | `businessReleaseDownloadBaseUrl` | 私有桶对应的 COS HTTPS 域名 |
+| `businessReleaseSigningPublicKeysDirectory` | 固定 `/run/secrets/business-release-keys`；目录只含正式 Ed25519 公钥 |
+| `businessReleaseUploadDirectory` | 固定 `/var/lib/ecobin/business-release-upload-tmp` |
 | `businessReleaseRemoteDispatchEnabled` | 存储切换完成时仍填 `false`；真实设备远程验收前不得开启 |
 | `wechatPayMchid` | 普通商户号 |
 | `wechatPayMerchantSerialNumber` | `apiclient_cert.pem` 的证书序列号 |
@@ -351,7 +357,7 @@ sudo systemctl daemon-reload
 
 顺序如下：
 
-1. 确认目标 MySQL 已是完整 V63、123 张领域表、76 条权限定义，运行账号已获得 `ops_task_attempt.external_request_id` 的精确更新权限，`ops_reliable_task` 已存在 `ix_ops_task_factory_progress` 索引，并且 V63 的业务发布声明保持只读、设备软件事实只允许追加、管理架构和兼容性投影只允许更新规定列；V52 固定四行远程端口槽属于系统种子，是否要求其他业务数据为空取决于当前部署是否已经承接试验数据，禁止为了满足旧手册而清空现有数据；
+1. 确认目标 MySQL 已是完整 V66、131 张领域表、66 条成功迁移和 76 条权限定义；业务发布身份保持不可修改，设备软件与更新进度事实只允许追加，取消结果只能由匹配的设备事实推进；V52 固定四行远程端口槽属于系统种子，是否要求其他业务数据为空取决于当前部署是否已经承接试验数据，禁止为了满足旧手册而清空现有数据；
 2. 上传、校验并安装同一干净 Git 提交生成的本地发布包；
 3. 确认安装脚本已写入本地标签和对应 image ID，再写入其余运行配置和秘密；
 4. 执行秘密暂存；

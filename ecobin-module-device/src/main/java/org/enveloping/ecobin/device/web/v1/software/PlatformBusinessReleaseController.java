@@ -14,6 +14,7 @@ import org.enveloping.ecobin.framework.web.v1.TargetApiEnvelope;
 import org.enveloping.ecobin.framework.web.v1.TargetRequestIds;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,6 +29,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.UUID;
 
@@ -37,10 +39,16 @@ public class PlatformBusinessReleaseController {
 
     private static final String IDEMPOTENCY_KEY = "Idempotency-Key";
     private final BusinessReleaseControlPlaneService releases;
+    private final Path uploadDirectory;
 
     public PlatformBusinessReleaseController(
-            BusinessReleaseControlPlaneService releases) {
+            BusinessReleaseControlPlaneService releases,
+            @Value("${ecobin.device.business-release.upload-directory:${java.io.tmpdir}}")
+            String uploadDirectory) {
         this.releases = releases;
+        this.uploadDirectory = Path.of(uploadDirectory)
+                .toAbsolutePath()
+                .normalize();
     }
 
     @GetMapping("/readiness")
@@ -86,7 +94,11 @@ public class PlatformBusinessReleaseController {
             @RequestParam String signingKeyId,
             @RequestParam String reason,
             HttpServletRequest request) throws IOException {
-        Path directory = Files.createTempDirectory("ecobin-release-upload-");
+        if (!Files.isDirectory(uploadDirectory, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("业务发布上传临时目录不可用");
+        }
+        Path directory = Files.createTempDirectory(
+                uploadDirectory, "ecobin-release-upload-");
         Path packagePath = directory.resolve("package.tar.gz");
         Path signaturePath = directory.resolve("package.sig");
         try {

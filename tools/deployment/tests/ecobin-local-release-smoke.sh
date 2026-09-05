@@ -29,6 +29,7 @@ compose_file="${test_root}/compose.yml"
 release_store="${test_root}/release-store"
 runtime_secret_root="${test_root}/runtime-secrets"
 backend_log_directory="${test_root}/backend-logs"
+business_release_upload_directory="${test_root}/business-release-uploads"
 
 mkdir -p "${bundle}/backend" "${bundle}/web/dist" "${fake_bin}"
 printf 'dummy executable jar\n' > "${bundle}/backend/app.jar"
@@ -126,6 +127,7 @@ dbUsername=ecobin_app
 defaultPlatformAdminEnabled=true
 externalMode=fake
 ecobinLogPath=/var/log/ecobin/backend
+businessReleaseUploadDirectory=/var/lib/ecobin/business-release-upload-tmp
 onenetSubscriptionEnabled=false
 deviceEnrollmentEnabled=false
 remoteSupportEnabled=false
@@ -140,6 +142,7 @@ export ECOBIN_DEPLOYMENT_ENV_FILE="${deployment_env}"
 export ECOBIN_RELEASE_STORE="${release_store}"
 export ECOBIN_PULL_RUNTIME_BASE_IMAGES=false
 export ECOBIN_BACKEND_LOG_DIRECTORY="${backend_log_directory}"
+export ECOBIN_BUSINESS_RELEASE_UPLOAD_DIRECTORY="${business_release_upload_directory}"
 
 bash "${repository_root}/tools/deployment/ecobin-install-local-release.sh" \
     "${bundle}" >/dev/null
@@ -152,6 +155,11 @@ grep -Fxq \
     "${deployment_env}"
 [[ "$(stat -c '%u:%g:%a' "${backend_log_directory}")" = \
     10001:10001:750 ]]
+grep -Fxq \
+    "ECOBIN_BUSINESS_RELEASE_UPLOAD_DIRECTORY=${business_release_upload_directory}" \
+    "${deployment_env}"
+[[ "$(stat -c '%u:%g:%a' "${business_release_upload_directory}")" = \
+    10001:10001:700 ]]
 
 # A repeated activation must reuse the recorded immutable image IDs instead
 # of rebuilding the same release ID against potentially changed base tags.
@@ -175,7 +183,15 @@ grep -Fq \
 grep -Fq 'target: /var/log/ecobin/backend' \
     "${repository_root}/deploy/production/docker-compose.target-app.yml"
 grep -Fq \
+    'source: ${ECOBIN_BUSINESS_RELEASE_UPLOAD_DIRECTORY:-/var/lib/ecobin/business-release-upload-tmp}' \
+    "${repository_root}/deploy/production/docker-compose.target-app.yml"
+grep -Fq 'target: /var/lib/ecobin/business-release-upload-tmp' \
+    "${repository_root}/deploy/production/docker-compose.target-app.yml"
+grep -Fq \
     'ExecStartPre=/usr/bin/install -d -o 10001 -g 10001 -m 0750 ${ECOBIN_BACKEND_LOG_DIRECTORY}' \
+    "${repository_root}/tools/deployment/systemd/ecobin-target-app.service"
+grep -Fq \
+    'ExecStartPre=/usr/bin/install -d -o 10001 -g 10001 -m 0700 ${ECOBIN_BUSINESS_RELEASE_UPLOAD_DIRECTORY}' \
     "${repository_root}/tools/deployment/systemd/ecobin-target-app.service"
 grep -Fq 'ExecStart=/usr/local/sbin/ecobin-target-app-compose up' \
     "${repository_root}/tools/deployment/systemd/ecobin-target-app.service"

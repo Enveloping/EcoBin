@@ -3,6 +3,7 @@ set -euo pipefail
 
 source_dir="${ECOBIN_SECRET_SOURCE_DIR:-/etc/ecobin/secrets}"
 certificate_dir="${ECOBIN_CERTIFICATE_SOURCE_DIR:-/etc/ecobin/wechatpay}"
+business_release_key_source_dir="${ECOBIN_BUSINESS_RELEASE_PUBLIC_KEY_SOURCE_DIR:-/etc/ecobin/business-release-keys}"
 runtime_root="${ECOBIN_RUNTIME_SECRET_DIR:-/run/ecobin-secrets}"
 backend_uid="${ECOBIN_BACKEND_UID:-10001}"
 backend_gid="${ECOBIN_BACKEND_GID:-10001}"
@@ -55,6 +56,39 @@ require_root_file() {
 require_environment_value() {
     local name="$1"
     [[ -n "${!name:-}" ]] || fail "missing REAL runtime setting: ${name}"
+}
+
+validate_business_release_public_keys() {
+    local entries=()
+    local public_key
+    local key_name
+    local key_der_hex
+
+    require_directory "${business_release_key_source_dir}" "0:0:755"
+    [[ ! -L "${business_release_key_source_dir}" ]] \
+        || fail "business release public-key directory must not be a link"
+    shopt -s nullglob dotglob
+    entries=("${business_release_key_source_dir}"/*)
+    shopt -u nullglob dotglob
+    [[ "${#entries[@]}" -gt 0 ]] \
+        || fail "business release public-key directory is empty"
+    for public_key in "${entries[@]}"; do
+        key_name="$(basename -- "${public_key}")"
+        [[ "${key_name}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,63}\.pem$ ]] \
+            || fail "invalid business release public-key filename: ${key_name}"
+        require_root_file \
+            "${public_key}" 644 \
+            "business release public key ${key_name}"
+        [[ "$(stat -c '%h' -- "${public_key}")" = 1 ]] \
+            || fail "business release public key must have one hard link: ${key_name}"
+        if ! key_der_hex="$({
+            openssl pkey -pubin -in "${public_key}" -outform DER 2>/dev/null
+        } | od -An -tx1 | tr -d '[:space:]')"; then
+            fail "business release public key is not valid PEM: ${key_name}"
+        fi
+        [[ "${key_der_hex}" =~ ^302a300506032b6570032100[0-9a-f]{64}$ ]] \
+            || fail "business release public key is not Ed25519: ${key_name}"
+    done
 }
 
 require_directory "${source_dir}" "0:0:700"
@@ -145,6 +179,7 @@ if [[ "${external_mode}" = real ]]; then
         businessReleaseCosBucketName \
         businessReleaseCosBasePrefix \
         businessReleaseDownloadBaseUrl \
+        businessReleaseSigningPublicKeysDirectory \
         businessReleaseRemoteDispatchEnabled \
         wechatPayMchid \
         wechatPayMerchantSerialNumber \
@@ -161,6 +196,9 @@ if [[ "${external_mode}" = real ]]; then
     [[ "${wechatPayPublicKeyPath:-}" \
         = /run/secrets/wechatpay/pub_key.pem ]] \
         || fail "unexpected WeChat Pay public key runtime path"
+    [[ "${businessReleaseSigningPublicKeysDirectory:-}" \
+        = /run/secrets/business-release-keys ]] \
+        || fail "unexpected business release public-key runtime path"
     [[ "${wechatPayPublicKeyId}" =~ ^PUB_KEY_ID_[0-9A-Za-z]+$ ]] \
         || fail "invalid WeChat Pay public key ID"
 
@@ -180,6 +218,7 @@ if [[ "${external_mode}" = real ]]; then
         -in "${certificate_dir}/pub_key.pem" \
         -noout >/dev/null 2>&1 \
         || fail "WeChat Pay public key is invalid"
+    validate_business_release_public_keys
 
     private_key_fingerprint="$({
         openssl pkey \
@@ -286,11 +325,20 @@ if [[ "${external_mode}" = real ]]; then
     install -o root -g "${backend_gid}" -m 0440 \
         "${certificate_dir}/pub_key.pem" \
         "${backend_dir}/wechatpay/pub_key.pem"
+    rm -rf -- "${backend_dir}/business-release-keys"
+    install -d -o root -g "${backend_gid}" -m 0750 \
+        "${backend_dir}/business-release-keys"
+    for public_key in "${business_release_key_source_dir}"/*; do
+        install -o root -g "${backend_gid}" -m 0440 \
+            "${public_key}" \
+            "${backend_dir}/business-release-keys/$(basename -- "${public_key}")"
+    done
 else
     for runtime_file in "${real_runtime_files[@]}"; do
         rm -f -- "${backend_dir}/${runtime_file}"
     done
     rm -rf -- "${backend_dir}/wechatpay"
+    rm -rf -- "${backend_dir}/business-release-keys"
 fi
 
 # These identities and legacy names are never available to the backend.
@@ -324,6 +372,18 @@ if [[ "${remote_support_enabled}" = true ]]; then
         "${backend_dir}/remote-support/maintenance-user-ca")"
     [[ "${metadata}" = "0:${backend_gid}:440" ]] \
         || fail "invalid runtime secret owner/mode for remote support CA: ${metadata}"
+fi
+
+if [[ "${external_mode}" = real ]]; then
+    [[ "$(stat -c '%u:%g:%a' \
+        "${backend_dir}/business-release-keys")" \
+        = "0:${backend_gid}:750" ]] \
+        || fail "invalid runtime business release public-key directory metadata"
+    for public_key in "${backend_dir}/business-release-keys"/*.pem; do
+        [[ "$(stat -c '%u:%g:%a' "${public_key}")" \
+            = "0:${backend_gid}:440" ]] \
+            || fail "invalid runtime business release public-key metadata"
+    done
 fi
 
 [[ "$(stat -c '%u:%g:%a' "${backend_dir}")" \

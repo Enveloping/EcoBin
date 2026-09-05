@@ -174,6 +174,12 @@ $settings = [ordered]@{
     businessReleaseDownloadBaseUrl = Get-FirstConfiguredValue `
         -Values $legacy `
         -Names @('businessReleaseDownloadBaseUrl')
+    businessReleaseSigningPublicKeysDirectory = Get-FirstConfiguredValue `
+        -Values $legacy `
+        -Names @('businessReleaseSigningPublicKeysDirectory')
+    businessReleaseUploadDirectory = Get-FirstConfiguredValue `
+        -Values $legacy `
+        -Names @('businessReleaseUploadDirectory')
     businessReleaseRemoteDispatchEnabled = Get-FirstConfiguredValue `
         -Values $legacy `
         -Names @('businessReleaseRemoteDispatchEnabled') `

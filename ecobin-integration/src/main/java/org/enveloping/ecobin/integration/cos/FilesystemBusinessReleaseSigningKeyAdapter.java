@@ -4,9 +4,14 @@ import org.enveloping.ecobin.device.api.port.BusinessReleaseSigningKeyPort;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.security.KeyFactory;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Base64;
+import java.util.List;
 import java.util.regex.Pattern;
 
 @Component
@@ -32,7 +37,30 @@ public class FilesystemBusinessReleaseSigningKeyAdapter
         if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) {
             return new Readiness(false, "业务发布验签公钥目录不可读");
         }
-        return new Readiness(true, "业务发布验签公钥目录可用");
+        try (var entries = Files.list(directory)) {
+            List<Path> keys = entries.sorted().toList();
+            if (keys.isEmpty()) {
+                return new Readiness(false, "业务发布验签公钥目录为空");
+            }
+            for (Path key : keys) {
+                String fileName = key.getFileName().toString();
+                if (!fileName.endsWith(".pem")
+                        || !KEY_ID.matcher(fileName.substring(
+                                0, fileName.length() - 4)).matches()
+                        || !Files.isRegularFile(
+                                key, LinkOption.NOFOLLOW_LINKS)) {
+                    return new Readiness(
+                            false,
+                            "业务发布验签公钥目录包含不允许的文件");
+                }
+                decodeEd25519PublicKey(Files.readAllBytes(key));
+            }
+            return new Readiness(
+                    true,
+                    "业务发布验签公钥目录可用，共 " + keys.size() + " 把公钥");
+        } catch (Exception exception) {
+            return new Readiness(false, "业务发布验签公钥目录包含无效或不可读的公钥");
+        }
     }
 
     @Override
@@ -57,5 +85,20 @@ public class FilesystemBusinessReleaseSigningKeyAdapter
         } catch (IOException exception) {
             throw new IllegalStateException("业务发布验签公钥不可读", exception);
         }
+    }
+
+    private static void decodeEd25519PublicKey(byte[] pem) throws Exception {
+        String text = new String(pem, StandardCharsets.US_ASCII).trim();
+        if (!text.startsWith("-----BEGIN PUBLIC KEY-----")
+                || !text.endsWith("-----END PUBLIC KEY-----")
+                || text.contains("PRIVATE KEY")) {
+            throw new IllegalArgumentException("not a public-key PEM");
+        }
+        String encoded = text
+                .replace("-----BEGIN PUBLIC KEY-----", "")
+                .replace("-----END PUBLIC KEY-----", "")
+                .replaceAll("\\s", "");
+        KeyFactory.getInstance("Ed25519").generatePublic(
+                new X509EncodedKeySpec(Base64.getDecoder().decode(encoded)));
     }
 }
