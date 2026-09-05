@@ -180,7 +180,7 @@ class OneNetEventDispatcherBusinessRuntimeProgressTest {
         subData.put("productId", PRODUCT_ID);
         subData.put("deviceName", HARDWARE_SN);
         subData.putObject("params")
-                .putObject("businessRuntimeUpdateCancelResult")
+                .putObject("businessRuntimeCancelResult")
                 .set("value", value);
         return objectMapper.writeValueAsString(root);
     }
@@ -192,7 +192,7 @@ class OneNetEventDispatcherBusinessRuntimeProgressTest {
                                 + "business-runtime-update-cancel-result.event-wire.json")));
         return (ObjectNode) example.path("oneJsonPayload")
                 .path("params")
-                .path("businessRuntimeUpdateCancelResult")
+                .path("businessRuntimeCancelResult")
                 .path("value")
                 .deepCopy();
     }

@@ -27,6 +27,7 @@ from contractlib import (  # noqa: E402
     CONTRACTS_ROOT,
     ContractError,
     JsonSchemaSubsetValidator,
+    ONENET_IDENTIFIER_PATTERN,
     UartStreamParser,
     canonical_json_bytes,
     decode_uart_frame,
@@ -338,6 +339,13 @@ def validate_onenet_thing_model(summary: ValidationSummary) -> None:
         raise ContractError("OneNet candidate exceeds the documented function point limit")
     if len(identifiers) != len(set(identifiers)):
         raise ContractError("OneNet candidate has duplicate function identifiers")
+    for identifier in identifiers:
+        if ONENET_IDENTIFIER_PATTERN.fullmatch(identifier) is None:
+            raise ContractError(
+                f"OneNet function identifier {identifier!r} must be 1..32 "
+                "ASCII letters/digits/underscore/hyphen characters and start "
+                "with an ASCII letter"
+            )
     if set(identifiers) != expected_identifiers:
         raise ContractError("OneNet candidate functions differ from mapping registry")
     if set(wire_mapping["functions"]) != expected_identifiers:
@@ -353,11 +361,11 @@ def validate_onenet_thing_model(summary: ValidationSummary) -> None:
     ) -> None:
         identifier = descriptor["identifier"]
         name = descriptor["name"]
-        if not identifier or not identifier[0].islower():
-            raise ContractError(f"{context}: invalid identifier {identifier!r}")
-        if len(identifier) > 50:
+        if ONENET_IDENTIFIER_PATTERN.fullmatch(identifier) is None:
             raise ContractError(
-                f"{context}.{identifier}: OneNet identifier exceeds 50 chars"
+                f"{context}: invalid OneNet identifier {identifier!r}; expected "
+                "1..32 ASCII letters/digits/underscore/hyphen characters "
+                "starting with an ASCII letter"
             )
         if not 1 <= len(name) <= 30:
             raise ContractError(f"{context}.{identifier}: OneNet name exceeds 30 chars")

@@ -852,7 +852,7 @@
         }
       ]
     },
-    "businessRuntimeUpdateCancelResult": {
+    "businessRuntimeCancelResult": {
       "eventType": "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
       "outputData": [
         {
@@ -11825,5 +11825,5 @@
     }
   },
   "generated": true,
-  "mappingVersion": "2.1.0"
+  "mappingVersion": "2.1.1"
 }

@@ -1,5 +1,5 @@
 {
-  "mappingVersion": "2.1.0",
+  "mappingVersion": "2.1.1",
   "status": "IMPLEMENTATION_CANDIDATE",
   "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "transport": {
@@ -332,7 +332,7 @@
       "targetType": "BUSINESS_RUNTIME_DEPLOYMENT",
       "schemaRef": "events/events.schema.json#/$defs/businessRuntimeUpdateProgressEvent"
     },
-    "businessRuntimeUpdateCancelResult": {
+    "businessRuntimeCancelResult": {
       "eventType": "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "BUSINESS_RUNTIME_DEPLOYMENT",

@@ -31,6 +31,7 @@ if str(TOOLS_DIR) not in sys.path:
 from contractlib import (  # noqa: E402
     CONTRACTS_ROOT,
     JsonSchemaSubsetValidator,
+    ONENET_IDENTIFIER_PATTERN,
     canonical_json_bytes,
     compute_uart_command_digest,
     crc16_ccitt_false,
@@ -5127,6 +5128,15 @@ def _group_scalar_parameters_to_limit(
 def build_onenet_thing_model(
     mapping: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    for function_kind in ("services", "events"):
+        for identifier in mapping[function_kind]:
+            if ONENET_IDENTIFIER_PATTERN.fullmatch(identifier) is None:
+                raise ValueError(
+                    f"OneNet {function_kind} identifier {identifier!r} must be "
+                    "1..32 ASCII letters/digits/underscore/hyphen characters "
+                    "and start with an ASCII letter"
+                )
+
     command_schema_path = (
         CONTRACTS_ROOT / "onenet" / "commands" / "commands.schema.json"
     )

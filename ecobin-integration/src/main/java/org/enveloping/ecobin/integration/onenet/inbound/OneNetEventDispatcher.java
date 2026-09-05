@@ -151,7 +151,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "BUSINESS_RUNTIME_UPDATE_PROGRESS",
                     "RELIABLE_FACT",
                     "BUSINESS_RUNTIME_DEPLOYMENT")),
-            Map.entry("businessRuntimeUpdateCancelResult",
+            Map.entry("businessRuntimeCancelResult",
             new EventContract(
                     "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
                     "RELIABLE_FACT",

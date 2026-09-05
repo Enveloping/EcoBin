@@ -25,6 +25,7 @@ REPOSITORY_ROOT = CONTRACTS_ROOT.parent
 UART_REGISTRY_PATH = CONTRACTS_ROOT / "uart" / "uart-registry.yaml"
 UART_REGISTRY_SCHEMA_PATH = CONTRACTS_ROOT / "uart" / "uart-registry.schema.json"
 JCS_SAFE_INTEGER_MAX = 9_007_199_254_740_991
+ONENET_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,31}")
 
 
 class ContractError(ValueError):

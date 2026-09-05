@@ -210,6 +210,12 @@
 - H2 只用于不依赖方言的轻量测试；目标迁移、外键/唯一约束、锁、事务、租户/机构隔离和资金并发以 MySQL 8.x 为权威验证层。
 - Spring Boot 4 使用 Jackson 3 包 `tools.jackson.databind`；不要在新代码中误用旧 `com.fasterxml.jackson.databind`。
 - 香橙派代码和工具必须兼容 Python 3.11，并使用真实 SQLite 验证断电恢复语义。
+- Windows 与 Linux/WSL 不得复用 `hardware/.venv`。Windows 发现其中的
+  `pyvenv.cfg` 指向 `/usr/bin` 时，不得执行会重建该目录的 `uv run --project
+  hardware`；应使用明确的 Windows Python 3.11，或把
+  `UV_PROJECT_ENVIRONMENT` 指向仓库外的 Windows 专用目录。测试命令超时后必须终止
+  整棵 `uv/pytest/python` 子进程并确认没有孤儿进程，再进行下一次测试，禁止连续叠加
+  超时重试。
 - 后端、Web 或运行时镜像修改并提交后，按
   [`应用修改后重新部署操作手册`](docs/deployment/application-redeployment-runbook.md)
   在开发机生成 JAR/dist 发布包，再由服务器构建运行时镜像；不要把仓库复制到服务器执行 Maven/npm 构建。

@@ -1,10 +1,10 @@
 {
-  "identifier": "businessRuntimeUpdateCancelResult",
+  "identifier": "businessRuntimeCancelResult",
   "kind": "EVENT",
   "oneJsonPayload": {
     "id": "119",
     "params": {
-      "businessRuntimeUpdateCancelResult": {
+      "businessRuntimeCancelResult": {
         "value": {
           "businessAdmissionState": 1,
           "clockQuality": 1,

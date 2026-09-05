@@ -73,6 +73,25 @@ class GeneratedArtifactTests(unittest.TestCase):
         }
         self.assertEqual(function_identifiers, locally_compacted)
 
+    def test_onenet_function_identifiers_match_vendor_rule(self) -> None:
+        candidate = load_json(
+            CONTRACTS_ROOT
+            / "onenet"
+            / "generated"
+            / "onenet-thing-model.candidate.json"
+        )
+
+        for collection in ("properties", "services", "events"):
+            for function in candidate[collection]:
+                with self.subTest(
+                    collection=collection,
+                    identifier=function["identifier"],
+                ):
+                    self.assertRegex(
+                        function["identifier"],
+                        r"\A[A-Za-z][A-Za-z0-9_-]{0,31}\Z",
+                    )
+
     def test_onenet_import_candidate_enum_descriptions_match_vendor_limits(
         self,
     ) -> None:
