@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.integration.config;
 
+import org.enveloping.ecobin.integration.cos.BusinessReleaseArtifactProperties;
 import org.enveloping.ecobin.integration.cos.CosProperties;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetSubscriptionProperties;
 import org.enveloping.ecobin.integration.onenet.outbound.OneNetProperties;
@@ -24,15 +25,19 @@ public final class ExternalBoundaryGuard
     private final OneNetSubscriptionProperties subscriptionProperties;
     private final OneNetProperties oneNetProperties;
     private final CosProperties cosProperties;
+    private final BusinessReleaseArtifactProperties updatePackageProperties;
+
     public ExternalBoundaryGuard(
             ExternalAdapterModeProperties modeProperties,
             OneNetSubscriptionProperties subscriptionProperties,
             OneNetProperties oneNetProperties,
-            CosProperties cosProperties) {
+            CosProperties cosProperties,
+            BusinessReleaseArtifactProperties updatePackageProperties) {
         this.modeProperties = modeProperties;
         this.subscriptionProperties = subscriptionProperties;
         this.oneNetProperties = oneNetProperties;
         this.cosProperties = cosProperties;
+        this.updatePackageProperties = updatePackageProperties;
     }
 
     @Override
@@ -85,7 +90,18 @@ public final class ExternalBoundaryGuard
                                 cosProperties.getBucketName(),
                                 cosProperties.getBaseUrl())
                         : cosProperties.isConfigured()
-                                && hasText(cosProperties.getBaseUrl())));
+                                && hasText(cosProperties.getBaseUrl()),
+                fakeMode
+                        ? updatePackageProperties.isRemoteDispatchEnabled()
+                                || hasAnyText(
+                                        updatePackageProperties.getSecretId(),
+                                        updatePackageProperties.getSecretKey(),
+                                        updatePackageProperties.getRegion(),
+                                        updatePackageProperties.getBucketName(),
+                                        updatePackageProperties
+                                                .getDownloadBaseUrl())
+                        : updatePackageProperties
+                                .isDownloadLocationConfigured()));
     }
 
     private static boolean hasText(String value) {

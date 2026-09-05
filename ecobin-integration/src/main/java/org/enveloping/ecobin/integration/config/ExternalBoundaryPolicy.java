@@ -24,7 +24,8 @@ public final class ExternalBoundaryPolicy {
             if (snapshot.oneNetSubscriptionEnabled()
                     || snapshot.oneNetInboundConfigured()
                     || snapshot.oneNetOutboundConfigured()
-                    || snapshot.cosConfigured()) {
+                    || snapshot.cosConfigured()
+                    || snapshot.updatePackageCosConfigured()) {
                 throw new ExternalBoundaryException(
                         "Fake mode rejects all real OneNet and COS credentials");
             }
@@ -35,9 +36,11 @@ public final class ExternalBoundaryPolicy {
             if (!snapshot.oneNetSubscriptionEnabled()
                     || !snapshot.oneNetInboundConfigured()
                     || !snapshot.oneNetOutboundConfigured()
-                    || !snapshot.cosConfigured()) {
+                    || !snapshot.cosConfigured()
+                    || !snapshot.updatePackageCosConfigured()) {
                 throw new ExternalBoundaryException(
-                        "Real mode requires complete OneNet and COS configuration");
+                        "Real mode requires complete OneNet, photo COS and "
+                                + "update-package COS configuration");
             }
             return new Verification(REAL, false);
         }
@@ -51,7 +54,8 @@ public final class ExternalBoundaryPolicy {
             boolean oneNetSubscriptionEnabled,
             boolean oneNetInboundConfigured,
             boolean oneNetOutboundConfigured,
-            boolean cosConfigured) {
+            boolean cosConfigured,
+            boolean updatePackageCosConfigured) {
     }
 
     public record Verification(

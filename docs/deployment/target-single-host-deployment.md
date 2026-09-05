@@ -230,6 +230,11 @@ Real 必须一次性满足 OneNet 上下行、COS 和微信支付平台级配置
 | `cosBucketName` | 完整 `bucket-appId` |
 | `cosBaseUrl` | 对应 COS HTTPS 域名 |
 | `cosDurationSeconds` | 建议 `1800` |
+| `businessReleaseCosRegion` | 业务更新包私有桶地域 |
+| `businessReleaseCosBucketName` | 与照片桶不同的完整 `bucket-appId` |
+| `businessReleaseCosBasePrefix` | 固定 `edge-runtime/releases` |
+| `businessReleaseDownloadBaseUrl` | 私有桶对应的 COS HTTPS 域名 |
+| `businessReleaseRemoteDispatchEnabled` | 存储切换完成时仍填 `false`；真实设备远程验收前不得开启 |
 | `wechatPayMchid` | 普通商户号 |
 | `wechatPayMerchantSerialNumber` | `apiclient_cert.pem` 的证书序列号 |
 | `wechatPayMerchantPrivateKeyPath` | 固定 `/run/secrets/wechatpay/apiclient_key.pem` |
@@ -258,11 +263,17 @@ Real 必须一次性满足 OneNet 上下行、COS 和微信支付平台级配置
 | `onenet-access-key` | `/run/secrets/onenetAccessKey` |
 | `cos-secret-id` | `/run/secrets/cosSecretId` |
 | `cos-secret-key` | `/run/secrets/cosSecretKey` |
+| `business-release-cos-secret-id` | `/run/secrets/businessReleaseCosSecretId` |
+| `business-release-cos-secret-key` | `/run/secrets/businessReleaseCosSecretKey` |
 | `wechatpay-api-v3-key` | `/run/secrets/wechatPayApiV3Key` |
 | `wechatpay-merchant-private-key.pem` | `/run/secrets/wechatpay/apiclient_key.pem` |
 
 APIv3 密钥文件必须正好 32 个 UTF-8 字节，不能附带换行。商户私钥必须是未加密、可由
 无人值守进程读取的 PEM；其目录和文件权限承担静态保护职责。
+
+照片桶必须允许普通 HTTPS 地址读取，因为设备上报后数据库保存的是不带下载签名的原始
+照片 URL。业务更新包桶必须保持私有读、私有写，并且从未启用版本控制；后端只为单个已冻结
+对象签发短时下载地址。两套桶可以属于同一个 COS 账号，但不能是同一个桶。
 
 ### 5.3 微信支付商户证书与公钥
 

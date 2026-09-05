@@ -155,6 +155,29 @@ $settings = [ordered]@{
         -Values $legacy `
         -Names @('cosDurationSeconds') `
         -Default '1800'
+    businessReleaseCosSecretId = Get-FirstConfiguredValue `
+        -Values $legacy `
+        -Names @('businessReleaseCosSecretId')
+    businessReleaseCosSecretKey = Get-FirstConfiguredValue `
+        -Values $legacy `
+        -Names @('businessReleaseCosSecretKey')
+    businessReleaseCosRegion = Get-FirstConfiguredValue `
+        -Values $legacy `
+        -Names @('businessReleaseCosRegion')
+    businessReleaseCosBucketName = Get-FirstConfiguredValue `
+        -Values $legacy `
+        -Names @('businessReleaseCosBucketName')
+    businessReleaseCosBasePrefix = Get-FirstConfiguredValue `
+        -Values $legacy `
+        -Names @('businessReleaseCosBasePrefix') `
+        -Default 'edge-runtime/releases'
+    businessReleaseDownloadBaseUrl = Get-FirstConfiguredValue `
+        -Values $legacy `
+        -Names @('businessReleaseDownloadBaseUrl')
+    businessReleaseRemoteDispatchEnabled = Get-FirstConfiguredValue `
+        -Values $legacy `
+        -Names @('businessReleaseRemoteDispatchEnabled') `
+        -Default 'false'
     iotAccessId = Get-FirstConfiguredValue `
         -Values $legacy `
         -Names @('iotAccessId')

@@ -16,8 +16,9 @@ import java.util.TreeMap;
 /**
  * 腾讯云 COS STS 临时密钥客户端（设备直传模式）。
  * <p>
- * 仅在 {@code ecobin.external.mode=real} 时装配，并要求 {@link CosProperties}
- * 配置完整；Fake 模式使用只返回 {@code .invalid} 域名的无网络替身。
+ * 仅在 {@code ecobin.external.mode=real} 时装配。照片写入要求
+ * {@link CosProperties} 配置完整；MCU 固件读取使用与业务程序发布包相同的私有更新包桶。
+ * Fake 模式使用只返回 {@code .invalid} 域名的无网络替身。
  * 真实实现通过 {@link #getRealTempCredentials} 调用
  * {@code com.tencent.cloud.CosStsClient.getCredential} 获取真实临时凭证。
  * <p>
@@ -34,7 +35,8 @@ import java.util.TreeMap;
 @RequiredArgsConstructor
 public class CosTokenClient implements CosUploadCredentialPort {
 
-    private final CosProperties properties;
+    private final CosProperties photoProperties;
+    private final BusinessReleaseArtifactProperties updatePackageProperties;
 
     /**
      * 获取设备直传 COS 所需的 STS 临时凭证。
@@ -49,10 +51,6 @@ public class CosTokenClient implements CosUploadCredentialPort {
             String deviceSn,
             Integer doorIndex,
             String keyPrefix) {
-        if (!properties.isConfigured()) {
-            throw new IllegalStateException(
-                    "REAL mode requires complete COS configuration");
-        }
         boolean firmwareRead = keyPrefix != null && keyPrefix.matches(
                 "^ecobin/mcu-firmware/"
                         + "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
@@ -66,7 +64,10 @@ public class CosTokenClient implements CosUploadCredentialPort {
                     "COS work prefix is outside the target contract");
         }
 
-        return getRealTempCredentials(keyPrefix, firmwareRead);
+        return getRealTempCredentials(
+                keyPrefix,
+                firmwareRead,
+                grantTarget(firmwareRead));
     }
 
     /**
@@ -74,15 +75,16 @@ public class CosTokenClient implements CosUploadCredentialPort {
      */
     private CosUploadCredential getRealTempCredentials(
             String keyPrefix,
-            boolean firmwareRead) {
+            boolean firmwareRead,
+            GrantTarget target) {
         TreeMap<String, Object> config = new TreeMap<>();
-        config.put("secretId", properties.getSecretId());
-        config.put("secretKey", properties.getSecretKey());
-        config.put("durationSeconds", properties.getDurationSeconds());
-        config.put("bucket", properties.getBucketName());
-        config.put("region", properties.getRegion());
+        config.put("secretId", target.secretId());
+        config.put("secretKey", target.secretKey());
+        config.put("durationSeconds", target.durationSeconds());
+        config.put("bucket", target.bucketName());
+        config.put("region", target.region());
 
-        String bucketName = properties.getBucketName();
+        String bucketName = target.bucketName();
         String appId = bucketName.contains("-") ? bucketName.substring(bucketName.lastIndexOf("-") + 1) : "";
 
         Policy policy = new Policy();
@@ -109,13 +111,13 @@ public class CosTokenClient implements CosUploadCredentialPort {
         statement.addResources(new String[]{
                 String.format(
                         "qcs::cos:%s:uid/%s:%s/%s*",
-                        properties.getRegion(),
+                        target.region(),
                         appId,
                         bucketName,
                         keyPrefix),
                 String.format(
                         "qcs::ci:%s:uid/%s:bucket/%s/%s*",
-                        properties.getRegion(),
+                        target.region(),
                         appId,
                         bucketName,
                         keyPrefix)
@@ -135,11 +137,47 @@ public class CosTokenClient implements CosUploadCredentialPort {
                     response.startTime,
                     response.expiredTime,
                     bucketName,
-                    properties.getRegion(),
-                    properties.getBaseUrl());
+                    target.region(),
+                    target.baseUrl());
         } catch (Exception e) {
             log.error("[COS] 获取临时凭证失败", e);
             throw new RuntimeException("获取 COS 临时凭证失败: " + e.getMessage(), e);
         }
+    }
+
+    GrantTarget grantTarget(boolean firmwareRead) {
+        if (!firmwareRead) {
+            if (!photoProperties.isConfigured()) {
+                throw new IllegalStateException(
+                        "真实模式缺少完整的照片 COS 配置");
+            }
+            return new GrantTarget(
+                    photoProperties.getSecretId(),
+                    photoProperties.getSecretKey(),
+                    photoProperties.getRegion(),
+                    photoProperties.getBucketName(),
+                    photoProperties.getBaseUrl(),
+                    photoProperties.getDurationSeconds());
+        }
+        if (!updatePackageProperties.isDownloadLocationConfigured()) {
+            throw new IllegalStateException(
+                    "真实模式缺少完整的私有更新包 COS 配置");
+        }
+        return new GrantTarget(
+                updatePackageProperties.getSecretId(),
+                updatePackageProperties.getSecretKey(),
+                updatePackageProperties.getRegion(),
+                updatePackageProperties.getBucketName(),
+                updatePackageProperties.getDownloadBaseUrl(),
+                photoProperties.getDurationSeconds());
+    }
+
+    record GrantTarget(
+            String secretId,
+            String secretKey,
+            String region,
+            String bucketName,
+            String baseUrl,
+            int durationSeconds) {
     }
 }

@@ -194,12 +194,22 @@ class RuntimeSafetyConfigurationTest {
                 "cos.secret-key",
                 "cos.region",
                 "cos.bucket-name",
-                "cos.base-url")) {
+                "cos.base-url",
+                "ecobin.device.business-release.secret-id",
+                "ecobin.device.business-release.secret-key",
+                "ecobin.device.business-release.region",
+                "ecobin.device.business-release.bucket-name",
+                "ecobin.device.business-release.download-base-url")) {
             assertEquals(
                     "",
                     property(fakeSources, property),
                     () -> "local-fake must mask " + property);
         }
+        assertEquals(
+                false,
+                property(
+                        fakeSources,
+                        "ecobin.device.business-release.remote-dispatch-enabled"));
 
         List<PropertySource<?>> realSources = new YamlPropertySourceLoader()
                 .load(

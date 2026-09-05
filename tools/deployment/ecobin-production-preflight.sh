@@ -65,7 +65,7 @@ require_root_controlled_file "${compose_file}"
 require_root_controlled_file "${deployment_env}"
 require_root_controlled_file "${runtime_env}"
 
-if grep -Eq '^(dbPassword|jwtSecret|bagCodeKeyK1|deviceEnrollmentKeyK1|defaultPlatformAdminPassword|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)=' "${runtime_env}"; then
+if grep -Eq '^(dbPassword|jwtSecret|bagCodeKeyK1|deviceEnrollmentKeyK1|defaultPlatformAdminPassword|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|businessReleaseCosSecretId|businessReleaseCosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)=' "${runtime_env}"; then
     fail "runtime.env contains a secret value; use /run/secrets instead"
 fi
 if grep -Eq '^(wechatAppid|miniappSecretStoreDirectory)=' "${runtime_env}"; then
@@ -247,6 +247,11 @@ external_non_secret_keys=(
     cosRegion
     cosBucketName
     cosBaseUrl
+    businessReleaseCosRegion
+    businessReleaseCosBucketName
+    businessReleaseCosBasePrefix
+    businessReleaseDownloadBaseUrl
+    businessReleaseRemoteDispatchEnabled
     wechatPayMchid
     wechatPayMerchantSerialNumber
     wechatPayMerchantPrivateKeyPath
@@ -279,6 +284,30 @@ else
     [[ "$(env_value "${runtime_env}" wechatPayNotifyBaseUrl)" \
         = "${public_origin}" ]] \
         || fail "WeChat Pay notify origin must match the public origin"
+    cos_region="$(env_value "${runtime_env}" cosRegion)"
+    cos_bucket="$(env_value "${runtime_env}" cosBucketName)"
+    cos_base_url="$(env_value "${runtime_env}" cosBaseUrl)"
+    [[ "${cos_base_url}" \
+        = "https://${cos_bucket}.cos.${cos_region}.myqcloud.com" ]] \
+        || fail "photo COS base URL must match its bucket and region"
+
+    release_region="$(env_value "${runtime_env}" businessReleaseCosRegion)"
+    release_bucket="$(env_value "${runtime_env}" businessReleaseCosBucketName)"
+    release_base_url="$(env_value \
+        "${runtime_env}" businessReleaseDownloadBaseUrl)"
+    [[ "${release_bucket}" != "${cos_bucket}" ]] \
+        || fail "business releases must not share the public photo bucket"
+    [[ "$(env_value "${runtime_env}" businessReleaseCosBasePrefix)" \
+        = edge-runtime/releases ]] \
+        || fail "business release COS prefix must be edge-runtime/releases"
+    [[ "${release_base_url}" \
+        = "https://${release_bucket}.cos.${release_region}.myqcloud.com" ]] \
+        || fail "business release download URL must match its bucket and region"
+    release_dispatch="$(env_value \
+        "${runtime_env}" businessReleaseRemoteDispatchEnabled \
+        | tr '[:upper:]' '[:lower:]')"
+    [[ "${release_dispatch}" = true || "${release_dispatch}" = false ]] \
+        || fail "businessReleaseRemoteDispatchEnabled must be true or false"
 fi
 
 [[ "$(stat -c '%u:%g:%a' "${runtime_secret_root}/backend")" = \

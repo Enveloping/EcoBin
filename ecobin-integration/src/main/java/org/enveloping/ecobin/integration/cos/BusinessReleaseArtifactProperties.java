@@ -30,6 +30,10 @@ public class BusinessReleaseArtifactProperties {
     }
 
     public boolean isRemoteDispatchConfigured() {
+        return isDownloadLocationConfigured();
+    }
+
+    public boolean isDownloadLocationConfigured() {
         return isCosConfigured()
                 && present(downloadBaseUrl)
                 && downloadBaseUrl.startsWith("https://")

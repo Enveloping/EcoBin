@@ -157,6 +157,12 @@ cosBucketName=<完整bucket-appId>
 cosBaseUrl=https://<对应COS访问域名>
 cosDurationSeconds=1800
 
+businessReleaseCosRegion=<业务更新包私有桶地域>
+businessReleaseCosBucketName=<与照片桶不同的完整bucket-appId>
+businessReleaseCosBasePrefix=edge-runtime/releases
+businessReleaseDownloadBaseUrl=https://<私有桶对应COS访问域名>
+businessReleaseRemoteDispatchEnabled=false
+
 wechatPayMchid=<公司普通商户号>
 wechatPayMerchantSerialNumber=<apiclient_cert.pem的证书序列号>
 wechatPayMerchantPrivateKeyPath=/run/secrets/wechatpay/apiclient_key.pem
@@ -255,6 +261,8 @@ YAML 或整个仓库根目录挂进容器。
 | `onenet-access-key` | OneNet 产品下行 API | `/run/secrets/onenetAccessKey` |
 | `cos-secret-id` | 腾讯云最小权限 CAM 身份 | `/run/secrets/cosSecretId` |
 | `cos-secret-key` | 与上项配套 | `/run/secrets/cosSecretKey` |
+| `business-release-cos-secret-id` | 业务更新包私有桶 CAM 身份 | `/run/secrets/businessReleaseCosSecretId` |
+| `business-release-cos-secret-key` | 与上项配套 | `/run/secrets/businessReleaseCosSecretKey` |
 | `wechatpay-api-v3-key` | 微信商户平台 API 安全设置 | `/run/secrets/wechatPayApiV3Key` |
 | `wechatpay-merchant-private-key.pem` | 商户 API 证书包中的私钥 | `/run/secrets/wechatpay/apiclient_key.pem` |
 
@@ -265,7 +273,12 @@ YAML 或整个仓库根目录挂进容器。
 - `wechatpay-merchant-private-key.pem` 必须是未加密 PEM。它用于商户 APIv3 请求签名，
   不能换成 `pub_key.pem`，也不能公开。
 - OneNet 的北向订阅凭证和产品下行 AccessKey 是两套用途，不能只配其中一套。
-- COS 应使用只满足当前 STS 签发所需权限的独立 CAM 身份，不要放腾讯云主账号密钥。
+- COS 应使用只满足当前 STS 签发和业务制品读写所需权限的 CAM 身份，不要放腾讯云主账号
+  密钥。照片与业务更新包可以使用同一账号下的凭据，但必须使用不同存储桶，便于后续拆分
+  最小权限身份。
+- 照片桶允许普通 HTTPS 读取；业务更新包桶必须保持私有读、私有写且从未开启版本控制。
+  `businessReleaseRemoteDispatchEnabled=false` 只关闭真实设备下发，不影响管理员上传和后端
+  校验业务发布包。
 
 ## 6. 需要的证书和公钥
 
@@ -370,7 +383,7 @@ AppSecret 以明文保存在目标数据库中，因此数据库备份也包含 
 | 微信商户平台 | 每个机构 AppID 分别绑定到同一个公司商户号；场景 ID `1010` 与产品权限一致 | 对应机构的真实提现 |
 | 微信公众平台 | 共享小程序配置合法 request 域名；普通二维码规则匹配 `https://www.jinshoubao.com/device-entry/`，校验文件可直接访问 | 小程序调用后端 API 和设备扫码入口 |
 | OneNet | 产品 ID、北向订阅名称/Access ID/Secret Key、下行 AccessKey 正确 | 设备上报和后端下行命令 |
-| 腾讯云 COS/CAM | Bucket、地域、访问域名和最小权限 CAM 身份一致 | 设备照片 STS 直传 |
+| 腾讯云 COS/CAM | 图片桶与私有业务更新包桶的 Bucket、地域、访问域名和 CAM 身份一致 | 照片 STS 直传；更新包普通地址拒绝、短时签名地址可读 |
 
 ICP备案或回调域名未完成时，代码和文件可以先准备好，但 `externalMode` 必须保持
 `fake`，不能把“配置已填写”当成真实资金闭环已经通过。

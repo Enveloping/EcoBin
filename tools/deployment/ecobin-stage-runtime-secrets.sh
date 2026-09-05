@@ -117,6 +117,8 @@ if [[ "${external_mode}" = real ]]; then
         onenet-access-key \
         cos-secret-id \
         cos-secret-key \
+        business-release-cos-secret-id \
+        business-release-cos-secret-key \
         wechatpay-api-v3-key \
         wechatpay-merchant-private-key.pem
     do
@@ -139,6 +141,11 @@ if [[ "${external_mode}" = real ]]; then
         cosRegion \
         cosBucketName \
         cosBaseUrl \
+        businessReleaseCosRegion \
+        businessReleaseCosBucketName \
+        businessReleaseCosBasePrefix \
+        businessReleaseDownloadBaseUrl \
+        businessReleaseRemoteDispatchEnabled \
         wechatPayMchid \
         wechatPayMerchantSerialNumber \
         wechatPayPublicKeyId \
@@ -241,6 +248,8 @@ real_runtime_files=(
     onenetAccessKey
     cosSecretId
     cosSecretKey
+    businessReleaseCosSecretId
+    businessReleaseCosSecretKey
     wechatPayApiV3Key
 )
 
@@ -260,6 +269,12 @@ if [[ "${external_mode}" = real ]]; then
     install -o root -g "${backend_gid}" -m 0440 \
         "${source_dir}/cos-secret-key" \
         "${backend_dir}/cosSecretKey"
+    install -o root -g "${backend_gid}" -m 0440 \
+        "${source_dir}/business-release-cos-secret-id" \
+        "${backend_dir}/businessReleaseCosSecretId"
+    install -o root -g "${backend_gid}" -m 0440 \
+        "${source_dir}/business-release-cos-secret-key" \
+        "${backend_dir}/businessReleaseCosSecretKey"
     install -o root -g "${backend_gid}" -m 0440 \
         "${source_dir}/wechatpay-api-v3-key" \
         "${backend_dir}/wechatPayApiV3Key"

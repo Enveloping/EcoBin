@@ -9,6 +9,14 @@ ecobin:
   identity:
     default-platform-admin:
       enabled: true
+  device:
+    business-release:
+      secret-id: ""
+      secret-key: ""
+      region: ""
+      bucket-name: ""
+      download-base-url: ""
+      remote-dispatch-enabled: false
   external:
     mode: fake
     fake:

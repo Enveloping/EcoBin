@@ -48,7 +48,7 @@ remote_support_enabled="$(
     || "${remote_support_enabled}" = false ]] \
     || fail "backend remoteSupportEnabled is missing or invalid"
 
-secret_environment_pattern='^(dbPassword|jwtSecret|bagCodeKeyK1|deviceEnrollmentKeyK1|defaultPlatformAdminPassword|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)='
+secret_environment_pattern='^(dbPassword|jwtSecret|bagCodeKeyK1|deviceEnrollmentKeyK1|defaultPlatformAdminPassword|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|businessReleaseCosSecretId|businessReleaseCosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)='
 if docker image inspect "${image_name}" \
     --format '{{range .Config.Env}}{{println .}}{{end}}' \
     | grep -Eq "${secret_environment_pattern}"
@@ -160,6 +160,8 @@ docker run \
                 onenetAccessKey \
                 cosSecretId \
                 cosSecretKey \
+                businessReleaseCosSecretId \
+                businessReleaseCosSecretKey \
                 wechatPayApiV3Key
             do
                 test -r "/run/secrets/${file_name}"
@@ -176,6 +178,8 @@ docker run \
                 onenetAccessKey \
                 cosSecretId \
                 cosSecretKey \
+                businessReleaseCosSecretId \
+                businessReleaseCosSecretKey \
                 wechatPayApiV3Key \
                 wechatpay
             do

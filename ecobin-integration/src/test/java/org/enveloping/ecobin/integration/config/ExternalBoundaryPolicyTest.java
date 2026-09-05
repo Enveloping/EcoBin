@@ -13,7 +13,7 @@ class ExternalBoundaryPolicyTest {
     @Test
     void acceptsCredentialFreeFakeModeWithInboundBlocked() {
         var result = ExternalBoundaryPolicy.verify(snapshot(
-                FAKE, true, false, false, false, false));
+                FAKE, true, false, false, false, false, false));
 
         assertEquals(FAKE, result.mode());
         assertTrue(result.inboundBlocked());
@@ -22,28 +22,32 @@ class ExternalBoundaryPolicyTest {
     @Test
     void rejectsAnyRealCredentialOrConsumerInFakeMode() {
         assertRejected(snapshot(
-                FAKE, true, true, false, false, false));
+                FAKE, true, true, false, false, false, false));
         assertRejected(snapshot(
-                FAKE, true, false, true, false, false));
+                FAKE, true, false, true, false, false, false));
         assertRejected(snapshot(
-                FAKE, true, false, false, true, false));
+                FAKE, true, false, false, true, false, false));
         assertRejected(snapshot(
-                FAKE, true, false, false, false, true));
+                FAKE, true, false, false, false, true, false));
+        assertRejected(snapshot(
+                FAKE, true, false, false, false, false, true));
     }
 
     @Test
     void fakeInboundBlockingCannotBeDisabled() {
         assertRejected(snapshot(
-                FAKE, false, false, false, false, false));
+                FAKE, false, false, false, false, false, false));
     }
 
     @Test
     void realModeFailsUnlessEveryChannelIsExplicitlyConfigured() {
         assertRejected(snapshot(
-                REAL, true, true, true, true, false));
+                REAL, true, true, true, true, false, true));
+        assertRejected(snapshot(
+                REAL, true, true, true, true, true, false));
 
         var result = ExternalBoundaryPolicy.verify(snapshot(
-                REAL, true, true, true, true, true));
+                REAL, true, true, true, true, true, true));
         assertEquals(REAL, result.mode());
     }
 
@@ -53,14 +57,16 @@ class ExternalBoundaryPolicyTest {
             boolean subscriptionEnabled,
             boolean inboundConfigured,
             boolean outboundConfigured,
-            boolean cosConfigured) {
+            boolean cosConfigured,
+            boolean updatePackageCosConfigured) {
         return new ExternalBoundaryPolicy.Snapshot(
                 mode,
                 blockInbound,
                 subscriptionEnabled,
                 inboundConfigured,
                 outboundConfigured,
-                cosConfigured);
+                cosConfigured,
+                updatePackageCosConfigured);
     }
 
     private static void assertRejected(
