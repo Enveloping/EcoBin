@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-04T12:51:22.339Z",
+  "catalogedAt": "2026-09-05T09:20:54.598Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -133,6 +133,16 @@
       "path": "evidence/hil-acceptance-simulated-20260828-01/report.json",
       "bytes": 1966,
       "sha256": "0adfafe61f6e8ec246d56a9570b65a0eb20eaba3c887f29068f8da4b6f98d8cc"
+    },
+    {
+      "path": "evidence/hil-business-runtime-update-20260905-v26/README.md",
+      "bytes": 19771,
+      "sha256": "cc91fac11f9560bb308ce0435471a9af5531603630449662abd3d24b83d58ec4"
+    },
+    {
+      "path": "evidence/hil-business-update-fixes-20260905-27/README.md",
+      "bytes": 6471,
+      "sha256": "e44069e7168f8fa16d15f76cf68f90e31c255a38497c82b468e8b03ad617a760"
     },
     {
       "path": "evidence/hil-factory-20260827-01/ecobin-orangepi-zero3-0.1.0-single-card.20260827.1-hil-factory.img.sha256",
@@ -642,6 +652,41 @@
   ],
   "localArtifacts": [
     {
+      "path": "local/audit-healthy-business-observation.sh",
+      "bytes": 2985,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b916004140d14df4cdc8401d58df206ff23c1852bb9c4e93c6ba0204f7a94b12"
+    },
+    {
+      "path": "local/audit-hotfix-business-packages.py",
+      "bytes": 4193,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "abbd69cfbb12ed51985a20328b0217508f17eed1bdf019dd155b540a1344cb17"
+    },
+    {
+      "path": "local/audit-power-loss-business-package.py",
+      "bytes": 3685,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "0f0818eca5fe86569a0b4eda4f99fbe09c164a23007c9ad966e365fb8f5642b0"
+    },
+    {
+      "path": "local/audit-unhealthy-business-final-regression.sh",
+      "bytes": 4914,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "33c05cb408eecdc75747121c7946cb0d3baad20a3a05d952a5bdf68dec323ba7"
+    },
+    {
+      "path": "local/audit-unhealthy-business-rollback.sh",
+      "bytes": 5182,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "37d84b586d0b02b6106e557c76178bfbbb260fe0337c0bcc2e702530833a4dba"
+    },
+    {
       "path": "local/audit-v10-content.sh",
       "bytes": 4423,
       "classification": "LOCAL_ARTIFACT",
@@ -710,6 +755,20 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "d8c93eb924470a5953f75fb4902240e0ef1d53816fb8defe6e5316c3ef87d276"
+    },
+    {
+      "path": "local/audit-v27-business-update-fixes-final.sh",
+      "bytes": 17094,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "32ed26e0418b799461f76b09b05234d9d59cf790b1fc4834cb2c6702bd032961"
+    },
+    {
+      "path": "local/build-power-loss-business-package.sh",
+      "bytes": 2625,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "ff677726a77d2c2f87c7b57d0a1b212f7d3807511e75a684390bc99bace5e51a"
     },
     {
       "path": "local/build-v10-hil-factory-image.sh",
@@ -929,6 +988,20 @@
       "sha256": "ebe9b4dcbd5a2e670249f603ed6583a75cd7fd065165d802f3779b762244c937"
     },
     {
+      "path": "local/build-v27-candidate.sh",
+      "bytes": 1065,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "f9aa38aee33bfb8cad1250c36c268b44acbbf7a2e02abe37cc42caeffaef410e"
+    },
+    {
+      "path": "local/build-v27-hil-image.sh",
+      "bytes": 2761,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "0724863d50d65c54f6489be01bc9ea7a84cec2796b4d1391344438af6cdbdc0f"
+    },
+    {
       "path": "local/build-v8.sh",
       "bytes": 9646,
       "classification": "LOCAL_ARTIFACT",
@@ -985,6 +1058,27 @@
       "sha256": "97c682e07ce529926cb7819e6e28ad86fe6c29f0e3612c576caa5b14c7d88fe2"
     },
     {
+      "path": "local/deploy-business-error-cause-hotfix.sh",
+      "bytes": 5758,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "1a863cf0b854872caa04e4ed8bfb8cd53d8e8e2f5bf8514b69ae351bc3645425"
+    },
+    {
+      "path": "local/deploy-business-failed-stop-hotfix.sh",
+      "bytes": 5361,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "eadfd6e5d685133175d717d0026bebe575830b14d75bd8010eea81351d1b6d10"
+    },
+    {
+      "path": "local/deploy-business-release-retry-hotfix.sh",
+      "bytes": 8332,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "06fa15073ca59926d4ce5528d57ad4a1e6858ff5bad8c2f5c2810c9fdea4cc51"
+    },
+    {
       "path": "local/deploy-v19-backend-allowlist.sh",
       "bytes": 10126,
       "classification": "LOCAL_ARTIFACT",
@@ -1025,6 +1119,209 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "acb3988f43a0d87c7e16a1a763a48c190d3831a9538c1c5f37131bc2f36608d2"
+    },
+    {
+      "path": "local/device-power-loss/arm-checkpoint-4-during-observation.sh",
+      "bytes": 4074,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "3d0b6a0db08913aeda9aec70d73998d6ef66aaac8d46cf2cb113fef1db501eba"
+    },
+    {
+      "path": "local/device-power-loss/audit-checkpoint-1-after-reboot.sh",
+      "bytes": 5596,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a9cb1eeeaec5bc3371267b524101ea8b0e266c769acda5a5b89d7db04a7955a7"
+    },
+    {
+      "path": "local/device-power-loss/audit-checkpoint-2-after-reboot.sh",
+      "bytes": 5474,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "ef2d77769c1569b1fab0f1522c845aa973aac0607450ef62f4127b0ce0d74e1a"
+    },
+    {
+      "path": "local/device-power-loss/audit-checkpoint-3-after-reboot.sh",
+      "bytes": 4867,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "41e6ebe46efe8a98b66ec799fd0fc3832729bb14b2f8334d2c5f77dc1b0c81a6"
+    },
+    {
+      "path": "local/device-power-loss/audit-checkpoint-4-after-reboot.sh",
+      "bytes": 5149,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c0f7fbc7f6ddce47d5e0f4de7a5313d0b73363bf6e070f095716b0b0587b927a"
+    },
+    {
+      "path": "local/device-power-loss/audit-downloaded-power-loss-artifacts.sh",
+      "bytes": 1784,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c10e4dee4fb393d95a84c7b9aeb326fe4db97e4ceda644b34b9eefd94484422e"
+    },
+    {
+      "path": "local/device-power-loss/audit-power-loss-hil-final.sh",
+      "bytes": 4207,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "e35b9c3c60a4b618a9f237ca748000ac47da692b6d64810e8dd860d1e7d5c4a2"
+    },
+    {
+      "path": "local/device-power-loss/audit-restart-grace-fix-install.sh",
+      "bytes": 3985,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a90e9f0c32448dd363f3dfebcba4b9aee69387f01b543233192a5f26bebecb77"
+    },
+    {
+      "path": "local/device-power-loss/business_update_coordinator.fixed.hil.py",
+      "bytes": 58855,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "868ac579570476f273f94eee78bfe8154705d7f5b4dd6f71431421975ec48869"
+    },
+    {
+      "path": "local/device-power-loss/business_update_coordinator.hil.py",
+      "bytes": 55183,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a5fe254d40ac44c341c6378be33c715f7b4a2b43739178d9e1d07dafdca43982"
+    },
+    {
+      "path": "local/device-power-loss/cleanup-restart-grace-staging.sh",
+      "bytes": 1039,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "e62331231f0c5653e77d4568528f6faa037bc0ac20ebc94b7a0a8875aeaa6a4b"
+    },
+    {
+      "path": "local/device-power-loss/coordinator-restart-grace-fix.tar.gz",
+      "bytes": 17742,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b8e1ba5fe4a23851dc0a007b87c798d770e2d280281efe04935e37e22382943e"
+    },
+    {
+      "path": "local/device-power-loss/diagnose-checkpoint-3-rollback.sh",
+      "bytes": 3353,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "fb917a063dd793932312e3fc9ab130a263d445f43eb43325ed133b1790351c21"
+    },
+    {
+      "path": "local/device-power-loss/download-power-loss-artifacts.sh",
+      "bytes": 1574,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "ef76c0b2bf6c9ae885742788e96140fdfccb3beba4eb9577f70d5ac3e54076d8"
+    },
+    {
+      "path": "local/device-power-loss/inspect-v7-post-update-business.sh",
+      "bytes": 14939,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "cb66b2eb8b0c03266469b02bc726d3a85422f0337da0d1b1ddb062bc7270275a"
+    },
+    {
+      "path": "local/device-power-loss/inspect-v7-post-update-runtime.sh",
+      "bytes": 3531,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "4cbf614c4a0a8ec2ca48eebce25bfbbfe1026a2afd39902b29d803ced9cb4856"
+    },
+    {
+      "path": "local/device-power-loss/install-power-loss-checkpoint-hook.sh",
+      "bytes": 5498,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "21159a8aaf3972a3bf5ce4b437023346b62a30eba67d53caba82898530d0ebca"
+    },
+    {
+      "path": "local/device-power-loss/install-restart-grace-fix-and-hil-hook.sh",
+      "bytes": 7487,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "86d596b18079333903ee53a065f53f3b878fb5568bad10c2457d280aa99b51f0"
+    },
+    {
+      "path": "local/device-power-loss/power_loss_hil_marker.py",
+      "bytes": 5870,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b862c6ded6c378e469347e6772268f9731a18091f743c9b46075cb353c21eed0"
+    },
+    {
+      "path": "local/device-power-loss/preflight-before-hook.sh",
+      "bytes": 1207,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "d1bb40c752ce823210446f11b87de41e21b31732d2cbb1eded4d2c02ecf45cc6"
+    },
+    {
+      "path": "local/device-power-loss/queue-checkpoint-1-after-snapshot.sh",
+      "bytes": 6930,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "ef58cf6ae61de3134e661b670a9ca2d496ff701a6cb4ef5c156c78236c21fd83"
+    },
+    {
+      "path": "local/device-power-loss/queue-checkpoint-2-after-link-switch.sh",
+      "bytes": 6979,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "942000c1e07e7ef31933a77abed4b6e3e0bfbeb982e934702ee15a1a82c8b0aa"
+    },
+    {
+      "path": "local/device-power-loss/queue-checkpoint-3-after-service-start.sh",
+      "bytes": 7567,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "10fc4e6232cc9ed97d11b3d5f8cdf5bbe88f95f3f7819e63fdf001ef1a03a372"
+    },
+    {
+      "path": "local/device-power-loss/restore-original-coordinator-after-power-loss-hil.sh",
+      "bytes": 3081,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "f7a9e77ea9f8ca1ea6f9348752e5a307fed34abe75c5a31bd8b46f442b540249"
+    },
+    {
+      "path": "local/device-pre-reboot-audit.sh",
+      "bytes": 954,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "edb3c4b37ba09bd3669e2f94608cc3f57dc0093cce9ba1a11a20ee28e6e55943"
+    },
+    {
+      "path": "local/device-schedule-baseline-reboot.sh",
+      "bytes": 1245,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "ac56b15da121b267f4c5f69bd936c6dccaa22497bf636fc4032862155ad155ff"
+    },
+    {
+      "path": "local/diagnose-business-install-stall.sh",
+      "bytes": 2338,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b02cf704b541cdec1dd1146c8751f1153141ea50adccaa1c99cb0f3e54cd2bb1"
+    },
+    {
+      "path": "local/diagnose-target-start-failure.sh",
+      "bytes": 1376,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "d93ce8e4fbb65a04ec4873073b603bf04d9ae7cb16aad05b07cdc0c254ef10bd"
+    },
+    {
+      "path": "local/diagnose-unhealthy-business-rollback.sh",
+      "bytes": 3509,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "08dc36776e3f6728179d42c643aa14af31fb8668e0c669e24843a11485d216a2"
     },
     {
       "path": "local/factory-secret/builds/hil-factory-login-20260831-13-friendly-copy/build-and-offline-verification.log",
@@ -1405,6 +1702,27 @@
       "sha256": "8b21e7e2224710d3bcd29c4efe250d1382f4efc4878fac14db51b7e083865971"
     },
     {
+      "path": "local/factory-secret/builds/hil-factory-login-20260905-27-business-update-fixes/build-and-offline-verification.log",
+      "bytes": 1392,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "0159a6338b84fbc7e7da26fc975e7bda77c70f87d79cacb86932ab6d1c75205d"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260905-27-business-update-fixes/ecobin-orangepi-zero3-0.1.0-single-card.20260905.27-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "b848c76d76f969f5fbedc70cc4a2111d8d192d4a6f320cdad1f13d66966127aa"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260905-27-business-update-fixes/ecobin-orangepi-zero3-0.1.0-single-card.20260905.27-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9112b5b5a77ad7de093d567616f318bcea80275d7c91bfbf40305714b8332525"
+    },
+    {
       "path": "local/factory-secret/config/cellular.env",
       "bytes": 464,
       "classification": "SECRET_INPUT",
@@ -1662,6 +1980,48 @@
       "sha256": "13b83ffae24a8d22f27a0dbddec800c027ed0d7bd88e811f531f348c427b71e7"
     },
     {
+      "path": "local/hil-business-transfer-3eb5cd7f/success/ecobin-business-3eb5cd7f-0000-4000-8000-000000000005.tar.gz",
+      "bytes": 53752050,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "1b1f1be77d60ac2d908c1c095fea793b638644f7f4c49bd85c035fd885405317"
+    },
+    {
+      "path": "local/hil-business-transfer-3eb5cd7f/success/ecobin-business-3eb5cd7f-0000-4000-8000-000000000005.tar.gz.sha256",
+      "bytes": 126,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a9623da110bae08f9ea63e27849cbe49d0f0f4e7ada4cffb11ac8522380fee30"
+    },
+    {
+      "path": "local/hil-business-transfer-3eb5cd7f/success/ecobin-business-3eb5cd7f-0000-4000-8000-000000000005.tar.gz.sig",
+      "bytes": 64,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "697bcfabcc253e2c184da4c0207dfed62806759c2ec117a2a7670c3adb876d3e"
+    },
+    {
+      "path": "local/hil-business-transfer-3eb5cd7f/unhealthy/ecobin-business-3eb5cd7f-0000-4000-8000-000000000006.tar.gz",
+      "bytes": 53752083,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "cfee59e0c27dfe0b723de9e902153995b0494c88b2f3cd924a3971fa3c08d575"
+    },
+    {
+      "path": "local/hil-business-transfer-3eb5cd7f/unhealthy/ecobin-business-3eb5cd7f-0000-4000-8000-000000000006.tar.gz.sha256",
+      "bytes": 126,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "48f464aa3b155a8d59499f3d20d340b32ce237195dc5584a1306a0cbd143c81c"
+    },
+    {
+      "path": "local/hil-business-transfer-3eb5cd7f/unhealthy/ecobin-business-3eb5cd7f-0000-4000-8000-000000000006.tar.gz.sig",
+      "bytes": 64,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a7806a61bd73925013a5be9704c80bf5d6a4309511fe0dbea08c9b91c22afa01"
+    },
+    {
       "path": "local/hil-camera-review-20260828-v7/cold-reboot-serial.log",
       "bytes": 3819,
       "classification": "LOCAL_DIAGNOSTIC",
@@ -1760,11 +2120,81 @@
       "sha256": "0e3d6b102cd53f563eec6ead65996b887e8b8b8de88bf011d525c57477a61910"
     },
     {
+      "path": "local/inspect-business-release-links.sh",
+      "bytes": 877,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "0e57a2dce7639f4c00fb5bc253e41c0950e580a3e4c13625a085bbc9f9752585"
+    },
+    {
+      "path": "local/inspect-production-db-access.sh",
+      "bytes": 371,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c3f25c4ed6aab16d64d7afb09171610602222fb7778090791967c7d9185602eb"
+    },
+    {
       "path": "local/inspect-v19-rootfs.sh",
       "bytes": 1444,
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "b86e62d809233a27391a81103e848ee240f970a08fcbce33827f42ce6bccc5e8"
+    },
+    {
+      "path": "local/install-hil-download-route.sh",
+      "bytes": 1684,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "cbf54986c8c8fcaff9f98969641320e6b4722bb6433d8ad636432e83467015c8"
+    },
+    {
+      "path": "local/install-power-loss-hil-download-route.sh",
+      "bytes": 2128,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "0a497d673524c21f661f9048991e7be8125e3c7da2268706361b4afa2b49f420"
+    },
+    {
+      "path": "local/jinshoubao-hil.conf",
+      "bytes": 2124,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c727dcdd29b8492d698f2e89abef87e0172b8b1f59324e2a2ba6c1e9eb81e4ae"
+    },
+    {
+      "path": "local/jinshoubao-power-loss-hil.conf",
+      "bytes": 2025,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "7bea60fc5fac8e3274d060eafb2ad0b556fd2256dc81420636c66f20f003072f"
+    },
+    {
+      "path": "local/make-power-loss-checkpoint-hook.py",
+      "bytes": 6550,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "7a73f80fdfcfc6e8166337d43422e48bca793b8179c9212e8c9afd9827d6de84"
+    },
+    {
+      "path": "local/monitor-healthy-business-update.sh",
+      "bytes": 1408,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "365966553077c1cb834d2ebca975b53bade7dc8709c879a114fff4ba4342c50c"
+    },
+    {
+      "path": "local/monitor-unhealthy-business-update-final-regression.sh",
+      "bytes": 1022,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "2d884439e0dca42d2bc26a386134bddf363cd5e941b9297c8eac3d61532f39cb"
+    },
+    {
+      "path": "local/monitor-unhealthy-business-update.sh",
+      "bytes": 1257,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "37b375124d2c377781a984072661e174041b5502cc409ba62cbda50c96518fce"
     },
     {
       "path": "local/package-cache/chrony_4.3-2+deb12u1_arm64.deb",
@@ -1781,6 +2211,20 @@
       "sha256": "79fd0f373e20d16ff2db113161261b7de608ab68c6ebb8112a1a956c52296e5b"
     },
     {
+      "path": "local/post-hotfix-service-audit.sh",
+      "bytes": 817,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "29213b4223c3f657fd04ef5afad2e281a857b59522a80586c367537060c5e7b4"
+    },
+    {
+      "path": "local/post-reboot-audit.sh",
+      "bytes": 3927,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "8280ea9ead34a24ca37ae0dbf2e6e79359e5df34f253a3ae1b38694b69dc5e7e"
+    },
+    {
       "path": "local/prepare-v22-business-hil-sources-fixed.sh",
       "bytes": 2081,
       "classification": "LOCAL_ARTIFACT",
@@ -1793,6 +2237,76 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "8fa1632f2f87b96768311dae3eab81f137c4cc37d234640d1b0a96f42a8bea75"
+    },
+    {
+      "path": "local/query-production-business-deployment.sh",
+      "bytes": 1641,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "38c5f3426a21e4fded92469bcf57ceec9e2f31a74792079e658e827ea136c7f3"
+    },
+    {
+      "path": "local/query-production-software-fact.sh",
+      "bytes": 1853,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "d40464c0bfb6b373140344381d387f785e985b6c34028acf98e6edeead0cea9a"
+    },
+    {
+      "path": "local/queue-healthy-business-update-retry.sh",
+      "bytes": 2502,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "38d4c5afef887eecbc1f7006d752d93139b58cbc561ce351c2cabea7eb81ae59"
+    },
+    {
+      "path": "local/queue-healthy-business-update.sh",
+      "bytes": 1726,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "3b1eff9eac1290ed144f82a4a10730a68a7d2d77f53f2fe31a375d0843a98e9a"
+    },
+    {
+      "path": "local/queue-unhealthy-business-update-final-regression.sh",
+      "bytes": 3449,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b6d1553825cfa15abfbca4a446e96e762af13b5264efb8c9b33917e3d8036679"
+    },
+    {
+      "path": "local/queue-unhealthy-business-update.sh",
+      "bytes": 3648,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "43f473b01016b5ab14c1500e63d303186593964d4f7c6904e6380f875df1b967"
+    },
+    {
+      "path": "local/read-locked-business-update-status.sh",
+      "bytes": 330,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "d184b90b3e7082988a8178e0ec0634b93f114f459f347fa3035cd61df31daf9e"
+    },
+    {
+      "path": "local/remove-hil-download-route.sh",
+      "bytes": 1937,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "0419dca30e8555d91102fa174fbb134aa3a8248cb543a80e593c55886920084f"
+    },
+    {
+      "path": "local/remove-power-loss-hil-download-route.sh",
+      "bytes": 1977,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "e756a0add6cf0af6b40915f45ac959ba926f2413b8a8a041d08fdd65a7f8ac1d"
+    },
+    {
+      "path": "local/resume-locked-unhealthy-business-rollback.sh",
+      "bytes": 8138,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "845de2b46a50f064a8d121f8ffb7faf2e13da9d43a5c2024750af997e0f286b5"
     },
     {
       "path": "local/resume-v13-candidate.sh",
@@ -1830,11 +2344,67 @@
       "sha256": "274c2a3453c09dea1f679404facaf88f8e93a8c719aced1d418234194c46f2b1"
     },
     {
-      "path": "local/serial-login-com8.ps1",
-      "bytes": 921,
+      "path": "local/serial_exec.py",
+      "bytes": 3224,
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
-      "sha256": "f535906c55bd0ec570e7a3665299e7d9c9aeed8ed282c90f845c8f30d392e587"
+      "sha256": "608d479a166e6078b50c87ce1398ed955013279a6dba69d9eaacb5a281806f3c"
+    },
+    {
+      "path": "local/serial_login_sudo.py",
+      "bytes": 3104,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c17961f3e6b821587b18ddd063fdfa21c56674a4cb750e8b42543b8252d9da22"
+    },
+    {
+      "path": "local/serial_upload.py",
+      "bytes": 4191,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "e736e6973a137f8426d76f0fd3805edac2ffdafaf3c9fbc35a47dde0c4351d25"
+    },
+    {
+      "path": "local/serial_wait.py",
+      "bytes": 1794,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "3b5b25c344a5656a5d51e2911e401a786dcacbc3ba52f83b6b6e1cee0aee08d1"
+    },
+    {
+      "path": "local/serial-login-com8.ps1",
+      "bytes": 886,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "e0b9e5b40d3211e401da2033168a7ab45a366acc7d590017c1ee266d5e7c3eec"
+    },
+    {
+      "path": "local/server-staging-power-loss-7a45f91e50f84e45a986c3cbcf394019/business_update_coordinator.hil.py",
+      "bytes": 55183,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a5fe254d40ac44c341c6378be33c715f7b4a2b43739178d9e1d07dafdca43982"
+    },
+    {
+      "path": "local/server-staging-power-loss-7a45f91e50f84e45a986c3cbcf394019/ecobin-business-62e10da0-0000-4000-8000-000000000007.tar.gz",
+      "bytes": 53752128,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "29bb0054720274f1bbe7178a13c6c49300d4dee8a5809d21890568264b0edf41"
+    },
+    {
+      "path": "local/server-staging-power-loss-7a45f91e50f84e45a986c3cbcf394019/ecobin-business-62e10da0-0000-4000-8000-000000000007.tar.gz.sha256",
+      "bytes": 126,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "e8ee7329ca2fb07d76950bb5f20c0be3384383f213bc9f0fb1e81a2d0eb721d7"
+    },
+    {
+      "path": "local/server-staging-power-loss-7a45f91e50f84e45a986c3cbcf394019/ecobin-business-62e10da0-0000-4000-8000-000000000007.tar.gz.sig",
+      "bytes": 64,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "21998b6459c5b2f5df1324c11c21394dff5f5479c630c73df044d98a696c0cfb"
     },
     {
       "path": "local/source-bundles/repository-023248af.bundle",
@@ -1914,6 +2484,20 @@
       "sha256": "b95d90dd9d23d116539aa660901c8ab839fbddae0e05270175455f86efce3470"
     },
     {
+      "path": "local/source-bundles/repository-3a4b4462.bundle",
+      "bytes": 53753646,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "e94123612a4ee7aa17b97bb44e826a0dbec824a467e0774dcb2d5082664e42b6"
+    },
+    {
+      "path": "local/source-bundles/repository-3eb5cd7f.bundle",
+      "bytes": 53784243,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "4185b7764667f9dddf3f471fd3373a700fb7ad76620dbf77963a8492595e9493"
+    },
+    {
       "path": "local/source-bundles/repository-42cc922c.bundle",
       "bytes": 53177384,
       "classification": "SOURCE_SNAPSHOT",
@@ -1947,6 +2531,13 @@
       "classification": "SOURCE_SNAPSHOT",
       "digestRecorded": true,
       "sha256": "b36c65951004cc4ec7770eb173529ed3e23ba7f6859526e41fa8318abb53e99d"
+    },
+    {
+      "path": "local/source-bundles/repository-62e10da0.bundle",
+      "bytes": 53793951,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "641ceb53ed95b49c32e366d50ae5ae23d71aa6f5db02f4b75be4d129eece72ab"
     },
     {
       "path": "local/source-bundles/repository-6725aaa7.bundle",
@@ -2082,6 +2673,13 @@
       "sha256": "995583c6c9fe19a7157322ef7ff3a1abd8efced81fab76a364fe6db1ad39d360"
     },
     {
+      "path": "local/stage-healthy-business-update.sh",
+      "bytes": 2198,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "ffcd931517cb32eb7ccb9d19f1691568a4f2f2febbff14e47ac70b6317da5835"
+    },
+    {
       "path": "local/stage3-maintenance/archive_failed_r2_state.py",
       "bytes": 8341,
       "classification": "LOCAL_ARTIFACT",
@@ -2129,6 +2727,20 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "3ca7381651c3abc0a33aee0a83d4a4f306dd536ed530e913cf1dd173a3b30488"
+    },
+    {
+      "path": "local/test-power-loss-checkpoint-hook.py",
+      "bytes": 3851,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a1877dd9d6aee6c41bd8a887130be2bb27289990cada961fbc907e9e4f12a7f7"
+    },
+    {
+      "path": "local/test-power-loss-hil-marker.py",
+      "bytes": 1804,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "bbd93c6e014e5ef3e166c30bb316c8266050810f0039d0cdb9ec40730e7f4f48"
     },
     {
       "path": "local/upstream-cache/Armbian_25.5.1_Orangepizero3_bookworm_current_6.12.23_minimal.img.xz",
