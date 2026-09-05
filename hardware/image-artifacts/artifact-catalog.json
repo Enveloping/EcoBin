@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-05T09:20:54.598Z",
+  "catalogedAt": "2026-09-05T09:32:29.144Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -141,8 +141,8 @@
     },
     {
       "path": "evidence/hil-business-update-fixes-20260905-27/README.md",
-      "bytes": 6471,
-      "sha256": "e44069e7168f8fa16d15f76cf68f90e31c255a38497c82b468e8b03ad617a760"
+      "bytes": 6732,
+      "sha256": "0da04f6cfa170273879be91d03e56bcf71e492c553c0997bccef15fb88d0c9ba"
     },
     {
       "path": "evidence/hil-factory-20260827-01/ecobin-orangepi-zero3-0.1.0-single-card.20260827.1-hil-factory.img.sha256",
@@ -1119,6 +1119,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "acb3988f43a0d87c7e16a1a763a48c190d3831a9538c1c5f37131bc2f36608d2"
+    },
+    {
+      "path": "local/deploy-v27-backend-allowlist.sh",
+      "bytes": 1955,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a5191f4ad509fd7d5b278c8e7c580cddecf90cf4837567dd5afa24caca8d392d"
     },
     {
       "path": "local/device-power-loss/arm-checkpoint-4-during-observation.sh",
@@ -2902,6 +2909,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "e8b5aa8f416f5278cbb9174e2f6e5314fffa86850c4f922883a682570215d19b"
+    },
+    {
+      "path": "local/verify-v27-backend-allowlist.sh",
+      "bytes": 2617,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b4ee4652f8b6d43614aa295f4d324838927842e1a4b64a5ff1ad5f1560023459"
     },
     {
       "path": "local/verify-v8.sh",
