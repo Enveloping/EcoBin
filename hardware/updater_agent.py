@@ -1,9 +1,10 @@
 """Permanent updater control process with opt-in local update candidates.
 
-The default remains fail-closed and exposes only diagnosis.  One explicit
-candidate switch enables the durable job-permit and physical-action RPCs; a
-second, image-only switch enables the root-triggered MCU migration candidate.
-Remote business and MCU update commands remain disabled in every posture.
+The default remains fail-closed and exposes only diagnosis.  Explicit image
+switches enable the durable job gate and update candidates.  Remote business
+updates additionally require their own switch, trusted download origin and
+the permanent communication account; installed units remain disabled unless
+all of those facts are configured.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import signal
 import socket
 import sys
 import threading
+import uuid
 from collections.abc import Callable, Iterable
 from typing import Any
 
@@ -23,9 +25,11 @@ from local_control import (
     LOCAL_PROTOCOL_MINOR,
     LocalControlAction,
     LocalControlActionError,
+    LocalControlClient,
     LocalControlServer,
 )
 from updater_store import UpdaterStore, UpdaterStoreError
+from onenet_wire import decode_service_command, validate_command_envelope
 
 
 logger = logging.getLogger("device-updater")
@@ -175,6 +179,28 @@ ROOT_BUSINESS_CANDIDATE_ACTION_FIELDS = {
     "GET_BUSINESS_UPDATE": frozenset({"updateUid"}),
 }
 
+COMMUNICATION_MAINTENANCE_ACTION_FIELDS = {
+    "DELIVER_CLOUD_MAINTENANCE_REQUEST": frozenset(
+        {
+            "authenticatedDeviceName",
+            "deliveryId",
+            "requestId",
+            "serviceId",
+            "params",
+            "receivedAt",
+            "clockQuality",
+        }
+    ),
+}
+BUSINESS_RUNTIME_UPDATE_SERVICE = "startBusinessRuntimeUpdate"
+BUSINESS_RUNTIME_UPDATE_CANCEL_SERVICE = "cancelBusinessRuntimeUpdate"
+BUSINESS_RUNTIME_MAINTENANCE_SERVICES = frozenset(
+    {
+        BUSINESS_RUNTIME_UPDATE_SERVICE,
+        BUSINESS_RUNTIME_UPDATE_CANCEL_SERVICE,
+    }
+)
+
 
 class UpdaterControlHandler:
     """Expose truthful status and thin, durable stage-four operations."""
@@ -184,10 +210,15 @@ class UpdaterControlHandler:
         store: UpdaterStore,
         mcu_coordinator: Any | None = None,
         business_coordinator: Any | None = None,
+        *,
+        trusted_business_download_base_url: str | None = None,
     ) -> None:
         self.store = store
         self.mcu_coordinator = mcu_coordinator
         self.business_coordinator = business_coordinator
+        self.trusted_business_download_base_url = (
+            trusted_business_download_base_url
+        )
         self._software_update_queue_lock = threading.Lock()
 
     def get_status(self, _payload: dict[str, Any]) -> dict[str, Any]:
@@ -324,6 +355,70 @@ class UpdaterControlHandler:
     def get_business_update(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._business_coordinator_call("get_update", payload)
 
+    def deliver_cloud_maintenance_request(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Validate one cloud maintenance command against local identity.
+
+        The caller is the permanent communication process.  The signed URL is
+        consumed synchronously by the coordinator/downloader and is never
+        written to either permanent service's database.
+        """
+
+        if payload.get("serviceId") not in BUSINESS_RUNTIME_MAINTENANCE_SERVICES:
+            raise LocalControlActionError(
+                "REQUEST_INVALID", "unsupported cloud maintenance service"
+            )
+        authenticated_device_name = payload.get("authenticatedDeviceName")
+        params = payload.get("params")
+        if (
+            not isinstance(authenticated_device_name, str)
+            or not authenticated_device_name
+            or not isinstance(params, dict)
+        ):
+            raise LocalControlActionError(
+                "REQUEST_INVALID", "cloud maintenance request is invalid"
+            )
+        try:
+            uuid.UUID(str(payload.get("deliveryId")), version=4)
+            command = decode_service_command(payload["serviceId"], params)
+            if command.get("targetDeviceName") != authenticated_device_name:
+                raise ValueError(
+                    "command target differs from authenticated device"
+                )
+            validate_command_envelope(
+                command,
+                trusted_business_release_download_base_url=(
+                    self.trusted_business_download_base_url
+                ),
+            )
+        except (TypeError, ValueError) as error:
+            raise LocalControlActionError(
+                "REQUEST_INVALID", "cloud maintenance command is invalid"
+            ) from error
+        with self._software_update_queue_lock:
+            if command["commandType"] == "START_BUSINESS_RUNTIME_UPDATE":
+                self._require_other_update_idle(
+                    self.mcu_coordinator,
+                    code="MCU_UPDATE_BUSY",
+                    message="an MCU firmware update is still active",
+                )
+                operation = "queue_remote"
+            else:
+                # A cancellation must still reach its existing business
+                # update even if another subsystem is in an abnormal state.
+                operation = "cancel_remote"
+            result = self._business_coordinator_call(operation, command)
+        return {
+            "commandUid": command["commandUid"],
+            "receiptState": (
+                "ACCEPTED"
+                if result.get("disposition") == "ACCEPTED"
+                else "DUPLICATE_ACCEPTED"
+            ),
+            "errorCode": None,
+        }
+
     def authorize_privileged_helper_action(
         self,
         payload: dict[str, Any],
@@ -434,11 +529,17 @@ class UpdaterAgent:
         server: LocalControlServer,
         mcu_coordinator: Any | None = None,
         business_coordinator: Any | None = None,
+        business_downloader: Any | None = None,
+        business_reporter: Any | None = None,
+        software_state_reporter: Any | None = None,
     ) -> None:
         self.store = store
         self.server = server
         self.mcu_coordinator = mcu_coordinator
         self.business_coordinator = business_coordinator
+        self.business_downloader = business_downloader
+        self.business_reporter = business_reporter
+        self.software_state_reporter = software_state_reporter
         self._stop_event = threading.Event()
         self._started = False
 
@@ -449,11 +550,23 @@ class UpdaterAgent:
             self.server.start()
             if self.mcu_coordinator is not None:
                 self.mcu_coordinator.start()
+            if self.business_downloader is not None:
+                self.business_downloader.start()
             if self.business_coordinator is not None:
                 self.business_coordinator.start()
+            if self.business_reporter is not None:
+                self.business_reporter.start()
+            if self.software_state_reporter is not None:
+                self.software_state_reporter.start()
         except Exception:
+            if self.software_state_reporter is not None:
+                self.software_state_reporter.stop()
+            if self.business_reporter is not None:
+                self.business_reporter.stop()
             if self.business_coordinator is not None:
                 self.business_coordinator.stop()
+            if self.business_downloader is not None:
+                self.business_downloader.stop()
             if self.mcu_coordinator is not None:
                 self.mcu_coordinator.stop()
             self.server.stop()
@@ -481,6 +594,27 @@ class UpdaterAgent:
                 raise RuntimeError(
                     "business update coordinator failed"
                 ) from self.business_coordinator.failure
+            if (
+                self.business_downloader is not None
+                and self.business_downloader.failure is not None
+            ):
+                raise RuntimeError(
+                    "business update downloader failed"
+                ) from self.business_downloader.failure
+            if (
+                self.business_reporter is not None
+                and self.business_reporter.failure is not None
+            ):
+                raise RuntimeError(
+                    "business update progress reporter failed"
+                ) from self.business_reporter.failure
+            if (
+                self.software_state_reporter is not None
+                and self.software_state_reporter.failure is not None
+            ):
+                raise RuntimeError(
+                    "device software state reporter failed"
+                ) from self.software_state_reporter.failure
             if not self.server.wait_stopped(timeout_seconds=0.25):
                 continue
             if self._stop_event.is_set():
@@ -496,8 +630,14 @@ class UpdaterAgent:
 
     def stop(self) -> None:
         self.request_stop()
+        if self.software_state_reporter is not None:
+            self.software_state_reporter.stop()
+        if self.business_reporter is not None:
+            self.business_reporter.stop()
         if self.business_coordinator is not None:
             self.business_coordinator.stop()
+        if self.business_downloader is not None:
+            self.business_downloader.stop()
         if self.mcu_coordinator is not None:
             self.mcu_coordinator.stop()
         if self._started:
@@ -528,6 +668,13 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
     business_candidate_enabled = bool(
         getattr(args, "enable_business_update_candidate", False)
     )
+    remote_business_update_enabled = bool(
+        getattr(args, "enable_remote_business_update", False)
+    )
+    software_state_reporting_enabled = bool(
+        getattr(args, "enable_software_state_reporting", False)
+        or remote_business_update_enabled
+    )
     if mcu_candidate_enabled and not candidate_enabled:
         raise ValueError(
             "MCU update candidate requires the stage-four job gate candidate"
@@ -536,7 +683,16 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
         raise ValueError(
             "business update candidate requires the stage-four job gate candidate"
         )
+    if remote_business_update_enabled and not business_candidate_enabled:
+        raise ValueError(
+            "remote business updates require the business update candidate"
+        )
+    if software_state_reporting_enabled and not business_candidate_enabled:
+        raise ValueError(
+            "software state reporting requires the business update candidate"
+        )
     business_uids: list[int] = []
+    communication_uids: list[int] = []
     if candidate_enabled:
         configured_business_uids = getattr(args, "business_uid", None)
         configured_business_user = getattr(args, "business_user", None)
@@ -556,6 +712,29 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
             raise ValueError(
                 "business action UID must also be in the socket allowlist"
             )
+    if remote_business_update_enabled:
+        communication_uids = resolve_role_uids(
+            getattr(args, "communication_uid", None),
+            getattr(args, "communication_user", "ecobin-communication"),
+            role="communication",
+        )
+        missing = set(communication_uids).difference(allowed_uids)
+        if missing:
+            raise ValueError(
+                "communication action UID must also be in the socket allowlist"
+            )
+        trusted_business_download_base_url = getattr(
+            args, "business_download_base_url", None
+        )
+        if (
+            not isinstance(trusted_business_download_base_url, str)
+            or not trusted_business_download_base_url
+        ):
+            raise ValueError(
+                "remote business updates require a trusted download base URL"
+            )
+    else:
+        trusted_business_download_base_url = None
     store = UpdaterStore(
         args.state,
         release_version=args.release_version,
@@ -564,6 +743,9 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
     store.initialize()
     mcu_coordinator = None
     business_coordinator = None
+    business_downloader = None
+    business_reporter = None
+    software_state_reporter = None
     try:
         if mcu_candidate_enabled:
             from mcu_update_coordinator import McuUpdateCoordinator
@@ -583,11 +765,29 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
             )
         if business_candidate_enabled:
             from business_update_coordinator import BusinessUpdateCoordinator
+            from business_update_downloader import BusinessUpdateDownloader
+            from business_update_reporter import (
+                BusinessUpdateProgressReporter,
+                COMMUNICATION_PROTOCOL_NAME,
+                DEFAULT_COMMUNICATION_SOCKET,
+            )
+            from device_software_state_reporter import (
+                DeviceSoftwareStateReporter,
+            )
             from business_update_package import BusinessReleasePackageStager
             from business_update_store import BusinessUpdateStore
 
-            business_journal = BusinessUpdateStore(args.state)
+            business_journal = BusinessUpdateStore(
+                args.state,
+                remote_trigger_enabled=remote_business_update_enabled,
+            )
             business_journal.initialize()
+            if remote_business_update_enabled:
+                business_downloader = BusinessUpdateDownloader(
+                    journal=business_journal,
+                    incoming_root=args.business_package_root,
+                    trusted_base_url=trusted_business_download_base_url,
+                )
             business_coordinator = BusinessUpdateCoordinator(
                 safety_store=store,
                 journal=business_journal,
@@ -596,19 +796,49 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
                     args.business_staging_root,
                     args.business_signing_keys,
                 ),
+                remote_downloader=business_downloader,
             )
+            if business_downloader is not None:
+                business_downloader.set_package_ready_callback(
+                    business_coordinator.wake
+                )
+            if software_state_reporting_enabled:
+                communication_client = LocalControlClient(
+                    getattr(
+                        args,
+                        "communication_socket",
+                        DEFAULT_COMMUNICATION_SOCKET,
+                    ),
+                    protocol_name=COMMUNICATION_PROTOCOL_NAME,
+                )
+                software_state_reporter = DeviceSoftwareStateReporter(
+                    journal=business_journal,
+                    safety_store=store,
+                    communication_client=communication_client,
+                )
+                if remote_business_update_enabled:
+                    business_reporter = BusinessUpdateProgressReporter(
+                        journal=business_journal,
+                        safety_store=store,
+                        communication_client=communication_client,
+                    )
         handler = UpdaterControlHandler(
             store,
             mcu_coordinator,
             business_coordinator,
+            trusted_business_download_base_url=(
+                trusted_business_download_base_url
+            ),
         )
         actions = build_control_actions(
             handler,
             allowed_uids=allowed_uids,
             business_uids=business_uids,
+            communication_uids=communication_uids,
             enable_stage4_candidate=candidate_enabled,
             enable_mcu_update_candidate=mcu_candidate_enabled,
             enable_business_update_candidate=business_candidate_enabled,
+            enable_remote_business_update=remote_business_update_enabled,
         )
         server = LocalControlServer(
             args.socket,
@@ -630,6 +860,9 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
         server,
         mcu_coordinator,
         business_coordinator,
+        business_downloader,
+        business_reporter,
+        software_state_reporter,
     )
 
 
@@ -638,9 +871,11 @@ def build_control_actions(
     *,
     allowed_uids: Iterable[int],
     business_uids: Iterable[int] = (),
+    communication_uids: Iterable[int] = (),
     enable_stage4_candidate: bool = False,
     enable_mcu_update_candidate: bool = False,
     enable_business_update_candidate: bool = False,
+    enable_remote_business_update: bool = False,
 ) -> dict[str, LocalControlAction]:
     action_uids = frozenset(allowed_uids)
     if 0 not in action_uids:
@@ -729,6 +964,27 @@ def build_control_actions(
                 )
                 for action, fields in ROOT_BUSINESS_CANDIDATE_ACTION_FIELDS.items()
             }
+        )
+    if enable_remote_business_update:
+        if not enable_business_update_candidate:
+            raise ValueError(
+                "remote business updates require the business update candidate"
+            )
+        maintenance_uids = frozenset(communication_uids)
+        if not maintenance_uids:
+            raise ValueError(
+                "remote business updates require a communication UID"
+            )
+        if not maintenance_uids.issubset(action_uids):
+            raise ValueError(
+                "communication action UIDs must be included in the socket allowlist"
+            )
+        actions["DELIVER_CLOUD_MAINTENANCE_REQUEST"] = LocalControlAction(
+            handler.deliver_cloud_maintenance_request,
+            payload_fields=COMMUNICATION_MAINTENANCE_ACTION_FIELDS[
+                "DELIVER_CLOUD_MAINTENANCE_REQUEST"
+            ],
+            allowed_uids=maintenance_uids,
         )
     if not enable_stage4_candidate:
         return actions
@@ -961,6 +1217,27 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--enable-software-state-reporting",
+        action="store_true",
+        help=(
+            "report durable actual software facts through the communication "
+            "agent without accepting remote update commands"
+        ),
+    )
+    parser.add_argument(
+        "--enable-remote-business-update",
+        action="store_true",
+        help=(
+            "accept validated business-runtime deployment commands only from "
+            "the permanent communication agent; disabled unless explicitly set"
+        ),
+    )
+    parser.add_argument(
+        "--communication-socket",
+        default="/run/ecobin/communication/control.sock",
+        help="permanent communication-agent control socket",
+    )
+    parser.add_argument(
         "--mcu-update-state",
         default=os.getenv(
             "ECOBIN_MCU_UPDATE_STATE_PATH",
@@ -1010,6 +1287,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--business-download-base-url",
+        default=os.getenv("ECOBIN_BUSINESS_DOWNLOAD_BASE_URL"),
+        help=(
+            "trusted HTTPS origin of the private business-release COS bucket"
+        ),
+    )
+    parser.add_argument(
         "--business-uid",
         action="append",
         type=int,
@@ -1018,6 +1302,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--business-user",
         default=os.getenv("ECOBIN_BUSINESS_USER"),
+    )
+    parser.add_argument(
+        "--communication-uid",
+        action="append",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--communication-user",
+        default=os.getenv(
+            "ECOBIN_COMMUNICATION_USER", "ecobin-communication"
+        ),
     )
     return parser
 

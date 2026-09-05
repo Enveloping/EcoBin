@@ -44,8 +44,15 @@ public class ReliableDeviceCommandCompletionService {
             Duration.ofSeconds(30);
     private static final Duration PHYSICAL_EVIDENCE_GRACE =
             Duration.ofSeconds(30);
+    private static final Duration BUSINESS_UPDATE_EVIDENCE_GRACE =
+            Duration.ofMinutes(5);
+    private static final Duration BUSINESS_UPDATE_CANCEL_EVIDENCE_WINDOW =
+            Duration.ofMinutes(35);
     private static final long MIN_BASELINE_MEASUREMENT_TIMEOUT_MS = 1_000;
     private static final long MAX_BASELINE_MEASUREMENT_TIMEOUT_MS = 6_000;
+    private static final long MIN_BUSINESS_UPDATE_STAGE_SECONDS = 60;
+    private static final long MAX_BUSINESS_UPDATE_STAGE_SECONDS = 86_400;
+    private static final int MAX_BUSINESS_UPDATE_ATTEMPTS = 10;
 
     public ReliableDeviceCommandCompletionService(
             ReliableOperationsJdbcRepository repository,
@@ -320,6 +327,9 @@ public class ReliableDeviceCommandCompletionService {
         if ("APPLY_CONFIGURATION".equals(commandType)) {
             return now.plus(CONFIGURATION_EVIDENCE_WINDOW);
         }
+        if ("CANCEL_BUSINESS_RUNTIME_UPDATE".equals(commandType)) {
+            return now.plus(BUSINESS_UPDATE_CANCEL_EVIDENCE_WINDOW);
+        }
         try {
             JsonNode root = objectMapper.readTree(
                     semanticEnvelopeJson);
@@ -343,6 +353,36 @@ public class ReliableDeviceCommandCompletionService {
                 return now.plus(BASELINE_EVIDENCE_GRACE)
                         .plus(Duration.ofMillis(timeoutMs));
             }
+            if ("START_BUSINESS_RUNTIME_UPDATE".equals(commandType)) {
+                JsonNode payload = root.path("payload");
+                long downloadSeconds = requiredBoundedLong(
+                        payload,
+                        "downloadTimeoutSeconds",
+                        MIN_BUSINESS_UPDATE_STAGE_SECONDS,
+                        MAX_BUSINESS_UPDATE_STAGE_SECONDS);
+                long drainSeconds = requiredBoundedLong(
+                        payload,
+                        "drainTimeoutSeconds",
+                        MIN_BUSINESS_UPDATE_STAGE_SECONDS,
+                        MAX_BUSINESS_UPDATE_STAGE_SECONDS);
+                long observationSeconds = requiredBoundedLong(
+                        payload,
+                        "observationWindowSeconds",
+                        MIN_BUSINESS_UPDATE_STAGE_SECONDS,
+                        MAX_BUSINESS_UPDATE_STAGE_SECONDS);
+                long maximumAttempts = requiredBoundedLong(
+                        payload,
+                        "maximumRetryCount",
+                        0,
+                        MAX_BUSINESS_UPDATE_ATTEMPTS);
+                maximumAttempts = Math.max(1, maximumAttempts);
+                Duration window = Duration.ofSeconds(downloadSeconds)
+                        .multipliedBy(maximumAttempts)
+                        .plusSeconds(drainSeconds)
+                        .plusSeconds(observationSeconds)
+                        .plus(BUSINESS_UPDATE_EVIDENCE_GRACE);
+                return now.plus(window);
+            }
             JsonNode value = root.get("expiresAt");
             if (value == null || !value.isTextual()) {
                 return now.plus(PHYSICAL_EVIDENCE_GRACE);
@@ -355,6 +395,26 @@ public class ReliableDeviceCommandCompletionService {
             throw new ReliableTaskInvariantException(
                     "device command evidence deadline is invalid");
         }
+    }
+
+    private static long requiredBoundedLong(
+            JsonNode object,
+            String field,
+            long minimum,
+            long maximum) {
+        JsonNode value = object.get(field);
+        if (value == null
+                || !value.isIntegralNumber()
+                || !value.canConvertToLong()) {
+            throw new ReliableTaskInvariantException(
+                    "business update evidence field is missing or invalid");
+        }
+        long result = value.longValue();
+        if (result < minimum || result > maximum) {
+            throw new ReliableTaskInvariantException(
+                    "business update evidence field is outside the frozen contract");
+        }
+        return result;
     }
 
     private static String technicalResult(

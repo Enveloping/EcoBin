@@ -85,6 +85,26 @@ class DeviceSoftwareCompatibilityServiceTest {
     }
 
     @Test
+    void periodicHealthyFactCannotReopenBusinessDuringAnActiveUpdate() {
+        registerRelease();
+        jdbc.update("""
+                INSERT INTO dev_edge_software_deployment (
+                    asset_id, deployment_status
+                ) VALUES (1, 'DOWNLOADING')
+                """);
+
+        apply(10, event(7, "OPEN"));
+
+        assertThat(value("compatibility_status"))
+                .isEqualTo("FULLY_COMPATIBLE");
+        assertThat(value("business_admission_status"))
+                .isEqualTo("PAUSED");
+        assertThat(value("reasons_json"))
+                .contains("BUSINESS_RUNTIME_UPDATE_ACTIVE")
+                .contains("业务程序正在更新");
+    }
+
+    @Test
     void unknownReleaseIsPersistedAndProjectedAsUnknown() {
         apply(10, event(7, "OPEN"));
 
@@ -458,6 +478,13 @@ class DeviceSoftwareCompatibilityServiceTest {
                     lock_version BIGINT NOT NULL,
                     created_at TIMESTAMP NOT NULL,
                     updated_at TIMESTAMP NOT NULL
+                )
+                """);
+        jdbc.execute("""
+                CREATE TABLE dev_edge_software_deployment (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    asset_id BIGINT NOT NULL,
+                    deployment_status VARCHAR(40) NOT NULL
                 )
                 """);
     }

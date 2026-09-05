@@ -16,6 +16,8 @@
     { "$ref": "#/$defs/authorizeFactorySealCommand" },
     { "$ref": "#/$defs/syncDeviceEntryUrlCommand" },
     { "$ref": "#/$defs/startMcuFirmwareUpdateCommand" },
+    { "$ref": "#/$defs/startBusinessRuntimeUpdateCommand" },
+    { "$ref": "#/$defs/cancelBusinessRuntimeUpdateCommand" },
     { "$ref": "#/$defs/openRemoteSupportTunnelCommand" },
     { "$ref": "#/$defs/closeRemoteSupportTunnelCommand" }
   ],
@@ -791,6 +793,112 @@
         }
       }
     },
+    "startBusinessRuntimeUpdatePayload": {
+      "type": "object",
+      "required": [
+        "deploymentUid",
+        "updateUid",
+        "controlSequence",
+        "releaseUid",
+        "versionName",
+        "releaseSequence",
+        "objectKey",
+        "packageSha256",
+        "packageSize",
+        "packageSignatureBase64",
+        "signatureSha256",
+        "signingKeyId",
+        "observationWindowSeconds",
+        "downloadTimeoutSeconds",
+        "drainTimeoutSeconds",
+        "maximumRetryCount",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "deploymentUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "updateUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "controlSequence": { "$ref": "../common.schema.json#/$defs/positiveSequence" },
+        "releaseUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "versionName": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 32,
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+        },
+        "releaseSequence": { "$ref": "../common.schema.json#/$defs/positiveSequence" },
+        "objectKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^edge-runtime/releases/[0-9a-f-]{36}/package\\.tar\\.gz$"
+        },
+        "packageSha256": { "$ref": "../common.schema.json#/$defs/sha256" },
+        "packageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1500000000
+        },
+        "packageSignatureBase64": {
+          "type": "string",
+          "minLength": 88,
+          "maxLength": 88,
+          "pattern": "^[A-Za-z0-9+/]{86}==$"
+        },
+        "signatureSha256": { "$ref": "../common.schema.json#/$defs/sha256" },
+        "signingKeyId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+        },
+        "observationWindowSeconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400
+        },
+        "downloadTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400
+        },
+        "drainTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400
+        },
+        "maximumRetryCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "cancelBusinessRuntimeUpdatePayload": {
+      "type": "object",
+      "required": [
+        "deploymentUid",
+        "updateUid",
+        "controlSequence",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "deploymentUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "updateUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "controlSequence": { "$ref": "../common.schema.json#/$defs/positiveSequence" },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
     "openRemoteSupportTunnelPayload": {
       "type": "object",
       "required": ["sessionUid", "remotePort", "expiresAt"],
@@ -1136,6 +1244,58 @@
             "cosGrant": {
               "$ref": "../common.schema.json#/$defs/cosGrant"
             }
+          }
+        }
+      ]
+    },
+    "startBusinessRuntimeUpdateCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "required": ["downloadGrant"],
+          "properties": {
+            "commandType": { "const": "START_BUSINESS_RUNTIME_UPDATE" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "BUSINESS_RUNTIME_DEPLOYMENT" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/startBusinessRuntimeUpdatePayload"
+            },
+            "cosGrant": { "type": "null" },
+            "downloadGrant": {
+              "$ref": "../common.schema.json#/$defs/downloadGrant"
+            }
+          }
+        }
+      ]
+    },
+    "cancelBusinessRuntimeUpdateCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "CANCEL_BUSINESS_RUNTIME_UPDATE" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "BUSINESS_RUNTIME_DEPLOYMENT" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/cancelBusinessRuntimeUpdatePayload"
+            },
+            "cosGrant": { "type": "null" }
           }
         }
       ]

@@ -4,7 +4,9 @@ import com.qcloud.cos.COSClient;
 import com.qcloud.cos.ClientConfig;
 import com.qcloud.cos.auth.BasicCOSCredentials;
 import com.qcloud.cos.exception.CosServiceException;
+import com.qcloud.cos.http.HttpMethodName;
 import com.qcloud.cos.model.BucketVersioningConfiguration;
+import com.qcloud.cos.model.GeneratePresignedUrlRequest;
 import com.qcloud.cos.model.GetObjectRequest;
 import com.qcloud.cos.model.ObjectMetadata;
 import com.qcloud.cos.model.PutObjectRequest;
@@ -16,6 +18,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Date;
 import java.util.regex.Pattern;
 
 @Component
@@ -80,10 +85,11 @@ public class CosBusinessReleaseArtifactStorage
                     false,
                     "业务发布必须使用与照片公有读桶不同的私有 COS 存储桶");
         }
-        if (properties.isRemoteDispatchEnabled()) {
+        if (properties.isRemoteDispatchEnabled()
+                && !properties.isRemoteDispatchConfigured()) {
             return new Readiness(
                     false,
-                    "第七阶段不允许开启业务程序远程下发开关");
+                    "业务程序远程下发已开启，但可信 HTTPS 下载基础位置未完整配置");
         }
         return new Readiness(true, "业务发布私有 COS 基础配置完整");
     }
@@ -131,6 +137,38 @@ public class CosBusinessReleaseArtifactStorage
         client().getObject(
                 new GetObjectRequest(properties.getBucketName(), objectKey),
                 target.toFile());
+    }
+
+    @Override
+    public DownloadAuthorization issueReadAuthorization(
+            String objectKey,
+            Duration validity) {
+        requireObjectKey(objectKey);
+        if (!properties.isRemoteDispatchConfigured()) {
+            throw new IllegalStateException(
+                    "业务程序可信下载基础位置未配置");
+        }
+        if (validity == null
+                || validity.compareTo(Duration.ofMinutes(1)) < 0
+                || validity.compareTo(Duration.ofHours(1)) > 0) {
+            throw new IllegalArgumentException(
+                    "业务发布下载授权有效期必须在 1 分钟到 1 小时之间");
+        }
+        Instant expiresAt = Instant.now().plus(validity);
+        GeneratePresignedUrlRequest request =
+                new GeneratePresignedUrlRequest(
+                        properties.getBucketName(),
+                        objectKey,
+                        HttpMethodName.GET);
+        request.setExpiration(Date.from(expiresAt));
+        String url = client().generatePresignedUrl(request).toExternalForm();
+        String expectedPrefix = properties.getDownloadBaseUrl()
+                + "/" + objectKey + "?";
+        if (!url.startsWith(expectedPrefix)) {
+            throw new IllegalStateException(
+                    "COS 签发的下载地址不在设备信任的基础位置内");
+        }
+        return new DownloadAuthorization(url, expiresAt);
     }
 
     private COSClient client() {

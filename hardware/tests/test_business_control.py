@@ -278,6 +278,39 @@ def test_default_builder_registers_only_health_and_status(tmp_path) -> None:
     assert service.controller.health({})["maintenanceHandoffEnabled"] is False
 
 
+def test_software_runtime_facts_are_read_only_and_updater_only(tmp_path) -> None:
+    parent = tmp_path / "business"
+    parent.mkdir()
+    facts = {
+        "mcuFirmware": {
+            "versionName": "2.1.0",
+            "versionCode": 20100,
+            "identityHex": "0123456789abcdef",
+            "fixedFrameRevision": 2,
+        },
+        "uartState": "READY",
+        "uartProtocol": None,
+        "capabilityBitmapHex": "0000000000000000",
+    }
+    service = build_business_control_service(
+        parent / "control.sock",
+        release_version="1.2.3",
+        allowed_uids={0, 1234},
+        socket_gid=5678,
+        updater_uids={9999},
+        software_runtime_facts_provider=lambda: facts,
+    )
+    service.controller.mark_ready()
+
+    action = service.server.actions["GET_SOFTWARE_RUNTIME_FACTS"]
+    assert action.allowed_uids == frozenset({9999})
+    assert action.payload_fields == frozenset()
+    assert service.controller.get_software_runtime_facts({}) == {
+        **service.controller.health({}),
+        **facts,
+    }
+
+
 def test_candidate_requires_port_and_nonempty_updater_uids(tmp_path) -> None:
     parent = tmp_path / "business"
     parent.mkdir()

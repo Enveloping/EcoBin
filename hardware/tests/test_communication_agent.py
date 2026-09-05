@@ -45,6 +45,7 @@ def test_controller_exposes_explicit_stage_three_disabled_boundaries(tmp_path: P
             "cloudConnectionState": "DISABLED",
             "businessEventIngress": "DISABLED",
             "remoteUpdateRouting": "DISABLED",
+            "authenticatedDeviceName": None,
         }
         assert status["runtimeInstanceUid"] == start["startUid"]
         assert status["schemaVersion"] == 2
@@ -62,6 +63,31 @@ def test_controller_does_not_claim_ready_before_start_fact(tmp_path: Path):
         controller = CommunicationController(store, "communication-3.0.0")
         with pytest.raises(RuntimeError, match="start fact is unavailable"):
             controller.health({})
+    finally:
+        store.close()
+
+
+def test_updater_fact_ingress_can_be_enabled_without_update_routing(tmp_path):
+    store = CommunicationStore(tmp_path / "communication.db")
+    store.initialize()
+    submitted = []
+    router = SimpleNamespace(
+        submit_updater_event=lambda payload: submitted.append(payload)
+        or {"durableAccepted": True}
+    )
+    controller = CommunicationController(
+        store,
+        "communication-3.0.0",
+        router=router,
+        updater_event_reporting_enabled=True,
+    )
+    try:
+        payload = {"eventType": "DEVICE_SOFTWARE_STATE_REPORTED"}
+
+        assert controller.submit_updater_event(payload) == {
+            "durableAccepted": True
+        }
+        assert submitted == [payload]
     finally:
         store.close()
 
@@ -210,6 +236,8 @@ def test_parser_supports_all_runtime_identity_options():
     assert args.credentials == "/state/onenet.json"
     assert args.business_socket == "/run/business.sock"
     assert args.business_user == "ecobin-business"
+    assert args.enable_updater_event_reporting is False
+    assert args.enable_remote_business_update is False
 
 
 def test_release_version_must_be_injected_by_the_image(tmp_path: Path):

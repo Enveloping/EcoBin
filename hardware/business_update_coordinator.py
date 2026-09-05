@@ -68,6 +68,7 @@ class BusinessUpdateCoordinator:
         safety_store: UpdaterStore,
         journal: BusinessUpdateStore,
         package_stager: BusinessReleasePackageStager,
+        remote_downloader: Any | None = None,
         business_client: Any | None = None,
         helper_client: Any | None = None,
         uuid_factory: Callable[[], uuid.UUID] = uuid.uuid4,
@@ -95,6 +96,7 @@ class BusinessUpdateCoordinator:
         self.safety_store = safety_store
         self.journal = journal
         self.package_stager = package_stager
+        self.remote_downloader = remote_downloader
         self.business_client = business_client or LocalControlClient(
             DEFAULT_BUSINESS_SOCKET,
             protocol_name=BUSINESS_PROTOCOL_NAME,
@@ -177,6 +179,124 @@ class BusinessUpdateCoordinator:
         self.wake()
         return result
 
+    def queue_remote(self, command: Mapping[str, Any]) -> dict[str, Any]:
+        """Accept a validated cloud update while keeping its URL in memory."""
+
+        downloader = self.remote_downloader
+        if downloader is None:
+            raise BusinessUpdateCoordinatorError(
+                "FEATURE_DISABLED",
+                "remote business runtime update is disabled",
+            )
+        payload = command.get("payload")
+        grant = command.get("downloadGrant")
+        if not isinstance(payload, Mapping) or not isinstance(grant, Mapping):
+            raise BusinessUpdateCoordinatorError(
+                "REQUEST_INVALID", "remote business update command is invalid"
+            )
+        request = {
+            "updateUid": payload.get("updateUid"),
+            "deploymentUid": payload.get("deploymentUid"),
+            "commandUid": command.get("commandUid"),
+            "releaseId": payload.get("releaseUid"),
+            "versionName": payload.get("versionName"),
+            "releaseSequence": payload.get("releaseSequence"),
+            "packageSha256": payload.get("packageSha256"),
+            "packageSize": payload.get("packageSize"),
+            "signingKeyId": payload.get("signingKeyId"),
+            "stablePayloadSha256": command.get("payloadSha256"),
+            "controlSequence": payload.get("controlSequence"),
+            "objectKey": payload.get("objectKey"),
+            "signatureSha256": payload.get("signatureSha256"),
+            "packageSignatureBase64": payload.get("packageSignatureBase64"),
+            "observationWindowSeconds": payload.get(
+                "observationWindowSeconds"
+            ),
+            "downloadTimeoutSeconds": payload.get("downloadTimeoutSeconds"),
+            "drainTimeoutSeconds": payload.get("drainTimeoutSeconds"),
+            "maximumRetryCount": payload.get("maximumRetryCount"),
+        }
+        with self._queue_lock:
+            try:
+                existing = self.journal.get_update(request["updateUid"])
+                if existing is None:
+                    safety = self.safety_store.get_status()
+                    if (
+                        safety.get("candidateActivationState") != "ACTIVE"
+                        or safety.get("jobGateState") != "OPEN"
+                        or safety.get("maintenanceOwnerUid") is not None
+                    ):
+                        raise BusinessUpdateCoordinatorError(
+                            "BUSINESS_UPDATE_BUSY",
+                            "device is not open for a new business update",
+                        )
+                    self._require_proxy_business_health(expected_version=None)
+                result = self.journal.create_or_refresh_remote_update(
+                    request,
+                    authorization_sequence=grant.get(
+                        "authorizationSequence"
+                    ),
+                )
+            except BusinessUpdateStoreError as error:
+                raise BusinessUpdateCoordinatorError(
+                    error.code, str(error)
+                ) from error
+        if result["authorizationDisposition"] in {"ACCEPTED", "REFRESHED"}:
+            downloader.accept_authorization(
+                update_uid=request["updateUid"],
+                authorization_sequence=grant["authorizationSequence"],
+                url=grant.get("url"),
+                expires_at=_parse_utc(grant.get("expiresAt")),
+            )
+        self.wake()
+        return result
+
+    def cancel_remote(self, command: Mapping[str, Any]) -> dict[str, Any]:
+        """Accept one monotonic cloud cancellation at the last safe point.
+
+        Cancellation and update advancement share ``_process_lock``.  The
+        durable state observed while this lock is held therefore decides
+        whether cancellation won before the first mutation, or arrived too
+        late and must leave the running update untouched.
+        """
+
+        downloader = self.remote_downloader
+        if downloader is None:
+            raise BusinessUpdateCoordinatorError(
+                "FEATURE_DISABLED",
+                "remote business runtime update is disabled",
+            )
+        payload = command.get("payload")
+        if not isinstance(payload, Mapping):
+            raise BusinessUpdateCoordinatorError(
+                "REQUEST_INVALID",
+                "remote business update cancellation is invalid",
+            )
+        request = {
+            "cancelCommandUid": command.get("commandUid"),
+            "updateUid": payload.get("updateUid"),
+            "deploymentUid": payload.get("deploymentUid"),
+            "controlSequence": payload.get("controlSequence"),
+            "reason": payload.get("reason"),
+        }
+        with self._process_lock:
+            with self._queue_lock:
+                try:
+                    self._reconcile_cancellation_boundary(
+                        request["updateUid"]
+                    )
+                    result = self.journal.request_remote_cancellation(
+                        request
+                    )
+                    if result["outcome"] == "ACCEPTED":
+                        downloader.cancel(request["updateUid"])
+                except (BusinessUpdateStoreError, UpdaterStoreError) as error:
+                    raise BusinessUpdateCoordinatorError(
+                        error.code, str(error)
+                    ) from error
+        self.wake()
+        return result
+
     def get_update(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, Mapping) or set(payload) != {"updateUid"}:
             raise BusinessUpdateCoordinatorError(
@@ -254,8 +374,17 @@ class BusinessUpdateCoordinator:
             logger.exception("business update coordinator stopped unexpectedly")
 
     def _advance(self, update: dict[str, Any]) -> None:
+        cancellation = self.journal.get_pending_cancellation(
+            update["updateUid"]
+        )
+        if cancellation is not None:
+            self._complete_pending_cancellation(update, cancellation)
+            return
         state = update["state"]
         if state == "RECEIVED":
+            remote = self.journal.get_remote_update(update["updateUid"])
+            if remote is not None and remote["downloadState"] != "DOWNLOADED":
+                return
             self.journal.transition(
                 update["updateUid"],
                 "VERIFYING_PACKAGE",
@@ -292,6 +421,94 @@ class BusinessUpdateCoordinator:
             return
         raise BusinessUpdateCoordinatorError(
             "BUSINESS_UPDATE_STATE_INVALID", "business update state cannot advance"
+        )
+
+    def _reconcile_cancellation_boundary(self, update_uid: object) -> None:
+        """Close the power-loss gap after drain became maintenance.
+
+        A live coordinator changes the safety gate and journal while holding
+        ``_process_lock``.  A power loss can nevertheless leave the gate in
+        maintenance while the journal still says WAITING_FOR_IDLE.  That gate
+        transition is treated as the irreversible boundary on recovery, so a
+        later cancellation is recorded as TOO_LATE instead of erasing an
+        already-established maintenance fence.
+        """
+
+        update = self.journal.get_update(update_uid)
+        if update is None or update["state"] != "WAITING_FOR_IDLE":
+            return
+        status = self.safety_store.get_status()
+        if (
+            status.get("maintenanceOwnerUid") == update["updateUid"]
+            and status.get("maintenanceFenceToken")
+            == update.get("maintenanceFenceToken")
+            and status.get("maintenancePhase") == "MAINTENANCE"
+            and status.get("jobGateState") in {"MAINTENANCE", "LOCKED"}
+        ):
+            self.journal.transition(
+                update["updateUid"],
+                "MIGRATING_DATA",
+                expected_states={"WAITING_FOR_IDLE"},
+                step="INSPECT_BASELINE",
+            )
+
+    def _complete_pending_cancellation(
+        self,
+        update: Mapping[str, Any],
+        cancellation: Mapping[str, Any],
+    ) -> None:
+        downloader = self.remote_downloader
+        if downloader is None:
+            raise BusinessUpdateCoordinatorError(
+                "FEATURE_DISABLED",
+                "remote business runtime update is disabled",
+            )
+        downloader.cancel(update["updateUid"])
+        if not downloader.cleanup_cancelled(update["updateUid"]):
+            return
+        try:
+            self.package_stager.cleanup(update["updateUid"])
+        except BusinessPackageStageError as error:
+            raise BusinessUpdateCoordinatorError(
+                error.code, str(error)
+            ) from error
+
+        evidence = canonical_local_payload_sha256(
+            {
+                "cancelCommandUid": cancellation["cancelCommandUid"],
+                "updateUid": update["updateUid"],
+                "outcome": "CANCELLED",
+            }
+        )
+        fence = update.get("maintenanceFenceToken")
+        status = self.safety_store.get_status()
+        if isinstance(fence, int) and not isinstance(fence, bool):
+            status = self._resume_drain_if_needed(update)
+            if (
+                status.get("jobGateState") != "OPEN"
+                or status.get("maintenanceOwnerUid") is not None
+            ):
+                try:
+                    self.safety_store.abort_update_drain(
+                        update["updateUid"],
+                        fence,
+                        evidence_sha256=evidence,
+                        maintenance_type=MAINTENANCE_TYPE,
+                    )
+                except UpdaterStoreError as error:
+                    raise BusinessUpdateCoordinatorError(
+                        error.code, str(error)
+                    ) from error
+        elif (
+            status.get("jobGateState") != "OPEN"
+            or status.get("maintenanceOwnerUid") is not None
+        ):
+            raise BusinessUpdateCoordinatorError(
+                "BUSINESS_CANCEL_SAFETY_CONFLICT",
+                "another safety operation owns the device",
+            )
+        self.journal.complete_remote_cancellation(
+            update["updateUid"], evidence_sha256=evidence
         )
 
     def _stage_package(self, update: Mapping[str, Any]) -> None:
@@ -416,7 +633,11 @@ class BusinessUpdateCoordinator:
                 step="INSPECT_BASELINE",
             )
             return
-        if self._elapsed(update.get("drainStartedAt")) >= self._drain_timeout_seconds:
+        if self._elapsed(update.get("drainStartedAt")) >= self._policy_seconds(
+            update,
+            "drainTimeoutSeconds",
+            self._drain_timeout_seconds,
+        ):
             self._defer_before_mutation(update, "BUSINESS_DRAIN_TIMEOUT")
             return
         if (
@@ -520,11 +741,13 @@ class BusinessUpdateCoordinator:
                 "MIGRATING_DATA",
                 expected_states={"MIGRATING_DATA"},
                 step="STOP_BASELINE",
-                fields={
-                    "baseline_kind": BASELINE_BUSINESS_RELEASE,
-                    "previous_release_id": current,
-                    "previous_version_name": marker["versionName"],
-                },
+                    fields={
+                        "baseline_kind": BASELINE_BUSINESS_RELEASE,
+                        "previous_release_id": current,
+                        "previous_version_name": marker["versionName"],
+                        "previous_release_sequence": marker["releaseSequence"],
+                        "previous_package_sha256": marker["packageSha256"],
+                    },
             )
             return
         if step == "STOP_BASELINE":
@@ -641,6 +864,8 @@ class BusinessUpdateCoordinator:
                 step="RELEASE_TARGET",
                 fields={
                     "installed_release_id": update["releaseId"],
+                    "installed_version_name": update["versionName"],
+                    "installed_release_sequence": update["releaseSequence"],
                     "installed_package_sha256": update["packageSha256"],
                     "result_evidence_sha256": evidence,
                     "last_error_code": None,
@@ -673,7 +898,11 @@ class BusinessUpdateCoordinator:
             return
         if health is None:
             return
-        if self._elapsed(update.get("observationStartedAt")) < self._observation_seconds:
+        if self._elapsed(update.get("observationStartedAt")) < self._policy_seconds(
+            update,
+            "observationWindowSeconds",
+            self._observation_seconds,
+        ):
             return
         evidence = canonical_local_payload_sha256(
             {
@@ -807,7 +1036,11 @@ class BusinessUpdateCoordinator:
                     update["updateUid"], "ROLLING_BACK", step="STOP_TARGET"
                 )
                 return
-            if self._elapsed(update.get("drainStartedAt")) >= self._drain_timeout_seconds:
+            if self._elapsed(update.get("drainStartedAt")) >= self._policy_seconds(
+                update,
+                "drainTimeoutSeconds",
+                self._drain_timeout_seconds,
+            ):
                 self._fail_locked(
                     update,
                     "BUSINESS_ROLLBACK_DRAIN_TIMEOUT",
@@ -933,14 +1166,25 @@ class BusinessUpdateCoordinator:
                     update["updateUid"],
                     "VERIFYING_ROLLBACK",
                     step="RELEASE_ROLLBACK",
-                    fields={"result_evidence_sha256": evidence},
+                    fields={
+                        "installed_release_id": None,
+                        "installed_version_name": None,
+                        "installed_release_sequence": None,
+                        "installed_package_sha256": None,
+                        "result_evidence_sha256": evidence,
+                    },
                 )
                 return
             marker = status.get("currentRelease")
             if (
                 status.get("currentReleaseUid") != update["previousReleaseId"]
                 or not isinstance(marker, Mapping)
-                or not isinstance(marker.get("versionName"), str)
+                or marker.get("releaseUid") != update["previousReleaseId"]
+                or marker.get("versionName") != update.get("previousVersionName")
+                or marker.get("releaseSequence")
+                != update.get("previousReleaseSequence")
+                or marker.get("packageSha256")
+                != update.get("previousPackageSha256")
             ):
                 raise BusinessUpdateCoordinatorError(
                     "BUSINESS_ROLLBACK_IDENTITY_MISMATCH",
@@ -963,7 +1207,13 @@ class BusinessUpdateCoordinator:
                 update["updateUid"],
                 "VERIFYING_ROLLBACK",
                 step="RELEASE_ROLLBACK",
-                fields={"result_evidence_sha256": evidence},
+                fields={
+                    "installed_release_id": update["previousReleaseId"],
+                    "installed_version_name": marker["versionName"],
+                    "installed_release_sequence": marker["releaseSequence"],
+                    "installed_package_sha256": marker["packageSha256"],
+                    "result_evidence_sha256": evidence,
+                },
             )
             return
         if update["step"] == "RELEASE_ROLLBACK":
@@ -1269,6 +1519,13 @@ class BusinessUpdateCoordinator:
         current = self.journal.get_update(update["updateUid"])
         if current is None or current["state"] in BUSINESS_UPDATE_TERMINAL_STATES:
             return
+        if self.journal.get_pending_cancellation(current["updateUid"]) is not None:
+            logger.warning(
+                "business cancellation cleanup will retry: updateUid=%s code=%s",
+                current["updateUid"],
+                _stable_error_code(error.code),
+            )
+            return
         retryable = {
             "PRIVILEGED_ACTION_RESULT_UNKNOWN",
             "HELPER_AUTHORIZATION_UNAVAILABLE",
@@ -1326,6 +1583,23 @@ class BusinessUpdateCoordinator:
             )
         return max(0.0, (now - started).total_seconds())
 
+    def _policy_seconds(
+        self,
+        update: Mapping[str, Any],
+        field: str,
+        default: int,
+    ) -> int:
+        remote = self.journal.get_remote_update(update["updateUid"])
+        if remote is None:
+            return default
+        value = remote.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise BusinessUpdateCoordinatorError(
+                "BUSINESS_UPDATE_POLICY_INVALID",
+                "business update frozen policy is invalid",
+            )
+        return value
+
     def _new_uid(self) -> str:
         value = self._uuid_factory()
         if not isinstance(value, uuid.UUID) or value.version != 4:
@@ -1348,6 +1622,20 @@ def _format_utc(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace(
         "+00:00", "Z"
     )
+
+
+def _parse_utc(value: object) -> datetime:
+    if not isinstance(value, str) or not value.endswith("Z"):
+        raise BusinessUpdateCoordinatorError(
+            "REQUEST_INVALID", "download authorization expiry is invalid"
+        )
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError as error:
+        raise BusinessUpdateCoordinatorError(
+            "REQUEST_INVALID", "download authorization expiry is invalid"
+        ) from error
+    return parsed
 
 
 __all__ = [

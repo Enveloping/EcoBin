@@ -123,6 +123,10 @@ def test_silent_permanent_units_are_local_only_and_independently_sandboxed() -> 
     assert "--socket-group ecobin-communication-ipc" in communication
     assert "--socket-group ecobin-updater-ipc" in updater
     assert "--enable-stage4-candidate" not in updater
+    assert "--enable-software-state-reporting" not in updater
+    assert "--enable-remote-business-update" not in updater
+    assert "--enable-updater-event-reporting" not in communication
+    assert "--enable-remote-business-update" not in communication
     assert "ECOBIN_STAGE4_JOB_GATE_MODE" not in updater
     assert "ecobin-privileged-helper-ipc" not in communication
     assert (
@@ -194,6 +198,10 @@ def test_cutover_candidate_units_are_static_mutually_exclusive_and_non_root() ->
     assert "--enable-stage4-candidate" in updater
     assert "--enable-mcu-update-candidate" in updater
     assert "--enable-business-update-candidate" in updater
+    assert "--enable-software-state-reporting" not in updater
+    assert "--enable-remote-business-update" not in updater
+    assert "--enable-updater-event-reporting" not in communication
+    assert "--enable-remote-business-update" not in communication
     assert "/opt/ecobin/updater/current/.venv/bin/python" in updater
     assert "--mcu-update-state /var/lib/ecobin/updater/mcu-updates.db" in updater
     assert "--mcu-firmware-root /var/lib/ecobin/updater/mcu-firmware" in updater

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -72,6 +75,22 @@ class FakeBusinessClient:
         }:
             return {"disposition": "DELIVERED"}
         raise AssertionError(action)
+
+
+class FakeUpdaterClient:
+    def __init__(self):
+        self.calls = []
+
+    def request(self, action, payload):
+        self.calls.append((action, payload))
+        assert action == "DELIVER_CLOUD_MAINTENANCE_REQUEST"
+        return {
+            "commandUid": COMMAND_UID,
+            "receiptState": (
+                "ACCEPTED" if len(self.calls) == 1 else "DUPLICATE_ACCEPTED"
+            ),
+            "errorCode": None,
+        }
 
 
 @pytest.fixture
@@ -157,6 +176,220 @@ def test_same_command_uid_with_changed_service_fails_closed(store):
 
     with pytest.raises(RuntimeError, match="conflicts"):
         router.handle_service_request(changed)
+
+
+def test_business_update_is_routed_to_updater_and_grant_is_never_persisted(
+    store,
+):
+    updater = FakeUpdaterClient()
+    business = FakeBusinessClient()
+    router = CommunicationRouter(
+        store,
+        FakeTransport(),
+        business_client=business,
+        updater_client=updater,
+        enable_remote_business_update=True,
+        authenticated_device_name="SN-TEST-0001",
+        edge_boot_id=77,
+    )
+    params = {
+        "scalarFields1": {
+            "commandUid": COMMAND_UID,
+            "issuedAt": "2030-01-02T03:04:05.678Z",
+            "expiresAt": "2030-01-02T03:05:05.678Z",
+        },
+        "downloadGrant": {
+            "authorizationSequence": 1,
+            "url": "https://private.example/package?first-secret",
+            "expiresAt": "2030-01-02T04:04:05.678Z",
+        },
+    }
+    request = CloudServiceRequest(
+        delivery_id="30000000-0000-4000-8000-000000000001",
+        request_id="onenet-maintenance-1",
+        service_id="startBusinessRuntimeUpdate",
+        params=params,
+        received_at=None,
+        clock_quality="UNAVAILABLE",
+    )
+
+    first = router.handle_service_request(request)
+    assert first.data["receiptState"] == 1
+    assert business.calls == []
+    with sqlite3.connect(store.path) as connection:
+        persisted = connection.execute(
+            "SELECT params_json FROM inbound_proxy_payload WHERE command_uid=?",
+            (COMMAND_UID,),
+        ).fetchone()[0]
+    assert "downloadGrant" not in persisted
+    assert "first-secret" not in persisted
+    assert "issuedAt" not in persisted
+    assert "expiresAt" not in persisted
+
+    refreshed = dict(params)
+    refreshed["downloadGrant"] = {
+        **params["downloadGrant"],
+        "authorizationSequence": 2,
+        "url": "https://private.example/package?second-secret",
+    }
+    refreshed["scalarFields1"] = {
+        **params["scalarFields1"],
+        "issuedAt": "2030-01-02T03:06:05.678Z",
+        "expiresAt": "2030-01-02T03:07:05.678Z",
+    }
+    duplicate = router.handle_service_request(
+        CloudServiceRequest(
+            delivery_id="30000000-0000-4000-8000-000000000002",
+            request_id="onenet-maintenance-2",
+            service_id="startBusinessRuntimeUpdate",
+            params=refreshed,
+            received_at=None,
+            clock_quality="UNAVAILABLE",
+        )
+    )
+    assert duplicate.data == first.data
+    assert len(updater.calls) == 2
+    assert updater.calls[-1][1]["authenticatedDeviceName"] == "SN-TEST-0001"
+    assert updater.calls[-1][1]["params"]["downloadGrant"]["authorizationSequence"] == 2
+
+
+def test_business_update_cancellation_is_always_routed_to_updater(store):
+    updater = FakeUpdaterClient()
+    business = FakeBusinessClient()
+    router = CommunicationRouter(
+        store,
+        FakeTransport(),
+        business_client=business,
+        updater_client=updater,
+        enable_remote_business_update=True,
+        authenticated_device_name="SN-TEST-0001",
+        edge_boot_id=77,
+    )
+    request = CloudServiceRequest(
+        delivery_id="30000000-0000-4000-8000-000000000011",
+        request_id="onenet-cancel-1",
+        service_id="cancelBusinessRuntimeUpdate",
+        params={
+            "commandUid": COMMAND_UID,
+            "issuedAt": "2030-01-02T03:04:05.678Z",
+            "expiresAt": "2030-01-02T03:14:05.678Z",
+        },
+        received_at=None,
+        clock_quality="UNAVAILABLE",
+    )
+
+    response = router.handle_service_request(request)
+
+    assert response.data["receiptState"] == 1
+    assert business.calls == []
+    assert updater.calls[0][1]["serviceId"] == (
+        "cancelBusinessRuntimeUpdate"
+    )
+
+
+def test_updater_event_gets_a_reserved_durable_sequence(store):
+    router = CommunicationRouter(
+        store,
+        FakeTransport(),
+        business_client=FakeBusinessClient(),
+    )
+    semantic = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "contracts/examples/onenet/business-runtime-update-progress.event.json"
+        ).read_text(encoding="utf-8")
+    )
+    request = {
+        "eventUid": semantic["eventUid"],
+        "eventType": semantic["eventType"],
+        "targetType": semantic["target"]["type"],
+        "targetUid": semantic["target"]["uid"],
+        "commandUid": semantic["commandUid"],
+        "occurredAt": semantic["occurredAt"],
+        "clockQuality": semantic["clockQuality"],
+        "payload": semantic["payload"],
+    }
+
+    first = router.submit_updater_event(request)
+    repeated = router.submit_updater_event(request)
+
+    assert first["disposition"] == "ACCEPTED"
+    assert repeated["disposition"] == "DUPLICATE"
+    assert first["edgeEventSequence"] == 9_000_000_000_000
+    assert repeated["edgeEventSequence"] == first["edgeEventSequence"]
+    claimed = store.claim_next_proxy_outbound_event()
+    assert claimed["params"]["edgeEventSequence"] == 9_000_000_000_000
+    assert claimed["params"]["payloadSha256"] == semantic["payloadSha256"]
+
+
+def test_actual_software_state_uses_the_same_durable_management_lane(store):
+    router = CommunicationRouter(
+        store,
+        FakeTransport(),
+        business_client=FakeBusinessClient(),
+    )
+    semantic = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "contracts/examples/onenet/device-software-state-reported.event.json"
+        ).read_text(encoding="utf-8")
+    )
+    request = {
+        "eventUid": semantic["eventUid"],
+        "eventType": semantic["eventType"],
+        "targetType": semantic["target"]["type"],
+        "targetUid": semantic["target"]["uid"],
+        "commandUid": semantic["commandUid"],
+        "occurredAt": semantic["occurredAt"],
+        "clockQuality": semantic["clockQuality"],
+        "payload": semantic["payload"],
+    }
+
+    receipt = router.submit_updater_event(request)
+
+    assert receipt["disposition"] == "ACCEPTED"
+    assert receipt["edgeEventSequence"] == 9_000_000_000_000
+    claimed = store.claim_next_proxy_outbound_event()
+    assert claimed["eventType"] == "DEVICE_SOFTWARE_STATE_REPORTED"
+    assert claimed["params"]["commandUid"] is None
+    assert (
+        claimed["params"]["payload"]["managementStateSequence"]
+        == semantic["payload"]["managementStateSequence"]
+    )
+
+
+def test_business_update_routing_requires_authenticated_device_identity(store):
+    with pytest.raises(ValueError, match="authenticated OneNet device name"):
+        CommunicationRouter(
+            store,
+            FakeTransport(),
+            business_client=FakeBusinessClient(),
+            updater_client=FakeUpdaterClient(),
+            enable_remote_business_update=True,
+        )
+
+
+def test_business_update_never_falls_back_to_business_when_routing_is_disabled(
+    store,
+):
+    business = FakeBusinessClient()
+    router = CommunicationRouter(
+        store,
+        FakeTransport(),
+        business_client=business,
+    )
+    request = CloudServiceRequest(
+        delivery_id="30000000-0000-4000-8000-000000000001",
+        request_id="onenet-maintenance-1",
+        service_id="startBusinessRuntimeUpdate",
+        params={"scalarFields1": {"commandUid": COMMAND_UID}},
+        received_at=None,
+        clock_quality="UNAVAILABLE",
+    )
+    with pytest.raises(LocalControlActionError) as raised:
+        router.handle_service_request(request)
+    assert raised.value.code == "FEATURE_DISABLED"
+    assert business.calls == []
 
 
 def test_submit_send_result_and_business_delivery_are_separate(store):

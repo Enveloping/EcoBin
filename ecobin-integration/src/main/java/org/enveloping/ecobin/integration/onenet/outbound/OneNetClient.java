@@ -3,6 +3,7 @@ package org.enveloping.ecobin.integration.onenet.outbound;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
+import org.enveloping.ecobin.device.api.port.BusinessReleaseArtifactStoragePort;
 import org.enveloping.ecobin.device.api.port.ReliableDeviceCommandSubmissionPort;
 import org.enveloping.ecobin.device.api.result.CosUploadCredential;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
@@ -28,7 +29,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -59,6 +62,7 @@ public class OneNetClient
     private final OneNetProperties properties;
     private final RestTemplate restTemplate;
     private final CosUploadCredentialPort cosUploadCredentialPort;
+    private final BusinessReleaseArtifactStoragePort businessReleaseArtifacts;
     private final ObjectMapper objectMapper;
     private final OneNetDiagnosticLogger diagnosticLogger;
 
@@ -115,6 +119,15 @@ public class OneNetClient
                 envelope = attachMcuFirmwareReadGrant(
                         envelope,
                         submission);
+            } else if ("START_BUSINESS_RUNTIME_UPDATE".equals(
+                    submission.commandType())) {
+                validateBusinessRuntimeUpdate(envelope, submission);
+                envelope = attachBusinessRuntimeReadGrant(
+                        envelope,
+                        submission);
+            } else if ("CANCEL_BUSINESS_RUNTIME_UPDATE".equals(
+                    submission.commandType())) {
+                validateBusinessRuntimeCancellation(envelope, submission);
             }
             String identifier;
             Map<String, Object> params;
@@ -178,6 +191,14 @@ public class OneNetClient
                     submission.commandType())) {
                 identifier = "startMcuFirmwareUpdate";
                 params = projectMcuFirmwareUpdate(envelope);
+            } else if ("START_BUSINESS_RUNTIME_UPDATE".equals(
+                    submission.commandType())) {
+                identifier = "startBusinessRuntimeUpdate";
+                params = projectBusinessRuntimeUpdate(envelope);
+            } else if ("CANCEL_BUSINESS_RUNTIME_UPDATE".equals(
+                    submission.commandType())) {
+                identifier = "cancelBusinessRuntimeUpdate";
+                params = projectBusinessRuntimeCancellation(envelope);
             } else {
                 return permanent(
                         "COMMAND_TYPE_UNSUPPORTED",
@@ -508,6 +529,175 @@ public class OneNetClient
         envelope.put("issuedAt", issuedAt.toString());
         envelope.put("expiresAt", commandExpiresAt.toString());
         return envelope;
+    }
+
+    private void validateBusinessRuntimeUpdate(
+            JsonNode envelope,
+            DeviceCommandSubmission submission) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        String deploymentUid = requiredUuid(payload, "deploymentUid");
+        String releaseUid = requiredUuid(payload, "releaseUid");
+        if (!submission.hardwareSn().equals(requiredBoundedText(
+                envelope, "targetDeviceName", 64))
+                || !"BUSINESS_RUNTIME_DEPLOYMENT".equals(
+                requiredText(target, "type"))
+                || !deploymentUid.equals(requiredUuid(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "business runtime target differs from its frozen deployment");
+        }
+        requiredUuid(payload, "updateUid");
+        requiredInteger(payload, "controlSequence", 1,
+                9_007_199_254_740_991L);
+        requiredMatchingText(
+                payload,
+                "versionName",
+                "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\."
+                        + "(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+"
+                        + "(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+"
+                        + "(?:\\.[0-9A-Za-z-]+)*)?$",
+                32);
+        requiredInteger(payload, "releaseSequence", 1,
+                9_007_199_254_740_991L);
+        String objectKey = requiredBoundedText(payload, "objectKey", 512);
+        if (!("edge-runtime/releases/" + releaseUid
+                + "/package.tar.gz").equals(objectKey)) {
+            throw new IllegalArgumentException(
+                    "business runtime object key differs from release identity");
+        }
+        requiredMatchingText(
+                payload, "packageSha256", "^[0-9a-f]{64}$", 64);
+        requiredInteger(payload, "packageSize", 1, 1_500_000_000L);
+        String signatureText = requiredBoundedText(
+                payload, "packageSignatureBase64", 128);
+        byte[] signature;
+        try {
+            signature = Base64.getDecoder().decode(signatureText);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException(
+                    "business runtime package signature is invalid",
+                    exception);
+        }
+        if (signature.length != 64) {
+            throw new IllegalArgumentException(
+                    "business runtime package signature must contain 64 bytes");
+        }
+        String signatureSha256 = requiredMatchingText(
+                payload, "signatureSha256", "^[0-9a-f]{64}$", 64);
+        if (!signatureSha256.equals(
+                HexFormat.of().formatHex(sha256(signature)))) {
+            throw new IllegalArgumentException(
+                    "business runtime signature digest differs");
+        }
+        requiredMatchingText(
+                payload,
+                "signingKeyId",
+                "^[a-z0-9][a-z0-9_-]{0,63}$",
+                64);
+        for (String field : List.of(
+                "observationWindowSeconds",
+                "downloadTimeoutSeconds",
+                "drainTimeoutSeconds")) {
+            requiredInteger(payload, field, 60, 86_400);
+        }
+        requiredInteger(payload, "maximumRetryCount", 0, 10);
+        requiredBoundedText(payload, "reason", 500);
+        JsonNode frozenCosGrant = envelope.get("cosGrant");
+        JsonNode frozenDownloadGrant = envelope.get("downloadGrant");
+        if (frozenCosGrant == null || !frozenCosGrant.isNull()
+                || frozenDownloadGrant == null
+                || !frozenDownloadGrant.isNull()) {
+            throw new IllegalArgumentException(
+                    "frozen business runtime command must not persist credentials");
+        }
+        String payloadSha256 = requiredMatchingText(
+                envelope, "payloadSha256", "^[0-9a-f]{64}$", 64);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> semanticPayload = objectMapper.convertValue(
+                payload, Map.class);
+        if (!payloadSha256.equals(
+                OneNetCanonicalJson.payloadSha256(semanticPayload))) {
+            throw new IllegalArgumentException(
+                    "business runtime payload digest differs");
+        }
+    }
+
+    private JsonNode attachBusinessRuntimeReadGrant(
+            JsonNode frozenEnvelope,
+            DeviceCommandSubmission submission) {
+        ObjectNode envelope = (ObjectNode) frozenEnvelope.deepCopy();
+        JsonNode payload = requiredObject(envelope, "payload");
+        String objectKey = requiredBoundedText(payload, "objectKey", 512);
+        BusinessReleaseArtifactStoragePort.DownloadAuthorization grant =
+                businessReleaseArtifacts.issueReadAuthorization(
+                        objectKey, Duration.ofMinutes(30));
+        Instant issuedAt = Instant.now();
+        if (!grant.expiresAt().isAfter(issuedAt.plusSeconds(60))) {
+            throw new IllegalArgumentException(
+                    "business runtime download authorization expires too soon");
+        }
+        if (grant.url().length() > 2_048) {
+            throw new IllegalArgumentException(
+                    "business runtime download URL is too long");
+        }
+        Instant commandExpiresAt = issuedAt.plusSeconds(300);
+        if (!grant.expiresAt().isAfter(commandExpiresAt)) {
+            commandExpiresAt = grant.expiresAt().minusSeconds(1);
+        }
+        envelope.put("issuedAt", issuedAt.toString());
+        envelope.put("expiresAt", commandExpiresAt.toString());
+        ObjectNode authorization = objectMapper.createObjectNode();
+        authorization.put(
+                "authorizationSequence", submission.attemptSequence());
+        authorization.put("url", grant.url());
+        authorization.put("expiresAt", grant.expiresAt().toString());
+        envelope.set("downloadGrant", authorization);
+        return envelope;
+    }
+
+    private void validateBusinessRuntimeCancellation(
+            JsonNode envelope,
+            DeviceCommandSubmission submission) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        String deploymentUid = requiredUuid(payload, "deploymentUid");
+        if (!submission.hardwareSn().equals(requiredBoundedText(
+                envelope, "targetDeviceName", 64))
+                || !"BUSINESS_RUNTIME_DEPLOYMENT".equals(
+                requiredText(target, "type"))
+                || !deploymentUid.equals(requiredUuid(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "business cancellation target differs from its deployment");
+        }
+        requiredUuid(payload, "updateUid");
+        requiredInteger(payload, "controlSequence", 1,
+                9_007_199_254_740_991L);
+        requiredBoundedText(payload, "reason", 500);
+        JsonNode cosGrant = envelope.get("cosGrant");
+        if (cosGrant == null || !cosGrant.isNull()
+                || envelope.get("downloadGrant") != null) {
+            throw new IllegalArgumentException(
+                    "business cancellation must not carry credentials");
+        }
+        String issuedAtText = requiredInstant(envelope, "issuedAt");
+        String expiresAtText = requiredInstant(envelope, "expiresAt");
+        Instant issuedAt = Instant.parse(issuedAtText);
+        Instant expiresAt = Instant.parse(expiresAtText);
+        if (!expiresAt.isAfter(issuedAt)
+                || expiresAt.isAfter(issuedAt.plusSeconds(900))) {
+            throw new IllegalArgumentException(
+                    "business cancellation lifetime must not exceed 15 minutes");
+        }
+        String payloadSha256 = requiredMatchingText(
+                envelope, "payloadSha256", "^[0-9a-f]{64}$", 64);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> semanticPayload = objectMapper.convertValue(
+                payload, Map.class);
+        if (!payloadSha256.equals(
+                OneNetCanonicalJson.payloadSha256(semanticPayload))) {
+            throw new IllegalArgumentException(
+                    "business cancellation payload digest differs");
+        }
     }
 
     private DeviceCommandSubmissionResult submitWireBody(
@@ -2232,6 +2422,150 @@ public class OneNetClient
         params.put("scalarFields2", scalarFields2);
         params.put("target", Map.of("type", 1, "uid", deploymentUid));
         params.put("cosGrantSessionTokenParts", sessionTokenParts);
+        return params;
+    }
+
+    private Map<String, Object> projectBusinessRuntimeUpdate(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        String deploymentUid = requiredUuid(payload, "deploymentUid");
+        if (!"BUSINESS_RUNTIME_DEPLOYMENT".equals(
+                requiredText(target, "type"))
+                || !deploymentUid.equals(requiredUuid(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "business runtime target differs from deployment");
+        }
+        Map<String, Object> first = new LinkedHashMap<>();
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        first.put("schemaVersion", 1);
+        first.put("commandUid", requiredUuid(envelope, "commandUid"));
+        first.put("commandType", 1);
+        first.put(
+                "targetDeviceName",
+                requiredBoundedText(envelope, "targetDeviceName", 64));
+        first.put("issuedAt", requiredInstant(envelope, "issuedAt"));
+        first.put("expiresAt", requiredInstant(envelope, "expiresAt"));
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        first.put("payloadSchemaVersion", 1);
+        first.put(
+                "payloadSha256",
+                requiredMatchingText(
+                        envelope, "payloadSha256", "^[0-9a-f]{64}$", 64));
+        first.put("deploymentUid", deploymentUid);
+        first.put("updateUid", requiredUuid(payload, "updateUid"));
+        first.put(
+                "controlSequence",
+                requiredInteger(payload, "controlSequence", 1,
+                        9_007_199_254_740_991L));
+        first.put("releaseUid", requiredUuid(payload, "releaseUid"));
+        first.put(
+                "versionName",
+                requiredBoundedText(payload, "versionName", 32));
+        first.put(
+                "releaseSequence",
+                requiredInteger(payload, "releaseSequence", 1,
+                        9_007_199_254_740_991L));
+        first.put("objectKey", requiredBoundedText(payload, "objectKey", 512));
+        first.put(
+                "packageSha256",
+                requiredMatchingText(
+                        payload, "packageSha256", "^[0-9a-f]{64}$", 64));
+        first.put(
+                "packageSize",
+                requiredInteger(payload, "packageSize", 1, 1_500_000_000L));
+        first.put(
+                "packageSignatureBase64",
+                requiredBoundedText(payload, "packageSignatureBase64", 128));
+        first.put(
+                "signatureSha256",
+                requiredMatchingText(
+                        payload, "signatureSha256", "^[0-9a-f]{64}$", 64));
+        first.put(
+                "signingKeyId",
+                requiredBoundedText(payload, "signingKeyId", 64));
+
+        Map<String, Object> second = new LinkedHashMap<>();
+        second.put(
+                "observationWindowSeconds",
+                requiredInteger(
+                        payload, "observationWindowSeconds", 60, 86_400));
+        second.put(
+                "downloadTimeoutSeconds",
+                requiredInteger(payload, "downloadTimeoutSeconds", 60, 86_400));
+        second.put(
+                "drainTimeoutSeconds",
+                requiredInteger(payload, "drainTimeoutSeconds", 60, 86_400));
+        second.put(
+                "maximumRetryCount",
+                requiredInteger(payload, "maximumRetryCount", 0, 10));
+        second.put("reason", requiredBoundedText(payload, "reason", 500));
+        JsonNode cosGrant = envelope.get("cosGrant");
+        if (cosGrant == null || !cosGrant.isNull()) {
+            throw new IllegalArgumentException(
+                    "business runtime command must not carry COS credentials");
+        }
+        second.put("cosGrantPresent", false);
+
+        JsonNode grant = requiredObject(envelope, "downloadGrant");
+        Map<String, Object> downloadGrant = new LinkedHashMap<>();
+        downloadGrant.put(
+                "authorizationSequence",
+                requiredInteger(grant, "authorizationSequence", 1,
+                        9_007_199_254_740_991L));
+        downloadGrant.put("url", requiredBoundedText(grant, "url", 2_048));
+        downloadGrant.put(
+                "expiresAt", requiredInstant(grant, "expiresAt"));
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("scalarFields1", first);
+        params.put("scalarFields2", second);
+        params.put("target", Map.of("type", 1, "uid", deploymentUid));
+        params.put("downloadGrant", downloadGrant);
+        return params;
+    }
+
+    private Map<String, Object> projectBusinessRuntimeCancellation(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        String deploymentUid = requiredUuid(payload, "deploymentUid");
+        if (!"BUSINESS_RUNTIME_DEPLOYMENT".equals(
+                requiredText(target, "type"))
+                || !deploymentUid.equals(requiredUuid(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "business cancellation target differs from deployment");
+        }
+        Map<String, Object> params = new LinkedHashMap<>();
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        params.put("schemaVersion", 1);
+        params.put("commandUid", requiredUuid(envelope, "commandUid"));
+        params.put("commandType", 1);
+        params.put(
+                "targetDeviceName",
+                requiredBoundedText(envelope, "targetDeviceName", 64));
+        params.put("target", Map.of("type", 1, "uid", deploymentUid));
+        params.put("issuedAt", requiredInstant(envelope, "issuedAt"));
+        params.put("expiresAt", requiredInstant(envelope, "expiresAt"));
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        params.put("payloadSchemaVersion", 1);
+        params.put(
+                "payloadSha256",
+                requiredMatchingText(
+                        envelope, "payloadSha256", "^[0-9a-f]{64}$", 64));
+        params.put("deploymentUid", deploymentUid);
+        params.put("updateUid", requiredUuid(payload, "updateUid"));
+        params.put(
+                "controlSequence",
+                requiredInteger(payload, "controlSequence", 1,
+                        9_007_199_254_740_991L));
+        params.put("reason", requiredBoundedText(payload, "reason", 500));
+        JsonNode cosGrant = envelope.get("cosGrant");
+        if (cosGrant == null || !cosGrant.isNull()) {
+            throw new IllegalArgumentException(
+                    "business cancellation must not carry COS credentials");
+        }
+        params.put("cosGrantPresent", false);
         return params;
     }
 

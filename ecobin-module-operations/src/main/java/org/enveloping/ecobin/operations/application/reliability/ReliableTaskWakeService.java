@@ -11,6 +11,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 @Service
 public class ReliableTaskWakeService implements ReliableTaskWakePort {
 
+    private static final String BUSINESS_DOWNLOAD_AUTHORIZATION_REQUIRED =
+            "BUSINESS_DOWNLOAD_AUTHORIZATION_REQUIRED";
+    private static final String MCU_FIRMWARE_PACKAGE_FETCH_FAILED =
+            "MCU_FIRMWARE_PACKAGE_FETCH_FAILED";
+
     private final ReliableOperationsJdbcRepository repository;
     private final ReliableWorkSignal workSignal;
 
@@ -30,8 +35,20 @@ public class ReliableTaskWakeService implements ReliableTaskWakePort {
     @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public long wake(ReliableTaskWake wake) {
-        long version = repository.wakeTask(
-                wake.taskUid(), repository.databaseNow());
+        long version = switch (wake.evidenceKind()) {
+            case BUSINESS_DOWNLOAD_AUTHORIZATION_REQUIRED ->
+                    repository.wakeTaskForAuthorizedRedelivery(
+                            wake.taskUid(),
+                            "START_BUSINESS_RUNTIME_UPDATE",
+                            repository.databaseNow());
+            case MCU_FIRMWARE_PACKAGE_FETCH_FAILED ->
+                    repository.wakeTaskForAuthorizedRedelivery(
+                            wake.taskUid(),
+                            "START_MCU_FIRMWARE_UPDATE",
+                            repository.databaseNow());
+            default -> repository.wakeTask(
+                    wake.taskUid(), repository.databaseNow());
+        };
         workSignal.deviceCommand();
         return version;
     }

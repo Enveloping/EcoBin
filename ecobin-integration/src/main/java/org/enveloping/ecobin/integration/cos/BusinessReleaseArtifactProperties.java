@@ -14,6 +14,7 @@ public class BusinessReleaseArtifactProperties {
     private String region;
     private String bucketName;
     private String basePrefix = "edge-runtime/releases";
+    private String downloadBaseUrl = "";
     private String fakeDirectory = java.nio.file.Path.of(
             System.getProperty("java.io.tmpdir"),
             "ecobin-business-release-artifacts").toString();
@@ -26,6 +27,13 @@ public class BusinessReleaseArtifactProperties {
                 && present(region)
                 && present(bucketName)
                 && "edge-runtime/releases".equals(basePrefix);
+    }
+
+    public boolean isRemoteDispatchConfigured() {
+        return isCosConfigured()
+                && present(downloadBaseUrl)
+                && downloadBaseUrl.startsWith("https://")
+                && !downloadBaseUrl.endsWith("/");
     }
 
     private static boolean present(String value) {

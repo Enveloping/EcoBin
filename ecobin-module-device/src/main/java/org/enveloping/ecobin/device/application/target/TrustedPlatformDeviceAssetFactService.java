@@ -6,8 +6,10 @@ import org.enveloping.ecobin.device.api.result.TrustedPlatformDeviceAssetFactEve
 import org.enveloping.ecobin.device.application.firmware.McuFirmwareRolloutService;
 import org.enveloping.ecobin.device.application.remote.RemoteSupportSessionService;
 import org.enveloping.ecobin.device.application.software.DeviceSoftwareCompatibilityService;
+import org.enveloping.ecobin.device.application.software.BusinessReleaseControlPlaneService;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +38,8 @@ public class TrustedPlatformDeviceAssetFactService
             "FACTORY_SEAL_COMPLETED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
             DeviceSoftwareCompatibilityService.EVENT_TYPE,
+            BusinessReleaseControlPlaneService.EVENT_TYPE,
+            BusinessReleaseControlPlaneService.CANCEL_EVENT_TYPE,
             McuFirmwareRolloutService.EVENT_TYPE);
     private static final String UUID_V4 =
             "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
@@ -49,6 +53,7 @@ public class TrustedPlatformDeviceAssetFactService
     private final McuFirmwareRolloutService firmwareRollouts;
     private final FactorySealAuthorizationService factorySealAuthorizations;
     private final DeviceSoftwareCompatibilityService softwareCompatibility;
+    private final BusinessReleaseControlPlaneService businessReleases;
 
     public TrustedPlatformDeviceAssetFactService(
             JdbcTemplate jdbc,
@@ -58,6 +63,27 @@ public class TrustedPlatformDeviceAssetFactService
             McuFirmwareRolloutService firmwareRollouts,
             FactorySealAuthorizationService factorySealAuthorizations,
             DeviceSoftwareCompatibilityService softwareCompatibility) {
+        this(
+                jdbc,
+                objectMapper,
+                confirmationService,
+                remoteSupportSessions,
+                firmwareRollouts,
+                factorySealAuthorizations,
+                softwareCompatibility,
+                null);
+    }
+
+    @Autowired
+    public TrustedPlatformDeviceAssetFactService(
+            JdbcTemplate jdbc,
+            ObjectMapper objectMapper,
+            ReliablePlatformEdgeConfirmationService confirmationService,
+            RemoteSupportSessionService remoteSupportSessions,
+            McuFirmwareRolloutService firmwareRollouts,
+            FactorySealAuthorizationService factorySealAuthorizations,
+            DeviceSoftwareCompatibilityService softwareCompatibility,
+            BusinessReleaseControlPlaneService businessReleases) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.confirmationService = confirmationService;
@@ -65,6 +91,7 @@ public class TrustedPlatformDeviceAssetFactService
         this.firmwareRollouts = firmwareRollouts;
         this.factorySealAuthorizations = factorySealAuthorizations;
         this.softwareCompatibility = softwareCompatibility;
+        this.businessReleases = businessReleases;
     }
 
     @Override
@@ -78,6 +105,22 @@ public class TrustedPlatformDeviceAssetFactService
         if (McuFirmwareRolloutService.EVENT_TYPE.equals(
                 inboxEvent.messageKind())) {
             return firmwareRollouts.applyProgress(inboxEvent);
+        }
+        if (BusinessReleaseControlPlaneService.EVENT_TYPE.equals(
+                inboxEvent.messageKind())) {
+            if (businessReleases == null) {
+                throw new IllegalStateException(
+                        "business runtime progress handler is unavailable");
+            }
+            return businessReleases.applyProgress(inboxEvent);
+        }
+        if (BusinessReleaseControlPlaneService.CANCEL_EVENT_TYPE.equals(
+                inboxEvent.messageKind())) {
+            if (businessReleases == null) {
+                throw new IllegalStateException(
+                        "business runtime cancellation handler is unavailable");
+            }
+            return businessReleases.applyCancellationResult(inboxEvent);
         }
         return inboxEvent.sourceInbox().use(sourceInboxId -> {
             JsonNode normalized = objectMapper.readTree(

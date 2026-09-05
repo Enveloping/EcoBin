@@ -1,0 +1,38 @@
+{
+  "identifier": "businessRuntimeUpdateCancelResult",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "119",
+    "params": {
+      "businessRuntimeUpdateCancelResult": {
+        "value": {
+          "businessAdmissionState": 1,
+          "clockQuality": 1,
+          "commandUid": "8e000000-0000-4000-8000-000000000006",
+          "controlSequence": 2,
+          "deliveryClass": 1,
+          "deploymentUid": "8e000000-0000-4000-8000-000000000002",
+          "edgeEventSequence": 1059,
+          "errorCode": "",
+          "errorCodePresent": false,
+          "eventType": 1,
+          "eventUid": "8e000000-0000-4000-8000-000000000007",
+          "observedStage": 4,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "acec957ad6142e9382c8aad8d26076777711f33ba5d2c78367b1f08784c65426",
+          "result": 1,
+          "schemaVersion": 1,
+          "target": {
+            "type": 1,
+            "uid": "8e000000-0000-4000-8000-000000000002"
+          },
+          "updateUid": "8e000000-0000-4000-8000-000000000004"
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

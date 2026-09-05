@@ -2,6 +2,8 @@ package org.enveloping.ecobin.device.application.software;
 
 import org.enveloping.ecobin.device.api.port.BusinessReleaseArtifactStoragePort;
 import org.enveloping.ecobin.device.api.port.BusinessReleaseSigningKeyPort;
+import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
+import org.enveloping.ecobin.device.api.result.TrustedPlatformDeviceAssetFactEvent;
 import org.enveloping.ecobin.device.application.software.BusinessReleasePackageVerifier.VerificationException;
 import org.enveloping.ecobin.device.application.software.BusinessReleasePackageVerifier.VerifiedRelease;
 import org.enveloping.ecobin.device.application.target.DeviceConfigurationCanonicalizer;
@@ -16,11 +18,18 @@ import org.enveloping.ecobin.device.web.v1.software.BusinessReleaseModels.Releas
 import org.enveloping.ecobin.device.web.v1.software.BusinessReleaseModels.RolloutActionView;
 import org.enveloping.ecobin.device.web.v1.software.BusinessReleaseModels.RolloutView;
 import org.enveloping.ecobin.framework.web.TargetWebAuditRequestContext;
+import org.enveloping.ecobin.framework.reliability.PlatformDeviceAssetTaskRefFactory;
+import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
+import org.enveloping.ecobin.framework.reliability.ReliablePlatformDeviceControlTaskRegistration;
+import org.enveloping.ecobin.framework.reliability.ReliablePlatformDeviceControlTaskRegistrationPort;
+import org.enveloping.ecobin.framework.reliability.ReliableTaskWake;
+import org.enveloping.ecobin.framework.reliability.ReliableTaskWakePort;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.port.DeviceScopeAuthorizationPort;
 import org.enveloping.ecobin.identity.api.query.DeviceScopeAuthorizationQuery;
 import org.enveloping.ecobin.identity.api.result.AuthorizedDeviceScope;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -30,6 +39,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -51,15 +62,23 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Base64;
+import java.util.Locale;
 
-/**
- * Stage-seven business-runtime release control plane.
- *
- * <p>The class deliberately has no reliable-task or OneNet dependency.  A
- * rollout can be planned and stopped, but cannot dispatch an update.</p>
- */
+/** Business-runtime release, validation dispatch, and progress control plane. */
 @Service
 public class BusinessReleaseControlPlaneService {
+
+    public static final String EVENT_TYPE =
+            "BUSINESS_RUNTIME_UPDATE_PROGRESS";
+    public static final String CANCEL_EVENT_TYPE =
+            "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT";
+    private static final String COMMAND_TYPE =
+            "START_BUSINESS_RUNTIME_UPDATE";
+    private static final String CANCEL_COMMAND_TYPE =
+            "CANCEL_BUSINESS_RUNTIME_UPDATE";
+    private static final String TARGET_TYPE =
+            "BUSINESS_RUNTIME_DEPLOYMENT";
 
     private static final int DEFAULT_BATCH_SIZE = 3;
     private static final int POLICY_SECONDS = 30 * 60;
@@ -72,8 +91,18 @@ public class BusinessReleaseControlPlaneService {
                     + "(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+"
                     + "(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+"
                     + "(?:\\.[0-9A-Za-z-]+)*)?$";
+    private static final String SHA256 = "^[0-9a-f]{64}$";
+    private static final String UUID_V4 =
+            "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
+                    + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
     private static final Set<String> COMPATIBLE = Set.of(
             "FULLY_COMPATIBLE", "BASE_COMPATIBLE");
+    private static final Set<String> DEPLOYMENT_TERMINAL = Set.of(
+            "SUCCEEDED", "ROLLED_BACK", "DEFERRED", "REJECTED",
+            "FAILED_LOCKED", "CANCELLED");
+    private static final Set<String> ERROR_STAGES = Set.of(
+            "DEFERRED", "REJECTED", "FAILED_LOCKED",
+            "DOWNLOAD_AUTHORIZATION_REQUIRED");
 
     private final JdbcTemplate jdbc;
     private final DeviceScopeAuthorizationPort authorization;
@@ -82,6 +111,12 @@ public class BusinessReleaseControlPlaneService {
     private final BusinessReleasePackageVerifier verifier;
     private final DeviceConfigurationCanonicalizer canonicalizer;
     private final TransactionTemplate transactions;
+    private final boolean remoteDispatchEnabled;
+    private final ObjectMapper objectMapper;
+    private final PlatformDeviceAssetTaskRefFactory taskRefFactory;
+    private final ReliablePlatformDeviceControlTaskRegistrationPort tasks;
+    private final ReliableDeviceTaskProofPort taskProof;
+    private final ReliableTaskWakePort taskWake;
 
     public BusinessReleaseControlPlaneService(
             JdbcTemplate jdbc,
@@ -93,10 +128,38 @@ public class BusinessReleaseControlPlaneService {
             PlatformTransactionManager transactionManager,
             @Value("${ecobin.device.business-release.remote-dispatch-enabled:false}")
             boolean remoteDispatchEnabled) {
-        if (remoteDispatchEnabled) {
-            throw new IllegalStateException(
-                    "V64 business release control plane cannot enable remote dispatch");
-        }
+        this(
+                jdbc,
+                authorization,
+                artifacts,
+                signingKeys,
+                verifier,
+                canonicalizer,
+                transactionManager,
+                null,
+                null,
+                null,
+                null,
+                null,
+                remoteDispatchEnabled);
+    }
+
+    @Autowired
+    public BusinessReleaseControlPlaneService(
+            JdbcTemplate jdbc,
+            DeviceScopeAuthorizationPort authorization,
+            BusinessReleaseArtifactStoragePort artifacts,
+            BusinessReleaseSigningKeyPort signingKeys,
+            BusinessReleasePackageVerifier verifier,
+            DeviceConfigurationCanonicalizer canonicalizer,
+            PlatformTransactionManager transactionManager,
+            ObjectMapper objectMapper,
+            PlatformDeviceAssetTaskRefFactory taskRefFactory,
+            ReliablePlatformDeviceControlTaskRegistrationPort tasks,
+            ReliableDeviceTaskProofPort taskProof,
+            ReliableTaskWakePort taskWake,
+            @Value("${ecobin.device.business-release.remote-dispatch-enabled:false}")
+            boolean remoteDispatchEnabled) {
         this.jdbc = jdbc;
         this.authorization = authorization;
         this.artifacts = artifacts;
@@ -104,6 +167,12 @@ public class BusinessReleaseControlPlaneService {
         this.verifier = verifier;
         this.canonicalizer = canonicalizer;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.remoteDispatchEnabled = remoteDispatchEnabled;
+        this.objectMapper = objectMapper;
+        this.taskRefFactory = taskRefFactory;
+        this.tasks = tasks;
+        this.taskProof = taskProof;
+        this.taskWake = taskWake;
     }
 
     @Transactional(readOnly = true)
@@ -117,8 +186,10 @@ public class BusinessReleaseControlPlaneService {
                 artifact.message(),
                 keys.available(),
                 keys.message(),
-                false,
-                "真实远程下发尚未开放；当前只能校验发布并演练灰度计划");
+                remoteDispatchEnabled,
+                remoteDispatchEnabled
+                        ? "真实远程下发已显式开启；新计划会冻结这一开关状态"
+                        : "真实远程下发默认关闭；当前只能校验发布并演练灰度计划");
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -609,7 +680,7 @@ public class BusinessReleaseControlPlaneService {
         targets.stream().sorted().forEach(hardwareSn ->
                 eligibleByHardwareSn.put(
                         hardwareSn,
-                        requireEligibleDevice(hardwareSn, release)));
+                        requireEligibleDevice(hardwareSn, release, null)));
         List<EligibleDevice> eligible = new ArrayList<>();
         for (String hardwareSn : targets) {
             eligible.add(eligibleByHardwareSn.get(hardwareSn));
@@ -636,7 +707,7 @@ public class BusinessReleaseControlPlaneService {
                             change_reason, created_by_platform_admin_id,
                             created_at, updated_at
                         ) VALUES (?, ?, ?, 'DRAFT', ?, ?, ?, -1,
-                                  ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                                  ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, java.sql.Statement.RETURN_GENERATED_KEYS);
                 statement.setString(1, rolloutUid.toString());
                 statement.setString(2, operationUid.toString());
@@ -648,10 +719,11 @@ public class BusinessReleaseControlPlaneService {
                 statement.setInt(8, POLICY_SECONDS);
                 statement.setInt(9, POLICY_SECONDS);
                 statement.setInt(10, MAXIMUM_RETRIES);
-                statement.setString(11, reason);
-                statement.setLong(12, adminId);
-                statement.setObject(13, now);
+                statement.setBoolean(11, remoteDispatchEnabled);
+                statement.setString(12, reason);
+                statement.setLong(13, adminId);
                 statement.setObject(14, now);
+                statement.setObject(15, now);
                 return statement;
             }, key);
         } catch (DuplicateKeyException exception) {
@@ -770,6 +842,782 @@ public class BusinessReleaseControlPlaneService {
                 "STOPPED",
                 now);
         return rolloutView(requireRollout(rolloutUid, false), true);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public RolloutView startValidation(
+            UUID operationUid,
+            UUID rolloutUid,
+            String reason) {
+        requireUuidV4(operationUid, "Idempotency-Key");
+        requireUuidV4(rolloutUid, "rolloutUid");
+        String normalizedReason = requiredReason(reason);
+        AuthorizedDeviceScope actor = authorizePlatform();
+        TargetWebAuditRequestContext.describe(
+                "device.business-release.rollout.validation-start",
+                rolloutUid.toString());
+        RolloutRow rollout = requireRollout(rolloutUid, true);
+        RolloutActionRow replay = rolloutAction(operationUid);
+        if (replay != null) {
+            requireRolloutActionReplay(
+                    replay,
+                    rollout.id(),
+                    "START_VALIDATION",
+                    normalizedReason);
+            return rolloutView(requireRollout(rolloutUid, false), true);
+        }
+        if (!remoteDispatchEnabled || !rollout.remoteDispatchEnabled()) {
+            throw conflict(
+                    "DEVICE.BUSINESS_REMOTE_DISPATCH_DISABLED",
+                    "后端或该计划创建时未开启真实远程下发，不能向设备发送更新");
+        }
+        if (!"DRAFT".equals(rollout.status())) {
+            throw invalidTransition("只有尚未下发的计划可以开始单设备验证");
+        }
+        requireDispatchDependencies();
+        BusinessReleaseArtifactStoragePort.Readiness artifactReadiness =
+                artifacts.readiness();
+        if (!artifactReadiness.available()) {
+            throw conflict(
+                    "DEVICE.BUSINESS_RELEASE_STORAGE_NOT_READY",
+                    artifactReadiness.message());
+        }
+        BusinessReleaseSigningKeyPort.Readiness signingReadiness =
+                signingKeys.readiness();
+        if (!signingReadiness.available()) {
+            throw conflict(
+                    "DEVICE.BUSINESS_RELEASE_SIGNING_NOT_READY",
+                    signingReadiness.message());
+        }
+        ReleaseRow release = releaseById(rollout.releaseControlId());
+        if (!"READY".equals(release.status())
+                || release.declarationId() == null
+                || release.signatureBytes() == null
+                || release.signatureBytes().length != 64) {
+            throw conflict(
+                    "DEVICE.BUSINESS_RELEASE_NOT_READY",
+                    "目标发布当前不具备可下发的签名制品事实");
+        }
+        DeploymentRow deployment = requireValidationDeployment(
+                rollout.id(), true);
+        if (!"PLANNED".equals(deployment.status())) {
+            throw invalidTransition("验证设备已经下发或处理过本次更新");
+        }
+        EligibleDevice current = requireEligibleDevice(
+                deployment.hardwareSn(), release, rollout.id());
+        if (current.assetId() != deployment.assetId()) {
+            throw new IllegalStateException(
+                    "business validation deployment asset changed");
+        }
+        LocalDateTime now = databaseNow();
+        UUID commandUid = UUID.randomUUID();
+        UUID updateUid = UUID.randomUUID();
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("deploymentUid", deployment.uid().toString());
+        payload.put("updateUid", updateUid.toString());
+        payload.put("controlSequence", 1L);
+        payload.put("releaseUid", release.uid().toString());
+        payload.put("versionName", release.versionName());
+        payload.put("releaseSequence", release.releaseSequence());
+        payload.put("objectKey", release.packageObjectKey());
+        payload.put("packageSha256", release.packageSha256());
+        payload.put("packageSize", release.packageSize());
+        payload.put(
+                "packageSignatureBase64",
+                Base64.getEncoder().encodeToString(release.signatureBytes()));
+        payload.put("signatureSha256", release.signatureSha256());
+        payload.put("signingKeyId", release.signingKeyId());
+        payload.put(
+                "observationWindowSeconds", rollout.observationSeconds());
+        payload.put("downloadTimeoutSeconds", rollout.downloadSeconds());
+        payload.put("drainTimeoutSeconds", rollout.drainSeconds());
+        payload.put("maximumRetryCount", rollout.maximumRetryCount());
+        payload.put("reason", normalizedReason);
+
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("schemaVersion", 2);
+        envelope.put("commandUid", commandUid.toString());
+        envelope.put("commandType", COMMAND_TYPE);
+        envelope.put("targetDeviceName", deployment.hardwareSn());
+        envelope.put("target", Map.of(
+                "type", TARGET_TYPE,
+                "uid", deployment.uid().toString()));
+        envelope.put("issuedAt", timestamp(now));
+        envelope.put("expiresAt", timestamp(now.plusMinutes(5)));
+        envelope.put("payloadSchemaVersion", 2);
+        envelope.put(
+                "payloadSha256",
+                canonicalizer.hex(canonicalizer.payloadSha256(payload)));
+        envelope.put("payload", payload);
+        envelope.put("cosGrant", null);
+        envelope.put("downloadGrant", null);
+        byte[] envelopeSha256 = canonicalizer.payloadSha256(envelope);
+        UUID taskUid = tasks.register(
+                new ReliablePlatformDeviceControlTaskRegistration(
+                        COMMAND_TYPE,
+                        COMMAND_TYPE + ":"
+                                + deployment.uid().toString()
+                                .toUpperCase(Locale.ROOT),
+                        TARGET_TYPE,
+                        deployment.uid().toString(),
+                        taskRefFactory.issue(deployment.assetId()),
+                        2,
+                        objectMapper.writeValueAsString(envelope),
+                        envelopeSha256,
+                        rollout.uid(),
+                        commandUid,
+                        20));
+        int updated = jdbc.update("""
+                UPDATE dev_edge_software_deployment
+                SET deployment_status = 'QUEUED', command_uid = ?,
+                    reliable_task_uid = ?, edge_update_uid = ?,
+                    control_sequence = 1, business_admission_state = 'LOCKED',
+                    queued_at = ?, updated_at = ?, lock_version = lock_version + 1
+                WHERE id = ? AND deployment_status = 'PLANNED'
+                """,
+                commandUid.toString(),
+                taskUid.toString(),
+                updateUid.toString(),
+                now,
+                now,
+                deployment.id());
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "business validation dispatch lost its deployment lock");
+        }
+        jdbc.update("""
+                UPDATE dev_device_compatibility_projection
+                SET business_admission_status = 'PAUSED',
+                    lock_version = lock_version + 1, updated_at = ?
+                WHERE asset_id = ?
+                """, now, deployment.assetId());
+        jdbc.update("""
+                UPDATE dev_edge_software_rollout
+                SET rollout_status = 'VALIDATING', current_wave_no = 0,
+                    updated_at = ?, lock_version = lock_version + 1
+                WHERE id = ? AND rollout_status = 'DRAFT'
+                """, now, rollout.id());
+        insertRolloutAction(
+                operationUid,
+                rollout.id(),
+                "START_VALIDATION",
+                platformAdminId(actor),
+                normalizedReason,
+                "VALIDATING",
+                now);
+        return rolloutView(requireRollout(rolloutUid, false), true);
+    }
+
+    /** Requests cancellation; only the later device result makes it final. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public RolloutView cancelDeployment(
+            UUID operationUid,
+            UUID rolloutUid,
+            UUID deploymentUid,
+            String reason) {
+        requireUuidV4(operationUid, "Idempotency-Key");
+        requireUuidV4(rolloutUid, "rolloutUid");
+        requireUuidV4(deploymentUid, "deploymentUid");
+        String normalizedReason = requiredReason(reason);
+        AuthorizedDeviceScope actor = authorizePlatform();
+        long adminId = platformAdminId(actor);
+        TargetWebAuditRequestContext.describe(
+                "device.business-release.deployment.cancel-request",
+                deploymentUid.toString());
+        requireDispatchDependencies();
+
+        DeploymentRow deployment = requireDeployment(deploymentUid, true);
+        RolloutRow rollout = requireRollout(rolloutUid, true);
+        if (deployment.rolloutId() != rollout.id()
+                || !"VALIDATION".equals(deployment.kind())) {
+            throw notFound("该计划中找不到这台验证设备的更新任务");
+        }
+        RolloutActionRow replay = rolloutAction(operationUid);
+        if (replay != null) {
+            requireRolloutActionReplay(
+                    replay,
+                    rollout.id(),
+                    "REQUEST_CANCEL",
+                    normalizedReason);
+            if ("NONE".equals(deployment.cancellationStatus())
+                    || !normalizedReason.equals(deployment.cancelReason())) {
+                throw idempotencyConflict(
+                        "同一幂等键不能取消另一项设备更新任务");
+            }
+            return rolloutView(requireRollout(rolloutUid, false), true);
+        }
+        if (!"VALIDATING".equals(rollout.status())) {
+            throw invalidTransition("只有正在验证设备上的更新可以请求取消");
+        }
+        if (DEPLOYMENT_TERMINAL.contains(deployment.status())) {
+            throw invalidTransition("设备更新已经结束，不能再请求取消");
+        }
+        if (!"NONE".equals(deployment.cancellationStatus())) {
+            throw invalidTransition("该设备更新已经请求过取消，请等待设备确认结果");
+        }
+        if (deployment.commandUid() == null
+                || deployment.taskUid() == null
+                || deployment.edgeUpdateUid() == null
+                || deployment.controlSequence() == null) {
+            throw new IllegalStateException(
+                    "dispatched business update identity is incomplete");
+        }
+        long cancelSequence;
+        try {
+            cancelSequence = Math.addExact(deployment.controlSequence(), 1L);
+        } catch (ArithmeticException exception) {
+            throw new IllegalStateException(
+                    "business update control sequence is exhausted", exception);
+        }
+        if (cancelSequence > 9_007_199_254_740_991L) {
+            throw new IllegalStateException(
+                    "business update control sequence is exhausted");
+        }
+
+        LocalDateTime now = databaseNow();
+        UUID commandUid = UUID.randomUUID();
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("deploymentUid", deployment.uid().toString());
+        payload.put("updateUid", deployment.edgeUpdateUid().toString());
+        payload.put("controlSequence", cancelSequence);
+        payload.put("reason", normalizedReason);
+
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("schemaVersion", 2);
+        envelope.put("commandUid", commandUid.toString());
+        envelope.put("commandType", CANCEL_COMMAND_TYPE);
+        envelope.put("targetDeviceName", deployment.hardwareSn());
+        envelope.put("target", Map.of(
+                "type", TARGET_TYPE,
+                "uid", deployment.uid().toString()));
+        envelope.put("issuedAt", timestamp(now));
+        envelope.put("expiresAt", timestamp(now.plusMinutes(10)));
+        envelope.put("payloadSchemaVersion", 2);
+        envelope.put(
+                "payloadSha256",
+                canonicalizer.hex(canonicalizer.payloadSha256(payload)));
+        envelope.put("payload", payload);
+        envelope.put("cosGrant", null);
+        byte[] envelopeSha256 = canonicalizer.payloadSha256(envelope);
+        UUID taskUid = tasks.register(
+                new ReliablePlatformDeviceControlTaskRegistration(
+                        CANCEL_COMMAND_TYPE,
+                        CANCEL_COMMAND_TYPE + ":"
+                                + deployment.uid().toString()
+                                .toUpperCase(Locale.ROOT),
+                        TARGET_TYPE,
+                        deployment.uid().toString(),
+                        taskRefFactory.issue(deployment.assetId()),
+                        2,
+                        objectMapper.writeValueAsString(envelope),
+                        envelopeSha256,
+                        rollout.uid(),
+                        commandUid,
+                        20));
+        int updated = jdbc.update("""
+                UPDATE dev_edge_software_deployment
+                SET cancel_command_uid = ?, cancel_reliable_task_uid = ?,
+                    cancel_control_sequence = ?, cancellation_status = 'QUEUED',
+                    cancel_reason = ?,
+                    cancel_requested_by_platform_admin_id = ?,
+                    cancel_requested_at = ?, updated_at = ?,
+                    lock_version = lock_version + 1
+                WHERE id = ? AND cancellation_status = 'NONE'
+                  AND deployment_status NOT IN (
+                      'SUCCEEDED', 'ROLLED_BACK', 'DEFERRED', 'REJECTED',
+                      'FAILED_LOCKED', 'CANCELLED'
+                  )
+                """,
+                commandUid.toString(),
+                taskUid.toString(),
+                cancelSequence,
+                normalizedReason,
+                adminId,
+                now,
+                now,
+                deployment.id());
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "business cancellation lost its deployment lock");
+        }
+        insertRolloutAction(
+                operationUid,
+                rollout.id(),
+                "REQUEST_CANCEL",
+                adminId,
+                normalizedReason,
+                "VALIDATING",
+                now);
+        return rolloutView(requireRollout(rolloutUid, false), true);
+    }
+
+    private void requireDispatchDependencies() {
+        if (objectMapper == null
+                || taskRefFactory == null
+                || tasks == null
+                || taskProof == null
+                || taskWake == null) {
+            throw new IllegalStateException(
+                    "business runtime dispatch dependencies are unavailable");
+        }
+    }
+
+    /** Applies one authenticated updater progress fact without inferring install state. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public TrustedDeviceEventApplyResult applyProgress(
+            TrustedPlatformDeviceAssetFactEvent inboxEvent) {
+        if (!EVENT_TYPE.equals(inboxEvent.messageKind())) {
+            throw new IllegalArgumentException(
+                    "unsupported business runtime progress event");
+        }
+        requireDispatchDependencies();
+        return inboxEvent.sourceInbox().use(sourceInboxId -> {
+            JsonNode normalized = objectMapper.readTree(
+                    inboxEvent.normalizedPayload());
+            JsonNode source = jsonObject(normalized, "trustedSource");
+            JsonNode event = jsonObject(normalized, "event");
+            JsonNode target = jsonObject(event, "target");
+            JsonNode payload = jsonObject(event, "payload");
+            requireJsonText(event, "eventType", EVENT_TYPE);
+            requireJsonText(target, "type", TARGET_TYPE);
+            UUID eventUid = jsonUuid(event, "eventUid");
+            if (businessProgressExists(eventUid, sourceInboxId)) {
+                return TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
+            }
+            UUID deploymentUid = jsonUuid(payload, "deploymentUid");
+            if (!deploymentUid.equals(jsonUuid(target, "uid"))) {
+                throw new IllegalArgumentException(
+                        "business runtime progress target differs from deployment");
+            }
+            DeploymentRow deployment = requireDeployment(deploymentUid, true);
+            ReleaseRow release = releaseById(deployment.releaseControlId());
+            if (!deployment.hardwareSn().equals(
+                    jsonText(source, "deviceName", 64))) {
+                throw new IllegalArgumentException(
+                        "business runtime progress source differs from deployment asset");
+            }
+            if (!release.uid().equals(jsonUuid(payload, "releaseUid"))
+                    || !release.versionName().equals(
+                    jsonText(payload, "versionName", 32))
+                    || release.releaseSequence()
+                    != jsonLong(payload, "releaseSequence", 1,
+                    9_007_199_254_740_991L)
+                    || !release.packageSha256().equals(
+                    jsonPattern(payload, "packageSha256", SHA256, 64))) {
+                throw new IllegalArgumentException(
+                        "business runtime progress differs from frozen release identity");
+            }
+            UUID commandUid = nullableJsonUuid(event, "commandUid");
+            if (commandUid == null
+                    || !commandUid.equals(deployment.commandUid())) {
+                throw new IllegalArgumentException(
+                        "business runtime progress command differs from deployment");
+            }
+            UUID updateUid = jsonUuid(payload, "updateUid");
+            if (!updateUid.equals(deployment.edgeUpdateUid())) {
+                throw new IllegalArgumentException(
+                        "business runtime progress update identity changed");
+            }
+            String stage = jsonText(payload, "stage", 40);
+            if (!isBusinessProgressStage(stage)) {
+                throw new IllegalArgumentException(
+                        "business runtime progress stage is unsupported");
+            }
+            long stageSequence = jsonLong(
+                    payload, "stageSequence", 1, 9_007_199_254_740_991L);
+            String admission = jsonText(
+                    payload, "businessAdmissionState", 16);
+            if (!Set.of("OPEN", "DRAINING", "MAINTENANCE", "LOCKED")
+                    .contains(admission)) {
+                throw new IllegalArgumentException(
+                        "business runtime admission state is unsupported");
+            }
+            int downloadAttempts = Math.toIntExact(jsonLong(
+                    payload, "downloadAttemptCount", 0, 10));
+            int targetAttempts = Math.toIntExact(jsonLong(
+                    payload, "targetAttemptCount", 0, 10));
+            int rollbackAttempts = Math.toIntExact(jsonLong(
+                    payload, "rollbackAttemptCount", 0, 10));
+            boolean databaseRestored = jsonBoolean(
+                    payload, "databaseRestored");
+            String errorCode = nullableJsonPattern(
+                    payload,
+                    "errorCode",
+                    "^[A-Z][A-Z0-9_]{0,63}$",
+                    64);
+            if (ERROR_STAGES.contains(stage) != (errorCode != null)) {
+                throw new IllegalArgumentException(
+                        "business runtime failure code differs from stage");
+            }
+            InstalledBusiness installed = installedBusiness(payload);
+            if ("SUCCEEDED".equals(stage)
+                    && (installed == null
+                    || !release.uid().equals(installed.releaseUid())
+                    || !release.versionName().equals(installed.versionName())
+                    || release.releaseSequence()
+                    != installed.releaseSequence()
+                    || !release.packageSha256().equals(
+                    installed.packageSha256()))) {
+                throw new IllegalArgumentException(
+                        "successful business progress does not prove target identity");
+            }
+            if ("SUCCEEDED".equals(stage) && databaseRestored) {
+                throw new IllegalArgumentException(
+                        "successful business progress cannot restore the previous database");
+            }
+            if ("ROLLED_BACK".equals(stage)) {
+                InstalledBusiness frozenSource = sourceInstalledBusiness(
+                        deployment.id());
+                if (installed == null
+                        || !frozenSource.equals(installed)
+                        || !databaseRestored) {
+                    throw new IllegalArgumentException(
+                            "rolled back business progress does not prove the frozen source identity and database restore");
+                }
+            }
+            String payloadSha256 = jsonPattern(
+                    event, "payloadSha256", SHA256, 64);
+            LocalDateTime now = databaseNow();
+            LocalDateTime occurredAt = nullableJsonInstant(
+                    event, "occurredAt");
+            try {
+                jdbc.update("""
+                        INSERT INTO dev_edge_software_deployment_progress (
+                            event_uid, source_inbox_id, deployment_id,
+                            edge_update_uid, stage, stage_sequence,
+                            business_admission_state,
+                            download_attempt_count, target_attempt_count,
+                            rollback_attempt_count, installed_release_uid,
+                            installed_version_name,
+                            installed_release_sequence,
+                            installed_package_sha256, database_restored,
+                            error_code, payload_sha256, normalized_payload,
+                            occurred_at, received_at, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                  ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        eventUid.toString(),
+                        sourceInboxId,
+                        deployment.id(),
+                        updateUid.toString(),
+                        stage,
+                        stageSequence,
+                        admission,
+                        downloadAttempts,
+                        targetAttempts,
+                        rollbackAttempts,
+                        installed == null
+                                ? null : installed.releaseUid().toString(),
+                        installed == null ? null : installed.versionName(),
+                        installed == null ? null : installed.releaseSequence(),
+                        installed == null ? null : HexFormat.of().parseHex(
+                                installed.packageSha256()),
+                        databaseRestored,
+                        errorCode,
+                        HexFormat.of().parseHex(payloadSha256),
+                        inboxEvent.normalizedPayload(),
+                        occurredAt,
+                        now,
+                        now);
+            } catch (DuplicateKeyException duplicate) {
+                throw new IllegalArgumentException(
+                        "business runtime progress reuses a frozen identity",
+                        duplicate);
+            }
+            if ("CANCELLED".equals(stage)) {
+                if (!Set.of("QUEUED", "CANCELLED")
+                        .contains(deployment.cancellationStatus())
+                        || !"OPEN".equals(admission)) {
+                    throw new IllegalArgumentException(
+                            "business cancellation progress has no matching safe cancellation request");
+                }
+                taskProof.completeFromTrustedProof(
+                        COMMAND_TYPE,
+                        TARGET_TYPE,
+                        deployment.uid().toString());
+                return TrustedDeviceEventApplyResult.APPLIED;
+            }
+            if (DEPLOYMENT_TERMINAL.contains(deployment.status())) {
+                return TrustedDeviceEventApplyResult.APPLIED;
+            }
+            boolean advances = stageSequence > deployment.stageSequence();
+            if (advances && (downloadAttempts < deployment.downloadAttemptCount()
+                    || targetAttempts < deployment.targetAttemptCount()
+                    || rollbackAttempts < deployment.rollbackAttemptCount())) {
+                throw new IllegalArgumentException(
+                        "business runtime attempt counters regressed");
+            }
+            if (!advances) {
+                return TrustedDeviceEventApplyResult.APPLIED;
+            }
+            LocalDateTime completedAt = DEPLOYMENT_TERMINAL.contains(stage)
+                    ? now : null;
+            int updated = jdbc.update("""
+                    UPDATE dev_edge_software_deployment
+                    SET deployment_status = ?, stage_sequence = ?,
+                        business_admission_state = ?,
+                        download_attempt_count = ?, target_attempt_count = ?,
+                        rollback_attempt_count = ?, installed_release_uid = ?,
+                        installed_version_name = ?,
+                        installed_release_sequence = ?,
+                        installed_package_sha256 = ?, database_restored = ?,
+                        error_code = ?, last_event_uid = ?, completed_at = ?,
+                        updated_at = ?, lock_version = lock_version + 1
+                    WHERE id = ?
+                      AND deployment_status NOT IN (
+                          'SUCCEEDED', 'ROLLED_BACK', 'DEFERRED',
+                          'REJECTED', 'FAILED_LOCKED', 'CANCELLED'
+                      )
+                    """,
+                    stage,
+                    stageSequence,
+                    admission,
+                    downloadAttempts,
+                    targetAttempts,
+                    rollbackAttempts,
+                    installed == null ? null : installed.releaseUid().toString(),
+                    installed == null ? null : installed.versionName(),
+                    installed == null ? null : installed.releaseSequence(),
+                    installed == null ? null : HexFormat.of().parseHex(
+                            installed.packageSha256()),
+                    databaseRestored,
+                    errorCode,
+                    eventUid.toString(),
+                    completedAt,
+                    now,
+                    deployment.id());
+            if (updated != 1) {
+                throw new IllegalStateException(
+                        "business deployment progress lost its lock");
+            }
+            if ("DOWNLOAD_AUTHORIZATION_REQUIRED".equals(stage)) {
+                taskWake.wake(new ReliableTaskWake(
+                        deployment.taskUid(),
+                        "BUSINESS_DOWNLOAD_AUTHORIZATION_REQUIRED"));
+            }
+            if (DEPLOYMENT_TERMINAL.contains(stage)) {
+                taskProof.completeFromTrustedProof(
+                        COMMAND_TYPE,
+                        TARGET_TYPE,
+                        deployment.uid().toString());
+                if ("VALIDATION".equals(deployment.kind())
+                        && "VALIDATING".equals(deployment.rolloutStatus())) {
+                    jdbc.update("""
+                            UPDATE dev_edge_software_rollout
+                            SET rollout_status = ?, updated_at = ?,
+                                lock_version = lock_version + 1
+                            WHERE id = ? AND rollout_status = 'VALIDATING'
+                            """,
+                            "SUCCEEDED".equals(stage)
+                                    ? "AWAITING_PROMOTION"
+                                    : "VALIDATION_FAILED",
+                            now,
+                            deployment.rolloutId());
+                }
+            }
+            return TrustedDeviceEventApplyResult.APPLIED;
+        });
+    }
+
+    /** Applies the device's authoritative safe-cancel or too-late result. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public TrustedDeviceEventApplyResult applyCancellationResult(
+            TrustedPlatformDeviceAssetFactEvent inboxEvent) {
+        if (!CANCEL_EVENT_TYPE.equals(inboxEvent.messageKind())) {
+            throw new IllegalArgumentException(
+                    "unsupported business runtime cancellation result");
+        }
+        requireDispatchDependencies();
+        return inboxEvent.sourceInbox().use(sourceInboxId -> {
+            JsonNode normalized = objectMapper.readTree(
+                    inboxEvent.normalizedPayload());
+            JsonNode source = jsonObject(normalized, "trustedSource");
+            JsonNode event = jsonObject(normalized, "event");
+            JsonNode target = jsonObject(event, "target");
+            JsonNode payload = jsonObject(event, "payload");
+            requireJsonText(event, "eventType", CANCEL_EVENT_TYPE);
+            requireJsonText(target, "type", TARGET_TYPE);
+            UUID eventUid = jsonUuid(event, "eventUid");
+            if (businessCancelResultExists(eventUid, sourceInboxId)) {
+                return TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
+            }
+            UUID deploymentUid = jsonUuid(payload, "deploymentUid");
+            if (!deploymentUid.equals(jsonUuid(target, "uid"))) {
+                throw new IllegalArgumentException(
+                        "business cancellation target differs from deployment");
+            }
+            DeploymentRow deployment = requireDeployment(deploymentUid, true);
+            if (!deployment.hardwareSn().equals(
+                    jsonText(source, "deviceName", 64))) {
+                throw new IllegalArgumentException(
+                        "business cancellation source differs from deployment asset");
+            }
+            UUID commandUid = nullableJsonUuid(event, "commandUid");
+            if (commandUid == null
+                    || !commandUid.equals(deployment.cancelCommandUid())) {
+                throw new IllegalArgumentException(
+                        "business cancellation command differs from deployment");
+            }
+            UUID updateUid = jsonUuid(payload, "updateUid");
+            if (!updateUid.equals(deployment.edgeUpdateUid())) {
+                throw new IllegalArgumentException(
+                        "business cancellation update identity changed");
+            }
+            long controlSequence = jsonLong(
+                    payload, "controlSequence", 1,
+                    9_007_199_254_740_991L);
+            if (deployment.cancelControlSequence() == null
+                    || controlSequence
+                    != deployment.cancelControlSequence()) {
+                throw new IllegalArgumentException(
+                        "business cancellation control sequence differs from request");
+            }
+            String result = jsonText(payload, "result", 16);
+            if (!Set.of("CANCELLED", "TOO_LATE").contains(result)) {
+                throw new IllegalArgumentException(
+                        "business cancellation result is unsupported");
+            }
+            String observedStage = jsonText(
+                    payload, "observedStage", 40);
+            if (!isBusinessCancellationObservedStage(observedStage)) {
+                throw new IllegalArgumentException(
+                        "business cancellation observed stage is unsupported");
+            }
+            String admission = jsonText(
+                    payload, "businessAdmissionState", 16);
+            if (!Set.of("OPEN", "DRAINING", "MAINTENANCE", "LOCKED")
+                    .contains(admission)) {
+                throw new IllegalArgumentException(
+                        "business cancellation admission state is unsupported");
+            }
+            String errorCode = nullableJsonPattern(
+                    payload,
+                    "errorCode",
+                    "^[A-Z][A-Z0-9_]{0,63}$",
+                    64);
+            if (("CANCELLED".equals(result)
+                    && (errorCode != null || !"OPEN".equals(admission)))
+                    || ("TOO_LATE".equals(result)
+                    && !"BUSINESS_UPDATE_CANCEL_TOO_LATE"
+                    .equals(errorCode))) {
+                throw new IllegalArgumentException(
+                        "business cancellation result facts are inconsistent");
+            }
+            if (!"QUEUED".equals(deployment.cancellationStatus())) {
+                throw new IllegalArgumentException(
+                        "business cancellation result has no pending request");
+            }
+
+            String payloadSha256 = jsonPattern(
+                    event, "payloadSha256", SHA256, 64);
+            LocalDateTime now = databaseNow();
+            LocalDateTime occurredAt = nullableJsonInstant(
+                    event, "occurredAt");
+            try {
+                jdbc.update("""
+                        INSERT INTO dev_edge_software_deployment_cancel_result (
+                            event_uid, source_inbox_id, deployment_id,
+                            cancel_command_uid, edge_update_uid,
+                            control_sequence, result, observed_stage,
+                            business_admission_state, error_code,
+                            payload_sha256, normalized_payload,
+                            occurred_at, received_at, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        eventUid.toString(),
+                        sourceInboxId,
+                        deployment.id(),
+                        commandUid.toString(),
+                        updateUid.toString(),
+                        controlSequence,
+                        result,
+                        observedStage,
+                        admission,
+                        errorCode,
+                        HexFormat.of().parseHex(payloadSha256),
+                        inboxEvent.normalizedPayload(),
+                        occurredAt,
+                        now,
+                        now);
+            } catch (DuplicateKeyException duplicate) {
+                throw new IllegalArgumentException(
+                        "business cancellation result reuses a frozen identity",
+                        duplicate);
+            }
+
+            if ("TOO_LATE".equals(result)) {
+                int updated = jdbc.update("""
+                        UPDATE dev_edge_software_deployment
+                        SET cancellation_status = 'TOO_LATE',
+                            cancel_result_at = ?, updated_at = ?,
+                            lock_version = lock_version + 1
+                        WHERE id = ? AND cancellation_status = 'QUEUED'
+                        """, now, now, deployment.id());
+                if (updated != 1) {
+                    throw new IllegalStateException(
+                            "business too-late cancellation lost its deployment lock");
+                }
+                taskProof.completeFromTrustedProof(
+                        CANCEL_COMMAND_TYPE,
+                        TARGET_TYPE,
+                        deployment.uid().toString());
+                return TrustedDeviceEventApplyResult.APPLIED;
+            }
+
+            int updated = jdbc.update("""
+                    UPDATE dev_edge_software_deployment
+                    SET deployment_status = 'CANCELLED',
+                        business_admission_state = 'OPEN',
+                        cancellation_status = 'CANCELLED',
+                        cancel_result_at = ?, error_code = NULL,
+                        completed_at = ?, updated_at = ?,
+                        lock_version = lock_version + 1
+                    WHERE id = ? AND cancellation_status = 'QUEUED'
+                      AND deployment_status NOT IN (
+                          'SUCCEEDED', 'ROLLED_BACK', 'DEFERRED', 'REJECTED',
+                          'FAILED_LOCKED', 'CANCELLED'
+                      )
+                    """, now, now, now, deployment.id());
+            if (updated != 1) {
+                throw new IllegalStateException(
+                        "safe business cancellation lost its deployment lock");
+            }
+            int rolloutUpdated = jdbc.update("""
+                    UPDATE dev_edge_software_rollout
+                    SET rollout_status = 'STOPPED', current_wave_no = -1,
+                        stopped_by_platform_admin_id = ?, stopped_at = ?,
+                        stop_reason = ?, updated_at = ?,
+                        lock_version = lock_version + 1
+                    WHERE id = ? AND rollout_status = 'VALIDATING'
+                    """,
+                    deployment.cancelRequestedByPlatformAdminId(),
+                    now,
+                    deployment.cancelReason(),
+                    now,
+                    deployment.rolloutId());
+            if (rolloutUpdated != 1) {
+                throw new IllegalStateException(
+                        "safe business cancellation lost its rollout lock");
+            }
+            jdbc.update("""
+                    UPDATE dev_device_compatibility_projection
+                    SET business_admission_status = 'ACCEPTING',
+                        lock_version = lock_version + 1, updated_at = ?
+                    WHERE asset_id = ?
+                      AND compatibility_status IN (
+                          'FULLY_COMPATIBLE', 'BASE_COMPATIBLE'
+                      )
+                    """, now, deployment.assetId());
+            taskProof.completeFromTrustedProof(
+                    CANCEL_COMMAND_TYPE,
+                    TARGET_TYPE,
+                    deployment.uid().toString());
+            taskProof.completeFromTrustedProof(
+                    COMMAND_TYPE,
+                    TARGET_TYPE,
+                    deployment.uid().toString());
+            return TrustedDeviceEventApplyResult.APPLIED;
+        });
     }
 
     private ReleaseView completeVerification(
@@ -982,7 +1830,8 @@ public class BusinessReleaseControlPlaneService {
 
     private EligibleDevice requireEligibleDevice(
             String hardwareSn,
-            ReleaseRow target) {
+            ReleaseRow target,
+            Long excludedRolloutId) {
         List<Long> locked = jdbc.query(
                 "SELECT id FROM dev_device_asset WHERE hardware_sn = ? FOR UPDATE",
                 (rs, ignored) -> rs.getLong(1),
@@ -1096,14 +1945,28 @@ public class BusinessReleaseControlPlaneService {
                 device.capabilityBitmapHex(), target.requiredMcuCapabilities())) {
             reasons.add("设备当前单片机缺少目标业务程序要求的能力");
         }
-        long activeBusinessPlans = jdbc.queryForObject("""
-                SELECT COUNT(*)
-                FROM dev_edge_software_deployment deployment
-                JOIN dev_edge_software_rollout rollout
-                  ON rollout.id = deployment.rollout_id
-                WHERE deployment.asset_id = ?
-                  AND rollout.rollout_status = 'DRAFT'
-                """, Long.class, device.assetId());
+        long activeBusinessPlans = excludedRolloutId == null
+                ? jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_edge_software_deployment deployment
+                        JOIN dev_edge_software_rollout rollout
+                          ON rollout.id = deployment.rollout_id
+                        WHERE deployment.asset_id = ?
+                          AND rollout.rollout_status NOT IN (
+                              'COMPLETED', 'STOPPED', 'VALIDATION_FAILED'
+                          )
+                        """, Long.class, device.assetId())
+                : jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_edge_software_deployment deployment
+                        JOIN dev_edge_software_rollout rollout
+                          ON rollout.id = deployment.rollout_id
+                        WHERE deployment.asset_id = ?
+                          AND rollout.id <> ?
+                          AND rollout.rollout_status NOT IN (
+                              'COMPLETED', 'STOPPED', 'VALIDATION_FAILED'
+                          )
+                        """, Long.class, device.assetId(), excludedRolloutId);
         if (activeBusinessPlans > 0) {
             reasons.add("设备已经在另一项尚未停止的业务更新计划中");
         }
@@ -1207,6 +2070,143 @@ public class BusinessReleaseControlPlaneService {
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
+    private DeploymentRow requireValidationDeployment(
+            long rolloutId,
+            boolean forUpdate) {
+        List<DeploymentRow> rows = jdbc.query("""
+                SELECT deployment.id, deployment.deployment_uid,
+                       deployment.rollout_id, deployment.release_id,
+                       deployment.asset_id, asset.hardware_sn,
+                       deployment.deployment_status,
+                       deployment.command_uid,
+                       deployment.reliable_task_uid,
+                       deployment.edge_update_uid,
+                       deployment.control_sequence,
+                       deployment.cancel_command_uid,
+                       deployment.cancel_reliable_task_uid,
+                       deployment.cancel_control_sequence,
+                       deployment.cancellation_status,
+                       deployment.cancel_reason,
+                       deployment.cancel_requested_by_platform_admin_id,
+                       deployment.cancel_requested_at,
+                       deployment.cancel_result_at,
+                       deployment.stage_sequence,
+                       deployment.download_attempt_count,
+                       deployment.target_attempt_count,
+                       deployment.rollback_attempt_count
+                       , deployment.deployment_kind,
+                       rollout.release_control_id,
+                       rollout.rollout_status
+                FROM dev_edge_software_deployment deployment
+                JOIN dev_device_asset asset ON asset.id = deployment.asset_id
+                JOIN dev_edge_software_rollout rollout
+                  ON rollout.id = deployment.rollout_id
+                WHERE deployment.rollout_id = ?
+                  AND deployment.deployment_kind = 'VALIDATION'
+                """ + (forUpdate ? " FOR UPDATE" : ""),
+                (rs, ignored) -> new DeploymentRow(
+                        rs.getLong("id"),
+                        UUID.fromString(rs.getString("deployment_uid")),
+                        rs.getLong("rollout_id"),
+                        rs.getLong("release_id"),
+                        rs.getLong("asset_id"),
+                        rs.getString("hardware_sn"),
+                        rs.getString("deployment_status"),
+                        nullableUuid(rs, "command_uid"),
+                        nullableUuid(rs, "reliable_task_uid"),
+                        nullableUuid(rs, "edge_update_uid"),
+                        nullableLong(rs, "control_sequence"),
+                        nullableUuid(rs, "cancel_command_uid"),
+                        nullableUuid(rs, "cancel_reliable_task_uid"),
+                        nullableLong(rs, "cancel_control_sequence"),
+                        rs.getString("cancellation_status"),
+                        rs.getString("cancel_reason"),
+                        nullableLong(rs, "cancel_requested_by_platform_admin_id"),
+                        localDateTime(rs, "cancel_requested_at"),
+                        localDateTime(rs, "cancel_result_at"),
+                        rs.getLong("stage_sequence"),
+                        rs.getInt("download_attempt_count"),
+                        rs.getInt("target_attempt_count"),
+                        rs.getInt("rollback_attempt_count"),
+                        rs.getString("deployment_kind"),
+                        rs.getLong("release_control_id"),
+                        rs.getString("rollout_status")),
+                rolloutId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "business rollout must contain one validation deployment");
+        }
+        return rows.getFirst();
+    }
+
+    private DeploymentRow requireDeployment(
+            UUID deploymentUid,
+            boolean forUpdate) {
+        List<DeploymentRow> rows = jdbc.query("""
+                SELECT deployment.id, deployment.deployment_uid,
+                       deployment.rollout_id, deployment.release_id,
+                       deployment.asset_id, asset.hardware_sn,
+                       deployment.deployment_status,
+                       deployment.command_uid,
+                       deployment.reliable_task_uid,
+                       deployment.edge_update_uid,
+                       deployment.control_sequence,
+                       deployment.cancel_command_uid,
+                       deployment.cancel_reliable_task_uid,
+                       deployment.cancel_control_sequence,
+                       deployment.cancellation_status,
+                       deployment.cancel_reason,
+                       deployment.cancel_requested_by_platform_admin_id,
+                       deployment.cancel_requested_at,
+                       deployment.cancel_result_at,
+                       deployment.stage_sequence,
+                       deployment.download_attempt_count,
+                       deployment.target_attempt_count,
+                       deployment.rollback_attempt_count,
+                       deployment.deployment_kind,
+                       rollout.release_control_id,
+                       rollout.rollout_status
+                FROM dev_edge_software_deployment deployment
+                JOIN dev_device_asset asset ON asset.id = deployment.asset_id
+                JOIN dev_edge_software_rollout rollout
+                  ON rollout.id = deployment.rollout_id
+                WHERE deployment.deployment_uid = ?
+                """ + (forUpdate ? " FOR UPDATE" : ""),
+                (rs, ignored) -> new DeploymentRow(
+                        rs.getLong("id"),
+                        UUID.fromString(rs.getString("deployment_uid")),
+                        rs.getLong("rollout_id"),
+                        rs.getLong("release_id"),
+                        rs.getLong("asset_id"),
+                        rs.getString("hardware_sn"),
+                        rs.getString("deployment_status"),
+                        nullableUuid(rs, "command_uid"),
+                        nullableUuid(rs, "reliable_task_uid"),
+                        nullableUuid(rs, "edge_update_uid"),
+                        nullableLong(rs, "control_sequence"),
+                        nullableUuid(rs, "cancel_command_uid"),
+                        nullableUuid(rs, "cancel_reliable_task_uid"),
+                        nullableLong(rs, "cancel_control_sequence"),
+                        rs.getString("cancellation_status"),
+                        rs.getString("cancel_reason"),
+                        nullableLong(rs, "cancel_requested_by_platform_admin_id"),
+                        localDateTime(rs, "cancel_requested_at"),
+                        localDateTime(rs, "cancel_result_at"),
+                        rs.getLong("stage_sequence"),
+                        rs.getInt("download_attempt_count"),
+                        rs.getInt("target_attempt_count"),
+                        rs.getInt("rollback_attempt_count"),
+                        rs.getString("deployment_kind"),
+                        rs.getLong("release_control_id"),
+                        rs.getString("rollout_status")),
+                deploymentUid.toString());
+        if (rows.size() != 1) {
+            throw new IllegalArgumentException(
+                    "business runtime deployment is not authoritative");
+        }
+        return rows.getFirst();
+    }
+
     private ReleaseActionRow releaseAction(UUID operationUid) {
         List<ReleaseActionRow> rows = jdbc.query("""
                 SELECT release_control_id, action_type, reason
@@ -1296,7 +2296,7 @@ public class BusinessReleaseControlPlaneService {
                 row.downloadSeconds() / 60,
                 row.drainSeconds() / 60,
                 row.maximumRetryCount(),
-                false,
+                row.remoteDispatchEnabled(),
                 row.reason(),
                 row.createdBy(),
                 row.stoppedBy(),
@@ -1337,10 +2337,22 @@ public class BusinessReleaseControlPlaneService {
                        tenant.tenant_code, organization.organization_code,
                        deployment.deployment_kind, deployment.wave_no,
                        deployment.deployment_status,
+                       deployment.cancellation_status,
+                       deployment.cancel_reason,
+                       deployment.cancel_requested_at,
+                       deployment.cancel_result_at,
+                       deployment.business_admission_state,
+                       deployment.download_attempt_count,
+                       deployment.target_attempt_count,
+                       deployment.rollback_attempt_count,
+                       deployment.installed_version_name,
+                       deployment.database_restored,
+                       deployment.error_code,
                        deployment.source_management_state_sequence,
                        deployment.source_business_release_uid,
                        deployment.source_business_release_sequence,
-                       deployment.created_at
+                       deployment.created_at, deployment.queued_at,
+                       deployment.completed_at, deployment.updated_at
                 FROM dev_edge_software_deployment deployment
                 JOIN dev_device_asset asset ON asset.id = deployment.asset_id
                 LEFT JOIN iam_tenant tenant ON tenant.id = deployment.tenant_id
@@ -1360,12 +2372,30 @@ public class BusinessReleaseControlPlaneService {
                     "VALIDATION".equals(kind) ? "验证设备" : "灰度批次设备",
                     rs.getInt("wave_no"),
                     rs.getString("deployment_status"),
-                    "已规划，尚未下发",
+                    deploymentStatusLabel(
+                            rs.getString("deployment_status")),
+                    rs.getString("cancellation_status"),
+                    cancellationStatusLabel(
+                            rs.getString("cancellation_status")),
+                    rs.getString("cancel_reason"),
+                    instant(localDateTime(rs, "cancel_requested_at")),
+                    instant(localDateTime(rs, "cancel_result_at")),
+                    businessAdmissionLabel(
+                            rs.getString("business_admission_state")),
+                    rs.getInt("download_attempt_count"),
+                    rs.getInt("target_attempt_count"),
+                    rs.getInt("rollback_attempt_count"),
+                    rs.getString("installed_version_name"),
+                    rs.getBoolean("database_restored"),
+                    deploymentErrorMessage(rs.getString("error_code")),
                     "创建计划时的实际软件事实满足目标发布；下发前仍会重新检查",
                     rs.getLong("source_management_state_sequence"),
                     UUID.fromString(rs.getString("source_business_release_uid")),
                     rs.getLong("source_business_release_sequence"),
-                    instant(localDateTime(rs, "created_at")));
+                    instant(localDateTime(rs, "created_at")),
+                    instant(localDateTime(rs, "queued_at")),
+                    instant(localDateTime(rs, "completed_at")),
+                    instant(localDateTime(rs, "updated_at")));
         }, rolloutId);
     }
 
@@ -1383,7 +2413,13 @@ public class BusinessReleaseControlPlaneService {
             String status = rs.getString("resulting_status");
             return new RolloutActionView(
                     action,
-                    "CREATE".equals(action) ? "创建计划" : "停止计划",
+                    switch (action) {
+                        case "CREATE" -> "创建计划";
+                        case "START_VALIDATION" -> "开始验证设备更新";
+                        case "REQUEST_CANCEL" -> "请求安全取消设备更新";
+                        case "STOP" -> "停止计划";
+                        default -> "无法识别的操作";
+                    },
                     status,
                     rolloutStatusLabel(status),
                     rs.getString("display_name"),
@@ -1725,6 +2761,217 @@ public class BusinessReleaseControlPlaneService {
         return value.length() <= maximum ? value : value.substring(0, maximum);
     }
 
+    private boolean businessProgressExists(
+            UUID eventUid,
+            long sourceInboxId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM dev_edge_software_deployment_progress
+                WHERE event_uid = ? OR source_inbox_id = ?
+                """, Integer.class, eventUid.toString(), sourceInboxId);
+        return count != null && count > 0;
+    }
+
+    private boolean businessCancelResultExists(
+            UUID eventUid,
+            long sourceInboxId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM dev_edge_software_deployment_cancel_result
+                WHERE event_uid = ? OR source_inbox_id = ?
+                """, Integer.class, eventUid.toString(), sourceInboxId);
+        return count != null && count > 0;
+    }
+
+    private InstalledBusiness sourceInstalledBusiness(long deploymentId) {
+        List<InstalledBusiness> rows = jdbc.query("""
+                SELECT fact.active_business_release_uid,
+                       fact.active_business_version_name,
+                       fact.active_business_release_sequence,
+                       fact.active_business_package_sha256
+                FROM dev_edge_software_deployment deployment
+                JOIN dev_device_software_fact fact
+                  ON fact.id = deployment.source_software_fact_id
+                WHERE deployment.id = ?
+                """, (rs, ignored) -> {
+            byte[] packageSha256 = rs.getBytes(
+                    "active_business_package_sha256");
+            if (packageSha256 == null || packageSha256.length != 32) {
+                throw new IllegalStateException(
+                        "frozen source business package identity is unavailable");
+            }
+            return new InstalledBusiness(
+                    UUID.fromString(rs.getString(
+                            "active_business_release_uid")),
+                    rs.getString("active_business_version_name"),
+                    rs.getLong("active_business_release_sequence"),
+                    HexFormat.of().formatHex(packageSha256));
+        }, deploymentId);
+        if (rows.size() != 1
+                || rows.getFirst().versionName() == null
+                || rows.getFirst().versionName().isBlank()) {
+            throw new IllegalStateException(
+                    "frozen source business identity is unavailable");
+        }
+        return rows.getFirst();
+    }
+
+    private static JsonNode jsonObject(JsonNode parent, String field) {
+        JsonNode value = parent == null ? null : parent.get(field);
+        if (value == null || !value.isObject()) {
+            throw new IllegalArgumentException(field + " must be an object");
+        }
+        return value;
+    }
+
+    private static String jsonText(
+            JsonNode parent,
+            String field,
+            int maximum) {
+        JsonNode value = parent == null ? null : parent.get(field);
+        if (value == null
+                || !value.isTextual()
+                || value.asText().isBlank()
+                || value.asText().length() > maximum) {
+            throw new IllegalArgumentException(field + " is invalid");
+        }
+        return value.asText();
+    }
+
+    private static void requireJsonText(
+            JsonNode parent,
+            String field,
+            String expected) {
+        if (!expected.equals(jsonText(parent, field, 64))) {
+            throw new IllegalArgumentException(field + " differs");
+        }
+    }
+
+    private static String jsonPattern(
+            JsonNode parent,
+            String field,
+            String pattern,
+            int maximum) {
+        String value = jsonText(parent, field, maximum);
+        if (!value.matches(pattern)) {
+            throw new IllegalArgumentException(field + " has invalid format");
+        }
+        return value;
+    }
+
+    private static String nullableJsonPattern(
+            JsonNode parent,
+            String field,
+            String pattern,
+            int maximum) {
+        JsonNode value = parent == null ? null : parent.get(field);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        return jsonPattern(parent, field, pattern, maximum);
+    }
+
+    private static UUID jsonUuid(JsonNode parent, String field) {
+        return UUID.fromString(jsonPattern(parent, field, UUID_V4, 36));
+    }
+
+    private static UUID nullableJsonUuid(JsonNode parent, String field) {
+        String value = nullableJsonPattern(parent, field, UUID_V4, 36);
+        return value == null ? null : UUID.fromString(value);
+    }
+
+    private static long jsonLong(
+            JsonNode parent,
+            String field,
+            long minimum,
+            long maximum) {
+        JsonNode value = parent == null ? null : parent.get(field);
+        if (value == null
+                || !value.isIntegralNumber()
+                || !value.canConvertToLong()
+                || value.asLong() < minimum
+                || value.asLong() > maximum) {
+            throw new IllegalArgumentException(field + " is outside range");
+        }
+        return value.asLong();
+    }
+
+    private static boolean jsonBoolean(JsonNode parent, String field) {
+        JsonNode value = parent == null ? null : parent.get(field);
+        if (value == null || !value.isBoolean()) {
+            throw new IllegalArgumentException(field + " must be boolean");
+        }
+        return value.asBoolean();
+    }
+
+    private static LocalDateTime nullableJsonInstant(
+            JsonNode parent,
+            String field) {
+        JsonNode value = parent == null ? null : parent.get(field);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        try {
+            return Instant.parse(jsonText(parent, field, 30))
+                    .atOffset(ZoneOffset.UTC)
+                    .toLocalDateTime();
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException(field + " is not an instant");
+        }
+    }
+
+    private static boolean isBusinessProgressStage(String stage) {
+        return Set.of(
+                "RECEIVED", "DOWNLOADING", "VERIFYING_PACKAGE",
+                "PACKAGE_READY", "WAITING_FOR_IDLE", "MIGRATING_DATA",
+                "ACTIVATING", "VERIFYING_TARGET", "OBSERVING",
+                "ROLLING_BACK", "VERIFYING_ROLLBACK", "SUCCEEDED",
+                "ROLLED_BACK", "DEFERRED", "REJECTED", "FAILED_LOCKED",
+                "DOWNLOAD_AUTHORIZATION_REQUIRED", "CANCELLED")
+                .contains(stage);
+    }
+
+    private static boolean isBusinessCancellationObservedStage(String stage) {
+        return Set.of(
+                "RECEIVED", "VERIFYING_PACKAGE", "PACKAGE_READY",
+                "WAITING_FOR_IDLE", "MIGRATING_DATA", "ACTIVATING",
+                "VERIFYING_TARGET", "OBSERVING", "ROLLING_BACK",
+                "VERIFYING_ROLLBACK", "SUCCEEDED", "ROLLED_BACK",
+                "DEFERRED", "REJECTED", "FAILED_LOCKED").contains(stage);
+    }
+
+    private static InstalledBusiness installedBusiness(JsonNode payload) {
+        JsonNode releaseUid = payload.get("installedReleaseUid");
+        JsonNode versionName = payload.get("installedVersionName");
+        JsonNode releaseSequence = payload.get("installedReleaseSequence");
+        JsonNode packageSha256 = payload.get("installedPackageSha256");
+        boolean absent = (releaseUid == null || releaseUid.isNull())
+                && (versionName == null || versionName.isNull())
+                && (releaseSequence == null || releaseSequence.isNull())
+                && (packageSha256 == null || packageSha256.isNull());
+        if (absent) {
+            return null;
+        }
+        if (releaseUid == null || releaseUid.isNull()
+                || versionName == null || versionName.isNull()
+                || releaseSequence == null || releaseSequence.isNull()
+                || packageSha256 == null || packageSha256.isNull()) {
+            throw new IllegalArgumentException(
+                    "installed business identity must be all present or all null");
+        }
+        return new InstalledBusiness(
+                jsonUuid(payload, "installedReleaseUid"),
+                jsonText(payload, "installedVersionName", 32),
+                jsonLong(payload, "installedReleaseSequence", 1,
+                        9_007_199_254_740_991L),
+                jsonPattern(
+                        payload, "installedPackageSha256", SHA256, 64));
+    }
+
+    private static String timestamp(LocalDateTime value) {
+        return value.toInstant(ZoneOffset.UTC).toString();
+    }
+
     private static String releaseStatusLabel(String status) {
         return switch (status) {
             case "DRAFT" -> "草稿";
@@ -1744,7 +2991,7 @@ public class BusinessReleaseControlPlaneService {
             case "VERIFYING" -> "后台正在读回制品并核对摘要、签名、文件清单和兼容声明";
             case "VERIFICATION_FAILED" -> "制品没有通过校验，不能批准或创建更新计划";
             case "AWAITING_APPROVAL" -> "制品校验已通过，仍需平台管理员单独批准";
-            case "READY" -> "可以选择验证设备并创建演练计划，但本阶段不会下发";
+            case "READY" -> "可以选择验证设备并创建更新计划；是否允许真实下发由全局开关和计划快照共同决定";
             case "SUSPENDED" -> "暂停创建新的更新计划，已有审计和制品继续保留";
             case "RETIRED" -> "不再允许创建新计划，历史和回滚引用继续保留";
             default -> "系统无法理解该状态，已停止后续操作";
@@ -1754,8 +3001,112 @@ public class BusinessReleaseControlPlaneService {
     private static String rolloutStatusLabel(String status) {
         return switch (status) {
             case "DRAFT" -> "计划已建立，尚未下发";
+            case "VALIDATING" -> "验证设备正在更新";
+            case "AWAITING_PROMOTION" -> "验证成功，等待人工放行";
+            case "VALIDATION_FAILED" -> "验证设备更新未通过";
+            case "ACTIVE" -> "灰度发布进行中";
+            case "COMPLETED" -> "灰度发布已完成";
             case "STOPPED" -> "计划已停止";
             default -> "状态无法识别";
+        };
+    }
+
+    private static String deploymentStatusLabel(String status) {
+        return switch (status) {
+            case "PLANNED" -> "已规划，尚未下发";
+            case "QUEUED" -> "更新命令等待发送";
+            case "RECEIVED" -> "设备已接收更新任务";
+            case "DOWNLOADING" -> "设备正在下载业务程序";
+            case "VERIFYING_PACKAGE" -> "设备正在校验发布包";
+            case "PACKAGE_READY" -> "发布包已准备完成";
+            case "WAITING_FOR_IDLE" -> "等待当前投递或清运结束";
+            case "MIGRATING_DATA" -> "正在备份并迁移本地数据";
+            case "ACTIVATING" -> "正在切换业务程序";
+            case "VERIFYING_TARGET" -> "正在检查新业务程序";
+            case "OBSERVING" -> "新业务程序观察中";
+            case "ROLLING_BACK" -> "正在恢复上一版本";
+            case "VERIFYING_ROLLBACK" -> "正在确认恢复结果";
+            case "SUCCEEDED" -> "业务程序更新成功";
+            case "ROLLED_BACK" -> "更新失败，已恢复上一版本";
+            case "DEFERRED" -> "本次更新已延后";
+            case "REJECTED" -> "设备拒绝本次更新";
+            case "FAILED_LOCKED" -> "更新和恢复均失败，设备已安全锁定";
+            case "DOWNLOAD_AUTHORIZATION_REQUIRED" -> "等待新的下载授权";
+            case "CANCELLED" -> "设备已安全取消本次更新";
+            default -> "状态无法识别";
+        };
+    }
+
+    private static String cancellationStatusLabel(String status) {
+        return switch (status) {
+            case "NONE" -> "尚未请求取消";
+            case "QUEUED" -> "已请求取消，等待设备确认";
+            case "CANCELLED" -> "设备已安全取消";
+            case "TOO_LATE" -> "设备已开始切换，无法取消";
+            default -> "取消状态无法识别";
+        };
+    }
+
+    private static String businessAdmissionLabel(String state) {
+        return switch (state) {
+            case "OPEN" -> "可以接收新的投递和清运";
+            case "DRAINING" -> "已停止接收新业务，正在等待当前业务结束";
+            case "MAINTENANCE" -> "业务程序正在更新维护";
+            case "LOCKED" -> "新业务已暂停，等待设备状态恢复";
+            default -> "无法确认设备是否能接收新业务";
+        };
+    }
+
+    private static String deploymentErrorMessage(String errorCode) {
+        if (errorCode == null || errorCode.isBlank()) {
+            return null;
+        }
+        return switch (errorCode) {
+            case "DOWNLOAD_AUTHORIZATION_EXPIRED",
+                    "DOWNLOAD_AUTHORIZATION_LOST",
+                    "DOWNLOAD_AUTHORIZATION_SUPERSEDED" ->
+                    "私有下载链接已经失效，后台正在为同一更新任务重新签发短期链接。";
+            case "BUSINESS_DOWNLOAD_TEMPORARY_FAILURE",
+                    "BUSINESS_DOWNLOAD_TIMEOUT",
+                    "BUSINESS_DOWNLOAD_RETRY_EXHAUSTED" ->
+                    "设备未能在允许次数内下载完业务程序包，请检查设备网络后重试。";
+            case "BUSINESS_PACKAGE_OBJECT_NOT_FOUND" ->
+                    "私有存储中找不到这份业务程序包，请核对发布制品。";
+            case "BUSINESS_PACKAGE_SHA256_MISMATCH",
+                    "BUSINESS_PACKAGE_SIZE_MISMATCH",
+                    "BUSINESS_SIGNATURE_FILE_CONFLICT",
+                    "BUSINESS_PACKAGE_INVALID",
+                    "BUSINESS_ENVIRONMENT_UNSAFE",
+                    "BUSINESS_PACKAGE_PATH_UNSAFE" ->
+                    "设备校验业务程序包时发现内容、签名或文件结构不符合发布记录。";
+            case "DEVICE_STORAGE_INSUFFICIENT" ->
+                    "设备空间不足，无法同时保留当前版本、候选版本和回滚快照。";
+            case "DEVICE_STORAGE_UNKNOWN" ->
+                    "设备暂时无法确认剩余空间，本次更新没有开始切换程序。";
+            case "BUSINESS_DRAIN_TIMEOUT",
+                    "BUSINESS_ROLLBACK_DRAIN_TIMEOUT" ->
+                    "设备等待当前投递或清运结束超时，本次更新没有强行中断现场业务。";
+            case "BUSINESS_UPDATE_CANCEL_TOO_LATE" ->
+                    "设备已经开始备份数据或切换程序，无法再安全取消；本次更新会继续完成或自动恢复上一版本。";
+            case "BUSINESS_RELEASE_SEQUENCE_NOT_NEWER",
+                    "BUSINESS_TARGET_ALREADY_INSTALLED" ->
+                    "目标版本没有晚于设备当前版本，因此设备拒绝重复或降级安装。";
+            case "BUSINESS_RELEASE_BASELINE_CHANGED",
+                    "BUSINESS_ROLLBACK_BASELINE_UNAVAILABLE" ->
+                    "设备当前版本与计划创建时不同，无法安全建立回滚基线。";
+            case "BUSINESS_RUNTIME_NOT_READY",
+                    "BUSINESS_RUNTIME_VERSION_MISMATCH",
+                    "BUSINESS_TARGET_IDENTITY_MISMATCH" ->
+                    "新业务程序没有按发布身份正常启动，设备已进入恢复流程。";
+            case "BUSINESS_ROLLBACK_IDENTITY_MISMATCH",
+                    "BUSINESS_MAINTENANCE_RECOVERY_FAILED" ->
+                    "设备无法确认已经恢复到原业务版本，已暂停新的投递和清运。";
+            case "HELPER_AUTHORIZATION_UNAVAILABLE",
+                    "HELPER_BUSY",
+                    "PRIVILEGED_ACTION_RECEIPT_INVALID",
+                    "PRIVILEGED_ACTION_RESULT_UNKNOWN" ->
+                    "设备本地更新执行器没有给出可信结果，已停止继续修改程序。";
+            default -> "设备报告本次更新未成功，请根据页面请求编号查看运维诊断。";
         };
     }
 
@@ -1856,6 +3207,7 @@ public class BusinessReleaseControlPlaneService {
                 hex(rs.getBytes("control_package_sha256")),
                 nullableLong(rs, "package_size"),
                 hex(rs.getBytes("signature_sha256")),
+                rs.getBytes("signature_bytes"),
                 rs.getString("signing_key_id"),
                 rs.getString("verification_error_message"),
                 rs.getString("release_notes"),
@@ -1908,6 +3260,7 @@ public class BusinessReleaseControlPlaneService {
                 rs.getInt("download_timeout_seconds"),
                 rs.getInt("drain_timeout_seconds"),
                 rs.getInt("maximum_retry_count"),
+                rs.getBoolean("remote_dispatch_enabled_snapshot"),
                 rs.getString("change_reason"),
                 rs.getString("created_by"),
                 rs.getString("stopped_by"),
@@ -1933,6 +3286,7 @@ public class BusinessReleaseControlPlaneService {
                    release_control.package_sha256 AS control_package_sha256,
                    release_control.package_size,
                    release_control.signature_sha256,
+                   release_control.signature_bytes,
                    release_control.signing_key_id,
                    release_control.declaration_id,
                    release_control.verification_error_message,
@@ -1987,6 +3341,7 @@ public class BusinessReleaseControlPlaneService {
                    rollout.download_timeout_seconds,
                    rollout.drain_timeout_seconds,
                    rollout.maximum_retry_count,
+                   rollout.remote_dispatch_enabled_snapshot,
                    rollout.change_reason,
                    creator.display_name AS created_by,
                    stopper.display_name AS stopped_by,
@@ -2045,6 +3400,13 @@ public class BusinessReleaseControlPlaneService {
     private record FileIdentity(String sha256, long size) {
     }
 
+    private record InstalledBusiness(
+            UUID releaseUid,
+            String versionName,
+            long releaseSequence,
+            String packageSha256) {
+    }
+
     private record ReleaseActionRow(
             long releaseId, String action, String reason) {
     }
@@ -2065,6 +3427,7 @@ public class BusinessReleaseControlPlaneService {
             String packageSha256,
             Long packageSize,
             String signatureSha256,
+            byte[] signatureBytes,
             String signingKeyId,
             String verificationErrorMessage,
             String releaseNotes,
@@ -2096,6 +3459,16 @@ public class BusinessReleaseControlPlaneService {
             String requiredMcuCapabilities,
             String providedBusinessCapabilities) {
 
+        private ReleaseRow {
+            signatureBytes = signatureBytes == null
+                    ? null : signatureBytes.clone();
+        }
+
+        @Override
+        public byte[] signatureBytes() {
+            return signatureBytes == null ? null : signatureBytes.clone();
+        }
+
         boolean artifactUploaded() {
             return packageSha256 != null;
         }
@@ -2113,6 +3486,7 @@ public class BusinessReleaseControlPlaneService {
             int downloadSeconds,
             int drainSeconds,
             int maximumRetryCount,
+            boolean remoteDispatchEnabled,
             String reason,
             String createdBy,
             String stoppedBy,
@@ -2120,6 +3494,35 @@ public class BusinessReleaseControlPlaneService {
             String stopReason,
             LocalDateTime createdAt,
             LocalDateTime updatedAt) {
+    }
+
+    private record DeploymentRow(
+            long id,
+            UUID uid,
+            long rolloutId,
+            long releaseId,
+            long assetId,
+            String hardwareSn,
+            String status,
+            UUID commandUid,
+            UUID taskUid,
+            UUID edgeUpdateUid,
+            Long controlSequence,
+            UUID cancelCommandUid,
+            UUID cancelTaskUid,
+            Long cancelControlSequence,
+            String cancellationStatus,
+            String cancelReason,
+            Long cancelRequestedByPlatformAdminId,
+            LocalDateTime cancelRequestedAt,
+            LocalDateTime cancelResultAt,
+            long stageSequence,
+            int downloadAttemptCount,
+            int targetAttemptCount,
+            int rollbackAttemptCount,
+            String kind,
+            long releaseControlId,
+            String rolloutStatus) {
     }
 
     private record DeviceCandidate(

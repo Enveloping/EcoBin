@@ -24,6 +24,7 @@ import {
 } from 'antd';
 import {
   approveBusinessRelease,
+  cancelBusinessRolloutDeployment,
   createBusinessRelease,
   createBusinessRollout,
   getBusinessRelease,
@@ -33,6 +34,7 @@ import {
   listBusinessRollouts,
   resumeBusinessRelease,
   retireBusinessRelease,
+  startBusinessRolloutValidation,
   stopBusinessRollout,
   suspendBusinessRelease,
   uploadBusinessReleaseArtifacts,
@@ -71,6 +73,11 @@ interface ReleaseActionState {
   release: BusinessRelease;
 }
 
+interface CancellationTarget {
+  rollout: BusinessRollout;
+  deployment: BusinessDeployment;
+}
+
 const releaseColors: Record<string, string> = {
   DRAFT: 'default',
   VERIFYING: 'processing',
@@ -79,6 +86,46 @@ const releaseColors: Record<string, string> = {
   READY: 'success',
   SUSPENDED: 'warning',
   RETIRED: 'default',
+};
+
+const rolloutColors: Record<string, string> = {
+  DRAFT: 'default',
+  VALIDATING: 'processing',
+  AWAITING_PROMOTION: 'success',
+  VALIDATION_FAILED: 'error',
+  ACTIVE: 'processing',
+  COMPLETED: 'success',
+  STOPPED: 'default',
+};
+
+const deploymentColors: Record<string, string> = {
+  PLANNED: 'default',
+  QUEUED: 'processing',
+  RECEIVED: 'processing',
+  DOWNLOADING: 'processing',
+  VERIFYING_PACKAGE: 'processing',
+  PACKAGE_READY: 'processing',
+  WAITING_FOR_IDLE: 'warning',
+  MIGRATING_DATA: 'warning',
+  ACTIVATING: 'warning',
+  VERIFYING_TARGET: 'processing',
+  OBSERVING: 'processing',
+  ROLLING_BACK: 'warning',
+  VERIFYING_ROLLBACK: 'warning',
+  SUCCEEDED: 'success',
+  ROLLED_BACK: 'warning',
+  DEFERRED: 'warning',
+  REJECTED: 'error',
+  FAILED_LOCKED: 'error',
+  DOWNLOAD_AUTHORIZATION_REQUIRED: 'warning',
+  CANCELLED: 'success',
+};
+
+const cancellationColors: Record<BusinessDeployment['cancellationStatus'], string> = {
+  NONE: 'default',
+  QUEUED: 'warning',
+  CANCELLED: 'success',
+  TOO_LATE: 'error',
 };
 
 function failureMessage(error: unknown): string {
@@ -125,6 +172,8 @@ export default function BusinessReleasesPage() {
   const [draftOpen, setDraftOpen] = useState(false);
   const [rolloutOpen, setRolloutOpen] = useState(false);
   const [stopTarget, setStopTarget] = useState<BusinessRollout>();
+  const [validationTarget, setValidationTarget] = useState<BusinessRollout>();
+  const [cancellationTarget, setCancellationTarget] = useState<CancellationTarget>();
   const [submitting, setSubmitting] = useState(false);
 
   const refreshReadiness = async () => {
@@ -160,6 +209,14 @@ export default function BusinessReleasesPage() {
       message.error(failureMessage(error));
     }
   };
+
+  useEffect(() => {
+    if (selectedRollout?.status !== 'VALIDATING') return undefined;
+    const timer = window.setInterval(() => {
+      void openRolloutDetail(selectedRollout.rolloutUid);
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [selectedRollout?.rolloutUid, selectedRollout?.status]);
 
   const submitDraft = async () => {
     try {
@@ -240,7 +297,7 @@ export default function BusinessReleasesPage() {
     },
     approve: {
       title: '批准业务发布',
-      warning: '批准后只能创建灰度演练计划；当前阶段仍不会把更新发送给设备。',
+      warning: '批准后可以创建灰度计划；创建计划不会下发，仍需在计划详情中再次确认“开始验证设备更新”。',
     },
     suspend: {
       title: '暂停业务发布',
@@ -248,7 +305,7 @@ export default function BusinessReleasesPage() {
     },
     resume: {
       title: '恢复业务发布',
-      warning: '恢复后可以再次创建灰度演练计划，但仍不会实际下发。',
+      warning: '恢复后可以再次创建灰度计划；只有管理员在计划详情中单独确认后，才会向验证设备下发。',
     },
     retire: {
       title: '归档业务发布',
@@ -318,7 +375,7 @@ export default function BusinessReleasesPage() {
         commandKey('create-business-rollout', payload.releaseUid, payload),
         (intent) => createBusinessRollout(payload, intent),
       );
-      message.success('灰度演练计划已创建，没有向设备发送任何更新命令');
+      message.success('灰度计划已创建，尚未向设备发送更新命令');
       setRolloutOpen(false);
       rolloutForm.resetFields();
       refreshTables();
@@ -341,8 +398,72 @@ export default function BusinessReleasesPage() {
         commandKey('stop-business-rollout', stopTarget.rolloutUid, { reason }),
         (intent) => stopBusinessRollout(stopTarget.rolloutUid, reason, intent),
       );
-      message.success('灰度演练计划已停止');
+      message.success('灰度计划已停止');
       setStopTarget(undefined);
+      actionForm.resetFields();
+      setSelectedRollout(updated);
+      refreshTables();
+    } catch (error) {
+      if (!(error && typeof error === 'object' && 'errorFields' in error)) {
+        message.error(failureMessage(error));
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitValidation = async () => {
+    if (!validationTarget) return;
+    try {
+      const { reason } = await actionForm.validateFields();
+      setSubmitting(true);
+      const updated = await executeCommand(
+        commandKey(
+          'start-business-rollout-validation',
+          validationTarget.rolloutUid,
+          { reason },
+        ),
+        (intent) => startBusinessRolloutValidation(
+          validationTarget.rolloutUid,
+          reason,
+          intent,
+        ),
+      );
+      message.success(`已向验证设备 ${updated.validationHardwareSn} 提交业务程序更新`);
+      setValidationTarget(undefined);
+      actionForm.resetFields();
+      setSelectedRollout(updated);
+      refreshTables();
+    } catch (error) {
+      if (!(error && typeof error === 'object' && 'errorFields' in error)) {
+        message.error(failureMessage(error));
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitCancellation = async () => {
+    if (!cancellationTarget) return;
+    try {
+      const { reason } = await actionForm.validateFields();
+      setSubmitting(true);
+      const { rollout, deployment } = cancellationTarget;
+      const updated = await executeCommand(
+        commandKey(
+          'cancel-business-rollout-deployment',
+          deployment.deploymentUid,
+          { rolloutUid: rollout.rolloutUid, reason },
+        ),
+        (intent) => cancelBusinessRolloutDeployment(
+          rollout.rolloutUid,
+          deployment.deploymentUid,
+          reason,
+          intent,
+        ),
+      );
+      message.success('取消请求已发送，正在等待设备确认是否仍能安全取消');
+      setCancellationTarget(undefined);
       actionForm.resetFields();
       setSelectedRollout(updated);
       refreshTables();
@@ -397,7 +518,11 @@ export default function BusinessReleasesPage() {
     {
       title: '计划状态',
       width: 180,
-      render: (_, rollout) => <Tag>{rollout.statusLabel}</Tag>,
+      render: (_, rollout) => (
+        <Tag color={rolloutColors[rollout.status] || 'default'}>
+          {rollout.statusLabel}
+        </Tag>
+      ),
     },
     { title: '验证设备', dataIndex: 'validationHardwareSn', width: 180 },
     {
@@ -424,19 +549,65 @@ export default function BusinessReleasesPage() {
   ];
 
   const deploymentColumns = [
-    { title: '设备硬件编号', dataIndex: 'hardwareSn' },
-    { title: '在计划中的角色', dataIndex: 'kindLabel' },
+    { title: '设备硬件编号', dataIndex: 'hardwareSn', width: 180, fixed: 'left' as const },
+    { title: '在计划中的角色', dataIndex: 'kindLabel', width: 130 },
     {
       title: '所属批次',
       render: (_: unknown, row: BusinessDeployment) => row.kind === 'VALIDATION'
         ? '单设备验证'
         : `第 ${row.waveNo} 批`,
     },
-    { title: '当前结果', dataIndex: 'statusLabel' },
-    { title: '创建计划时的检查', dataIndex: 'eligibilitySummary' },
     {
-      title: '记录时间',
-      render: (_: unknown, row: BusinessDeployment) => formatShanghaiTime(row.plannedAt),
+      title: '当前进度',
+      width: 210,
+      render: (_: unknown, row: BusinessDeployment) => (
+        <Tag color={deploymentColors[row.status] || 'default'}>{row.statusLabel}</Tag>
+      ),
+    },
+    {
+      title: '取消处理',
+      width: 250,
+      render: (_: unknown, row: BusinessDeployment) => (
+        <Space direction="vertical" size={2}>
+          <Tag color={cancellationColors[row.cancellationStatus]}>
+            {row.cancellationStatusLabel}
+          </Tag>
+          {row.cancelReason && <span>原因：{row.cancelReason}</span>}
+          {row.cancelResultAt && (
+            <span>设备确认：{formatShanghaiTime(row.cancelResultAt)}</span>
+          )}
+        </Space>
+      ),
+    },
+    { title: '新业务入口', dataIndex: 'businessAdmissionLabel', width: 260 },
+    {
+      title: '执行次数',
+      width: 220,
+      render: (_: unknown, row: BusinessDeployment) => (
+        `下载 ${row.downloadAttemptCount} 次；安装 ${row.targetAttemptCount} 次；恢复 ${row.rollbackAttemptCount} 次`
+      ),
+    },
+    {
+      title: '设备当前确认的业务版本',
+      width: 190,
+      render: (_: unknown, row: BusinessDeployment) => row.installedVersionName || '尚未确认',
+    },
+    {
+      title: '本地数据恢复',
+      width: 130,
+      render: (_: unknown, row: BusinessDeployment) => row.databaseRestored ? '已恢复更新前快照' : '未恢复快照',
+    },
+    {
+      title: '异常说明',
+      dataIndex: 'errorMessage',
+      width: 300,
+      render: (value: string | undefined) => value || '无',
+    },
+    { title: '创建计划时的检查', dataIndex: 'eligibilitySummary', width: 320 },
+    {
+      title: '最近更新时间',
+      width: 180,
+      render: (_: unknown, row: BusinessDeployment) => formatShanghaiTime(row.updatedAt),
     },
   ];
 
@@ -458,19 +629,27 @@ export default function BusinessReleasesPage() {
     setReleaseAction({ kind, release });
   };
 
+  const validationDeployment = selectedRollout?.deployments.find(
+    (deployment) => deployment.kind === 'VALIDATION',
+  );
+
   return (
     <PageContainer
       header={pageHeader(
         '香橙派业务程序发布',
-        '上传离线签名的业务程序包，校验兼容关系，并按真实设备状态创建灰度演练计划。',
+        '上传离线签名的业务程序包，按设备实际状态验证一台设备，再决定是否进入后续分批更新。',
       )}
     >
       <Alert
         showIcon
-        type="warning"
+        type={readiness?.remoteDispatchEnabled ? 'warning' : 'info'}
         style={{ marginBottom: 12 }}
-        message="当前阶段只建立发布和灰度计划，不会向设备下发更新"
-        description="页面没有启动更新或推进批次按钮。真实下发要等后续通信代理、设备更新器和回执闭环完成后再单独开放。"
+        message={readiness?.remoteDispatchEnabled
+          ? '单设备验证下发已开放，创建计划本身仍不会更新设备'
+          : '设备下发当前保持关闭，创建计划不会影响现场设备'}
+        description={readiness?.remoteDispatchEnabled
+          ? '只有平台管理员进入计划详情，再次确认“开始验证设备更新”后，后台才会向选定的一台设备发送命令；后续批次仍不会自动开始。'
+          : '可以继续准备发布包并建立计划；开启远程下发前，页面不会提供实际更新按钮。'}
       />
       {readiness && (
         <Alert
@@ -518,7 +697,7 @@ export default function BusinessReleasesPage() {
           },
           {
             key: 'rollouts',
-            label: '灰度演练计划',
+            label: '灰度计划',
             children: (
               <ProTable<BusinessRollout>
                 {...proTableConfig}
@@ -535,7 +714,7 @@ export default function BusinessReleasesPage() {
                 }}
                 toolBarRender={() => [
                   <Button key="create" type="primary" onClick={() => void openRollout()}>
-                    创建灰度演练计划
+                    创建灰度计划
                   </Button>,
                 ]}
               />
@@ -625,7 +804,7 @@ export default function BusinessReleasesPage() {
       </Modal>
 
       <Modal
-        title="创建灰度演练计划"
+        title="创建灰度计划"
         open={rolloutOpen}
         width={680}
         confirmLoading={submitting}
@@ -636,7 +815,7 @@ export default function BusinessReleasesPage() {
           showIcon
           type="info"
           message="后台会按设备当前实际安装状态逐台检查"
-          description="任意一台设备不兼容，整个计划都不会创建。计划创建成功也不会向设备发送消息。"
+          description="任意一台设备不兼容，整个计划都不会创建。计划创建成功后仍不会发送消息，需要在计划详情中单独开始验证设备更新。"
           style={{ marginBottom: 16 }}
         />
         <Form form={rolloutForm} layout="vertical">
@@ -737,12 +916,32 @@ export default function BusinessReleasesPage() {
       </Drawer>
 
       <Drawer
-        title={selectedRollout ? `${selectedRollout.release.versionName} 灰度演练计划` : '灰度演练计划详情'}
+        title={selectedRollout ? `${selectedRollout.release.versionName} 灰度计划` : '灰度计划详情'}
         open={Boolean(selectedRollout)}
         width={1040}
         onClose={() => setSelectedRollout(undefined)}
         extra={selectedRollout && (
-          <Space>
+          <Space wrap>
+            {selectedRollout.status === 'DRAFT' && (
+              <Button
+                type="primary"
+                disabled={!(
+                  selectedRollout.remoteDispatchEnabled
+                  && readiness?.remoteDispatchEnabled
+                  && readiness.artifactStorageAvailable
+                  && readiness.signingKeysAvailable
+                )}
+                title={selectedRollout.remoteDispatchEnabled
+                  ? readiness?.dispatchMessage
+                  : '该计划创建时设备下发尚未开放，需要在开放后重新创建计划'}
+                onClick={() => {
+                  actionForm.resetFields();
+                  setValidationTarget(selectedRollout);
+                }}
+              >
+                开始验证设备更新
+              </Button>
+            )}
             {selectedRollout.status === 'DRAFT' && (
               <Button danger onClick={() => {
                 actionForm.resetFields();
@@ -750,6 +949,22 @@ export default function BusinessReleasesPage() {
               }}>
                 停止计划
               </Button>
+            )}
+            {selectedRollout.status === 'VALIDATING'
+              && validationDeployment?.cancellationStatus === 'NONE' && (
+              <Button danger onClick={() => {
+                actionForm.resetFields();
+                setCancellationTarget({
+                  rollout: selectedRollout,
+                  deployment: validationDeployment,
+                });
+              }}>
+                请求安全取消这台设备的更新
+              </Button>
+            )}
+            {selectedRollout.status === 'VALIDATING'
+              && validationDeployment?.cancellationStatus === 'QUEUED' && (
+              <Button disabled>正在等待设备确认取消结果</Button>
             )}
             <Button onClick={() => void openRolloutDetail(selectedRollout.rolloutUid)}>刷新</Button>
           </Space>
@@ -759,12 +974,36 @@ export default function BusinessReleasesPage() {
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             <Alert
               showIcon
-              type="warning"
-              message="该计划只保存设备名单、分批方式和创建时的兼容性证据"
-              description="没有任何设备收到更新通知；设备业务也不会因为这个计划而停止。"
+              type={selectedRollout.status === 'VALIDATION_FAILED' ? 'error' : 'info'}
+              message={{
+                DRAFT: '计划已建立，尚未向任何设备发送更新',
+                VALIDATING: validationDeployment?.cancellationStatus === 'QUEUED'
+                  ? `已请求验证设备 ${selectedRollout.validationHardwareSn} 安全取消，正在等待设备确认`
+                  : validationDeployment?.cancellationStatus === 'TOO_LATE'
+                    ? '设备已经开始切换程序，无法安全取消，本次更新会继续'
+                    : `验证设备 ${selectedRollout.validationHardwareSn} 正在执行更新`,
+                AWAITING_PROMOTION: '验证设备更新成功，等待管理员决定后续批次',
+                VALIDATION_FAILED: '验证设备未通过更新，后续设备没有收到命令',
+                ACTIVE: '后续分批更新正在进行',
+                COMPLETED: '本次灰度更新已经完成',
+                STOPPED: '本计划已经停止',
+              }[selectedRollout.status] || selectedRollout.statusLabel}
+              description={{
+                DRAFT: '只有再次确认开始验证后，后台才会向选定的一台设备下发。',
+                VALIDATING: validationDeployment?.cancellationStatus === 'QUEUED'
+                  ? '点击取消并不代表已经取消。后端保持业务暂停，直到设备明确回复“已安全取消”或“已经来不及取消”；页面每 5 秒刷新一次。'
+                  : validationDeployment?.cancellationStatus === 'TOO_LATE'
+                    ? '设备已经进入本地数据备份或程序切换阶段。为了避免损坏设备，系统不再强行中断；更新失败时仍会自动恢复数据库和上一版本。'
+                    : '旧程序会在下载期间继续工作；准备切换时设备会停止接收新业务，并等待正在进行的投递或清运安全结束。页面每 5 秒刷新一次。',
+                AWAITING_PROMOTION: '后台已收到更新成功证据；仍需设备新的实际安装状态确认兼容性，后续批次不会自动开始。',
+                VALIDATION_FAILED: '设备会按安全状态机延后、拒绝或恢复原版本；请查看下方中文异常说明。',
+                ACTIVE: '系统只更新本批设备，仍会观察失败条件并阻止自动扩大范围。',
+                COMPLETED: '所有已放行设备均已收敛到终态。',
+                STOPPED: '未下发设备不会更新，历史记录继续保留。',
+              }[selectedRollout.status] || '请查看设备进度。'}
             />
             <Descriptions bordered size="small" column={3}>
-              <Descriptions.Item label="计划状态"><Tag>{selectedRollout.statusLabel}</Tag></Descriptions.Item>
+              <Descriptions.Item label="计划状态"><Tag color={rolloutColors[selectedRollout.status] || 'default'}>{selectedRollout.statusLabel}</Tag></Descriptions.Item>
               <Descriptions.Item label="目标业务版本">{selectedRollout.release.versionName}</Descriptions.Item>
               <Descriptions.Item label="先验证的设备">{selectedRollout.validationHardwareSn}</Descriptions.Item>
               <Descriptions.Item label="后续每批最多">{selectedRollout.batchSize} 台</Descriptions.Item>
@@ -772,7 +1011,7 @@ export default function BusinessReleasesPage() {
               <Descriptions.Item label="最多重试">{selectedRollout.maximumRetryCount} 次</Descriptions.Item>
               <Descriptions.Item label="下载最长等待">{selectedRollout.downloadTimeoutMinutes} 分钟</Descriptions.Item>
               <Descriptions.Item label="等待当前业务结束">{selectedRollout.drainTimeoutMinutes} 分钟</Descriptions.Item>
-              <Descriptions.Item label="设备下发">未开放</Descriptions.Item>
+              <Descriptions.Item label="设备下发">{selectedRollout.remoteDispatchEnabled ? '该计划允许手动验证一台设备' : '该计划创建时未开放'}</Descriptions.Item>
               <Descriptions.Item label="创建原因" span={3}>{selectedRollout.reason}</Descriptions.Item>
             </Descriptions>
             <Divider orientation="left">计划中的设备</Divider>
@@ -782,7 +1021,7 @@ export default function BusinessReleasesPage() {
               pagination={false}
               columns={deploymentColumns}
               dataSource={selectedRollout.deployments}
-              scroll={{ x: 900 }}
+              scroll={{ x: 2450 }}
             />
             <Divider orientation="left">操作记录</Divider>
             <Table<BusinessRolloutAction>
@@ -797,7 +1036,64 @@ export default function BusinessReleasesPage() {
       </Drawer>
 
       <Modal
-        title="停止灰度演练计划"
+        title="开始验证设备更新"
+        open={Boolean(validationTarget)}
+        confirmLoading={submitting}
+        okText="确认发送到这一台设备"
+        onOk={() => void submitValidation()}
+        onCancel={() => setValidationTarget(undefined)}
+      >
+        <Alert
+          showIcon
+          type="warning"
+          message={validationTarget
+            ? `本次只会更新验证设备 ${validationTarget.validationHardwareSn}`
+            : '本次只会更新一台验证设备'}
+          description="后台会重新核对设备当前实际版本，再生成一条可靠更新命令。设备下载期间旧程序继续工作；切换前会停止接收新业务并等待现场业务结束。新版本异常时设备会自动恢复数据库和原业务版本，后续批次不会自动开始。"
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={actionForm} layout="vertical">
+          <Form.Item
+            name="reason"
+            label="开始本次验证的原因"
+            rules={[{ required: true, message: '请填写开始验证的原因' }]}
+          >
+            <Input.TextArea rows={3} maxLength={500} showCount />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="请求安全取消验证设备更新"
+        open={Boolean(cancellationTarget)}
+        confirmLoading={submitting}
+        okText="发送取消请求"
+        okButtonProps={{ danger: true }}
+        onOk={() => void submitCancellation()}
+        onCancel={() => setCancellationTarget(undefined)}
+      >
+        <Alert
+          showIcon
+          type="warning"
+          message={cancellationTarget
+            ? `将请求设备 ${cancellationTarget.deployment.hardwareSn} 停止本次更新`
+            : '将请求验证设备停止本次更新'}
+          description="这不是强制断电或立即杀死程序。设备只会在尚未开始本地数据库备份和程序切换时取消；若已经进入切换阶段，设备会回复“已经来不及取消”并继续更新，失败时仍按原流程恢复数据库和上一版本。后端收到设备明确结果前会继续暂停新业务。"
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={actionForm} layout="vertical">
+          <Form.Item
+            name="reason"
+            label="请求取消的原因"
+            rules={[{ required: true, message: '请填写请求取消的原因' }]}
+          >
+            <Input.TextArea rows={3} maxLength={500} showCount />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="停止灰度计划"
         open={Boolean(stopTarget)}
         confirmLoading={submitting}
         okButtonProps={{ danger: true }}

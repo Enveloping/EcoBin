@@ -146,6 +146,16 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "MCU_FIRMWARE_UPDATE_PROGRESS",
                     "RELIABLE_FACT",
                     "MCU_FIRMWARE_DEPLOYMENT")),
+            Map.entry("businessRuntimeUpdateProgress",
+            new EventContract(
+                    "BUSINESS_RUNTIME_UPDATE_PROGRESS",
+                    "RELIABLE_FACT",
+                    "BUSINESS_RUNTIME_DEPLOYMENT")),
+            Map.entry("businessRuntimeUpdateCancelResult",
+            new EventContract(
+                    "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
+                    "RELIABLE_FACT",
+                    "BUSINESS_RUNTIME_DEPLOYMENT")),
             Map.entry("factorySealCompleted",
             new EventContract(
                     "FACTORY_SEAL_COMPLETED",
@@ -587,6 +597,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 || "DEVICE_SOFTWARE_STATE_REPORTED".equals(
                         contract.messageKind())
                 || "MCU_FIRMWARE_UPDATE_PROGRESS".equals(
+                        contract.messageKind())
+                || "BUSINESS_RUNTIME_UPDATE_PROGRESS".equals(
+                        contract.messageKind())
+                || "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT".equals(
                         contract.messageKind())) {
             return sourceScopePort.resolverForPlatformAsset(hardwareSn);
         }
@@ -633,6 +647,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "onenet.remote-support-status";
             case "MCU_FIRMWARE_UPDATE_PROGRESS" ->
                     "onenet.mcu-firmware-progress";
+            case "BUSINESS_RUNTIME_UPDATE_PROGRESS" ->
+                    "onenet.business-runtime-progress";
+            case "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT" ->
+                    "onenet.business-runtime-cancel-result";
             case "DEVICE_SOFTWARE_STATE_REPORTED" ->
                     "onenet.device-software-state";
             case "FACTORY_SEAL_COMPLETED" ->
@@ -740,7 +758,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                  "FULLNESS_DETECTION",
                  "BASELINE_MEASUREMENT",
                  "PORT_FULLNESS_STATE",
-                 "MCU_FIRMWARE_DEPLOYMENT" ->
+                 "MCU_FIRMWARE_DEPLOYMENT",
+                 "BUSINESS_RUNTIME_DEPLOYMENT" ->
                     pattern(target, "uid", UUID_V4);
             default -> throw permanent(
                     "unsupported trusted event target");
@@ -782,6 +801,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 || "DEVICE_ACCEPTANCE_EVIDENCE".equals(
                 messageKind)
                 || "REMOTE_SUPPORT_TUNNEL_STATUS".equals(
+                messageKind)
+                || "BUSINESS_RUNTIME_UPDATE_PROGRESS".equals(
+                messageKind)
+                || "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT".equals(
                 messageKind)
                 || "FACTORY_SEAL_COMPLETED".equals(messageKind)) {
             return pattern(wire, "commandUid", UUID_V4);
@@ -840,6 +863,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     remoteSupportStatusPayload(wire);
             case "MCU_FIRMWARE_UPDATE_PROGRESS" ->
                     mcuFirmwareProgressPayload(wire);
+            case "BUSINESS_RUNTIME_UPDATE_PROGRESS" ->
+                    businessRuntimeProgressPayload(wire);
+            case "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT" ->
+                    businessRuntimeCancellationResultPayload(wire);
             case "FACTORY_SEAL_COMPLETED" ->
                     factorySealCompletedPayload(wire);
             default -> throw permanent(
@@ -3298,6 +3325,194 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         return payload;
     }
 
+    private static Map<String, Object> businessRuntimeProgressPayload(
+            JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(
+                "deploymentUid", pattern(wire, "deploymentUid", UUID_V4));
+        payload.put("updateUid", pattern(wire, "updateUid", UUID_V4));
+        payload.put("releaseUid", pattern(wire, "releaseUid", UUID_V4));
+        payload.put(
+                "versionName",
+                pattern(
+                        wire,
+                        "versionName",
+                        "^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$"));
+        payload.put(
+                "releaseSequence",
+                positiveSafeInteger(wire, "releaseSequence"));
+        payload.put("packageSha256", pattern(wire, "packageSha256", SHA256));
+        String stage = enumText(
+                integer(wire, "stage"),
+                Map.ofEntries(
+                        Map.entry(1L, "RECEIVED"),
+                        Map.entry(2L, "DOWNLOADING"),
+                        Map.entry(3L, "VERIFYING_PACKAGE"),
+                        Map.entry(4L, "PACKAGE_READY"),
+                        Map.entry(5L, "WAITING_FOR_IDLE"),
+                        Map.entry(6L, "MIGRATING_DATA"),
+                        Map.entry(7L, "ACTIVATING"),
+                        Map.entry(8L, "VERIFYING_TARGET"),
+                        Map.entry(9L, "OBSERVING"),
+                        Map.entry(10L, "ROLLING_BACK"),
+                        Map.entry(11L, "VERIFYING_ROLLBACK"),
+                        Map.entry(12L, "SUCCEEDED"),
+                        Map.entry(13L, "ROLLED_BACK"),
+                        Map.entry(14L, "DEFERRED"),
+                        Map.entry(15L, "REJECTED"),
+                        Map.entry(16L, "FAILED_LOCKED"),
+                        Map.entry(17L, "DOWNLOAD_AUTHORIZATION_REQUIRED"),
+                        Map.entry(18L, "CANCELLED")),
+                "stage");
+        payload.put("stage", stage);
+        payload.put(
+                "stageSequence",
+                positiveSafeInteger(wire, "stageSequence"));
+        payload.put(
+                "businessAdmissionState",
+                enumText(
+                        integer(wire, "businessAdmissionState"),
+                        Map.of(
+                                1L, "OPEN",
+                                2L, "DRAINING",
+                                3L, "MAINTENANCE",
+                                4L, "LOCKED"),
+                        "businessAdmissionState"));
+        payload.put(
+                "downloadAttemptCount",
+                requiredIntegerInRange(
+                        wire, "downloadAttemptCount", 0, 10));
+        payload.put(
+                "targetAttemptCount",
+                requiredIntegerInRange(
+                        wire, "targetAttemptCount", 0, 10));
+        payload.put(
+                "rollbackAttemptCount",
+                requiredIntegerInRange(
+                        wire, "rollbackAttemptCount", 0, 10));
+        payload.put("databaseRestored", bool(wire, "databaseRestored"));
+
+        String installedReleaseUid = nullablePresenceText(
+                wire,
+                "installedReleaseUidPresent",
+                "installedReleaseUid",
+                UUID_V4,
+                36);
+        String installedVersionName = nullablePresenceText(
+                wire,
+                "installedVersionNamePresent",
+                "installedVersionName",
+                "^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$",
+                32);
+        Long installedReleaseSequence = nullablePresenceIntegerInRange(
+                wire,
+                "installedReleaseSequencePresent",
+                "installedReleaseSequence",
+                1,
+                9_007_199_254_740_991L);
+        String installedPackageSha256 = nullablePresenceText(
+                wire,
+                "installedPackageSha256Present",
+                "installedPackageSha256",
+                SHA256,
+                64);
+        boolean installedAllNull = installedReleaseUid == null
+                && installedVersionName == null
+                && installedReleaseSequence == null
+                && installedPackageSha256 == null;
+        boolean installedAllPresent = installedReleaseUid != null
+                && installedVersionName != null
+                && installedReleaseSequence != null
+                && installedPackageSha256 != null;
+        if (!installedAllNull && !installedAllPresent) {
+            throw permanent(
+                    "business runtime installed identity presence flags differ");
+        }
+        payload.put("installedReleaseUid", installedReleaseUid);
+        payload.put("installedVersionName", installedVersionName);
+        payload.put("installedReleaseSequence", installedReleaseSequence);
+        payload.put("installedPackageSha256", installedPackageSha256);
+
+        String errorCode = nullablePresenceText(
+                wire,
+                "errorCodePresent",
+                "errorCode",
+                "^[A-Z][A-Z0-9_]{0,63}$",
+                64);
+        boolean failure = Set.of(
+                "DEFERRED",
+                "REJECTED",
+                "FAILED_LOCKED",
+                "DOWNLOAD_AUTHORIZATION_REQUIRED").contains(stage);
+        if (failure != (errorCode != null)) {
+            throw permanent(
+                    "business runtime failure stage and error code differ");
+        }
+        payload.put("errorCode", errorCode);
+        return payload;
+    }
+
+    private static Map<String, Object>
+            businessRuntimeCancellationResultPayload(JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(
+                "deploymentUid", pattern(wire, "deploymentUid", UUID_V4));
+        payload.put("updateUid", pattern(wire, "updateUid", UUID_V4));
+        payload.put(
+                "controlSequence",
+                positiveSafeInteger(wire, "controlSequence"));
+        String result = enumText(
+                integer(wire, "result"),
+                Map.of(1L, "CANCELLED", 2L, "TOO_LATE"),
+                "result");
+        payload.put("result", result);
+        payload.put(
+                "observedStage",
+                enumText(
+                        integer(wire, "observedStage"),
+                        Map.ofEntries(
+                                Map.entry(1L, "RECEIVED"),
+                                Map.entry(2L, "VERIFYING_PACKAGE"),
+                                Map.entry(3L, "PACKAGE_READY"),
+                                Map.entry(4L, "WAITING_FOR_IDLE"),
+                                Map.entry(5L, "MIGRATING_DATA"),
+                                Map.entry(6L, "ACTIVATING"),
+                                Map.entry(7L, "VERIFYING_TARGET"),
+                                Map.entry(8L, "OBSERVING"),
+                                Map.entry(9L, "ROLLING_BACK"),
+                                Map.entry(10L, "VERIFYING_ROLLBACK"),
+                                Map.entry(11L, "SUCCEEDED"),
+                                Map.entry(12L, "ROLLED_BACK"),
+                                Map.entry(13L, "DEFERRED"),
+                                Map.entry(14L, "REJECTED"),
+                                Map.entry(15L, "FAILED_LOCKED")),
+                        "observedStage"));
+        String admission = enumText(
+                integer(wire, "businessAdmissionState"),
+                Map.of(
+                        1L, "OPEN",
+                        2L, "DRAINING",
+                        3L, "MAINTENANCE",
+                        4L, "LOCKED"),
+                "businessAdmissionState");
+        payload.put("businessAdmissionState", admission);
+        String errorCode = nullablePresenceText(
+                wire,
+                "errorCodePresent",
+                "errorCode",
+                "^[A-Z][A-Z0-9_]{0,63}$",
+                64);
+        if (("CANCELLED".equals(result)
+                && (errorCode != null || !"OPEN".equals(admission)))
+                || ("TOO_LATE".equals(result)
+                && !"BUSINESS_UPDATE_CANCEL_TOO_LATE".equals(errorCode))) {
+            throw permanent(
+                    "business runtime cancellation result fields differ");
+        }
+        payload.put("errorCode", errorCode);
+        return payload;
+    }
+
     private static void validateSemanticShape(
             EventContract contract,
             Map<String, Object> event,
@@ -3384,6 +3599,20 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 && event.get("commandUid") == null))) {
             throw permanent(
                     "MCU firmware progress differs from its deployment target");
+        }
+        if ("BUSINESS_RUNTIME_UPDATE_PROGRESS".equals(
+                contract.messageKind())
+                && (!payload.get("deploymentUid").equals(targetUid)
+                || event.get("commandUid") == null)) {
+            throw permanent(
+                    "business runtime progress differs from its deployment target");
+        }
+        if ("BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT".equals(
+                contract.messageKind())
+                && (!payload.get("deploymentUid").equals(targetUid)
+                || event.get("commandUid") == null)) {
+            throw permanent(
+                    "business runtime cancellation differs from its deployment target");
         }
         if ("DEVICE_SOFTWARE_STATE_REPORTED".equals(
                 contract.messageKind())

@@ -1,0 +1,24 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "8e000000-0000-4000-8000-000000000006",
+  "deliveryClass": "RELIABLE_FACT",
+  "edgeEventSequence": 1059,
+  "eventType": "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
+  "eventUid": "8e000000-0000-4000-8000-000000000007",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "businessAdmissionState": "OPEN",
+    "controlSequence": 2,
+    "deploymentUid": "8e000000-0000-4000-8000-000000000002",
+    "errorCode": null,
+    "observedStage": "WAITING_FOR_IDLE",
+    "result": "CANCELLED",
+    "updateUid": "8e000000-0000-4000-8000-000000000004"
+  },
+  "payloadSha256": "acec957ad6142e9382c8aad8d26076777711f33ba5d2c78367b1f08784c65426",
+  "schemaVersion": 2,
+  "target": {
+    "type": "BUSINESS_RUNTIME_DEPLOYMENT",
+    "uid": "8e000000-0000-4000-8000-000000000002"
+  }
+}

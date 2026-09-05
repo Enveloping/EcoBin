@@ -77,6 +77,14 @@
       "schema": "../../onenet/commands/commands.schema.json"
     },
     {
+      "file": "start-business-runtime-update.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
+      "file": "cancel-business-runtime-update.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
       "file": "open-remote-support-tunnel.command.json",
       "schema": "../../onenet/commands/commands.schema.json"
     },
@@ -134,6 +142,14 @@
     },
     {
       "file": "mcu-firmware-update-progress.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "business-runtime-update-progress.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "business-runtime-update-cancel-result.event.json",
       "schema": "../../onenet/events/events.schema.json"
     },
     {

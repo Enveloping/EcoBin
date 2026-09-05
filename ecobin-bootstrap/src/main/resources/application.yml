@@ -89,9 +89,11 @@ ecobin:
       region: ${businessReleaseCosRegion:}
       bucket-name: ${businessReleaseCosBucketName:}
       base-prefix: ${businessReleaseCosBasePrefix:edge-runtime/releases}
+      # 设备只信任这个 HTTPS 基础位置；具体对象路径由后端生成。
+      download-base-url: ${businessReleaseDownloadBaseUrl:}
       fake-directory: ${businessReleaseFakeDirectory:${java.io.tmpdir}/ecobin-business-release-artifacts}
       signing-public-keys-directory: ${businessReleaseSigningPublicKeysDirectory:}
-      # V64 控制面只能演练计划，任何环境都不得在本阶段打开真实下发。
+      # 默认关闭；只有完成私有桶、签名密钥和验证设备准备后才可显式开启。
       remote-dispatch-enabled: ${businessReleaseRemoteDispatchEnabled:false}
     enrollment:
       # 全局 K1 只用于设备第一次注册；生产值必须通过 /run/secrets 注入。

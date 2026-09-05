@@ -37,6 +37,8 @@
         "AUTHORIZE_FACTORY_SEAL",
         "SYNC_DEVICE_ENTRY_URL",
         "START_MCU_FIRMWARE_UPDATE",
+        "START_BUSINESS_RUNTIME_UPDATE",
+        "CANCEL_BUSINESS_RUNTIME_UPDATE",
         "OPEN_REMOTE_SUPPORT_TUNNEL",
         "CLOSE_REMOTE_SUPPORT_TUNNEL"
       ]
@@ -63,6 +65,12 @@
     "cosGrant": {
       "oneOf": [
         { "$ref": "common.schema.json#/$defs/cosGrant" },
+        { "type": "null" }
+      ]
+    },
+    "downloadGrant": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/downloadGrant" },
         { "type": "null" }
       ]
     }

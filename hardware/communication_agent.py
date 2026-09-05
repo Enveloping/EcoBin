@@ -25,6 +25,7 @@ from communication_credentials import (
 )
 from communication_router import (
     DEFAULT_BUSINESS_SOCKET,
+    DEFAULT_UPDATER_SOCKET,
     CommunicationRouter,
 )
 from communication_store import CommunicationStore, MAX_RELEASE_VERSION_LENGTH
@@ -58,10 +59,14 @@ class CommunicationController:
         release_version: str,
         *,
         router: CommunicationRouter | None = None,
+        updater_event_reporting_enabled: bool = False,
     ) -> None:
         self.store = store
         self.release_version = release_version
         self.router = router
+        self.updater_event_reporting_enabled = bool(
+            updater_event_reporting_enabled
+        )
         self._current_start: dict[str, Any] | None = None
 
     def record_started(self, start_fact: dict[str, Any]) -> None:
@@ -87,7 +92,16 @@ class CommunicationController:
                 else ("DISCONNECTED" if enabled else "DISABLED")
             ),
             "businessEventIngress": "ENABLED" if enabled else "DISABLED",
-            "remoteUpdateRouting": "DISABLED",
+            "remoteUpdateRouting": (
+                "BUSINESS_RUNTIME_ONLY"
+                if enabled and self.router.remote_business_update_enabled
+                else "DISABLED"
+            ),
+            "authenticatedDeviceName": (
+                self.router.authenticated_device_name
+                if enabled
+                else None
+            ),
         }
 
     def health(self, _payload: dict[str, Any]) -> dict[str, Any]:
@@ -110,6 +124,18 @@ class CommunicationController:
                 "OneNet ownership candidate is not enabled",
             )
         return router.submit_business_event(payload)
+
+    def submit_updater_event(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        router = self.router
+        if router is None or not self.updater_event_reporting_enabled:
+            raise LocalControlActionError(
+                "FEATURE_DISABLED",
+                "remote updater event ingress is disabled",
+            )
+        return router.submit_updater_event(payload)
 
 
 class CommunicationAgent:
@@ -263,6 +289,21 @@ def build_agent(args: argparse.Namespace) -> CommunicationAgent:
     mode = getattr(args, "mode", "disabled")
     if mode not in COMMUNICATION_MODES:
         raise ValueError("--mode must be disabled or proxy-candidate")
+    remote_business_update_enabled = bool(
+        getattr(args, "enable_remote_business_update", False)
+    )
+    updater_event_reporting_enabled = bool(
+        getattr(args, "enable_updater_event_reporting", False)
+        or remote_business_update_enabled
+    )
+    if remote_business_update_enabled and mode != "proxy-candidate":
+        raise ValueError(
+            "remote business update routing requires proxy-candidate mode"
+        )
+    if updater_event_reporting_enabled and mode != "proxy-candidate":
+        raise ValueError(
+            "updater event reporting requires proxy-candidate mode"
+        )
     allowed_uids = resolve_allowed_uids(args.allowed_uid, args.allowed_user)
     action_uids = frozenset(allowed_uids)
     socket_gid = resolve_socket_gid(args.socket_group)
@@ -271,6 +312,7 @@ def build_agent(args: argparse.Namespace) -> CommunicationAgent:
     try:
         router = None
         business_uid = None
+        updater_uid = None
         if mode == "proxy-candidate":
             business_user = getattr(args, "business_user", "ecobin-business")
             business_uid = _resolve_required_user_uid(business_user)
@@ -314,11 +356,31 @@ def build_agent(args: argparse.Namespace) -> CommunicationAgent:
                     "business_socket",
                     DEFAULT_BUSINESS_SOCKET,
                 ),
+                updater_socket=getattr(
+                    args,
+                    "updater_socket",
+                    DEFAULT_UPDATER_SOCKET,
+                ),
+                enable_remote_business_update=(
+                    remote_business_update_enabled
+                ),
+                authenticated_device_name=credential.device_name,
             )
+            if updater_event_reporting_enabled:
+                updater_uid = _resolve_required_user_uid(
+                    getattr(args, "updater_user", "ecobin-updater")
+                )
+                if updater_uid not in action_uids:
+                    raise ValueError(
+                        "updater action UID must also be in the socket allowlist"
+                    )
         controller = CommunicationController(
             store,
             args.release_version,
             router=router,
+            updater_event_reporting_enabled=(
+                updater_event_reporting_enabled
+            ),
         )
         actions = {
             "HEALTH": LocalControlAction(
@@ -339,6 +401,23 @@ def build_agent(args: argparse.Namespace) -> CommunicationAgent:
                     {"eventUid", "eventType", "params"}
                 ),
                 allowed_uids=frozenset({business_uid}),
+            )
+        if router is not None and updater_uid is not None:
+            actions["SUBMIT_UPDATER_EVENT"] = LocalControlAction(
+                controller.submit_updater_event,
+                payload_fields=frozenset(
+                    {
+                        "eventUid",
+                        "eventType",
+                        "targetType",
+                        "targetUid",
+                        "commandUid",
+                        "occurredAt",
+                        "clockQuality",
+                        "payload",
+                    }
+                ),
+                allowed_uids=frozenset({updater_uid}),
             )
         server = LocalControlServer(
             args.socket,
@@ -389,6 +468,29 @@ def build_parser() -> argparse.ArgumentParser:
             DEFAULT_BUSINESS_SOCKET,
         ),
     )
+    parser.add_argument(
+        "--updater-socket",
+        default=os.getenv(
+            "ECOBIN_UPDATER_CONTROL_SOCKET",
+            DEFAULT_UPDATER_SOCKET,
+        ),
+    )
+    parser.add_argument(
+        "--enable-updater-event-reporting",
+        action="store_true",
+        help=(
+            "allow only the permanent updater account to submit validated "
+            "device software facts; does not enable update commands"
+        ),
+    )
+    parser.add_argument(
+        "--enable-remote-business-update",
+        action="store_true",
+        help=(
+            "route only the dedicated business-runtime update service to "
+            "the permanent updater; remains disabled unless explicitly set"
+        ),
+    )
     parser.add_argument("--business-user", default="ecobin-business")
     parser.add_argument(
         "--socket",
@@ -400,6 +502,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--allowed-uid", action="append", type=int, default=None)
     parser.add_argument("--allowed-user", action="append", default=None)
+    parser.add_argument(
+        "--updater-user",
+        default="ecobin-updater",
+        help="local account allowed to submit updater-owned cloud facts",
+    )
     parser.add_argument("--socket-group", default=None)
     return parser
 

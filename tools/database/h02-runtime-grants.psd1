@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 33
+    CatalogVersion = 35
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -238,9 +238,41 @@
         )
         dev_edge_software_rollout = @(
             "rollout_status"
+            "current_wave_no"
             "stopped_by_platform_admin_id"
             "stopped_at"
             "stop_reason"
+            "lock_version"
+            "updated_at"
+        )
+        dev_edge_software_deployment = @(
+            "deployment_status"
+            "command_uid"
+            "reliable_task_uid"
+            "edge_update_uid"
+            "control_sequence"
+            "cancel_command_uid"
+            "cancel_reliable_task_uid"
+            "cancel_control_sequence"
+            "cancellation_status"
+            "cancel_reason"
+            "cancel_requested_by_platform_admin_id"
+            "cancel_requested_at"
+            "cancel_result_at"
+            "stage_sequence"
+            "business_admission_state"
+            "download_attempt_count"
+            "target_attempt_count"
+            "rollback_attempt_count"
+            "installed_release_uid"
+            "installed_version_name"
+            "installed_release_sequence"
+            "installed_package_sha256"
+            "database_restored"
+            "error_code"
+            "last_event_uid"
+            "queued_at"
+            "completed_at"
             "lock_version"
             "updated_at"
         )

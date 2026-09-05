@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import socket
 import sqlite3
@@ -460,6 +461,131 @@ def test_business_candidate_cannot_be_enabled_without_stage4_gate(
         store.close()
 
 
+def test_remote_business_command_is_identity_bound_and_communication_only(
+    tmp_path: Path,
+) -> None:
+    class Coordinator:
+        def __init__(self) -> None:
+            self.commands = []
+            self.cancellations = []
+
+        def get_status(self):
+            return {"activeUpdate": None}
+
+        def queue_remote(self, command):
+            self.commands.append(command)
+            return {"disposition": "ACCEPTED"}
+
+        def cancel_remote(self, command):
+            self.cancellations.append(command)
+            return {"disposition": "ACCEPTED", "outcome": "TOO_LATE"}
+
+    example_path = (
+        Path(__file__).resolve().parents[2]
+        / "contracts"
+        / "examples"
+        / "onenet-wire"
+        / "start-business-runtime-update.service-wire.json"
+    )
+    params = json.loads(example_path.read_text(encoding="utf-8"))[
+        "callServiceApiBodyTemplate"
+    ]["params"]
+    params["scalarFields1"]["issuedAt"] = "2099-01-01T00:00:00.000Z"
+    params["scalarFields1"]["expiresAt"] = "2099-01-01T00:30:00.000Z"
+    params["downloadGrant"]["expiresAt"] = "2099-01-01T00:30:00.000Z"
+
+    store = UpdaterStore(
+        tmp_path / "updater.db",
+        release_version="updater-v1",
+        enable_stage4_candidate=True,
+    )
+    store.initialize()
+    try:
+        coordinator = Coordinator()
+        handler = updater_agent.UpdaterControlHandler(
+            store,
+            business_coordinator=coordinator,
+            trusted_business_download_base_url=(
+                "https://ecobin-business-private-1250000000."
+                "cos.ap-guangzhou.myqcloud.com"
+            ),
+        )
+        actions = updater_agent.build_control_actions(
+            handler,
+            allowed_uids={0, 3101, 3102},
+            business_uids={3102},
+            communication_uids={3101},
+            enable_stage4_candidate=True,
+            enable_business_update_candidate=True,
+            enable_remote_business_update=True,
+        )
+        action = actions["DELIVER_CLOUD_MAINTENANCE_REQUEST"]
+        assert action.allowed_uids == frozenset({3101})
+        request = {
+            "authenticatedDeviceName": "SN-CONTRACT-0001",
+            "deliveryId": _uid(910),
+            "requestId": "onenet-request-910",
+            "serviceId": "startBusinessRuntimeUpdate",
+            "params": params,
+            "receivedAt": None,
+            "clockQuality": "UNAVAILABLE",
+        }
+
+        receipt = action.handler(request)
+
+        assert receipt == {
+            "commandUid": "8e000000-0000-4000-8000-000000000003",
+            "receiptState": "ACCEPTED",
+            "errorCode": None,
+        }
+        assert coordinator.commands[0]["targetDeviceName"] == (
+            "SN-CONTRACT-0001"
+        )
+        assert coordinator.commands[0]["downloadGrant"]["url"].startswith(
+            "https://ecobin-business-private-1250000000."
+        )
+
+        with pytest.raises(LocalControlActionError) as mismatch:
+            action.handler(
+                {**request, "authenticatedDeviceName": "SN-OTHER-DEVICE"}
+            )
+        assert mismatch.value.code == "REQUEST_INVALID"
+        assert len(coordinator.commands) == 1
+
+        cancel_example_path = (
+            Path(__file__).resolve().parents[2]
+            / "contracts"
+            / "examples"
+            / "onenet-wire"
+            / "cancel-business-runtime-update.service-wire.json"
+        )
+        cancel_params = json.loads(
+            cancel_example_path.read_text(encoding="utf-8")
+        )["callServiceApiBodyTemplate"]["params"]
+        cancel_params["issuedAt"] = "2099-01-01T00:00:00.000Z"
+        cancel_params["expiresAt"] = "2099-01-01T00:10:00.000Z"
+        cancel_receipt = action.handler(
+            {
+                **request,
+                "deliveryId": _uid(911),
+                "requestId": "onenet-request-911",
+                "serviceId": "cancelBusinessRuntimeUpdate",
+                "params": cancel_params,
+            }
+        )
+        assert cancel_receipt == {
+            "commandUid": "8e000000-0000-4000-8000-000000000006",
+            "receiptState": "ACCEPTED",
+            "errorCode": None,
+        }
+        assert coordinator.cancellations[0]["commandType"] == (
+            "CANCEL_BUSINESS_RUNTIME_UPDATE"
+        )
+        assert "downloadGrant" not in coordinator.cancellations[0]
+    finally:
+        store.close()
+
+
 def test_business_and_mcu_updates_are_mutually_exclusive_at_queue_boundary(
     tmp_path: Path,
 ) -> None:
@@ -796,6 +922,8 @@ def test_cli_defaults_match_permanent_updater_paths(monkeypatch) -> None:
     monkeypatch.delenv("ECOBIN_UPDATER_SOCKET", raising=False)
     monkeypatch.delenv("ECOBIN_UPDATER_RELEASE_VERSION", raising=False)
     monkeypatch.delenv("ECOBIN_UPDATER_SOCKET_GROUP", raising=False)
+    monkeypatch.delenv("ECOBIN_BUSINESS_DOWNLOAD_BASE_URL", raising=False)
+    monkeypatch.delenv("ECOBIN_COMMUNICATION_USER", raising=False)
 
     args = updater_agent.build_parser().parse_args([])
 
@@ -807,8 +935,31 @@ def test_cli_defaults_match_permanent_updater_paths(monkeypatch) -> None:
     assert args.socket_group is None
     assert args.enable_stage4_candidate is False
     assert args.enable_business_update_candidate is False
+    assert args.enable_software_state_reporting is False
+    assert args.enable_remote_business_update is False
     assert args.business_package_root == "/var/lib/ecobin/updater/business-packages"
     assert args.business_staging_root == "/var/lib/ecobin/updater/staging"
     assert args.business_signing_keys == "/usr/share/ecobin/business-release-keys"
     assert args.business_uid is None
     assert args.business_user is None
+    assert args.business_download_base_url is None
+    assert args.communication_uid is None
+    assert args.communication_user == "ecobin-communication"
+
+
+def test_software_state_reporting_does_not_implicitly_enable_updates(
+    tmp_path: Path,
+) -> None:
+    args = updater_agent.build_parser().parse_args(
+        [
+            "--state",
+            str(tmp_path / "updater.db"),
+            "--release-version",
+            "updater-v1",
+            "--enable-software-state-reporting",
+        ]
+    )
+
+    assert args.enable_remote_business_update is False
+    with pytest.raises(ValueError, match="business update candidate"):
+        updater_agent.build_agent(args)

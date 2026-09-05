@@ -646,6 +646,8 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         "BASELINE_MEASUREMENT_COMPLETE": "measurementUid",
         "CONFIGURATION_PROGRESS": "applicationUid",
         "MCU_FIRMWARE_UPDATE_PROGRESS": "deploymentUid",
+        "BUSINESS_RUNTIME_UPDATE_PROGRESS": "deploymentUid",
+        "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT": "deploymentUid",
     }.get(event_type)
     if uid_field and instance["target"]["uid"] != payload[uid_field]:
         raise ContractError(f"{event_type}: target UID differs from payload")
@@ -661,6 +663,8 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         "DEVICE_ACCEPTANCE_EVIDENCE",
         "REMOTE_SUPPORT_TUNNEL_STATUS",
         "FACTORY_SEAL_COMPLETED",
+        "BUSINESS_RUNTIME_UPDATE_PROGRESS",
+        "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
     }
     if event_type in command_bound_events and instance["commandUid"] is None:
         raise ContractError(f"{event_type}: originating commandUid is required")
@@ -697,6 +701,51 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         ):
             raise ContractError(
                 "successful MCU progress must report the target as installed"
+            )
+
+    if event_type == "BUSINESS_RUNTIME_UPDATE_PROGRESS":
+        installed_fields = (
+            payload["installedReleaseUid"],
+            payload["installedVersionName"],
+            payload["installedReleaseSequence"],
+            payload["installedPackageSha256"],
+        )
+        if any(value is None for value in installed_fields) and not all(
+            value is None for value in installed_fields
+        ):
+            raise ContractError(
+                "installed business runtime identity must be wholly present or null"
+            )
+        if payload["stage"] == "SUCCEEDED" and installed_fields != (
+            payload["releaseUid"],
+            payload["versionName"],
+            payload["releaseSequence"],
+            payload["packageSha256"],
+        ):
+            raise ContractError(
+                "successful business runtime progress must report the target as installed"
+            )
+        error_stages = {
+            "ROLLED_BACK",
+            "DEFERRED",
+            "REJECTED",
+            "FAILED_LOCKED",
+            "DOWNLOAD_AUTHORIZATION_REQUIRED",
+        }
+        if (payload["errorCode"] is not None) != (payload["stage"] in error_stages):
+            raise ContractError(
+                "business runtime progress errorCode differs from its stage"
+            )
+
+    if event_type == "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT":
+        expected_error = (
+            None
+            if payload["result"] == "CANCELLED"
+            else "BUSINESS_UPDATE_CANCEL_TOO_LATE"
+        )
+        if payload["errorCode"] != expected_error:
+            raise ContractError(
+                "business runtime cancellation errorCode differs from its result"
             )
 
     if event_type == "DEVICE_SOFTWARE_STATE_REPORTED":
@@ -1007,6 +1056,8 @@ def _validate_command_semantics(
         "OPEN_REMOTE_SUPPORT_TUNNEL": "sessionUid",
         "CLOSE_REMOTE_SUPPORT_TUNNEL": "sessionUid",
         "START_MCU_FIRMWARE_UPDATE": "deploymentUid",
+        "START_BUSINESS_RUNTIME_UPDATE": "deploymentUid",
+        "CANCEL_BUSINESS_RUNTIME_UPDATE": "deploymentUid",
     }.get(command_type)
     if command_type in {
         "REQUEST_DEVICE_ACCEPTANCE",
@@ -1021,6 +1072,13 @@ def _validate_command_semantics(
         raise ContractError(f"{command_type}: target UID differs from payload")
 
     payload = instance["payload"]
+    if (
+        command_type != "START_BUSINESS_RUNTIME_UPDATE"
+        and instance.get("downloadGrant") is not None
+    ):
+        raise ContractError(
+            f"{command_type}: transient download authorization is forbidden"
+        )
     if command_type == "AUTHORIZE_FACTORY_SEAL":
         if payload["hardwareSn"] != instance["targetDeviceName"]:
             raise ContractError(
@@ -1078,6 +1136,51 @@ def _validate_command_semantics(
         if payload["objectKey"] != expected_key:
             raise ContractError(
                 "START_MCU_FIRMWARE_UPDATE object key differs from signed identity"
+            )
+
+    if command_type == "START_BUSINESS_RUNTIME_UPDATE":
+        expected_key = (
+            f"edge-runtime/releases/{payload['releaseUid']}/package.tar.gz"
+        )
+        if payload["objectKey"] != expected_key:
+            raise ContractError(
+                "START_BUSINESS_RUNTIME_UPDATE object key differs from release identity"
+            )
+        grant = instance["downloadGrant"]
+        grant_expiry = datetime.datetime.fromisoformat(
+            grant["expiresAt"].removesuffix("Z") + "+00:00"
+        )
+        if grant_expiry <= issued:
+            raise ContractError(
+                "START_BUSINESS_RUNTIME_UPDATE download grant is already expired"
+            )
+        parsed = urllib.parse.urlsplit(grant["url"])
+        trusted = urllib.parse.urlsplit(
+            mapping["trustedBusinessReleaseDownloadEnvironment"]
+            ["contractTestProfile"]["baseUrl"]
+        )
+        if (
+            parsed.scheme != "https"
+            or parsed.scheme != trusted.scheme
+            or parsed.netloc != trusted.netloc
+            or parsed.path != "/" + expected_key
+            or parsed.fragment
+            or trusted.path not in {"", "/"}
+            or trusted.query
+            or trusted.fragment
+        ):
+            raise ContractError(
+                "START_BUSINESS_RUNTIME_UPDATE URL differs from trusted object location"
+            )
+
+    if command_type == "CANCEL_BUSINESS_RUNTIME_UPDATE":
+        if expires > issued + datetime.timedelta(minutes=15):
+            raise ContractError(
+                "CANCEL_BUSINESS_RUNTIME_UPDATE lifetime exceeds 15 minutes"
+            )
+        if instance.get("downloadGrant") is not None:
+            raise ContractError(
+                "CANCEL_BUSINESS_RUNTIME_UPDATE must not carry download authority"
             )
 
     work_type: str | None = None

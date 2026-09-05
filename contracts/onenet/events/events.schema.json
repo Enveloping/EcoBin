@@ -20,6 +20,8 @@
     { "$ref": "#/$defs/deviceAcceptanceEvidenceEvent" },
     { "$ref": "#/$defs/remoteSupportTunnelStatusEvent" },
     { "$ref": "#/$defs/mcuFirmwareUpdateProgressEvent" },
+    { "$ref": "#/$defs/businessRuntimeUpdateProgressEvent" },
+    { "$ref": "#/$defs/businessRuntimeUpdateCancelResultEvent" },
     { "$ref": "#/$defs/deviceSoftwareStateReportedEvent" },
     { "$ref": "#/$defs/factorySealCompletedEvent" }
   ],
@@ -1302,6 +1304,162 @@
         }
       ]
     },
+    "businessRuntimeUpdateProgressPayload": {
+      "type": "object",
+      "required": [
+        "deploymentUid",
+        "updateUid",
+        "releaseUid",
+        "versionName",
+        "releaseSequence",
+        "packageSha256",
+        "stage",
+        "stageSequence",
+        "businessAdmissionState",
+        "downloadAttemptCount",
+        "targetAttemptCount",
+        "rollbackAttemptCount",
+        "databaseRestored",
+        "installedReleaseUid",
+        "installedVersionName",
+        "installedReleaseSequence",
+        "installedPackageSha256",
+        "errorCode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "deploymentUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "updateUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "releaseUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "versionName": { "$ref": "#/$defs/deviceSoftwareVersionName" },
+        "releaseSequence": { "$ref": "../common.schema.json#/$defs/positiveSequence" },
+        "packageSha256": { "$ref": "../common.schema.json#/$defs/sha256" },
+        "stage": {
+          "enum": [
+            "RECEIVED",
+            "DOWNLOADING",
+            "VERIFYING_PACKAGE",
+            "PACKAGE_READY",
+            "WAITING_FOR_IDLE",
+            "MIGRATING_DATA",
+            "ACTIVATING",
+            "VERIFYING_TARGET",
+            "OBSERVING",
+            "ROLLING_BACK",
+            "VERIFYING_ROLLBACK",
+            "SUCCEEDED",
+            "ROLLED_BACK",
+            "DEFERRED",
+            "REJECTED",
+            "FAILED_LOCKED",
+            "DOWNLOAD_AUTHORIZATION_REQUIRED",
+            "CANCELLED"
+          ]
+        },
+        "stageSequence": { "$ref": "../common.schema.json#/$defs/positiveSequence" },
+        "businessAdmissionState": {
+          "enum": ["OPEN", "DRAINING", "MAINTENANCE", "LOCKED"]
+        },
+        "downloadAttemptCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "targetAttemptCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "rollbackAttemptCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "databaseRestored": { "type": "boolean" },
+        "installedReleaseUid": {
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/uuid" },
+            { "type": "null" }
+          ]
+        },
+        "installedVersionName": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$"
+        },
+        "installedReleaseSequence": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "installedPackageSha256": {
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/sha256" },
+            { "type": "null" }
+          ]
+        },
+        "errorCode": { "$ref": "../common.schema.json#/$defs/errorCode" }
+      }
+    },
+    "businessRuntimeUpdateCancelResultPayload": {
+      "type": "object",
+      "required": [
+        "deploymentUid",
+        "updateUid",
+        "controlSequence",
+        "result",
+        "observedStage",
+        "businessAdmissionState",
+        "errorCode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "deploymentUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "updateUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "controlSequence": { "$ref": "../common.schema.json#/$defs/positiveSequence" },
+        "result": { "enum": ["CANCELLED", "TOO_LATE"] },
+        "observedStage": {
+          "enum": [
+            "RECEIVED",
+            "VERIFYING_PACKAGE",
+            "PACKAGE_READY",
+            "WAITING_FOR_IDLE",
+            "MIGRATING_DATA",
+            "ACTIVATING",
+            "VERIFYING_TARGET",
+            "OBSERVING",
+            "ROLLING_BACK",
+            "VERIFYING_ROLLBACK",
+            "SUCCEEDED",
+            "ROLLED_BACK",
+            "DEFERRED",
+            "REJECTED",
+            "FAILED_LOCKED"
+          ]
+        },
+        "businessAdmissionState": {
+          "enum": ["OPEN", "DRAINING", "MAINTENANCE", "LOCKED"]
+        },
+        "errorCode": { "$ref": "../common.schema.json#/$defs/errorCode" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "result": { "const": "CANCELLED" } },
+            "required": ["result"]
+          },
+          "then": {
+            "properties": { "errorCode": { "type": "null" } }
+          },
+          "else": {
+            "properties": {
+              "errorCode": { "const": "BUSINESS_UPDATE_CANCEL_TOO_LATE" }
+            }
+          }
+        }
+      ]
+    },
     "runtimePort": {
       "type": "object",
       "required": [
@@ -2456,6 +2614,56 @@
             },
             "payload": {
               "$ref": "#/$defs/mcuFirmwareUpdateProgressPayload"
+            }
+          }
+        }
+      ]
+    },
+    "businessRuntimeUpdateProgressEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "BUSINESS_RUNTIME_UPDATE_PROGRESS" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "BUSINESS_RUNTIME_DEPLOYMENT" }
+                  }
+                }
+              ]
+            },
+            "commandUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+            "payload": {
+              "$ref": "#/$defs/businessRuntimeUpdateProgressPayload"
+            }
+          }
+        }
+      ]
+    },
+    "businessRuntimeUpdateCancelResultEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "BUSINESS_RUNTIME_DEPLOYMENT" }
+                  }
+                }
+              ]
+            },
+            "commandUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+            "payload": {
+              "$ref": "#/$defs/businessRuntimeUpdateCancelResultPayload"
             }
           }
         }

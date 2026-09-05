@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.integration.onenet.outbound;
 
+import org.enveloping.ecobin.device.api.port.BusinessReleaseArtifactStoragePort;
 import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
 import org.enveloping.ecobin.device.api.result.CosUploadCredential;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
@@ -51,6 +52,7 @@ class OneNetClientReliableSubmissionTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private RestTemplate restTemplate;
     private CosUploadCredentialPort cosUploadCredentialPort;
+    private BusinessReleaseArtifactStoragePort businessReleaseArtifacts;
     private OneNetClient client;
 
     @BeforeEach
@@ -63,6 +65,8 @@ class OneNetClientReliableSubmissionTest {
         restTemplate = mock(RestTemplate.class);
         cosUploadCredentialPort =
                 mock(CosUploadCredentialPort.class);
+        businessReleaseArtifacts = mock(
+                BusinessReleaseArtifactStoragePort.class);
         when(cosUploadCredentialPort.issue(
                 anyString(),
                 eq(2),
@@ -121,6 +125,7 @@ class OneNetClientReliableSubmissionTest {
                 properties,
                 restTemplate,
                 cosUploadCredentialPort,
+                businessReleaseArtifacts,
                 objectMapper,
                 new OneNetDiagnosticLogger(
                         new DiagnosticLoggingProperties(),
@@ -253,6 +258,102 @@ class OneNetClientReliableSubmissionTest {
         assertTrue(expiresAt.isAfter(issuedAt));
         assertTrue(!expiresAt.isAfter(issuedAt.plusSeconds(900)));
         assertTrue(!projectedGrantExpiry.isBefore(expiresAt));
+    }
+
+    @Test
+    void attachesEphemeralBusinessDownloadUrlAtTransportAttempt()
+            throws Exception {
+        ObjectNode frozen = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "start-business-runtime-update.command.json")));
+        frozen.putNull("downloadGrant");
+        String objectKey = "edge-runtime/releases/"
+                + "8e000000-0000-4000-8000-000000000001/package.tar.gz";
+        Instant grantExpiry = Instant.now().plusSeconds(1800);
+        when(businessReleaseArtifacts.issueReadAuthorization(
+                eq(objectKey), any()))
+                .thenReturn(new BusinessReleaseArtifactStoragePort
+                        .DownloadAuthorization(
+                        "https://ecobin-business-private-1250000000."
+                                + "cos.ap-guangzhou.myqcloud.com/"
+                                + objectKey + "?temporary=secret",
+                        grantExpiry));
+        when(restTemplate.postForEntity(
+                anyString(), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"code\":0}"));
+
+        DeviceCommandSubmissionResult result = client.submit(submission(
+                objectMapper.writeValueAsString(frozen),
+                UUID.fromString(
+                        "8e000000-0000-4000-8000-000000000003"),
+                "START_BUSINESS_RUNTIME_UPDATE"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
+                result.outcome());
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<HttpEntity> request =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForEntity(
+                anyString(), request.capture(), eq(String.class));
+        JsonNode actual = objectMapper.valueToTree(
+                request.getValue().getBody());
+        assertEquals(
+                "startBusinessRuntimeUpdate",
+                actual.path("identifier").asText());
+        JsonNode params = actual.path("params");
+        assertEquals(
+                1L,
+                params.path("downloadGrant")
+                        .path("authorizationSequence").asLong());
+        assertTrue(params.path("downloadGrant").path("url").asText()
+                .contains("temporary=secret"));
+        assertFalse(params.toString().contains("tmpSecretKey"));
+        assertEquals(
+                objectKey,
+                params.path("scalarFields1").path("objectKey").asText());
+    }
+
+    @Test
+    void projectsBusinessCancellationWithoutIssuingAnyCredential()
+            throws Exception {
+        String envelope = Files.readString(contractPath(
+                "contracts/examples/onenet/"
+                        + "cancel-business-runtime-update.command.json"));
+        JsonNode expected = objectMapper.readTree(Files.readString(contractPath(
+                "contracts/examples/onenet-wire/"
+                        + "cancel-business-runtime-update.service-wire.json")));
+        when(restTemplate.postForEntity(
+                anyString(), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"code\":0}"));
+
+        DeviceCommandSubmissionResult result = client.submit(submission(
+                envelope,
+                UUID.fromString(
+                        "8e000000-0000-4000-8000-000000000006"),
+                "CANCEL_BUSINESS_RUNTIME_UPDATE"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
+                result.outcome());
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<HttpEntity> request =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForEntity(
+                anyString(), request.capture(), eq(String.class));
+        JsonNode actual = objectMapper.valueToTree(
+                request.getValue().getBody());
+        assertEquals(
+                "cancelBusinessRuntimeUpdate",
+                actual.path("identifier").asText());
+        assertEquals(
+                expected.path("callServiceApiBodyTemplate").path("params"),
+                actual.path("params"));
+        verify(businessReleaseArtifacts, never())
+                .issueReadAuthorization(anyString(), any());
+        verify(cosUploadCredentialPort, never())
+                .issue(anyString(), any(), anyString());
     }
 
     @Test
@@ -1132,6 +1233,7 @@ class OneNetClientReliableSubmissionTest {
         return new DeviceCommandSubmission(
                 TASK_UID,
                 commandUid,
+                1L,
                 commandType,
                 HARDWARE_SN,
                 envelope,

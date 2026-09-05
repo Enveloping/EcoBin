@@ -106,6 +106,7 @@ class ReliableDeviceCommandAttemptServiceTest {
                 UUID.fromString("10000000-0000-4000-8000-000000000001"),
                 UUID.fromString("20000000-0000-4000-8000-000000000001"),
                 UUID.fromString("30000000-0000-4000-8000-000000000001"),
+                1L,
                 UUID.fromString("40000000-0000-4000-8000-000000000001"),
                 3L,
                 commandType,

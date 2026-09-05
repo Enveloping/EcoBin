@@ -83,7 +83,9 @@ class RuntimeSafetyConfigurationTest {
             "V61__onenet_external_request_observability.sql",
             "V62__factory_progress_task_lookup.sql",
             "V63__device_software_compatibility_receive_plane.sql",
-            "V64__business_runtime_release_control_plane.sql"
+            "V64__business_runtime_release_control_plane.sql",
+            "V65__business_runtime_validation_dispatch.sql",
+            "V66__business_runtime_update_cancellation.sql"
     };
 
     @Test

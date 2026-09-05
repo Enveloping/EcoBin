@@ -10,6 +10,7 @@ public record ClaimedDeviceCommandTask(
         UUID taskUid,
         UUID commandUid,
         UUID attemptUid,
+        long attemptSequence,
         UUID leaseToken,
         long claimedWakeVersion,
         String commandType,
@@ -23,6 +24,10 @@ public record ClaimedDeviceCommandTask(
         Objects.requireNonNull(taskUid, "taskUid");
         Objects.requireNonNull(commandUid, "commandUid");
         Objects.requireNonNull(attemptUid, "attemptUid");
+        if (attemptSequence < 1) {
+            throw new IllegalArgumentException(
+                    "attemptSequence must be positive");
+        }
         Objects.requireNonNull(leaseToken, "leaseToken");
         Objects.requireNonNull(commandType, "commandType");
         Objects.requireNonNull(hardwareSn, "hardwareSn");
@@ -48,6 +53,7 @@ public record ClaimedDeviceCommandTask(
         return new DeviceCommandSubmission(
                 taskUid,
                 commandUid,
+                attemptSequence,
                 commandType,
                 hardwareSn,
                 semanticEnvelopeJson,

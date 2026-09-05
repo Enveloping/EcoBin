@@ -6,6 +6,7 @@ in work_manager.py and persistent reliability remains in edge_store.py.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -33,6 +34,8 @@ COMMAND_IDENTIFIERS = {
     "authorizeFactorySeal": "AUTHORIZE_FACTORY_SEAL",
     "syncDeviceEntryUrl": "SYNC_DEVICE_ENTRY_URL",
     "startMcuFirmwareUpdate": "START_MCU_FIRMWARE_UPDATE",
+    "startBusinessRuntimeUpdate": "START_BUSINESS_RUNTIME_UPDATE",
+    "cancelBusinessRuntimeUpdate": "CANCEL_BUSINESS_RUNTIME_UPDATE",
     "openRemoteSupportTunnel": "OPEN_REMOTE_SUPPORT_TUNNEL",
     "closeRemoteSupportTunnel": "CLOSE_REMOTE_SUPPORT_TUNNEL",
 }
@@ -166,7 +169,7 @@ def decode_service_command(identifier: str, params: dict[str, Any]) -> dict[str,
     target = dict(params.get("target") or {})
     target["type"] = _target_type_for_command(command_type, target.get("type"))
 
-    return {
+    command = {
         # OneNet encodes a JSON-Schema const as the local enum value 1.  The
         # domain envelope remains v2 after decoding.
         "schemaVersion": 2,
@@ -181,18 +184,25 @@ def decode_service_command(identifier: str, params: dict[str, Any]) -> dict[str,
         "payload": payload,
         "cosGrant": cos_grant,
     }
+    if command_type == "START_BUSINESS_RUNTIME_UPDATE":
+        command["downloadGrant"] = _extract_download_grant(params)
+    return command
 
 
 def validate_command_envelope(
     command: dict[str, Any],
     *,
     trusted_environment: dict[str, str] | None = None,
+    trusted_business_release_download_base_url: str | None = None,
 ) -> None:
     """Validate stable command facts before reliable inbox acceptance."""
 
     _validate_command_envelope(
         command,
         trusted_environment=trusted_environment,
+        trusted_business_release_download_base_url=(
+            trusted_business_release_download_base_url
+        ),
         expiry_reference_time=local_deadline_reference(),
     )
 
@@ -213,6 +223,7 @@ def validate_unavailable_mcu_firmware_update_envelope(
     _validate_command_envelope(
         command,
         trusted_environment=None,
+        trusted_business_release_download_base_url=None,
         # The command was already durably accepted while valid.  This path
         # performs no physical or network action, so a later process restart
         # must still converge to the immutable capability rejection.
@@ -250,6 +261,7 @@ def validate_factory_seal_envelope_at_acceptance(
     _validate_command_envelope(
         command,
         trusted_environment=None,
+        trusted_business_release_download_base_url=None,
         expiry_reference_time=(
             acceptance_time.astimezone(timezone.utc)
             if acceptance_clock_quality == "SYNCED"
@@ -262,6 +274,7 @@ def _validate_command_envelope(
     command: dict[str, Any],
     *,
     trusted_environment: dict[str, str] | None,
+    trusted_business_release_download_base_url: str | None,
     expiry_reference_time: datetime | None,
     require_mcu_firmware_grant: bool = True,
 ) -> None:
@@ -325,6 +338,15 @@ def _validate_command_envelope(
             trusted_environment=trusted_environment,
             require_cos_grant=require_mcu_firmware_grant,
         )
+    elif command_type == "START_BUSINESS_RUNTIME_UPDATE":
+        _validate_start_business_runtime_update(
+            command,
+            trusted_download_base_url=(
+                trusted_business_release_download_base_url
+            ),
+        )
+    elif command_type == "CANCEL_BUSINESS_RUNTIME_UPDATE":
+        _validate_cancel_business_runtime_update(command)
     elif command_type == "START_DELIVERY_SESSION" and command.get("cosGrant"):
         validate_cos_grant(
             command["cosGrant"],
@@ -396,6 +418,14 @@ def _validate_command_target(command: dict[str, Any]) -> None:
         ),
         "START_MCU_FIRMWARE_UPDATE": (
             "MCU_FIRMWARE_DEPLOYMENT",
+            "deploymentUid",
+        ),
+        "START_BUSINESS_RUNTIME_UPDATE": (
+            "BUSINESS_RUNTIME_DEPLOYMENT",
+            "deploymentUid",
+        ),
+        "CANCEL_BUSINESS_RUNTIME_UPDATE": (
+            "BUSINESS_RUNTIME_DEPLOYMENT",
             "deploymentUid",
         ),
     }
@@ -832,6 +862,249 @@ def _validate_start_mcu_firmware_update(
         )
         if grant_expiry < expires_at:
             raise ValueError("firmware COS grant expires before the command")
+
+
+def _validate_start_business_runtime_update(
+    command: dict[str, Any],
+    *,
+    trusted_download_base_url: str | None,
+) -> None:
+    payload = command["payload"]
+    required = {
+        "deploymentUid",
+        "updateUid",
+        "controlSequence",
+        "releaseUid",
+        "versionName",
+        "releaseSequence",
+        "objectKey",
+        "packageSha256",
+        "packageSize",
+        "packageSignatureBase64",
+        "signatureSha256",
+        "signingKeyId",
+        "observationWindowSeconds",
+        "downloadTimeoutSeconds",
+        "drainTimeoutSeconds",
+        "maximumRetryCount",
+        "reason",
+    }
+    if set(payload) != required:
+        raise ValueError("business runtime update payload fields are invalid")
+    deployment_uid = _require_uuid4(
+        payload["deploymentUid"], "deploymentUid"
+    )
+    _require_uuid4(payload["updateUid"], "updateUid")
+    control_sequence = payload["controlSequence"]
+    if (
+        isinstance(control_sequence, bool)
+        or not isinstance(control_sequence, int)
+        or not 1 <= control_sequence <= 9_007_199_254_740_991
+    ):
+        raise ValueError("business runtime controlSequence is invalid")
+    release_uid = _require_uuid4(payload["releaseUid"], "releaseUid")
+    if command["target"] != {
+        "type": "BUSINESS_RUNTIME_DEPLOYMENT",
+        "uid": deployment_uid,
+    }:
+        raise ValueError(
+            "business runtime target differs from deploymentUid"
+        )
+    version_name = payload["versionName"]
+    if (
+        not isinstance(version_name, str)
+        or not 5 <= len(version_name) <= 32
+        or not SEMVER_PATTERN.fullmatch(version_name)
+    ):
+        raise ValueError("versionName must be ASCII SemVer")
+    release_sequence = payload["releaseSequence"]
+    if (
+        isinstance(release_sequence, bool)
+        or not isinstance(release_sequence, int)
+        or not 1 <= release_sequence <= 9_007_199_254_740_991
+    ):
+        raise ValueError("releaseSequence is invalid")
+    package_sha256 = payload["packageSha256"]
+    signature_sha256 = payload["signatureSha256"]
+    if not _is_sha256(package_sha256) or not _is_sha256(signature_sha256):
+        raise ValueError("business runtime package digest is invalid")
+    package_size = payload["packageSize"]
+    if (
+        isinstance(package_size, bool)
+        or not isinstance(package_size, int)
+        or not 1 <= package_size <= 1_500_000_000
+    ):
+        raise ValueError("business runtime package size is invalid")
+    expected_key = (
+        f"edge-runtime/releases/{release_uid}/package.tar.gz"
+    )
+    if payload["objectKey"] != expected_key:
+        raise ValueError(
+            "business runtime objectKey differs from release identity"
+        )
+    signature_text = payload["packageSignatureBase64"]
+    try:
+        signature = base64.b64decode(signature_text, validate=True)
+    except (ValueError, TypeError) as error:
+        raise ValueError("business runtime package signature is invalid") from error
+    if len(signature) != 64:
+        raise ValueError("business runtime package signature must be 64 bytes")
+    if hashlib.sha256(signature).hexdigest() != signature_sha256:
+        raise ValueError("business runtime signature digest mismatch")
+    signing_key_id = payload["signingKeyId"]
+    if (
+        not isinstance(signing_key_id, str)
+        or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", signing_key_id)
+    ):
+        raise ValueError("business runtime signingKeyId is invalid")
+    for field in (
+        "observationWindowSeconds",
+        "downloadTimeoutSeconds",
+        "drainTimeoutSeconds",
+    ):
+        value = payload[field]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not 60 <= value <= 86_400
+        ):
+            raise ValueError(f"business runtime {field} is invalid")
+    retry_count = payload["maximumRetryCount"]
+    if (
+        isinstance(retry_count, bool)
+        or not isinstance(retry_count, int)
+        or not 0 <= retry_count <= 10
+    ):
+        raise ValueError("business runtime maximumRetryCount is invalid")
+    reason = payload["reason"]
+    if (
+        not isinstance(reason, str)
+        or not 1 <= len(reason.strip()) <= 500
+        or reason != reason.strip()
+    ):
+        raise ValueError("business runtime update reason is invalid")
+    if command.get("cosGrant") is not None:
+        raise ValueError("business runtime update must not carry COS credentials")
+    grant = command.get("downloadGrant")
+    if not isinstance(grant, dict) or set(grant) != {
+        "authorizationSequence",
+        "url",
+        "expiresAt",
+    }:
+        raise ValueError("business runtime downloadGrant fields are invalid")
+    authorization_sequence = grant["authorizationSequence"]
+    if (
+        isinstance(authorization_sequence, bool)
+        or not isinstance(authorization_sequence, int)
+        or not 1 <= authorization_sequence <= 9_007_199_254_740_991
+    ):
+        raise ValueError("download authorization sequence is invalid")
+    grant_expiry = _parse_utc_instant(
+        grant["expiresAt"], "downloadGrant.expiresAt"
+    )
+    issued_at = _parse_utc_instant(command["issuedAt"], "issuedAt")
+    if grant_expiry <= issued_at:
+        raise ValueError("business runtime download authorization is expired")
+    _validate_business_release_download_url(
+        grant["url"],
+        expected_key=expected_key,
+        trusted_base_url=trusted_download_base_url,
+    )
+
+
+def _validate_cancel_business_runtime_update(
+    command: dict[str, Any],
+) -> None:
+    payload = command["payload"]
+    if set(payload) != {
+        "deploymentUid",
+        "updateUid",
+        "controlSequence",
+        "reason",
+    }:
+        raise ValueError(
+            "business runtime cancellation payload fields are invalid"
+        )
+    deployment_uid = _require_uuid4(
+        payload["deploymentUid"], "deploymentUid"
+    )
+    _require_uuid4(payload["updateUid"], "updateUid")
+    sequence = payload["controlSequence"]
+    if (
+        isinstance(sequence, bool)
+        or not isinstance(sequence, int)
+        or not 1 <= sequence <= 9_007_199_254_740_991
+    ):
+        raise ValueError(
+            "business runtime cancellation controlSequence is invalid"
+        )
+    reason = payload["reason"]
+    if (
+        not isinstance(reason, str)
+        or not 1 <= len(reason.strip()) <= 500
+        or reason != reason.strip()
+    ):
+        raise ValueError("business runtime cancellation reason is invalid")
+    if command["target"] != {
+        "type": "BUSINESS_RUNTIME_DEPLOYMENT",
+        "uid": deployment_uid,
+    }:
+        raise ValueError(
+            "business runtime cancellation target differs from deploymentUid"
+        )
+    issued_at = _parse_utc_instant(command["issuedAt"], "issuedAt")
+    expires_at = _parse_utc_instant(command["expiresAt"], "expiresAt")
+    if not issued_at < expires_at <= issued_at + timedelta(minutes=15):
+        raise ValueError(
+            "business runtime cancellation lifetime must not exceed 15 minutes"
+        )
+    if command.get("cosGrant") is not None:
+        raise ValueError(
+            "business runtime cancellation must not carry COS credentials"
+        )
+    if "downloadGrant" in command:
+        raise ValueError(
+            "business runtime cancellation must not carry download authority"
+        )
+
+
+def _validate_business_release_download_url(
+    url: Any,
+    *,
+    expected_key: str,
+    trusted_base_url: str | None,
+) -> None:
+    if (
+        not isinstance(url, str)
+        or not 1 <= len(url) <= 2048
+        or trusted_base_url is None
+    ):
+        raise ValueError("trusted business release download base URL is required")
+    parsed = urlsplit(url)
+    trusted = urlsplit(trusted_base_url)
+    if (
+        trusted.scheme != "https"
+        or trusted.username is not None
+        or trusted.password is not None
+        or trusted.port is not None
+        or trusted.path not in {"", "/"}
+        or trusted.query
+        or trusted.fragment
+    ):
+        raise ValueError("trusted business release download base URL is invalid")
+    if (
+        parsed.scheme != trusted.scheme
+        or parsed.netloc != trusted.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.port is not None
+        or parsed.path != "/" + expected_key
+        or not parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(
+            "business runtime download URL differs from trusted object location"
+        )
 
 
 def _validate_open_remote_support(command: dict[str, Any]) -> None:
@@ -1366,6 +1639,39 @@ def _extract_payload(identifier: str, scalars: dict[str, Any],
             "packageSize": scalars.get("packageSize"),
             "reason": _none_if_absent(scalars, "reason"),
         }
+    if identifier == "startBusinessRuntimeUpdate":
+        return {
+            "deploymentUid": scalars.get("deploymentUid"),
+            "updateUid": scalars.get("updateUid"),
+            "controlSequence": scalars.get("controlSequence"),
+            "releaseUid": scalars.get("releaseUid"),
+            "versionName": scalars.get("versionName"),
+            "releaseSequence": scalars.get("releaseSequence"),
+            "objectKey": scalars.get("objectKey"),
+            "packageSha256": scalars.get("packageSha256"),
+            "packageSize": scalars.get("packageSize"),
+            "packageSignatureBase64": scalars.get(
+                "packageSignatureBase64"
+            ),
+            "signatureSha256": scalars.get("signatureSha256"),
+            "signingKeyId": scalars.get("signingKeyId"),
+            "observationWindowSeconds": scalars.get(
+                "observationWindowSeconds"
+            ),
+            "downloadTimeoutSeconds": scalars.get(
+                "downloadTimeoutSeconds"
+            ),
+            "drainTimeoutSeconds": scalars.get("drainTimeoutSeconds"),
+            "maximumRetryCount": scalars.get("maximumRetryCount"),
+            "reason": scalars.get("reason"),
+        }
+    if identifier == "cancelBusinessRuntimeUpdate":
+        return {
+            "deploymentUid": scalars.get("deploymentUid"),
+            "updateUid": scalars.get("updateUid"),
+            "controlSequence": scalars.get("controlSequence"),
+            "reason": scalars.get("reason"),
+        }
     if identifier == "openRemoteSupportTunnel":
         return {
             "sessionUid": scalars.get("sessionUid"),
@@ -1419,6 +1725,11 @@ def _extract_cos_grant(scalars: dict[str, Any], params: dict[str, Any]) -> dict[
     }
 
 
+def _extract_download_grant(params: dict[str, Any]) -> dict[str, Any] | None:
+    grant = params.get("downloadGrant")
+    return dict(grant) if isinstance(grant, dict) else None
+
+
 def _none_if_absent(scalars: dict[str, Any], field: str) -> Any:
     present_key = f"{field}Present"
     if present_key in scalars and not scalars.get(present_key):
@@ -1458,6 +1769,8 @@ def _target_type_for_command(command_type: str, wire_value: Any) -> str:
         "OPEN_REMOTE_SUPPORT_TUNNEL": "REMOTE_SUPPORT_SESSION",
         "CLOSE_REMOTE_SUPPORT_TUNNEL": "REMOTE_SUPPORT_SESSION",
         "START_MCU_FIRMWARE_UPDATE": "MCU_FIRMWARE_DEPLOYMENT",
+        "START_BUSINESS_RUNTIME_UPDATE": "BUSINESS_RUNTIME_DEPLOYMENT",
+        "CANCEL_BUSINESS_RUNTIME_UPDATE": "BUSINESS_RUNTIME_DEPLOYMENT",
     }
     return mapping.get(command_type, str(wire_value))
 

@@ -4586,7 +4586,7 @@
       "get": {
         "operationId": "listPlatformBusinessReleaseRollouts",
         "tags": ["Orange Pi business releases"],
-        "summary": "List non-dispatching business-runtime rollout plans",
+        "summary": "List business-runtime rollout plans and validation progress",
         "security": [{"webSessionCookie": []}],
         "parameters": [{"$ref": "#/components/parameters/Page"}, {"$ref": "#/components/parameters/PageSize"}],
         "responses": {
@@ -4632,6 +4632,41 @@
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseActionRequest"}}}},
         "responses": {
           "200": {"description": "Rollout stopped without affecting devices", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessRolloutEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"}, "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}, "404": {"$ref": "#/components/responses/NotFoundProblem"}, "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/business-releases/rollouts/{rolloutUid}/validation-starts": {
+      "parameters": [{"name": "rolloutUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "post": {
+        "operationId": "startPlatformBusinessReleaseValidation",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Send the approved business-runtime update to the selected validation device",
+        "description": "The backend rechecks current device eligibility, creates one reliable command and waits for updater progress and a later actual software-state fact. It does not promote any later wave.",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseActionRequest"}}}},
+        "responses": {
+          "200": {"description": "Validation-device update queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessRolloutEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"}, "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}, "404": {"$ref": "#/components/responses/NotFoundProblem"}, "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/business-releases/rollouts/{rolloutUid}/deployments/{deploymentUid}/cancellations": {
+      "parameters": [
+        {"name": "rolloutUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}},
+        {"name": "deploymentUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}
+      ],
+      "post": {
+        "operationId": "cancelPlatformBusinessReleaseDeployment",
+        "tags": ["Orange Pi business releases"],
+        "summary": "Ask the validation device to cancel before local data migration or runtime activation",
+        "description": "The request only queues a reliable cancellation command. The rollout stays in validation until the device reports either a safe cancellation or that mutation has already begun and cancellation is too late.",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessReleaseActionRequest"}}}},
+        "responses": {
+          "200": {"description": "Cancellation request queued or its existing result returned", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BusinessRolloutEnvelope"}}}},
           "400": {"$ref": "#/components/responses/InvalidRequest"}, "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}, "404": {"$ref": "#/components/responses/NotFoundProblem"}, "409": {"$ref": "#/components/responses/ConflictProblem"}
         }
       }
@@ -15185,7 +15220,7 @@
           "artifactStorageMessage": {"type": "string", "minLength": 1},
           "signingKeysAvailable": {"type": "boolean"},
           "signingKeysMessage": {"type": "string", "minLength": 1},
-          "remoteDispatchEnabled": {"type": "boolean", "const": false},
+          "remoteDispatchEnabled": {"type": "boolean"},
           "dispatchMessage": {"type": "string", "minLength": 1}
         }
       },
@@ -15262,7 +15297,7 @@
       "BusinessReleaseDeployment": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["deploymentUid", "hardwareSn", "tenantCode", "organizationCode", "kind", "kindLabel", "waveNo", "status", "statusLabel", "eligibilitySummary", "sourceManagementStateSequence", "currentBusinessReleaseUid", "currentBusinessReleaseSequence", "plannedAt"],
+        "required": ["deploymentUid", "hardwareSn", "tenantCode", "organizationCode", "kind", "kindLabel", "waveNo", "status", "statusLabel", "cancellationStatus", "cancellationStatusLabel", "cancelReason", "cancelRequestedAt", "cancelResultAt", "businessAdmissionLabel", "downloadAttemptCount", "targetAttemptCount", "rollbackAttemptCount", "installedVersionName", "databaseRestored", "errorMessage", "eligibilitySummary", "sourceManagementStateSequence", "currentBusinessReleaseUid", "currentBusinessReleaseSequence", "plannedAt", "queuedAt", "completedAt", "updatedAt"],
         "properties": {
           "deploymentUid": {"$ref": "#/components/schemas/UuidV4"},
           "hardwareSn": {"$ref": "#/components/schemas/HardwareSn"},
@@ -15271,13 +15306,28 @@
           "kind": {"type": "string", "enum": ["VALIDATION", "WAVE"]},
           "kindLabel": {"type": "string", "minLength": 1},
           "waveNo": {"type": "integer", "minimum": 0, "maximum": 1000},
-          "status": {"type": "string", "const": "PLANNED"},
+          "status": {"type": "string", "enum": ["PLANNED", "QUEUED", "RECEIVED", "DOWNLOADING", "VERIFYING_PACKAGE", "PACKAGE_READY", "WAITING_FOR_IDLE", "MIGRATING_DATA", "ACTIVATING", "VERIFYING_TARGET", "OBSERVING", "ROLLING_BACK", "VERIFYING_ROLLBACK", "SUCCEEDED", "ROLLED_BACK", "DEFERRED", "REJECTED", "FAILED_LOCKED", "DOWNLOAD_AUTHORIZATION_REQUIRED", "CANCELLED"]},
           "statusLabel": {"type": "string", "minLength": 1},
+          "cancellationStatus": {"type": "string", "enum": ["NONE", "QUEUED", "CANCELLED", "TOO_LATE"]},
+          "cancellationStatusLabel": {"type": "string", "minLength": 1},
+          "cancelReason": {"type": ["string", "null"], "minLength": 1, "maxLength": 500},
+          "cancelRequestedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "cancelResultAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "businessAdmissionLabel": {"type": "string", "minLength": 1},
+          "downloadAttemptCount": {"type": "integer", "minimum": 0, "maximum": 10},
+          "targetAttemptCount": {"type": "integer", "minimum": 0, "maximum": 10},
+          "rollbackAttemptCount": {"type": "integer", "minimum": 0, "maximum": 10},
+          "installedVersionName": {"type": ["string", "null"], "minLength": 1, "maxLength": 32},
+          "databaseRestored": {"type": "boolean"},
+          "errorMessage": {"type": ["string", "null"], "minLength": 1},
           "eligibilitySummary": {"type": "string", "minLength": 1},
           "sourceManagementStateSequence": {"type": "integer", "format": "int64", "minimum": 1, "maximum": 9007199254740991},
           "currentBusinessReleaseUid": {"$ref": "#/components/schemas/UuidV4"},
           "currentBusinessReleaseSequence": {"type": "integer", "format": "int64", "minimum": 1, "maximum": 9007199254740991},
-          "plannedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+          "plannedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "queuedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "completedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "updatedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
         }
       },
       "BusinessRolloutAction": {
@@ -15285,9 +15335,9 @@
         "additionalProperties": false,
         "required": ["action", "actionLabel", "resultingStatus", "resultingStatusLabel", "requestedBy", "reason", "createdAt"],
         "properties": {
-          "action": {"type": "string", "enum": ["CREATE", "STOP"]},
+          "action": {"type": "string", "enum": ["CREATE", "START_VALIDATION", "REQUEST_CANCEL", "STOP"]},
           "actionLabel": {"type": "string", "minLength": 1},
-          "resultingStatus": {"type": "string", "enum": ["DRAFT", "STOPPED"]},
+          "resultingStatus": {"type": "string", "enum": ["DRAFT", "VALIDATING", "AWAITING_PROMOTION", "VALIDATION_FAILED", "STOPPED"]},
           "resultingStatusLabel": {"type": "string", "minLength": 1},
           "requestedBy": {"type": "string", "minLength": 1},
           "reason": {"type": "string", "minLength": 1, "maxLength": 500},
@@ -15301,7 +15351,7 @@
         "properties": {
           "rolloutUid": {"$ref": "#/components/schemas/UuidV4"},
           "release": {"$ref": "#/components/schemas/BusinessRelease"},
-          "status": {"type": "string", "enum": ["DRAFT", "STOPPED"]},
+          "status": {"type": "string", "enum": ["DRAFT", "VALIDATING", "AWAITING_PROMOTION", "VALIDATION_FAILED", "ACTIVE", "COMPLETED", "STOPPED"]},
           "statusLabel": {"type": "string", "minLength": 1},
           "batchSize": {"type": "integer", "minimum": 1, "maximum": 100},
           "maximumWaveNo": {"type": "integer", "minimum": 0, "maximum": 1000},
@@ -15310,7 +15360,7 @@
           "downloadTimeoutMinutes": {"type": "integer", "minimum": 1},
           "drainTimeoutMinutes": {"type": "integer", "minimum": 1},
           "maximumRetryCount": {"type": "integer", "minimum": 0, "maximum": 10},
-          "remoteDispatchEnabled": {"type": "boolean", "const": false},
+          "remoteDispatchEnabled": {"type": "boolean"},
           "reason": {"type": "string", "minLength": 1, "maxLength": 500},
           "createdBy": {"type": "string", "minLength": 1},
           "stoppedBy": {"type": ["string", "null"]},

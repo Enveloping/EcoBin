@@ -1,0 +1,65 @@
+{
+  "callServiceApiBodyTemplate": {
+    "device_name": "<HARDWARE_SN>",
+    "identifier": "startBusinessRuntimeUpdate",
+    "params": {
+      "downloadGrant": {
+        "authorizationSequence": 1,
+        "expiresAt": "2026-07-24T01:30:00.000Z",
+        "url": "https://ecobin-business-private-1250000000.cos.ap-guangzhou.myqcloud.com/edge-runtime/releases/8e000000-0000-4000-8000-000000000001/package.tar.gz?authorization=CONTRACT_ONLY"
+      },
+      "scalarFields1": {
+        "commandType": 1,
+        "commandUid": "8e000000-0000-4000-8000-000000000003",
+        "controlSequence": 1,
+        "deploymentUid": "8e000000-0000-4000-8000-000000000002",
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "objectKey": "edge-runtime/releases/8e000000-0000-4000-8000-000000000001/package.tar.gz",
+        "packageSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "packageSignatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+        "packageSize": 1048576,
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "b932b26cd4456e21ac0b2548af81306be860f13164f29cfcd6317cbe78812720",
+        "releaseSequence": 13,
+        "releaseUid": "8e000000-0000-4000-8000-000000000001",
+        "schemaVersion": 1,
+        "signatureSha256": "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+        "signingKeyId": "business-release-root-v1",
+        "targetDeviceName": "SN-CONTRACT-0001",
+        "updateUid": "8e000000-0000-4000-8000-000000000004",
+        "versionName": "1.1.0-rc.1"
+      },
+      "scalarFields2": {
+        "cosGrantPresent": false,
+        "downloadTimeoutSeconds": 1800,
+        "drainTimeoutSeconds": 1800,
+        "maximumRetryCount": 3,
+        "observationWindowSeconds": 1800,
+        "reason": "single-device validation"
+      },
+      "target": {
+        "type": 1,
+        "uid": "8e000000-0000-4000-8000-000000000002"
+      }
+    },
+    "product_id": "<PRODUCT_ID>"
+  },
+  "deviceAcceptedReplyTemplate": {
+    "code": 200,
+    "data": {
+      "commandUid": "8e000000-0000-4000-8000-000000000003",
+      "edgeBootId": 9001,
+      "errorCode": "",
+      "errorCodePresent": false,
+      "receiptState": 1,
+      "schemaVersion": 1
+    },
+    "id": "<COPY_REQUEST_ID>",
+    "msg": "accepted"
+  },
+  "deviceInvokeTopicTemplate": "$sys/{pid}/{device-name}/thing/service/startBusinessRuntimeUpdate/invoke",
+  "deviceReplyTopicTemplate": "$sys/{pid}/{device-name}/thing/service/startBusinessRuntimeUpdate/invoke_reply",
+  "identifier": "startBusinessRuntimeUpdate",
+  "kind": "SYNC_SERVICE"
+}

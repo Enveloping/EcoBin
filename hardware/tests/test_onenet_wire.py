@@ -243,6 +243,83 @@ def test_decode_and_validate_mcu_firmware_update_wire_example():
     assert command["payload"]["reason"] == "single-device validation"
 
 
+def test_decode_and_validate_business_runtime_update_wire_example():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "contracts"
+        / "examples"
+        / "onenet-wire"
+        / "start-business-runtime-update.service-wire.json"
+    )
+    with path.open(encoding="utf-8") as source:
+        body = json.load(source)["callServiceApiBodyTemplate"]
+    command = decode_service_command(body["identifier"], body["params"])
+    now = datetime.now(timezone.utc)
+    command["issuedAt"] = now.isoformat(timespec="milliseconds").replace(
+        "+00:00", "Z"
+    )
+    command["expiresAt"] = (
+        now + timedelta(minutes=5)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    command["downloadGrant"]["expiresAt"] = (
+        now + timedelta(minutes=30)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    base_url = command["downloadGrant"]["url"].split("/edge-runtime/", 1)[0]
+
+    validate_command_envelope(
+        command,
+        trusted_business_release_download_base_url=base_url,
+    )
+
+    assert command["commandType"] == "START_BUSINESS_RUNTIME_UPDATE"
+    assert command["target"]["type"] == "BUSINESS_RUNTIME_DEPLOYMENT"
+    assert command["payload"]["versionName"] == "1.1.0-rc.1"
+    assert command["payload"]["releaseSequence"] == 13
+    assert command["downloadGrant"]["authorizationSequence"] == 1
+
+    with pytest.raises(ValueError, match="trusted object location"):
+        validate_command_envelope(
+            command,
+            trusted_business_release_download_base_url=(
+                "https://another-private-bucket.cos."
+                "ap-guangzhou.myqcloud.com"
+            ),
+        )
+
+
+def test_decode_and_validate_business_runtime_cancellation_wire_example():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "contracts"
+        / "examples"
+        / "onenet-wire"
+        / "cancel-business-runtime-update.service-wire.json"
+    )
+    with path.open(encoding="utf-8") as source:
+        body = json.load(source)["callServiceApiBodyTemplate"]
+    command = decode_service_command(body["identifier"], body["params"])
+    now = datetime.now(timezone.utc)
+    command["issuedAt"] = now.isoformat(timespec="milliseconds").replace(
+        "+00:00", "Z"
+    )
+    command["expiresAt"] = (
+        now + timedelta(minutes=10)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    validate_command_envelope(command)
+
+    assert command["commandType"] == "CANCEL_BUSINESS_RUNTIME_UPDATE"
+    assert command["target"]["type"] == "BUSINESS_RUNTIME_DEPLOYMENT"
+    assert command["payload"]["controlSequence"] == 2
+    assert "downloadGrant" not in command
+
+    command["expiresAt"] = (
+        now + timedelta(minutes=16)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    with pytest.raises(ValueError, match="must not exceed 15 minutes"):
+        validate_command_envelope(command)
+
+
 def test_mcu_firmware_update_rejects_object_outside_signed_release_prefix():
     now = datetime.now(timezone.utc)
     deployment_uid = str(uuid.uuid4())

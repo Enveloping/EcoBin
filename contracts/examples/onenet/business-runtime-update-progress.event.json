@@ -1,0 +1,35 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "8e000000-0000-4000-8000-000000000003",
+  "deliveryClass": "RELIABLE_FACT",
+  "edgeEventSequence": 1058,
+  "eventType": "BUSINESS_RUNTIME_UPDATE_PROGRESS",
+  "eventUid": "8e000000-0000-4000-8000-000000000005",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "businessAdmissionState": "OPEN",
+    "databaseRestored": false,
+    "deploymentUid": "8e000000-0000-4000-8000-000000000002",
+    "downloadAttemptCount": 1,
+    "errorCode": null,
+    "installedPackageSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "installedReleaseSequence": 13,
+    "installedReleaseUid": "8e000000-0000-4000-8000-000000000001",
+    "installedVersionName": "1.1.0-rc.1",
+    "packageSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "releaseSequence": 13,
+    "releaseUid": "8e000000-0000-4000-8000-000000000001",
+    "rollbackAttemptCount": 0,
+    "stage": "SUCCEEDED",
+    "stageSequence": 10,
+    "targetAttemptCount": 1,
+    "updateUid": "8e000000-0000-4000-8000-000000000004",
+    "versionName": "1.1.0-rc.1"
+  },
+  "payloadSha256": "db34eed02a3d4ec3c975ca8de423509378ab8fd60b203f7d6f6559acc6c22c34",
+  "schemaVersion": 2,
+  "target": {
+    "type": "BUSINESS_RUNTIME_DEPLOYMENT",
+    "uid": "8e000000-0000-4000-8000-000000000002"
+  }
+}

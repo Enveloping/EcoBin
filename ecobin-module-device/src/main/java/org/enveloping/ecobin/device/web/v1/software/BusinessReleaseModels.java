@@ -122,11 +122,26 @@ public final class BusinessReleaseModels {
             int waveNo,
             String status,
             String statusLabel,
+            String cancellationStatus,
+            String cancellationStatusLabel,
+            String cancelReason,
+            Instant cancelRequestedAt,
+            Instant cancelResultAt,
+            String businessAdmissionLabel,
+            int downloadAttemptCount,
+            int targetAttemptCount,
+            int rollbackAttemptCount,
+            String installedVersionName,
+            boolean databaseRestored,
+            String errorMessage,
             String eligibilitySummary,
             long sourceManagementStateSequence,
             UUID currentBusinessReleaseUid,
             long currentBusinessReleaseSequence,
-            Instant plannedAt) {
+            Instant plannedAt,
+            Instant queuedAt,
+            Instant completedAt,
+            Instant updatedAt) {
     }
 
     public record RolloutActionView(

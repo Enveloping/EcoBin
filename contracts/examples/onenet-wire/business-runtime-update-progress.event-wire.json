@@ -1,0 +1,53 @@
+{
+  "identifier": "businessRuntimeUpdateProgress",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "118",
+    "params": {
+      "businessRuntimeUpdateProgress": {
+        "value": {
+          "businessAdmissionState": 1,
+          "clockQuality": 1,
+          "commandUid": "8e000000-0000-4000-8000-000000000003",
+          "databaseRestored": false,
+          "deliveryClass": 1,
+          "deploymentUid": "8e000000-0000-4000-8000-000000000002",
+          "downloadAttemptCount": 1,
+          "edgeEventSequence": 1058,
+          "errorCode": "",
+          "errorCodePresent": false,
+          "eventType": 1,
+          "eventUid": "8e000000-0000-4000-8000-000000000005",
+          "installedPackageSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "installedPackageSha256Present": true,
+          "installedReleaseSequence": 13,
+          "installedReleaseSequencePresent": true,
+          "installedReleaseUid": "8e000000-0000-4000-8000-000000000001",
+          "installedReleaseUidPresent": true,
+          "installedVersionName": "1.1.0-rc.1",
+          "installedVersionNamePresent": true,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "packageSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "payloadSha256": "db34eed02a3d4ec3c975ca8de423509378ab8fd60b203f7d6f6559acc6c22c34",
+          "releaseSequence": 13,
+          "releaseUid": "8e000000-0000-4000-8000-000000000001",
+          "rollbackAttemptCount": 0,
+          "schemaVersion": 1,
+          "stage": 12,
+          "stageSequence": 10,
+          "target": {
+            "type": 1,
+            "uid": "8e000000-0000-4000-8000-000000000002"
+          },
+          "targetAttemptCount": 1,
+          "updateUid": "8e000000-0000-4000-8000-000000000004",
+          "versionName": "1.1.0-rc.1"
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

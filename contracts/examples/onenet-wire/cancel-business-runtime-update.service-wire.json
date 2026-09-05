@@ -1,0 +1,43 @@
+{
+  "callServiceApiBodyTemplate": {
+    "device_name": "<HARDWARE_SN>",
+    "identifier": "cancelBusinessRuntimeUpdate",
+    "params": {
+      "commandType": 1,
+      "commandUid": "8e000000-0000-4000-8000-000000000006",
+      "controlSequence": 2,
+      "cosGrantPresent": false,
+      "deploymentUid": "8e000000-0000-4000-8000-000000000002",
+      "expiresAt": "2026-07-24T01:10:00.000Z",
+      "issuedAt": "2026-07-24T01:00:00.000Z",
+      "payloadSchemaVersion": 1,
+      "payloadSha256": "e99cda078304b1aa89a791f1cd06cf126db18284b50ade56bfd9311ba416a142",
+      "reason": "validation was stopped by platform administrator",
+      "schemaVersion": 1,
+      "target": {
+        "type": 1,
+        "uid": "8e000000-0000-4000-8000-000000000002"
+      },
+      "targetDeviceName": "SN-CONTRACT-0001",
+      "updateUid": "8e000000-0000-4000-8000-000000000004"
+    },
+    "product_id": "<PRODUCT_ID>"
+  },
+  "deviceAcceptedReplyTemplate": {
+    "code": 200,
+    "data": {
+      "commandUid": "8e000000-0000-4000-8000-000000000006",
+      "edgeBootId": 9001,
+      "errorCode": "",
+      "errorCodePresent": false,
+      "receiptState": 1,
+      "schemaVersion": 1
+    },
+    "id": "<COPY_REQUEST_ID>",
+    "msg": "accepted"
+  },
+  "deviceInvokeTopicTemplate": "$sys/{pid}/{device-name}/thing/service/cancelBusinessRuntimeUpdate/invoke",
+  "deviceReplyTopicTemplate": "$sys/{pid}/{device-name}/thing/service/cancelBusinessRuntimeUpdate/invoke_reply",
+  "identifier": "cancelBusinessRuntimeUpdate",
+  "kind": "SYNC_SERVICE"
+}

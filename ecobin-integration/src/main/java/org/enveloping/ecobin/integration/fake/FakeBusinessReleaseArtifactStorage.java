@@ -9,6 +9,8 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.regex.Pattern;
 
@@ -20,9 +22,11 @@ final class FakeBusinessReleaseArtifactStorage
                     + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}/"
                     + "(?:package\\.tar\\.gz|package\\.sig)$");
     private final Path root;
+    private final BusinessReleaseArtifactProperties properties;
 
     FakeBusinessReleaseArtifactStorage(
             BusinessReleaseArtifactProperties properties) {
+        this.properties = properties;
         this.root = Path.of(properties.getFakeDirectory())
                 .toAbsolutePath().normalize();
     }
@@ -73,6 +77,25 @@ final class FakeBusinessReleaseArtifactStorage
         } catch (IOException exception) {
             throw new IllegalStateException("无法读取本地演练制品", exception);
         }
+    }
+
+    @Override
+    public DownloadAuthorization issueReadAuthorization(
+            String objectKey,
+            Duration validity) {
+        resolve(objectKey);
+        if (validity == null || validity.isNegative() || validity.isZero()) {
+            throw new IllegalArgumentException(
+                    "业务发布下载授权有效期必须为正数");
+        }
+        String base = properties.getDownloadBaseUrl();
+        if (base == null || !base.startsWith("https://")) {
+            throw new IllegalStateException("测试下载基础位置未配置");
+        }
+        Instant expiresAt = Instant.now().plus(validity);
+        return new DownloadAuthorization(
+                base + "/" + objectKey + "?authorization=fake",
+                expiresAt);
     }
 
     private Path resolve(String objectKey) {

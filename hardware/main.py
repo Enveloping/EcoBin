@@ -293,6 +293,9 @@ class EcoBinEdge:
                 ),
                 enable_cloud_proxy_candidate=cloud_proxy_enabled,
                 business_database_path=EDGE_STORE_PATH,
+                software_runtime_facts_provider=(
+                    self._software_runtime_facts
+                ),
             )
         )
 
@@ -1362,6 +1365,67 @@ class EcoBinEdge:
             self._last_runtime_snapshot_monotonic = now
             self._reset_runtime_snapshot_fallback(now)
             return result
+
+    def _software_runtime_facts(self):
+        """Expose actual read-only MCU/UART facts to the permanent updater."""
+
+        compatibility_mode = bool(
+            getattr(self.uart, "compatibility_mode", False)
+        )
+        raw_capability = (
+            0
+            if compatibility_mode
+            else (getattr(self.uart, "_mcu_capability", None) or 0)
+        )
+        if (
+            isinstance(raw_capability, bool)
+            or not isinstance(raw_capability, int)
+            or not 0 <= raw_capability <= 0xFFFFFFFFFFFFFFFF
+        ):
+            raw_capability = 0
+        raw_identity = getattr(
+            self.uart,
+            "verified_firmware_identity",
+            None,
+        )
+        mcu_firmware = None
+        if isinstance(raw_identity, dict):
+            version = raw_identity.get("firmwareVersion")
+            version_code = raw_identity.get("firmwareVersionCode")
+            identity_hex = raw_identity.get("firmwareIdentityHex")
+            revision = raw_identity.get("fixedFrameRevision")
+            if (
+                isinstance(version, str)
+                and 1 <= len(version) <= 32
+                and isinstance(version_code, int)
+                and not isinstance(version_code, bool)
+                and 1 <= version_code <= 0xFFFFFFFF
+                and isinstance(identity_hex, str)
+                and len(identity_hex) == 16
+                and all(
+                    character in "0123456789abcdef"
+                    for character in identity_hex
+                )
+                and isinstance(revision, int)
+                and not isinstance(revision, bool)
+                and 1 <= revision <= 255
+            ):
+                mcu_firmware = {
+                    "versionName": version,
+                    "versionCode": version_code,
+                    "identityHex": identity_hex,
+                    "fixedFrameRevision": revision,
+                }
+        return {
+            "mcuFirmware": mcu_firmware,
+            "uartState": runtime_uart_state(self.store, self.uart),
+            "uartProtocol": (
+                None
+                if compatibility_mode
+                else {"major": 1, "minor": 0}
+            ),
+            "capabilityBitmapHex": f"{raw_capability:016x}",
+        }
 
     def _shutdown(self):
         logger.info("shutting down...")

@@ -81,11 +81,26 @@ export interface BusinessDeployment {
   waveNo: number;
   status: string;
   statusLabel: string;
+  cancellationStatus: 'NONE' | 'QUEUED' | 'CANCELLED' | 'TOO_LATE';
+  cancellationStatusLabel: string;
+  cancelReason?: string;
+  cancelRequestedAt?: string;
+  cancelResultAt?: string;
+  businessAdmissionLabel: string;
+  downloadAttemptCount: number;
+  targetAttemptCount: number;
+  rollbackAttemptCount: number;
+  installedVersionName?: string;
+  databaseRestored: boolean;
+  errorMessage?: string;
   eligibilitySummary: string;
   sourceManagementStateSequence: number;
   currentBusinessReleaseUid: string;
   currentBusinessReleaseSequence: number;
   plannedAt: string;
+  queuedAt?: string;
+  completedAt?: string;
+  updatedAt: string;
 }
 
 export interface BusinessRolloutAction {
@@ -277,6 +292,31 @@ export function stopBusinessRollout(
 ) {
   return intent.execute<BusinessRollout, { reason: string }>({
     url: `${base}/rollouts/${encodeURIComponent(rolloutUid)}/stoppages`,
+    method: 'POST',
+    data: { reason },
+  });
+}
+
+export function startBusinessRolloutValidation(
+  rolloutUid: string,
+  reason: string,
+  intent: CommandIntent,
+) {
+  return intent.execute<BusinessRollout, { reason: string }>({
+    url: `${base}/rollouts/${encodeURIComponent(rolloutUid)}/validation-starts`,
+    method: 'POST',
+    data: { reason },
+  });
+}
+
+export function cancelBusinessRolloutDeployment(
+  rolloutUid: string,
+  deploymentUid: string,
+  reason: string,
+  intent: CommandIntent,
+) {
+  return intent.execute<BusinessRollout, { reason: string }>({
+    url: `${base}/rollouts/${encodeURIComponent(rolloutUid)}/deployments/${encodeURIComponent(deploymentUid)}/cancellations`,
     method: 'POST',
     data: { reason },
   });

@@ -981,6 +981,9 @@ public class ReliableOperationsJdbcRepository {
                                         'SYNC_DEVICE_ENTRY_URL',
                                         'OPEN_REMOTE_SUPPORT_TUNNEL',
                                         'CLOSE_REMOTE_SUPPORT_TUNNEL',
+                                        'START_MCU_FIRMWARE_UPDATE',
+                                        'START_BUSINESS_RUNTIME_UPDATE',
+                                        'CANCEL_BUSINESS_RUNTIME_UPDATE',
                                         'CONFIRM_EDGE_EVENT'
                                     )
                                 )
@@ -1007,7 +1010,10 @@ public class ReliableOperationsJdbcRepository {
                                         'AUTHORIZE_FACTORY_SEAL',
                                         'SYNC_DEVICE_ENTRY_URL',
                                         'OPEN_REMOTE_SUPPORT_TUNNEL',
-                                        'CLOSE_REMOTE_SUPPORT_TUNNEL'
+                                        'CLOSE_REMOTE_SUPPORT_TUNNEL',
+                                        'START_MCU_FIRMWARE_UPDATE',
+                                        'START_BUSINESS_RUNTIME_UPDATE',
+                                        'CANCEL_BUSINESS_RUNTIME_UPDATE'
                                     )
                                     AND eligible_command.id IS NULL
                                 )
@@ -1028,7 +1034,10 @@ public class ReliableOperationsJdbcRepository {
                                         'AUTHORIZE_FACTORY_SEAL',
                                         'SYNC_DEVICE_ENTRY_URL',
                                         'OPEN_REMOTE_SUPPORT_TUNNEL',
-                                        'CLOSE_REMOTE_SUPPORT_TUNNEL'
+                                        'CLOSE_REMOTE_SUPPORT_TUNNEL',
+                                        'START_MCU_FIRMWARE_UPDATE',
+                                        'START_BUSINESS_RUNTIME_UPDATE',
+                                        'CANCEL_BUSINESS_RUNTIME_UPDATE'
                                     )
                                     AND transport.onenet_connection_status =
                                         'ONLINE'
@@ -1079,6 +1088,9 @@ public class ReliableOperationsJdbcRepository {
                             'SYNC_DEVICE_ENTRY_URL',
                             'OPEN_REMOTE_SUPPORT_TUNNEL',
                             'CLOSE_REMOTE_SUPPORT_TUNNEL',
+                            'START_MCU_FIRMWARE_UPDATE',
+                            'START_BUSINESS_RUNTIME_UPDATE',
+                            'CANCEL_BUSINESS_RUNTIME_UPDATE',
                             'CONFIRM_EDGE_EVENT'
                         )
                     )
@@ -1187,6 +1199,7 @@ public class ReliableOperationsJdbcRepository {
                 candidate.taskUid(),
                 candidate.commandUid(),
                 attemptUid,
+                attemptNo,
                 leaseToken,
                 candidate.wakeVersion(),
                 candidate.commandType(),
@@ -1269,7 +1282,10 @@ public class ReliableOperationsJdbcRepository {
                               'AUTHORIZE_FACTORY_SEAL',
                               'SYNC_DEVICE_ENTRY_URL',
                               'OPEN_REMOTE_SUPPORT_TUNNEL',
-                              'CLOSE_REMOTE_SUPPORT_TUNNEL'
+                              'CLOSE_REMOTE_SUPPORT_TUNNEL',
+                              'START_MCU_FIRMWARE_UPDATE',
+                              'START_BUSINESS_RUNTIME_UPDATE',
+                              'CANCEL_BUSINESS_RUNTIME_UPDATE'
                           )
                           AND c.id IS NULL
                       )
@@ -1993,6 +2009,9 @@ public class ReliableOperationsJdbcRepository {
                             'SYNC_DEVICE_ENTRY_URL',
                             'OPEN_REMOTE_SUPPORT_TUNNEL',
                             'CLOSE_REMOTE_SUPPORT_TUNNEL',
+                            'START_MCU_FIRMWARE_UPDATE',
+                            'START_BUSINESS_RUNTIME_UPDATE',
+                            'CANCEL_BUSINESS_RUNTIME_UPDATE',
                             'CONFIRM_EDGE_EVENT'
                         )
                     )
@@ -2071,6 +2090,60 @@ public class ReliableOperationsJdbcRepository {
     }
 
     /**
+     * Makes a maintenance download command claimable again after the device
+     * explicitly asks for fresh, short-lived download authorization. The
+     * command identity and frozen semantic payload remain unchanged; only the
+     * transport authorization is minted again by the outbound adapter.
+     *
+     * <p>This deliberately clears the device-evidence wait only for the
+     * expected maintenance command type. Generic physical commands must never
+     * gain a replay path through this method.</p>
+     */
+    public long wakeTaskForAuthorizedRedelivery(
+            UUID taskUid,
+            String expectedTaskType,
+            LocalDateTime now) {
+        WakeableTask task = lockWakeableTask(taskUid);
+        if (!expectedTaskType.equals(task.taskType())) {
+            throw new IllegalStateException(
+                    "download authorization evidence targets a different task type");
+        }
+        long newVersion = task.wakeVersion() + 1;
+        if (task.leaseToken() != null) {
+            int updated = jdbcTemplate.update("""
+                    UPDATE ops_reliable_task
+                    SET wake_version = ?,
+                        lock_version = lock_version + 1,
+                        updated_at = ?
+                    WHERE id = ?
+                    """, newVersion, now, task.id());
+            requireSingleRow(updated, "wake leased maintenance download task");
+            return newVersion;
+        }
+        int updated = jdbcTemplate.update("""
+                UPDATE ops_reliable_task
+                SET state = 'PENDING',
+                    next_run_at = ?,
+                    wake_version = ?,
+                    consecutive_failure_count = 0,
+                    completed_at = NULL,
+                    blocked_reason_code = NULL,
+                    blocked_diagnostic = NULL,
+                    dispatch_wait_reason = CASE
+                        WHEN dispatch_wait_reason =
+                             'AWAITING_DEVICE_EVIDENCE'
+                        THEN NULL
+                        ELSE dispatch_wait_reason
+                    END,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE id = ?
+                """, now, newVersion, now, task.id());
+        requireSingleRow(updated, "wake maintenance download task");
+        return newVersion;
+    }
+
+    /**
      * Rechecks an identical transport delivery without treating the same
      * bytes as evidence that an existing failure reason disappeared.
      * BLOCKED tasks still require the audited governance resume use case.
@@ -2088,17 +2161,20 @@ public class ReliableOperationsJdbcRepository {
 
     private WakeableTask lockWakeableTask(UUID taskUid) {
         return jdbcTemplate.queryForObject("""
-                SELECT id, state, lease_token, lease_until, wake_version
+                SELECT id, task_type, state, lease_token, lease_until,
+                       wake_version, dispatch_wait_reason
                 FROM ops_reliable_task
                 WHERE task_uid = ?
                 FOR UPDATE
                 """,
                 (resultSet, rowNumber) -> new WakeableTask(
                         resultSet.getLong("id"),
+                        resultSet.getString("task_type"),
                         resultSet.getString("state"),
                         nullableUuid(resultSet.getString("lease_token")),
                         resultSet.getObject("lease_until", LocalDateTime.class),
-                        resultSet.getLong("wake_version")),
+                        resultSet.getLong("wake_version"),
+                        resultSet.getString("dispatch_wait_reason")),
                 taskUid.toString());
     }
 
@@ -2372,9 +2448,11 @@ public class ReliableOperationsJdbcRepository {
 
     private record WakeableTask(
             long id,
+            String taskType,
             String state,
             UUID leaseToken,
             LocalDateTime leaseUntil,
-            long wakeVersion) {
+            long wakeVersion,
+            String dispatchWaitReason) {
     }
 }

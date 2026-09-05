@@ -28,7 +28,6 @@ from contractlib import (  # noqa: E402
 from generate_contracts import (  # noqa: E402
     HARDWARE_MCU_UART_GOLDEN_TEST,
     HARDWARE_MCU_UART_HEADER,
-    ONENET_IMPORT_COMPACT_EVENT_IDENTIFIERS,
     apply_outputs,
     build_outputs,
 )
@@ -61,26 +60,18 @@ class GeneratedArtifactTests(unittest.TestCase):
         self.assertNotIn(b"\r\n", candidate)
 
         candidate_text = candidate.decode("utf-8")
-        event_identifiers = {
-            event["identifier"]
-            for event in load_json(candidate_path)["events"]
+        model = load_json(candidate_path)
+        function_identifiers = {
+            function["identifier"]
+            for collection in ("services", "events")
+            for function in model[collection]
         }
         locally_compacted = {
             identifier
-            for identifier in event_identifiers
+            for identifier in function_identifiers
             if f'"identifier":"{identifier}"' in candidate_text
         }
-        self.assertEqual(
-            {
-                "deviceRuntimeSnapshot",
-                "deviceSoftwareStateReported",
-            },
-            set(ONENET_IMPORT_COMPACT_EVENT_IDENTIFIERS),
-        )
-        self.assertEqual(
-            set(ONENET_IMPORT_COMPACT_EVENT_IDENTIFIERS),
-            locally_compacted,
-        )
+        self.assertEqual(function_identifiers, locally_compacted)
 
     def test_onenet_import_candidate_enum_descriptions_match_vendor_limits(
         self,

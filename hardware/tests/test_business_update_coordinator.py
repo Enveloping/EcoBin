@@ -16,6 +16,7 @@ DEPLOYMENT_UID = "22222222-2222-4222-8222-222222222222"
 COMMAND_UID = "33333333-3333-4333-8333-333333333333"
 TARGET_RELEASE = "44444444-4444-4444-8444-444444444444"
 BASELINE_RELEASE = "55555555-5555-4555-8555-555555555555"
+CANCEL_COMMAND_UID = "88888888-8888-4888-8888-888888888888"
 
 
 def _request() -> dict:
@@ -29,6 +30,55 @@ def _request() -> dict:
         "packageSha256": "a" * 64,
         "packageSize": 1024,
         "signingKeyId": "business_2026",
+    }
+
+
+def _remote_command() -> dict:
+    return {
+        "commandUid": COMMAND_UID,
+        "payloadSha256": "b" * 64,
+        "payload": {
+            "updateUid": UPDATE_UID,
+            "deploymentUid": DEPLOYMENT_UID,
+            "releaseUid": TARGET_RELEASE,
+            "versionName": "1.1.0",
+            "releaseSequence": 2,
+            "packageSha256": "a" * 64,
+            "packageSize": 1024,
+            "signingKeyId": "business_2026",
+            "controlSequence": 1,
+            "objectKey": (
+                f"edge-runtime/releases/{TARGET_RELEASE}/package.tar.gz"
+            ),
+            "signatureSha256": (
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b"
+            ),
+            "packageSignatureBase64": (
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                "AAAAAAAAAAAAAAAAAAAAAA=="
+            ),
+            "observationWindowSeconds": 1800,
+            "downloadTimeoutSeconds": 1800,
+            "drainTimeoutSeconds": 1800,
+            "maximumRetryCount": 3,
+        },
+        "downloadGrant": {
+            "authorizationSequence": 1,
+            "url": "https://private.example.invalid/package.tar.gz",
+            "expiresAt": "2026-09-04T01:00:00Z",
+        },
+    }
+
+
+def _cancel_command() -> dict:
+    return {
+        "commandUid": CANCEL_COMMAND_UID,
+        "payload": {
+            "updateUid": UPDATE_UID,
+            "deploymentUid": DEPLOYMENT_UID,
+            "controlSequence": 2,
+            "reason": "platform administrator cancelled validation",
+        },
     }
 
 
@@ -46,6 +96,23 @@ class FakePackageStager:
 
     def cleanup(self, update_uid: str) -> None:
         self.cleaned.append(update_uid)
+
+
+class FakeRemoteDownloader:
+    def __init__(self) -> None:
+        self.authorizations: list[dict] = []
+        self.cancelled: list[str] = []
+        self.cleanup_ready = True
+
+    def accept_authorization(self, **authorization) -> None:
+        self.authorizations.append(dict(authorization))
+
+    def cancel(self, update_uid: str) -> None:
+        self.cancelled.append(update_uid)
+
+    def cleanup_cancelled(self, update_uid: str) -> bool:
+        assert update_uid == UPDATE_UID
+        return self.cleanup_ready
 
 
 class FakeBusinessClient:
@@ -196,7 +263,12 @@ def _uid_factory(start: int = 100):
     return make
 
 
-def _coordinator(tmp_path: Path, *, bridge_baseline: bool = False):
+def _coordinator(
+    tmp_path: Path,
+    *,
+    bridge_baseline: bool = False,
+    remote: bool = False,
+):
     clock = [datetime(2026, 9, 4, tzinfo=timezone.utc)]
     now = lambda: clock[0]
     path = tmp_path / "updater.db"
@@ -225,10 +297,12 @@ def _coordinator(tmp_path: Path, *, bridge_baseline: bool = False):
     if bridge_baseline:
         business.version = helper.bridge_version
     stager = FakePackageStager()
+    downloader = FakeRemoteDownloader() if remote else None
     coordinator = BusinessUpdateCoordinator(
         safety_store=safety,
         journal=journal,
         package_stager=stager,
+        remote_downloader=downloader,
         business_client=business,
         helper_client=helper,
         uuid_factory=_uid_factory(),
@@ -275,6 +349,9 @@ def test_signed_local_candidate_switches_and_observes_before_success(tmp_path) -
     assert accepted["disposition"] == "ACCEPTED"
     assert completed["state"] == "SUCCEEDED"
     assert completed["installedReleaseId"] == TARGET_RELEASE
+    assert completed["installedVersionName"] == "1.1.0"
+    assert completed["installedReleaseSequence"] == 2
+    assert completed["installedPackageSha256"] == "a" * 64
     assert completed["businessAdmission"] == "ACCEPTING"
     assert helper.current == TARGET_RELEASE
     assert safety.get_status()["jobGateState"] == "OPEN"
@@ -293,6 +370,10 @@ def test_observation_failure_restores_database_and_previous_release(tmp_path) ->
 
     assert completed["state"] == "ROLLED_BACK"
     assert completed["databaseRestored"] is True
+    assert completed["installedReleaseId"] == BASELINE_RELEASE
+    assert completed["installedVersionName"] == "1.0.0"
+    assert completed["installedReleaseSequence"] == 1
+    assert completed["installedPackageSha256"] == "b" * 64
     assert helper.database_restored is True
     assert helper.current == BASELINE_RELEASE
     assert safety.get_status()["jobGateState"] == "OPEN"
@@ -365,6 +446,10 @@ def test_failed_first_package_restores_database_and_image_bridge(tmp_path) -> No
     assert completed["state"] == "ROLLED_BACK"
     assert completed["baselineKind"] == "IMAGE_BRIDGE"
     assert completed["databaseRestored"] is True
+    assert completed["installedReleaseId"] is None
+    assert completed["installedVersionName"] is None
+    assert completed["installedReleaseSequence"] is None
+    assert completed["installedPackageSha256"] is None
     assert helper.current is None
     assert helper.bridge_active is True
     assert business.version == helper.bridge_version
@@ -721,3 +806,130 @@ def test_health_failure_after_updater_restart_can_still_roll_back(
     assert completed["state"] == "ROLLED_BACK"
     assert helper.current == BASELINE_RELEASE
     assert reopened.get_status()["jobGateState"] == "OPEN"
+
+
+def test_remote_cancellation_cleans_download_and_staging_before_completion(
+    tmp_path: Path,
+) -> None:
+    coordinator, safety, journal, _business, _helper, stager, _clock = (
+        _coordinator(tmp_path, remote=True)
+    )
+    downloader = coordinator.remote_downloader
+    assert isinstance(downloader, FakeRemoteDownloader)
+    coordinator.queue_remote(_remote_command())
+
+    accepted = coordinator.cancel_remote(_cancel_command())
+    assert accepted["outcome"] == "ACCEPTED"
+    assert journal.get_update(UPDATE_UID)["state"] == "RECEIVED"
+
+    assert coordinator.process_once() is True
+    completed = journal.get_update(UPDATE_UID)
+    assert completed is not None
+    assert completed["state"] == "DEFERRED"
+    assert completed["errorCode"] == "BUSINESS_UPDATE_CANCELLED"
+    assert journal.get_pending_cancellation(UPDATE_UID) is None
+    result = journal.list_cancellation_results_requiring_delivery()[0]
+    assert result["outcome"] == "CANCELLED"
+    assert safety.get_status()["jobGateState"] == "OPEN"
+    assert downloader.cancelled == [UPDATE_UID, UPDATE_UID]
+    assert stager.cleaned == [UPDATE_UID]
+
+
+def test_remote_cancellation_reopens_gate_while_waiting_for_jobs(
+    tmp_path: Path,
+) -> None:
+    coordinator, safety, journal, _business, _helper, _stager, _clock = (
+        _coordinator(tmp_path, remote=True)
+    )
+    coordinator.queue_remote(_remote_command())
+    journal.mark_remote_downloaded(UPDATE_UID, 1)
+    waiting = _advance_until(
+        coordinator,
+        journal,
+        state="WAITING_FOR_IDLE",
+        step="WAIT_FOR_IDLE",
+    )
+    assert waiting["maintenanceFenceToken"] is not None
+    assert safety.get_status()["jobGateState"] == "DRAINING"
+
+    coordinator.cancel_remote(_cancel_command())
+    coordinator.process_once()
+
+    assert journal.get_update(UPDATE_UID)["errorCode"] == (
+        "BUSINESS_UPDATE_CANCELLED"
+    )
+    assert safety.get_status()["jobGateState"] == "OPEN"
+    assert safety.get_status()["maintenanceOwnerUid"] is None
+
+
+def test_remote_cancellation_waits_for_inflight_download_cleanup(
+    tmp_path: Path,
+) -> None:
+    coordinator, _safety, journal, _business, _helper, _stager, _clock = (
+        _coordinator(tmp_path, remote=True)
+    )
+    downloader = coordinator.remote_downloader
+    assert isinstance(downloader, FakeRemoteDownloader)
+    downloader.cleanup_ready = False
+    coordinator.queue_remote(_remote_command())
+    coordinator.cancel_remote(_cancel_command())
+
+    assert coordinator.process_once() is False
+    assert journal.get_pending_cancellation(UPDATE_UID) is not None
+    assert journal.get_update(UPDATE_UID)["state"] == "RECEIVED"
+
+    downloader.cleanup_ready = True
+    assert coordinator.process_once() is True
+    assert journal.get_update(UPDATE_UID)["errorCode"] == (
+        "BUSINESS_UPDATE_CANCELLED"
+    )
+
+
+def test_remote_cancellation_is_too_late_after_maintenance_boundary(
+    tmp_path: Path,
+) -> None:
+    coordinator, safety, journal, _business, _helper, _stager, _clock = (
+        _coordinator(tmp_path, remote=True)
+    )
+    downloader = coordinator.remote_downloader
+    assert isinstance(downloader, FakeRemoteDownloader)
+    coordinator.queue_remote(_remote_command())
+    journal.mark_remote_downloaded(UPDATE_UID, 1)
+    _advance_until(
+        coordinator,
+        journal,
+        state="WAITING_FOR_IDLE",
+        step="WAIT_FOR_IDLE",
+    )
+    coordinator.process_once()
+    assert journal.get_update(UPDATE_UID)["state"] == "MIGRATING_DATA"
+    assert safety.get_status()["jobGateState"] == "MAINTENANCE"
+
+    result = coordinator.cancel_remote(_cancel_command())
+
+    assert result["outcome"] == "TOO_LATE"
+    assert journal.get_update(UPDATE_UID)["state"] == "MIGRATING_DATA"
+    assert downloader.cancelled == []
+
+
+def test_recovered_maintenance_boundary_cannot_be_cancelled_as_safe(
+    tmp_path: Path,
+) -> None:
+    coordinator, safety, journal, _business, _helper, _stager, _clock = (
+        _coordinator(tmp_path, remote=True)
+    )
+    coordinator.queue_remote(_remote_command())
+    journal.mark_remote_downloaded(UPDATE_UID, 1)
+    _advance_until(
+        coordinator,
+        journal,
+        state="WAITING_FOR_IDLE",
+        step="WAIT_FOR_IDLE",
+    )
+    safety.transition_job_gate("MAINTENANCE")
+    assert journal.get_update(UPDATE_UID)["state"] == "WAITING_FOR_IDLE"
+
+    result = coordinator.cancel_remote(_cancel_command())
+
+    assert result["outcome"] == "TOO_LATE"
+    assert journal.get_update(UPDATE_UID)["state"] == "MIGRATING_DATA"

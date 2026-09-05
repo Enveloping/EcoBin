@@ -27,6 +27,8 @@ SCHEMA_VERSION = 2
 PROXY_EXTENSION_VERSION = 1
 MAX_RELEASE_VERSION_LENGTH = 32
 MAX_PROXY_JSON_BYTES = 192 * 1024
+MANAGEMENT_EVENT_SEQUENCE_MIN = 9_000_000_000_000
+MAX_EDGE_EVENT_SEQUENCE = 9_999_999_999_999
 
 INBOUND_RECEIVED = "RECEIVED"
 INBOUND_BUSINESS_ACCEPTED = "BUSINESS_ACCEPTED"
@@ -800,19 +802,31 @@ class CommunicationStore:
         command_uid: str,
         service_id: str,
         params: dict[str, Any],
+        *,
+        identity_params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Persist one ordinary cloud command before contacting business."""
+        """Persist one cloud command before contacting its local owner.
+
+        ``identity_params`` is the credential-free stable projection used for
+        the durable digest and payload.  The caller may still forward the
+        original in-memory parameters to a maintenance owner.  In particular,
+        a presigned download URL must never enter this database and refreshing
+        that URL must not create an idempotency conflict.
+        """
 
         command_uid = _require_uuid4(command_uid, "command UID")
         service_id = _require_proxy_identifier(service_id, "service ID")
+        stable_params = params if identity_params is None else identity_params
         params_json, content_sha256 = _canonical_proxy_document(
             "ecobin.communication.inbound-command",
-            {"serviceId": service_id, "params": params},
+            {"serviceId": service_id, "params": stable_params},
         )
         # Store only the raw params in the payload row.  The digest above also
         # binds the service identifier so the same command UID cannot cross
         # service routes without producing a conflict.
-        raw_params_json = _canonical_proxy_json(params, "service params")
+        raw_params_json = _canonical_proxy_json(
+            stable_params, "stable service params"
+        )
         now = self._now_text()
         with self.transaction() as connection:
             ledger = connection.execute(
@@ -1183,10 +1197,10 @@ class CommunicationStore:
         if (
             isinstance(edge_sequence, bool)
             or not isinstance(edge_sequence, int)
-            or not 1 <= edge_sequence <= 9_999_999_999_999
+            or not 1 <= edge_sequence < MANAGEMENT_EVENT_SEQUENCE_MIN
         ):
             raise ValueError(
-                "event params require a 13-digit edgeEventSequence"
+                "business event edgeEventSequence is outside its reserved range"
             )
         now = self._now_text()
         with self.transaction() as connection:
@@ -1251,6 +1265,122 @@ class CommunicationStore:
                 "disposition": "DUPLICATE",
                 "contentSha256": content_sha256,
                 "dispatchGeneration": requested,
+            }
+
+    def submit_proxy_management_event(
+        self,
+        event_uid: str,
+        event_type: str,
+        params_without_sequence: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Durably assign and enqueue one updater-owned management event.
+
+        The permanent communication process is the only allocator for the
+        reserved high sequence range.  Callers repeat the same immutable
+        envelope without a sequence; the first durable acceptance freezes the
+        assigned sequence and later retries reuse it.
+        """
+
+        event_uid = _require_uuid4(event_uid, "event UID")
+        event_type = _require_proxy_identifier(event_type, "event type")
+        stable = dict(params_without_sequence)
+        if "edgeEventSequence" in stable:
+            raise ValueError(
+                "management event sequence must be assigned by communication"
+            )
+        if stable.get("eventUid") != event_uid:
+            raise ValueError("management event UID differs from its envelope")
+        if stable.get("eventType") != event_type:
+            raise ValueError("management event type differs from its envelope")
+        stable_json = _canonical_proxy_json(stable, "management event params")
+        now = self._now_text()
+        with self.transaction() as connection:
+            ledger = connection.execute(
+                """SELECT content_sha256, state
+                   FROM outbound_business_event_ledger WHERE event_uid=?""",
+                (event_uid,),
+            ).fetchone()
+            if ledger is None:
+                largest = connection.execute(
+                    "SELECT MAX(edge_event_sequence) FROM outbound_proxy_event"
+                ).fetchone()[0]
+                edge_sequence = max(
+                    MANAGEMENT_EVENT_SEQUENCE_MIN - 1,
+                    int(largest) if largest is not None else 0,
+                ) + 1
+                if edge_sequence > MAX_EDGE_EVENT_SEQUENCE:
+                    raise RuntimeError(
+                        "management edge event sequence range is exhausted"
+                    )
+                params = {**stable, "edgeEventSequence": edge_sequence}
+                params_json = _canonical_proxy_json(params, "event params")
+                _document_json, content_sha256 = _canonical_proxy_document(
+                    "ecobin.communication.outbound-event",
+                    {"eventType": event_type, "params": params},
+                )
+                connection.execute(
+                    """INSERT INTO outbound_business_event_ledger
+                       (event_uid, content_sha256, state, created_at)
+                       VALUES (?, ?, 'PENDING', ?)""",
+                    (event_uid, content_sha256, now),
+                )
+                connection.execute(
+                    """INSERT INTO outbound_proxy_event
+                       (event_uid, event_type, params_json,
+                        edge_event_sequence)
+                       VALUES (?, ?, ?, ?)""",
+                    (event_uid, event_type, params_json, edge_sequence),
+                )
+                return {
+                    "disposition": "ACCEPTED",
+                    "contentSha256": content_sha256,
+                    "dispatchGeneration": 1,
+                    "edgeEventSequence": edge_sequence,
+                }
+
+            proxy = connection.execute(
+                "SELECT * FROM outbound_proxy_event WHERE event_uid=?",
+                (event_uid,),
+            ).fetchone()
+            if proxy is None or proxy["event_type"] != event_type:
+                return {
+                    "disposition": "CONFLICT",
+                    "contentSha256": None,
+                    "dispatchGeneration": None,
+                    "edgeEventSequence": None,
+                }
+            persisted = json.loads(proxy["params_json"])
+            persisted.pop("edgeEventSequence", None)
+            if _canonical_proxy_json(
+                persisted, "persisted management event params"
+            ) != stable_json:
+                return {
+                    "disposition": "CONFLICT",
+                    "contentSha256": None,
+                    "dispatchGeneration": None,
+                    "edgeEventSequence": None,
+                }
+            requested = int(proxy["requested_generation"])
+            completed = int(proxy["completed_generation"])
+            if requested == completed and proxy["active_generation"] is None:
+                requested += 1
+                updated = connection.execute(
+                    """UPDATE outbound_proxy_event
+                       SET requested_generation=?, retry_not_before=NULL
+                       WHERE event_uid=?
+                         AND requested_generation=completed_generation
+                         AND active_generation IS NULL""",
+                    (requested, event_uid),
+                )
+                if updated.rowcount != 1:
+                    raise RuntimeError(
+                        "proxy management generation did not advance"
+                    )
+            return {
+                "disposition": "DUPLICATE",
+                "contentSha256": ledger["content_sha256"],
+                "dispatchGeneration": requested,
+                "edgeEventSequence": int(proxy["edge_event_sequence"]),
             }
 
     def claim_next_proxy_outbound_event(self) -> dict[str, Any] | None:

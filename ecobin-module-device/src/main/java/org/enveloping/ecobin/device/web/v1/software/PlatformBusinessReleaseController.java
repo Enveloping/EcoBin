@@ -192,6 +192,31 @@ public class PlatformBusinessReleaseController {
                 operationUid, rolloutUid, body.reason()), request);
     }
 
+    @PostMapping("/rollouts/{rolloutUid}/validation-starts")
+    public ResponseEntity<TargetApiEnvelope<RolloutView>> startValidation(
+            @RequestHeader(IDEMPOTENCY_KEY) UUID operationUid,
+            @PathVariable UUID rolloutUid,
+            @Valid @RequestBody ReleaseActionRequest body,
+            HttpServletRequest request) {
+        return response(releases.startValidation(
+                operationUid, rolloutUid, body.reason()), request);
+    }
+
+    @PostMapping(
+            "/rollouts/{rolloutUid}/deployments/{deploymentUid}/cancellations")
+    public ResponseEntity<TargetApiEnvelope<RolloutView>> cancelDeployment(
+            @RequestHeader(IDEMPOTENCY_KEY) UUID operationUid,
+            @PathVariable UUID rolloutUid,
+            @PathVariable UUID deploymentUid,
+            @Valid @RequestBody ReleaseActionRequest body,
+            HttpServletRequest request) {
+        return response(releases.cancelDeployment(
+                operationUid,
+                rolloutUid,
+                deploymentUid,
+                body.reason()), request);
+    }
+
     private static <T> ResponseEntity<TargetApiEnvelope<T>> response(
             T data,
             HttpServletRequest request) {

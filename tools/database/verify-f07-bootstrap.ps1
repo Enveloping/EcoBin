@@ -404,7 +404,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V64 application exited before readiness`n$diagnostic"
+            throw "correct V66 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -442,7 +442,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V64 application did not become ready; " +
+    throw "correct V66 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -1270,8 +1270,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 64) {
-        throw "correct target must contain 64 successful Flyway migrations"
+    if ($historyCount -ne 66) {
+        throw "correct target must contain 66 successful Flyway migrations"
     }
 
     Invoke-MySql -Database "" -Sql @"
@@ -1349,8 +1349,8 @@ SELECT COUNT(*) FROM information_schema.tables
 WHERE table_schema = '$($databaseNames.Correct)'
   AND table_type = 'BASE TABLE';
 "@)
-    if ($tableCount -ne 130) {
-        throw "correct target must contain 129 domain tables plus Flyway history"
+    if ($tableCount -ne 132) {
+        throw "correct target must contain 131 domain tables plus Flyway history"
     }
     $businessReleaseControlTableCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
@@ -1364,11 +1364,42 @@ WHERE table_schema = '$($databaseNames.Correct)'
       'dev_edge_software_release_action',
       'dev_edge_software_rollout',
       'dev_edge_software_deployment',
-      'dev_edge_software_rollout_action'
+      'dev_edge_software_rollout_action',
+      'dev_edge_software_deployment_progress',
+      'dev_edge_software_deployment_cancel_result'
   );
 "@)
-    if ($businessReleaseControlTableCount -ne 6) {
-        throw "V64 business release control-plane tables are incomplete"
+    if ($businessReleaseControlTableCount -ne 8) {
+        throw "V66 business release validation and cancellation tables are incomplete"
+    }
+    $businessCancellationColumnCount = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT COUNT(*)
+FROM information_schema.columns
+WHERE table_schema = '$($databaseNames.Correct)'
+  AND table_name = 'dev_edge_software_deployment'
+  AND column_name IN (
+      'cancel_command_uid', 'cancel_reliable_task_uid',
+      'cancel_control_sequence', 'cancellation_status', 'cancel_reason',
+      'cancel_requested_by_platform_admin_id', 'cancel_requested_at',
+      'cancel_result_at'
+  );
+"@)
+    $businessCancellationTriggerCount = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT COUNT(*)
+FROM information_schema.triggers
+WHERE trigger_schema = '$($databaseNames.Correct)'
+  AND trigger_name IN (
+      'trg_dev_edge_cancel_result_v66_immutable',
+      'trg_dev_edge_cancel_result_v66_no_delete'
+  );
+"@)
+    if ($businessCancellationColumnCount -ne 8 -or
+            $businessCancellationTriggerCount -ne 2) {
+        throw "V66 business update cancellation facts are incomplete"
     }
     $permissionCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
@@ -1678,8 +1709,8 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 64
-        domainTables = 129
+        targetVersion = 66
+        domainTables = 131
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
         runtimePrincipal = $runtimePrincipal
@@ -1687,8 +1718,9 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV64Ready = $true
-        businessReleaseControlPlaneV64 = $true
+        correctV66Ready = $true
+        businessReleaseValidationV65 = $true
+        businessUpdateCancellationV66 = $true
         deviceAssetManagementTriggerReady = $true
         bagLabelBatchLimit500 = $true
         mcuRemoteUpdateCapabilityV60 = $true

@@ -28,6 +28,16 @@
     },
     "notes": "contractTestProfile 只用于契约示例；生产环境必须从可信运行配置注入同形值，不能信任设备或命令载荷自行声明的 COS 环境。"
   },
+  "trustedBusinessReleaseDownloadEnvironment": {
+    "bindingSource": "TRUSTED_RUNTIME_CONFIGURATION",
+    "requiredExactMatch": [
+      "baseUrl"
+    ],
+    "contractTestProfile": {
+      "baseUrl": "https://ecobin-business-private-1250000000.cos.ap-guangzhou.myqcloud.com"
+    },
+    "notes": "contractTestProfile 只用于契约示例；生产设备必须从受信镜像配置取得同一私有 COS HTTPS 基址，临时 URL 只能增加查询授权，不能改变 origin 或对象路径。"
+  },
   "canonicalization": {
     "algorithm": "RFC8785-JCS",
     "digest": "SHA-256",
@@ -62,6 +72,7 @@
     ],
     "excludedFromStableDigest": [
       "cosGrant",
+      "downloadGrant",
       "temporary credentials",
       "transport attempt",
       "OneNet request_id",
@@ -176,6 +187,20 @@
       "schemaRef": "commands/commands.schema.json#/$defs/startMcuFirmwareUpdateCommand",
       "deliveryKind": "CONTROL_COMMAND",
       "cosGrantAllowed": true
+    },
+    "startBusinessRuntimeUpdate": {
+      "commandType": "START_BUSINESS_RUNTIME_UPDATE",
+      "targetType": "BUSINESS_RUNTIME_DEPLOYMENT",
+      "schemaRef": "commands/commands.schema.json#/$defs/startBusinessRuntimeUpdateCommand",
+      "deliveryKind": "CONTROL_COMMAND",
+      "cosGrantAllowed": false
+    },
+    "cancelBusinessRuntimeUpdate": {
+      "commandType": "CANCEL_BUSINESS_RUNTIME_UPDATE",
+      "targetType": "BUSINESS_RUNTIME_DEPLOYMENT",
+      "schemaRef": "commands/commands.schema.json#/$defs/cancelBusinessRuntimeUpdateCommand",
+      "deliveryKind": "CONTROL_COMMAND",
+      "cosGrantAllowed": false
     },
     "openRemoteSupportTunnel": {
       "commandType": "OPEN_REMOTE_SUPPORT_TUNNEL",
@@ -301,6 +326,18 @@
       "targetType": "MCU_FIRMWARE_DEPLOYMENT",
       "schemaRef": "events/events.schema.json#/$defs/mcuFirmwareUpdateProgressEvent"
     },
+    "businessRuntimeUpdateProgress": {
+      "eventType": "BUSINESS_RUNTIME_UPDATE_PROGRESS",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "BUSINESS_RUNTIME_DEPLOYMENT",
+      "schemaRef": "events/events.schema.json#/$defs/businessRuntimeUpdateProgressEvent"
+    },
+    "businessRuntimeUpdateCancelResult": {
+      "eventType": "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "BUSINESS_RUNTIME_DEPLOYMENT",
+      "schemaRef": "events/events.schema.json#/$defs/businessRuntimeUpdateCancelResultEvent"
+    },
     "factorySealCompleted": {
       "eventType": "FACTORY_SEAL_COMPLETED",
       "deliveryClass": "RELIABLE_FACT",
@@ -328,6 +365,9 @@
     "FACTORY_SEAL_COMPLETED target and payload hardwareSn equal the authenticated immutable device name; commandUid equals authorizationCommandUid; acceptance generation, evidence, challenge and factory-bag snapshot equal the issued authorization; authorizationBindingSha256 is the RFC8785 SHA-256 of exactly commandUid, hardwareSn, acceptanceGeneration, acceptanceEvidenceUid, acceptanceChallengeUid, acceptanceEvidenceSha256, factoryBagRevision, factoryBagSetSha256, imageReleaseId, imageReleaseSha256 and factoryReportSha256; completionClockQuality equals the envelope clockQuality; SYNCED requires occurredAt equal to cleanupCompletedAt and cleanupCompletedAt not before sealedAt, while ESTIMATED or UNAVAILABLE requires all three timestamps to be null",
     "remote support commands target the session UID; OPEN payload expiry exactly equals envelope expiry and is at most 30 minutes; status target is the authenticated device asset and carries the originating command UID",
     "MCU firmware deployment target equals deploymentUid; COS key and grant prefix are derived from releaseUid and packageSha256; signed manifest identity must equal the command payload; cloud downgrade and legacy preflight are forbidden",
+    "business runtime deployment target equals deploymentUid; private download URL origin comes from trusted runtime configuration and its path equals objectKey; downloadGrant is transient and excluded from stable command identity",
+    "business runtime cancellation target equals deploymentUid, controlSequence is newer than the start command, and a cancellation result is CANCELLED only before mutation or TOO_LATE without altering the running update",
+    "BUSINESS_RUNTIME_UPDATE_PROGRESS advances only by stageSequence; installed business identity is wholly present or null, and SUCCEEDED exactly equals the requested release identity",
     "DEVICE_SOFTWARE_STATE_REPORTED is an unsolicited platform asset fact with no commandUid; businessReady requires a running identified business release plus negotiated agent-business and updater-business protocols"
   ],
   "forbiddenLegacyIdentifiers": [
@@ -370,6 +410,12 @@
     "CLOSE_REMOTE_SUPPORT_TUNNEL": "CLOSE_REMOTE_TUNNEL",
     "START_MCU_FIRMWARE_UPDATE": "START_MCU_FW_UPDATE",
     "MCU_FIRMWARE_UPDATE_PROGRESS": "MCU_FW_PROGRESS",
+    "START_BUSINESS_RUNTIME_UPDATE": "START_BIZ_RT_UPDATE",
+    "CANCEL_BUSINESS_RUNTIME_UPDATE": "CANCEL_BIZ_RT_UPDATE",
+    "BUSINESS_RUNTIME_UPDATE_PROGRESS": "BIZ_UPDATE_PROGRESS",
+    "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT": "BIZ_CANCEL_RESULT",
+    "BUSINESS_RUNTIME_DEPLOYMENT": "BIZ_RT_DEPLOYMENT",
+    "DOWNLOAD_AUTHORIZATION_REQUIRED": "DOWNLOAD_AUTH_NEEDED",
     "FACTORY_SEAL_COMPLETED": "FACTORY_SEAL_DONE",
     "MCU_FIRMWARE_DEPLOYMENT": "MCU_FW_DEPLOYMENT",
     "REMOTE_SUPPORT_TUNNEL_STATUS": "REMOTE_TUNNEL_STATUS",

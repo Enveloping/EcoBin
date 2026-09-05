@@ -468,6 +468,416 @@
       ],
       "schemaRef": "events/events.schema.json#/$defs/businessConfirmationReceiptEvent"
     },
+    "businessRuntimeUpdateCancelResult": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deploymentUid",
+          "nullable": false,
+          "wireIdentifier": "deploymentUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.updateUid",
+          "nullable": false,
+          "wireIdentifier": "updateUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.controlSequence",
+          "nullable": false,
+          "wireIdentifier": "controlSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.result",
+          "nullable": false,
+          "wireIdentifier": "result"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.observedStage",
+          "nullable": false,
+          "wireIdentifier": "observedStage"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.businessAdmissionState",
+          "nullable": false,
+          "wireIdentifier": "businessAdmissionState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/businessRuntimeUpdateCancelResultEvent"
+    },
+    "businessRuntimeUpdateProgress": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "BUSINESS_RUNTIME_UPDATE_PROGRESS",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deploymentUid",
+          "nullable": false,
+          "wireIdentifier": "deploymentUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.updateUid",
+          "nullable": false,
+          "wireIdentifier": "updateUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.releaseUid",
+          "nullable": false,
+          "wireIdentifier": "releaseUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.versionName",
+          "nullable": false,
+          "wireIdentifier": "versionName"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.releaseSequence",
+          "nullable": false,
+          "wireIdentifier": "releaseSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.packageSha256",
+          "nullable": false,
+          "wireIdentifier": "packageSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.stage",
+          "nullable": false,
+          "wireIdentifier": "stage"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.stageSequence",
+          "nullable": false,
+          "wireIdentifier": "stageSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.businessAdmissionState",
+          "nullable": false,
+          "wireIdentifier": "businessAdmissionState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.downloadAttemptCount",
+          "nullable": false,
+          "wireIdentifier": "downloadAttemptCount"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.targetAttemptCount",
+          "nullable": false,
+          "wireIdentifier": "targetAttemptCount"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.rollbackAttemptCount",
+          "nullable": false,
+          "wireIdentifier": "rollbackAttemptCount"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.databaseRestored",
+          "nullable": false,
+          "wireIdentifier": "databaseRestored"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.installedReleaseUid",
+          "nullable": true,
+          "wireIdentifier": "installedReleaseUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.installedVersionName",
+          "nullable": true,
+          "wireIdentifier": "installedVersionName"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.installedReleaseSequence",
+          "nullable": true,
+          "wireIdentifier": "installedReleaseSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.installedPackageSha256",
+          "nullable": true,
+          "wireIdentifier": "installedPackageSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/businessRuntimeUpdateProgressEvent"
+    },
+    "cancelBusinessRuntimeUpdate": {
+      "commandType": "CANCEL_BUSINESS_RUNTIME_UPDATE",
+      "inputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandType",
+          "nullable": false,
+          "wireIdentifier": "commandType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.targetDeviceName",
+          "nullable": false,
+          "wireIdentifier": "targetDeviceName"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.issuedAt",
+          "nullable": false,
+          "wireIdentifier": "issuedAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.expiresAt",
+          "nullable": false,
+          "wireIdentifier": "expiresAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSchemaVersion",
+          "nullable": false,
+          "wireIdentifier": "payloadSchemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deploymentUid",
+          "nullable": false,
+          "wireIdentifier": "deploymentUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.updateUid",
+          "nullable": false,
+          "wireIdentifier": "updateUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.controlSequence",
+          "nullable": false,
+          "wireIdentifier": "controlSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.reason",
+          "nullable": false,
+          "wireIdentifier": "reason"
+        },
+        {
+          "encoding": "FLATTENED_OPTIONAL_OBJECT",
+          "jsonPath": "$.cosGrant",
+          "nullable": true,
+          "wireIdentifier": "cosGrant"
+        }
+      ],
+      "kind": "SERVICE",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.receiptState",
+          "nullable": false,
+          "wireIdentifier": "receiptState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        }
+      ],
+      "outputSchemaRef": "command-receipt.schema.json",
+      "schemaRef": "commands/commands.schema.json#/$defs/cancelBusinessRuntimeUpdateCommand"
+    },
     "cleanComplete": {
       "deliveryClass": "RELIABLE_FACT",
       "eventType": "CLEAN_COMPLETE",
@@ -4063,6 +4473,200 @@
       ],
       "outputSchemaRef": "command-receipt.schema.json",
       "schemaRef": "commands/commands.schema.json#/$defs/sampleFullnessCommand"
+    },
+    "startBusinessRuntimeUpdate": {
+      "commandType": "START_BUSINESS_RUNTIME_UPDATE",
+      "inputMappings": [
+        {
+          "encoding": "GROUPED_SCALARS",
+          "members": [
+            {
+              "jsonPath": "$.schemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "schemaVersion"
+            },
+            {
+              "jsonPath": "$.commandUid",
+              "presenceFlag": false,
+              "wireIdentifier": "commandUid"
+            },
+            {
+              "jsonPath": "$.commandType",
+              "presenceFlag": false,
+              "wireIdentifier": "commandType"
+            },
+            {
+              "jsonPath": "$.targetDeviceName",
+              "presenceFlag": false,
+              "wireIdentifier": "targetDeviceName"
+            },
+            {
+              "jsonPath": "$.issuedAt",
+              "presenceFlag": false,
+              "wireIdentifier": "issuedAt"
+            },
+            {
+              "jsonPath": "$.expiresAt",
+              "presenceFlag": false,
+              "wireIdentifier": "expiresAt"
+            },
+            {
+              "jsonPath": "$.payloadSchemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSchemaVersion"
+            },
+            {
+              "jsonPath": "$.payloadSha256",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSha256"
+            },
+            {
+              "jsonPath": "$.payload.deploymentUid",
+              "presenceFlag": false,
+              "wireIdentifier": "deploymentUid"
+            },
+            {
+              "jsonPath": "$.payload.updateUid",
+              "presenceFlag": false,
+              "wireIdentifier": "updateUid"
+            },
+            {
+              "jsonPath": "$.payload.controlSequence",
+              "presenceFlag": false,
+              "wireIdentifier": "controlSequence"
+            },
+            {
+              "jsonPath": "$.payload.releaseUid",
+              "presenceFlag": false,
+              "wireIdentifier": "releaseUid"
+            },
+            {
+              "jsonPath": "$.payload.versionName",
+              "presenceFlag": false,
+              "wireIdentifier": "versionName"
+            },
+            {
+              "jsonPath": "$.payload.releaseSequence",
+              "presenceFlag": false,
+              "wireIdentifier": "releaseSequence"
+            },
+            {
+              "jsonPath": "$.payload.objectKey",
+              "presenceFlag": false,
+              "wireIdentifier": "objectKey"
+            },
+            {
+              "jsonPath": "$.payload.packageSha256",
+              "presenceFlag": false,
+              "wireIdentifier": "packageSha256"
+            },
+            {
+              "jsonPath": "$.payload.packageSize",
+              "presenceFlag": false,
+              "wireIdentifier": "packageSize"
+            },
+            {
+              "jsonPath": "$.payload.packageSignatureBase64",
+              "presenceFlag": false,
+              "wireIdentifier": "packageSignatureBase64"
+            },
+            {
+              "jsonPath": "$.payload.signatureSha256",
+              "presenceFlag": false,
+              "wireIdentifier": "signatureSha256"
+            },
+            {
+              "jsonPath": "$.payload.signingKeyId",
+              "presenceFlag": false,
+              "wireIdentifier": "signingKeyId"
+            }
+          ],
+          "wireIdentifier": "scalarFields1"
+        },
+        {
+          "encoding": "GROUPED_SCALARS",
+          "members": [
+            {
+              "jsonPath": "$.payload.observationWindowSeconds",
+              "presenceFlag": false,
+              "wireIdentifier": "observationWindowSeconds"
+            },
+            {
+              "jsonPath": "$.payload.downloadTimeoutSeconds",
+              "presenceFlag": false,
+              "wireIdentifier": "downloadTimeoutSeconds"
+            },
+            {
+              "jsonPath": "$.payload.drainTimeoutSeconds",
+              "presenceFlag": false,
+              "wireIdentifier": "drainTimeoutSeconds"
+            },
+            {
+              "jsonPath": "$.payload.maximumRetryCount",
+              "presenceFlag": false,
+              "wireIdentifier": "maximumRetryCount"
+            },
+            {
+              "jsonPath": "$.payload.reason",
+              "presenceFlag": false,
+              "wireIdentifier": "reason"
+            },
+            {
+              "jsonPath": "$.cosGrant",
+              "presenceFlag": true,
+              "wireIdentifier": "cosGrantPresent"
+            }
+          ],
+          "wireIdentifier": "scalarFields2"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.downloadGrant",
+          "nullable": false,
+          "wireIdentifier": "downloadGrant"
+        }
+      ],
+      "kind": "SERVICE",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.receiptState",
+          "nullable": false,
+          "wireIdentifier": "receiptState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        }
+      ],
+      "outputSchemaRef": "command-receipt.schema.json",
+      "schemaRef": "commands/commands.schema.json#/$defs/startBusinessRuntimeUpdateCommand"
     },
     "startCleanOperation": {
       "commandType": "START_CLEAN_OPERATION",

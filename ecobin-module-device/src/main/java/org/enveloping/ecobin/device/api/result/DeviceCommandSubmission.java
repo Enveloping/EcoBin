@@ -6,6 +6,7 @@ import java.util.UUID;
 public record DeviceCommandSubmission(
         UUID taskUid,
         UUID commandUid,
+        long attemptSequence,
         String commandType,
         String hardwareSn,
         String semanticEnvelopeJson,
@@ -14,6 +15,10 @@ public record DeviceCommandSubmission(
     public DeviceCommandSubmission {
         Objects.requireNonNull(taskUid, "taskUid");
         Objects.requireNonNull(commandUid, "commandUid");
+        if (attemptSequence < 1) {
+            throw new IllegalArgumentException(
+                    "attemptSequence must be positive");
+        }
         commandType = requireText(commandType, "commandType");
         hardwareSn = requireText(hardwareSn, "hardwareSn");
         semanticEnvelopeJson =

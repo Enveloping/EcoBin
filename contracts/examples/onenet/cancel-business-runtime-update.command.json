@@ -1,0 +1,21 @@
+{
+  "commandType": "CANCEL_BUSINESS_RUNTIME_UPDATE",
+  "commandUid": "8e000000-0000-4000-8000-000000000006",
+  "cosGrant": null,
+  "expiresAt": "2026-07-24T01:10:00.000Z",
+  "issuedAt": "2026-07-24T01:00:00.000Z",
+  "payload": {
+    "controlSequence": 2,
+    "deploymentUid": "8e000000-0000-4000-8000-000000000002",
+    "reason": "validation was stopped by platform administrator",
+    "updateUid": "8e000000-0000-4000-8000-000000000004"
+  },
+  "payloadSchemaVersion": 2,
+  "payloadSha256": "e99cda078304b1aa89a791f1cd06cf126db18284b50ade56bfd9311ba416a142",
+  "schemaVersion": 2,
+  "target": {
+    "type": "BUSINESS_RUNTIME_DEPLOYMENT",
+    "uid": "8e000000-0000-4000-8000-000000000002"
+  },
+  "targetDeviceName": "SN-CONTRACT-0001"
+}

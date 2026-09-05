@@ -77,57 +77,47 @@ HARDWARE_MCU_UART_GOLDEN_TEST = (
     / "ecobin_uart_golden_test.c"
 )
 
-# OneNet rejects thing-model imports at 256 KiB.  Keep the file readable and
-# compact only the two largest runtime-state event descriptors so adding the
-# management-plane fact does not rewrite every generated line.
-ONENET_IMPORT_COMPACT_EVENT_IDENTIFIERS = frozenset(
-    {
-        "deviceRuntimeSnapshot",
-        "deviceSoftwareStateReported",
-    }
-)
-
-
 def json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
 def onenet_import_json_text(value: Any) -> str:
-    """Keep the human-imported OneNet artifact readable with safe size headroom."""
+    """Keep the OneNet import artifact readable and below its hard size limit.
+
+    The authoritative, reviewable sources are the schemas and mapping.  Each
+    generated function descriptor stays on its own line but is compact JSON;
+    pretty-printing their deeply nested data-type trees leaves no safe room for
+    additive protocol evolution under OneNet's 256 KiB import limit.
+    """
     projected = copy.deepcopy(value)
-    events = projected.get("events") if isinstance(projected, dict) else None
-    if not isinstance(events, list):
+    if not isinstance(projected, dict):
         return json.dumps(
             projected, ensure_ascii=False, indent=1, sort_keys=True
         ) + "\n"
 
-    compact_events: dict[str, Mapping[str, Any]] = {}
-    for index, event in enumerate(events):
-        if not isinstance(event, dict):
-            continue
-        identifier = event.get("identifier")
-        if identifier not in ONENET_IMPORT_COMPACT_EVENT_IDENTIFIERS:
-            continue
-        marker = f"__ECOBIN_COMPACT_ONENET_EVENT_{index}__"
-        compact_events[marker] = event
-        events[index] = marker
-    found_identifiers = {
-        event["identifier"] for event in compact_events.values()
-    }
-    if found_identifiers != ONENET_IMPORT_COMPACT_EVENT_IDENTIFIERS:
-        raise ValueError(
-            "OneNet compact event identifiers differ from the candidate"
-        )
+    compact_functions: dict[str, Mapping[str, Any]] = {}
+    for collection_name in ("services", "events"):
+        collection = projected.get(collection_name)
+        if not isinstance(collection, list):
+            raise ValueError(f"OneNet candidate has no {collection_name} list")
+        for index, function in enumerate(collection):
+            if not isinstance(function, dict) or not function.get("identifier"):
+                raise ValueError("OneNet function descriptor is malformed")
+            marker = (
+                f"__ECOBIN_COMPACT_ONENET_{collection_name.upper()}_{index}__"
+            )
+            compact_functions[marker] = function
+            collection[index] = marker
 
     rendered = json.dumps(
         projected, ensure_ascii=False, indent=1, sort_keys=True
     )
-    for marker, event in compact_events.items():
+    for marker, function in compact_functions.items():
         marker_json = json.dumps(marker, ensure_ascii=False)
         if rendered.count(marker_json) != 1:
             raise ValueError("OneNet compact event marker is not unique")
         compact_json = json.dumps(
-            event,
+            function,
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,
@@ -2668,8 +2658,9 @@ def _command(
     payload: dict[str, Any],
     *,
     cos_grant: dict[str, Any] | None = None,
+    download_grant: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    command = {
         "schemaVersion": 2,
         "commandUid": uid,
         "commandType": command_type,
@@ -2682,6 +2673,9 @@ def _command(
         "payload": payload,
         "cosGrant": cos_grant,
     }
+    if download_grant is not None:
+        command["downloadGrant"] = download_grant
+    return command
 
 
 def _event(
@@ -3515,7 +3509,119 @@ def build_onenet_examples() -> dict[str, Any]:
         },
         command_uid=firmware_command_uid,
     )
-    business_release_uid = "8d000000-0000-4000-8000-000000000001"
+    business_deployment_uid = "8e000000-0000-4000-8000-000000000002"
+    business_command_uid = "8e000000-0000-4000-8000-000000000003"
+    business_update_uid = "8e000000-0000-4000-8000-000000000004"
+    business_release_uid = "8e000000-0000-4000-8000-000000000001"
+    business_package_sha256 = "e" * 64
+    business_signature_base64 = (
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+    )
+    business_signature_sha256 = (
+        "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b"
+    )
+    business_object_key = (
+        f"edge-runtime/releases/{business_release_uid}/package.tar.gz"
+    )
+    start_business_runtime_update_command = _command(
+        business_command_uid,
+        "START_BUSINESS_RUNTIME_UPDATE",
+        "BUSINESS_RUNTIME_DEPLOYMENT",
+        business_deployment_uid,
+        {
+            "deploymentUid": business_deployment_uid,
+            "updateUid": business_update_uid,
+            "controlSequence": 1,
+            "releaseUid": business_release_uid,
+            "versionName": "1.1.0-rc.1",
+            "releaseSequence": 13,
+            "objectKey": business_object_key,
+            "packageSha256": business_package_sha256,
+            "packageSize": 1048576,
+            "packageSignatureBase64": business_signature_base64,
+            "signatureSha256": business_signature_sha256,
+            "signingKeyId": "business-release-root-v1",
+            "observationWindowSeconds": 1800,
+            "downloadTimeoutSeconds": 1800,
+            "drainTimeoutSeconds": 1800,
+            "maximumRetryCount": 3,
+            "reason": "single-device validation",
+        },
+        download_grant={
+            "authorizationSequence": 1,
+            "url": (
+                "https://ecobin-business-private-1250000000.cos."
+                "ap-guangzhou.myqcloud.com/"
+                f"{business_object_key}?authorization=CONTRACT_ONLY"
+            ),
+            "expiresAt": "2026-07-24T01:30:00.000Z",
+        },
+    )
+    business_cancel_command_uid = "8e000000-0000-4000-8000-000000000006"
+    cancel_business_runtime_update_command = _command(
+        business_cancel_command_uid,
+        "CANCEL_BUSINESS_RUNTIME_UPDATE",
+        "BUSINESS_RUNTIME_DEPLOYMENT",
+        business_deployment_uid,
+        {
+            "deploymentUid": business_deployment_uid,
+            "updateUid": business_update_uid,
+            "controlSequence": 2,
+            "reason": "validation was stopped by platform administrator",
+        },
+    )
+    cancel_business_runtime_update_command["expiresAt"] = (
+        "2026-07-24T01:10:00.000Z"
+    )
+    business_runtime_progress_event = _event(
+        "8e000000-0000-4000-8000-000000000005",
+        1058,
+        "BUSINESS_RUNTIME_UPDATE_PROGRESS",
+        "RELIABLE_FACT",
+        "BUSINESS_RUNTIME_DEPLOYMENT",
+        business_deployment_uid,
+        {
+            "deploymentUid": business_deployment_uid,
+            "updateUid": business_update_uid,
+            "releaseUid": business_release_uid,
+            "versionName": "1.1.0-rc.1",
+            "releaseSequence": 13,
+            "packageSha256": business_package_sha256,
+            "stage": "SUCCEEDED",
+            "stageSequence": 10,
+            "businessAdmissionState": "OPEN",
+            "downloadAttemptCount": 1,
+            "targetAttemptCount": 1,
+            "rollbackAttemptCount": 0,
+            "databaseRestored": False,
+            "installedReleaseUid": business_release_uid,
+            "installedVersionName": "1.1.0-rc.1",
+            "installedReleaseSequence": 13,
+            "installedPackageSha256": business_package_sha256,
+            "errorCode": None,
+        },
+        command_uid=business_command_uid,
+    )
+    business_runtime_cancel_result_event = _event(
+        "8e000000-0000-4000-8000-000000000007",
+        1059,
+        "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
+        "RELIABLE_FACT",
+        "BUSINESS_RUNTIME_DEPLOYMENT",
+        business_deployment_uid,
+        {
+            "deploymentUid": business_deployment_uid,
+            "updateUid": business_update_uid,
+            "controlSequence": 2,
+            "result": "CANCELLED",
+            "observedStage": "WAITING_FOR_IDLE",
+            "businessAdmissionState": "OPEN",
+            "errorCode": None,
+        },
+        command_uid=business_cancel_command_uid,
+    )
+    software_state_business_release_uid = "8d000000-0000-4000-8000-000000000001"
     device_software_state_event = _event(
         "8d000000-0000-4000-8000-000000000002",
         1058,
@@ -3546,7 +3652,7 @@ def build_onenet_examples() -> dict[str, Any]:
                 "mcuPackageFormatVersion": 1,
             },
             "activeBusinessRelease": {
-                "releaseUid": business_release_uid,
+                "releaseUid": software_state_business_release_uid,
                 "releaseSequence": 12,
                 "versionName": "1.0.0-rc.3",
                 "packageSha256": "d" * 64,
@@ -3696,6 +3802,14 @@ def build_onenet_examples() -> dict[str, Any]:
             start_mcu_firmware_update_command,
             "../../onenet/commands/commands.schema.json",
         ),
+        "start-business-runtime-update.command.json": (
+            start_business_runtime_update_command,
+            "../../onenet/commands/commands.schema.json",
+        ),
+        "cancel-business-runtime-update.command.json": (
+            cancel_business_runtime_update_command,
+            "../../onenet/commands/commands.schema.json",
+        ),
         "open-remote-support-tunnel.command.json": (
             open_remote_support_command,
             "../../onenet/commands/commands.schema.json",
@@ -3754,6 +3868,14 @@ def build_onenet_examples() -> dict[str, Any]:
         ),
         "mcu-firmware-update-progress.event.json": (
             mcu_firmware_progress_event,
+            "../../onenet/events/events.schema.json",
+        ),
+        "business-runtime-update-progress.event.json": (
+            business_runtime_progress_event,
+            "../../onenet/events/events.schema.json",
+        ),
+        "business-runtime-update-cancel-result.event.json": (
+            business_runtime_cancel_result_event,
             "../../onenet/events/events.schema.json",
         ),
         "device-software-state-reported.event.json": (
@@ -4876,6 +4998,16 @@ def _project_root_parameters(
                         grant_schema,
                         f"$.cosGrant.{grant_name}",
                     )
+            continue
+        if (
+            property_name == "downloadGrant"
+            and property_summary["nullable"]
+            and property_name not in root_required
+        ):
+            # The transient private-object grant exists only on the dedicated
+            # business-runtime update service.  Keeping it on the shared JSON
+            # envelope permits strict parsing, but it must not expand every
+            # unrelated OneNet service projection.
             continue
         append_parameter(
             property_name,

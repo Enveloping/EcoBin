@@ -4705,7 +4705,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List non-dispatching business-runtime rollout plans */
+        /** List business-runtime rollout plans and validation progress */
         get: operations["listPlatformBusinessReleaseRollouts"];
         put?: never;
         /**
@@ -4751,6 +4751,51 @@ export interface paths {
         put?: never;
         /** Permanently stop an undispatched rollout plan */
         post: operations["stopPlatformBusinessReleaseRollout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/business-releases/rollouts/{rolloutUid}/validation-starts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send the approved business-runtime update to the selected validation device
+         * @description The backend rechecks current device eligibility, creates one reliable command and waits for updater progress and a later actual software-state fact. It does not promote any later wave.
+         */
+        post: operations["startPlatformBusinessReleaseValidation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/business-releases/rollouts/{rolloutUid}/deployments/{deploymentUid}/cancellations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+                deploymentUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the validation device to cancel before local data migration or runtime activation
+         * @description The request only queues a reliable cancellation command. The rollout stays in validation until the device reports either a safe cancellation or that mutation has already begun and cancellation is too late.
+         */
+        post: operations["cancelPlatformBusinessReleaseDeployment"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9019,8 +9064,7 @@ export interface components {
             artifactStorageMessage: string;
             signingKeysAvailable: boolean;
             signingKeysMessage: string;
-            /** @constant */
-            remoteDispatchEnabled: false;
+            remoteDispatchEnabled: boolean;
             dispatchMessage: string;
         };
         BusinessReleaseCompatibility: {
@@ -9088,9 +9132,22 @@ export interface components {
             kind: "VALIDATION" | "WAVE";
             kindLabel: string;
             waveNo: number;
-            /** @constant */
-            status: "PLANNED";
+            /** @enum {string} */
+            status: "PLANNED" | "QUEUED" | "RECEIVED" | "DOWNLOADING" | "VERIFYING_PACKAGE" | "PACKAGE_READY" | "WAITING_FOR_IDLE" | "MIGRATING_DATA" | "ACTIVATING" | "VERIFYING_TARGET" | "OBSERVING" | "ROLLING_BACK" | "VERIFYING_ROLLBACK" | "SUCCEEDED" | "ROLLED_BACK" | "DEFERRED" | "REJECTED" | "FAILED_LOCKED" | "DOWNLOAD_AUTHORIZATION_REQUIRED" | "CANCELLED";
             statusLabel: string;
+            /** @enum {string} */
+            cancellationStatus: "NONE" | "QUEUED" | "CANCELLED" | "TOO_LATE";
+            cancellationStatusLabel: string;
+            cancelReason: string | null;
+            cancelRequestedAt: components["schemas"]["UtcTimestamp"] | null;
+            cancelResultAt: components["schemas"]["UtcTimestamp"] | null;
+            businessAdmissionLabel: string;
+            downloadAttemptCount: number;
+            targetAttemptCount: number;
+            rollbackAttemptCount: number;
+            installedVersionName: string | null;
+            databaseRestored: boolean;
+            errorMessage: string | null;
             eligibilitySummary: string;
             /** Format: int64 */
             sourceManagementStateSequence: number;
@@ -9098,13 +9155,16 @@ export interface components {
             /** Format: int64 */
             currentBusinessReleaseSequence: number;
             plannedAt: components["schemas"]["UtcTimestamp"];
+            queuedAt: components["schemas"]["UtcTimestamp"] | null;
+            completedAt: components["schemas"]["UtcTimestamp"] | null;
+            updatedAt: components["schemas"]["UtcTimestamp"];
         };
         BusinessRolloutAction: {
             /** @enum {string} */
-            action: "CREATE" | "STOP";
+            action: "CREATE" | "START_VALIDATION" | "REQUEST_CANCEL" | "STOP";
             actionLabel: string;
             /** @enum {string} */
-            resultingStatus: "DRAFT" | "STOPPED";
+            resultingStatus: "DRAFT" | "VALIDATING" | "AWAITING_PROMOTION" | "VALIDATION_FAILED" | "STOPPED";
             resultingStatusLabel: string;
             requestedBy: string;
             reason: string;
@@ -9114,7 +9174,7 @@ export interface components {
             rolloutUid: components["schemas"]["UuidV4"];
             release: components["schemas"]["BusinessRelease"];
             /** @enum {string} */
-            status: "DRAFT" | "STOPPED";
+            status: "DRAFT" | "VALIDATING" | "AWAITING_PROMOTION" | "VALIDATION_FAILED" | "ACTIVE" | "COMPLETED" | "STOPPED";
             statusLabel: string;
             batchSize: number;
             maximumWaveNo: number;
@@ -9123,8 +9183,7 @@ export interface components {
             downloadTimeoutMinutes: number;
             drainTimeoutMinutes: number;
             maximumRetryCount: number;
-            /** @constant */
-            remoteDispatchEnabled: false;
+            remoteDispatchEnabled: boolean;
             reason: string;
             createdBy: string;
             stoppedBy: string | null;
@@ -17037,6 +17096,75 @@ export interface operations {
         };
         responses: {
             /** @description Rollout stopped without affecting devices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessRolloutEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    startPlatformBusinessReleaseValidation: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessReleaseActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Validation-device update queued */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessRolloutEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    cancelPlatformBusinessReleaseDeployment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                rolloutUid: components["schemas"]["UuidV4"];
+                deploymentUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessReleaseActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Cancellation request queued or its existing result returned */
             200: {
                 headers: {
                     [name: string]: unknown;

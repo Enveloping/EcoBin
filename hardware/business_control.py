@@ -480,6 +480,9 @@ class BusinessControlController:
         cloud_connection_owner: str = "BUSINESS_RUNTIME",
         job_permit_enforced: bool = False,
         business_database_size_provider: Callable[[], int] | None = None,
+        software_runtime_facts_provider: (
+            Callable[[], Mapping[str, Any]] | None
+        ) = None,
     ) -> None:
         self.release_version = _require_release_version(release_version)
         if not isinstance(maintenance_handoff_enabled, bool):
@@ -517,6 +520,11 @@ class BusinessControlController:
         ):
             raise ValueError("business database size provider must be callable")
         self._business_database_size_provider = business_database_size_provider
+        if software_runtime_facts_provider is not None and not callable(
+            software_runtime_facts_provider
+        ):
+            raise ValueError("software runtime facts provider must be callable")
+        self._software_runtime_facts_provider = software_runtime_facts_provider
         now = (utc_now or (lambda: datetime.now(timezone.utc)))()
         self.started_at = _format_utc(now)
         instance_uid = instance_uid_factory()
@@ -593,6 +601,24 @@ class BusinessControlController:
         return self._require_cloud_proxy_ingress().deliver_service_request(
             payload
         )
+
+    def get_software_runtime_facts(
+        self,
+        _payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        provider = self._software_runtime_facts_provider
+        if provider is None:
+            raise LocalControlActionError(
+                "FEATURE_DISABLED",
+                "software runtime facts are not available",
+            )
+        facts = provider()
+        if not isinstance(facts, Mapping):
+            raise LocalControlActionError(
+                "SOFTWARE_RUNTIME_FACTS_UNAVAILABLE",
+                "software runtime facts could not be confirmed",
+            )
+        return {**self.health({}), **dict(facts)}
 
     def complete_cloud_service_reply(
         self,
@@ -1166,6 +1192,9 @@ def build_business_control_service(
     cloud_connection_owner: str = "BUSINESS_RUNTIME",
     job_permit_enforced: bool = False,
     business_database_size_provider: Callable[[], int] | None = None,
+    software_runtime_facts_provider: (
+        Callable[[], Mapping[str, Any]] | None
+    ) = None,
 ) -> BusinessControlService:
     """Build the adapter without resolving accounts or weakening UID checks."""
 
@@ -1173,12 +1202,16 @@ def build_business_control_service(
     if not isinstance(enable_mcu_maintenance_candidate, bool):
         raise ValueError("MCU maintenance candidate flag must be boolean")
     updater_action_uids: frozenset[int] = frozenset()
-    if enable_mcu_maintenance_candidate:
+    if (
+        enable_mcu_maintenance_candidate
+        or software_runtime_facts_provider is not None
+    ):
         updater_action_uids = _require_uid_set(
             updater_uids,
             "updater_uids",
             allow_root=False,
         )
+    if enable_mcu_maintenance_candidate:
         _require_mcu_maintenance_port(mcu_maintenance_port)
     if not isinstance(enable_cloud_proxy_candidate, bool):
         raise ValueError("cloud proxy candidate flag must be boolean")
@@ -1202,6 +1235,7 @@ def build_business_control_service(
         cloud_connection_owner=cloud_connection_owner,
         job_permit_enforced=job_permit_enforced,
         business_database_size_provider=business_database_size_provider,
+        software_runtime_facts_provider=software_runtime_facts_provider,
     )
     actions = {
         "HEALTH": LocalControlAction(
@@ -1215,6 +1249,12 @@ def build_business_control_service(
             allowed_uids=action_uids,
         ),
     }
+    if software_runtime_facts_provider is not None:
+        actions["GET_SOFTWARE_RUNTIME_FACTS"] = LocalControlAction(
+            controller.get_software_runtime_facts,
+            payload_fields=frozenset(),
+            allowed_uids=updater_action_uids,
+        )
     if enable_mcu_maintenance_candidate:
         actions.update(
             {
@@ -1318,6 +1358,9 @@ def build_business_control_service_from_environment(
     cloud_proxy_ingress: CloudProxyIngressPort | None = None,
     enable_cloud_proxy_candidate: bool = False,
     business_database_path: str | Path | None = None,
+    software_runtime_facts_provider: (
+        Callable[[], Mapping[str, Any]] | None
+    ) = None,
     environment: Mapping[str, str] | None = None,
     user_uid_lookup: Callable[[str], int] | None = None,
     group_gid_lookup: Callable[[str], int] | None = None,
@@ -1440,6 +1483,7 @@ def build_business_control_service_from_environment(
         ),
         job_permit_enforced=job_permit_enforced,
         business_database_size_provider=database_size_provider,
+        software_runtime_facts_provider=software_runtime_facts_provider,
     )
 
 

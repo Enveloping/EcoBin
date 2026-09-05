@@ -1046,15 +1046,21 @@ WHERE table_schema = '$DatabaseName'
                 $existingMaxVersion -eq 63) -or
             ($existingDomainTableCount -eq 129 -and
                 $existingHistoryCount -eq 64 -and
-                $existingMaxVersion -eq 64)
+                $existingMaxVersion -eq 64) -or
+            ($existingDomainTableCount -eq 130 -and
+                $existingHistoryCount -eq 65 -and
+                $existingMaxVersion -eq 65) -or
+            ($existingDomainTableCount -eq 131 -and
+                $existingHistoryCount -eq 66 -and
+                $existingMaxVersion -eq 66)
         )
         if (-not $resumeLayoutValid) {
             throw (
-                "Migrated resume requires a complete V30 through V64 " +
+                "Migrated resume requires a complete V30 through V66 " +
                 "target database"
             )
         }
-        if ($existingMaxVersion -lt 64) {
+        if ($existingMaxVersion -lt 66) {
             # Check before changing the owner account so a stale local tunnel
             # fails without opening a database mutation window.
             if ($RemoteHost.Length -gt 0) {
@@ -1173,13 +1179,13 @@ GRANT SELECT (
     TO 'ecobin_trigger_definer'@'%';
 "@ | Out-Null
 
-        Invoke-FlywayMigration -Target 64 -OwnerPassword $ownerPassword
-        $currentMigrationVersion = 64
+        Invoke-FlywayMigration -Target 66 -OwnerPassword $ownerPassword
+        $currentMigrationVersion = 66
         $migrationCompleted = $true
     }
 
     # Converge the trigger definer even when a resumed database is already at
-    # V64. MySQL preserves column grants under their old table/column names
+    # V66. MySQL preserves column grants under their old table/column names
     # across V36/V39 renames, so remove those historical entries explicitly
     # before applying the exact current grant matrix.
     Invoke-RootSql -Sql @"
@@ -1300,7 +1306,7 @@ ORDER BY grant_key;
             }
         ) -join "; "
         throw (
-            "Trigger definer grants did not converge to the exact V64 " +
+            "Trigger definer grants did not converge to the exact V66 " +
             "matrix: $grantDifferenceSummary"
         )
     }
@@ -1315,8 +1321,8 @@ ORDER BY grant_key;
         (Invoke-RootSql -Sql $tableSql) -split "`r?`n" |
             Where-Object { $_.Length -gt 0 }
     )
-    if ($tables.Count -ne 129) {
-        throw "Expected 129 domain tables, got $($tables.Count)"
+    if ($tables.Count -ne 131) {
+        throw "Expected 131 domain tables, got $($tables.Count)"
     }
 
     $grantCatalog = Import-PowerShellDataFile -Path $grantCatalogPath
@@ -1355,8 +1361,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 64) {
-        throw "Expected sixty-four successful Flyway migrations"
+    if ($historyCount -ne 66) {
+        throw "Expected sixty-six successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
@@ -1672,7 +1678,7 @@ WHERE user = 'ecobin_schema_owner' AND host = '%';
     if (-not $migrationCompleted) {
         if ($upgradeExistingMigratedEnvironment) {
             Write-Warning (
-                "The target may contain a failed V64 forward migration. " +
+                "The target may contain a failed V66 forward migration. " +
                 "It was intentionally preserved. Restore from the " +
                 "pre-migration backup; do not run Flyway repair. " +
                 "Container=$ContainerName Volume=$VolumeName"

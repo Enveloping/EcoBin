@@ -146,7 +146,8 @@ public class DeviceSoftwareCompatibilityService {
             return new ApplyResult(true, false);
         }
 
-        Compatibility compatibility = assess(fact);
+        Compatibility compatibility = retainActiveUpdateAdmission(
+                assetId, assess(fact));
         int updated = namedJdbc.update("""
                 UPDATE dev_device_compatibility_projection
                 SET architecture_generation = 'PERMANENT_V1',
@@ -190,6 +191,35 @@ public class DeviceSoftwareCompatibilityService {
                     "device compatibility projection update lost");
         }
         return new ApplyResult(true, true);
+    }
+
+    private Compatibility retainActiveUpdateAdmission(
+            long assetId,
+            Compatibility assessed) {
+        Integer activeUpdates = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM dev_edge_software_deployment
+                WHERE asset_id = ?
+                  AND deployment_status NOT IN (
+                      'PLANNED', 'SUCCEEDED', 'ROLLED_BACK', 'DEFERRED',
+                      'REJECTED', 'FAILED_LOCKED', 'CANCELLED'
+                  )
+                """, Integer.class, assetId);
+        if (activeUpdates == null || activeUpdates == 0) {
+            return assessed;
+        }
+        List<Reason> reasons = new ArrayList<>(assessed.reasons());
+        reasons.addFirst(reason(
+                "BUSINESS_RUNTIME_UPDATE_ACTIVE",
+                "业务程序正在更新",
+                "设备已经进入业务程序更新流程；在成功、恢复上一版本或安全终止前，后台暂停新的投递和清运。",
+                Severity.NONE,
+                true));
+        return new Compatibility(
+                assessed.status(),
+                "PAUSED",
+                List.copyOf(reasons),
+                assessed.capabilities());
     }
 
     private void lockManagementProfile(long assetId) {

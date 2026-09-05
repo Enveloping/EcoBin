@@ -198,6 +198,9 @@ class ReliableOperationsJdbcRepositorySqlTest {
                 + "'SYNC_DEVICE_ENTRY_URL', "
                 + "'OPEN_REMOTE_SUPPORT_TUNNEL', "
                 + "'CLOSE_REMOTE_SUPPORT_TUNNEL', "
+                + "'START_MCU_FIRMWARE_UPDATE', "
+                + "'START_BUSINESS_RUNTIME_UPDATE', "
+                + "'CANCEL_BUSINESS_RUNTIME_UPDATE', "
                 + "'CONFIRM_EDGE_EVENT' )";
     }
 

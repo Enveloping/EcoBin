@@ -22,6 +22,144 @@ import static org.mockito.Mockito.when;
 class ReliableDeviceCommandCompletionServiceTest {
 
     @Test
+    void acceptedBusinessUpdateWaitsForItsFrozenMaintenanceWindows() {
+        ReliableOperationsJdbcRepository repository =
+                mock(ReliableOperationsJdbcRepository.class);
+        LocalDateTime now = LocalDateTime.of(2026, 9, 5, 12, 0);
+        UUID taskUid = UUID.randomUUID();
+        UUID commandUid = UUID.randomUUID();
+        UUID attemptUid = UUID.randomUUID();
+        UUID leaseToken = UUID.randomUUID();
+        ClaimedDeviceCommandTask claim = new ClaimedDeviceCommandTask(
+                taskUid,
+                commandUid,
+                attemptUid,
+                1L,
+                leaseToken,
+                0,
+                "START_BUSINESS_RUNTIME_UPDATE",
+                "SN-BUSINESS-UPDATE",
+                """
+                        {
+                          "expiresAt":"2026-09-05T12:05:00Z",
+                          "payload":{
+                            "downloadTimeoutSeconds":1800,
+                            "drainTimeoutSeconds":1800,
+                            "observationWindowSeconds":1800,
+                            "maximumRetryCount":3
+                          }
+                        }
+                        """,
+                new byte[32],
+                now,
+                now.plusMinutes(1));
+        when(repository.lockDeviceTaskExecution(
+                taskUid, commandUid, attemptUid))
+                .thenReturn(new DeviceTaskExecution(
+                        71L,
+                        "PENDING",
+                        leaseToken,
+                        now.plusMinutes(1),
+                        0,
+                        0,
+                        0,
+                        2,
+                        1,
+                        81L,
+                        leaseToken,
+                        0,
+                        null));
+        when(repository.databaseNow()).thenReturn(now);
+        ReliableDeviceCommandCompletionService service =
+                new ReliableDeviceCommandCompletionService(
+                        repository,
+                        new ReliableTaskProperties(),
+                        new ObjectMapper(),
+                        List.of(),
+                        List.of());
+
+        service.complete(
+                claim,
+                new DeviceCommandSubmissionResult(
+                        DeviceCommandSubmissionResult.Outcome
+                                .PLATFORM_ACCEPTED,
+                        null,
+                        null,
+                        200,
+                        null,
+                        "external-request",
+                        null),
+                12);
+
+        verify(repository).scheduleAwaitingDeviceEvidence(
+                71L, now.plusMinutes(155), now);
+    }
+
+    @Test
+    void acceptedBusinessCancellationWaitsForTheDeviceSafetyResult() {
+        ReliableOperationsJdbcRepository repository =
+                mock(ReliableOperationsJdbcRepository.class);
+        LocalDateTime now = LocalDateTime.of(2026, 9, 5, 12, 0);
+        UUID taskUid = UUID.randomUUID();
+        UUID commandUid = UUID.randomUUID();
+        UUID attemptUid = UUID.randomUUID();
+        UUID leaseToken = UUID.randomUUID();
+        ClaimedDeviceCommandTask claim = new ClaimedDeviceCommandTask(
+                taskUid,
+                commandUid,
+                attemptUid,
+                1L,
+                leaseToken,
+                0,
+                "CANCEL_BUSINESS_RUNTIME_UPDATE",
+                "SN-BUSINESS-CANCEL",
+                "{}",
+                new byte[32],
+                now,
+                now.plusMinutes(1));
+        when(repository.lockDeviceTaskExecution(
+                taskUid, commandUid, attemptUid))
+                .thenReturn(new DeviceTaskExecution(
+                        72L,
+                        "PENDING",
+                        leaseToken,
+                        now.plusMinutes(1),
+                        0,
+                        0,
+                        0,
+                        2,
+                        1,
+                        82L,
+                        leaseToken,
+                        0,
+                        null));
+        when(repository.databaseNow()).thenReturn(now);
+        ReliableDeviceCommandCompletionService service =
+                new ReliableDeviceCommandCompletionService(
+                        repository,
+                        new ReliableTaskProperties(),
+                        new ObjectMapper(),
+                        List.of(),
+                        List.of());
+
+        service.complete(
+                claim,
+                new DeviceCommandSubmissionResult(
+                        DeviceCommandSubmissionResult.Outcome
+                                .PLATFORM_ACCEPTED,
+                        null,
+                        null,
+                        200,
+                        null,
+                        "cancel-external-request",
+                        null),
+                12);
+
+        verify(repository).scheduleAwaitingDeviceEvidence(
+                72L, now.plusMinutes(35), now);
+    }
+
+    @Test
     void acceptedBaselineWaitsOnlyForMeasurementAndNetworkEvidence() {
         ReliableOperationsJdbcRepository repository =
                 mock(ReliableOperationsJdbcRepository.class);
@@ -34,6 +172,7 @@ class ReliableDeviceCommandCompletionServiceTest {
                 taskUid,
                 commandUid,
                 attemptUid,
+                1L,
                 leaseToken,
                 0,
                 "MEASURE_EMPTY_BAG_BASELINE",
