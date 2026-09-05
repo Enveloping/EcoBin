@@ -319,7 +319,7 @@ public class BusinessReleaseControlPlaneService {
         requireUuidV4(releaseUid, "releaseUid");
         String normalizedReason = requiredReason(reason);
         String normalizedKeyId = signingKeyId(signingKeyId);
-        AuthorizedDeviceScope actor = authorizePlatform();
+        AuthorizedDeviceScope actor = authorizePlatformForExternalIo();
         TargetWebAuditRequestContext.describe(
                 "device.business-release.artifact.upload", releaseUid.toString());
         ReleaseRow release = requireRelease(releaseUid, false);
@@ -429,7 +429,7 @@ public class BusinessReleaseControlPlaneService {
         requireUuidV4(operationUid, "Idempotency-Key");
         requireUuidV4(releaseUid, "releaseUid");
         String normalizedReason = requiredReason(reason);
-        AuthorizedDeviceScope actor = authorizePlatform();
+        AuthorizedDeviceScope actor = authorizePlatformForExternalIo();
         long adminId = platformAdminId(actor);
         TargetWebAuditRequestContext.describe(
                 "device.business-release.verify", releaseUid.toString());
@@ -2566,6 +2566,18 @@ public class BusinessReleaseControlPlaneService {
                     "只有平台管理员可以管理香橙派业务发布");
         }
         return actor;
+    }
+
+    /**
+     * Artifact upload and verification deliberately perform slow filesystem
+     * and object-storage work outside one database transaction. The shared
+     * authorization port nevertheless requires a transaction for its
+     * identity lookup, so give only that lookup a short transaction.
+     */
+    private AuthorizedDeviceScope authorizePlatformForExternalIo() {
+        return Objects.requireNonNull(
+                transactions.execute(status -> authorizePlatform()),
+                "platform authorization returned no result");
     }
 
     private static long platformAdminId(AuthorizedDeviceScope actor) {

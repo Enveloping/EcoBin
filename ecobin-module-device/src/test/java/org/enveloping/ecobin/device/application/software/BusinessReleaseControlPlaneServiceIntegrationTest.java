@@ -26,6 +26,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import javax.sql.DataSource;
 import java.nio.file.Files;
@@ -45,6 +46,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -266,6 +268,86 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
     @Test
     void defaultConfigurationKeepsRemoteDispatchDisabled() {
         assertThat(service.readiness().remoteDispatchEnabled()).isFalse();
+    }
+
+    @Test
+    void artifactIoEntryPointsAuthorizeInsideShortTransactions()
+            throws Exception {
+        var draft = service.createDraft(
+                UUID.randomUUID(),
+                new CreateReleaseDraftRequest(
+                        "2.0.0-transaction", null));
+        byte[] packageBytes = "transaction-bound-authorization"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        Path packagePath = temporary.resolve("transaction-package.tar.gz");
+        Path signaturePath = temporary.resolve("transaction-package.sig");
+        Files.write(packagePath, packageBytes);
+        Files.write(signaturePath, new byte[64]);
+        String packageSha = sha256(packageBytes);
+
+        AtomicInteger authorizationCount = new AtomicInteger();
+        DeviceScopeAuthorizationPort transactionRequiredAuthorization = query -> {
+            if (!TransactionSynchronizationManager
+                    .isActualTransactionActive()) {
+                throw new IllegalStateException(
+                        "platform authorization requires a transaction");
+            }
+            authorizationCount.incrementAndGet();
+            return actor();
+        };
+        MemoryArtifactStorage storage = new MemoryArtifactStorage();
+        BusinessReleasePackageVerifier localVerifier =
+                mock(BusinessReleasePackageVerifier.class);
+        when(localVerifier.verify(
+                any(Path.class),
+                any(Path.class),
+                anyString(),
+                any(UUID.class),
+                anyString(),
+                anyLong())).thenAnswer(invocation -> new VerifiedRelease(
+                invocation.getArgument(3),
+                invocation.getArgument(4),
+                invocation.getArgument(5),
+                packageSha,
+                (long) packageBytes.length,
+                1,
+                2,
+                2,
+                1,
+                0,
+                1,
+                0,
+                "FIXED_FRAME",
+                null,
+                null,
+                2,
+                "0000000000000000",
+                "0000000000000000",
+                Map.of()));
+        BusinessReleaseControlPlaneService transactionAware =
+                new BusinessReleaseControlPlaneService(
+                        jdbc,
+                        transactionRequiredAuthorization,
+                        storage,
+                        mock(BusinessReleaseSigningKeyPort.class),
+                        localVerifier,
+                        new DeviceConfigurationCanonicalizer(),
+                        new DataSourceTransactionManager(jdbc.getDataSource()),
+                        false);
+
+        assertThat(transactionAware.uploadArtifacts(
+                UUID.randomUUID(),
+                draft.releaseUid(),
+                packagePath,
+                signaturePath,
+                "business_2026",
+                "上传需要事务授权的制品").artifactUploaded()).isTrue();
+        assertThat(transactionAware.verify(
+                UUID.randomUUID(),
+                draft.releaseUid(),
+                "校验需要事务授权的制品").status()).isEqualTo(
+                        "AWAITING_APPROVAL");
+        assertThat(authorizationCount).hasValue(2);
     }
 
     @Test
