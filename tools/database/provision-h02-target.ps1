@@ -1228,6 +1228,14 @@ GRANT SELECT (
     asset_id, architecture_generation, management_state_sequence
 ) ON $database.dev_device_compatibility_projection
     TO 'ecobin_trigger_definer'@'%';
+GRANT SELECT (
+    release_uid, create_operation_uid, version_name, release_sequence,
+    package_object_key, signature_object_key, package_sha256, package_size,
+    signature_sha256, signature_bytes, signing_key_id, declaration_id,
+    verified_by_platform_admin_id, verified_at,
+    created_by_platform_admin_id, created_at
+) ON $database.dev_edge_software_release_control
+    TO 'ecobin_trigger_definer'@'%';
 ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
 "@ | Out-Null
     $resumeSchemaOwnerUnlocked = $false
@@ -1285,6 +1293,22 @@ ORDER BY grant_key;
         "COLUMN|$DatabaseName|dev_device_management_profile|asset_id|SELECT"
         "COLUMN|$DatabaseName|dev_device_management_profile|transition_source_event_uid|SELECT"
         "COLUMN|$DatabaseName|dev_device_management_profile|transitioned_at|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|create_operation_uid|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|created_at|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|created_by_platform_admin_id|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|declaration_id|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|package_object_key|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|package_sha256|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|package_size|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|release_sequence|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|release_uid|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|signature_bytes|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|signature_object_key|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|signature_sha256|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|signing_key_id|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|verified_at|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|verified_by_platform_admin_id|SELECT"
+        "COLUMN|$DatabaseName|dev_edge_software_release_control|version_name|SELECT"
         "COLUMN|$DatabaseName|iam_miniapp_channel|activated_at|SELECT"
         "COLUMN|$DatabaseName|iam_miniapp_channel|appid|SELECT"
         "COLUMN|$DatabaseName|iam_organization_user|miniapp_channel_id|SELECT"

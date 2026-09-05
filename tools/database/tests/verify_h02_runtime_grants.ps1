@@ -39,6 +39,44 @@ if ($provisionSource -notmatch
         'asset_id, architecture_generation, management_state_sequence') {
     throw "V63 triggers are missing their exact definer grants"
 }
+$releaseControlTriggerColumns = @(
+    "release_uid"
+    "create_operation_uid"
+    "version_name"
+    "release_sequence"
+    "package_object_key"
+    "signature_object_key"
+    "package_sha256"
+    "package_size"
+    "signature_sha256"
+    "signature_bytes"
+    "signing_key_id"
+    "declaration_id"
+    "verified_by_platform_admin_id"
+    "verified_at"
+    "created_by_platform_admin_id"
+    "created_at"
+)
+foreach ($column in $releaseControlTriggerColumns) {
+    $expectedGrant =
+        '"COLUMN|$DatabaseName|dev_edge_software_release_control|' +
+        $column + '|SELECT"'
+    if (-not $provisionSource.Contains($expectedGrant)) {
+        throw "V64 release-control trigger grant is missing $column"
+    }
+}
+if ($provisionSource -notmatch
+        '(?s)GRANT SELECT \(\s*release_uid, create_operation_uid, ' +
+        'version_name, release_sequence,.*?' +
+        '\) ON \$database\.dev_edge_software_release_control\s*' +
+        "TO 'ecobin_trigger_definer'@'%';" -or
+    $f07BootstrapSource -notmatch
+        '(?s)GRANT SELECT \(\s*release_uid, create_operation_uid, ' +
+        'version_name, release_sequence,.*?' +
+        '\) ON ``\$database``\.dev_edge_software_release_control\s*' +
+        "TO 'ecobin_trigger_definer'@'%';") {
+    throw "V64 trigger must receive exact release-control column reads"
+}
 if ($provisionSource -notmatch (
         '(?s)if \(-not \$skipMigration\) \{.*?' +
         'Invoke-FlywayMigration -Target 66.*?' +

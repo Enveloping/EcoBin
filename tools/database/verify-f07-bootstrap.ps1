@@ -1192,6 +1192,14 @@ GRANT SELECT (
     asset_id, architecture_generation, management_state_sequence
 ) ON ``$database``.dev_device_compatibility_projection
     TO 'ecobin_trigger_definer'@'%';
+GRANT SELECT (
+    release_uid, create_operation_uid, version_name, release_sequence,
+    package_object_key, signature_object_key, package_sha256, package_size,
+    signature_sha256, signature_bytes, signing_key_id, declaration_id,
+    verified_by_platform_admin_id, verified_at,
+    created_by_platform_admin_id, created_at
+) ON ``$database``.dev_edge_software_release_control
+    TO 'ecobin_trigger_definer'@'%';
 "@ | Out-Null
     }
 

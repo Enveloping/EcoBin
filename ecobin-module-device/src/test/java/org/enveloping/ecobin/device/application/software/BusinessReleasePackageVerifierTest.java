@@ -20,9 +20,13 @@ import java.util.Base64;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,22 +35,10 @@ class BusinessReleasePackageVerifierTest {
 
     private static final UUID RELEASE_UID = UUID.fromString(
             "11111111-1111-4111-8111-111111111111");
-    private static final List<String> APP_FILES = List.of(
-            "business_identity.py", "business_control.py",
-            "business_message_handler.py", "business_outbox_relay.py",
-            "camera_capture.py", "cloud_transport.py", "command_processor.py",
-            "config.py", "cos_photo_uploader.py", "device_entry_url_refresh.py",
-            "device_identity.py", "edge_boot.py", "edge_identity.py",
-            "edge_store.py", "edge_store_prepare.py",
-            "fixed_frame_health_recovery.py", "fixed_frame_mcu_adapter.py",
-            "fixed_frame_mcu_maintenance.py", "factory_seal/__init__.py",
-            "factory_seal/admission.py", "factory_seal/errors.py",
-            "factory_seal/validation.py", "main.py", "job_safety.py",
-            "local_control.py", "local_proxy_cloud_transport.py",
-            "onenet_projection_model.json", "onenet_wire.py", "photo_manager.py",
-            "remote_support_control.py", "simulated_camera.py",
-            "system/__init__.py", "trusted_clock.py", "uart_link.py",
-            "uart_protocol.py", "work_manager.py");
+    private static final Pattern PYTHON_STRING = Pattern.compile(
+            "\\\"([^\\\"]+)\\\"");
+    private static final List<String> APP_FILES =
+            canonicalBusinessAppFiles();
 
     @TempDir
     Path temporary;
@@ -226,7 +218,7 @@ class BusinessReleasePackageVerifierTest {
     }
 
     private static String manifest() {
-        return """
+        return ("""
                 ECOBIN_BUSINESS_RELEASE_FORMAT_VERSION=1
                 ECOBIN_ARTIFACT_KIND=orangepi-business-runtime
                 ECOBIN_RELEASE_ID=11111111-1111-4111-8111-111111111111
@@ -237,7 +229,7 @@ class BusinessReleasePackageVerifierTest {
                 ECOBIN_TARGET_PLATFORM=linux-arm64
                 ECOBIN_EDGE_SCHEMA_VERSION=18
                 ECOBIN_SOURCE_DATE_EPOCH=1
-                ECOBIN_BUSINESS_ALLOWLIST_SHA256=1ea0d2535e0b816d46dd4bcc8225209c1b755fd5f1f99e582c7f28ca9d5d847c
+                ECOBIN_BUSINESS_ALLOWLIST_SHA256=%s
                 ECOBIN_BACKEND_COMMAND_CONTRACT_VERSION=2
                 ECOBIN_DEVICE_EVENT_CONTRACT_VERSION=2
                 ECOBIN_COMMUNICATION_BUSINESS_PROTOCOL_MAJOR=1
@@ -250,7 +242,70 @@ class BusinessReleasePackageVerifierTest {
                 ECOBIN_REQUIRED_FIXED_FRAME_REVISION=2
                 ECOBIN_REQUIRED_MCU_CAPABILITY_BITMAP_HEX=0000000000000000
                 ECOBIN_PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX=0000000000000000
-                """;
+                """).formatted(canonicalBusinessAllowlistSha256());
+    }
+
+    private static List<String> canonicalBusinessAppFiles() {
+        try {
+            String source = Files.readString(canonicalManifestPath());
+            List<String> runtime = pythonStrings(section(
+                    source, "RUNTIME_APP_FILES = (", "\n)"));
+            Set<String> excluded = new LinkedHashSet<>(pythonStrings(section(
+                    source, "    not in {", "\n    }")));
+            List<String> result = runtime.stream()
+                    .filter(name -> !excluded.contains(name))
+                    .toList();
+            if (result.isEmpty() || !result.contains("camera_selection.py")) {
+                throw new IllegalStateException(
+                        "canonical business runtime inventory is incomplete");
+            }
+            return result;
+        } catch (Exception exception) {
+            throw new IllegalStateException(
+                    "cannot read canonical hardware business inventory",
+                    exception);
+        }
+    }
+
+    private static Path canonicalManifestPath() {
+        for (Path candidate : List.of(
+                Path.of("hardware", "install", "runtime_payload_manifest.py"),
+                Path.of("..", "hardware", "install",
+                        "runtime_payload_manifest.py"))) {
+            Path normalized = candidate.toAbsolutePath().normalize();
+            if (Files.isRegularFile(normalized)) {
+                return normalized;
+            }
+        }
+        throw new IllegalStateException(
+                "hardware/install/runtime_payload_manifest.py is missing");
+    }
+
+    private static String section(String source, String start, String end) {
+        int from = source.indexOf(start);
+        if (from < 0) {
+            throw new IllegalStateException("canonical inventory start is missing");
+        }
+        int to = source.indexOf(end, from + start.length());
+        if (to < 0) {
+            throw new IllegalStateException("canonical inventory end is missing");
+        }
+        return source.substring(from + start.length(), to);
+    }
+
+    private static List<String> pythonStrings(String section) {
+        List<String> values = new ArrayList<>();
+        Matcher matcher = PYTHON_STRING.matcher(section);
+        while (matcher.find()) {
+            values.add(matcher.group(1));
+        }
+        return values;
+    }
+
+    private static String canonicalBusinessAllowlistSha256() {
+        StringBuilder payload = new StringBuilder();
+        APP_FILES.forEach(name -> payload.append(name).append('\n'));
+        return hex(payload.toString().getBytes(StandardCharsets.UTF_8));
     }
 
     private static String hex(byte[] value) {
