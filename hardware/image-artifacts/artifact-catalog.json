@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-05T09:32:29.144Z",
+  "catalogedAt": "2026-09-05T09:43:14.222Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -758,10 +758,10 @@
     },
     {
       "path": "local/audit-v27-business-update-fixes-final.sh",
-      "bytes": 17094,
+      "bytes": 17269,
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
-      "sha256": "32ed26e0418b799461f76b09b05234d9d59cf790b1fc4834cb2c6702bd032961"
+      "sha256": "09149768c27375980cef0f3b9eaa9d92af080db83a96b3cd5c06d1501034bc62"
     },
     {
       "path": "local/build-power-loss-business-package.sh",
