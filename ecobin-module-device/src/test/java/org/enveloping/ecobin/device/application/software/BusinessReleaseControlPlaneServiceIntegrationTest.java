@@ -1528,6 +1528,21 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
             }
             return super.queryForObject(sql, requiredType);
         }
+
+        @Override
+        public <T> List<T> query(
+                String sql,
+                org.springframework.jdbc.core.RowMapper<T> rowMapper,
+                Object... args) {
+            if (sql.contains(
+                    "LEFT JOIN dev_edge_software_release declaration")
+                    && sql.stripTrailing().endsWith("FOR UPDATE")) {
+                throw new IllegalStateException(
+                        "least-privilege runtime cannot lock immutable"
+                                + " release declarations");
+            }
+            return super.query(sql, rowMapper, args);
+        }
     }
 
     private record InstalledIdentity(

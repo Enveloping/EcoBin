@@ -2012,9 +2012,23 @@ public class BusinessReleaseControlPlaneService {
     }
 
     private ReleaseRow requireRelease(UUID uid, boolean forUpdate) {
+        if (forUpdate) {
+            List<Long> locked = jdbc.query("""
+                    SELECT id
+                    FROM dev_edge_software_release_control
+                    WHERE release_uid = ?
+                    FOR UPDATE
+                    """, (rs, ignored) -> rs.getLong("id"), uid.toString());
+            if (locked.isEmpty()) {
+                throw notFound("找不到该业务发布");
+            }
+            if (locked.size() != 1) {
+                throw new IllegalStateException(
+                        "business release UID is not unique");
+            }
+        }
         List<ReleaseRow> rows = jdbc.query(
-                RELEASE_SELECT + " WHERE release_control.release_uid = ?"
-                        + (forUpdate ? " FOR UPDATE" : ""),
+                RELEASE_SELECT + " WHERE release_control.release_uid = ?",
                 (rs, ignored) -> releaseRow(rs),
                 uid.toString());
         if (rows.isEmpty()) {
@@ -2027,9 +2041,25 @@ public class BusinessReleaseControlPlaneService {
     }
 
     private ReleaseRow releaseByCreateOperation(UUID operationUid, boolean forUpdate) {
+        if (forUpdate) {
+            List<Long> locked = jdbc.query("""
+                    SELECT id
+                    FROM dev_edge_software_release_control
+                    WHERE create_operation_uid = ?
+                    FOR UPDATE
+                    """, (rs, ignored) -> rs.getLong("id"),
+                    operationUid.toString());
+            if (locked.isEmpty()) {
+                return null;
+            }
+            if (locked.size() != 1) {
+                throw new IllegalStateException(
+                        "business release create operation is not unique");
+            }
+        }
         List<ReleaseRow> rows = jdbc.query(
-                RELEASE_SELECT + " WHERE release_control.create_operation_uid = ?"
-                        + (forUpdate ? " FOR UPDATE" : ""),
+                RELEASE_SELECT
+                        + " WHERE release_control.create_operation_uid = ?",
                 (rs, ignored) -> releaseRow(rs),
                 operationUid.toString());
         return rows.isEmpty() ? null : rows.getFirst();
