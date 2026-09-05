@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 import uuid
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
@@ -43,6 +44,12 @@ BASELINE_BUSINESS_RELEASE = "BUSINESS_RELEASE"
 BASELINE_IMAGE_BRIDGE = "IMAGE_BRIDGE"
 DRAIN_TIMEOUT_SECONDS = 30 * 60
 OBSERVATION_SECONDS = 30 * 60
+RESTART_BUSINESS_HEALTH_GRACE_SECONDS = 3 * 60 + 30
+_RESTART_HEALTH_STATES = {
+    "VERIFYING_TARGET",
+    "OBSERVING",
+    "VERIFYING_ROLLBACK",
+}
 
 
 class BusinessUpdateCoordinatorError(RuntimeError):
@@ -65,15 +72,23 @@ class BusinessUpdateCoordinator:
         helper_client: Any | None = None,
         uuid_factory: Callable[[], uuid.UUID] = uuid.uuid4,
         utc_now: Callable[[], datetime] | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
         poll_seconds: float = 5.0,
         drain_timeout_seconds: int = DRAIN_TIMEOUT_SECONDS,
         observation_seconds: int = OBSERVATION_SECONDS,
+        restart_business_health_grace_seconds: int = (
+            RESTART_BUSINESS_HEALTH_GRACE_SECONDS
+        ),
     ) -> None:
         if poll_seconds <= 0:
             raise ValueError("business update poll interval must be positive")
         for value, label in (
             (drain_timeout_seconds, "drain timeout"),
             (observation_seconds, "observation timeout"),
+            (
+                restart_business_health_grace_seconds,
+                "restart business health grace",
+            ),
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"business update {label} must be positive")
@@ -92,9 +107,22 @@ class BusinessUpdateCoordinator:
         )
         self._uuid_factory = uuid_factory
         self._utc_now = utc_now or (lambda: datetime.now(timezone.utc))
+        self._monotonic = monotonic
         self._poll_seconds = float(poll_seconds)
         self._drain_timeout_seconds = drain_timeout_seconds
         self._observation_seconds = observation_seconds
+        self._restart_health_update_uid: str | None = None
+        self._restart_health_deadline: float | None = None
+        self._restart_health_wait_logged = False
+        active_update = self.journal.get_active_update()
+        if (
+            active_update is not None
+            and active_update["state"] in _RESTART_HEALTH_STATES
+        ):
+            self._restart_health_update_uid = active_update["updateUid"]
+            self._restart_health_deadline = (
+                self._monotonic() + restart_business_health_grace_seconds
+            )
         self._stop_event = threading.Event()
         self._wake_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -578,9 +606,12 @@ class BusinessUpdateCoordinator:
 
     def _verify_target(self, update: Mapping[str, Any]) -> None:
         if update["step"] == "VERIFY_TARGET":
-            health = self._require_proxy_business_health(
-                expected_version=update["versionName"]
+            health = self._require_proxy_business_health_with_restart_grace(
+                update,
+                expected_version=update["versionName"],
             )
+            if health is None:
+                return
             status = self._dispatch_helper(update, "INSPECT_TARGET", {})
             marker = status.get("currentRelease")
             if (
@@ -633,9 +664,14 @@ class BusinessUpdateCoordinator:
 
     def _observe_target(self, update: Mapping[str, Any]) -> None:
         try:
-            self._require_proxy_business_health(expected_version=update["versionName"])
+            health = self._require_proxy_business_health_with_restart_grace(
+                update,
+                expected_version=update["versionName"],
+            )
         except BusinessUpdateCoordinatorError as error:
             self._begin_rollback(update, error.code, str(error))
+            return
+        if health is None:
             return
         if self._elapsed(update.get("observationStartedAt")) < self._observation_seconds:
             return
@@ -849,6 +885,20 @@ class BusinessUpdateCoordinator:
 
     def _verify_rollback(self, update: Mapping[str, Any]) -> None:
         if update["step"] == "VERIFY_ROLLBACK":
+            health = None
+            if self._restart_health_update_uid == update["updateUid"]:
+                previous_version = update.get("previousVersionName")
+                if not isinstance(previous_version, str) or not previous_version:
+                    raise BusinessUpdateCoordinatorError(
+                        "BUSINESS_ROLLBACK_BASELINE_UNAVAILABLE",
+                        "business rollback version is unavailable",
+                    )
+                health = self._require_proxy_business_health_with_restart_grace(
+                    update,
+                    expected_version=previous_version,
+                )
+                if health is None:
+                    return
             status = self._dispatch_helper(update, "INSPECT_ROLLBACK", {})
             if update.get("baselineKind") == BASELINE_IMAGE_BRIDGE:
                 previous_version = update.get("previousVersionName")
@@ -866,9 +916,10 @@ class BusinessUpdateCoordinator:
                         "BUSINESS_ROLLBACK_IDENTITY_MISMATCH",
                         "image bridge rollback identity could not be confirmed",
                     )
-                health = self._require_proxy_business_health(
-                    expected_version=previous_version
-                )
+                if health is None:
+                    health = self._require_proxy_business_health(
+                        expected_version=previous_version
+                    )
                 evidence = canonical_local_payload_sha256(
                     {
                         "updateUid": update["updateUid"],
@@ -895,9 +946,10 @@ class BusinessUpdateCoordinator:
                     "BUSINESS_ROLLBACK_IDENTITY_MISMATCH",
                     "restored business release identity could not be confirmed",
                 )
-            health = self._require_proxy_business_health(
-                expected_version=marker["versionName"]
-            )
+            if health is None:
+                health = self._require_proxy_business_health(
+                    expected_version=marker["versionName"]
+                )
             evidence = canonical_local_payload_sha256(
                 {
                     "updateUid": update["updateUid"],
@@ -1019,6 +1071,45 @@ class BusinessUpdateCoordinator:
                 "business runtime instance identity is missing",
             )
         return health
+
+    def _require_proxy_business_health_with_restart_grace(
+        self,
+        update: Mapping[str, Any],
+        *,
+        expected_version: str,
+    ) -> dict[str, Any] | None:
+        try:
+            health = self._require_proxy_business_health(
+                expected_version=expected_version
+            )
+        except BusinessUpdateCoordinatorError as error:
+            if (
+                error.code == "BUSINESS_RUNTIME_NOT_READY"
+                and self._restart_health_update_uid == update["updateUid"]
+                and self._restart_health_deadline is not None
+                and self._monotonic() < self._restart_health_deadline
+            ):
+                if not self._restart_health_wait_logged:
+                    logger.info(
+                        "waiting for business runtime after updater restart: "
+                        "updateUid=%s state=%s step=%s",
+                        update["updateUid"],
+                        update["state"],
+                        update["step"],
+                    )
+                    self._restart_health_wait_logged = True
+                return None
+            self._clear_restart_health_grace(update["updateUid"])
+            raise
+        self._clear_restart_health_grace(update["updateUid"])
+        return health
+
+    def _clear_restart_health_grace(self, update_uid: str) -> None:
+        if self._restart_health_update_uid != update_uid:
+            return
+        self._restart_health_update_uid = None
+        self._restart_health_deadline = None
+        self._restart_health_wait_logged = False
 
     def _resume_drain_if_needed(self, update: Mapping[str, Any]) -> dict[str, Any]:
         status = self.safety_store.get_status()

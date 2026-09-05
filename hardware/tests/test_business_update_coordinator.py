@@ -53,10 +53,14 @@ class FakeBusinessClient:
         self.version = "1.0.0"
         self.target_health_calls = 0
         self.fail_during_observation = False
+        self.unavailable_health_calls = 0
 
     def request(self, action: str, payload: dict) -> dict:
         assert action == "GET_STATUS"
         assert payload == {}
+        if self.unavailable_health_calls > 0:
+            self.unavailable_health_calls -= 1
+            raise LocalControlUnavailable("business runtime is still starting")
         if self.version == "1.1.0":
             self.target_health_calls += 1
             if self.fail_during_observation and self.target_health_calls >= 2:
@@ -181,8 +185,8 @@ class AuthorizingBusinessHelper:
         raise AssertionError(f"unexpected helper action: {action}")
 
 
-def _uid_factory():
-    counter = 100
+def _uid_factory(start: int = 100):
+    counter = start
 
     def make() -> uuid.UUID:
         nonlocal counter
@@ -442,6 +446,243 @@ def test_restart_between_maintenance_lock_and_journal_transition_resumes(
         "INSPECT_BASELINE",
     )
     assert reopened.get_status()["jobGateState"] == "MAINTENANCE"
+
+
+def _restart_business_coordinator(
+    *,
+    safety,
+    journal,
+    business,
+    helper,
+    stager,
+    clock,
+    monotonic=None,
+    restart_business_health_grace_seconds: int = 210,
+) -> BusinessUpdateCoordinator:
+    options = {}
+    if monotonic is not None:
+        options["monotonic"] = monotonic
+    restarted = BusinessUpdateCoordinator(
+        safety_store=safety,
+        journal=journal,
+        package_stager=stager,
+        business_client=business,
+        helper_client=helper,
+        uuid_factory=_uid_factory(1000),
+        utc_now=lambda: clock[0],
+        poll_seconds=0.01,
+        observation_seconds=1,
+        restart_business_health_grace_seconds=(
+            restart_business_health_grace_seconds
+        ),
+        **options,
+    )
+    helper.coordinator = restarted
+    return restarted
+
+
+def test_restart_waits_for_target_health_before_initial_verification(
+    tmp_path: Path,
+) -> None:
+    coordinator, safety, journal, business, helper, stager, clock = _coordinator(
+        tmp_path
+    )
+    coordinator.queue_local(_request())
+    _advance_until(
+        coordinator,
+        journal,
+        state="VERIFYING_TARGET",
+        step="VERIFY_TARGET",
+    )
+    business.unavailable_health_calls = 1
+    restarted = _restart_business_coordinator(
+        safety=safety,
+        journal=journal,
+        business=business,
+        helper=helper,
+        stager=stager,
+        clock=clock,
+    )
+
+    restarted.process_once()
+    waiting = journal.get_update(UPDATE_UID)
+    assert waiting is not None
+    assert (waiting["state"], waiting["step"]) == (
+        "VERIFYING_TARGET",
+        "VERIFY_TARGET",
+    )
+
+    restarted.process_once()
+    verified = journal.get_update(UPDATE_UID)
+    assert verified is not None
+    assert (verified["state"], verified["step"]) == (
+        "VERIFYING_TARGET",
+        "RELEASE_TARGET",
+    )
+
+
+def test_restart_waits_for_target_health_during_observation(tmp_path: Path) -> None:
+    coordinator, safety, journal, business, helper, stager, clock = _coordinator(
+        tmp_path
+    )
+    coordinator.queue_local(_request())
+    _advance_until(
+        coordinator,
+        journal,
+        state="OBSERVING",
+        step="OBSERVE_TARGET",
+    )
+    business.unavailable_health_calls = 1
+    restarted = _restart_business_coordinator(
+        safety=safety,
+        journal=journal,
+        business=business,
+        helper=helper,
+        stager=stager,
+        clock=clock,
+    )
+
+    restarted.process_once()
+    waiting = journal.get_update(UPDATE_UID)
+    assert waiting is not None
+    assert (waiting["state"], waiting["step"]) == (
+        "OBSERVING",
+        "OBSERVE_TARGET",
+    )
+
+    restarted.process_once()
+    healthy = journal.get_update(UPDATE_UID)
+    assert healthy is not None
+    assert (healthy["state"], healthy["step"]) == (
+        "OBSERVING",
+        "OBSERVE_TARGET",
+    )
+
+
+def test_restart_health_grace_expires_for_persistently_unavailable_target(
+    tmp_path: Path,
+) -> None:
+    coordinator, safety, journal, business, helper, stager, clock = _coordinator(
+        tmp_path
+    )
+    coordinator.queue_local(_request())
+    _advance_until(
+        coordinator,
+        journal,
+        state="VERIFYING_TARGET",
+        step="VERIFY_TARGET",
+    )
+    monotonic_clock = [0.0]
+    business.unavailable_health_calls = 2
+    restarted = _restart_business_coordinator(
+        safety=safety,
+        journal=journal,
+        business=business,
+        helper=helper,
+        stager=stager,
+        clock=clock,
+        monotonic=lambda: monotonic_clock[0],
+        restart_business_health_grace_seconds=210,
+    )
+
+    restarted.process_once()
+    waiting = journal.get_update(UPDATE_UID)
+    assert waiting is not None
+    assert (waiting["state"], waiting["step"]) == (
+        "VERIFYING_TARGET",
+        "VERIFY_TARGET",
+    )
+
+    monotonic_clock[0] = 210.0
+    restarted.process_once()
+    rolling_back = journal.get_update(UPDATE_UID)
+    assert rolling_back is not None
+    assert (rolling_back["state"], rolling_back["step"]) == (
+        "ROLLING_BACK",
+        "STOP_TARGET",
+    )
+    assert rolling_back["errorCode"] == "BUSINESS_RUNTIME_NOT_READY"
+
+
+def test_restart_health_grace_does_not_hide_target_version_mismatch(
+    tmp_path: Path,
+) -> None:
+    coordinator, safety, journal, business, helper, stager, clock = _coordinator(
+        tmp_path
+    )
+    coordinator.queue_local(_request())
+    _advance_until(
+        coordinator,
+        journal,
+        state="VERIFYING_TARGET",
+        step="VERIFY_TARGET",
+    )
+    business.version = "1.2.0"
+    restarted = _restart_business_coordinator(
+        safety=safety,
+        journal=journal,
+        business=business,
+        helper=helper,
+        stager=stager,
+        clock=clock,
+    )
+
+    restarted.process_once()
+    rolling_back = journal.get_update(UPDATE_UID)
+    assert rolling_back is not None
+    assert (rolling_back["state"], rolling_back["step"]) == (
+        "ROLLING_BACK",
+        "STOP_TARGET",
+    )
+    assert rolling_back["errorCode"] == "BUSINESS_RUNTIME_VERSION_MISMATCH"
+
+
+def test_restart_waits_for_health_before_verifying_rollback(tmp_path: Path) -> None:
+    coordinator, safety, journal, business, helper, stager, clock = _coordinator(
+        tmp_path
+    )
+    coordinator.queue_local(_request())
+    _advance_until(
+        coordinator,
+        journal,
+        state="OBSERVING",
+        step="OBSERVE_TARGET",
+    )
+    business.fail_during_observation = True
+    business.target_health_calls = 1
+    coordinator.process_once()
+    _advance_until(
+        coordinator,
+        journal,
+        state="VERIFYING_ROLLBACK",
+        step="VERIFY_ROLLBACK",
+    )
+    business.fail_during_observation = False
+    business.unavailable_health_calls = 1
+    restarted = _restart_business_coordinator(
+        safety=safety,
+        journal=journal,
+        business=business,
+        helper=helper,
+        stager=stager,
+        clock=clock,
+    )
+
+    restarted.process_once()
+    waiting = journal.get_update(UPDATE_UID)
+    assert waiting is not None
+    assert (waiting["state"], waiting["step"]) == (
+        "VERIFYING_ROLLBACK",
+        "VERIFY_ROLLBACK",
+    )
+
+    restarted.process_once()
+    verified = journal.get_update(UPDATE_UID)
+    assert verified is not None
+    assert (verified["state"], verified["step"]) == (
+        "VERIFYING_ROLLBACK",
+        "RELEASE_ROLLBACK",
+    )
 
 
 def test_health_failure_after_updater_restart_can_still_roll_back(
