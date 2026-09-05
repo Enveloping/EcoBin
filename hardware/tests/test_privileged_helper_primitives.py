@@ -43,9 +43,11 @@ class FakeServiceRunner:
         state: str = "inactive",
         *,
         stop_state: str = "inactive",
+        reset_failed_state: str = "inactive",
     ) -> None:
         self.state = state
         self.stop_state = stop_state
+        self.reset_failed_state = reset_failed_state
         self.calls: list[tuple[list[str], dict[str, Any]]] = []
 
     def __call__(self, argv: list[str], **kwargs: Any) -> SimpleNamespace:
@@ -61,6 +63,9 @@ class FakeServiceRunner:
             return SimpleNamespace(returncode=0, stdout=f"{self.state}\n")
         if argv == [SYSTEMCTL, "stop", "--", BUSINESS_SERVICE]:
             self.state = self.stop_state
+            return SimpleNamespace(returncode=0, stdout="")
+        if argv == [SYSTEMCTL, "reset-failed", "--", BUSINESS_SERVICE]:
+            self.state = self.reset_failed_state
             return SimpleNamespace(returncode=0, stdout="")
         if argv == [SYSTEMCTL, "start", "--", BUSINESS_SERVICE]:
             self.state = "active"
@@ -186,7 +191,11 @@ def test_invalid_update_identity_is_rejected_before_systemctl(tmp_path: Path) ->
 def test_failed_service_state_is_never_accepted_as_safely_inactive(
     tmp_path: Path,
 ) -> None:
-    failed_runner = FakeServiceRunner(state="failed", stop_state="failed")
+    failed_runner = FakeServiceRunner(
+        state="failed",
+        stop_state="failed",
+        reset_failed_state="failed",
+    )
     primitives, _runner, _runtime, _updater, _database = _business_primitives(
         tmp_path,
         runner=failed_runner,
@@ -200,6 +209,27 @@ def test_failed_service_state_is_never_accepted_as_safely_inactive(
     with pytest.raises(LocalControlActionError) as snapshot_error:
         primitives.snapshot_database({"updateUid": update_uid})
     assert snapshot_error.value.code == "BUSINESS_RUNTIME_ACTIVE"
+
+
+def test_stop_clears_a_failed_state_after_systemd_has_terminated_the_service(
+    tmp_path: Path,
+) -> None:
+    failed_runner = FakeServiceRunner(state="active", stop_state="failed")
+    primitives, runner, _runtime, _updater, _database = _business_primitives(
+        tmp_path,
+        runner=failed_runner,
+    )
+    update_uid = str(uuid.uuid4())
+
+    result = primitives.stop({"updateUid": update_uid})
+
+    assert result["businessRuntimeState"] == "INACTIVE"
+    assert [SYSTEMCTL, "stop", "--", BUSINESS_SERVICE] in [
+        call[0] for call in runner.calls
+    ]
+    assert [SYSTEMCTL, "reset-failed", "--", BUSINESS_SERVICE] in [
+        call[0] for call in runner.calls
+    ]
 
 
 def test_sqlite_snapshot_is_consistent_and_restore_replaces_only_business_db(
@@ -321,6 +351,96 @@ def test_release_install_copies_plain_tree_without_executing_package_code(
     assert primitives.install_release(
         {"updateUid": update_uid, "releaseUid": release_uid}
     )["disposition"] == "ALREADY_INSTALLED"
+
+
+def test_release_install_keeps_root_traversable_under_helper_umask(
+    tmp_path: Path,
+) -> None:
+    primitives, _runner, runtime, updater, _database = _business_primitives(
+        tmp_path
+    )
+    update_uid = str(uuid.uuid4())
+    release_uid = str(uuid.uuid4())
+    _stage_release(updater, update_uid, release_uid)
+
+    original_umask = os.umask(0o077)
+    try:
+        primitives.install_release(
+            {"updateUid": update_uid, "releaseUid": release_uid}
+        )
+    finally:
+        os.umask(original_umask)
+
+    destination = runtime / "releases" / release_uid
+    assert stat.S_IMODE(destination.stat().st_mode) == 0o750
+
+
+def test_exact_release_can_be_reused_by_a_later_update_attempt(
+    tmp_path: Path,
+) -> None:
+    primitives, _runner, runtime, updater, _database = _business_primitives(
+        tmp_path
+    )
+    first_update_uid = str(uuid.uuid4())
+    retry_update_uid = str(uuid.uuid4())
+    release_uid = str(uuid.uuid4())
+    package_sha256 = "a" * 64
+    metadata = {
+        "releaseUid": release_uid,
+        "packageSha256": package_sha256,
+        "versionName": "1.1.0",
+        "releaseSequence": 2,
+    }
+    _stage_release(updater, first_update_uid, release_uid)
+    primitives.install_release({"updateUid": first_update_uid, **metadata})
+    destination = runtime / "releases" / release_uid
+    destination.chmod(0o700)
+    _stage_release(updater, retry_update_uid, release_uid)
+
+    retried = primitives.install_release(
+        {"updateUid": retry_update_uid, **metadata}
+    )
+
+    assert retried["disposition"] == "ALREADY_INSTALLED"
+    assert stat.S_IMODE(destination.stat().st_mode) == 0o750
+
+
+@pytest.mark.parametrize(
+    ("field", "different_value"),
+    [
+        ("packageSha256", "b" * 64),
+        ("versionName", "1.1.1"),
+        ("releaseSequence", 3),
+    ],
+)
+def test_later_update_cannot_reuse_release_with_different_identity(
+    tmp_path: Path,
+    field: str,
+    different_value: str | int,
+) -> None:
+    primitives, _runner, _runtime, updater, _database = _business_primitives(
+        tmp_path
+    )
+    first_update_uid = str(uuid.uuid4())
+    retry_update_uid = str(uuid.uuid4())
+    release_uid = str(uuid.uuid4())
+    metadata: dict[str, Any] = {
+        "releaseUid": release_uid,
+        "packageSha256": "a" * 64,
+        "versionName": "1.1.0",
+        "releaseSequence": 2,
+    }
+    _stage_release(updater, first_update_uid, release_uid)
+    primitives.install_release({"updateUid": first_update_uid, **metadata})
+    _stage_release(updater, retry_update_uid, release_uid)
+    conflicting = {**metadata, field: different_value}
+
+    with pytest.raises(LocalControlActionError) as raised:
+        primitives.install_release(
+            {"updateUid": retry_update_uid, **conflicting}
+        )
+
+    assert raised.value.code == "RELEASE_IDENTITY_CONFLICT"
 
 
 @pytest.mark.parametrize("unsafe_kind", ["symlink", "hardlink", "fifo"])

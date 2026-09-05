@@ -433,7 +433,9 @@ class BusinessUpdateCoordinator:
                     current is None
                     and marker is None
                     and status.get("previousReleaseUid") is None
-                    and installed_release_count == 0
+                    and not isinstance(installed_release_count, bool)
+                    and isinstance(installed_release_count, int)
+                    and installed_release_count >= 0
                     and status.get("businessRuntimeState") == "INACTIVE"
                     and bridge_state == "ACTIVE"
                 ):
@@ -1183,15 +1185,19 @@ class BusinessUpdateCoordinator:
             "SERVICE_STOPPING",
         }
         if error.code in retryable or error.uncertain:
-            self.journal.transition(
-                current["updateUid"],
-                current["state"],
-                step=current["step"],
-                fields={
-                    "last_error_code": _stable_error_code(error.code),
-                    "last_error_message": str(error),
-                },
-            )
+            if (
+                current["state"] not in {"ROLLING_BACK", "VERIFYING_ROLLBACK"}
+                or current.get("errorCode") is None
+            ):
+                self.journal.transition(
+                    current["updateUid"],
+                    current["state"],
+                    step=current["step"],
+                    fields={
+                        "last_error_code": _stable_error_code(error.code),
+                        "last_error_message": str(error),
+                    },
+                )
             return
         if current["state"] == "PACKAGE_READY":
             self._defer_without_gate(current, error.code)

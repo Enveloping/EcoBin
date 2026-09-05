@@ -132,6 +132,9 @@ class BusinessActivationPrimitives:
         action_uid = _optional_action_uid(payload)
         self._systemctl("stop")
         state = self._service_state()
+        if state == "FAILED":
+            self._systemctl("reset-failed")
+            state = self._service_state()
         if state != "INACTIVE":
             raise LocalControlActionError(
                 "SERVICE_CONTROL_FAILED",
@@ -331,13 +334,19 @@ class BusinessActivationPrimitives:
         destination = self.release_root / release_uid
         if destination.exists() or destination.is_symlink():
             marker = self._require_matching_release(
-                destination, update_uid, release_uid
+                destination, None, release_uid
             )
             _require_expected_marker_metadata(
                 marker,
                 package_sha256=package_sha256,
                 version_name=version_name,
                 release_sequence=release_sequence,
+            )
+            _create_or_require_directory(
+                destination,
+                mode=0o750,
+                uid=self.privileged_uid,
+                gid=self.business_gid,
             )
             return {
                 "updateUid": update_uid,
@@ -348,8 +357,12 @@ class BusinessActivationPrimitives:
         temporary = self.release_root / f".install-{update_uid}-{release_uid}"
         if temporary.exists() or temporary.is_symlink():
             _remove_safe_tree(temporary)
-        os.mkdir(temporary, 0o750)
-        os.chown(temporary, self.privileged_uid, self.business_gid)
+        _create_or_require_directory(
+            temporary,
+            mode=0o750,
+            uid=self.privileged_uid,
+            gid=self.business_gid,
+        )
         try:
             counter = _CopyCounter()
             _copy_safe_tree(
@@ -601,7 +614,7 @@ class BusinessActivationPrimitives:
             )
 
     def _systemctl(self, operation: str) -> None:
-        if operation not in {"start", "stop"}:
+        if operation not in {"start", "stop", "reset-failed"}:
             raise AssertionError("unsupported internal systemctl operation")
         result = self._invoke_fixed_command(
             [SYSTEMCTL, operation, "--", self.business_service],

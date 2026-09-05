@@ -99,9 +99,13 @@ class AuthorizingBusinessHelper:
         }
         self.database_restored = False
         self.calls: list[tuple[str, dict]] = []
+        self.unavailable_once_actions: set[str] = set()
 
     def request(self, action: str, payload: dict) -> dict:
         self.calls.append((action, dict(payload)))
+        if action in self.unavailable_once_actions:
+            self.unavailable_once_actions.remove(action)
+            raise LocalControlUnavailable("simulated helper receipt loss")
         assert self.coordinator is not None
         self.coordinator.authorize_privileged_action(
             {
@@ -290,6 +294,40 @@ def test_observation_failure_restores_database_and_previous_release(tmp_path) ->
     assert safety.get_status()["jobGateState"] == "OPEN"
 
 
+def test_rollback_keeps_root_failure_when_helper_receipt_is_temporarily_unknown(
+    tmp_path: Path,
+) -> None:
+    coordinator, _safety, journal, business, helper, _stager, _clock = _coordinator(
+        tmp_path
+    )
+    coordinator.queue_local(_request())
+    _advance_until(
+        coordinator,
+        journal,
+        state="OBSERVING",
+        step="OBSERVE_TARGET",
+    )
+    business.fail_during_observation = True
+    business.target_health_calls = 1
+    coordinator.process_once()
+    _advance_until(
+        coordinator,
+        journal,
+        state="ROLLING_BACK",
+        step="STOP_TARGET",
+    )
+    before_retry = journal.get_update(UPDATE_UID)
+    assert before_retry is not None
+    assert before_retry["errorCode"] == "BUSINESS_RUNTIME_NOT_READY"
+    helper.unavailable_once_actions.add("STOP_BUSINESS_RUNTIME")
+
+    coordinator.process_once()
+
+    after_retry = journal.get_update(UPDATE_UID)
+    assert after_retry is not None
+    assert after_retry["errorCode"] == "BUSINESS_RUNTIME_NOT_READY"
+
+
 def test_first_signed_package_replaces_image_bridge_and_becomes_baseline(
     tmp_path,
 ) -> None:
@@ -326,6 +364,32 @@ def test_failed_first_package_restores_database_and_image_bridge(tmp_path) -> No
     assert helper.current is None
     assert helper.bridge_active is True
     assert business.version == helper.bridge_version
+    assert safety.get_status()["jobGateState"] == "OPEN"
+
+
+def test_image_bridge_accepts_valid_inactive_release_from_prior_attempt(
+    tmp_path: Path,
+) -> None:
+    coordinator, safety, journal, _business, helper, _stager, clock = _coordinator(
+        tmp_path,
+        bridge_baseline=True,
+    )
+    helper.markers[BASELINE_RELEASE] = {
+        "schemaVersion": 2,
+        "updateUid": "77777777-7777-4777-8777-777777777777",
+        "releaseUid": BASELINE_RELEASE,
+        "packageSha256": "b" * 64,
+        "versionName": "1.0.0",
+        "releaseSequence": 1,
+    }
+
+    coordinator.queue_local(_request())
+    completed = _advance_to_terminal(coordinator, journal, clock)
+
+    assert completed["state"] == "SUCCEEDED"
+    assert completed["baselineKind"] == "IMAGE_BRIDGE"
+    assert helper.current == TARGET_RELEASE
+    assert helper.bridge_active is False
     assert safety.get_status()["jobGateState"] == "OPEN"
 
 
