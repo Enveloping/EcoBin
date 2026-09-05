@@ -319,7 +319,7 @@ public class BusinessReleaseControlPlaneService {
         requireUuidV4(releaseUid, "releaseUid");
         String normalizedReason = requiredReason(reason);
         String normalizedKeyId = signingKeyId(signingKeyId);
-        AuthorizedDeviceScope actor = authorizePlatformForExternalIo();
+        long adminId = authorizePlatformAdminForExternalIo();
         TargetWebAuditRequestContext.describe(
                 "device.business-release.artifact.upload", releaseUid.toString());
         ReleaseRow release = requireRelease(releaseUid, false);
@@ -365,7 +365,6 @@ public class BusinessReleaseControlPlaneService {
                 signatureIdentity.sha256(),
                 signatureIdentity.size());
 
-        long adminId = platformAdminId(actor);
         return transactions.execute(status -> {
             ReleaseRow locked = requireRelease(releaseUid, true);
             ReleaseActionRow concurrentReplay = releaseAction(operationUid);
@@ -429,8 +428,7 @@ public class BusinessReleaseControlPlaneService {
         requireUuidV4(operationUid, "Idempotency-Key");
         requireUuidV4(releaseUid, "releaseUid");
         String normalizedReason = requiredReason(reason);
-        AuthorizedDeviceScope actor = authorizePlatformForExternalIo();
-        long adminId = platformAdminId(actor);
+        long adminId = authorizePlatformAdminForExternalIo();
         TargetWebAuditRequestContext.describe(
                 "device.business-release.verify", releaseUid.toString());
 
@@ -2572,12 +2570,15 @@ public class BusinessReleaseControlPlaneService {
      * Artifact upload and verification deliberately perform slow filesystem
      * and object-storage work outside one database transaction. The shared
      * authorization port nevertheless requires a transaction for its
-     * identity lookup, so give only that lookup a short transaction.
+     * identity lookup and its transaction-bound persistence reference, so
+     * consume that reference inside the same short transaction and return
+     * only the plain administrator identifier.
      */
-    private AuthorizedDeviceScope authorizePlatformForExternalIo() {
+    private long authorizePlatformAdminForExternalIo() {
         return Objects.requireNonNull(
-                transactions.execute(status -> authorizePlatform()),
-                "platform authorization returned no result");
+                transactions.execute(status ->
+                        platformAdminId(authorizePlatform())),
+                "platform administrator identifier was not resolved");
     }
 
     private static long platformAdminId(AuthorizedDeviceScope actor) {

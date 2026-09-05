@@ -293,7 +293,7 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                         "platform authorization requires a transaction");
             }
             authorizationCount.incrementAndGet();
-            return actor();
+            return transactionBoundActor();
         };
         MemoryArtifactStorage storage = new MemoryArtifactStorage();
         BusinessReleasePackageVerifier localVerifier =
@@ -1057,6 +1057,32 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
         DeviceScopePersistenceRef persistence =
                 mock(DeviceScopePersistenceRef.class);
         doAnswer(invocation -> {
+            DeviceScopePersistenceRef.ForeignKeyWriter writer =
+                    invocation.getArgument(0);
+            writer.write(null, null, 9L, null);
+            return null;
+        }).when(persistence).writeForeignKeysTo(any());
+        return new AuthorizedDeviceScope(
+                true,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "发布管理员",
+                null,
+                null,
+                true,
+                true,
+                persistence);
+    }
+
+    private AuthorizedDeviceScope transactionBoundActor() {
+        DeviceScopePersistenceRef persistence =
+                mock(DeviceScopePersistenceRef.class);
+        doAnswer(invocation -> {
+            if (!TransactionSynchronizationManager
+                    .isActualTransactionActive()) {
+                throw new IllegalStateException(
+                        "device scope reference requires its issuing transaction");
+            }
             DeviceScopePersistenceRef.ForeignKeyWriter writer =
                     invocation.getArgument(0);
             writer.write(null, null, 9L, null);
