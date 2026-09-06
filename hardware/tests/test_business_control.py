@@ -489,6 +489,32 @@ def test_environment_builder_is_default_off_and_status_is_read_only() -> None:
     ] == "LEGACY_DIRECT"
 
 
+def test_status_mode_allows_updater_to_read_software_runtime_facts() -> None:
+    lookup = {
+        "ecobin-communication": 101,
+        "ecobin-business": 103,
+        "ecobin-updater": 102,
+    }
+
+    service = build_business_control_service_from_environment(
+        release_version="1.2.3",
+        job_permit_enforced=False,
+        software_runtime_facts_provider=lambda: {
+            "releaseVersion": "1.2.3",
+        },
+        environment={
+            "ECOBIN_BUSINESS_CONTROL_MODE": "status",
+            "ECOBIN_BUSINESS_CONTROL_SOCKET": "/run/test/business.sock",
+        },
+        user_uid_lookup=lookup.__getitem__,
+        group_gid_lookup=lambda _name: 201,
+    )
+
+    assert service is not None
+    action = service.server.actions["GET_SOFTWARE_RUNTIME_FACTS"]
+    assert action.allowed_uids == frozenset({102})
+
+
 def test_environment_health_reports_database_and_live_sqlite_sidecar_bytes(
     tmp_path,
 ) -> None:

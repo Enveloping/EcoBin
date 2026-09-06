@@ -1189,3 +1189,41 @@ def test_runtime_service_inspection_fails_closed_on_incomplete_output(
 
     assert {item["state"] for item in statuses} == {"UNKNOWN"}
     assert not _runtime_healthy()
+
+
+def test_runtime_service_auto_restart_is_reported_as_failed_not_starting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def run(argv, **_kwargs):
+        command = tuple(argv)
+        calls.append(command)
+        if command[1] == "is-active":
+            states = [
+                "activating" if unit == "ecobin-updater.service" else "active"
+                for _service_id, unit in RUNTIME_SERVICE_DEFINITIONS
+            ]
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                stdout="\n".join(states) + "\n",
+            )
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=(
+                "Id=ecobin-updater.service\n"
+                "ActiveState=activating\n"
+                "SubState=auto-restart\n"
+                "Result=exit-code\n"
+            ),
+        )
+
+    monkeypatch.setattr("factory_seal.runtime_health.subprocess.run", run)
+
+    statuses = inspect_runtime_services()
+
+    updater = next(item for item in statuses if item["id"] == "DEVICE_UPDATER")
+    assert updater["state"] == "FAILED"
+    assert len(calls) == 2

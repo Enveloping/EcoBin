@@ -32,6 +32,7 @@ class StageActions(Protocol):
 
 
 class SystemdStageActions:
+    _SYSTEMD_TRANSACTION_TIMEOUT_SECONDS = 10
     _RUNTIME_TARGET = "ecobin-runtime.target"
     _BUSINESS_RUNTIME_TARGET = "ecobin-business-runtime.target"
     _BASE_RUNTIME_MEMBERS = (
@@ -261,14 +262,14 @@ class SystemdStageActions:
     def _start(self, unit: str) -> str:
         result = self._runner.run(
             ("/usr/bin/systemctl", "start", unit),
-            timeout_seconds=30,
+            timeout_seconds=self._SYSTEMD_TRANSACTION_TIMEOUT_SECONDS,
         )
         return "NONE" if result.return_code == 0 else "STAGE_SERVICE_FAILED"
 
     def _stop(self, unit: str) -> str:
         result = self._runner.run(
             ("/usr/bin/systemctl", "stop", unit),
-            timeout_seconds=30,
+            timeout_seconds=self._SYSTEMD_TRANSACTION_TIMEOUT_SECONDS,
         )
         return "NONE" if result.return_code == 0 else "STAGE_SERVICE_FAILED"
 

@@ -312,6 +312,8 @@ class FactoryFlowProjector:
             "TIME_SYNC_PENDING",
             "TIME_SYNC_IN_PROGRESS",
             "FACTORY_TEST_GATE_CLOSED",
+            "CELLULAR_NETWORK_REGISTRATION_PENDING",
+            "CELLULAR_PACKET_SERVICE_PENDING",
         }:
             cellular_state = "ACTIVE"
         else:

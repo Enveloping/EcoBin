@@ -29,9 +29,11 @@ class RecordingRunner:
         self.return_code = return_code
         self.active_units = active_units or set()
         self.calls: list[tuple[str, ...]] = []
+        self.timeouts: list[float] = []
 
     def run(self, argv: tuple[str, ...], *, timeout_seconds: float) -> CommandResult:
         self.calls.append(tuple(argv))
+        self.timeouts.append(timeout_seconds)
         if argv[1:3] == ("is-active", "--quiet"):
             return CommandResult(0 if argv[-1] in self.active_units else 3, "")
         return CommandResult(self.return_code, "")
@@ -119,6 +121,24 @@ def test_unsealed_factory_to_runtime_sequence_keeps_ap_target_running() -> None:
         "ecobin-runtime.target",
     ]
     assert all("stop" not in call for call in runner.calls)
+
+
+def test_mutating_systemd_call_finishes_within_coordinator_stop_budget() -> None:
+    runner = RecordingRunner()
+    actions = SystemdStageActions(runner)
+
+    assert actions.apply(
+        FirstBootStage.FACTORY_PORTAL_READY,
+        FirstBootFacts(system_prepared=True),
+    ) == "NONE"
+
+    mutating_timeouts = [
+        timeout
+        for call, timeout in zip(runner.calls, runner.timeouts, strict=True)
+        if call[1] in {"start", "stop"}
+    ]
+    assert mutating_timeouts == [10]
+    assert mutating_timeouts[0] < 15
 
 
 def test_repeated_factory_stage_does_not_resubmit_active_service_dependencies() -> None:

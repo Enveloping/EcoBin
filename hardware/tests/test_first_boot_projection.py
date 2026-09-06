@@ -8,7 +8,7 @@ import stat
 import pytest
 
 from first_boot.model import FactoryTestStatus, FirstBootFacts, FirstBootStage
-from first_boot.cellular_status import CellularStatus
+from first_boot.cellular_status import CellularStatus, cellular_check_states
 from first_boot.status_projection import (
     AccessPointAuthorizationProjector,
     PortalStatusProjector,
@@ -52,6 +52,7 @@ def test_projection_is_exact_public_field_whitelist(tmp_path: Path) -> None:
             "consecutiveFailureCount": 3,
             "retryScheduled": True,
             "retryInSeconds": 15,
+            "checks": cellular_check_states("CELLULAR_DNS_UNAVAILABLE"),
         },
     }
     assert validate_public_projection(document) == document
@@ -79,6 +80,7 @@ def test_projection_validator_rejects_any_extra_field(extra: dict[str, object]) 
             "consecutiveFailureCount": 0,
             "retryScheduled": False,
             "retryInSeconds": None,
+            "checks": cellular_check_states("STATUS_UNAVAILABLE"),
         },
         **extra,
     }

@@ -14,6 +14,56 @@ _V2_FIELDS = {
     "consecutiveFailureCount",
     "nextRetryAtMonotonicMs",
 }
+_V3_FIELDS = {*_V2_FIELDS, "checks"}
+CELLULAR_CHECK_IDS = (
+    "MODEM_INTERFACE",
+    "MODEM_CONTROL",
+    "SIM_READY",
+    "NETWORK_REGISTERED",
+    "PACKET_ATTACHED",
+    "IP_ADDRESS",
+    "DEFAULT_ROUTE",
+    "DNS_RESOLUTION",
+    "BACKEND_HTTPS",
+)
+_CHECK_STATES = frozenset({"PASSED", "WAITING", "FAILED", "UNKNOWN"})
+
+_CHECK_FAILURES = {
+    "CELLULAR_DEVICE_NOT_FOUND": ("MODEM_INTERFACE", "WAITING"),
+    "CELLULAR_RNDIS_UNAVAILABLE": ("MODEM_INTERFACE", "WAITING"),
+    "CELLULAR_RNDIS_AMBIGUOUS": ("MODEM_INTERFACE", "FAILED"),
+    "CELLULAR_USB_PARENT_UNVERIFIED": ("MODEM_INTERFACE", "FAILED"),
+    "CELLULAR_USB_DRIVER_MISMATCH": ("MODEM_INTERFACE", "FAILED"),
+    "CELLULAR_INTERFACE_INVALID": ("MODEM_INTERFACE", "FAILED"),
+    "CELLULAR_MODEM_CONTROL_UNAVAILABLE": ("MODEM_CONTROL", "WAITING"),
+    "CELLULAR_MODEM_CONTROL_AMBIGUOUS": ("MODEM_CONTROL", "FAILED"),
+    "CELLULAR_MODEM_STATUS_UNAVAILABLE": ("MODEM_CONTROL", "FAILED"),
+    "CELLULAR_SIM_ABSENT": ("SIM_READY", "FAILED"),
+    "CELLULAR_SIM_LOCKED": ("SIM_READY", "FAILED"),
+    "CELLULAR_NETWORK_REGISTRATION_PENDING": ("NETWORK_REGISTERED", "WAITING"),
+    "CELLULAR_NETWORK_REGISTRATION_DENIED": ("NETWORK_REGISTERED", "FAILED"),
+    "CELLULAR_PACKET_SERVICE_PENDING": ("PACKET_ATTACHED", "WAITING"),
+    "CELLULAR_PROFILE_INSTALL_FAILED": ("IP_ADDRESS", "FAILED"),
+    "CELLULAR_ACTIVATION_FAILED": ("IP_ADDRESS", "WAITING"),
+    "CELLULAR_DHCP_UNAVAILABLE": ("IP_ADDRESS", "WAITING"),
+    "CELLULAR_DEFAULT_ROUTE_WRONG_INTERFACE": ("DEFAULT_ROUTE", "FAILED"),
+    "CELLULAR_DNS_UNAVAILABLE": ("DNS_RESOLUTION", "WAITING"),
+    "CELLULAR_HTTPS_UNAVAILABLE": ("BACKEND_HTTPS", "WAITING"),
+}
+_TIME_RESULTS = frozenset(
+    {
+        "TIME_NOT_TRUSTED",
+        "TIME_SYNC_PENDING",
+        "TIME_TRUST_QUERY_FAILED",
+        "CHRONY_ONLINE_FAILED",
+        "CHRONY_ACTIVITY_FAILED",
+        "CHRONY_SOURCES_UNAVAILABLE",
+        "CHRONY_REFRESH_FAILED",
+        "CHRONY_BURST_FAILED",
+        "CHRONY_WAITSYNC_FAILED",
+        "TIME_SYNC_INTERNAL_ERROR",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +71,7 @@ class CellularStatus:
     result_code: str
     consecutive_failure_count: int
     next_retry_at_monotonic_ms: int | None
+    checks: dict[str, str] | None = None
 
 
 class CellularStatusStore:
@@ -34,7 +85,7 @@ class CellularStatusStore:
             path,
             mode=0o600,
             directory_mode=0o700,
-            maximum_bytes=512,
+            maximum_bytes=2048,
         )
 
     def publish(
@@ -52,10 +103,11 @@ class CellularStatusStore:
         )
         self._file.write_object(
             {
-                "schemaVersion": 2,
+                "schemaVersion": 3,
                 "resultCode": status.result_code,
                 "consecutiveFailureCount": status.consecutive_failure_count,
                 "nextRetryAtMonotonicMs": status.next_retry_at_monotonic_ms,
+                "checks": status.checks,
             }
         )
 
@@ -81,13 +133,23 @@ def parse_cellular_status(value: object) -> CellularStatus:
             result_code=_validate_result_code(value.get("resultCode")),
             consecutive_failure_count=0,
             next_retry_at_monotonic_ms=None,
+            checks=cellular_check_states(value.get("resultCode")),
         )
-    if schema_version != 2 or set(value) != _V2_FIELDS:
+    if schema_version == 2 and set(value) == _V2_FIELDS:
+        result_code = _validate_result_code(value.get("resultCode"))
+        return _validate_status_values(
+            result_code,
+            value.get("consecutiveFailureCount"),
+            value.get("nextRetryAtMonotonicMs"),
+            cellular_check_states(result_code),
+        )
+    if schema_version != 3 or set(value) != _V3_FIELDS:
         raise ValueError("cellular status fields are invalid")
     return _validate_status_values(
         _validate_result_code(value.get("resultCode")),
         value.get("consecutiveFailureCount"),
         value.get("nextRetryAtMonotonicMs"),
+        value.get("checks"),
     )
 
 
@@ -104,7 +166,13 @@ def _validate_status_values(
     result_code: str,
     consecutive_failure_count: object,
     next_retry_at_monotonic_ms: object,
+    checks: object | None = None,
 ) -> CellularStatus:
+    normalized_checks = _validate_checks(
+        cellular_check_states(result_code) if checks is None else checks
+    )
+    if normalized_checks != cellular_check_states(result_code):
+        raise ValueError("cellular check values are inconsistent")
     if (
         type(consecutive_failure_count) is not int
         or not 0 <= consecutive_failure_count <= 1_000_000
@@ -132,7 +200,48 @@ def _validate_status_values(
         result_code=result_code,
         consecutive_failure_count=consecutive_failure_count,
         next_retry_at_monotonic_ms=next_retry_at_monotonic_ms,
+        checks=normalized_checks,
     )
 
 
-__all__ = ["CellularStatus", "CellularStatusStore", "parse_cellular_status"]
+def cellular_check_states(result_code: object) -> dict[str, str]:
+    if not isinstance(result_code, str):
+        return {check_id: "UNKNOWN" for check_id in CELLULAR_CHECK_IDS}
+    if result_code == "NONE":
+        return {check_id: "PASSED" for check_id in CELLULAR_CHECK_IDS}
+    if result_code in _TIME_RESULTS:
+        current = "BACKEND_HTTPS"
+        current_state = "WAITING"
+    else:
+        failure = _CHECK_FAILURES.get(result_code)
+        if failure is None:
+            return {check_id: "UNKNOWN" for check_id in CELLULAR_CHECK_IDS}
+        current, current_state = failure
+    current_index = CELLULAR_CHECK_IDS.index(current)
+    return {
+        check_id: (
+            "PASSED"
+            if index < current_index
+            else current_state
+            if index == current_index
+            else "UNKNOWN"
+        )
+        for index, check_id in enumerate(CELLULAR_CHECK_IDS)
+    }
+
+
+def _validate_checks(value: object) -> dict[str, str]:
+    if not isinstance(value, dict) or set(value) != set(CELLULAR_CHECK_IDS):
+        raise ValueError("cellular check fields are invalid")
+    if any(state not in _CHECK_STATES for state in value.values()):
+        raise ValueError("cellular check values are invalid")
+    return {check_id: value[check_id] for check_id in CELLULAR_CHECK_IDS}
+
+
+__all__ = [
+    "CELLULAR_CHECK_IDS",
+    "CellularStatus",
+    "CellularStatusStore",
+    "cellular_check_states",
+    "parse_cellular_status",
+]

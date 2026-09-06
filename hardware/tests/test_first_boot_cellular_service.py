@@ -46,6 +46,16 @@ def _install_happy_path(
     )
     monkeypatch.setattr(
         cellular_service,
+        "ModemRegistrationProbe",
+        lambda: SimpleNamespace(
+            probe=lambda _device: SimpleNamespace(
+                ready=True,
+                error_code="NONE",
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        cellular_service,
         "render_network_manager_profile",
         lambda _config, _device: "[connection]\n",
     )
@@ -164,6 +174,47 @@ def test_unsealed_loop_keeps_local_factory_profile_until_p8_seals(
     assert cellular_service.run_once() == "NONE"
 
     assert modes == ["enxcell0:FACTORY"]
+
+
+def test_mobile_registration_is_checked_before_dns_or_https(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cellular_service,
+        "inspect_sealed_authorization",
+        lambda _paths: SimpleNamespace(exists=False, valid=False),
+    )
+    modes: list[str] = []
+    _install_happy_path(monkeypatch, _accepted(), modes)
+    monkeypatch.setattr(
+        cellular_service,
+        "ModemRegistrationProbe",
+        lambda: SimpleNamespace(
+            probe=lambda _device: SimpleNamespace(
+                ready=False,
+                error_code="CELLULAR_NETWORK_REGISTRATION_PENDING",
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        cellular_service,
+        "CellularProbe",
+        lambda *_args, **_kwargs: pytest.fail(
+            "DNS/HTTPS must not run before mobile registration"
+        ),
+    )
+    emergency: list[bool] = []
+    monkeypatch.setattr(
+        cellular_service,
+        "apply_emergency_uplink_lock",
+        lambda: emergency.append(True) or True,
+    )
+
+    assert (
+        cellular_service.run_once()
+        == "CELLULAR_NETWORK_REGISTRATION_PENDING"
+    )
+    assert emergency == [True]
 
 
 def test_lost_p7_gate_replaces_any_old_uplink_profile_with_emergency(

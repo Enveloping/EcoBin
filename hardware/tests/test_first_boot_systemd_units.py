@@ -33,6 +33,7 @@ def test_first_boot_requires_immutable_gpio_and_early_egress_lock() -> None:
     assert "StateDirectoryMode=0710" in unit
     assert "ReadWritePaths=/run/ecobin/factory-portal" in unit
     assert "ReadWritePaths=/run/ecobin/factory-network" in unit
+    assert "RuntimeDirectoryPreserve=yes" in unit
     assert "LimitCORE=0" in unit
     assert "/bin/sh" not in unit
 

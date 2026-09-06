@@ -30,6 +30,7 @@ class UsbNetworkDevice:
     usb_pid: str
     driver: str
     usb_parent_verified: bool
+    usb_parent_path: str | None = None
 
 
 class UsbNetworkInventory(Protocol):
@@ -112,6 +113,7 @@ class SysfsUsbNetworkInventory:
             parent = device
             usb_vid: str | None = None
             usb_pid: str | None = None
+            usb_parent_path: str | None = None
             for _ in range(12):
                 vid_path = parent / "idVendor"
                 pid_path = parent / "idProduct"
@@ -119,6 +121,7 @@ class SysfsUsbNetworkInventory:
                     try:
                         usb_vid = vid_path.read_text(encoding="ascii").strip().lower()
                         usb_pid = pid_path.read_text(encoding="ascii").strip().lower()
+                        usb_parent_path = str(parent.resolve())
                     except (OSError, UnicodeDecodeError):
                         usb_vid = usb_pid = None
                     break
@@ -139,6 +142,7 @@ class SysfsUsbNetworkInventory:
                     usb_pid=usb_pid,
                     driver=driver,
                     usb_parent_verified=True,
+                    usb_parent_path=usb_parent_path,
                 )
             )
         return result

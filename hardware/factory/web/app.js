@@ -176,6 +176,25 @@ const RUNTIME_SERVICE_STATE_META = Object.freeze({
   UNKNOWN: { label: "无法确认", className: "is-unknown" },
 });
 
+const CELLULAR_CHECK_LABELS = Object.freeze({
+  MODEM_INTERFACE: "蜂窝通信模块",
+  MODEM_CONTROL: "通信模块状态通道",
+  SIM_READY: "物联网卡",
+  NETWORK_REGISTERED: "运营商网络注册",
+  PACKET_ATTACHED: "移动数据网络",
+  IP_ADDRESS: "设备网络地址",
+  DEFAULT_ROUTE: "蜂窝默认联网路径",
+  DNS_RESOLUTION: "后台地址解析",
+  BACKEND_HTTPS: "后台服务连接",
+});
+
+const CELLULAR_CHECK_STATE_META = Object.freeze({
+  PASSED: { label: "已通过", className: "is-ok" },
+  WAITING: { label: "等待中", className: "is-waiting" },
+  FAILED: { label: "未通过", className: "is-error" },
+  UNKNOWN: { label: "尚未检查", className: "is-unknown" },
+});
+
 const DETAIL_DESCRIPTIONS = Object.freeze({
   BOOT_READY: "系统准备和出厂热点均已就绪。",
   NOT_RUN: "等待操作员开始本机硬件检查。",
@@ -267,8 +286,14 @@ const ERROR_DESCRIPTIONS = Object.freeze({
   CELLULAR_USB_DRIVER_MISMATCH: "蜂窝通信模块驱动与当前配置不一致",
   CELLULAR_RNDIS_UNAVAILABLE: "未检测到蜂窝通信模块提供的网络接口",
   CELLULAR_INTERFACE_INVALID: "蜂窝网络接口配置异常",
+  CELLULAR_MODEM_CONTROL_UNAVAILABLE: "已发现蜂窝通信模块，但暂时无法读取其联网状态",
+  CELLULAR_MODEM_CONTROL_AMBIGUOUS: "检测到多个通信模块状态通道，设备无法安全选择",
+  CELLULAR_MODEM_STATUS_UNAVAILABLE: "蜂窝通信模块返回的联网状态无法识别",
   CELLULAR_SIM_ABSENT: "未检测到物联网卡",
   CELLULAR_SIM_LOCKED: "物联网卡已锁定",
+  CELLULAR_NETWORK_REGISTRATION_PENDING: "蜂窝通信模块正在注册运营商网络",
+  CELLULAR_NETWORK_REGISTRATION_DENIED: "运营商网络拒绝了设备注册",
+  CELLULAR_PACKET_SERVICE_PENDING: "蜂窝通信模块正在建立移动数据网络",
   CELLULAR_DHCP_UNAVAILABLE: "蜂窝网络尚未取得设备地址",
   CELLULAR_DEFAULT_ROUTE_WRONG_INTERFACE: "设备流量未按要求使用蜂窝网络",
   CELLULAR_DNS_UNAVAILABLE: "蜂窝网络暂时无法解析后台地址",
@@ -349,6 +374,18 @@ const CELLULAR_MODULE_IDENTITY_ERRORS = new Set([
 const CELLULAR_SIM_ERRORS = new Set([
   "CELLULAR_SIM_ABSENT",
   "CELLULAR_SIM_LOCKED",
+]);
+
+const CELLULAR_MODEM_STATUS_ERRORS = new Set([
+  "CELLULAR_MODEM_CONTROL_UNAVAILABLE",
+  "CELLULAR_MODEM_CONTROL_AMBIGUOUS",
+  "CELLULAR_MODEM_STATUS_UNAVAILABLE",
+]);
+
+const CELLULAR_REGISTRATION_ERRORS = new Set([
+  "CELLULAR_NETWORK_REGISTRATION_PENDING",
+  "CELLULAR_NETWORK_REGISTRATION_DENIED",
+  "CELLULAR_PACKET_SERVICE_PENDING",
 ]);
 
 const CELLULAR_ADDRESS_ERRORS = new Set([
@@ -642,6 +679,15 @@ function recoveryInstruction(node, code) {
         ? "断电后确认物联网卡已经正确插入；重新开机后设备会自动重试。"
         : "物联网卡已锁定，请联系物联网卡服务方解锁或更换可用卡。";
     }
+    if (CELLULAR_MODEM_STATUS_ERRORS.has(code)) {
+      return "蜂窝网络接口已经出现，但设备暂时无法读取通信模块的注册状态；请检查模块 USB 连接，设备会自动重试。";
+    }
+    if (CELLULAR_REGISTRATION_ERRORS.has(code)) {
+      if (code === "CELLULAR_NETWORK_REGISTRATION_DENIED") {
+        return "运营商拒绝了本次网络注册，请检查物联网卡是否启用、套餐是否有效，以及卡是否绑定了正确设备。";
+      }
+      return "通信模块正在等待运营商网络或移动数据网络；请保持设备通电并检查现场信号，系统会自动重试。";
+    }
     if (CELLULAR_ADDRESS_ERRORS.has(code)) {
       return "蜂窝网络尚未取得可用地址，请检查物联网卡套餐、现场信号和通信模块，设备会自动重试。";
     }
@@ -833,7 +879,7 @@ function updateNetworkRetry(status) {
     : "STATUS_UNAVAILABLE";
   const retryScheduled = cellular?.retryScheduled === true;
   const inNetworkStep = currentFlowNode?.id === "CELLULAR_AND_TIME";
-  panel.hidden = resultCode === "NONE" || (!inNetworkStep && !retryScheduled);
+  panel.hidden = resultCode === "NONE" && !inNetworkStep && !retryScheduled;
   if (panel.hidden) return;
 
   const count = Number.isInteger(cellular?.consecutiveFailureCount)
@@ -853,7 +899,9 @@ function updateNetworkRetry(status) {
     retryText = "系统已经安排下一次自动重试。";
   }
 
-  const detail = resultCode === "CELLULAR_DNS_UNAVAILABLE"
+  const detail = resultCode === "NONE"
+    ? "蜂窝网络各项检查已通过。"
+    : resultCode === "CELLULAR_DNS_UNAVAILABLE"
     ? `后台地址解析连续 ${count || 1} 次未成功。${retryText}`
     : resultCode === "STATUS_UNAVAILABLE"
       ? "暂时读取不到蜂窝网络自动重试进度。"
@@ -861,8 +909,26 @@ function updateNetworkRetry(status) {
   setTextIfChanged(byId("network-retry-detail"), detail);
   setTextIfChanged(
     byId("network-retry-state"),
-    retryScheduled ? "自动重试中" : "需要检查",
+    resultCode === "NONE" ? "检查通过" : retryScheduled ? "自动重试中" : "需要检查",
   );
+
+  const checks = cellular?.checks && typeof cellular.checks === "object"
+    ? cellular.checks
+    : {};
+  const list = byId("network-check-list");
+  list.replaceChildren();
+  for (const [checkId, label] of Object.entries(CELLULAR_CHECK_LABELS)) {
+    const state = typeof checks[checkId] === "string" ? checks[checkId] : "UNKNOWN";
+    const meta = CELLULAR_CHECK_STATE_META[state] || CELLULAR_CHECK_STATE_META.UNKNOWN;
+    const item = document.createElement("li");
+    item.className = meta.className;
+    const name = document.createElement("span");
+    name.textContent = label;
+    const result = document.createElement("strong");
+    result.textContent = meta.label;
+    item.append(name, result);
+    list.appendChild(item);
+  }
 }
 
 function updateRuntimeServices(status) {

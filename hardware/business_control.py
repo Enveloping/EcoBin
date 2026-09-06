@@ -1459,7 +1459,11 @@ def build_business_control_service_from_environment(
         mcu_maintenance_port=(
             mcu_maintenance_port if candidate_enabled else None
         ),
-        updater_uids={updater_uid} if candidate_enabled else (),
+        updater_uids=(
+            {updater_uid}
+            if candidate_enabled or software_runtime_facts_provider is not None
+            else ()
+        ),
         enable_cloud_proxy_candidate=enable_cloud_proxy_candidate,
         cloud_proxy_ingress=(
             cloud_proxy_ingress if enable_cloud_proxy_candidate else None

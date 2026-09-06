@@ -6,7 +6,12 @@ import time
 from typing import Callable
 
 from .atomic_json import AtomicJsonFile, OwnershipSetter, root_group_owner
-from .cellular_status import CellularStatus, CellularStatusStore
+from .cellular_status import (
+    CELLULAR_CHECK_IDS,
+    CellularStatus,
+    CellularStatusStore,
+    cellular_check_states,
+)
 from .model import FactoryTestStatus, FirstBootFacts, FirstBootStage, normalize_error_code
 
 
@@ -22,6 +27,7 @@ _CELLULAR_PUBLIC_FIELDS = {
     "consecutiveFailureCount",
     "retryScheduled",
     "retryInSeconds",
+    "checks",
 }
 _AP_EXACT_FIELDS = {"schemaVersion", "allowed", "statusCode"}
 
@@ -159,6 +165,7 @@ def _public_cellular_status(
             "consecutiveFailureCount": 0,
             "retryScheduled": False,
             "retryInSeconds": None,
+            "checks": cellular_check_states("STATUS_UNAVAILABLE"),
         }
     retry_scheduled = status.next_retry_at_monotonic_ms is not None
     retry_in_seconds = (
@@ -176,6 +183,11 @@ def _public_cellular_status(
         "consecutiveFailureCount": status.consecutive_failure_count,
         "retryScheduled": retry_scheduled,
         "retryInSeconds": retry_in_seconds,
+        "checks": (
+            dict(status.checks)
+            if status.checks is not None
+            else cellular_check_states(status.result_code)
+        ),
     }
 
 
@@ -186,6 +198,7 @@ def validate_public_cellular_status(value: object) -> dict[str, object]:
     failure_count = value.get("consecutiveFailureCount")
     retry_scheduled = value.get("retryScheduled")
     retry_in_seconds = value.get("retryInSeconds")
+    checks = value.get("checks")
     if (
         not isinstance(result_code, str)
         or normalize_error_code(result_code) != result_code
@@ -205,6 +218,13 @@ def validate_public_cellular_status(value: object) -> dict[str, object]:
             result_code == "NONE"
             and (failure_count != 0 or retry_scheduled)
         )
+        or not isinstance(checks, dict)
+        or set(checks) != set(CELLULAR_CHECK_IDS)
+        or any(
+            checks.get(check_id) not in {"PASSED", "WAITING", "FAILED", "UNKNOWN"}
+            for check_id in CELLULAR_CHECK_IDS
+        )
+        or checks != cellular_check_states(result_code)
     ):
         raise ValueError("portal cellular projection values are invalid")
     return {
@@ -212,6 +232,9 @@ def validate_public_cellular_status(value: object) -> dict[str, object]:
         "consecutiveFailureCount": failure_count,
         "retryScheduled": retry_scheduled,
         "retryInSeconds": retry_in_seconds,
+        "checks": {
+            check_id: checks[check_id] for check_id in CELLULAR_CHECK_IDS
+        },
     }
 
 

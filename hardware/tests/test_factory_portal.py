@@ -653,6 +653,17 @@ def test_public_projection_never_copies_secret_shaped_fields(tmp_path: Path) -> 
                     "consecutiveFailureCount": 3,
                     "retryScheduled": True,
                     "retryInSeconds": 9,
+                    "checks": {
+                        "MODEM_INTERFACE": "PASSED",
+                        "MODEM_CONTROL": "PASSED",
+                        "SIM_READY": "PASSED",
+                        "NETWORK_REGISTERED": "PASSED",
+                        "PACKET_ATTACHED": "PASSED",
+                        "IP_ADDRESS": "PASSED",
+                        "DEFAULT_ROUTE": "PASSED",
+                        "DNS_RESOLUTION": "WAITING",
+                        "BACKEND_HTTPS": "UNKNOWN",
+                    },
                 },
                 "deviceKey": "ONENET-SHOULD-NEVER-LEAK",
                 "credentials": "CREDENTIAL-SHOULD-NEVER-LEAK",
@@ -695,6 +706,17 @@ def test_public_projection_never_copies_secret_shaped_fields(tmp_path: Path) -> 
         "consecutiveFailureCount": 3,
         "retryScheduled": True,
         "retryInSeconds": 9,
+        "checks": {
+            "MODEM_INTERFACE": "PASSED",
+            "MODEM_CONTROL": "PASSED",
+            "SIM_READY": "PASSED",
+            "NETWORK_REGISTERED": "PASSED",
+            "PACKET_ATTACHED": "PASSED",
+            "IP_ADDRESS": "PASSED",
+            "DEFAULT_ROUTE": "PASSED",
+            "DNS_RESOLUTION": "WAITING",
+            "BACKEND_HTTPS": "UNKNOWN",
+        },
     }
     assert "SHOULD-NEVER-LEAK" not in encoded
     assert "deviceKey" not in encoded
@@ -730,9 +752,22 @@ def test_web_surfaces_time_trust_and_the_precise_uplink_result() -> None:
     assert "status.lastErrorCode" in app
     assert 'id="network-retry-panel"' in index
     assert 'id="network-retry-detail"' in index
+    assert 'id="network-check-list"' in index
     assert "status.network?.cellular" in app
     assert "consecutiveFailureCount" in app
     assert "retryInSeconds" in app
+    for label in (
+        "蜂窝通信模块",
+        "通信模块状态通道",
+        "物联网卡",
+        "运营商网络注册",
+        "移动数据网络",
+        "设备网络地址",
+        "蜂窝默认联网路径",
+        "后台地址解析",
+        "后台服务连接",
+    ):
+        assert label in app
     for code in (
         "TIME_SYNC_PENDING",
         "TIME_TRUST_QUERY_FAILED",

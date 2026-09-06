@@ -11,6 +11,7 @@ from .cellular_firewall import (
     apply_emergency_uplink_lock,
     apply_seal_aware_uplink_gate,
 )
+from .cellular_modem import ModemRegistrationProbe
 from .cellular_probe import (
     CellularProbe,
     SysfsUsbNetworkInventory,
@@ -31,6 +32,13 @@ from factory_seal.validation import FactorySealPaths, inspect_sealed_authorizati
 PROFILE_PATH = Path("/etc/NetworkManager/system-connections/ecobin-air780e.nmconnection")
 _PRODUCTION_LIVENESS_FAILURES = frozenset(
     {
+        "CELLULAR_MODEM_CONTROL_UNAVAILABLE",
+        "CELLULAR_MODEM_STATUS_UNAVAILABLE",
+        "CELLULAR_NETWORK_REGISTRATION_PENDING",
+        "CELLULAR_NETWORK_REGISTRATION_DENIED",
+        "CELLULAR_PACKET_SERVICE_PENDING",
+        "CELLULAR_SIM_ABSENT",
+        "CELLULAR_SIM_LOCKED",
         "CELLULAR_DNS_UNAVAILABLE",
         "CELLULAR_HTTPS_UNAVAILABLE",
     }
@@ -158,18 +166,26 @@ def run_once(
     if device is None:
         apply_emergency_uplink_lock()
         return selection_error
-    profile = render_network_manager_profile(config, device)
-    try:
-        install_network_manager_profile(PROFILE_PATH, profile)
-    except OSError:
-        apply_emergency_uplink_lock()
-        return "CELLULAR_PROFILE_INSTALL_FAILED"
     firewall_mode = apply_seal_aware_uplink_gate(
         device.interface,
         lambda: inspect_sealed_authorization(seal_paths),
     )
     if firewall_mode not in {"FACTORY", "PRODUCTION"}:
         return firewall_mode
+    modem = ModemRegistrationProbe().probe(device)
+    if not modem.ready:
+        if not (
+            firewall_mode == "PRODUCTION"
+            and modem.error_code in _PRODUCTION_LIVENESS_FAILURES
+        ):
+            apply_emergency_uplink_lock()
+        return modem.error_code
+    profile = render_network_manager_profile(config, device)
+    try:
+        install_network_manager_profile(PROFILE_PATH, profile)
+    except OSError:
+        apply_emergency_uplink_lock()
+        return "CELLULAR_PROFILE_INSTALL_FAILED"
     activated = NetworkManagerActivator().activate(
         profile_path=PROFILE_PATH,
         connection_id=config.connection_id,

@@ -25,6 +25,9 @@ StateDirectory=ecobin/first-boot
 StateDirectoryMode=0710
 RuntimeDirectory=ecobin/factory-portal
 RuntimeDirectoryMode=0750
+# The acceptance executor owns acceptance.json in this shared directory.
+# Restarting the coordinator must not erase that independently produced fact.
+RuntimeDirectoryPreserve=yes
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict

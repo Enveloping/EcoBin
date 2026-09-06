@@ -127,6 +127,13 @@ class _HttpsUnavailableCommands:
         raise AssertionError(f"unexpected command: {command}")
 
 
+class _DnsUnavailableCommands(_HttpsUnavailableCommands):
+    def run(self, argv: tuple[str, ...], *, timeout_seconds: float) -> CommandResult:
+        if tuple(argv)[0] == "/usr/bin/resolvectl":
+            return CommandResult(1, "")
+        return super().run(argv, timeout_seconds=timeout_seconds)
+
+
 def _digest() -> str:
     return AcceptanceConfiguration.from_mapping({}).digest()
 
@@ -595,6 +602,25 @@ def test_precise_cellular_result_overrides_only_the_generic_probe_error(
 
     assert not facts.uplink_ready
     assert facts.last_error_code == "CHRONY_ONLINE_FAILED"
+
+
+def test_registration_status_replaces_a_downstream_dns_symptom(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    _write_passed_cellular_inputs(paths)
+    CellularStatusStore(paths.cellular_status).publish(
+        "CELLULAR_NETWORK_REGISTRATION_PENDING"
+    )
+
+    facts = SystemFactsProvider(
+        paths,
+        runner=_DnsUnavailableCommands(),
+        inventory=_SingleCellularDevice(),
+    ).collect()
+
+    assert not facts.uplink_ready
+    assert facts.last_error_code == "CELLULAR_NETWORK_REGISTRATION_PENDING"
 
 
 @pytest.mark.parametrize("projection", ("MISSING", "CORRUPT", "UNKNOWN_CODE"))

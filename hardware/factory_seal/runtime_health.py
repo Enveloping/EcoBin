@@ -39,14 +39,83 @@ def inspect_runtime_services() -> list[dict[str, str]]:
     observed = result.stdout.splitlines()
     if len(observed) != len(RUNTIME_SERVICE_DEFINITIONS):
         return unknown_runtime_services()
+    activating_units = tuple(
+        unit
+        for (_service_id, unit), state in zip(
+            RUNTIME_SERVICE_DEFINITIONS,
+            observed,
+            strict=True,
+        )
+        if state.strip().lower() == "activating"
+    )
+    failed_restarts = _failed_auto_restart_units(activating_units)
     return [
-        {"id": service_id, "state": _public_state(state)}
-        for (service_id, _unit), state in zip(
+        {
+            "id": service_id,
+            "state": (
+                "FAILED"
+                if unit in failed_restarts
+                else _public_state(state)
+            ),
+        }
+        for (service_id, unit), state in zip(
             RUNTIME_SERVICE_DEFINITIONS,
             observed,
             strict=True,
         )
     ]
+
+
+def _failed_auto_restart_units(units: tuple[str, ...]) -> frozenset[str]:
+    if not units:
+        return frozenset()
+    try:
+        result = subprocess.run(
+            (
+                "/usr/bin/systemctl",
+                "show",
+                *units,
+                "--property=Id",
+                "--property=ActiveState",
+                "--property=SubState",
+                "--property=Result",
+                "--no-pager",
+            ),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+            check=False,
+            text=True,
+            encoding="ascii",
+            errors="replace",
+        )
+    except (OSError, subprocess.SubprocessError):
+        return frozenset()
+    if result.returncode != 0:
+        return frozenset()
+    records: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+    for line in (*result.stdout.splitlines(), ""):
+        if not line:
+            if current:
+                records.append(current)
+                current = {}
+            continue
+        key, separator, value = line.partition("=")
+        if not separator or key in current:
+            return frozenset()
+        current[key] = value
+    expected_fields = {"Id", "ActiveState", "SubState", "Result"}
+    if any(set(record) != expected_fields for record in records):
+        return frozenset()
+    allowed = set(units)
+    return frozenset(
+        record["Id"]
+        for record in records
+        if record["Id"] in allowed
+        and record["ActiveState"] == "activating"
+        and record["SubState"] == "auto-restart"
+    )
 
 
 def active_runtime_services() -> list[dict[str, str]]:

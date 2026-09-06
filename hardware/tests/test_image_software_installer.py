@@ -91,6 +91,9 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
         "mcu_update_coordinator.py",
         "mcu_update_package.py",
         "mcu_update_store.py",
+        "onenet_projection_model.json",
+        "onenet_wire.py",
+        "trusted_clock.py",
         "updater_agent.py",
         "updater_control_cli.py",
         "updater_store.py",
@@ -154,6 +157,36 @@ def test_image_installer_direct_file_help_loads_shared_manifest(
 
     assert completed.returncode == 0, completed.stderr
     assert "validate-payload" in completed.stdout
+
+
+def test_device_updater_staged_inventory_starts_from_its_isolated_app(
+    tmp_path: Path,
+) -> None:
+    """Lock the permanent updater's installed import closure, not the repo tree."""
+
+    app = tmp_path / "updater" / "app"
+    for relative in DEVICE_UPDATER_FILES:
+        source = HARDWARE_ROOT / relative
+        target = app / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+
+    environment = dict(os.environ)
+    environment.pop("PYTHONHOME", None)
+    environment.pop("PYTHONPATH", None)
+    completed = subprocess.run(
+        [sys.executable, str(app / "updater_agent.py"), "--help"],
+        cwd=app,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=15,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "--enable-remote-business-update" in completed.stdout
 
 
 def _assert_isolated_app_imports(app: Path, *module_names: str) -> None:

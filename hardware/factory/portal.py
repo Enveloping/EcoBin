@@ -24,6 +24,7 @@ from first_boot.factory_flow import (
     empty_factory_flow_projection,
     validate_factory_flow_projection,
 )
+from first_boot.cellular_status import cellular_check_states
 from first_boot.status_projection import validate_public_cellular_status
 from factory_seal.runtime_health import (
     unknown_runtime_services,
@@ -403,6 +404,7 @@ class PortalSnapshotProvider:
                 "consecutiveFailureCount": 0,
                 "retryScheduled": False,
                 "retryInSeconds": None,
+                "checks": cellular_check_states("STATUS_UNAVAILABLE"),
             }
 
         machine_id = _read_regular_file(self._paths.machine_id, 128)

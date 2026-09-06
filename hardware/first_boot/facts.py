@@ -37,6 +37,18 @@ _BOOT_ID = re.compile(
 # Versions 1 and 2 remain readable while acceptance_core migrates them to
 # version 3; the cross-module contract test fails if producer versions change.
 _SUPPORTED_FACTORY_STATE_SCHEMA_VERSIONS = frozenset({1, 2, 3})
+_PRE_DNS_CELLULAR_RESULTS = frozenset(
+    {
+        "CELLULAR_MODEM_CONTROL_UNAVAILABLE",
+        "CELLULAR_MODEM_CONTROL_AMBIGUOUS",
+        "CELLULAR_MODEM_STATUS_UNAVAILABLE",
+        "CELLULAR_SIM_ABSENT",
+        "CELLULAR_SIM_LOCKED",
+        "CELLULAR_NETWORK_REGISTRATION_PENDING",
+        "CELLULAR_NETWORK_REGISTRATION_DENIED",
+        "CELLULAR_PACKET_SERVICE_PENDING",
+    }
+)
 
 
 def _supported_factory_state_schema_version(value: object) -> bool:
@@ -234,14 +246,23 @@ class SystemFactsProvider:
             # boot-scoped projection can make that one symptom precise, but
             # it must never conceal fresher facts such as a missing modem,
             # DHCP failure, DNS failure, or invalid configuration.
-            if cellular_error == "CELLULAR_HTTPS_UNAVAILABLE":
+            if cellular_error in {
+                "CELLULAR_DHCP_UNAVAILABLE",
+                "CELLULAR_DNS_UNAVAILABLE",
+                "CELLULAR_HTTPS_UNAVAILABLE",
+            }:
                 try:
                     projected_error = CellularStatusStore(
                         self._paths.cellular_status
                     ).read()
                 except (OSError, ValueError):
                     projected_error = None
-                if projected_error in TIME_SYNC_PROJECTION_CODES:
+                if (
+                    cellular_error == "CELLULAR_HTTPS_UNAVAILABLE"
+                    and projected_error in TIME_SYNC_PROJECTION_CODES
+                ):
+                    error_code = projected_error
+                elif projected_error in _PRE_DNS_CELLULAR_RESULTS:
                     error_code = projected_error
         return FirstBootFacts(
             system_prepared=system_prepared,
