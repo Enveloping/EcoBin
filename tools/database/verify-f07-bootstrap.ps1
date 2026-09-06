@@ -410,7 +410,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V67 application exited before readiness`n$diagnostic"
+            throw "correct V68 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -448,7 +448,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V67 application did not become ready; " +
+    throw "correct V68 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -1284,8 +1284,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 67) {
-        throw "correct target must contain 67 successful Flyway migrations"
+    if ($historyCount -ne 68) {
+        throw "correct target must contain 68 successful Flyway migrations"
     }
 
     Invoke-MySql -Database "" -Sql @"
@@ -1445,6 +1445,22 @@ WHERE constraint_schema = '$($databaseNames.Correct)'
     if ($imageBridgeBaselineColumnCount -ne 3 -or
             $imageBridgeBaselineConstraintCount -ne 1) {
         throw "V67 image-bridge deployment baseline is incomplete"
+    }
+    $softwareFactImageBridgeConstraintCount = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT COUNT(*)
+FROM information_schema.check_constraints
+WHERE constraint_schema = '$($databaseNames.Correct)'
+  AND constraint_name = 'ck_dev_software_fact_process'
+  AND LOWER(check_clause) LIKE '%active_business_release_uid%'
+  AND LOWER(check_clause) LIKE '%communication-%'
+  AND LOWER(check_clause) LIKE '%updater-%'
+  AND LOWER(check_clause) LIKE '%regexp_like%'
+  AND LOWER(check_clause) LIKE '%substr(%';
+"@)
+    if ($softwareFactImageBridgeConstraintCount -ne 1) {
+        throw "V68 image-bridge software-fact constraint is incomplete"
     }
     $permissionCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
@@ -1754,7 +1770,7 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 67
+        targetVersion = 68
         domainTables = 131
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
@@ -1763,10 +1779,11 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV67Ready = $true
+        correctV68Ready = $true
         businessReleaseValidationV65 = $true
         businessUpdateCancellationV66 = $true
         imageBridgeBaselineV67 = $true
+        softwareFactImageBridgeV68 = $true
         deviceAssetManagementTriggerReady = $true
         bagLabelBatchLimit500 = $true
         mcuRemoteUpdateCapabilityV60 = $true
