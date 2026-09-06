@@ -138,6 +138,12 @@ def test_production_environment_template_uses_fhs_and_no_device_secrets():
         "ECOBIN_EDGE_BOOT_ID_PATH=/var/lib/ecobin/hardware/edge-boot-id",
         "ECOBIN_DEVICE_CONFIG_PATH=/var/lib/ecobin/hardware/device-config.json",
         "ECOBIN_DEVICE_CREDENTIALS_PATH=/etc/ecobin/device-credentials.json",
+        "ECOBIN_COS_REGION=ap-beijing",
+        "ECOBIN_COS_BUCKET_NAME=ecobin-photo-1436310712",
+        (
+            "ECOBIN_COS_BASE_URL=https://ecobin-photo-1436310712.cos."
+            "ap-beijing.myqcloud.com"
+        ),
         (
             "ECOBIN_DEVICE_CAPABILITIES_PATH="
             "/var/lib/ecobin/device-capabilities.json"
@@ -166,6 +172,12 @@ def test_repository_dotenv_template_is_explicitly_development_only():
     assert "ECOBIN_CONFIG_MODE=development" in content
     assert "/etc/ecobin/hardware.env" in content
     assert "代码目录出现 .env 会拒绝启动" in content
+    assert "ECOBIN_COS_REGION=ap-beijing" in content
+    assert "ECOBIN_COS_BUCKET_NAME=ecobin-photo-1436310712" in content
+    assert (
+        "ECOBIN_COS_BASE_URL=https://ecobin-photo-1436310712.cos."
+        "ap-beijing.myqcloud.com"
+    ) in content
 
 
 def test_local_proxy_configuration_uses_only_the_business_identity(
