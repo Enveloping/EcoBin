@@ -68,7 +68,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                         + "hardware-runtime-20260904-24, "
                         + "hardware-runtime-20260904-26, "
                         + "hardware-runtime-20260905-27, "
-                        + "hardware-runtime-20260906-30");
+                        + "hardware-runtime-20260906-31");
         LocalDateTime observedAt = LocalDateTime.of(
                 2026, 9, 3, 2, 0);
         var asset = new TrustedDeviceAcceptanceEvidenceService.AssetState(
@@ -192,6 +192,14 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 withEdgeSoftwareVersion(
                         healthyEvidence(false, false),
                         "hardware-runtime-20260906-30"),
+                observedAt,
+                observedAt.plusSeconds(1)))
+                .containsExactly("UNSUPPORTED_EDGE_SOFTWARE");
+        assertThat(service.failures(
+                asset,
+                withEdgeSoftwareVersion(
+                        healthyEvidence(false, false),
+                        "hardware-runtime-20260906-31"),
                 observedAt,
                 observedAt.plusSeconds(1)))
                 .isEmpty();

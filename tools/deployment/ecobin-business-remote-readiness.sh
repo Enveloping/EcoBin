@@ -21,9 +21,11 @@ run_bounded() {
     || fail 'expected application release ID and full Git commit are required'
 grep -Fqx 'businessReleaseRemoteDispatchEnabled=false' /etc/ecobin/runtime.env \
     || fail 'remote business dispatch is not disabled'
-grep -Eq '^ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=.*hardware-runtime-20260906-30(,|$)' \
+grep -Eq '^ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=.*hardware-runtime-20260906-31(,|$)' \
     /etc/ecobin/runtime.env \
-    || fail 'v30 is absent from the backend acceptance list'
+    || fail 'v31 is absent from the backend acceptance list'
+! grep -Fq 'hardware-runtime-20260906-30' /etc/ecobin/runtime.env \
+    || fail 'retired v30 remains in the backend acceptance list'
 ! grep -Fq 'hardware-runtime-20260906-29' /etc/ecobin/runtime.env \
     || fail 'retired v29 remains in the backend acceptance list'
 grep -Fqx "ECOBIN_RELEASE_ID=${expected_release_id}" /etc/ecobin/deployment.env \
@@ -66,5 +68,5 @@ grep -Fqx 'activeDeployments=0' <<<"$database_result" \
     || fail 'a business update deployment is already active'
 
 printf '%s\n' "$database_result"
-printf 'production-business-remote-readiness=PASS release=%s commit=%s dispatch=false v30Accepted=true v29Accepted=false testRelease=0.3.0-rc.3 plansIdle=true\n' \
+printf 'production-business-remote-readiness=PASS release=%s commit=%s dispatch=false v31Accepted=true v30Accepted=false v29Accepted=false testRelease=0.3.0-rc.3 plansIdle=true\n' \
     "$expected_release_id" "$expected_commit"

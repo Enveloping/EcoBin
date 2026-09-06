@@ -5,16 +5,17 @@ if [[ "$(id -u)" != 0 ]]; then
     exec sudo -n bash "$0" "$@"
 fi
 
-expected_hardware=hardware-runtime-20260906-30
-expected_communication=communication-20260906-30
-expected_updater=updater-20260906-30
+audit_label=${ECOBIN_DEVICE_AUDIT_LABEL:-v30}
+expected_hardware=${ECOBIN_EXPECTED_HARDWARE_RELEASE:-hardware-runtime-20260906-30}
+expected_communication=${ECOBIN_EXPECTED_COMMUNICATION_RELEASE:-communication-20260906-30}
+expected_updater=${ECOBIN_EXPECTED_UPDATER_RELEASE:-updater-20260906-30}
 expected_download_host=ecobin-update-package-1436310712.cos.ap-beijing.myqcloud.com
 expected_key_fingerprint=29a1145b54e884d4f382c5a953a7673d5e477a24eea04980180b23034e14b587
 expected_test_package_bytes=53755880
 reserve_bytes=$((256 * 1024 * 1024))
 
 fail() {
-    printf 'v30-device-remote-readiness=FAIL: %s\n' "$1" >&2
+    printf '%s-device-remote-readiness=FAIL: %s\n' "$audit_label" "$1" >&2
     exit 2
 }
 
@@ -25,7 +26,7 @@ run_bounded() {
 }
 
 [[ "$(readlink /opt/ecobin/hardware/current)" = "releases/${expected_hardware}" ]] \
-    || fail 'the installed hardware runtime is not v30'
+    || fail 'the installed hardware runtime is not the expected release'
 grep -Fqx "ECOBIN_EDGE_VERSION=${expected_hardware}" \
     /opt/ecobin/hardware/current/release.env \
     || fail 'the hardware runtime release file differs'
@@ -109,7 +110,7 @@ updater_status="$(
     run_bounded 15s /opt/ecobin/updater/current/.venv/bin/python \
         /opt/ecobin/updater/current/app/updater_control_cli.py business-status
 )"
-UPDATER_STATUS="$updater_status" python3 - <<'PY' \
+UPDATER_STATUS="$updater_status" EXPECTED_UPDATER="$expected_updater" python3 - <<'PY' \
     || fail 'the permanent updater is not idle and ready for a remote test'
 import json
 import os
@@ -119,7 +120,7 @@ business = status.get("businessUpdateCandidate", {})
 mcu = status.get("mcuUpdateCandidate", {})
 checks = {
     "service-ready": status.get("status") == "READY",
-    "updater-version": status.get("releaseVersion") == "updater-20260906-30",
+    "updater-version": status.get("releaseVersion") == os.environ["EXPECTED_UPDATER"],
     "candidate-active": status.get("candidateActivationState") == "ACTIVE",
     "job-gate-open": status.get("jobGateState") == "OPEN",
     "no-active-job": status.get("activeJobPermitCount") == 0,
@@ -228,7 +229,7 @@ for root in \
         || fail "business update directory is not empty: ${root}"
 done
 
-printf 'v30-device-remote-readiness=PASS hardware=%s communication=%s updater=%s businessUnit=%s dns=true activeUpdate=false freeBytes=%s requiredBytes=%s\n' \
-    "$expected_hardware" "$expected_communication" "$expected_updater" \
+printf '%s-device-remote-readiness=PASS hardware=%s communication=%s updater=%s businessUnit=%s dns=true activeUpdate=false freeBytes=%s requiredBytes=%s\n' \
+    "$audit_label" "$expected_hardware" "$expected_communication" "$expected_updater" \
     "$([[ "$baseline_state" = active ]] && printf baseline || printf updatable)" \
     "$free_bytes" "$required_bytes"
