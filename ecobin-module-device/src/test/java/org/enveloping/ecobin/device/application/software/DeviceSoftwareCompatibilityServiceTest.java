@@ -9,6 +9,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.math.BigInteger;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 import java.util.UUID;
@@ -273,6 +274,17 @@ class DeviceSoftwareCompatibilityServiceTest {
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM dev_device_software_fact",
                 Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void mysqlUnsignedProjectionSequenceDoesNotDependOnConcreteJdbcType() {
+        assertThat(DeviceSoftwareCompatibilityService
+                .nullableProjectionSequence(
+                        new BigInteger("9000000000004")))
+                .isEqualTo(9_000_000_000_004L);
+        assertThat(DeviceSoftwareCompatibilityService
+                .nullableProjectionSequence(null))
+                .isNull();
     }
 
     private DeviceSoftwareCompatibilityService.ApplyResult apply(

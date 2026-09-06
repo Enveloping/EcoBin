@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -493,7 +494,8 @@ public class DeviceSoftwareCompatibilityService {
                         """,
                 (rs, ignored) -> new ProjectionHead(
                         rs.getString("architecture_generation"),
-                        (Long) rs.getObject("management_state_sequence")),
+                        nullableProjectionSequence(rs.getObject(
+                                "management_state_sequence"))),
                 assetId);
         if (rows.size() != 1
                 || !Set.of("LEGACY_DIRECT", "PERMANENT_V1")
@@ -502,6 +504,23 @@ public class DeviceSoftwareCompatibilityService {
                     "device compatibility projection is unavailable");
         }
         return rows.getFirst();
+    }
+
+    static Long nullableProjectionSequence(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (!(value instanceof Number number)) {
+            throw new IllegalStateException(
+                    "device management sequence has an invalid JDBC type");
+        }
+        try {
+            return new BigDecimal(number.toString()).longValueExact();
+        } catch (ArithmeticException | NumberFormatException error) {
+            throw new IllegalStateException(
+                    "device management sequence is outside the supported range",
+                    error);
+        }
     }
 
     private Compatibility assess(Fact fact) {
