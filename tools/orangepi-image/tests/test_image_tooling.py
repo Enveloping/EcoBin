@@ -548,13 +548,35 @@ class ImageToolingTest(unittest.TestCase):
         self.assertIn("components/device-updater", builder)
         self.assertIn("components/device-updater/helpers", builder)
         self.assertIn("components/device-updater/systemd", builder)
-        self.assertIn("business_runtime_cutover.py", builder)
-        self.assertIn("business_runtime_cutover_state.py", builder)
-        self.assertIn("device_management_preflight.py", builder)
-        self.assertIn("updater_control_cli.py", builder)
-        self.assertIn("business_activation_primitives.py", builder)
-        self.assertIn("mcu_flash_primitives.py", builder)
-        self.assertIn("mcu_flash_recovery.py", builder)
+        self.assertIn("stage_manifest_sources", builder)
+        for manifest_name in (
+            "COMMUNICATION_AGENT_FILES",
+            "DEVICE_UPDATER_FILES",
+            "DEVICE_UPDATER_HELPER_FILES",
+            "DEVICE_UPDATER_HELPER_UNIT_FILES",
+        ):
+            self.assertIn(
+                f"stage_manifest_sources \\\n    {manifest_name}",
+                builder,
+            )
+        self.assertIn("runtime_payload_manifest.py", builder)
+        payload_manifest = (
+            TOOL_ROOT.parents[1]
+            / "hardware/install/runtime_payload_manifest.py"
+        ).read_text(encoding="utf-8")
+        for required_source in (
+            "business_runtime_cutover.py",
+            "business_runtime_cutover_state.py",
+            "business_update_downloader.py",
+            "business_update_reporter.py",
+            "device_software_state_reporter.py",
+            "device_management_preflight.py",
+            "updater_control_cli.py",
+            "business_activation_primitives.py",
+            "mcu_flash_primitives.py",
+            "mcu_flash_recovery.py",
+        ):
+            self.assertIn(required_source, payload_manifest)
         self.assertIn("--communication-agent-release-id", launcher)
         self.assertIn("--device-updater-release-id", launcher)
 

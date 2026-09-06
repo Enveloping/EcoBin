@@ -129,6 +129,54 @@ make_locked_venv() {
     "${destination}/bin/python" -c 'import sys; assert sys.version_info[:2] == (3, 11)'
 }
 
+stage_manifest_sources() {
+    local manifest_name="$1"
+    local source_root="$2"
+    local destination_root="$3"
+    local manifest_output
+    local -a manifest_files=()
+    local name
+    local source
+    local destination
+
+    manifest_output="$(python3 - \
+        "${repository_root}/hardware/install/runtime_payload_manifest.py" \
+        "${manifest_name}" <<'PY'
+import pathlib
+import runpy
+import sys
+
+manifest = runpy.run_path(sys.argv[1])
+name = sys.argv[2]
+files = manifest.get(name)
+if not isinstance(files, tuple) or not files or len(files) != len(set(files)):
+    raise SystemExit(f"invalid permanent component manifest: {name}")
+for item in files:
+    if not isinstance(item, str):
+        raise SystemExit(f"invalid permanent component path: {name}")
+    path = pathlib.PurePosixPath(item)
+    if (
+        path.is_absolute()
+        or path.as_posix() != item
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise SystemExit(f"unsafe permanent component path: {name}")
+    print(item)
+PY
+    )" || fail "permanent component manifest could not be read: ${manifest_name}"
+    [[ -n "${manifest_output}" ]] \
+        || fail "permanent component manifest is empty: ${manifest_name}"
+    mapfile -t manifest_files <<< "${manifest_output}"
+    for name in "${manifest_files[@]}"; do
+        source="${source_root}/${name}"
+        destination="${destination_root}/${name}"
+        [[ -f "${source}" && ! -L "${source}" \
+            && "$(stat -c '%h' -- "${source}")" = 1 ]] \
+            || fail "permanent component source is unsafe: ${manifest_name}/${name}"
+        install -D -m 0644 -- "${source}" "${destination}"
+    done
+}
+
 # Reject a private key, certificate, unsupported name, subdirectory, symlink,
 # hard link, empty/oversized key or unsafe mode before any glob, copy or
 # signature-verification operation consumes either source trust directory.
@@ -159,51 +207,25 @@ make_locked_venv "${tool_venv}" remote-support
 rm -rf -- "${tool_venv}" "${verification_inputs}"
 
 # These permanent agents are image components. They deliberately remain
-# outside the replaceable hardware/business runtime release.  The OneNet SDK
-# lives in a communication-only environment so this rescue path never depends
-# on the currently active business release.
-for name in cloud_transport.py communication_agent.py communication_credentials.py \
-    communication_router.py communication_store.py direct_onenet_transport.py \
-    local_control.py onenet_projection_model.json onenet_wire.py trusted_clock.py; do
-    install -m 0644 -- "${repository_root}/hardware/${name}" \
-        "${staging_directory}/components/communication-agent/app/${name}"
-done
-for name in business_runtime_cutover.py business_runtime_cutover_state.py \
-    business_update_coordinator.py business_update_package.py \
-    business_update_store.py device_management_preflight.py local_control.py \
-    mcu_firmware_package.py mcu_update_coordinator.py mcu_update_package.py \
-    mcu_update_store.py updater_agent.py updater_control_cli.py updater_store.py; do
-    install -m 0644 -- "${repository_root}/hardware/${name}" \
-        "${staging_directory}/components/device-updater/app/${name}"
-done
-mkdir -m 0755 -- "${staging_directory}/components/device-updater/app/install"
-for name in __init__.py business_release.py runtime_payload_manifest.py \
-    runtime_release.py; do
-    install -m 0644 -- "${repository_root}/hardware/install/${name}" \
-        "${staging_directory}/components/device-updater/app/install/${name}"
-done
-for name in __init__.py privileged_control.py business_activation_helper.py \
-    business_activation_candidate_helper.py business_activation_primitives.py \
-    business_release_activation_candidate_helper.py \
-    mcu_flash_helper.py mcu_flash_candidate_helper.py mcu_flash_primitives.py \
-    mcu_flash_recovery.py updater_mutation_authorizer.py; do
-    install -m 0644 -- \
-        "${repository_root}/hardware/device_management/helpers/${name}" \
-        "${staging_directory}/components/device-updater/helpers/${name}"
-done
-for name in ecobin-business-activation-helper.socket \
-    ecobin-business-activation-helper@.service \
-    ecobin-mcu-flash-helper.socket ecobin-mcu-flash-helper@.service \
-    ecobin-business-activation-candidate-helper.socket \
-    ecobin-business-activation-candidate-helper@.service \
-    ecobin-business-release-activation-candidate-helper.socket \
-    ecobin-business-release-activation-candidate-helper@.service \
-    ecobin-mcu-flash-candidate-helper.socket \
-    ecobin-mcu-flash-candidate-helper@.service; do
-    install -m 0644 -- \
-        "${repository_root}/hardware/device_management/helpers/systemd/${name}" \
-        "${staging_directory}/components/device-updater/systemd/${name}"
-done
+# outside the replaceable hardware/business runtime release. Their exact file
+# inventories come from the same canonical manifest used by payload validation,
+# so adding a permanent source cannot silently omit it from a newly built image.
+stage_manifest_sources \
+    COMMUNICATION_AGENT_FILES \
+    "${repository_root}/hardware" \
+    "${staging_directory}/components/communication-agent/app"
+stage_manifest_sources \
+    DEVICE_UPDATER_FILES \
+    "${repository_root}/hardware" \
+    "${staging_directory}/components/device-updater/app"
+stage_manifest_sources \
+    DEVICE_UPDATER_HELPER_FILES \
+    "${repository_root}/hardware/device_management/helpers" \
+    "${staging_directory}/components/device-updater/helpers"
+stage_manifest_sources \
+    DEVICE_UPDATER_HELPER_UNIT_FILES \
+    "${repository_root}/hardware/device_management/helpers/systemd" \
+    "${staging_directory}/components/device-updater/systemd"
 
 make_locked_venv "${staging_directory}/components/enrollment-venv" enrollment
 make_locked_venv "${staging_directory}/components/remote-support-venv" remote-support
