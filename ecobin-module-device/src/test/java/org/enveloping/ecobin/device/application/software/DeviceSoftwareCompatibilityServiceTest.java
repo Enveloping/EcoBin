@@ -125,6 +125,10 @@ class DeviceSoftwareCompatibilityServiceTest {
         ObjectNode event = event(7, "OPEN");
         ObjectNode payload = (ObjectNode) event.path("payload");
         payload.putNull("activeBusinessRelease");
+        ((ObjectNode) payload.path("communicationAgent"))
+                .put("versionName", "communication-20260906-31");
+        ((ObjectNode) payload.path("deviceUpdater"))
+                .put("versionName", "updater-20260906-31");
 
         apply(10, event);
 
@@ -135,6 +139,22 @@ class DeviceSoftwareCompatibilityServiceTest {
         assertThat(value("reasons_json"))
                 .contains("IMAGE_BRIDGE_BASELINE")
                 .contains("镜像内置业务程序");
+    }
+
+    @Test
+    void differentImageGenerationsCannotClaimAReadyImageBridge() {
+        ObjectNode event = event(7, "OPEN");
+        ObjectNode payload = (ObjectNode) event.path("payload");
+        payload.putNull("activeBusinessRelease");
+        ((ObjectNode) payload.path("communicationAgent"))
+                .put("versionName", "communication-20260906-30");
+        ((ObjectNode) payload.path("deviceUpdater"))
+                .put("versionName", "updater-20260906-31");
+
+        assertThatThrownBy(() -> apply(10, event))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(
+                        "trusted release or image bridge identity");
     }
 
     @Test

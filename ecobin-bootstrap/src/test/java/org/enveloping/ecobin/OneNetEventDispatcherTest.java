@@ -312,6 +312,10 @@ class OneNetEventDispatcherTest {
                 .path("value");
         wire.put("activeBusinessReleasePresent", false);
         wire.put("managementStateSequence", new BigDecimal("10.0"));
+        ((ObjectNode) wire.path("communicationAgent"))
+                .put("versionName", "communication-20260906-31");
+        ((ObjectNode) wire.path("deviceUpdater"))
+                .put("versionName", "updater-20260906-31");
 
         ObjectNode semantic = (ObjectNode) objectMapper.readTree(
                 Files.readString(contractPath(
@@ -322,6 +326,10 @@ class OneNetEventDispatcherTest {
                 (ObjectNode) semantic.path("payload");
         semanticPayload.putNull("activeBusinessRelease");
         semanticPayload.put("managementStateSequence", 10L);
+        ((ObjectNode) semanticPayload.path("communicationAgent"))
+                .put("versionName", "communication-20260906-31");
+        ((ObjectNode) semanticPayload.path("deviceUpdater"))
+                .put("versionName", "updater-20260906-31");
         wire.put(
                 "payloadSha256",
                 OneNetCanonicalJson.payloadSha256(
@@ -357,6 +365,50 @@ class OneNetEventDispatcherTest {
         assertThat(payload.path("managementStateSequence").asLong())
                 .isEqualTo(10L);
         assertThat(payload.path("businessReady").asBoolean()).isTrue();
+    }
+
+    @Test
+    void mixedImageGenerationsCannotClaimAReadyImageBridge()
+            throws Exception {
+        ObjectNode wireExample = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "device-software-state-reported"
+                                + ".event-wire.json")));
+        ObjectNode wire = (ObjectNode) wireExample.path("oneJsonPayload")
+                .path("params")
+                .path("deviceSoftwareStateReported")
+                .path("value");
+        wire.put("activeBusinessReleasePresent", false);
+        ((ObjectNode) wire.path("communicationAgent"))
+                .put("versionName", "communication-20260906-30");
+        ((ObjectNode) wire.path("deviceUpdater"))
+                .put("versionName", "updater-20260906-31");
+        String decrypted = """
+                {
+                  "msgType": "thingEvent",
+                  "subData": {
+                    "productId": "%s",
+                    "deviceName": "%s",
+                    "params": %s
+                  }
+                }
+                """.formatted(
+                PRODUCT_ID,
+                HARDWARE_SN,
+                wireExample.path("oneJsonPayload")
+                        .path("params").toString());
+
+        OneNetPermanentMessageException exception = assertThrows(
+                OneNetPermanentMessageException.class,
+                () -> dispatcher.handle(
+                        decrypted,
+                        "mq-device-software-mixed-image-generation",
+                        RAW_TRANSPORT));
+
+        assertThat(exception).hasMessageContaining(
+                "ready business software lacks its active release");
+        verify(inboxPort, never()).receive(any());
     }
 
     @Test

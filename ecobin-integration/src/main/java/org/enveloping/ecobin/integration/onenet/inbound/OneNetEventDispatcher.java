@@ -30,6 +30,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * OneNet 北向消息进入后端的可信适配器。
@@ -53,6 +55,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
                     + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
     private static final String SHA256 = "^[0-9a-f]{64}$";
+    private static final Pattern IMAGE_COMMUNICATION_VERSION =
+            Pattern.compile("^communication-([0-9]{8}-[0-9]{2,6})$");
+    private static final Pattern IMAGE_UPDATER_VERSION =
+            Pattern.compile("^updater-([0-9]{8}-[0-9]{2,6})$");
 
     private static final Map<String, EventContract> CONTRACTS =
             Map.ofEntries(
@@ -2400,7 +2406,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
 
         boolean trustedImageBridge =
                 payload.get("activeBusinessRelease") == null
-                && communicationAgent.get("versionName").equals(
+                && sameImageGeneration(
+                        communicationAgent.get("versionName"),
                         deviceUpdater.get("versionName"));
         if (businessReady
                 && (!"RUNNING".equals(businessProcessState)
@@ -2415,6 +2422,21 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                             + "business-facing negotiated protocols");
         }
         return payload;
+    }
+
+    private static boolean sameImageGeneration(
+            Object communicationVersion,
+            Object updaterVersion) {
+        if (!(communicationVersion instanceof String communication)
+                || !(updaterVersion instanceof String updater)) {
+            return false;
+        }
+        Matcher communicationMatch =
+                IMAGE_COMMUNICATION_VERSION.matcher(communication);
+        Matcher updaterMatch = IMAGE_UPDATER_VERSION.matcher(updater);
+        return communicationMatch.matches()
+                && updaterMatch.matches()
+                && communicationMatch.group(1).equals(updaterMatch.group(1));
     }
 
     private static Map<String, Object> deviceSoftwareCommunicationAgent(

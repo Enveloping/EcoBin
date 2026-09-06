@@ -31,6 +31,12 @@ DEFAULT_BUSINESS_SOCKET = "/run/ecobin/business/control.sock"
 BUSINESS_PACKAGE_FORMAT_VERSION = 1
 MCU_PACKAGE_FORMAT_VERSION = 1
 _VERSION = re.compile(r"[0-9A-Za-z][0-9A-Za-z._+-]{0,31}\Z")
+_IMAGE_GENERATION = r"([0-9]{8}-[0-9]{2,6})"
+_IMAGE_COMPONENT_VERSIONS = {
+    "business": re.compile(rf"hardware-runtime-{_IMAGE_GENERATION}\Z"),
+    "communication": re.compile(rf"communication-{_IMAGE_GENERATION}\Z"),
+    "updater": re.compile(rf"updater-{_IMAGE_GENERATION}\Z"),
+}
 _UART_STATES = frozenset(
     {"DISCONNECTED", "NEGOTIATING", "READY", "INCOMPATIBLE", "FAULT"}
 )
@@ -290,8 +296,11 @@ def _semantic_payload(
     image_bridge_ready = bool(
         business is not None
         and installed_release is None
-        and business.get("releaseVersion") == updater_version
-        and business.get("releaseVersion") == communication_version
+        and _same_image_generation(
+            business.get("releaseVersion"),
+            communication_version,
+            updater_version,
+        )
     )
     business_ready = bool(
         business_status == "READY"
@@ -373,6 +382,27 @@ def _version(value: Any, component: str) -> str:
     if not isinstance(value, str) or _VERSION.fullmatch(value) is None:
         raise RuntimeError(f"{component} version is invalid")
     return value
+
+
+def _same_image_generation(
+    business_version: Any,
+    communication_version: str,
+    updater_version: str,
+) -> bool:
+    versions = {
+        "business": business_version,
+        "communication": communication_version,
+        "updater": updater_version,
+    }
+    generations: list[str] = []
+    for component, value in versions.items():
+        if not isinstance(value, str):
+            return False
+        match = _IMAGE_COMPONENT_VERSIONS[component].fullmatch(value)
+        if match is None:
+            return False
+        generations.append(match.group(1))
+    return len(set(generations)) == 1
 
 
 def _negotiated(prefix: str, negotiated: bool) -> dict[str, Any]:

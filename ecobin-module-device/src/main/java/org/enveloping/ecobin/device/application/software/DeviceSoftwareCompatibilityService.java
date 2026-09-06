@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -49,6 +50,10 @@ public class DeviceSoftwareCompatibilityService {
     private static final Pattern VERSION = Pattern.compile(
             "^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$");
     private static final Pattern BITMAP = Pattern.compile("^[0-9a-f]{16}$");
+    private static final Pattern IMAGE_COMMUNICATION_VERSION =
+            Pattern.compile("^communication-([0-9]{8}-[0-9]{2,6})$");
+    private static final Pattern IMAGE_UPDATER_VERSION =
+            Pattern.compile("^updater-([0-9]{8}-[0-9]{2,6})$");
     private static final Set<String> GATES = Set.of(
             "OPEN", "DRAINING", "MAINTENANCE", "LOCKED");
     private static final Set<String> PROCESS_STATES = Set.of(
@@ -900,7 +905,20 @@ public class DeviceSoftwareCompatibilityService {
     private static boolean imageBridge(Fact fact) {
         return fact.activeRelease() == null
                 && fact.businessReady()
-                && fact.agent().version().equals(fact.updater().version());
+                && sameImageGeneration(
+                        fact.agent().version(),
+                        fact.updater().version());
+    }
+
+    private static boolean sameImageGeneration(
+            String communicationVersion,
+            String updaterVersion) {
+        Matcher communication =
+                IMAGE_COMMUNICATION_VERSION.matcher(communicationVersion);
+        Matcher updater = IMAGE_UPDATER_VERSION.matcher(updaterVersion);
+        return communication.matches()
+                && updater.matches()
+                && communication.group(1).equals(updater.group(1));
     }
 
     private static void checkMcuCapabilities(
@@ -1053,7 +1071,8 @@ public class DeviceSoftwareCompatibilityService {
                 || agentBusiness == null
                 || updaterBusiness == null
                 || (activeRelease == null
-                && !agent.version().equals(updater.version())))) {
+                && !sameImageGeneration(
+                        agent.version(), updater.version())))) {
             throw invalid(
                     "ready business process lacks a trusted release or image bridge identity");
         }

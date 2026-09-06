@@ -150,17 +150,16 @@ def test_reporter_recognizes_the_healthy_image_bridge_without_a_release(
     tmp_path,
 ):
     path = tmp_path / "updater.db"
-    image_version = "hardware-runtime-test-31"
     safety = UpdaterStore(
         path,
-        release_version=image_version,
+        release_version="updater-20260906-31",
         enable_stage4_candidate=True,
     )
     safety.initialize()
     journal = BusinessUpdateStore(path, remote_trigger_enabled=True)
     journal.initialize()
-    communication = CommunicationClient(image_version)
-    business = BusinessClient(image_version)
+    communication = CommunicationClient("communication-20260906-31")
+    business = BusinessClient("hardware-runtime-20260906-31")
     reporter = DeviceSoftwareStateReporter(
         journal=journal,
         safety_store=safety,
@@ -182,17 +181,46 @@ def test_reporter_does_not_misidentify_an_unjournaled_release_as_the_bridge(
     tmp_path,
 ):
     path = tmp_path / "updater.db"
-    image_version = "hardware-runtime-test-31"
     safety = UpdaterStore(
         path,
-        release_version=image_version,
+        release_version="updater-20260906-31",
         enable_stage4_candidate=True,
     )
     safety.initialize()
     journal = BusinessUpdateStore(path, remote_trigger_enabled=True)
     journal.initialize()
-    communication = CommunicationClient(image_version)
+    communication = CommunicationClient("communication-20260906-31")
     business = BusinessClient("0.3.0-unknown")
+    reporter = DeviceSoftwareStateReporter(
+        journal=journal,
+        safety_store=safety,
+        communication_client=communication,
+        business_client=business,
+    )
+
+    assert reporter.process_once() is True
+    payload = communication.events[-1]["payload"]
+    assert payload["activeBusinessRelease"] is None
+    assert payload["businessReady"] is False
+
+    journal.close()
+    safety.close()
+
+
+def test_reporter_rejects_mixed_factory_image_generations_as_the_bridge(
+    tmp_path,
+):
+    path = tmp_path / "updater.db"
+    safety = UpdaterStore(
+        path,
+        release_version="updater-20260906-31",
+        enable_stage4_candidate=True,
+    )
+    safety.initialize()
+    journal = BusinessUpdateStore(path, remote_trigger_enabled=True)
+    journal.initialize()
+    communication = CommunicationClient("communication-20260906-30")
+    business = BusinessClient("hardware-runtime-20260906-31")
     reporter = DeviceSoftwareStateReporter(
         journal=journal,
         safety_store=safety,
