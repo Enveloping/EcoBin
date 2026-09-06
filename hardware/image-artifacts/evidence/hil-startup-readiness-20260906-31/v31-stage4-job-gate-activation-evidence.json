@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "CONTROLLED_SINGLE_DEVICE_STAGE4_JOB_GATE_ACTIVATION",
+  "recordedAt": "2026-09-06T12:51:22.484Z",
+  "operationUid": "9596fc0c-fd68-4e1c-84f1-55daaa24de68",
+  "expectedManagementStateSequence": 3,
+  "hardwareRelease": "hardware-runtime-20260906-31",
+  "cutoverEvidenceSha256": "889d9723e1b95df441e4cfffae4d4fb26335dcecccf816340d13dc479e4c2831",
+  "preflightHotfix": {
+    "installedPath": "/usr/lib/ecobin/business_runtime_preflight.py",
+    "originalSha256": "c4d80ef300fd05a016531c9ccca49cd0d75c11868d09c36a3ecf8007548d2a7f",
+    "installedSha256": "e42fc95396e7a392b0ae44740cc399ca72a64d559dd86dc944606e9dab55bed5"
+  },
+  "jobGateFacts": {
+    "candidateActivationState": "REQUIRED",
+    "jobGateMode": "ENFORCED",
+    "jobGateState": "LOCKED",
+    "maintenanceState": "LOCKED",
+    "reconciliationRequired": true,
+    "blockReasonCode": "STAGE4_ACTIVATION_REQUIRED",
+    "activeJobPermitCount": 0,
+    "unreconciledPhysicalActionCount": 0,
+    "maintenanceLockPresent": false,
+    "operatorSafetyLockActive": false,
+    "initialActivationEligible": true
+  },
+  "operatorFacts": {
+    "factoryAcceptanceCompleted": true,
+    "tenantAndOrganizationAssigned": true,
+    "normalDeliveryCompleted": true,
+    "normalCleaningCompleted": true
+  },
+  "source": "COM8 root-only updater reconciliation query"
+}

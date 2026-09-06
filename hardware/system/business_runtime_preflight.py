@@ -505,6 +505,7 @@ def verify_proxy_candidate_health(
     """Require permanent ownership while allowing fail-closed recovery states."""
 
     mcu_candidate = updater.get("mcuUpdateCandidate")
+    business_candidate = updater.get("businessUpdateCandidate")
     if (
         communication.get("component") != "COMMUNICATION_AGENT"
         or communication.get("status") != "READY"
@@ -512,7 +513,8 @@ def verify_proxy_candidate_health(
         or communication.get("businessEventIngress") != "ENABLED"
         or communication.get("cloudConnectionState")
         not in {"CONNECTED", "DISCONNECTED"}
-        or communication.get("remoteUpdateRouting") != "DISABLED"
+        or communication.get("remoteUpdateRouting")
+        != "BUSINESS_RUNTIME_ONLY"
     ):
         raise BusinessRuntimePreflightError(
             "communication proxy did not report permanent OneNet ownership"
@@ -537,6 +539,7 @@ def verify_proxy_candidate_health(
         or updater.get("businessUpdateEnabled") is not False
         or updater.get("mcuUpdateEnabled") is not False
         or updater.get("mcuUpdateCandidateEnabled") is not True
+        or updater.get("businessUpdateCandidateEnabled") is not True
         or updater.get("privilegedHelperMutationEnabled") is not True
         or not isinstance(mcu_candidate, dict)
         or mcu_candidate.get("schemaVersion") != 1
@@ -551,6 +554,10 @@ def verify_proxy_candidate_health(
             bool,
         )
         or mcu_candidate.get("unresolvedPrivilegedActionCount") < 0
+        or not isinstance(business_candidate, dict)
+        or business_candidate.get("schemaVersion") != 1
+        or business_candidate.get("businessUpdateCandidateEnabled") is not True
+        or business_candidate.get("remoteTriggerEnabled") is not True
     ):
         raise BusinessRuntimePreflightError(
             "device updater did not report the activated job-safety posture"

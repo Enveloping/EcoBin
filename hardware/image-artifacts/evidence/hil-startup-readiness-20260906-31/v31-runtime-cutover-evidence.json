@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "CONTROLLED_SINGLE_DEVICE_RUNTIME_CUTOVER_PREFLIGHT",
+  "recordedAt": "2026-09-06T12:34:24.411Z",
+  "operationUid": "b63a9249-b2d4-496a-b252-7ec5493f4d73",
+  "hardwareRelease": "hardware-runtime-20260906-31",
+  "factorySeal": {
+    "exists": true,
+    "valid": true,
+    "status": "SEALED",
+    "acceptanceGeneration": 1
+  },
+  "businessDatabase": {
+    "schemaVersion": 18,
+    "workSlot": ["NONE", null, null],
+    "maintenanceLockCount": 0,
+    "eventStates": [["CONFIRMED", 0, 42]],
+    "photoStates": [["UPLOADED", 1, 8]]
+  },
+  "runtimePosture": {
+    "cutoverMode": "LEGACY",
+    "legacyBusinessActive": true,
+    "legacyCommunicationActive": true,
+    "legacyUpdaterActive": true,
+    "managedRuntimeActive": false
+  },
+  "operatorFacts": {
+    "factoryAcceptanceCompleted": true,
+    "tenantAndOrganizationAssigned": true,
+    "normalDeliveryCompleted": true,
+    "normalCleaningCompleted": true
+  },
+  "source": "COM8 read-only device preflight"
+}

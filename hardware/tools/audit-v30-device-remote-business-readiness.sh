@@ -44,6 +44,7 @@ grep -Fqx "ECOBIN_DEVICE_UPDATER_VERSION=${expected_updater}" \
     || fail 'the updater identity file differs'
 
 for unit in \
+    ecobin-first-boot.service \
     ecobin-business-runtime.target \
     ecobin-communication-proxy.service \
     ecobin-updater-candidate.service; do
@@ -64,7 +65,6 @@ if [[ "$baseline_state" != active && "$updatable_state" != active ]]; then
     fail 'neither business runtime service is active'
 fi
 for unit in \
-    ecobin-first-boot.service \
     ecobin-factory.target \
     ecobin-factory-portal.service \
     ecobin-hardware.service \

@@ -152,7 +152,7 @@ def test_proxy_health_gate_requires_permanent_owners_and_active_job_gate() -> No
         "onenetOwnership": "ENABLED",
         "businessEventIngress": "ENABLED",
         "cloudConnectionState": "DISCONNECTED",
-        "remoteUpdateRouting": "DISABLED",
+        "remoteUpdateRouting": "BUSINESS_RUNTIME_ONLY",
     }
     updater = {
         "component": "DEVICE_UPDATER",
@@ -168,6 +168,7 @@ def test_proxy_health_gate_requires_permanent_owners_and_active_job_gate() -> No
         "businessUpdateEnabled": False,
         "mcuUpdateEnabled": False,
         "mcuUpdateCandidateEnabled": True,
+        "businessUpdateCandidateEnabled": True,
         "privilegedHelperMutationEnabled": True,
         "mcuUpdateCandidate": {
             "schemaVersion": 1,
@@ -175,6 +176,12 @@ def test_proxy_health_gate_requires_permanent_owners_and_active_job_gate() -> No
             "remoteTriggerEnabled": False,
             "activeUpdate": None,
             "unresolvedPrivilegedActionCount": 0,
+        },
+        "businessUpdateCandidate": {
+            "schemaVersion": 1,
+            "businessUpdateCandidateEnabled": True,
+            "remoteTriggerEnabled": True,
+            "activeUpdate": None,
         },
     }
 
@@ -185,10 +192,26 @@ def test_proxy_health_gate_requires_permanent_owners_and_active_job_gate() -> No
             {**communication, "onenetOwnership": "DISABLED"},
             updater,
         )
+    with pytest.raises(BusinessRuntimePreflightError, match="communication"):
+        verify_proxy_candidate_health(
+            {**communication, "remoteUpdateRouting": "DISABLED"},
+            updater,
+        )
     with pytest.raises(BusinessRuntimePreflightError, match="updater"):
         verify_proxy_candidate_health(
             communication,
             {**updater, "candidateActivationState": "REQUIRED"},
+        )
+    with pytest.raises(BusinessRuntimePreflightError, match="updater"):
+        verify_proxy_candidate_health(
+            communication,
+            {
+                **updater,
+                "businessUpdateCandidate": {
+                    **updater["businessUpdateCandidate"],
+                    "remoteTriggerEnabled": False,
+                },
+            },
         )
 
 
