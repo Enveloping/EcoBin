@@ -122,7 +122,7 @@ defaultPlatformAdminEnabled=true
 externalMode=fake
 ecobinLogPath=/var/log/ecobin/backend
 miniappDeviceEntryBaseUrl=https://www.jinshoubao.com/device-entry/
-ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01,hardware-runtime-20260830-11,hardware-runtime-20260831-12,hardware-runtime-20260831-13,hardware-runtime-20260903-19,hardware-runtime-20260903-21,hardware-runtime-20260904-23,hardware-runtime-20260904-24,hardware-runtime-20260904-26,hardware-runtime-20260905-27
+ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01,hardware-runtime-20260830-11,hardware-runtime-20260831-12,hardware-runtime-20260831-13,hardware-runtime-20260903-19,hardware-runtime-20260903-21,hardware-runtime-20260904-23,hardware-runtime-20260904-24,hardware-runtime-20260904-26,hardware-runtime-20260905-27,hardware-runtime-20260906-28
 onenetSubscriptionEnabled=false
 deviceEnrollmentEnabled=false
 remoteSupportEnabled=false
@@ -148,7 +148,7 @@ defaultPlatformAdminEnabled=true
 externalMode=real
 ecobinLogPath=/var/log/ecobin/backend
 miniappDeviceEntryBaseUrl=https://www.jinshoubao.com/device-entry/
-ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01,hardware-runtime-20260830-11,hardware-runtime-20260831-12,hardware-runtime-20260831-13,hardware-runtime-20260903-19,hardware-runtime-20260903-21,hardware-runtime-20260904-23,hardware-runtime-20260904-24,hardware-runtime-20260904-26,hardware-runtime-20260905-27
+ECOBIN_DEVICE_ACCEPTANCE_SUPPORTED_EDGE_SOFTWARE_VERSIONS=0.1.0,hardware-runtime-20260827-01,hardware-runtime-20260830-11,hardware-runtime-20260831-12,hardware-runtime-20260831-13,hardware-runtime-20260903-19,hardware-runtime-20260903-21,hardware-runtime-20260904-23,hardware-runtime-20260904-24,hardware-runtime-20260904-26,hardware-runtime-20260905-27,hardware-runtime-20260906-28
 TZ=UTC
 
 iotSubscriptionName=<OneNet北向订阅名称>
