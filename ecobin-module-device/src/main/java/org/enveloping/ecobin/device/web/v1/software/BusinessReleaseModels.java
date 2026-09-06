@@ -137,7 +137,7 @@ public final class BusinessReleaseModels {
             String eligibilitySummary,
             long sourceManagementStateSequence,
             UUID currentBusinessReleaseUid,
-            long currentBusinessReleaseSequence,
+            Long currentBusinessReleaseSequence,
             Instant plannedAt,
             Instant queuedAt,
             Instant completedAt,

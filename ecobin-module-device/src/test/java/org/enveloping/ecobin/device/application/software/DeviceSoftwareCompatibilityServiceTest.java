@@ -9,6 +9,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
@@ -117,6 +118,23 @@ class DeviceSoftwareCompatibilityServiceTest {
         assertThat(value("reasons_json"))
                 .contains("BUSINESS_RELEASE_NOT_REGISTERED")
                 .contains("当前业务程序尚未登记");
+    }
+
+    @Test
+    void healthyImageBridgeRemainsCompatibleForItsFirstBusinessUpdate() {
+        ObjectNode event = event(7, "OPEN");
+        ObjectNode payload = (ObjectNode) event.path("payload");
+        payload.putNull("activeBusinessRelease");
+
+        apply(10, event);
+
+        assertThat(value("compatibility_status"))
+                .isEqualTo("FULLY_COMPATIBLE");
+        assertThat(value("business_admission_status"))
+                .isEqualTo("ACCEPTING");
+        assertThat(value("reasons_json"))
+                .contains("IMAGE_BRIDGE_BASELINE")
+                .contains("镜像内置业务程序");
     }
 
     @Test
@@ -285,6 +303,33 @@ class DeviceSoftwareCompatibilityServiceTest {
         assertThat(DeviceSoftwareCompatibilityService
                 .nullableProjectionSequence(null))
                 .isNull();
+    }
+
+    @Test
+    void decimalEncodedWholeManagementSequenceIsAccepted() {
+        registerRelease();
+        ObjectNode event = event(10, "OPEN");
+        ((ObjectNode) event.path("payload")).put(
+                "managementStateSequence", new BigDecimal("10.0"));
+
+        apply(10, event);
+
+        assertThat(jdbc.queryForObject("""
+                SELECT management_state_sequence
+                FROM dev_device_compatibility_projection
+                WHERE asset_id = 1
+                """, Long.class)).isEqualTo(10L);
+    }
+
+    @Test
+    void fractionalManagementSequenceRemainsInvalid() {
+        ObjectNode event = event(10, "OPEN");
+        ((ObjectNode) event.path("payload")).put(
+                "managementStateSequence", new BigDecimal("10.5"));
+
+        assertThatThrownBy(() -> apply(10, event))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("managementStateSequence");
     }
 
     private DeviceSoftwareCompatibilityService.ApplyResult apply(

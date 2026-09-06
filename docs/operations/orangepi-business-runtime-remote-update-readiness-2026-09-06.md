@@ -68,7 +68,7 @@ v29 不得写卡；它缺少正式服务启用参数和更新器下载网络权�
 |---|---|---|
 | `hardware/image-artifacts/local/flash-v31-disk1.ps1` | 只允许向序列号 `121220160204` 的 Windows 磁盘 1 写入固定 v31 镜像并回读 | 会覆盖指定 TF 卡，必须再次取得用户确认 |
 | `hardware/tools/audit-v31-device-remote-business-readiness.sh` | 核对设备版本、服务、OneNet 连接、更新器闸门、验签公钥、DNS、空间和空队列 | 只读 |
-| `tools/deployment/ecobin-business-remote-readiness.sh` | 核对生产应用、V66、v31 认可、健康发布、空计划和关闭的下发开关 | 只读 |
+| `tools/deployment/ecobin-business-remote-readiness.sh` | 核对生产应用、V67、v31 认可、健康发布、空计划和关闭的下发开关 | 只读 |
 | `tools/deployment/ecobin-business-release-dispatch.sh` | 原子开启或关闭真实下发，失败时恢复原配置 | 会重载后端；只在现场测试窗口使用 |
 | `hardware/image-artifacts/local/build-v30-intentionally-unhealthy-release.sh` | 在正式签名环境构建一个启动必然失败的测试发布，用于验证自动回滚 | 生成新制品；不会自行上传、批准或下发 |
 
@@ -195,7 +195,7 @@ sudo /usr/local/sbin/ecobin-business-remote-readiness \
   '<当前应用 Release ID>' '<当前应用完整 Git commit>'
 ```
 
-它要求 V66/131 张领域表、v31 已认可、v30/v29 已移除、`0.3.0-rc.3` 精确可用、没有未结束计划，
+它要求 V67/131 张领域表、v31 已认可、v30/v29 已移除、`0.3.0-rc.3` 精确可用、没有未结束计划，
 并确认真实下发仍是关闭状态。
 
 ### 5.5 开启受控单设备窗口

@@ -56,7 +56,7 @@ database_result="$(run_bounded 30s docker exec ecobin-target-mysql84 sh -ec '
     export MYSQL_PWD="$(cat /run/secrets/mysql_root_password)"
     exec mysql --batch --skip-column-names -uroot ecobin -e "$1"
 ' sh "$query")"
-grep -Fqx 'flyway=66/66' <<<"$database_result" \
+grep -Fqx 'flyway=67/67' <<<"$database_result" \
     || fail 'the database migration epoch differs'
 grep -Fqx 'tables=131' <<<"$database_result" \
     || fail 'the database domain-table count differs'

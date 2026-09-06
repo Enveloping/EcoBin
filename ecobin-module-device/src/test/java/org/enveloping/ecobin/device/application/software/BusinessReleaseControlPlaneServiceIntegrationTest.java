@@ -266,6 +266,132 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
     }
 
     @Test
+    void healthyImageBridgeCanCreateItsFirstBusinessReleasePlan()
+            throws Exception {
+        var ready = readyRelease();
+        jdbc.update("""
+                UPDATE dev_device_software_fact
+                SET active_business_release_uid = NULL,
+                    active_business_release_sequence = NULL,
+                    active_business_version_name = NULL,
+                    active_business_package_sha256 = NULL
+                WHERE asset_id = 1
+                """);
+
+        var rollout = service.createRollout(
+                UUID.randomUUID(),
+                new CreateRolloutRequest(
+                        ready.releaseUid(),
+                        VALIDATION_SN,
+                        List.of(),
+                        3,
+                        "从镜像内置业务程序执行首次更新"));
+
+        assertThat(rollout.status()).isEqualTo("DRAFT");
+        assertThat(jdbc.queryForObject("""
+                SELECT source_business_baseline_kind
+                FROM dev_edge_software_deployment
+                WHERE asset_id = 1
+                """, String.class)).isEqualTo("IMAGE_BRIDGE");
+        assertThat(jdbc.queryForObject("""
+                SELECT source_business_release_uid
+                FROM dev_edge_software_deployment
+                WHERE asset_id = 1
+                """, String.class)).isNull();
+        assertThat(jdbc.queryForObject("""
+                SELECT source_business_release_sequence
+                FROM dev_edge_software_deployment
+                WHERE asset_id = 1
+                """, Long.class)).isNull();
+    }
+
+    @Test
+    void failedFirstUpdateMayTruthfullyRollBackToTheImageBridge()
+            throws Exception {
+        DeviceScopeAuthorizationPort authorization =
+                mock(DeviceScopeAuthorizationPort.class);
+        AuthorizedDeviceScope authorizedActor = actor();
+        when(authorization.authorize(any())).thenReturn(authorizedActor);
+        BusinessReleaseSigningKeyPort signingKeys =
+                mock(BusinessReleaseSigningKeyPort.class);
+        when(signingKeys.readiness()).thenReturn(
+                new BusinessReleaseSigningKeyPort.Readiness(
+                        true, "验签公钥目录可用"));
+        PlatformDeviceAssetTaskRefFactory taskRefs =
+                mock(PlatformDeviceAssetTaskRefFactory.class);
+        when(taskRefs.issue(anyLong())).thenReturn(
+                mock(PlatformDeviceAssetTaskRef.class));
+        ReliablePlatformDeviceControlTaskRegistrationPort registrations =
+                mock(ReliablePlatformDeviceControlTaskRegistrationPort.class);
+        when(registrations.register(any())).thenReturn(UUID.randomUUID());
+        ReliableDeviceTaskProofPort taskProof =
+                mock(ReliableDeviceTaskProofPort.class);
+        service = new BusinessReleaseControlPlaneService(
+                jdbc,
+                authorization,
+                new MemoryArtifactStorage(),
+                signingKeys,
+                verifier,
+                new DeviceConfigurationCanonicalizer(),
+                new DataSourceTransactionManager(jdbc.getDataSource()),
+                JsonMapper.builder().build(),
+                taskRefs,
+                registrations,
+                taskProof,
+                mock(ReliableTaskWakePort.class),
+                true);
+        var release = readyRelease();
+        jdbc.update("""
+                UPDATE dev_device_software_fact
+                SET active_business_release_uid = NULL,
+                    active_business_release_sequence = NULL,
+                    active_business_version_name = NULL,
+                    active_business_package_sha256 = NULL
+                WHERE asset_id = 1
+                """);
+        var rollout = service.createRollout(
+                UUID.randomUUID(),
+                new CreateRolloutRequest(
+                        release.releaseUid(),
+                        VALIDATION_SN,
+                        List.of(),
+                        3,
+                        "验证首次更新失败可恢复镜像内置程序"));
+        var validating = service.startValidation(
+                UUID.randomUUID(), rollout.rolloutUid(), "开始首次更新验证");
+        UUID deploymentUid = validating.deployments()
+                .getFirst().deploymentUid();
+        UUID commandUid = UUID.fromString(jdbc.queryForObject("""
+                SELECT command_uid FROM dev_edge_software_deployment
+                WHERE deployment_uid = ?
+                """, String.class, deploymentUid.toString()));
+        UUID updateUid = UUID.fromString(jdbc.queryForObject("""
+                SELECT edge_update_uid FROM dev_edge_software_deployment
+                WHERE deployment_uid = ?
+                """, String.class, deploymentUid.toString()));
+
+        assertThat(service.applyProgress(businessProgress(
+                JsonMapper.builder().build(),
+                release,
+                deploymentUid,
+                commandUid,
+                updateUid,
+                "ROLLED_BACK",
+                1,
+                null,
+                true,
+                null,
+                150))).isEqualTo(TrustedDeviceEventApplyResult.APPLIED);
+
+        verify(taskProof).completeFromTrustedProof(
+                "START_BUSINESS_RUNTIME_UPDATE",
+                "BUSINESS_RUNTIME_DEPLOYMENT",
+                deploymentUid.toString());
+        assertThat(service.rolloutDetail(rollout.rolloutUid()).status())
+                .isEqualTo("VALIDATION_FAILED");
+    }
+
+    @Test
     void defaultConfigurationKeepsRemoteDispatchDisabled() {
         assertThat(service.readiness().remoteDispatchEnabled()).isFalse();
     }
@@ -1148,10 +1274,10 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                     updater_business_protocol_major INT NOT NULL,
                     updater_business_protocol_minor INT NOT NULL,
                     business_package_format_version INT NOT NULL,
-                    active_business_release_uid VARCHAR(36) NOT NULL,
-                    active_business_release_sequence BIGINT NOT NULL,
-                    active_business_version_name VARCHAR(32) NOT NULL,
-                    active_business_package_sha256 BINARY(32) NOT NULL,
+                    active_business_release_uid VARCHAR(36),
+                    active_business_release_sequence BIGINT,
+                    active_business_version_name VARCHAR(32),
+                    active_business_package_sha256 BINARY(32),
                     business_process_state VARCHAR(16) NOT NULL,
                     business_process_ready BOOLEAN NOT NULL,
                     negotiated_communication_business_major INT NOT NULL,
@@ -1300,8 +1426,9 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                     eligibility_sha256 BINARY(32) NOT NULL,
                     source_software_fact_id BIGINT NOT NULL,
                     source_management_state_sequence BIGINT NOT NULL,
-                    source_business_release_uid VARCHAR(36) NOT NULL,
-                    source_business_release_sequence BIGINT NOT NULL,
+                    source_business_baseline_kind VARCHAR(24) NOT NULL,
+                    source_business_release_uid VARCHAR(36),
+                    source_business_release_sequence BIGINT,
                     command_uid VARCHAR(36),
                     reliable_task_uid VARCHAR(36),
                     edge_update_uid VARCHAR(36),

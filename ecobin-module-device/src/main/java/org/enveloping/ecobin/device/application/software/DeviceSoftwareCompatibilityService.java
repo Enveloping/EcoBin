@@ -66,6 +66,7 @@ public class DeviceSoftwareCompatibilityService {
             new Protocol(1, 0);
     private static final int BACKEND_COMMAND_CONTRACT_VERSION = 2;
     private static final int DEVICE_EVENT_CONTRACT_VERSION = 2;
+    private static final int BUSINESS_PACKAGE_FORMAT_VERSION = 1;
     private static final int MCU_PACKAGE_FORMAT_VERSION = 1;
 
     private final JdbcTemplate jdbc;
@@ -527,8 +528,16 @@ public class DeviceSoftwareCompatibilityService {
         List<Reason> coreReasons = new ArrayList<>();
         List<Reason> optionalReasons = new ArrayList<>();
         Release release = release(fact.activeRelease());
+        boolean imageBridge = imageBridge(fact);
 
-        if (fact.activeRelease() == null) {
+        if (imageBridge) {
+            coreReasons.add(reason(
+                    "IMAGE_BRIDGE_BASELINE",
+                    "当前运行镜像内置业务程序",
+                    "设备尚未安装独立业务发布；首次更新会保留镜像内置程序作为失败回滚基线。",
+                    Severity.NONE,
+                    false));
+        } else if (fact.activeRelease() == null) {
             coreReasons.add(reason(
                     "ACTIVE_BUSINESS_RELEASE_NOT_REPORTED",
                     "未上报当前业务程序",
@@ -554,6 +563,8 @@ public class DeviceSoftwareCompatibilityService {
             if ("READY".equals(fact.uartState())) {
                 checkMcuCapabilities(fact, release, coreReasons);
             }
+        } else if (imageBridge) {
+            checkImageBridgeUart(fact, coreReasons);
         }
 
         Severity coreSeverity = strongest(coreReasons);
@@ -565,10 +576,14 @@ public class DeviceSoftwareCompatibilityService {
             case UNKNOWN -> null;
             case OPTIONAL, NONE -> true;
         };
-        Boolean businessUpdate = release == null
-                ? null
-                : fact.updater().businessPackageFormatVersion()
-                == release.packageFormatVersion();
+        Boolean businessUpdate = null;
+        if (release != null) {
+            businessUpdate = fact.updater().businessPackageFormatVersion()
+                    == release.packageFormatVersion();
+        } else if (imageBridge) {
+            businessUpdate = fact.updater().businessPackageFormatVersion()
+                    == BUSINESS_PACKAGE_FORMAT_VERSION;
+        }
         boolean mcuUpdate = fact.updater().mcuPackageFormatVersion()
                 == MCU_PACKAGE_FORMAT_VERSION;
 
@@ -853,6 +868,41 @@ public class DeviceSoftwareCompatibilityService {
         }
     }
 
+    private static void checkImageBridgeUart(
+            Fact fact,
+            List<Reason> reasons) {
+        if ("INCOMPATIBLE".equals(fact.uartState())) {
+            reasons.add(protocolMismatch(
+                    "UART_PROTOCOL_MISMATCH",
+                    "镜像内置业务程序与单片机通信不兼容",
+                    "设备已经确认镜像内置业务程序与单片机通信协议不兼容，已暂停新的物理业务。"));
+            return;
+        }
+        if (!"READY".equals(fact.uartState())) {
+            reasons.add(reason(
+                    "UART_PROTOCOL_NOT_READY",
+                    "单片机通信尚未就绪",
+                    "镜像内置业务程序尚未建立可用的单片机通信，平台暂时无法确认核心业务兼容性。",
+                    Severity.UNKNOWN,
+                    true));
+            return;
+        }
+        if (fact.uartProtocol() == null && fact.mcuFirmware() == null) {
+            reasons.add(reason(
+                    "MCU_FIRMWARE_IDENTITY_NOT_REPORTED",
+                    "未上报单片机通信身份",
+                    "镜像内置业务程序没有上报可核对的单片机通信身份，平台暂时无法确认兼容性。",
+                    Severity.UNKNOWN,
+                    true));
+        }
+    }
+
+    private static boolean imageBridge(Fact fact) {
+        return fact.activeRelease() == null
+                && fact.businessReady()
+                && fact.agent().version().equals(fact.updater().version());
+    }
+
     private static void checkMcuCapabilities(
             Fact fact,
             Release release,
@@ -1000,11 +1050,12 @@ public class DeviceSoftwareCompatibilityService {
         String capabilities = pattern(
                 payload, "capabilityBitmapHex", BITMAP, 16);
         if (ready && (!"RUNNING".equals(processState)
-                || activeRelease == null
                 || agentBusiness == null
-                || updaterBusiness == null)) {
+                || updaterBusiness == null
+                || (activeRelease == null
+                && !agent.version().equals(updater.version())))) {
             throw invalid(
-                    "ready business process lacks an installed release or negotiated protocol");
+                    "ready business process lacks a trusted release or image bridge identity");
         }
         LocalDateTime observedAt = observedAt(event);
         return new Fact(
@@ -1211,14 +1262,18 @@ public class DeviceSoftwareCompatibilityService {
             long minimum,
             long maximum) {
         JsonNode value = parent == null ? null : parent.get(field);
-        if (value == null
-                || !value.isIntegralNumber()
-                || !value.canConvertToLong()
-                || value.asLong() < minimum
-                || value.asLong() > maximum) {
+        if (value == null || !value.isNumber()) {
             throw invalid(field + " is outside its supported range");
         }
-        return value.asLong();
+        try {
+            long exact = value.decimalValue().longValueExact();
+            if (exact < minimum || exact > maximum) {
+                throw invalid(field + " is outside its supported range");
+            }
+            return exact;
+        } catch (ArithmeticException error) {
+            throw invalid(field + " is outside its supported range");
+        }
     }
 
     private static boolean bool(JsonNode parent, String field) {

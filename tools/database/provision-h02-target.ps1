@@ -1052,15 +1052,18 @@ WHERE table_schema = '$DatabaseName'
                 $existingMaxVersion -eq 65) -or
             ($existingDomainTableCount -eq 131 -and
                 $existingHistoryCount -eq 66 -and
-                $existingMaxVersion -eq 66)
+                $existingMaxVersion -eq 66) -or
+            ($existingDomainTableCount -eq 131 -and
+                $existingHistoryCount -eq 67 -and
+                $existingMaxVersion -eq 67)
         )
         if (-not $resumeLayoutValid) {
             throw (
-                "Migrated resume requires a complete V30 through V66 " +
+                "Migrated resume requires a complete V30 through V67 " +
                 "target database"
             )
         }
-        if ($existingMaxVersion -lt 66) {
+        if ($existingMaxVersion -lt 67) {
             # Check before changing the owner account so a stale local tunnel
             # fails without opening a database mutation window.
             if ($RemoteHost.Length -gt 0) {
@@ -1179,13 +1182,13 @@ GRANT SELECT (
     TO 'ecobin_trigger_definer'@'%';
 "@ | Out-Null
 
-        Invoke-FlywayMigration -Target 66 -OwnerPassword $ownerPassword
-        $currentMigrationVersion = 66
+        Invoke-FlywayMigration -Target 67 -OwnerPassword $ownerPassword
+        $currentMigrationVersion = 67
         $migrationCompleted = $true
     }
 
     # Converge the trigger definer even when a resumed database is already at
-    # V66. MySQL preserves column grants under their old table/column names
+    # V67. MySQL preserves column grants under their old table/column names
     # across V36/V39 renames, so remove those historical entries explicitly
     # before applying the exact current grant matrix.
     Invoke-RootSql -Sql @"
@@ -1330,7 +1333,7 @@ ORDER BY grant_key;
             }
         ) -join "; "
         throw (
-            "Trigger definer grants did not converge to the exact V66 " +
+            "Trigger definer grants did not converge to the exact V67 " +
             "matrix: $grantDifferenceSummary"
         )
     }
@@ -1385,8 +1388,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 66) {
-        throw "Expected sixty-six successful Flyway migrations"
+    if ($historyCount -ne 67) {
+        throw "Expected sixty-seven successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
@@ -1702,7 +1705,7 @@ WHERE user = 'ecobin_schema_owner' AND host = '%';
     if (-not $migrationCompleted) {
         if ($upgradeExistingMigratedEnvironment) {
             Write-Warning (
-                "The target may contain a failed V66 forward migration. " +
+                "The target may contain a failed V67 forward migration. " +
                 "It was intentionally preserved. Restore from the " +
                 "pre-migration backup; do not run Flyway repair. " +
                 "Container=$ContainerName Volume=$VolumeName"

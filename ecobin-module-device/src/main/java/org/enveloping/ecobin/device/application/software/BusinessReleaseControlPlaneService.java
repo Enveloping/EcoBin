@@ -69,6 +69,9 @@ import java.util.Locale;
 @Service
 public class BusinessReleaseControlPlaneService {
 
+    private static final String BUSINESS_RELEASE_BASELINE = "BUSINESS_RELEASE";
+    private static final String IMAGE_BRIDGE_BASELINE = "IMAGE_BRIDGE";
+
     public static final String EVENT_TYPE =
             "BUSINESS_RUNTIME_UPDATE_PROGRESS";
     public static final String CANCEL_EVENT_TYPE =
@@ -741,11 +744,12 @@ public class BusinessReleaseControlPlaneService {
                         eligibility_status, eligibility_snapshot,
                         eligibility_sha256, source_software_fact_id,
                         source_management_state_sequence,
+                        source_business_baseline_kind,
                         source_business_release_uid,
                         source_business_release_sequence,
                         created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PLANNED',
-                              'ELIGIBLE', ?, ?, ?, ?, ?, ?, ?, ?)
+                              'ELIGIBLE', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     UUID.randomUUID().toString(),
                     rolloutId,
@@ -759,7 +763,9 @@ public class BusinessReleaseControlPlaneService {
                     device.snapshotSha256(),
                     device.softwareFactId(),
                     device.managementStateSequence(),
-                    device.activeReleaseUid().toString(),
+                    device.baselineKind(),
+                    device.activeReleaseUid() == null
+                            ? null : device.activeReleaseUid().toString(),
                     device.activeReleaseSequence(),
                     now,
                     now);
@@ -1264,10 +1270,14 @@ public class BusinessReleaseControlPlaneService {
                         "successful business progress cannot restore the previous database");
             }
             if ("ROLLED_BACK".equals(stage)) {
-                InstalledBusiness frozenSource = sourceInstalledBusiness(
+                SourceBaseline frozenSource = sourceBaseline(
                         deployment.id());
-                if (installed == null
-                        || !frozenSource.equals(installed)
+                boolean restoredIdentityMatches = IMAGE_BRIDGE_BASELINE.equals(
+                        frozenSource.kind())
+                        ? installed == null
+                        : frozenSource.release() != null
+                        && frozenSource.release().equals(installed);
+                if (!restoredIdentityMatches
                         || !databaseRestored) {
                     throw new IllegalArgumentException(
                             "rolled back business progress does not prove the frozen source identity and database restore");
@@ -1906,10 +1916,13 @@ public class BusinessReleaseControlPlaneService {
                 || !Boolean.TRUE.equals(device.businessProcessReady())) {
             reasons.add("设备业务程序当前没有正常运行并开放新作业");
         }
-        if (device.activeReleaseUid() == null
-                || device.activeReleaseSequence() == null) {
-            reasons.add("设备没有可信的当前业务版本身份");
-        } else if (device.activeReleaseSequence() >= target.releaseSequence()) {
+        boolean imageBridge = device.activeReleaseUid() == null
+                && device.activeReleaseSequence() == null;
+        if ((device.activeReleaseUid() == null)
+                != (device.activeReleaseSequence() == null)) {
+            reasons.add("设备当前业务版本身份不完整");
+        } else if (!imageBridge
+                && device.activeReleaseSequence() >= target.releaseSequence()) {
             reasons.add("目标版本必须晚于设备实际安装的版本");
         }
         String targetCommunication = target.communicationMajor()
@@ -1990,7 +2003,10 @@ public class BusinessReleaseControlPlaneService {
         if (!reasons.isEmpty()) {
             throw ineligible(hardwareSn, String.join("；", reasons));
         }
-        UUID activeReleaseUid = UUID.fromString(device.activeReleaseUid());
+        String baselineKind = imageBridge
+                ? IMAGE_BRIDGE_BASELINE : BUSINESS_RELEASE_BASELINE;
+        UUID activeReleaseUid = imageBridge
+                ? null : UUID.fromString(device.activeReleaseUid());
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("schemaVersion", 1);
         snapshot.put("hardwareSn", hardwareSn);
@@ -1998,8 +2014,11 @@ public class BusinessReleaseControlPlaneService {
         snapshot.put("targetReleaseSequence", target.releaseSequence());
         snapshot.put("sourceSoftwareFactId", device.softwareFactId());
         snapshot.put("sourceManagementStateSequence", device.managementStateSequence());
-        snapshot.put("currentBusinessReleaseUid", activeReleaseUid.toString());
-        snapshot.put("currentBusinessReleaseSequence", device.activeReleaseSequence());
+        snapshot.put("currentBusinessBaselineKind", baselineKind);
+        snapshot.put("currentBusinessReleaseUid",
+                activeReleaseUid == null ? null : activeReleaseUid.toString());
+        snapshot.put("currentBusinessReleaseSequence",
+                device.activeReleaseSequence());
         snapshot.put("compatibility", "设备当前事实满足目标发布的安装前兼容检查");
         snapshot.put("onlineCheck", "下发阶段重新检查，临时离线不从计划中删除");
         snapshot.put("diskSpaceCheck", "由设备更新器在下载和停止业务前检查");
@@ -2010,6 +2029,7 @@ public class BusinessReleaseControlPlaneService {
                 device.organizationId(),
                 device.softwareFactId(),
                 device.managementStateSequence(),
+                baselineKind,
                 activeReleaseUid,
                 device.activeReleaseSequence(),
                 new String(canonical, StandardCharsets.UTF_8),
@@ -2382,6 +2402,7 @@ public class BusinessReleaseControlPlaneService {
                        deployment.database_restored,
                        deployment.error_code,
                        deployment.source_management_state_sequence,
+                       deployment.source_business_baseline_kind,
                        deployment.source_business_release_uid,
                        deployment.source_business_release_sequence,
                        deployment.created_at, deployment.queued_at,
@@ -2421,10 +2442,13 @@ public class BusinessReleaseControlPlaneService {
                     rs.getString("installed_version_name"),
                     rs.getBoolean("database_restored"),
                     deploymentErrorMessage(rs.getString("error_code")),
-                    "创建计划时的实际软件事实满足目标发布；下发前仍会重新检查",
+                    IMAGE_BRIDGE_BASELINE.equals(rs.getString(
+                            "source_business_baseline_kind"))
+                            ? "创建计划时设备运行镜像内置业务程序，实际软件事实满足首次更新检查；下发前仍会重新检查"
+                            : "创建计划时的实际软件事实满足目标发布；下发前仍会重新检查",
                     rs.getLong("source_management_state_sequence"),
-                    UUID.fromString(rs.getString("source_business_release_uid")),
-                    rs.getLong("source_business_release_sequence"),
+                    nullableUuid(rs.getString("source_business_release_uid")),
+                    nullableLong(rs, "source_business_release_sequence"),
                     instant(localDateTime(rs, "created_at")),
                     instant(localDateTime(rs, "queued_at")),
                     instant(localDateTime(rs, "completed_at")),
@@ -2831,9 +2855,10 @@ public class BusinessReleaseControlPlaneService {
         return count != null && count > 0;
     }
 
-    private InstalledBusiness sourceInstalledBusiness(long deploymentId) {
-        List<InstalledBusiness> rows = jdbc.query("""
-                SELECT fact.active_business_release_uid,
+    private SourceBaseline sourceBaseline(long deploymentId) {
+        List<SourceBaseline> rows = jdbc.query("""
+                SELECT deployment.source_business_baseline_kind,
+                       fact.active_business_release_uid,
                        fact.active_business_version_name,
                        fact.active_business_release_sequence,
                        fact.active_business_package_sha256
@@ -2842,22 +2867,39 @@ public class BusinessReleaseControlPlaneService {
                   ON fact.id = deployment.source_software_fact_id
                 WHERE deployment.id = ?
                 """, (rs, ignored) -> {
+            String kind = rs.getString("source_business_baseline_kind");
+            String releaseUid = rs.getString("active_business_release_uid");
+            String versionName = rs.getString("active_business_version_name");
+            Long releaseSequence = nullableLong(
+                    rs, "active_business_release_sequence");
             byte[] packageSha256 = rs.getBytes(
                     "active_business_package_sha256");
-            if (packageSha256 == null || packageSha256.length != 32) {
+            if (IMAGE_BRIDGE_BASELINE.equals(kind)
+                    && releaseUid == null
+                    && versionName == null
+                    && releaseSequence == null
+                    && packageSha256 == null) {
+                return new SourceBaseline(kind, null);
+            }
+            if (!BUSINESS_RELEASE_BASELINE.equals(kind)
+                    || releaseUid == null
+                    || versionName == null
+                    || versionName.isBlank()
+                    || releaseSequence == null
+                    || packageSha256 == null
+                    || packageSha256.length != 32) {
                 throw new IllegalStateException(
                         "frozen source business package identity is unavailable");
             }
-            return new InstalledBusiness(
-                    UUID.fromString(rs.getString(
-                            "active_business_release_uid")),
-                    rs.getString("active_business_version_name"),
-                    rs.getLong("active_business_release_sequence"),
-                    HexFormat.of().formatHex(packageSha256));
+            return new SourceBaseline(
+                    kind,
+                    new InstalledBusiness(
+                            UUID.fromString(releaseUid),
+                            versionName,
+                            releaseSequence,
+                            HexFormat.of().formatHex(packageSha256)));
         }, deploymentId);
-        if (rows.size() != 1
-                || rows.getFirst().versionName() == null
-                || rows.getFirst().versionName().isBlank()) {
+        if (rows.size() != 1) {
             throw new IllegalStateException(
                     "frozen source business identity is unavailable");
         }
@@ -2921,6 +2963,10 @@ public class BusinessReleaseControlPlaneService {
 
     private static UUID jsonUuid(JsonNode parent, String field) {
         return UUID.fromString(jsonPattern(parent, field, UUID_V4, 36));
+    }
+
+    private static UUID nullableUuid(String value) {
+        return value == null ? null : UUID.fromString(value);
     }
 
     private static UUID nullableJsonUuid(JsonNode parent, String field) {
@@ -3455,6 +3501,11 @@ public class BusinessReleaseControlPlaneService {
             String packageSha256) {
     }
 
+    private record SourceBaseline(
+            String kind,
+            InstalledBusiness release) {
+    }
+
     private record ReleaseActionRow(
             long releaseId, String action, String reason) {
     }
@@ -3607,8 +3658,9 @@ public class BusinessReleaseControlPlaneService {
             Long organizationId,
             long softwareFactId,
             long managementStateSequence,
+            String baselineKind,
             UUID activeReleaseUid,
-            long activeReleaseSequence,
+            Long activeReleaseSequence,
             String snapshotJson,
             byte[] snapshotSha256) {
 

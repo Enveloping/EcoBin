@@ -95,8 +95,8 @@ export interface BusinessDeployment {
   errorMessage?: string;
   eligibilitySummary: string;
   sourceManagementStateSequence: number;
-  currentBusinessReleaseUid: string;
-  currentBusinessReleaseSequence: number;
+  currentBusinessReleaseUid: string | null;
+  currentBusinessReleaseSequence: number | null;
   plannedAt: string;
   queuedAt?: string;
   completedAt?: string;

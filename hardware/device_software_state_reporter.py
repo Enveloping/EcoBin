@@ -287,9 +287,15 @@ def _semantic_payload(
         == installed_release.get("versionName")
     ):
         active_release = dict(installed_release)
+    image_bridge_ready = bool(
+        business is not None
+        and installed_release is None
+        and business.get("releaseVersion") == updater_version
+        and business.get("releaseVersion") == communication_version
+    )
     business_ready = bool(
         business_status == "READY"
-        and active_release is not None
+        and (active_release is not None or image_bridge_ready)
         and agent_business
         and updater_business
     )

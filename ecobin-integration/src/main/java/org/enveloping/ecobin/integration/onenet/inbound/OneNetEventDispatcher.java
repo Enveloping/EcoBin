@@ -2354,13 +2354,13 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                                 3L, "MAINTENANCE",
                                 4L, "LOCKED"),
                         "businessAdmissionState"));
-        payload.put(
-                "communicationAgent",
+        Map<String, Object> communicationAgent =
                 deviceSoftwareCommunicationAgent(
-                        object(wire, "communicationAgent")));
-        payload.put(
-                "deviceUpdater",
-                deviceSoftwareUpdater(object(wire, "deviceUpdater")));
+                        object(wire, "communicationAgent"));
+        Map<String, Object> deviceUpdater =
+                deviceSoftwareUpdater(object(wire, "deviceUpdater"));
+        payload.put("communicationAgent", communicationAgent);
+        payload.put("deviceUpdater", deviceUpdater);
         payload.put(
                 "activeBusinessRelease",
                 activeBusinessRelease(wire));
@@ -2398,9 +2398,14 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                         "capabilityBitmapHex",
                         "^[0-9a-f]{16}$"));
 
+        boolean trustedImageBridge =
+                payload.get("activeBusinessRelease") == null
+                && communicationAgent.get("versionName").equals(
+                        deviceUpdater.get("versionName"));
         if (businessReady
                 && (!"RUNNING".equals(businessProcessState)
-                || payload.get("activeBusinessRelease") == null
+                || (payload.get("activeBusinessRelease") == null
+                && !trustedImageBridge)
                 || !Boolean.TRUE.equals(
                 negotiated.get("agentBusinessNegotiated"))
                 || !Boolean.TRUE.equals(
@@ -3879,10 +3884,14 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
 
     private static long integer(JsonNode node, String field) {
         JsonNode value = node == null ? null : node.get(field);
-        if (value == null || !value.isIntegralNumber()) {
+        if (value == null || !value.isNumber()) {
             throw permanent(field + " must be an integer");
         }
-        return value.longValue();
+        try {
+            return value.decimalValue().longValueExact();
+        } catch (ArithmeticException error) {
+            throw permanent(field + " must be an integer");
+        }
     }
 
     private static boolean bool(JsonNode node, String field) {

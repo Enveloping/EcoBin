@@ -20,6 +20,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -295,6 +296,107 @@ class OneNetEventDispatcherTest {
                     assertThat(organizationKey).isNull();
                 });
         verify(sourceScopePort).resolverForPlatformAsset(HARDWARE_SN);
+    }
+
+    @Test
+    void imageBridgeAndWholeDecimalSequenceAreNormalized()
+            throws Exception {
+        ObjectNode wireExample = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "device-software-state-reported"
+                                + ".event-wire.json")));
+        ObjectNode wire = (ObjectNode) wireExample.path("oneJsonPayload")
+                .path("params")
+                .path("deviceSoftwareStateReported")
+                .path("value");
+        wire.put("activeBusinessReleasePresent", false);
+        wire.put("managementStateSequence", new BigDecimal("10.0"));
+
+        ObjectNode semantic = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "device-software-state-reported"
+                                + ".event.json")));
+        ObjectNode semanticPayload =
+                (ObjectNode) semantic.path("payload");
+        semanticPayload.putNull("activeBusinessRelease");
+        semanticPayload.put("managementStateSequence", 10L);
+        wire.put(
+                "payloadSha256",
+                OneNetCanonicalJson.payloadSha256(
+                        objectMapper.convertValue(
+                                semanticPayload, Map.class)));
+        String decrypted = """
+                {
+                  "msgType": "thingEvent",
+                  "subData": {
+                    "productId": "%s",
+                    "deviceName": "%s",
+                    "params": %s
+                  }
+                }
+                """.formatted(
+                PRODUCT_ID,
+                HARDWARE_SN,
+                wireExample.path("oneJsonPayload")
+                        .path("params").toString());
+
+        dispatcher.handle(
+                decrypted,
+                "mq-device-software-image-bridge",
+                RAW_TRANSPORT);
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort).receive(captor.capture());
+        JsonNode payload = objectMapper.readTree(
+                        captor.getValue().normalizedPayload())
+                .path("event").path("payload");
+        assertThat(payload.path("activeBusinessRelease").isNull()).isTrue();
+        assertThat(payload.path("managementStateSequence").asLong())
+                .isEqualTo(10L);
+        assertThat(payload.path("businessReady").asBoolean()).isTrue();
+    }
+
+    @Test
+    void fractionalDeviceSoftwareSequenceIsRejected()
+            throws Exception {
+        ObjectNode wireExample = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "device-software-state-reported"
+                                + ".event-wire.json")));
+        ((ObjectNode) wireExample.path("oneJsonPayload")
+                .path("params")
+                .path("deviceSoftwareStateReported")
+                .path("value"))
+                .put("managementStateSequence", new BigDecimal("10.5"));
+        String decrypted = """
+                {
+                  "msgType": "thingEvent",
+                  "subData": {
+                    "productId": "%s",
+                    "deviceName": "%s",
+                    "params": %s
+                  }
+                }
+                """.formatted(
+                PRODUCT_ID,
+                HARDWARE_SN,
+                wireExample.path("oneJsonPayload")
+                        .path("params").toString());
+
+        OneNetPermanentMessageException exception = assertThrows(
+                OneNetPermanentMessageException.class,
+                () -> dispatcher.handle(
+                        decrypted,
+                        "mq-device-software-fractional-sequence",
+                        RAW_TRANSPORT));
+
+        assertThat(exception).hasMessage(
+                "managementStateSequence must be an integer");
+        verify(inboxPort, never()).receive(any());
     }
 
     @Test

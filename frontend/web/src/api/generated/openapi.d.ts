@@ -9151,9 +9151,9 @@ export interface components {
             eligibilitySummary: string;
             /** Format: int64 */
             sourceManagementStateSequence: number;
-            currentBusinessReleaseUid: components["schemas"]["UuidV4"];
+            currentBusinessReleaseUid: components["schemas"]["UuidV4"] | null;
             /** Format: int64 */
-            currentBusinessReleaseSequence: number;
+            currentBusinessReleaseSequence: number | null;
             plannedAt: components["schemas"]["UtcTimestamp"];
             queuedAt: components["schemas"]["UtcTimestamp"] | null;
             completedAt: components["schemas"]["UtcTimestamp"] | null;

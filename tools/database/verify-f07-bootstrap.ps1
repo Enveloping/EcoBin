@@ -328,6 +328,12 @@ function Start-TestApplication {
         "--cos.region=",
         "--cos.bucket-name=",
         "--cos.base-url=",
+        "--ecobin.device.business-release.secret-id=",
+        "--ecobin.device.business-release.secret-key=",
+        "--ecobin.device.business-release.region=",
+        "--ecobin.device.business-release.bucket-name=",
+        "--ecobin.device.business-release.download-base-url=",
+        "--ecobin.device.business-release.remote-dispatch-enabled=false",
         "--server.port=$Port",
         "--spring.datasource.hikari.connection-timeout=3000",
         "--spring.datasource.hikari.initialization-fail-timeout=1",
@@ -404,7 +410,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V66 application exited before readiness`n$diagnostic"
+            throw "correct V67 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -442,7 +448,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V66 application did not become ready; " +
+    throw "correct V67 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -1278,8 +1284,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 66) {
-        throw "correct target must contain 66 successful Flyway migrations"
+    if ($historyCount -ne 67) {
+        throw "correct target must contain 67 successful Flyway migrations"
     }
 
     Invoke-MySql -Database "" -Sql @"
@@ -1408,6 +1414,37 @@ WHERE trigger_schema = '$($databaseNames.Correct)'
     if ($businessCancellationColumnCount -ne 8 -or
             $businessCancellationTriggerCount -ne 2) {
         throw "V66 business update cancellation facts are incomplete"
+    }
+    $imageBridgeBaselineColumnCount = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT COUNT(*)
+FROM information_schema.columns
+WHERE table_schema = '$($databaseNames.Correct)'
+  AND table_name = 'dev_edge_software_deployment'
+  AND (
+      (column_name = 'source_business_baseline_kind'
+          AND is_nullable = 'NO'
+          AND column_default = 'BUSINESS_RELEASE')
+      OR (column_name IN (
+              'source_business_release_uid',
+              'source_business_release_sequence'
+          ) AND is_nullable = 'YES')
+  );
+"@)
+    $imageBridgeBaselineConstraintCount = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT COUNT(*)
+FROM information_schema.check_constraints
+WHERE constraint_schema = '$($databaseNames.Correct)'
+  AND constraint_name = 'ck_dev_edge_deployment_source_baseline'
+  AND LOWER(check_clause) LIKE '%business_release%'
+  AND LOWER(check_clause) LIKE '%image_bridge%';
+"@)
+    if ($imageBridgeBaselineColumnCount -ne 3 -or
+            $imageBridgeBaselineConstraintCount -ne 1) {
+        throw "V67 image-bridge deployment baseline is incomplete"
     }
     $permissionCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
@@ -1717,7 +1754,7 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 66
+        targetVersion = 67
         domainTables = 131
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
@@ -1726,9 +1763,10 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV66Ready = $true
+        correctV67Ready = $true
         businessReleaseValidationV65 = $true
         businessUpdateCancellationV66 = $true
+        imageBridgeBaselineV67 = $true
         deviceAssetManagementTriggerReady = $true
         bagLabelBatchLimit500 = $true
         mcuRemoteUpdateCapabilityV60 = $true
