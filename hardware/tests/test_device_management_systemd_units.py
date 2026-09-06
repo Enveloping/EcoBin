@@ -199,14 +199,19 @@ def test_cutover_candidate_units_are_static_mutually_exclusive_and_non_root() ->
     assert "--enable-mcu-update-candidate" in updater
     assert "--enable-business-update-candidate" in updater
     assert "--enable-software-state-reporting" not in updater
-    assert "--enable-remote-business-update" not in updater
+    assert "--enable-remote-business-update" in updater
     assert "--enable-updater-event-reporting" not in communication
-    assert "--enable-remote-business-update" not in communication
+    assert "--enable-remote-business-update" in communication
     assert "/opt/ecobin/updater/current/.venv/bin/python" in updater
     assert "--mcu-update-state /var/lib/ecobin/updater/mcu-updates.db" in updater
     assert "--mcu-firmware-root /var/lib/ecobin/updater/mcu-firmware" in updater
     assert "--mcu-signing-keys /usr/share/ecobin/mcu-release-keys" in updater
     assert "--business-signing-keys /usr/share/ecobin/business-release-keys" in updater
+    assert (
+        "Environment=ECOBIN_BUSINESS_DOWNLOAD_BASE_URL="
+        "https://ecobin-update-package-1436310712.cos.ap-beijing.myqcloud.com"
+        in updater
+    )
     assert "ReadOnlyPaths=/usr/share/ecobin/business-release-keys" in updater
     assert "User=ecobin-communication" in communication
     assert "User=ecobin-updater" in updater
@@ -226,6 +231,9 @@ def test_cutover_candidate_units_are_static_mutually_exclusive_and_non_root() ->
     assert "DeviceAllow=/dev/ttyS5 rw" in business
     assert "DeviceAllow=char-video4linux rw" in business
     assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in communication
+    assert "PrivateNetwork=yes" not in updater
+    assert "IPAddressDeny=any" not in updater
+    assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in updater
     assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in business
     assert "[Install]" not in communication + updater + business
     assert "ExecStart=/usr/bin/env" in business

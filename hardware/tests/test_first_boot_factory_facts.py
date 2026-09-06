@@ -335,6 +335,7 @@ def _write_passed_cellular_inputs(paths: FirstBootPaths) -> None:
         + "\n",
         encoding="utf-8",
     )
+    paths.cellular_config.chmod(0o600)
 
 
 def test_absent_p7_report_is_not_run_and_never_valid(tmp_path: Path) -> None:
