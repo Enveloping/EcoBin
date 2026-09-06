@@ -5172,9 +5172,7 @@ def build_onenet_thing_model(
                 "name": _thing_name(identifier),
                 "functionType": "u",
                 "callType": "sync",
-                "desc": (
-                    "同步回复仅证明香橙派已可靠受理；物理与业务结果走可靠事件"
-                ),
+                "desc": definition["description"],
                 "input": input_parameters,
                 "output": copy.deepcopy(receipt_output),
             }
@@ -5208,7 +5206,7 @@ def build_onenet_thing_model(
                     if definition["eventType"] == "DEVICE_FAULT_OBSERVED"
                     else "info"
                 ),
-                "desc": "EcoBin 可靠边缘事件；以 JSON Schema 和语义校验为准",
+                "desc": definition["description"],
                 "outputData": output_parameters,
             }
         )

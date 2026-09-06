@@ -98,6 +98,7 @@
   "typedEventSchema": "events/events.schema.json",
   "services": {
     "applyConfiguration": {
+      "description": "后端向设备下发投口、单价和满溢规则等业务配置；最终是否生效以“配置处理进度”事件为准。",
       "commandType": "APPLY_CONFIGURATION",
       "targetType": "CONFIGURATION_APPLICATION",
       "schemaRef": "commands/commands.schema.json#/$defs/applyConfigurationCommand",
@@ -105,6 +106,7 @@
       "cosGrantAllowed": false
     },
     "startDeliverySession": {
+      "description": "用户扫码并通过后台准入后，通知设备开始本次投递并提供照片上传授权；订单以“投递完成”事件为准。",
       "commandType": "START_DELIVERY_SESSION",
       "targetType": "DELIVERY_SESSION",
       "schemaRef": "commands/commands.schema.json#/$defs/startDeliverySessionCommand",
@@ -112,6 +114,7 @@
       "cosGrantAllowed": true
     },
     "startCleanOperation": {
+      "description": "清运员扫码并通过后台准入后，通知设备开始本次清运并绑定目标投口和新袋；结果以“清运完成”事件为准。",
       "commandType": "START_CLEAN_OPERATION",
       "targetType": "CLEAN_OPERATION",
       "schemaRef": "commands/commands.schema.json#/$defs/startCleanOperationCommand",
@@ -119,6 +122,7 @@
       "cosGrantAllowed": true
     },
     "endCleanBeforeUnlock": {
+      "description": "清运尚未首次解锁时发生取消、授权过期或前置失败，通知设备安全结束本次清运且不得开门。",
       "commandType": "END_CLEAN_BEFORE_UNLOCK",
       "targetType": "CLEAN_OPERATION",
       "schemaRef": "commands/commands.schema.json#/$defs/endCleanBeforeUnlockCommand",
@@ -126,6 +130,7 @@
       "cosGrantAllowed": false
     },
     "resumeCleanOperation": {
+      "description": "原清运员现场确认后，恢复因超时、重启或网络中断而暂停的同一次清运，不创建新的清运记录。",
       "commandType": "RESUME_CLEAN_OPERATION",
       "targetType": "CLEAN_OPERATION",
       "schemaRef": "commands/commands.schema.json#/$defs/resumeCleanOperationCommand",
@@ -133,6 +138,7 @@
       "cosGrantAllowed": true
     },
     "sampleFullness": {
+      "description": "要求设备立即检测指定投口是否满溢；检测结果和来源故障通过“满溢检测完成”事件上报。",
       "commandType": "SAMPLE_FULLNESS",
       "targetType": "FULLNESS_DETECTION",
       "schemaRef": "commands/commands.schema.json#/$defs/sampleFullnessCommand",
@@ -140,6 +146,7 @@
       "cosGrantAllowed": false
     },
     "measureEmptyBagBaseline": {
+      "description": "换袋完成后要求设备测量新空袋皮重；成功值或称重故障通过“空袋基准测量完成”事件上报。",
       "commandType": "MEASURE_EMPTY_BAG_BASELINE",
       "targetType": "BASELINE_MEASUREMENT",
       "schemaRef": "commands/commands.schema.json#/$defs/measureEmptyBagBaselineCommand",
@@ -147,6 +154,7 @@
       "cosGrantAllowed": false
     },
     "confirmEdgeEvent": {
+      "description": "后端已完成某条设备事件的业务处理后发送确认，设备据此结束重试并清理本地待确认记录。",
       "commandType": "CONFIRM_EDGE_EVENT",
       "targetType": "EDGE_EVENT",
       "schemaRef": "commands/commands.schema.json#/$defs/confirmEdgeEventCommand",
@@ -154,6 +162,7 @@
       "cosGrantAllowed": false
     },
     "providePhotoUploadGrant": {
+      "description": "设备照片授权缺失或过期时，后端补发仅限指定作业、照片槽位和对象路径的临时上传凭证。",
       "commandType": "PROVIDE_PHOTO_UPLOAD_GRANT",
       "targetType": "PHOTO_GRANT_REQUEST",
       "schemaRef": "commands/commands.schema.json#/$defs/providePhotoUploadGrantCommand",
@@ -161,6 +170,7 @@
       "cosGrantAllowed": true
     },
     "requestDeviceAcceptance": {
+      "description": "后端发起厂家整机验收，要求设备完成存储、配置、单片机、双摄和照片上传检查并提交证据。",
       "commandType": "REQUEST_DEVICE_ACCEPTANCE",
       "targetType": "DEVICE_ASSET",
       "schemaRef": "commands/commands.schema.json#/$defs/requestDeviceAcceptanceCommand",
@@ -168,6 +178,7 @@
       "cosGrantAllowed": true
     },
     "authorizeFactorySeal": {
+      "description": "后台复核当前验收和初始袋证据后，授权设备执行一次性出厂封存；封存完成后出厂入口永久关闭。",
       "commandType": "AUTHORIZE_FACTORY_SEAL",
       "targetType": "DEVICE_ASSET",
       "schemaRef": "commands/commands.schema.json#/$defs/authorizeFactorySealCommand",
@@ -175,6 +186,7 @@
       "cosGrantAllowed": false
     },
     "syncDeviceEntryUrl": {
+      "description": "将设备二维码应使用的最新小程序入口地址同步到设备，供屏幕展示和用户扫码接入。",
       "commandType": "SYNC_DEVICE_ENTRY_URL",
       "targetType": "DEVICE_ASSET",
       "schemaRef": "commands/commands.schema.json#/$defs/syncDeviceEntryUrlCommand",
@@ -182,6 +194,7 @@
       "cosGrantAllowed": false
     },
     "startMcuFirmwareUpdate": {
+      "description": "通知设备更新单片机固件；设备确认空闲与安全后下载、校验并烧录，失败时自动回滚。",
       "commandType": "START_MCU_FIRMWARE_UPDATE",
       "targetType": "MCU_FIRMWARE_DEPLOYMENT",
       "schemaRef": "commands/commands.schema.json#/$defs/startMcuFirmwareUpdateCommand",
@@ -189,6 +202,7 @@
       "cosGrantAllowed": true
     },
     "startBusinessRuntimeUpdate": {
+      "description": "通知设备更新日常业务程序；下载验签后等待业务空闲，备份数据库、切换版本并观察，失败自动回滚。",
       "commandType": "START_BUSINESS_RUNTIME_UPDATE",
       "targetType": "BUSINESS_RUNTIME_DEPLOYMENT",
       "schemaRef": "commands/commands.schema.json#/$defs/startBusinessRuntimeUpdateCommand",
@@ -196,6 +210,7 @@
       "cosGrantAllowed": false
     },
     "cancelBusinessRuntimeUpdate": {
+      "description": "管理员请求安全取消业务程序更新；仅在数据库快照和程序变更前可取消，过晚则原更新继续。",
       "commandType": "CANCEL_BUSINESS_RUNTIME_UPDATE",
       "targetType": "BUSINESS_RUNTIME_DEPLOYMENT",
       "schemaRef": "commands/commands.schema.json#/$defs/cancelBusinessRuntimeUpdateCommand",
@@ -203,6 +218,7 @@
       "cosGrantAllowed": false
     },
     "openRemoteSupportTunnel": {
+      "description": "在已授权的短时间窗口内打开设备到运维服务器的反向维护通道，用于受控远程排障。",
       "commandType": "OPEN_REMOTE_SUPPORT_TUNNEL",
       "targetType": "REMOTE_SUPPORT_SESSION",
       "schemaRef": "commands/commands.schema.json#/$defs/openRemoteSupportTunnelCommand",
@@ -210,6 +226,7 @@
       "cosGrantAllowed": false
     },
     "closeRemoteSupportTunnel": {
+      "description": "关闭指定远程维护会话并清理设备侧通道，不影响投递、清运等正常业务。",
       "commandType": "CLOSE_REMOTE_SUPPORT_TUNNEL",
       "targetType": "REMOTE_SUPPORT_SESSION",
       "schemaRef": "commands/commands.schema.json#/$defs/closeRemoteSupportTunnelCommand",
@@ -219,126 +236,147 @@
   },
   "events": {
     "deviceCommandObserved": {
+      "description": "设备报告某条下行命令已接收、接受或拒绝，供后台区分平台送达与设备实际受理。",
       "eventType": "DEVICE_COMMAND_OBSERVED",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "DEVICE_COMMAND",
       "schemaRef": "events/events.schema.json#/$defs/deviceCommandObservedEvent"
     },
     "configurationProgress": {
+      "description": "设备报告配置已保存、已应用或失败；后台据此更新当前生效配置和业务准入状态。",
       "eventType": "CONFIGURATION_PROGRESS",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "CONFIGURATION_APPLICATION",
       "schemaRef": "events/events.schema.json#/$defs/configurationProgressEvent"
     },
     "deliveryComplete": {
+      "description": "设备在一次投递结束后上报首末重量、净重、异常标记和四张照片状态，后台据此创建订单。",
       "eventType": "DELIVERY_COMPLETE",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "DELIVERY_SESSION",
       "schemaRef": "events/events.schema.json#/$defs/deliveryCompleteEvent"
     },
     "cleanComplete": {
+      "description": "设备上报清运员确认关门后的最终重量、换袋信息、空袋皮重和四张照片状态，后台据此完成清运换袋。",
       "eventType": "CLEAN_COMPLETE",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "CLEAN_OPERATION",
       "schemaRef": "events/events.schema.json#/$defs/cleanCompleteEvent"
     },
     "fullnessStateChanged": {
+      "description": "设备发现当前袋满溢状态发生变化时主动上报，后台据此允许或阻止下一次新投递。",
       "eventType": "FULLNESS_STATE_CHANGED",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "PORT_FULLNESS_STATE",
       "schemaRef": "events/events.schema.json#/$defs/fullnessStateChangedEvent"
     },
     "fullnessSampleComplete": {
+      "description": "设备完成一次指定满溢检测后上报状态、判断依据和检测故障，后台据此更新当前投口状态。",
       "eventType": "FULLNESS_SAMPLE_COMPLETE",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "FULLNESS_DETECTION",
       "schemaRef": "events/events.schema.json#/$defs/fullnessSampleCompleteEvent"
     },
     "baselineMeasurementComplete": {
+      "description": "设备完成新空袋皮重测量后上报稳定重量或明确故障，后台据此建立当前袋称重基准。",
       "eventType": "BASELINE_MEASUREMENT_COMPLETE",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "BASELINE_MEASUREMENT",
       "schemaRef": "events/events.schema.json#/$defs/baselineMeasurementCompleteEvent"
     },
     "deviceFaultObserved": {
+      "description": "设备发现新的硬件、传感器、摄像头、存储或通信故障时上报，后台记录并按严重程度阻止业务。",
       "eventType": "DEVICE_FAULT_OBSERVED",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/deviceFaultObservedEvent"
     },
     "deviceFaultRecovered": {
+      "description": "设备重新检查确认某项既有故障已恢复后上报，后台关闭对应故障；是否恢复业务仍取决于全部当前事实。",
       "eventType": "DEVICE_FAULT_RECOVERED",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/deviceFaultRecoveredEvent"
     },
     "safetySensorStateChanged": {
+      "description": "烟感等安全传感器状态变化时立即上报当前状态和来源，后台据此触发安全处置或恢复判断。",
       "eventType": "SAFETY_SENSOR_STATE_CHANGED",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/safetySensorStateChangedEvent"
     },
     "photoStatusReported": {
+      "description": "投递或清运照片的拍摄、上传状态变化时上报；只有上传成功后才携带可保存的照片地址。",
       "eventType": "PHOTO_STATUS_REPORTED",
       "deliveryClass": "RELIABLE_FACT",
       "targetTypes": ["DELIVERY_SESSION", "CLEAN_OPERATION"],
       "schemaRef": "events/events.schema.json#/$defs/photoStatusReportedEvent"
     },
     "photoUploadGrantRequested": {
+      "description": "设备照片上传授权缺失、即将过期或失效时请求新授权，并明确绑定作业和待上传照片。",
       "eventType": "PHOTO_UPLOAD_GRANT_REQUESTED",
       "deliveryClass": "RELIABLE_FACT",
       "targetTypes": ["DELIVERY_SESSION", "CLEAN_OPERATION"],
       "schemaRef": "events/events.schema.json#/$defs/photoUploadGrantRequestedEvent"
     },
     "businessConfirmationReceipt": {
+      "description": "设备确认已收到后台对业务事件的最终处理结果，后台据此结束确认命令的可靠重试。",
       "eventType": "BUSINESS_CONFIRMATION_RECEIPT",
       "deliveryClass": "CONTROL_RECEIPT",
       "targetType": "BUSINESS_CONFIRMATION",
       "schemaRef": "events/events.schema.json#/$defs/businessConfirmationReceiptEvent"
     },
     "deviceRuntimeSnapshot": {
+      "description": "设备周期上报在线、配置、当前袋、作业占用、传感器和故障概况，供后台展示当前运行状态。",
       "eventType": "DEVICE_RUNTIME_SNAPSHOT",
       "deliveryClass": "TELEMETRY_SNAPSHOT",
       "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/deviceRuntimeSnapshotEvent"
     },
     "deviceSoftwareStateReported": {
+      "description": "设备管理层上报通信代理、更新器、业务程序和单片机的实际版本与就绪状态，后台据此计算兼容性。",
       "eventType": "DEVICE_SOFTWARE_STATE_REPORTED",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/deviceSoftwareStateReportedEvent"
     },
     "deviceAcceptanceEvidence": {
+      "description": "设备完成厂家验收检查后上报硬件、自检、双摄、存储和照片读回证据，后台据此决定是否通过。",
       "eventType": "DEVICE_ACCEPTANCE_EVIDENCE",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/deviceAcceptanceEvidenceEvent"
     },
     "remoteSupportTunnelStatus": {
+      "description": "设备报告远程维护通道正在连接、已连接、已关闭或失败，后台据此展示会话实际状态。",
       "eventType": "REMOTE_SUPPORT_TUNNEL_STATUS",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/remoteSupportTunnelStatusEvent"
     },
     "mcuFirmwareUpdateProgress": {
+      "description": "设备上报单片机固件下载、验签、烧录、验证、成功、回滚或锁定阶段及实际固件身份。",
       "eventType": "MCU_FIRMWARE_UPDATE_PROGRESS",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "MCU_FIRMWARE_DEPLOYMENT",
       "schemaRef": "events/events.schema.json#/$defs/mcuFirmwareUpdateProgressEvent"
     },
     "businessRuntimeUpdateProgress": {
+      "description": "设备上报业务程序下载、排空、备份、切换、观察、成功或回滚阶段，后台据此保持或恢复业务准入。",
       "eventType": "BUSINESS_RUNTIME_UPDATE_PROGRESS",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "BUSINESS_RUNTIME_DEPLOYMENT",
       "schemaRef": "events/events.schema.json#/$defs/businessRuntimeUpdateProgressEvent"
     },
     "businessRuntimeCancelResult": {
+      "description": "设备报告安全取消已生效或取消时机已过；后台只有收到该结果后才结束取消请求。",
       "eventType": "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "BUSINESS_RUNTIME_DEPLOYMENT",
       "schemaRef": "events/events.schema.json#/$defs/businessRuntimeUpdateCancelResultEvent"
     },
     "factorySealCompleted": {
+      "description": "设备完成一次性出厂封存后上报清理结果、镜像摘要和封存绑定证据，后台据此确认进入正式运行。",
       "eventType": "FACTORY_SEAL_COMPLETED",
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "DEVICE_ASSET",
