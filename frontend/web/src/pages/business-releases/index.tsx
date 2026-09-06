@@ -985,7 +985,7 @@ export default function BusinessReleasesPage() {
                 AWAITING_PROMOTION: '验证设备更新成功，等待管理员决定后续批次',
                 VALIDATION_FAILED: '验证设备未通过更新，后续设备没有收到命令',
                 ACTIVE: '后续分批更新正在进行',
-                COMPLETED: '本次灰度更新已经完成',
+                COMPLETED: '本次更新计划已经完成',
                 STOPPED: '本计划已经停止',
               }[selectedRollout.status] || selectedRollout.statusLabel}
               description={{
@@ -998,7 +998,7 @@ export default function BusinessReleasesPage() {
                 AWAITING_PROMOTION: '后台已收到更新成功证据；仍需设备新的实际安装状态确认兼容性，后续批次不会自动开始。',
                 VALIDATION_FAILED: '设备会按安全状态机延后、拒绝或恢复原版本；请查看下方中文异常说明。',
                 ACTIVE: '系统只更新本批设备，仍会观察失败条件并阻止自动扩大范围。',
-                COMPLETED: '所有已放行设备均已收敛到终态。',
+                COMPLETED: '计划中的设备均已收敛到最终结果。',
                 STOPPED: '未下发设备不会更新，历史记录继续保留。',
               }[selectedRollout.status] || '请查看设备进度。'}
             />

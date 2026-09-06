@@ -1402,13 +1402,18 @@ public class BusinessReleaseControlPlaneService {
                         && "VALIDATING".equals(deployment.rolloutStatus())) {
                     jdbc.update("""
                             UPDATE dev_edge_software_rollout
-                            SET rollout_status = ?, updated_at = ?,
+                            SET rollout_status = CASE
+                                    WHEN ? <> 'SUCCEEDED'
+                                        THEN 'VALIDATION_FAILED'
+                                    WHEN maximum_wave_no = 0
+                                        THEN 'COMPLETED'
+                                    ELSE 'AWAITING_PROMOTION'
+                                END,
+                                updated_at = ?,
                                 lock_version = lock_version + 1
                             WHERE id = ? AND rollout_status = 'VALIDATING'
                             """,
-                            "SUCCEEDED".equals(stage)
-                                    ? "AWAITING_PROMOTION"
-                                    : "VALIDATION_FAILED",
+                            stage,
                             now,
                             deployment.rolloutId());
                 }
@@ -3048,7 +3053,7 @@ public class BusinessReleaseControlPlaneService {
             case "AWAITING_PROMOTION" -> "验证成功，等待人工放行";
             case "VALIDATION_FAILED" -> "验证设备更新未通过";
             case "ACTIVE" -> "灰度发布进行中";
-            case "COMPLETED" -> "灰度发布已完成";
+            case "COMPLETED" -> "更新计划已完成";
             case "STOPPED" -> "计划已停止";
             default -> "状态无法识别";
         };

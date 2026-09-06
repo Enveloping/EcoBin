@@ -762,7 +762,8 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                 null,
                 203))).isEqualTo(TrustedDeviceEventApplyResult.APPLIED);
         var completed = service.rolloutDetail(rollout.rolloutUid());
-        assertThat(completed.status()).isEqualTo("AWAITING_PROMOTION");
+        assertThat(completed.status()).isEqualTo("COMPLETED");
+        assertThat(completed.statusLabel()).isEqualTo("更新计划已完成");
         assertThat(completed.deployments().getFirst().status())
                 .isEqualTo("SUCCEEDED");
         assertThat(completed.deployments().getFirst().cancellationStatus())

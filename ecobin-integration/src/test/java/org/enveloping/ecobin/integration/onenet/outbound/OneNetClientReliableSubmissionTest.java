@@ -328,11 +328,13 @@ class OneNetClientReliableSubmissionTest {
                 anyString(), any(HttpEntity.class), eq(String.class)))
                 .thenReturn(ResponseEntity.ok("{\"code\":0}"));
 
+        Instant beforeSubmission = Instant.now();
         DeviceCommandSubmissionResult result = client.submit(submission(
                 envelope,
                 UUID.fromString(
                         "8e000000-0000-4000-8000-000000000006"),
                 "CANCEL_BUSINESS_RUNTIME_UPDATE"));
+        Instant afterSubmission = Instant.now();
 
         assertEquals(
                 DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
@@ -347,9 +349,23 @@ class OneNetClientReliableSubmissionTest {
         assertEquals(
                 "cancelBusinessRuntimeUpdate",
                 actual.path("identifier").asText());
+        ObjectNode actualParams = (ObjectNode) actual.path("params").deepCopy();
+        ObjectNode expectedParams = (ObjectNode) expected
+                .path("callServiceApiBodyTemplate").path("params").deepCopy();
+        Instant refreshedIssuedAt = Instant.parse(
+                actualParams.remove("issuedAt").asText());
+        Instant refreshedExpiresAt = Instant.parse(
+                actualParams.remove("expiresAt").asText());
+        expectedParams.remove("issuedAt");
+        expectedParams.remove("expiresAt");
         assertEquals(
-                expected.path("callServiceApiBodyTemplate").path("params"),
-                actual.path("params"));
+                expectedParams,
+                actualParams);
+        assertFalse(refreshedIssuedAt.isBefore(beforeSubmission));
+        assertFalse(refreshedIssuedAt.isAfter(afterSubmission));
+        assertEquals(
+                refreshedIssuedAt.plusSeconds(300),
+                refreshedExpiresAt);
         verify(businessReleaseArtifacts, never())
                 .issueReadAuthorization(anyString(), any());
         verify(cosUploadCredentialPort, never())

@@ -128,6 +128,8 @@ public class OneNetClient
             } else if ("CANCEL_BUSINESS_RUNTIME_UPDATE".equals(
                     submission.commandType())) {
                 validateBusinessRuntimeCancellation(envelope, submission);
+                envelope = refreshBusinessRuntimeCancellationLifetime(
+                        envelope);
             }
             String identifier;
             Map<String, Object> params;
@@ -652,6 +654,15 @@ public class OneNetClient
         authorization.put("url", grant.url());
         authorization.put("expiresAt", grant.expiresAt().toString());
         envelope.set("downloadGrant", authorization);
+        return envelope;
+    }
+
+    private JsonNode refreshBusinessRuntimeCancellationLifetime(
+            JsonNode frozenEnvelope) {
+        ObjectNode envelope = (ObjectNode) frozenEnvelope.deepCopy();
+        Instant issuedAt = Instant.now();
+        envelope.put("issuedAt", issuedAt.toString());
+        envelope.put("expiresAt", issuedAt.plusSeconds(300).toString());
         return envelope;
     }
 
