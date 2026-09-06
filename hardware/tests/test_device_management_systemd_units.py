@@ -229,6 +229,7 @@ def test_cutover_candidate_units_are_static_mutually_exclusive_and_non_root() ->
     assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in business
     assert "[Install]" not in communication + updater + business
     assert "ExecStart=/usr/bin/env" in business
+    assert "\\\n" not in business
     assert "Requires=ecobin-business-runtime-cutover-gate.service" in business
     assert "After=" in business
     assert "ecobin-business-runtime-cutover-gate.service" in business.split(
@@ -342,6 +343,7 @@ def test_replaceable_business_service_is_static_and_power_loss_fenced() -> None:
     assert "WorkingDirectory=/opt/ecobin/business/current/app" in business
     assert "EnvironmentFile=/opt/ecobin/business/current/release.env" in business
     assert "ExecStart=/usr/bin/env" in business
+    assert "\\\n" not in business
     assert "/opt/ecobin/business/current/.venv/bin/python" in business
     assert "Requires=ecobin-business-runtime-cutover-gate.service" in business
     assert "ecobin-business-runtime-cutover-gate.service" in business.split(
