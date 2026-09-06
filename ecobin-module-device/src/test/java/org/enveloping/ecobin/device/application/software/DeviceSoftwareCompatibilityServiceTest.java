@@ -326,6 +326,23 @@ class DeviceSoftwareCompatibilityServiceTest {
     }
 
     @Test
+    void mysqlUnsignedIntegerDoesNotDependOnConcreteJdbcType() {
+        assertThat(DeviceSoftwareCompatibilityService
+                .nullableJdbcInteger(2L))
+                .isEqualTo(2);
+        assertThat(DeviceSoftwareCompatibilityService
+                .nullableJdbcInteger(new BigInteger("255")))
+                .isEqualTo(255);
+        assertThat(DeviceSoftwareCompatibilityService
+                .nullableJdbcInteger(null))
+                .isNull();
+        assertThatThrownBy(() -> DeviceSoftwareCompatibilityService
+                .nullableJdbcInteger(new BigDecimal("2.5")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("outside the supported range");
+    }
+
+    @Test
     void decimalEncodedWholeManagementSequenceIsAccepted() {
         registerRelease();
         ObjectNode event = event(10, "OPEN");

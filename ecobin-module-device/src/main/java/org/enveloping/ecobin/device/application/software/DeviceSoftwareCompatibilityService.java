@@ -529,6 +529,23 @@ public class DeviceSoftwareCompatibilityService {
         }
     }
 
+    static Integer nullableJdbcInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (!(value instanceof Number number)) {
+            throw new IllegalStateException(
+                    "persisted integer has an invalid JDBC type");
+        }
+        try {
+            return new BigDecimal(number.toString()).intValueExact();
+        } catch (ArithmeticException | NumberFormatException error) {
+            throw new IllegalStateException(
+                    "persisted integer is outside the supported range",
+                    error);
+        }
+    }
+
     private Compatibility assess(Fact fact) {
         List<Reason> coreReasons = new ArrayList<>();
         List<Reason> optionalReasons = new ArrayList<>();
@@ -688,10 +705,12 @@ public class DeviceSoftwareCompatibilityService {
                                 rs.getInt("updater_business_protocol_minor")),
                         rs.getString("uart_protocol_family"),
                         nullableProtocol(
-                                (Integer) rs.getObject("uart_protocol_major"),
-                                (Integer) rs.getObject("uart_protocol_minor")),
-                        (Integer) rs.getObject(
-                                "required_fixed_frame_revision"),
+                                nullableJdbcInteger(rs.getObject(
+                                        "uart_protocol_major")),
+                                nullableJdbcInteger(rs.getObject(
+                                        "uart_protocol_minor"))),
+                        nullableJdbcInteger(rs.getObject(
+                                "required_fixed_frame_revision")),
                         rs.getString(
                                 "required_mcu_capability_bitmap_hex")),
                 active.uid());
