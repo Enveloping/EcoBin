@@ -22,11 +22,18 @@ NOW = datetime(2030, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
 
 
 class Response(io.BytesIO):
-    status = 200
-
-    def __init__(self, content: bytes, url: str) -> None:
+    def __init__(
+        self,
+        content: bytes,
+        url: str,
+        *,
+        status: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         super().__init__(content)
         self._url = url
+        self.status = status
+        self.headers = headers or {}
 
     def geturl(self) -> str:
         return self._url
@@ -86,7 +93,7 @@ def test_download_uses_volatile_grant_and_writes_exact_private_package(
         journal=journal,
         incoming_root=incoming,
         trusted_base_url=BASE_URL,
-        open_url=lambda actual, _timeout: Response(content, actual),
+        open_url=lambda actual, _timeout, _offset: Response(content, actual),
         utc_now=lambda: NOW,
         on_package_ready=lambda: ready.append(True),
     )
@@ -157,7 +164,7 @@ def test_digest_mismatch_is_a_terminal_package_rejection(tmp_path) -> None:
         journal=journal,
         incoming_root=incoming,
         trusted_base_url=BASE_URL,
-        open_url=lambda supplied, _timeout: Response(actual, supplied),
+        open_url=lambda supplied, _timeout, _offset: Response(actual, supplied),
         utc_now=lambda: NOW,
     )
     downloader.accept_authorization(
@@ -210,7 +217,7 @@ def test_cancel_interrupts_download_and_removes_only_its_private_tree(
         journal=journal,
         incoming_root=incoming,
         trusted_base_url=BASE_URL,
-        open_url=lambda supplied, _timeout: CancellingResponse(
+        open_url=lambda supplied, _timeout, _offset: CancellingResponse(
             content, supplied
         ),
         utc_now=lambda: NOW,
@@ -229,3 +236,190 @@ def test_cancel_interrupts_download_and_removes_only_its_private_tree(
     assert journal.get_remote_update(UPDATE_UID)["downloadState"] == (
         "DOWNLOADING"
     )
+
+
+def test_transient_retry_resumes_the_existing_partial_package(tmp_path) -> None:
+    split = 1024 * 1024
+    content = (b"first-megabyte" * 80_000)[:split] + b"remaining-package"
+    signature = b"R" * 64
+    incoming = tmp_path / "incoming"
+    incoming.mkdir(mode=0o700)
+    incoming.chmod(0o700)
+    journal = _journal(tmp_path / "updater.db", content, signature)
+    url = f"{BASE_URL}/{OBJECT_KEY}?temporary-secret=resume"
+    offsets: list[int] = []
+
+    class InterruptedResponse(Response):
+        def __init__(self, supplied_url: str) -> None:
+            super().__init__(content[:split], supplied_url)
+            self.finished_chunk = False
+
+        def read(self, size: int = -1) -> bytes:
+            if self.finished_chunk:
+                raise ConnectionResetError("simulated cellular interruption")
+            self.finished_chunk = True
+            return super().read(size)
+
+    def open_url(supplied: str, _timeout: float, offset: int):
+        offsets.append(offset)
+        if len(offsets) == 1:
+            return InterruptedResponse(supplied)
+        return Response(
+            content[offset:],
+            supplied,
+            status=206,
+            headers={
+                "Content-Range": f"bytes {offset}-{len(content) - 1}/{len(content)}"
+            },
+        )
+
+    downloader = BusinessUpdateDownloader(
+        journal=journal,
+        incoming_root=incoming,
+        trusted_base_url=BASE_URL,
+        open_url=open_url,
+        utc_now=lambda: NOW,
+        retry_delay_seconds=0.001,
+    )
+    downloader.accept_authorization(
+        update_uid=UPDATE_UID,
+        authorization_sequence=1,
+        url=url,
+        expires_at=NOW + timedelta(minutes=30),
+    )
+
+    assert downloader.process_once() is True
+    partial = incoming / UPDATE_UID / "package.tar.gz.part"
+    assert partial.stat().st_size == split
+    assert journal.get_remote_update(UPDATE_UID)["downloadAttemptCount"] == 1
+
+    assert downloader.process_once() is True
+
+    archive = incoming / UPDATE_UID / "package.tar.gz"
+    assert archive.read_bytes() == content
+    assert not partial.exists()
+    assert offsets == [0, split]
+    assert journal.get_remote_update(UPDATE_UID)["downloadAttemptCount"] == 2
+    assert journal.get_remote_update(UPDATE_UID)["downloadState"] == "DOWNLOADED"
+
+
+def test_fresh_authorization_after_restart_resumes_partial_package(
+    tmp_path,
+) -> None:
+    split = 1024 * 1024
+    content = b"A" * split + b"B" * 100
+    signature = b"N" * 64
+    incoming = tmp_path / "incoming"
+    incoming.mkdir(mode=0o700)
+    incoming.chmod(0o700)
+    journal = _journal(tmp_path / "updater.db", content, signature)
+    first_url = f"{BASE_URL}/{OBJECT_KEY}?temporary-secret=old"
+
+    class InterruptedResponse(Response):
+        def __init__(self, supplied_url: str) -> None:
+            super().__init__(content[:split], supplied_url)
+            self.finished_chunk = False
+
+        def read(self, size: int = -1) -> bytes:
+            if self.finished_chunk:
+                raise TimeoutError("simulated modem timeout")
+            self.finished_chunk = True
+            return super().read(size)
+
+    first = BusinessUpdateDownloader(
+        journal=journal,
+        incoming_root=incoming,
+        trusted_base_url=BASE_URL,
+        open_url=lambda supplied, _timeout, _offset: InterruptedResponse(
+            supplied
+        ),
+        utc_now=lambda: NOW,
+        retry_delay_seconds=0.001,
+    )
+    first.accept_authorization(
+        update_uid=UPDATE_UID,
+        authorization_sequence=1,
+        url=first_url,
+        expires_at=NOW + timedelta(minutes=30),
+    )
+    assert first.process_once() is True
+    partial = incoming / UPDATE_UID / "package.tar.gz.part"
+    assert partial.stat().st_size == split
+
+    offsets: list[int] = []
+    restarted = BusinessUpdateDownloader(
+        journal=journal,
+        incoming_root=incoming,
+        trusted_base_url=BASE_URL,
+        open_url=lambda supplied, _timeout, offset: (
+            offsets.append(offset)
+            or Response(
+                content[offset:],
+                supplied,
+                status=206,
+                headers={
+                    "Content-Range": (
+                        f"bytes {offset}-{len(content) - 1}/{len(content)}"
+                    )
+                },
+            )
+        ),
+        utc_now=lambda: NOW,
+    )
+    restarted._recover_interrupted_downloads()
+    assert journal.get_remote_update(UPDATE_UID)["downloadState"] == (
+        "WAITING_AUTHORIZATION"
+    )
+    journal.create_or_refresh_remote_update(
+        _request(content, signature), authorization_sequence=2
+    )
+    restarted.accept_authorization(
+        update_uid=UPDATE_UID,
+        authorization_sequence=2,
+        url=f"{BASE_URL}/{OBJECT_KEY}?temporary-secret=fresh",
+        expires_at=NOW + timedelta(minutes=30),
+    )
+
+    assert restarted.process_once() is True
+    assert (incoming / UPDATE_UID / "package.tar.gz").read_bytes() == content
+    assert offsets == [split]
+    assert journal.get_remote_update(UPDATE_UID)["downloadState"] == "DOWNLOADED"
+
+
+def test_range_ignored_by_origin_restarts_without_appending_duplicate_bytes(
+    tmp_path,
+) -> None:
+    content = b"complete package after an ignored range request"
+    signature = b"I" * 64
+    incoming = tmp_path / "incoming"
+    incoming.mkdir(mode=0o700)
+    incoming.chmod(0o700)
+    journal = _journal(tmp_path / "updater.db", content, signature)
+    update_directory = incoming / UPDATE_UID
+    update_directory.mkdir(mode=0o700)
+    partial = update_directory / "package.tar.gz.part"
+    partial.write_bytes(content[:12])
+    partial.chmod(0o600)
+    offsets: list[int] = []
+    url = f"{BASE_URL}/{OBJECT_KEY}?temporary-secret=ignored-range"
+    downloader = BusinessUpdateDownloader(
+        journal=journal,
+        incoming_root=incoming,
+        trusted_base_url=BASE_URL,
+        open_url=lambda supplied, _timeout, offset: (
+            offsets.append(offset) or Response(content, supplied, status=200)
+        ),
+        utc_now=lambda: NOW,
+    )
+    downloader.accept_authorization(
+        update_uid=UPDATE_UID,
+        authorization_sequence=1,
+        url=url,
+        expires_at=NOW + timedelta(minutes=30),
+    )
+
+    assert downloader.process_once() is True
+
+    assert (update_directory / "package.tar.gz").read_bytes() == content
+    assert offsets == [12]
+    assert journal.get_remote_update(UPDATE_UID)["downloadState"] == "DOWNLOADED"

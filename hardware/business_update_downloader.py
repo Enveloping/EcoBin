@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import stat
 import threading
@@ -42,11 +43,18 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def _open_without_redirect(url: str, timeout_seconds: float) -> BinaryIO:
+def _open_without_redirect(
+    url: str,
+    timeout_seconds: float,
+    offset: int,
+) -> BinaryIO:
     opener = urllib.request.build_opener(_NoRedirectHandler())
+    headers = {"User-Agent": "EcoBin-Device-Updater/1"}
+    if offset > 0:
+        headers["Range"] = f"bytes={offset}-"
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "EcoBin-Device-Updater/1"},
+        headers=headers,
         method="GET",
     )
     return opener.open(request, timeout=timeout_seconds)
@@ -61,7 +69,7 @@ class BusinessUpdateDownloader:
         journal: BusinessUpdateStore,
         incoming_root: str | os.PathLike[str],
         trusted_base_url: str,
-        open_url: Callable[[str, float], BinaryIO] = _open_without_redirect,
+        open_url: Callable[[str, float, int], BinaryIO] = _open_without_redirect,
         utc_now: Callable[[], datetime] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         retry_delay_seconds: float = RETRY_DELAY_SECONDS,
@@ -304,18 +312,24 @@ class BusinessUpdateDownloader:
             material["signatureSha256"],
         )
         final_path = update_directory / "package.tar.gz"
-        part_path = update_directory / (
-            f"package.tar.gz.{authorization.authorization_sequence}.part"
+        part_path = update_directory / "package.tar.gz.part"
+        total, digest = _partial_identity(
+            part_path,
+            maximum_size=material["packageSize"],
         )
-        if part_path.exists():
-            _require_regular_owned_path(part_path)
-            part_path.unlink()
+        if total == material["packageSize"]:
+            if digest.hexdigest() == material["packageSha256"]:
+                os.replace(part_path, final_path)
+                os.chmod(final_path, 0o600)
+                _fsync_directory(update_directory)
+                return
+            _discard_partial(part_path)
+            total = 0
+            digest = hashlib.sha256()
         deadline = self._monotonic() + material["downloadTimeoutSeconds"]
-        digest = hashlib.sha256()
-        total = 0
         timeout = min(30.0, float(material["downloadTimeoutSeconds"]))
         try:
-            response = self._open_url(authorization.url, timeout)
+            response = self._open_url(authorization.url, timeout, total)
             with response:
                 final_url = getattr(response, "geturl", lambda: authorization.url)()
                 _require_download_url(
@@ -324,33 +338,63 @@ class BusinessUpdateDownloader:
                     object_key=material["objectKey"],
                 )
                 status = getattr(response, "status", 200)
-                if status != 200:
+                if total > 0 and status == 206:
+                    _require_content_range(
+                        response,
+                        offset=total,
+                        total_size=material["packageSize"],
+                    )
+                    reset_partial = False
+                elif total > 0 and status == 200:
+                    # A conforming origin serves 206 for a Range request.  A
+                    # proxy may strip Range; safely consume its full response
+                    # from byte zero instead of appending duplicate bytes.
+                    total = 0
+                    digest = hashlib.sha256()
+                    reset_partial = True
+                elif total == 0 and status in {200, 206}:
+                    if status == 206:
+                        _require_content_range(
+                            response,
+                            offset=0,
+                            total_size=material["packageSize"],
+                        )
+                    reset_partial = True
+                else:
                     raise _AuthorizationDownloadError(
                         "DOWNLOAD_AUTHORIZATION_REJECTED"
                     )
-                with part_path.open("xb") as target:
-                    os.chmod(part_path, 0o600)
-                    while True:
-                        if self._is_cancelled(authorization.update_uid):
-                            raise _DownloadCancelled()
-                        if self._monotonic() >= deadline:
-                            raise _AuthorizationDownloadError(
-                                "BUSINESS_DOWNLOAD_TIMEOUT"
-                            )
-                        chunk = response.read(DOWNLOAD_CHUNK_BYTES)
-                        if not chunk:
-                            break
-                        total += len(chunk)
-                        if total > material["packageSize"]:
-                            raise _PermanentDownloadError(
-                                "BUSINESS_PACKAGE_SIZE_MISMATCH"
-                            )
-                        digest.update(chunk)
-                        target.write(chunk)
-                    target.flush()
-                    os.fsync(target.fileno())
+                with _open_private_partial(
+                    part_path,
+                    truncate=reset_partial,
+                ) as target:
+                    try:
+                        while True:
+                            if self._is_cancelled(authorization.update_uid):
+                                raise _DownloadCancelled()
+                            if self._monotonic() >= deadline:
+                                raise _AuthorizationDownloadError(
+                                    "BUSINESS_DOWNLOAD_TIMEOUT"
+                                )
+                            chunk = response.read(DOWNLOAD_CHUNK_BYTES)
+                            if not chunk:
+                                break
+                            total += len(chunk)
+                            if total > material["packageSize"]:
+                                raise _PermanentDownloadError(
+                                    "BUSINESS_PACKAGE_SIZE_MISMATCH"
+                                )
+                            digest.update(chunk)
+                            target.write(chunk)
+                    finally:
+                        target.flush()
+                        os.fsync(target.fileno())
+        except _PermanentDownloadError:
+            _discard_partial(part_path)
+            raise
         except urllib.error.HTTPError as error:
             if error.code == 404:
+                _discard_partial(part_path)
                 raise _PermanentDownloadError(
                     "BUSINESS_PACKAGE_OBJECT_NOT_FOUND"
                 ) from None
@@ -359,15 +403,10 @@ class BusinessUpdateDownloader:
                     "DOWNLOAD_AUTHORIZATION_REJECTED"
                 ) from None
             raise
-        finally:
-            if part_path.exists() and (
-                total != material["packageSize"]
-                or digest.hexdigest() != material["packageSha256"]
-            ):
-                part_path.unlink()
         if total != material["packageSize"]:
-            raise _PermanentDownloadError("BUSINESS_PACKAGE_SIZE_MISMATCH")
+            raise _TransientDownloadError("BUSINESS_PACKAGE_INCOMPLETE")
         if digest.hexdigest() != material["packageSha256"]:
+            _discard_partial(part_path)
             raise _PermanentDownloadError("BUSINESS_PACKAGE_SHA256_MISMATCH")
         if self._is_cancelled(authorization.update_uid):
             raise _DownloadCancelled()
@@ -452,6 +491,10 @@ class _DownloadCancelled(RuntimeError):
     pass
 
 
+class _TransientDownloadError(RuntimeError):
+    pass
+
+
 def _canonical_base_url(value: str) -> str:
     parsed = urlsplit(value)
     if (
@@ -502,6 +545,87 @@ def _require_regular_owned_path(path: Path) -> None:
     details = path.lstat()
     if not stat.S_ISREG(details.st_mode) or stat.S_ISLNK(details.st_mode):
         raise ValueError("business download path is not a regular file")
+
+
+def _partial_identity(
+    path: Path,
+    *,
+    maximum_size: int,
+) -> tuple[int, Any]:
+    digest = hashlib.sha256()
+    if not path.exists():
+        return 0, digest
+    _require_private_partial(path)
+    size = path.stat().st_size
+    if size > maximum_size:
+        _discard_partial(path)
+        return 0, digest
+    with path.open("rb") as source:
+        while chunk := source.read(DOWNLOAD_CHUNK_BYTES):
+            digest.update(chunk)
+    return size, digest
+
+
+def _require_private_partial(path: Path) -> None:
+    _require_regular_owned_path(path)
+    details = path.lstat()
+    if details.st_nlink != 1:
+        raise ValueError("business download partial file has multiple links")
+    if os.name == "posix":
+        if details.st_mode & 0o077:
+            raise ValueError("business download partial file is not private")
+        effective_uid = getattr(os, "geteuid", lambda: details.st_uid)()
+        if details.st_uid != effective_uid:
+            raise ValueError("business download partial file has another owner")
+
+
+def _open_private_partial(path: Path, *, truncate: bool) -> BinaryIO:
+    if path.exists():
+        _require_private_partial(path)
+    flags = os.O_WRONLY | os.O_CREAT
+    flags |= os.O_TRUNC if truncate else os.O_APPEND
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        details = os.fstat(descriptor)
+        if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+            raise ValueError("business download partial file is unsafe")
+        if os.name == "posix":
+            effective_uid = getattr(os, "geteuid", lambda: details.st_uid)()
+            if details.st_uid != effective_uid or details.st_mode & 0o077:
+                raise ValueError("business download partial file is not private")
+        return os.fdopen(descriptor, "wb" if truncate else "ab")
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _discard_partial(path: Path) -> None:
+    try:
+        _require_private_partial(path)
+    except FileNotFoundError:
+        return
+    path.unlink()
+    _fsync_directory(path.parent)
+
+
+def _require_content_range(
+    response: Any,
+    *,
+    offset: int,
+    total_size: int,
+) -> None:
+    headers = getattr(response, "headers", None)
+    value = headers.get("Content-Range") if headers is not None else None
+    match = re.fullmatch(r"bytes ([0-9]+)-([0-9]+)/([0-9]+)", str(value))
+    if (
+        match is None
+        or int(match.group(1)) != offset
+        or int(match.group(2)) < offset
+        or int(match.group(3)) != total_size
+    ):
+        raise _PermanentDownloadError("BUSINESS_PACKAGE_RANGE_MISMATCH")
 
 
 def _remove_private_download_tree(path: Path, parent: Path) -> None:
