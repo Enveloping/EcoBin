@@ -643,25 +643,30 @@ int main(void)
                 break;
             }
             case 0x02:   /* 测重结束: 保存基准, 发送溢满检测+重量结果 */
-                weigh_state = WEIGH_IDLE;
-                baseline_total = g_weight;
-                baseline_inited = 1;
+            {
+                unsigned long post_w=g_weight;
 
-                                /* DD frame: pre+post+distance */
+                weigh_state = WEIGH_IDLE;
+
+                /* DD完成帧：仅活跃投递使用已保存的投前重量，0g也是合法重量。 */
+                if(delivery_flow_active)
                 {
-                    unsigned long pre_w,post_w;
+                    unsigned long pre_w;
                     unsigned short dist=HCSR04_GetDistance();
                     unsigned char full_byte;
-                    pre_w=(delivery_pre_weight>0)?delivery_pre_weight:baseline_total;
-                    post_w=g_weight;
-                                        full_byte=(dist==0xFFFF)?0x00:(dist<OVERFLOW_DIST)?0x01:0x00;
+                    pre_w=delivery_pre_weight;
+                    full_byte=(dist==0xFFFF)?0x00:(dist<OVERFLOW_DIST)?0x01:0x00;
                     Vision_SendDeliveryResult(pre_w,post_w,full_byte);
                 }
+
+                baseline_total=post_w;
+                baseline_inited=1;
                 delivery_flow_active=0;
                 delivery_pre_weight=0;
 
 							matched = 1; consumed = 1;
                 break;
+            }
 						 case 0x06:   /* continue: no report, keep pre-weight */
                 weigh_state = WEIGH_IDLE;
                 matched = 1; consumed = 1;
