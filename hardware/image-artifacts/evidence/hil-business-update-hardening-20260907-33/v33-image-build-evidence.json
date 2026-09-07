@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-07T16:42:19Z",
+  "result": "PASS_PENDING_FLASH_AND_LIVE_ACCEPTANCE",
+  "source": {
+    "gitCommit": "1b89b7451c7aee413be219371415ef55ea63a3a4",
+    "bundleBytes": 54169550,
+    "bundleSha256": "2cbb2a401fd42b8768ce9603aa36c9f0d79637405b74560ac318451af89e4107",
+    "completeHistory": true,
+    "sourceSnapshotDirty": false,
+    "concurrentWorktreeChangesIncluded": false
+  },
+  "releases": {
+    "imageVersion": "0.1.0-single-card.20260907.33",
+    "hardwareRuntime": "hardware-runtime-20260907-33",
+    "communicationAgent": "communication-20260907-33",
+    "deviceUpdater": "updater-20260907-33",
+    "softwarePayload": "software-payload-20260907-33"
+  },
+  "artifacts": {
+    "runtime": {
+      "bytes": 58358902,
+      "sha256": "bc47f18274b0f05563a46a2167164821efeabc4ed4ca96ab023d05707d42a30e",
+      "signaturePresent": true
+    },
+    "softwarePayloadLockSha256": "abf337ccc7c3d1ec735974f848c293539c31f53e1f59e97e4dee77f57aebe113",
+    "candidate": {
+      "artifactClass": "UNSIGNED_NO_SECRET_CANDIDATE",
+      "bytes": 2571108352,
+      "sha256": "6c649c23b91b9c8e4ad1db4209e14b64ef35f4333644d675e5ba53cc9698df72"
+    },
+    "hil": {
+      "bytes": 2571108352,
+      "sha256": "289f1b45a32cb90d09183b22a4bd30103cd9c749f3b36d8756dabb686c4c914c",
+      "inheritedProtectedInputSourceSha256": "a4bc19aecd227b2055d271cfaba7e997c2737d6e79c04583ae7408b70718df5f",
+      "checksumRecalculationPassed": true
+    }
+  },
+  "offlineAudits": {
+    "candidateBuild": "PASS",
+    "hilBuild": "PASS",
+    "rawLayout": "PASS",
+    "ext4Profile": "PASS",
+    "filesystemCheck": "PASS",
+    "cleanFirstBootState": "PASS",
+    "cameraConfiguration": "PASS",
+    "permanentCommunicationFiles": 10,
+    "permanentUpdaterFiles": 24,
+    "systemdUnits": 2,
+    "permanentSourceAudit": "PASS",
+    "formalBusinessTrustAudit": "PASS",
+    "remoteBusinessUnitBoundary": "PASS",
+    "privateSigningMaterialPresent": false
+  },
+  "backendAcceptanceAllowlist": {
+    "targetHostname": "VM-0-16-ubuntu",
+    "runtimeAdded": "hardware-runtime-20260907-33",
+    "preservedRuntimes": [
+      "hardware-runtime-20260906-31",
+      "hardware-runtime-20260907-32"
+    ],
+    "deployment": "PASS",
+    "independentVerification": "PASS",
+    "remoteBusinessDispatchEnabled": false,
+    "backupMetadata": "root:root:0600"
+  },
+  "pending": {
+    "tfCardWritten": false,
+    "fullRangeReadback": false,
+    "v33ColdBoot": false,
+    "v33FactoryAcceptance": false,
+    "v33DeliveryAndCleaning": false,
+    "authoritativeSingleDeviceUpdatePlan": false
+  }
+}
