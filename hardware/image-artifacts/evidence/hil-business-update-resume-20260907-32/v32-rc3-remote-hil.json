@@ -1,0 +1,22 @@
+{
+  "acceptedAt": "2026-09-07T03:00:04.376Z",
+  "commandUid": "7d2ba9f4-a28d-4474-b01f-900fd2706ebf",
+  "deliveryUid": "2c98368d-8c1e-40fc-bca3-cc6fdb0977e9",
+  "deploymentUid": "b70234f9-ccd1-4158-9641-50e2a24913e2",
+  "hardwareSn": "ECM0-3Y16JJF0KMXKAKDJS7FJFP4ZSW",
+  "issuedAt": "2026-09-07T03:00:02.249Z",
+  "observationWindowSeconds": 1800,
+  "packageSha256": "6c5276bfa83bfba00636322b028219ef5087ec24d8a58b33925a06ba3f592610",
+  "packageSize": 53755880,
+  "receipt": {
+    "commandUid": "7d2ba9f4-a28d-4474-b01f-900fd2706ebf",
+    "errorCode": null,
+    "receiptState": "ACCEPTED"
+  },
+  "releaseSequence": 3,
+  "releaseUid": "9d5cf9e6-7b09-4409-9dc4-54a291984e22",
+  "signatureSha256": "40ee385963e493d0c0877b6078844138bfdabcdc9487cd6b93f51e0ead9701d3",
+  "signingKeyId": "business_2026",
+  "updateUid": "76047cf0-96cc-4c95-8375-ea022598bbfc",
+  "versionName": "0.3.0-rc.3"
+}

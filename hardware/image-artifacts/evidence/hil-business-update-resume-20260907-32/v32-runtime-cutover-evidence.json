@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "CONTROLLED_SINGLE_DEVICE_RUNTIME_CUTOVER_PREFLIGHT",
+  "recordedAt": "2026-09-07T02:53:28.770Z",
+  "operationUid": "f27a36e8-6182-4468-b765-1ec5eee894eb",
+  "hardwareRelease": "hardware-runtime-20260907-32",
+  "deviceHardwareSerialNumber": "ECM0-3Y16JJF0KMXKAKDJS7FJFP4ZSW",
+  "factorySeal": {
+    "exists": true,
+    "valid": true,
+    "status": "SEALED",
+    "acceptanceGeneration": 1
+  },
+  "businessDatabase": {
+    "schemaVersion": 18,
+    "databaseBytes": 368640,
+    "databaseSha256": "41cce0e977467038dbf29953dc63386b9e7abdb5ca204f5f4cd342d76425f2ca",
+    "quickCheck": "ok",
+    "foreignKeyErrorCount": 0,
+    "workSlot": ["NONE", null, null],
+    "maintenanceLockCount": 0,
+    "nonterminalEventCount": 0,
+    "activePhotoCount": 0,
+    "eventStates": [["CONFIRMED", 0, 42]],
+    "photoStates": [["UPLOADED", 1, 8]]
+  },
+  "runtimePosture": {
+    "cutoverMode": "LEGACY",
+    "legacyBusinessActive": true,
+    "legacyCommunicationActive": true,
+    "legacyUpdaterActive": true,
+    "managedRuntimeActive": false
+  },
+  "operatorFacts": {
+    "factoryAcceptanceCompleted": true,
+    "normalDeliveryCompleted": true,
+    "normalCleaningCompleted": true
+  },
+  "source": "COM8 read-only device preflight"
+}

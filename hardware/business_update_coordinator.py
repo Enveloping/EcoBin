@@ -16,6 +16,7 @@ from business_update_package import (
     BusinessReleasePackageStager,
 )
 from business_update_store import (
+    BUSINESS_UPDATE_ARTIFACT_CLEANUP_STATES,
     BUSINESS_UPDATE_TERMINAL_STATES,
     BusinessUpdateStore,
     BusinessUpdateStoreError,
@@ -130,6 +131,7 @@ class BusinessUpdateCoordinator:
         self._thread: threading.Thread | None = None
         self._queue_lock = threading.Lock()
         self._process_lock = threading.Lock()
+        self._terminal_cleanup_attempted: set[str] = set()
         self.failure: BaseException | None = None
 
     def start(self) -> None:
@@ -339,6 +341,9 @@ class BusinessUpdateCoordinator:
         if not self._process_lock.acquire(blocking=False):
             return False
         try:
+            cleanup_progress = self._reconcile_terminal_artifact_cleanup()
+            if cleanup_progress is not None:
+                return cleanup_progress
             update = self.journal.get_active_update()
             if update is None:
                 return False
@@ -925,10 +930,7 @@ class BusinessUpdateCoordinator:
                 "last_error_message": None,
             },
         )
-        try:
-            self.package_stager.cleanup(update["updateUid"])
-        except BusinessPackageStageError:
-            logger.warning("business update staging cleanup was deferred")
+        self._attempt_terminal_artifact_cleanup(update["updateUid"])
 
     def _begin_rollback(
         self, update: Mapping[str, Any], error_code: str, error_message: str
@@ -1225,6 +1227,7 @@ class BusinessUpdateCoordinator:
                 step="COMPLETE",
                 fields={"reconciliation_required": 0},
             )
+            self._attempt_terminal_artifact_cleanup(update["updateUid"])
             return
         raise BusinessUpdateCoordinatorError(
             "BUSINESS_UPDATE_STEP_INVALID", "business rollback verification is invalid"
@@ -1483,6 +1486,59 @@ class BusinessUpdateCoordinator:
             )
         except UpdaterStoreError as error:
             raise BusinessUpdateCoordinatorError(error.code, str(error)) from error
+
+    def _reconcile_terminal_artifact_cleanup(self) -> bool | None:
+        for update_uid in self.journal.list_updates_eligible_for_artifact_cleanup():
+            if update_uid in self._terminal_cleanup_attempted:
+                continue
+            outcome = self._attempt_terminal_artifact_cleanup(update_uid)
+            # The downloader can still be unwinding its final I/O after it has
+            # persisted a terminal rejection. Sleep before retrying that case.
+            return False if outcome == "DEFERRED" else True
+        return None
+
+    def _attempt_terminal_artifact_cleanup(self, update_uid: str) -> str:
+        update = self.journal.get_update(update_uid)
+        if (
+            update is None
+            or update.get("state") not in BUSINESS_UPDATE_ARTIFACT_CLEANUP_STATES
+        ):
+            self._terminal_cleanup_attempted.add(update_uid)
+            return "SKIPPED"
+
+        outcome = "COMPLETE"
+        try:
+            self.package_stager.cleanup(update_uid)
+        except (BusinessPackageStageError, OSError) as error:
+            code = getattr(error, "code", "BUSINESS_STAGING_CLEANUP_FAILED")
+            logger.warning(
+                "business update staging cleanup will retry after updater restart: "
+                "updateUid=%s code=%s",
+                update_uid,
+                code,
+            )
+            outcome = "FAILED"
+
+        downloader = self.remote_downloader
+        if downloader is not None:
+            try:
+                if not downloader.cleanup_terminal(update_uid):
+                    return "DEFERRED"
+            except (BusinessUpdateStoreError, OSError, ValueError) as error:
+                code = getattr(error, "code", "BUSINESS_DOWNLOAD_CLEANUP_FAILED")
+                logger.warning(
+                    "business download cleanup will retry after updater restart: "
+                    "updateUid=%s code=%s",
+                    update_uid,
+                    code,
+                )
+                outcome = "FAILED"
+
+        # Unsafe or unreadable paths remain visible to the strict readiness
+        # audit. Retry them after process restart without emitting a warning on
+        # every poll cycle.
+        self._terminal_cleanup_attempted.add(update_uid)
+        return outcome
 
     def _fail_locked(
         self, update: Mapping[str, Any], code: str, message: str

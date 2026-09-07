@@ -1,0 +1,65 @@
+{
+  "actionCounts": {
+    "SUCCEEDED": 7,
+    "UNKNOWN": 11
+  },
+  "artifactClass": "ORANGEPI_V32_REMOTE_BUSINESS_UPDATE_HIL_SUCCESS",
+  "backendSoftwareFact": {
+    "businessAdmissionStatus": "ACCEPTING",
+    "businessGateState": "OPEN",
+    "businessProcessReady": true,
+    "businessProcessState": "RUNNING",
+    "compatibilityStatus": "FULLY_COMPATIBLE",
+    "factId": 98,
+    "managementStateSequence": 28,
+    "primaryReasonCode": null,
+    "receivedAt": "2026-09-07T03:37:02.418Z"
+  },
+  "businessAdmission": "ACCEPTING",
+  "commandUid": "8d123b7a-9e5b-4e04-9ec3-1bb0e2df9720",
+  "completedAt": "2026-09-07T04:07:03.064Z",
+  "database": {
+    "bytes": 413696,
+    "foreignKeyErrorCount": 0,
+    "quickCheck": "ok",
+    "sha256": "54475dfa2c3faab2add87fb71d4194fde3e8ab4fb24c4f12383b94e58a5c566f"
+  },
+  "databaseRestored": false,
+  "deploymentUid": "d73f8a10-5d9f-4a3f-bd00-d60526de07bb",
+  "download": {
+    "authorizationSequence": 1,
+    "downloadAttemptCount": 3,
+    "downloadState": "DOWNLOADED",
+    "lastDownloadErrorCode": null
+  },
+  "hardwareSn": "ECM0-3Y16JJF0KMXKAKDJS7FJFP4ZSW",
+  "installedPackageSha256": "6c5276bfa83bfba00636322b028219ef5087ec24d8a58b33925a06ba3f592610",
+  "installedReleaseSequence": 3,
+  "installedReleaseUid": "9d5cf9e6-7b09-4409-9dc4-54a291984e22",
+  "installedVersionName": "0.3.0-rc.3",
+  "lastErrorCode": null,
+  "observationStartedAt": "2026-09-07T03:37:00.872Z",
+  "progressDelivery": {
+    "accepted": 13,
+    "total": 13
+  },
+  "reconciliationRequired": false,
+  "residualStorage": {
+    "businessPackageCacheBytes": 107524176,
+    "businessPackageCacheEmpty": false,
+    "stagingBytes": 274273092,
+    "stagingEmpty": false,
+    "strictReadinessResult": "FAIL_TERMINAL_UPDATE_DIRECTORIES_NOT_EMPTY"
+  },
+  "resultEvidenceSha256": "4ae1b56c7dcd1154df350173e973ed525208a7b24141ff38cf2616a5d0b4892f",
+  "schemaVersion": 1,
+  "serviceStates": {
+    "ecobin-business-updatable-candidate.service": "active",
+    "ecobin-communication-proxy.service": "active",
+    "ecobin-updater-candidate.service": "active"
+  },
+  "stageSequence": 29,
+  "state": "SUCCEEDED",
+  "step": "COMPLETE",
+  "updateUid": "5dffd540-5ee1-4691-a67c-48e19a81a4c2"
+}

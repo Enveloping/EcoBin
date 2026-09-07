@@ -86,6 +86,7 @@ class FakePackageStager:
     def __init__(self) -> None:
         self.calls: list[dict] = []
         self.cleaned: list[str] = []
+        self.cleanup_failures_remaining = 0
 
     def stage(self, **request):
         self.calls.append(dict(request))
@@ -95,6 +96,9 @@ class FakePackageStager:
         )
 
     def cleanup(self, update_uid: str) -> None:
+        if self.cleanup_failures_remaining > 0:
+            self.cleanup_failures_remaining -= 1
+            raise OSError("simulated staging cleanup failure")
         self.cleaned.append(update_uid)
 
 
@@ -103,6 +107,8 @@ class FakeRemoteDownloader:
         self.authorizations: list[dict] = []
         self.cancelled: list[str] = []
         self.cleanup_ready = True
+        self.terminal_cleanup_ready = True
+        self.terminal_cleaned: list[str] = []
 
     def accept_authorization(self, **authorization) -> None:
         self.authorizations.append(dict(authorization))
@@ -113,6 +119,13 @@ class FakeRemoteDownloader:
     def cleanup_cancelled(self, update_uid: str) -> bool:
         assert update_uid == UPDATE_UID
         return self.cleanup_ready
+
+    def cleanup_terminal(self, update_uid: str) -> bool:
+        assert update_uid == UPDATE_UID
+        if not self.terminal_cleanup_ready:
+            return False
+        self.terminal_cleaned.append(update_uid)
+        return True
 
 
 class FakeBusinessClient:
@@ -359,6 +372,27 @@ def test_signed_local_candidate_switches_and_observes_before_success(tmp_path) -
     assert stager.cleaned == [UPDATE_UID]
 
 
+def test_successful_remote_update_cleans_download_and_staging(tmp_path) -> None:
+    coordinator, safety, journal, _business, helper, stager, clock = _coordinator(
+        tmp_path,
+        remote=True,
+    )
+    downloader = coordinator.remote_downloader
+    assert isinstance(downloader, FakeRemoteDownloader)
+
+    command = _remote_command()
+    command["payload"]["observationWindowSeconds"] = 60
+    coordinator.queue_remote(command)
+    journal.mark_remote_downloaded(UPDATE_UID, 1)
+    completed = _advance_to_terminal(coordinator, journal, clock)
+
+    assert completed["state"] == "SUCCEEDED"
+    assert helper.current == TARGET_RELEASE
+    assert safety.get_status()["jobGateState"] == "OPEN"
+    assert stager.cleaned == [UPDATE_UID]
+    assert downloader.terminal_cleaned == [UPDATE_UID]
+
+
 def test_observation_failure_restores_database_and_previous_release(tmp_path) -> None:
     coordinator, safety, journal, business, helper, _stager, clock = _coordinator(
         tmp_path
@@ -377,6 +411,70 @@ def test_observation_failure_restores_database_and_previous_release(tmp_path) ->
     assert helper.database_restored is True
     assert helper.current == BASELINE_RELEASE
     assert safety.get_status()["jobGateState"] == "OPEN"
+
+
+def test_remote_rollback_cleans_download_and_staging(tmp_path) -> None:
+    coordinator, safety, journal, business, helper, stager, clock = _coordinator(
+        tmp_path,
+        remote=True,
+    )
+    downloader = coordinator.remote_downloader
+    assert isinstance(downloader, FakeRemoteDownloader)
+    business.fail_during_observation = True
+
+    command = _remote_command()
+    command["payload"]["observationWindowSeconds"] = 60
+    coordinator.queue_remote(command)
+    journal.mark_remote_downloaded(UPDATE_UID, 1)
+    completed = _advance_to_terminal(coordinator, journal, clock)
+
+    assert completed["state"] == "ROLLED_BACK"
+    assert helper.current == BASELINE_RELEASE
+    assert safety.get_status()["jobGateState"] == "OPEN"
+    assert stager.cleaned == [UPDATE_UID]
+    assert downloader.terminal_cleaned == [UPDATE_UID]
+
+
+def test_terminal_artifact_cleanup_is_retried_after_coordinator_restart(
+    tmp_path: Path,
+) -> None:
+    coordinator, safety, journal, business, helper, stager, clock = _coordinator(
+        tmp_path,
+        remote=True,
+    )
+    downloader = coordinator.remote_downloader
+    assert isinstance(downloader, FakeRemoteDownloader)
+    downloader.terminal_cleanup_ready = False
+    stager.cleanup_failures_remaining = 1
+
+    command = _remote_command()
+    command["payload"]["observationWindowSeconds"] = 60
+    coordinator.queue_remote(command)
+    journal.mark_remote_downloaded(UPDATE_UID, 1)
+    completed = _advance_to_terminal(coordinator, journal, clock)
+    assert completed["state"] == "SUCCEEDED"
+    assert downloader.terminal_cleaned == []
+    assert stager.cleaned == []
+
+    downloader.terminal_cleanup_ready = True
+    restarted = BusinessUpdateCoordinator(
+        safety_store=safety,
+        journal=journal,
+        package_stager=stager,
+        remote_downloader=downloader,
+        business_client=business,
+        helper_client=helper,
+        uuid_factory=_uid_factory(500),
+        utc_now=lambda: clock[0],
+        poll_seconds=0.01,
+        observation_seconds=1,
+    )
+    helper.coordinator = restarted
+
+    assert restarted.process_once() is True
+    assert journal.get_update(UPDATE_UID)["state"] == "SUCCEEDED"
+    assert downloader.terminal_cleaned == [UPDATE_UID]
+    assert stager.cleaned == [UPDATE_UID]
 
 
 def test_rollback_keeps_root_failure_when_helper_receipt_is_temporarily_unknown(

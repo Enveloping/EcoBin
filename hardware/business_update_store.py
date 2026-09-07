@@ -24,6 +24,9 @@ REMOTE_BUSINESS_CANCELLATION_EXTENSION_VERSION = 1
 BUSINESS_UPDATE_TERMINAL_STATES = frozenset(
     {"SUCCEEDED", "ROLLED_BACK", "DEFERRED", "REJECTED", "FAILED_LOCKED"}
 )
+BUSINESS_UPDATE_ARTIFACT_CLEANUP_STATES = frozenset(
+    {"SUCCEEDED", "ROLLED_BACK", "DEFERRED", "REJECTED"}
+)
 BUSINESS_UPDATE_CANCELLABLE_STATES = frozenset(
     {"RECEIVED", "VERIFYING_PACKAGE", "PACKAGE_READY", "WAITING_FOR_IDLE"}
 )
@@ -1778,6 +1781,21 @@ class BusinessUpdateStore:
             ).fetchone()
             return self._render_update(row) if row is not None else None
 
+    def list_updates_eligible_for_artifact_cleanup(self) -> list[str]:
+        """Return terminal updates whose temporary artifacts may be removed."""
+
+        placeholders = ",".join(
+            "?" for _ in BUSINESS_UPDATE_ARTIFACT_CLEANUP_STATES
+        )
+        with self._lock:
+            rows = self._require_connection().execute(
+                f"""SELECT update_uid FROM business_runtime_update
+                    WHERE state IN ({placeholders})
+                    ORDER BY completed_at, created_at, update_uid""",
+                tuple(sorted(BUSINESS_UPDATE_ARTIFACT_CLEANUP_STATES)),
+            ).fetchall()
+        return [str(row["update_uid"]) for row in rows]
+
     def transition(
         self,
         update_uid: str,
@@ -2568,6 +2586,7 @@ def _canonical_json(value: Mapping[str, Any], field: str) -> str:
 
 __all__ = [
     "BUSINESS_ACTION_POLICIES",
+    "BUSINESS_UPDATE_ARTIFACT_CLEANUP_STATES",
     "BUSINESS_UPDATE_CANCELLABLE_STATES",
     "BUSINESS_UPDATE_TERMINAL_STATES",
     "BusinessUpdateStore",

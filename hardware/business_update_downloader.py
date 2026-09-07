@@ -23,7 +23,11 @@ from pathlib import Path
 from typing import Any, BinaryIO
 from urllib.parse import urlsplit
 
-from business_update_store import BusinessUpdateStore, BusinessUpdateStoreError
+from business_update_store import (
+    BUSINESS_UPDATE_ARTIFACT_CLEANUP_STATES,
+    BusinessUpdateStore,
+    BusinessUpdateStoreError,
+)
 
 
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
@@ -185,6 +189,27 @@ class BusinessUpdateDownloader:
             _remove_private_download_tree(directory, self.incoming_root)
         with self._pending_lock:
             self._cancelled.discard(update_uid)
+        return True
+
+    def cleanup_terminal(self, update_uid: str) -> bool:
+        """Remove one terminal update's downloaded bytes without cancelling it."""
+
+        update = self.journal.get_update(update_uid)
+        if (
+            update is None
+            or update.get("state") not in BUSINESS_UPDATE_ARTIFACT_CLEANUP_STATES
+        ):
+            raise BusinessUpdateStoreError(
+                "BUSINESS_UPDATE_NOT_CLEANUP_ELIGIBLE",
+                "business update has not reached a cleanup-eligible terminal state",
+            )
+        with self._pending_lock:
+            self._pending.pop(update_uid, None)
+            if self._active_update_uid == update_uid:
+                return False
+        directory = self.incoming_root / update_uid
+        if directory.exists() or directory.is_symlink():
+            _remove_private_download_tree(directory, self.incoming_root)
         return True
 
     def process_once(self) -> bool:

@@ -1,0 +1,138 @@
+{
+  "artifactClass": "ORANGEPI_V32_UPDATE_CLEANUP_DEPENDENCY_HOTFIX_HIL",
+  "capturedAt": "2026-09-07T15:44:57.808Z",
+  "device": {
+    "businessReleaseVersion": "0.3.0-rc.3",
+    "communicationReleaseVersion": "communication-20260907-32",
+    "hardwareReleaseVersion": "hardware-runtime-20260907-32",
+    "hardwareSerialNumber": "ECM0-3Y16JJF0KMXKAKDJS7FJFP4ZSW",
+    "updaterReleaseVersion": "updater-20260907-32"
+  },
+  "fixedFindings": [
+    {
+      "finding": "F32-01",
+      "result": "PASS",
+      "summary": "Permanent communication and updater service restarts no longer stop the replaceable business runtime"
+    },
+    {
+      "finding": "F32-05",
+      "result": "PASS",
+      "summary": "Cleanup-eligible terminal updates remove download and staging trees and updater restart compensates interrupted cleanup"
+    }
+  ],
+  "originalTerminalUpdates": {
+    "rolledBackUpdateUid": "76047cf0-96cc-4c95-8375-ea022598bbfc",
+    "successfulUpdateUid": "5dffd540-5ee1-4691-a67c-48e19a81a4c2"
+  },
+  "repositoryRegression": {
+    "pythonVersion": "3.11",
+    "affectedFilesResult": "55 passed in 6.40s",
+    "cleanupFailureFollowupResult": "3 passed in 3.58s",
+    "preFixFocusedResult": "5 failed",
+    "postFixFocusedResult": "5 passed in 5.53s"
+  },
+  "sourceSha256": {
+    "businessUpdateCoordinator": "9cf5a7dc8655a4deb9fed9747f55fa8c24d44fdb725124d7db1df0eceb8c77fa",
+    "businessUpdateDownloader": "1d22f16a8a2dc982537b398ba30786d481ffd77beb9d08eb0cebf59cd00f53b6",
+    "businessUpdateStore": "bf11a4bc6b0edee06f996ca2a9b1cadb08b058a67f7d69aa74f788207e81dc2b",
+    "bridgeBusinessSystemdUnit": "6b4ab1aedd0c2caff26a6a3cfd39ebe99df80dc26ade57d074c4b7df510805ba",
+    "replaceableBusinessSystemdUnit": "254de8f618ea021f19058a34fc5550c24197c3743426a5fbbc91ecf0407b8ea1"
+  },
+  "terminalArtifactCleanup": {
+    "downloadRootEmpty": true,
+    "historicalBytesRemoved": 381797268,
+    "manualDeletionUsed": false,
+    "stagingRootEmpty": true
+  },
+  "trueDeviceChecks": {
+    "beforeWarmReboot": {
+      "businessPidAfterCommunicationRestart": 56459,
+      "businessPidAfterUpdaterRestart": 56459,
+      "businessPidBeforeRestarts": 56459,
+      "fullReadiness": "PASS"
+    },
+    "afterWarmRebootAndFinalDeploy": {
+      "activeUpdate": false,
+      "businessPidAfterCommunicationRestart": 1857,
+      "businessPidAfterUpdaterRestart": 1857,
+      "businessPidBeforeRestarts": 1857,
+      "dnsReady": true,
+      "fullReadiness": "PASS",
+      "jobGateState": "OPEN"
+    },
+    "controlledCleaningPermitDuringUpdaterRestart": {
+      "activePermitCountAfterRestart": 1,
+      "activePermitCountBeforeRestart": 1,
+      "blockReasonAfterRestart": "ACTIVE_JOB_RECONCILIATION",
+      "businessPidAfterUpdaterRestart": 1753,
+      "businessPidBeforeUpdaterRestart": 1753,
+      "finalActivePermitCount": 0,
+      "finalJobGateState": "OPEN",
+      "hardwareActionIssued": false,
+      "permitUid": "7db4e777-cb79-4dc2-9ba8-0c74d45d1e0b",
+      "reconciliationRequiredAfterRestart": true,
+      "result": "PASS",
+      "testBoundary": "The simulator automatically confirms cleaning before a human can pause it, so the same permanent CLEAN job-permit boundary was held without issuing a UART or physical action",
+      "updaterPidAfterRestart": 14780,
+      "updaterPidBeforeRestart": 1727
+    },
+    "postUpdateDelivery": {
+      "businessPidAfterCommunicationRestart": 1857,
+      "businessPidBeforeCommunicationRestart": 1857,
+      "completionEventConfirmedAt": "2026-09-07T05:04:38",
+      "completionEventSequence": 80,
+      "completionEventState": "CONFIRMED",
+      "completionWorkUid": "a27d450c-fb25-44ee-a56b-63032f0a3c72",
+      "result": "PASS",
+      "simulatedMcuReleasedPhysicalPermitBeforeManualProbe": true
+    },
+    "postUpdateCleaning": {
+      "bagOccupancyEvents": [
+        "RESERVED_FOR_CLEAN",
+        "REMOVED_BY_CLEAN",
+        "INSTALLED_BY_CLEAN"
+      ],
+      "cleanRecordNo": "CR-f3dd90d2-bad2-4019-8aed-0d90d664484b",
+      "commandPhysicalState": "PHYSICAL_SUCCEEDED",
+      "commandUid": "1f5697eb-c6aa-46cc-9982-ee4ec09faffa",
+      "completionEventConfirmedAt": "2026-09-07T15:41:00",
+      "completionEventSequence": 122,
+      "completionEventState": "CONFIRMED",
+      "deviceRemovedNetWeightGrams": 500,
+      "deviceRemovedNetWeightStatus": "RELIABLE",
+      "endReason": "CLEANER_CONFIRMED",
+      "newBagOccupancy": "PORT_BOUND",
+      "operationStatus": "COMPLETED",
+      "operationUid": "f3dd90d2-bad2-4019-8aed-0d90d664484b",
+      "photoAvailableCount": 4,
+      "recordClass": "NORMAL",
+      "result": "PASS"
+    },
+    "readinessAfterControlledTest": {
+      "businessDatabaseBytes": 2786656,
+      "businessReleaseVersion": "0.3.0-rc.3",
+      "communicationReady": true,
+      "dnsReady": true,
+      "freeBytes": 28014616576,
+      "fullReadiness": "PASS",
+      "requiredBytes": 376360912,
+      "updaterReady": true
+    },
+    "readinessAfterPostUpdateCleaning": {
+      "activeUpdate": false,
+      "businessDatabaseBytes": 4652560,
+      "businessReleaseVersion": "0.3.0-rc.3",
+      "communicationReady": true,
+      "dnsReady": true,
+      "freeBytes": 28009295872,
+      "fullReadiness": "PASS",
+      "requiredBytes": 376438736,
+      "updaterReady": true
+    }
+  },
+  "remainingHumanInTheLoopChecks": [
+    "If a non-auto-completing MCU becomes available, repeat the updater restart while a real cleaning physical action remains in progress; the deterministic permanent CLEAN permit boundary already passed without issuing hardware action"
+  ],
+  "remoteProductionDispatchEnabled": false,
+  "result": "PASS_WITH_SIMULATED_MCU_LIMITATION"
+}

@@ -8,7 +8,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from business_update_downloader import BusinessUpdateDownloader
-from business_update_store import BusinessUpdateStore
+from business_update_store import BusinessUpdateStore, BusinessUpdateStoreError
 
 
 UPDATE_UID = "11111111-1111-4111-8111-111111111111"
@@ -236,6 +236,90 @@ def test_cancel_interrupts_download_and_removes_only_its_private_tree(
     assert journal.get_remote_update(UPDATE_UID)["downloadState"] == (
         "DOWNLOADING"
     )
+
+
+def test_terminal_cleanup_removes_only_its_owned_download_tree(tmp_path) -> None:
+    content = b"completed-package"
+    signature = b"T" * 64
+    incoming = tmp_path / "incoming"
+    incoming.mkdir(mode=0o700)
+    incoming.chmod(0o700)
+    update_directory = incoming / UPDATE_UID
+    update_directory.mkdir(mode=0o700)
+    (update_directory / "package.tar.gz").write_bytes(content)
+    (update_directory / "package.sig").write_bytes(signature)
+    unrelated = incoming / "keep.txt"
+    unrelated.write_text("keep", encoding="ascii")
+    journal = _journal(tmp_path / "updater.db", content, signature)
+    downloader = BusinessUpdateDownloader(
+        journal=journal,
+        incoming_root=incoming,
+        trusted_base_url=BASE_URL,
+        utc_now=lambda: NOW,
+    )
+    journal.transition(UPDATE_UID, "SUCCEEDED", step="COMPLETE")
+
+    assert downloader.cleanup_terminal(UPDATE_UID) is True
+    assert not update_directory.exists()
+    assert unrelated.read_text(encoding="ascii") == "keep"
+
+
+def test_terminal_cleanup_rejects_an_active_update(tmp_path) -> None:
+    content = b"active-package"
+    signature = b"A" * 64
+    incoming = tmp_path / "incoming"
+    incoming.mkdir(mode=0o700)
+    incoming.chmod(0o700)
+    update_directory = incoming / UPDATE_UID
+    update_directory.mkdir(mode=0o700)
+    package = update_directory / "package.tar.gz"
+    package.write_bytes(content)
+    journal = _journal(tmp_path / "updater.db", content, signature)
+    downloader = BusinessUpdateDownloader(
+        journal=journal,
+        incoming_root=incoming,
+        trusted_base_url=BASE_URL,
+        utc_now=lambda: NOW,
+    )
+
+    try:
+        downloader.cleanup_terminal(UPDATE_UID)
+    except BusinessUpdateStoreError as error:
+        assert error.code == "BUSINESS_UPDATE_NOT_CLEANUP_ELIGIBLE"
+    else:
+        raise AssertionError("active business update cleanup was accepted")
+    assert package.read_bytes() == content
+
+
+def test_terminal_cleanup_rejects_a_hardlinked_download_file(tmp_path) -> None:
+    content = b"linked-package"
+    signature = b"L" * 64
+    incoming = tmp_path / "incoming"
+    incoming.mkdir(mode=0o700)
+    incoming.chmod(0o700)
+    update_directory = incoming / UPDATE_UID
+    update_directory.mkdir(mode=0o700)
+    package = update_directory / "package.tar.gz"
+    package.write_bytes(content)
+    outside_link = tmp_path / "outside-link.tar.gz"
+    os.link(package, outside_link)
+    journal = _journal(tmp_path / "updater.db", content, signature)
+    journal.transition(UPDATE_UID, "SUCCEEDED", step="COMPLETE")
+    downloader = BusinessUpdateDownloader(
+        journal=journal,
+        incoming_root=incoming,
+        trusted_base_url=BASE_URL,
+        utc_now=lambda: NOW,
+    )
+
+    try:
+        downloader.cleanup_terminal(UPDATE_UID)
+    except ValueError as error:
+        assert "single-link" in str(error)
+    else:
+        raise AssertionError("hardlinked business download cleanup was accepted")
+    assert package.read_bytes() == content
+    assert outside_link.read_bytes() == content
 
 
 def test_transient_retry_resumes_the_existing_partial_package(tmp_path) -> None:

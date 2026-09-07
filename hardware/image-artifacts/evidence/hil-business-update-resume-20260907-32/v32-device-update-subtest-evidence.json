@@ -1,0 +1,64 @@
+{
+  "artifactClass": "ORANGEPI_V32_REMOTE_BUSINESS_UPDATE_HIL_SUBTESTS",
+  "databaseRestore": {
+    "bytes": 413696,
+    "currentDatabaseSha256": "05067e0fcd7880cb02f424a68c7e04702927befeee6676a9a99cb6e9218bfa05",
+    "foreignKeyErrorCount": 0,
+    "quickCheck": "ok",
+    "snapshotSha256": "05067e0fcd7880cb02f424a68c7e04702927befeee6676a9a99cb6e9218bfa05"
+  },
+  "duplicateCommand": {
+    "authorizationSequence": 1,
+    "commandUid": "7d2ba9f4-a28d-4474-b01f-900fd2706ebf",
+    "installTargetSucceededCount": 1,
+    "receiptState": "DUPLICATE_ACCEPTED",
+    "stablePayloadSha256": "6fa6e2fac462d789b8726640e9ce74db60c08278033538a830fc7144cb178a48",
+    "updateCount": 1,
+    "updateUid": "76047cf0-96cc-4c95-8375-ea022598bbfc"
+  },
+  "hardwareSn": "ECM0-3Y16JJF0KMXKAKDJS7FJFP4ZSW",
+  "lateCancellation": {
+    "cancelCommandUid": "dda82e6a-5427-4dcc-89db-65f9a95093ac",
+    "controlSequence": 2,
+    "observedState": "OBSERVING",
+    "outcome": "TOO_LATE",
+    "resultAcceptedAt": "2026-09-07T03:15:33.268Z",
+    "resultEventUid": "758c110d-6a1a-49d8-83d1-31b5c224984d",
+    "updateContinued": true
+  },
+  "proxyRestartFaultInjection": {
+    "businessAdmissionAfterRollback": "ACCEPTING",
+    "completedAt": "2026-09-07T03:28:29.058Z",
+    "databaseRestored": true,
+    "errorCode": "BUSINESS_RUNTIME_NOT_READY",
+    "finalState": "ROLLED_BACK",
+    "installedReleaseAfterRollback": null,
+    "reconciliationRequired": false,
+    "resultEvidenceSha256": "4611e1bac9897a6d72834f310923bef8036f155413f56350056eebb2d2ff52f9",
+    "restoredBaselineKind": "IMAGE_BRIDGE",
+    "restoredVersion": "hardware-runtime-20260907-32",
+    "trigger": "explicit systemctl restart of ecobin-communication-proxy.service during observation",
+    "updateUid": "76047cf0-96cc-4c95-8375-ea022598bbfc"
+  },
+  "rangeResume": {
+    "downloadAttemptCount": 1,
+    "downloadState": "DOWNLOADED",
+    "finalSize": 53755880,
+    "httpStatus": 206,
+    "requestedOffset": 52428800,
+    "responseContentRange": "bytes 52428800-53755879/53755880",
+    "temporaryProbeStateRemoved": true
+  },
+  "releaseSequence": 3,
+  "releaseUid": "9d5cf9e6-7b09-4409-9dc4-54a291984e22",
+  "schemaVersion": 1,
+  "updaterRestartDuringObservation": {
+    "businessRecovered": true,
+    "observationStartedAtAfter": "2026-09-07T03:05:53.749Z",
+    "observationStartedAtBefore": "2026-09-07T03:05:53.749Z",
+    "stateAfter": "OBSERVING",
+    "stateBefore": "OBSERVING",
+    "updateIdentityPreserved": true
+  },
+  "versionName": "0.3.0-rc.3"
+}

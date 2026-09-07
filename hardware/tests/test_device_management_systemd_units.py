@@ -364,6 +364,29 @@ def test_replaceable_business_service_is_static_and_power_loss_fenced() -> None:
     assert "[Install]" not in business
 
 
+def test_business_runtime_startup_dependencies_do_not_propagate_permanent_service_stops() -> None:
+    for name in (
+        "ecobin-business.service",
+        "ecobin-business-updatable-candidate.service",
+    ):
+        business = _unit(name)
+        required = _unit_directives(business, "Requires")
+        wanted = _unit_directives(business, "Wants")
+        ordered_after = _unit_directives(business, "After")
+
+        # The managed runtime target starts all three services together. The
+        # business unit may order itself after and weakly pull in the permanent
+        # services, but restarting either permanent service must not propagate
+        # a stop into an already-authorized physical job.
+        for permanent_service in (
+            "ecobin-communication-proxy.service",
+            "ecobin-updater-candidate.service",
+        ):
+            assert permanent_service not in required
+            assert permanent_service in wanted
+            assert permanent_service in ordered_after
+
+
 def test_candidate_root_helpers_are_static_updater_authorized_and_offline() -> None:
     pairs = (
         (
