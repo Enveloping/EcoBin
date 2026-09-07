@@ -52,6 +52,27 @@
     "remoteBusinessUnitBoundary": "PASS",
     "privateSigningMaterialPresent": false
   },
+  "virtualValidation": {
+    "observedAt": "2026-09-07T17:34:54Z",
+    "mode": "QEMU_USER_ARM64_DOCKER_CHROOT",
+    "executionSource": "INSTALLED_HIL_IMAGE_FILES",
+    "imageMountedReadOnly": true,
+    "networkIsolated": true,
+    "writableStateIsTemporary": true,
+    "fullBoardBootAttempted": false,
+    "fullBoardBootSupported": false,
+    "boardSupportReason": "QEMU_ORANGEPI_PC_IS_H3_CORTEX_A7_NOT_ZERO3_H618_AARCH64",
+    "pythonVersion": "3.11.2",
+    "installedUpdaterImports": "PASS",
+    "installedCommunicationImports": "PASS",
+    "installedFactoryBusinessBridgeImports": "PASS",
+    "terminalOwnedTreeCleanup": "PASS",
+    "activeAndFailedLockedPreservation": "PASS",
+    "hardlinkCleanupRejection": "PASS",
+    "coordinatorRestartCleanupCompensation": "PASS",
+    "imageChecksumAfterValidation": "PASS",
+    "containerMountAndLoopResidue": "NONE"
+  },
   "backendAcceptanceAllowlist": {
     "targetHostname": "VM-0-16-ubuntu",
     "runtimeAdded": "hardware-runtime-20260907-33",
