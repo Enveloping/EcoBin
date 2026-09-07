@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
@@ -210,6 +211,13 @@ public class DeviceSoftwareCompatibilityService {
      * temporary update hold is removed without inventing a new device fact or
      * blindly reopening a device whose latest actual state is not healthy.</p>
      */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public void reassessLatestFact(long assetId) {
+        LocalDateTime now = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        reassessLatestFact(assetId, now);
+    }
+
     @Transactional(propagation = Propagation.MANDATORY)
     public void reassessLatestFact(
             long assetId,
