@@ -127,6 +127,40 @@ def test_download_uses_volatile_grant_and_writes_exact_private_package(
     assert url not in durable_text
 
 
+def test_download_allows_a_bounded_cellular_io_stall(tmp_path) -> None:
+    content = b"cellular package"
+    signature = b"S" * 64
+    incoming = tmp_path / "incoming"
+    incoming.mkdir(mode=0o700)
+    incoming.chmod(0o700)
+    journal = _journal(tmp_path / "updater.db", content, signature)
+    url = f"{BASE_URL}/{OBJECT_KEY}?temporary-secret=stall"
+    observed_timeouts: list[float] = []
+
+    def open_url(supplied: str, timeout: float, _offset: int):
+        observed_timeouts.append(timeout)
+        return Response(content, supplied)
+
+    downloader = BusinessUpdateDownloader(
+        journal=journal,
+        incoming_root=incoming,
+        trusted_base_url=BASE_URL,
+        open_url=open_url,
+        utc_now=lambda: NOW,
+    )
+    downloader.accept_authorization(
+        update_uid=UPDATE_UID,
+        authorization_sequence=1,
+        url=url,
+        expires_at=NOW + timedelta(minutes=30),
+    )
+
+    assert downloader.process_once() is True
+
+    assert observed_timeouts == [120.0]
+    assert journal.get_remote_update(UPDATE_UID)["downloadState"] == "DOWNLOADED"
+
+
 def test_restart_without_complete_package_requires_fresh_authorization(
     tmp_path,
 ) -> None:

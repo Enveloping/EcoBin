@@ -32,6 +32,11 @@ from business_update_store import (
 
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 RETRY_DELAY_SECONDS = 2.0
+# A 30-second body-read timeout proved too aggressive on the deployed cellular
+# link: three brief radio stalls exhausted the release retry budget even though
+# Range resume had already fetched almost the entire package.  Keep failure
+# detection bounded, but allow a realistic mobile-network quiet period.
+DOWNLOAD_IO_STALL_TIMEOUT_SECONDS = 120.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -352,7 +357,10 @@ class BusinessUpdateDownloader:
             total = 0
             digest = hashlib.sha256()
         deadline = self._monotonic() + material["downloadTimeoutSeconds"]
-        timeout = min(30.0, float(material["downloadTimeoutSeconds"]))
+        timeout = min(
+            DOWNLOAD_IO_STALL_TIMEOUT_SECONDS,
+            float(material["downloadTimeoutSeconds"]),
+        )
         try:
             response = self._open_url(authorization.url, timeout, total)
             with response:

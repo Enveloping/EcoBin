@@ -39,6 +39,7 @@ public class ReliableDeviceInboxWorkerService
             "REMOTE_SUPPORT_TUNNEL_STATUS",
             "MCU_FIRMWARE_UPDATE_PROGRESS",
             "BUSINESS_RUNTIME_UPDATE_PROGRESS",
+            "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
             "DEVICE_SOFTWARE_STATE_REPORTED");
 
     private final ReliableInboxTaskRunner runner;

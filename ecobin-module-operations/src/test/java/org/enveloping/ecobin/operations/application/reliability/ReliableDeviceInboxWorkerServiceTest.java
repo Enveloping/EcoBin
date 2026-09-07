@@ -287,6 +287,7 @@ class ReliableDeviceInboxWorkerServiceTest {
             "SAFETY_SENSOR_STATE_CHANGED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
             "FACTORY_SEAL_COMPLETED",
+            "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
             "DEVICE_SOFTWARE_STATE_REPORTED"
     })
     void platformDeviceAssetFactCompletesWithoutOrganizationScope(
@@ -380,6 +381,7 @@ class ReliableDeviceInboxWorkerServiceTest {
                         "SAFETY_SENSOR_STATE_CHANGED",
                         "REMOTE_SUPPORT_TUNNEL_STATUS",
                         "FACTORY_SEAL_COMPLETED",
+                        "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
                         "DEVICE_SOFTWARE_STATE_REPORTED")
                         .contains(messageKind) ? 2 : 1,
                 "{}",
