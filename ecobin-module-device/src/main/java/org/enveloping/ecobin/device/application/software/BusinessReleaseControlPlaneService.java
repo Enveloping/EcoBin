@@ -120,6 +120,7 @@ public class BusinessReleaseControlPlaneService {
     private final ReliablePlatformDeviceControlTaskRegistrationPort tasks;
     private final ReliableDeviceTaskProofPort taskProof;
     private final ReliableTaskWakePort taskWake;
+    private final DeviceSoftwareCompatibilityService compatibility;
 
     public BusinessReleaseControlPlaneService(
             JdbcTemplate jdbc,
@@ -144,6 +145,38 @@ public class BusinessReleaseControlPlaneService {
                 null,
                 null,
                 null,
+                null,
+                remoteDispatchEnabled);
+    }
+
+    public BusinessReleaseControlPlaneService(
+            JdbcTemplate jdbc,
+            DeviceScopeAuthorizationPort authorization,
+            BusinessReleaseArtifactStoragePort artifacts,
+            BusinessReleaseSigningKeyPort signingKeys,
+            BusinessReleasePackageVerifier verifier,
+            DeviceConfigurationCanonicalizer canonicalizer,
+            PlatformTransactionManager transactionManager,
+            ObjectMapper objectMapper,
+            PlatformDeviceAssetTaskRefFactory taskRefFactory,
+            ReliablePlatformDeviceControlTaskRegistrationPort tasks,
+            ReliableDeviceTaskProofPort taskProof,
+            ReliableTaskWakePort taskWake,
+            boolean remoteDispatchEnabled) {
+        this(
+                jdbc,
+                authorization,
+                artifacts,
+                signingKeys,
+                verifier,
+                canonicalizer,
+                transactionManager,
+                objectMapper,
+                taskRefFactory,
+                tasks,
+                taskProof,
+                taskWake,
+                new DeviceSoftwareCompatibilityService(jdbc, objectMapper),
                 remoteDispatchEnabled);
     }
 
@@ -161,6 +194,7 @@ public class BusinessReleaseControlPlaneService {
             ReliablePlatformDeviceControlTaskRegistrationPort tasks,
             ReliableDeviceTaskProofPort taskProof,
             ReliableTaskWakePort taskWake,
+            DeviceSoftwareCompatibilityService compatibility,
             @Value("${ecobin.device.business-release.remote-dispatch-enabled:false}")
             boolean remoteDispatchEnabled) {
         this.jdbc = jdbc;
@@ -176,6 +210,7 @@ public class BusinessReleaseControlPlaneService {
         this.tasks = tasks;
         this.taskProof = taskProof;
         this.taskWake = taskWake;
+        this.compatibility = compatibility;
     }
 
     @Transactional(readOnly = true)
@@ -1160,7 +1195,8 @@ public class BusinessReleaseControlPlaneService {
                 || taskRefFactory == null
                 || tasks == null
                 || taskProof == null
-                || taskWake == null) {
+                || taskWake == null
+                || compatibility == null) {
             throw new IllegalStateException(
                     "business runtime dispatch dependencies are unavailable");
         }
@@ -1427,6 +1463,8 @@ public class BusinessReleaseControlPlaneService {
                             now,
                             deployment.rolloutId());
                 }
+                compatibility.reassessLatestFact(
+                        deployment.assetId(), now);
             }
             return TrustedDeviceEventApplyResult.APPLIED;
         });
@@ -1612,15 +1650,8 @@ public class BusinessReleaseControlPlaneService {
                 throw new IllegalStateException(
                         "safe business cancellation lost its rollout lock");
             }
-            jdbc.update("""
-                    UPDATE dev_device_compatibility_projection
-                    SET business_admission_status = 'ACCEPTING',
-                        lock_version = lock_version + 1, updated_at = ?
-                    WHERE asset_id = ?
-                      AND compatibility_status IN (
-                          'FULLY_COMPATIBLE', 'BASE_COMPATIBLE'
-                      )
-                    """, now, deployment.assetId());
+            compatibility.reassessLatestFact(
+                    deployment.assetId(), now);
             taskProof.completeFromTrustedProof(
                     CANCEL_COMMAND_TYPE,
                     TARGET_TYPE,

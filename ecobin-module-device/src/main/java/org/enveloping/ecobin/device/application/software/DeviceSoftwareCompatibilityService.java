@@ -200,6 +200,83 @@ public class DeviceSoftwareCompatibilityService {
         return new ApplyResult(true, true);
     }
 
+    /**
+     * Reassesses the current projection from the latest persisted device fact.
+     *
+     * <p>Rollout progress and software-state facts are independent trusted
+     * messages.  A fact received while an update is active deliberately keeps
+     * admission paused.  Once the deployment reaches a terminal state, the
+     * control plane calls this method in the same transaction so that the
+     * temporary update hold is removed without inventing a new device fact or
+     * blindly reopening a device whose latest actual state is not healthy.</p>
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void reassessLatestFact(
+            long assetId,
+            LocalDateTime reassessedAt) {
+        lockManagementProfile(assetId);
+        ProjectionHead projection = lockProjection(assetId);
+        if (projection.latestSoftwareFactId() == null) {
+            throw new IllegalStateException(
+                    "device compatibility projection has no software fact");
+        }
+        List<String> normalizedFacts = jdbc.queryForList("""
+                SELECT normalized_payload
+                FROM dev_device_software_fact
+                WHERE id = ? AND asset_id = ?
+                """, String.class, projection.latestSoftwareFactId(), assetId);
+        if (normalizedFacts.size() != 1) {
+            throw new IllegalStateException(
+                    "latest device software fact is unavailable");
+        }
+        JsonNode normalized = objectMapper.readTree(
+                normalizedFacts.getFirst());
+        JsonNode event = normalized.has("event")
+                ? object(normalized, "event") : normalized;
+        Fact fact = parseFact(event);
+        if (projection.managementStateSequence() == null
+                || fact.managementStateSequence()
+                != projection.managementStateSequence()) {
+            throw new IllegalStateException(
+                    "device compatibility projection fact identity changed");
+        }
+        Compatibility compatibility = retainActiveUpdateAdmission(
+                assetId, assess(fact));
+        int updated = namedJdbc.update("""
+                UPDATE dev_device_compatibility_projection
+                SET compatibility_status = :compatibility,
+                    business_admission_status = :admission,
+                    primary_reason_code = :primaryReasonCode,
+                    primary_reason_message = :primaryReasonMessage,
+                    reasons_json = :reasonsJson,
+                    capabilities_json = :capabilitiesJson,
+                    lock_version = lock_version + 1,
+                    updated_at = :reassessedAt
+                WHERE asset_id = :assetId
+                  AND latest_software_fact_id = :factId
+                  AND management_state_sequence = :stateSequence
+                """, new MapSqlParameterSource()
+                .addValue("compatibility", compatibility.status())
+                .addValue("admission", compatibility.admission())
+                .addValue("primaryReasonCode",
+                        compatibility.primaryReasonCode())
+                .addValue("primaryReasonMessage",
+                        compatibility.primaryReasonMessage())
+                .addValue("reasonsJson", reasonsJson(
+                        compatibility.reasons()))
+                .addValue("capabilitiesJson", capabilitiesJson(
+                        compatibility.capabilities()))
+                .addValue("reassessedAt", reassessedAt)
+                .addValue("assetId", assetId)
+                .addValue("factId", projection.latestSoftwareFactId())
+                .addValue("stateSequence",
+                        projection.managementStateSequence()));
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "device compatibility reassessment lost its projection lock");
+        }
+    }
+
     private Compatibility retainActiveUpdateAdmission(
             long assetId,
             Compatibility assessed) {
@@ -493,7 +570,8 @@ public class DeviceSoftwareCompatibilityService {
     private ProjectionHead lockProjection(long assetId) {
         List<ProjectionHead> rows = jdbc.query("""
                         SELECT architecture_generation,
-                               management_state_sequence
+                               management_state_sequence,
+                               latest_software_fact_id
                         FROM dev_device_compatibility_projection
                         WHERE asset_id = ?
                         FOR UPDATE
@@ -501,7 +579,9 @@ public class DeviceSoftwareCompatibilityService {
                 (rs, ignored) -> new ProjectionHead(
                         rs.getString("architecture_generation"),
                         nullableProjectionSequence(rs.getObject(
-                                "management_state_sequence"))),
+                                "management_state_sequence")),
+                        nullableProjectionSequence(rs.getObject(
+                                "latest_software_fact_id"))),
                 assetId);
         if (rows.size() != 1
                 || !Set.of("LEGACY_DIRECT", "PERMANENT_V1")
@@ -1467,7 +1547,8 @@ public class DeviceSoftwareCompatibilityService {
 
     private record ProjectionHead(
             String architectureGeneration,
-            Long managementStateSequence) {
+            Long managementStateSequence,
+            Long latestSoftwareFactId) {
     }
 
     private record Release(

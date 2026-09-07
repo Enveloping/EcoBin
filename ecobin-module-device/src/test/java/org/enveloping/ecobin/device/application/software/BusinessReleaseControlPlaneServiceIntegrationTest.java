@@ -894,6 +894,11 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                 .isEqualTo("SUCCEEDED");
         assertThat(completed.deployments().getFirst().cancellationStatus())
                 .isEqualTo("TOO_LATE");
+        assertThat(jdbc.queryForObject("""
+                SELECT business_admission_status
+                FROM dev_device_compatibility_projection
+                WHERE asset_id = 1
+                """, String.class)).isEqualTo("ACCEPTING");
         verify(remote.taskProof()).completeFromTrustedProof(
                 "CANCEL_BUSINESS_RUNTIME_UPDATE",
                 "BUSINESS_RUNTIME_DEPLOYMENT",
@@ -964,8 +969,13 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
             executor.shutdownNow();
         }
         assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM dev_edge_software_release",
-                Long.class)).isEqualTo(1);
+                """
+                SELECT COUNT(*)
+                FROM dev_edge_software_release
+                WHERE release_uid = ?
+                """,
+                Long.class,
+                draft.releaseUid().toString())).isEqualTo(1);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*)
                 FROM dev_edge_software_release_action
@@ -1287,15 +1297,22 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                     mcu_fixed_frame_revision INT NOT NULL,
                     uart_state VARCHAR(16) NOT NULL,
                     uart_protocol_family VARCHAR(24) NOT NULL,
-                    capability_bitmap_hex VARCHAR(16) NOT NULL
+                    capability_bitmap_hex VARCHAR(16) NOT NULL,
+                    normalized_payload CLOB NOT NULL
                 )
                 """);
         jdbc.execute("""
                 CREATE TABLE dev_device_compatibility_projection (
                     asset_id BIGINT PRIMARY KEY,
+                    architecture_generation VARCHAR(24) NOT NULL,
                     compatibility_status VARCHAR(24) NOT NULL,
                     business_admission_status VARCHAR(16) NOT NULL,
                     latest_software_fact_id BIGINT NOT NULL,
+                    management_state_sequence BIGINT NOT NULL,
+                    primary_reason_code VARCHAR(64),
+                    primary_reason_message VARCHAR(500),
+                    reasons_json CLOB NOT NULL,
+                    capabilities_json CLOB NOT NULL,
                     lock_version BIGINT NOT NULL DEFAULT 0,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1546,6 +1563,30 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                     created_at, updated_at
                 ) VALUES (1, 1, 0, ?, ?)
                 """, now, now);
+        jdbc.update("""
+                INSERT INTO dev_edge_software_release (
+                    release_uid, version_name, release_sequence,
+                    package_sha256, package_format_version,
+                    backend_command_contract_version,
+                    device_event_contract_version,
+                    communication_business_protocol_major,
+                    communication_business_protocol_minor,
+                    updater_business_protocol_major,
+                    updater_business_protocol_minor,
+                    uart_protocol_family,
+                    uart_protocol_major, uart_protocol_minor,
+                    required_fixed_frame_revision,
+                    required_mcu_capability_bitmap_hex,
+                    provided_business_capability_bitmap_hex,
+                    declaration_sha256, created_at
+                ) VALUES (?, '1.0.0', 1, ?, 1, 2, 2,
+                          1, 0, 1, 0, 'FIXED_FRAME', NULL, NULL, 2,
+                          '0000000000000000', '0000000000000000', ?, ?)
+                """,
+                CURRENT_RELEASE_UID.toString(),
+                HexFormat.of().parseHex(CURRENT_PACKAGE_SHA256),
+                HexFormat.of().parseHex("e".repeat(64)),
+                now);
         for (int index = 0; index < 2; index++) {
             long assetId = index + 1L;
             String hardwareSn = index == 0 ? VALIDATION_SN : WAVE_SN;
@@ -1579,29 +1620,103 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                         negotiated_updater_business_major,
                         negotiated_updater_business_minor,
                         mcu_fixed_frame_revision, uart_state,
-                        uart_protocol_family, capability_bitmap_hex
+                        uart_protocol_family, capability_bitmap_hex,
+                        normalized_payload
                     ) VALUES (
                         ?, ?, 'OPEN', 1, 0, 1, 0, 1, ?, 1,
                         '1.0.0', ?,
                         'RUNNING', TRUE, 1, 0, 1, 0,
-                        2, 'READY', 'FIXED_FRAME', '0000000000000000'
+                        2, 'READY', 'FIXED_FRAME', '0000000000000000', ?
                     )
                     """,
                     assetId,
                     assetId,
                     CURRENT_RELEASE_UID.toString(),
-                    HexFormat.of().parseHex(CURRENT_PACKAGE_SHA256));
+                    HexFormat.of().parseHex(CURRENT_PACKAGE_SHA256),
+                    currentSoftwareFact(assetId));
             Long factId = jdbc.queryForObject(
                     "SELECT id FROM dev_device_software_fact WHERE asset_id = ?",
                     Long.class,
                     assetId);
             jdbc.update("""
                     INSERT INTO dev_device_compatibility_projection (
-                        asset_id, compatibility_status,
-                        business_admission_status, latest_software_fact_id
-                    ) VALUES (?, 'FULLY_COMPATIBLE', 'ACCEPTING', ?)
-                    """, assetId, factId);
+                        asset_id, architecture_generation,
+                        compatibility_status, business_admission_status,
+                        latest_software_fact_id, management_state_sequence,
+                        primary_reason_code, primary_reason_message,
+                        reasons_json, capabilities_json
+                    ) VALUES (?, 'PERMANENT_V1', 'FULLY_COMPATIBLE',
+                              'ACCEPTING', ?, ?, NULL, NULL, '[]',
+                              '{"coreBusiness":true,"businessProgramRemoteUpdate":true,"mcuFirmwareRemoteUpdate":true}')
+                    """, assetId, factId, assetId);
         }
+    }
+
+    private static String currentSoftwareFact(long sequence) {
+        return """
+                {
+                  "schemaVersion": 2,
+                  "eventUid": "%s",
+                  "eventType": "DEVICE_SOFTWARE_STATE_REPORTED",
+                  "occurredAt": "2026-09-07T20:00:00.000Z",
+                  "payloadSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "payload": {
+                    "managementStateSequence": %d,
+                    "managementArchitectureGeneration": "PERMANENT_V1",
+                    "businessAdmissionState": "OPEN",
+                    "communicationAgent": {
+                      "versionName": "communication-20260907-32",
+                      "managementTransportProtocolMajor": 1,
+                      "managementTransportProtocolMinor": 0,
+                      "businessLocalProtocolMajor": 1,
+                      "businessLocalProtocolMinor": 0,
+                      "updaterLocalProtocolMajor": 1,
+                      "updaterLocalProtocolMinor": 0
+                    },
+                    "deviceUpdater": {
+                      "versionName": "updater-20260907-32",
+                      "deviceMaintenanceProtocolMajor": 1,
+                      "deviceMaintenanceProtocolMinor": 0,
+                      "businessLocalProtocolMajor": 1,
+                      "businessLocalProtocolMinor": 0,
+                      "businessPackageFormatVersion": 1,
+                      "mcuPackageFormatVersion": 1
+                    },
+                    "activeBusinessRelease": {
+                      "releaseUid": "%s",
+                      "releaseSequence": 1,
+                      "versionName": "1.0.0",
+                      "packageSha256": "%s"
+                    },
+                    "businessProcessState": "RUNNING",
+                    "businessReady": true,
+                    "negotiatedProtocols": {
+                      "agentBusinessNegotiated": true,
+                      "agentBusinessMajor": 1,
+                      "agentBusinessMinor": 0,
+                      "agentUpdaterNegotiated": true,
+                      "agentUpdaterMajor": 1,
+                      "agentUpdaterMinor": 0,
+                      "updaterBusinessNegotiated": true,
+                      "updaterBusinessMajor": 1,
+                      "updaterBusinessMinor": 0
+                    },
+                    "mcuFirmware": {
+                      "versionName": "2.1.0",
+                      "versionCode": 20100,
+                      "identityHex": "0123456789abcdef",
+                      "fixedFrameRevision": 2
+                    },
+                    "uartState": "READY",
+                    "uartProtocol": null,
+                    "capabilityBitmapHex": "0000000000000000"
+                  }
+                }
+                """.formatted(
+                UUID.randomUUID(),
+                sequence,
+                CURRENT_RELEASE_UID,
+                CURRENT_PACKAGE_SHA256);
     }
 
     private static String sha256(byte[] value) throws Exception {

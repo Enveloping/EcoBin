@@ -107,6 +107,34 @@ class DeviceSoftwareCompatibilityServiceTest {
     }
 
     @Test
+    void terminalUpdateReassessesTheLatestFactAndRemovesItsTemporaryHold() {
+        registerRelease();
+        jdbc.update("""
+                INSERT INTO dev_edge_software_deployment (
+                    asset_id, deployment_status
+                ) VALUES (1, 'OBSERVING')
+                """);
+        apply(10, event(7, "OPEN"));
+        assertThat(value("business_admission_status")).isEqualTo("PAUSED");
+        assertThat(value("reasons_json"))
+                .contains("BUSINESS_RUNTIME_UPDATE_ACTIVE");
+
+        jdbc.update("""
+                UPDATE dev_edge_software_deployment
+                SET deployment_status = 'SUCCEEDED'
+                WHERE asset_id = 1
+                """);
+        service.reassessLatestFact(1, now().plusMinutes(30));
+
+        assertThat(value("compatibility_status"))
+                .isEqualTo("FULLY_COMPATIBLE");
+        assertThat(value("business_admission_status"))
+                .isEqualTo("ACCEPTING");
+        assertThat(value("reasons_json"))
+                .doesNotContain("BUSINESS_RUNTIME_UPDATE_ACTIVE");
+    }
+
+    @Test
     void unknownReleaseIsPersistedAndProjectedAsUnknown() {
         apply(10, event(7, "OPEN"));
 
