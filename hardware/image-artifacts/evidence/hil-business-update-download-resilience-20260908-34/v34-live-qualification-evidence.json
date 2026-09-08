@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "HIL_V34_PHYSICAL_AND_MANAGED_RUNTIME_ACCEPTANCE",
+  "observedAt": "2026-09-08T07:11:00.905Z",
+  "result": "PASS",
+  "source": {
+    "gitCommit": "adb66043a1da6c4e9ea792f4405266a49b97f319",
+    "imageVersion": "0.1.0-single-card.20260908.34",
+    "hardwareRelease": "hardware-runtime-20260908-34",
+    "communicationRelease": "communication-20260908-34",
+    "updaterRelease": "updater-20260908-34",
+    "softwarePayloadRelease": "software-payload-20260908-34"
+  },
+  "media": {
+    "diskNumberAtFlashTime": 1,
+    "diskSerialNumber": "121220160204",
+    "diskBytes": 31268536320,
+    "imageBytes": 2571108352,
+    "imageSha256": "06286842051a037bd8e86c4c4c5eaecc9c8be05e2e28c0070ac7d0905501b9d5",
+    "fullRangeReadback": "PASS",
+    "flashEvidence": "v34-flash-result.json"
+  },
+  "device": {
+    "hardwareSerialNumber": "ECM0-S71EAR93E9V3AXTSWFZDJSPK20",
+    "coldBoot": "PASS",
+    "factorySeal": "SEALED_VALID",
+    "factorySealTime": "2026-09-08T06:38:22.185Z",
+    "acceptanceGeneration": 1,
+    "hotspotFactoryAcceptance": "PASS",
+    "tenantAndOrganizationAssignment": "PASS",
+    "normalDelivery": "PASS",
+    "normalCleaning": "PASS",
+    "mcuDiagnosticSource": "SIMULATED_FIXED_FRAME_REVISION_2",
+    "cameraRoleCheck": "PASS"
+  },
+  "managedRuntimeCutover": {
+    "preflight": "PASS",
+    "operationUid": "7ab08d04-8d50-4efd-9d49-0c4642451e4d",
+    "preflightEvidence": "v34-runtime-cutover-evidence.json",
+    "preflightEvidenceSha256": "a35d3562dcc268f04b0bd72c600ff85dbbe4e7440b459ecd49dd5614f403b9d2",
+    "activationResult": "ACTIVATED",
+    "runtimeDataVerified": true,
+    "businessDatabaseBytesAfterActivation": 413696
+  },
+  "jobAdmissionGate": {
+    "activationOperationUid": "b1f49440-9c6a-421f-a4d0-c784c3c0ee20",
+    "activationEvidence": "v34-stage4-job-gate-activation-evidence.json",
+    "activationEvidenceSha256": "6cec6401c8cc12a4387ce4980a382f245eb3a92bd35e8ccc6a37ed295c6c6d62",
+    "activatedAt": "2026-09-08T07:04:30.500Z",
+    "finalState": "OPEN",
+    "activeJobPermitCount": 0,
+    "unreconciledPhysicalActionCount": 0
+  },
+  "postCutoverReboot": {
+    "result": "PASS",
+    "bootId": "3b01b0dd-75ec-4662-937a-35fe717db5a4",
+    "managedBusinessService": "ACTIVE",
+    "permanentCommunicationService": "ACTIVE",
+    "permanentUpdaterService": "ACTIVE",
+    "legacyBusinessService": "INACTIVE",
+    "legacyCommunicationService": "INACTIVE",
+    "legacyUpdaterService": "INACTIVE"
+  },
+  "remoteBusinessUpdateReadiness": {
+    "result": "PASS",
+    "updater": "PASS",
+    "communication": "PASS_ONENET_CONNECTED",
+    "business": "PASS",
+    "dnsResolution": true,
+    "activeUpdate": false,
+    "databaseBytes": 508296,
+    "freeBytes": 28305068032,
+    "requiredBytes": 376360912
+  },
+  "backendProjection": {
+    "assetUid": "06ffa21e-bca1-4f21-9deb-72f154505a28",
+    "managementStateSequence": 9,
+    "onlineState": "ONLINE",
+    "compatibility": "FULLY_COMPATIBLE",
+    "businessAdmission": "ACCEPTING",
+    "businessVersionSource": "IMAGE_BRIDGE_BASELINE",
+    "activeBusinessRolloutCount": 0,
+    "activeMcuDeploymentCount": 0
+  },
+  "remainingBoundary": {
+    "v34RemoteBusinessPackagePlanExecuted": false,
+    "requiredForV34ImageQualification": false,
+    "productionRemoteDispatchEnabled": false,
+    "reason": "The same updater source already passed the authoritative rc.4-to-rc.5 physical-device update and rollback-safety acceptance; this run qualifies its v34 image packaging and managed-runtime boot path."
+  }
+}

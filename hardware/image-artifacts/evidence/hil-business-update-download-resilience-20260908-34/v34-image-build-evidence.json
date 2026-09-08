@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "observedAt": "2026-09-08T00:36:48Z",
-  "result": "PASS_PENDING_FLASH_AND_V34_LIVE_ACCEPTANCE",
+  "result": "PASS",
   "source": {
     "gitCommit": "adb66043a1da6c4e9ea792f4405266a49b97f319",
     "bundleBytes": 69139918,
@@ -103,12 +103,27 @@
     "remoteBusinessDispatchEnabled": false,
     "backupMetadata": "root:root:0600"
   },
-  "pending": {
-    "tfCardWritten": false,
-    "fullRangeReadback": false,
-    "v34ColdBoot": false,
-    "v34FactoryAcceptance": false,
-    "v34DeliveryAndCleaning": false,
-    "v34AuthoritativeSingleDeviceUpdatePlan": false
+  "physicalQualification": {
+    "observedAt": "2026-09-08T07:11:00.905Z",
+    "evidence": "v34-live-qualification-evidence.json",
+    "evidenceSha256": "2be3ce450316f22f96c8cd3a346e26d96fb682fc2a881fbb90228621f0255706",
+    "tfCardWritten": true,
+    "fullRangeReadback": "PASS",
+    "v34ColdBoot": "PASS",
+    "v34FactoryAcceptance": "PASS",
+    "v34TenantAndOrganizationAssignment": "PASS",
+    "v34DeliveryAndCleaning": "PASS",
+    "managedRuntimeCutover": "PASS",
+    "jobAdmissionGateActivation": "PASS",
+    "postCutoverReboot": "PASS",
+    "remoteBusinessUpdateReadiness": "PASS",
+    "backendCompatibility": "FULLY_COMPATIBLE",
+    "backendBusinessAdmission": "ACCEPTING"
+  },
+  "remainingScope": {
+    "v34RemoteBusinessPackagePlanExecuted": false,
+    "requiredForV34ImageQualification": false,
+    "productionRemoteDispatchEnabled": false,
+    "reason": "The same updater source already passed the authoritative rc.4-to-rc.5 physical-device update and rollback-safety acceptance; v34 physical qualification proves that source is packaged and boots correctly in the new image."
   }
 }

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "CONTROLLED_SINGLE_DEVICE_STAGE4_JOB_GATE_ACTIVATION",
+  "recordedAt": "2026-09-08T07:02:39.044Z",
+  "operationUid": "b1f49440-9c6a-421f-a4d0-c784c3c0ee20",
+  "expectedManagementStateSequence": 3,
+  "hardwareRelease": "hardware-runtime-20260908-34",
+  "deviceHardwareSerialNumber": "ECM0-S71EAR93E9V3AXTSWFZDJSPK20",
+  "cutoverOperationUid": "7ab08d04-8d50-4efd-9d49-0c4642451e4d",
+  "cutoverEvidenceSha256": "a35d3562dcc268f04b0bd72c600ff85dbbe4e7440b459ecd49dd5614f403b9d2",
+  "jobGateFacts": {
+    "candidateActivationState": "REQUIRED",
+    "jobGateMode": "ENFORCED",
+    "jobGateState": "LOCKED",
+    "maintenanceState": "LOCKED",
+    "reconciliationRequired": true,
+    "blockReasonCode": "STAGE4_ACTIVATION_REQUIRED",
+    "activeJobPermitCount": 0,
+    "unreconciledPhysicalActionCount": 0,
+    "maintenanceLockPresent": false,
+    "operatorSafetyLockActive": false,
+    "initialActivationEligible": true
+  },
+  "operatorFacts": {
+    "factoryAcceptanceCompleted": true,
+    "normalDeliveryCompleted": true,
+    "normalCleaningCompleted": true
+  },
+  "source": "COM8 root-only updater reconciliation query"
+}
