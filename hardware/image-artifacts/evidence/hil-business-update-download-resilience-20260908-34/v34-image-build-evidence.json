@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-08T00:36:48Z",
+  "result": "PASS_PENDING_FLASH_AND_V34_LIVE_ACCEPTANCE",
+  "source": {
+    "gitCommit": "adb66043a1da6c4e9ea792f4405266a49b97f319",
+    "bundleBytes": 69139918,
+    "bundleSha256": "5455f860592899e397309ff5d6cc39c04834b6d8e312f4f48442994699ca3520",
+    "completeHistory": true,
+    "sourceSnapshotDirty": false,
+    "concurrentWorktreeChangesIncluded": false
+  },
+  "releases": {
+    "imageVersion": "0.1.0-single-card.20260908.34",
+    "hardwareRuntime": "hardware-runtime-20260908-34",
+    "communicationAgent": "communication-20260908-34",
+    "deviceUpdater": "updater-20260908-34",
+    "softwarePayload": "software-payload-20260908-34"
+  },
+  "artifacts": {
+    "runtime": {
+      "bytes": 58358885,
+      "sha256": "7d1a78691adc2bfcceedbdb1fc3ba5bdd0e9650bfada4d2e8b87e6f927f755bf",
+      "signaturePresent": true
+    },
+    "softwarePayloadLockBytes": 1367936,
+    "softwarePayloadLockSha256": "c40bbc38cabd1ba3a94cb95d4a0fdef8f8d7e578e4c7366f01841f82501946a6",
+    "candidate": {
+      "artifactClass": "UNSIGNED_NO_SECRET_CANDIDATE",
+      "bytes": 2571108352,
+      "sha256": "d23ae002599ca2b6eff055ec939d96b8ef38aa1e82febf7836eb028a66405347"
+    },
+    "hil": {
+      "bytes": 2571108352,
+      "sha256": "06286842051a037bd8e86c4c4c5eaecc9c8be05e2e28c0070ac7d0905501b9d5",
+      "inheritedProtectedInputSourceSha256": "289f1b45a32cb90d09183b22a4bd30103cd9c749f3b36d8756dabb686c4c914c",
+      "checksumRecalculationPassed": true
+    }
+  },
+  "offlineAudits": {
+    "candidateBuild": "PASS",
+    "hilBuild": "PASS",
+    "rawLayout": "PASS",
+    "ext4Profile": "PASS",
+    "filesystemCheck": "PASS",
+    "cleanFirstBootState": "PASS",
+    "cameraConfiguration": "PASS",
+    "permanentCommunicationFiles": 10,
+    "permanentUpdaterFiles": 24,
+    "systemdUnits": 2,
+    "permanentSourceAudit": "PASS",
+    "formalBusinessTrustAudit": "PASS",
+    "remoteBusinessUnitBoundary": "PASS",
+    "privateSigningMaterialPresent": false,
+    "automaticUpdateQueueEmpty": true
+  },
+  "virtualValidation": {
+    "mode": "QEMU_USER_ARM64_DOCKER_CHROOT",
+    "executionSource": "INSTALLED_V34_HIL_IMAGE_FILES",
+    "imageMountedReadOnly": true,
+    "networkIsolated": true,
+    "writableStateIsTemporary": true,
+    "pythonVersion": "3.11.2",
+    "installedUpdaterImports": "PASS",
+    "installedCommunicationImports": "PASS",
+    "installedFactoryBusinessBridgeImports": "PASS",
+    "downloadIoStallTimeoutSeconds": 120,
+    "terminalOwnedTreeCleanup": "PASS",
+    "activeAndFailedLockedPreservation": "PASS",
+    "hardlinkCleanupRejection": "PASS",
+    "coordinatorRestartCleanupCompensation": "PASS",
+    "imageChecksumAfterValidation": "PASS",
+    "containerMountAndLoopResidue": "NONE_AFTER_EXACT_DELAYED_BIND_CLEANUP"
+  },
+  "authoritativeSingleDeviceAcceptance": {
+    "physicalDeviceRuntime": "hardware-runtime-20260907-32-with-verified-updater-hotfix",
+    "sourceVersion": "0.3.0-rc.4",
+    "targetVersion": "0.3.0-rc.5",
+    "rolloutUid": "e1d4af06-14e8-4e78-9eac-a3d7bb50032c",
+    "deploymentUid": "a2d8ae27-b37f-4117-8d15-a6d36f271830",
+    "updateUid": "c34c999a-5944-47fb-baa3-a84ed8d93218",
+    "offlineReliableWait": "PASS",
+    "authorizationRefresh": "PASS",
+    "rangeResume": "PASS",
+    "databaseSnapshot": "PASS",
+    "observationWindowSeconds": 1800,
+    "deviceTerminalState": "SUCCEEDED",
+    "backendRolloutState": "COMPLETED",
+    "backendDeploymentState": "SUCCEEDED",
+    "businessAdmission": "ACCEPTING",
+    "compatibility": "FULLY_COMPATIBLE"
+  },
+  "backendAcceptanceAllowlist": {
+    "targetHostname": "VM-0-16-ubuntu",
+    "runtimeAdded": "hardware-runtime-20260908-34",
+    "preservedRuntimes": [
+      "hardware-runtime-20260906-31",
+      "hardware-runtime-20260907-32",
+      "hardware-runtime-20260907-33"
+    ],
+    "deployment": "PASS",
+    "independentVerification": "PASS",
+    "remoteBusinessDispatchEnabled": false,
+    "backupMetadata": "root:root:0600"
+  },
+  "pending": {
+    "tfCardWritten": false,
+    "fullRangeReadback": false,
+    "v34ColdBoot": false,
+    "v34FactoryAcceptance": false,
+    "v34DeliveryAndCleaning": false,
+    "v34AuthoritativeSingleDeviceUpdatePlan": false
+  }
+}

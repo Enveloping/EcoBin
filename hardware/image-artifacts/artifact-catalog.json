@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "artifactClass": "ORANGEPI_IMAGE_ARTIFACT_CATALOG",
-  "catalogedAt": "2026-09-05T09:43:14.222Z",
+  "catalogedAt": "2026-09-08T00:43:17.602Z",
   "policy": {
     "trackedContent": "reproducibility metadata, checksums, detached signatures, public verification keys and redacted qualification evidence",
     "localOnlyContent": "raw images, upstream archives, secret inputs, local diagnostics and source bundles",
@@ -140,9 +140,74 @@
       "sha256": "cc91fac11f9560bb308ce0435471a9af5531603630449662abd3d24b83d58ec4"
     },
     {
+      "path": "evidence/hil-business-update-download-resilience-20260908-34/README.md",
+      "bytes": 6346,
+      "sha256": "dd7cb28a975f9ae9b83022d223ecb832f2ea1dfc175d35f53421fc80f0b5130a"
+    },
+    {
+      "path": "evidence/hil-business-update-download-resilience-20260908-34/v34-image-build-evidence.json",
+      "bytes": 4197,
+      "sha256": "77e96d43b5272c29db1f61110e60041039a90bed66605effeaeebc319bd5e1cd"
+    },
+    {
       "path": "evidence/hil-business-update-fixes-20260905-27/README.md",
       "bytes": 6732,
       "sha256": "0da04f6cfa170273879be91d03e56bcf71e492c553c0997bccef15fb88d0c9ba"
+    },
+    {
+      "path": "evidence/hil-business-update-hardening-20260907-33/README.md",
+      "bytes": 9085,
+      "sha256": "250e31a135c4b037438e2e96274e551f0ac2176cda4d9260fc5662f10f7af7c7"
+    },
+    {
+      "path": "evidence/hil-business-update-hardening-20260907-33/v33-image-build-evidence.json",
+      "bytes": 3441,
+      "sha256": "bdeafcdb684f4dfebd3bdab6d580b8ac7a536aa79b6f117dee6a2c37f34b1d20"
+    },
+    {
+      "path": "evidence/hil-business-update-resume-20260907-32/README.md",
+      "bytes": 11988,
+      "sha256": "66efbdfd9f698520baf0ff6c03311f16cbf927ab1183a6e77657f8da25a95f02"
+    },
+    {
+      "path": "evidence/hil-business-update-resume-20260907-32/v32-device-update-subtest-evidence.json",
+      "bytes": 2495,
+      "sha256": "e01a325edc60a7907a6b243ead4da28aa960ca9088394f85724b726e98faeb20"
+    },
+    {
+      "path": "evidence/hil-business-update-resume-20260907-32/v32-flash-result.json",
+      "bytes": 689,
+      "sha256": "4e97269319c4dd6371f2378880faa4a7e8967017f80fd4fd9a58ef498d717ec7"
+    },
+    {
+      "path": "evidence/hil-business-update-resume-20260907-32/v32-rc3-remote-hil-retry.json",
+      "bytes": 884,
+      "sha256": "b61fd582df0d6aadbd6aca0e2e15cf1273f98e23daf3ec4cfb5ca4314b41f51a"
+    },
+    {
+      "path": "evidence/hil-business-update-resume-20260907-32/v32-rc3-remote-hil-success-evidence.json",
+      "bytes": 2186,
+      "sha256": "a253db8bb16c12939818ddc05a98f1595ef4147d339597bf53ae28618037e379"
+    },
+    {
+      "path": "evidence/hil-business-update-resume-20260907-32/v32-rc3-remote-hil.json",
+      "bytes": 884,
+      "sha256": "5c881ff210c8cca9e5a2f121c758929a90ac0f243b8267125530cc5e4c1eca8a"
+    },
+    {
+      "path": "evidence/hil-business-update-resume-20260907-32/v32-runtime-cutover-evidence.json",
+      "bytes": 1257,
+      "sha256": "3e0fcded454fe2aefae1a689e4e77ff96624c0704e05dded2251fbfd1b5ba9d4"
+    },
+    {
+      "path": "evidence/hil-business-update-resume-20260907-32/v32-stage4-job-gate-activation-evidence.json",
+      "bytes": 1158,
+      "sha256": "82ddc1096cd0fba8e4f2027d4bf00e5151fd8fa822fee7c298c0c2ac6e4090cc"
+    },
+    {
+      "path": "evidence/hil-business-update-resume-20260907-32/v32-update-cleanup-dependency-hotfix-evidence.json",
+      "bytes": 5607,
+      "sha256": "4bf8ca0ccd788cf7c0c30dbd938ca3122177204320ed9ed527602ddaee332b2d"
     },
     {
       "path": "evidence/hil-factory-20260827-01/ecobin-orangepi-zero3-0.1.0-single-card.20260827.1-hil-factory.img.sha256",
@@ -460,6 +525,11 @@
       "sha256": "f863836a0f8979fcd4db1157ac401f6aff4bee867351ba07268c23da5faeffe2"
     },
     {
+      "path": "evidence/hil-remote-business-update-20260906-30/README.md",
+      "bytes": 5897,
+      "sha256": "e72aa99d7884bc07b45b5e99be01bdd09558d69e5779b71223173cda7e1467e4"
+    },
+    {
       "path": "evidence/hil-runtime-readiness-cameras-20260904-26/flash-result-disk1-121220160204-v26.json",
       "bytes": 689,
       "sha256": "47d1745951bbcb0ce3df91143af0a8ce7f48226e404d21b6756474a6419fb0b3"
@@ -548,6 +618,21 @@
       "path": "evidence/hil-stage6-business-runtime-update-20260904-23/README.md",
       "bytes": 10070,
       "sha256": "d26a6725f32192dea48a9df72b64f2928f78100a36c67d3a398f7d395ed5fd34"
+    },
+    {
+      "path": "evidence/hil-startup-readiness-20260906-31/README.md",
+      "bytes": 10083,
+      "sha256": "607c12b4789a453486994f2798bc46427e4fb912281e672384bee9b9f3fed430"
+    },
+    {
+      "path": "evidence/hil-startup-readiness-20260906-31/v31-runtime-cutover-evidence.json",
+      "bytes": 1000,
+      "sha256": "889d9723e1b95df441e4cfffae4d4fb26335dcecccf816340d13dc479e4c2831"
+    },
+    {
+      "path": "evidence/hil-startup-readiness-20260906-31/v31-stage4-job-gate-activation-evidence.json",
+      "bytes": 1347,
+      "sha256": "7e42cb5241395ba54ffa6706034b339f2df494f25c06a8e8b4b2aac604e11bfa"
     },
     {
       "path": "evidence/hil-updater-directory-groups-20260903-17/README.md",
@@ -651,6 +736,13 @@
     }
   ],
   "localArtifacts": [
+    {
+      "path": "local/audit-after-controlled-cleaning-updater-restart.sh",
+      "bytes": 438,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a0b658e4dbfc91112b0c62d8f2f5e1304c00d45851fa051cb925a4995db5192f"
+    },
     {
       "path": "local/audit-healthy-business-observation.sh",
       "bytes": 2985,
@@ -764,11 +856,95 @@
       "sha256": "09149768c27375980cef0f3b9eaa9d92af080db83a96b3cd5c06d1501034bc62"
     },
     {
+      "path": "local/audit-v28-permanent-update-boundary.sh",
+      "bytes": 6219,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9b69f44fa8266fe8ea20ac810ab83d5aa0901d151891a29dad832d64ad773a71"
+    },
+    {
+      "path": "local/audit-v28-remote-business-update-final.sh",
+      "bytes": 2853,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "64db465127d5d95b900e6f91cf751ab0a777d5c1664a3f108a84372094368a4c"
+    },
+    {
+      "path": "local/audit-v29-permanent-update-boundary.sh",
+      "bytes": 887,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "3fc0f68731d798babb1e39e970f001931fc525257ec739eed3685e3763c8ce26"
+    },
+    {
+      "path": "local/audit-v29-remote-business-update-final.sh",
+      "bytes": 2853,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a7b23e5f91353ae583769297db305f061d58be96475809164d6e8ba3b4a68940"
+    },
+    {
+      "path": "local/audit-v30-permanent-update-boundary.sh",
+      "bytes": 8177,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "49f628cb02c0f845e9c74717649dc4327bb177c8c893e0804266b00848538b5d"
+    },
+    {
+      "path": "local/audit-v30-remote-business-update-final.sh",
+      "bytes": 2862,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "de8bb6d8de3450f58383fc01bbdb7ff916a82f6c1ce713b06862c81a1708ea7b"
+    },
+    {
+      "path": "local/audit-v31-permanent-update-boundary.sh",
+      "bytes": 1043,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "088911a104dc20956a9790be51856242751bfe4c08cbd9c34b13c35b8eb0996e"
+    },
+    {
+      "path": "local/audit-v31-unhealthy-rollback-hil.sh",
+      "bytes": 5676,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "66305f0dde5e94c924d2c74543661518838baaba380df7b6c8686aa6a4780b9c"
+    },
+    {
+      "path": "local/audit-v32-permanent-update-boundary.sh",
+      "bytes": 903,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "3f8942ce6af04c59c487f05d36c79cb49c4e26eea952c7678449a7455bf7c23f"
+    },
+    {
+      "path": "local/audit-v33-permanent-update-boundary.sh",
+      "bytes": 1051,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "fd49945d4a0cd412b7077e92bd7f81df64ce831aa95535531c075d409b9c64f6"
+    },
+    {
+      "path": "local/audit-v34-permanent-update-boundary.sh",
+      "bytes": 1093,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "03a6291a42dc3ec1438b93eeb0c7289b66ee2ef15f4857a565e5be6e5551a57e"
+    },
+    {
       "path": "local/build-power-loss-business-package.sh",
       "bytes": 2625,
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "ff677726a77d2c2f87c7b57d0a1b212f7d3807511e75a684390bc99bace5e51a"
+    },
+    {
+      "path": "local/build-rc4-authoritative-single-device-release.sh",
+      "bytes": 4457,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "98927f3eaae8e6a64af661ba5038d7e03d82d7128f4a67adc40b9ed5ae5fb451"
     },
     {
       "path": "local/build-v10-hil-factory-image.sh",
@@ -1002,6 +1178,125 @@
       "sha256": "0724863d50d65c54f6489be01bc9ea7a84cec2796b4d1391344438af6cdbdc0f"
     },
     {
+      "path": "local/build-v28-candidate.sh",
+      "bytes": 1407,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "4ea42dc4c98979eb00ba10818729fac4965d96c2813ce3b197fc481fcdd72ec3"
+    },
+    {
+      "path": "local/build-v28-hil-image.sh",
+      "bytes": 2755,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "d75b11591971f7521760111bb8c7601331293a8da9145eb85e804fccccd61a4b"
+    },
+    {
+      "path": "local/build-v29-candidate.sh",
+      "bytes": 1407,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "2e44567dec69f6e335c18092fe69eaf094f7c8dbbc985d5da31de3069ef8af12"
+    },
+    {
+      "path": "local/build-v29-hil-image.sh",
+      "bytes": 2755,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "41f3dde74f3cd3b13e3f026366096ee318e67fa051da2c0a391f79f6958d0146"
+    },
+    {
+      "path": "local/build-v30-candidate.sh",
+      "bytes": 1407,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b86a33136a16770d5dc62e0b8b88bccc5961baa7ba76db936a4d4593d8c6ff4c"
+    },
+    {
+      "path": "local/build-v30-hil-image.sh",
+      "bytes": 2764,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "93aba064912e82ef8cf55c156f663e445518c181ddc9c1b4f603c574344fd626"
+    },
+    {
+      "path": "local/build-v30-intentionally-unhealthy-release.sh",
+      "bytes": 5503,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "7d132ec77b1c68786007a1ca222e2bf80f2b6a563a16d88ef349abb4fa38b6e1"
+    },
+    {
+      "path": "local/build-v31-candidate.sh",
+      "bytes": 1407,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "5f15d7f87c814c07339001101190820913262b926e67759d60736d2345ace788"
+    },
+    {
+      "path": "local/build-v31-hil-image.sh",
+      "bytes": 2773,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "40008355138126800cd90ee9416e96888c3d43b0d55b0cbd3384a9802e6205ae"
+    },
+    {
+      "path": "local/build-v32-candidate.sh",
+      "bytes": 1421,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "5990459e8b44440b6d41185321ebe059b15edd2e1ff1bea0a44ebbe2222d009f"
+    },
+    {
+      "path": "local/build-v32-candidate.stderr.log",
+      "bytes": 0,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "local/build-v32-candidate.stdout.log",
+      "bytes": 98533,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "1a4f4ea65d386cc7af8824bdd4deba440d8506ea235775bd5f9f1d47b2e7a43f"
+    },
+    {
+      "path": "local/build-v32-hil-image.sh",
+      "bytes": 2169,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "05d5776b85db7fe51ea2368e0aa8559575349ec285c2f7ab8bb17a88bab8c585"
+    },
+    {
+      "path": "local/build-v33-candidate.sh",
+      "bytes": 1421,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "0d48928afd16d49f06a9b34b07c24ce1a28042127260c99566809bccd0391a9f"
+    },
+    {
+      "path": "local/build-v33-hil-image.sh",
+      "bytes": 2766,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "685d51c0f64ebab9696ecff404c25a3e3af5c70c7058931cefbf9f0d7c326f61"
+    },
+    {
+      "path": "local/build-v34-candidate.sh",
+      "bytes": 1421,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b1adcc64a61fcb114190d1fd5144b3007cd46dbef01b2d1ccfc93b4522b3e6d5"
+    },
+    {
+      "path": "local/build-v34-hil-image.sh",
+      "bytes": 2776,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "41e293b0685ae9b885b6df1ed70f2a3971c763161e5bd4f34c062f01583fa7ae"
+    },
+    {
       "path": "local/build-v8.sh",
       "bytes": 9646,
       "classification": "LOCAL_ARTIFACT",
@@ -1126,6 +1421,69 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "a5191f4ad509fd7d5b278c8e7c580cddecf90cf4837567dd5afa24caca8d392d"
+    },
+    {
+      "path": "local/deploy-v28-backend-allowlist.sh",
+      "bytes": 2049,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "035434bc10b782a945be66094b7a2b48d84c94d40ca0f69b834c615ac8c2f8b7"
+    },
+    {
+      "path": "local/deploy-v29-backend-allowlist.sh",
+      "bytes": 1899,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "1d60884dbb827282e1475d763692c1a048df40650961b56e99038ec2221c3924"
+    },
+    {
+      "path": "local/deploy-v30-backend-allowlist.sh",
+      "bytes": 1938,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "fc49143d25f3531d44cd2ec18d92efe7eb800fd0dff461945e3237970d8aba30"
+    },
+    {
+      "path": "local/deploy-v31-backend-allowlist.sh",
+      "bytes": 2194,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b264dac0236b36fb832ea96fb062fb6b7ad9f2b2db486ae68383c539b8830328"
+    },
+    {
+      "path": "local/deploy-v31-download-resume-hotfix.sh",
+      "bytes": 3598,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "3239d1da11e54e091fd24ebba837786d3c2d9133296c48de5e55e95ec6d3f074"
+    },
+    {
+      "path": "local/deploy-v32-backend-allowlist.sh",
+      "bytes": 1955,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "bf24fb7b459acb6dbb5f10cfdce42a85982aa34d287e65472877211d9dcafb1c"
+    },
+    {
+      "path": "local/deploy-v32-update-cleanup-dependency-hotfix.sh",
+      "bytes": 7370,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "287258871be0f973781559805a39ec203cd0b92450b7ce0b1f8609e7abadc5df"
+    },
+    {
+      "path": "local/deploy-v33-backend-allowlist.sh",
+      "bytes": 2010,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "3398ec0aab9d606a6a85c1ad510626630f38a6913c1de71826c28ffac92641b7"
+    },
+    {
+      "path": "local/deploy-v34-backend-allowlist.sh",
+      "bytes": 2104,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "75006a762cd15057127f44139034eee0c5d087ee9736a95f17febd5365b318e0"
     },
     {
       "path": "local/device-power-loss/arm-checkpoint-4-during-observation.sh",
@@ -1317,6 +1675,20 @@
       "sha256": "b02cf704b541cdec1dd1146c8751f1153141ea50adccaa1c99cb0f3e54cd2bb1"
     },
     {
+      "path": "local/diagnose-latest-cleaning-completion.sh",
+      "bytes": 2727,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "15997ae5cb4761817464417d7db8afceb6451bae0ce062339fd0b5bdd7953286"
+    },
+    {
+      "path": "local/diagnose-production-reliable-task.sh",
+      "bytes": 1133,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "59aa7bf8de87f0806aceebc139e9b5b3ec2ad845b8f20a90ce140fd0ab4964f2"
+    },
+    {
       "path": "local/diagnose-target-start-failure.sh",
       "bytes": 1376,
       "classification": "LOCAL_ARTIFACT",
@@ -1329,6 +1701,34 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "08dc36776e3f6728179d42c643aa14af31fb8668e0c669e24843a11485d216a2"
+    },
+    {
+      "path": "local/diagnose-v31-rc3-download.sh",
+      "bytes": 1565,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a1c8f385f055397153b9733c7ef7fa7f90c8ec4cb4e2ce577b0471cbf3fc8823"
+    },
+    {
+      "path": "local/diagnose-v31-software-fact-outbox.sh",
+      "bytes": 2601,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "028c7377ed54bb37b41e035e03107dc694fa8e6881496ded40ea2f0fca0352a0"
+    },
+    {
+      "path": "local/diagnose-v31-unhealthy-download.sh",
+      "bytes": 1486,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "da6fb03e5f3b2f1d67e020a1b9b23dc2f9ff13842df01d4ac5321ee78485d700"
+    },
+    {
+      "path": "local/diagnose-v32-rc3-download.sh",
+      "bytes": 1597,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "5c0fb22e0af35bcd9311d0e9c33086ede07ae6d3bc27c2ac092177a8185f1e56"
     },
     {
       "path": "local/factory-secret/builds/hil-factory-login-20260831-13-friendly-copy/build-and-offline-verification.log",
@@ -1730,6 +2130,153 @@
       "sha256": "9112b5b5a77ad7de093d567616f318bcea80275d7c91bfbf40305714b8332525"
     },
     {
+      "path": "local/factory-secret/builds/hil-factory-login-20260906-28-remote-business-update/build-and-offline-verification.log",
+      "bytes": 1392,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "c8c8458b910aca6608cd2b0281c904d1c3bcf6168c4583635cd012fcfc53e200"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260906-28-remote-business-update/ecobin-orangepi-zero3-0.1.0-single-card.20260906.28-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "a397a148a4d53a7adac1b21c6af0f94ab4b4f7de78d803b0962be570eb796031"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260906-28-remote-business-update/ecobin-orangepi-zero3-0.1.0-single-card.20260906.28-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "e3e23c6cef48b357a10dc7f21a9d04ab230b260b3ba988271f061c735c4e01b5"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260906-29-remote-business-update/build-and-offline-verification.log",
+      "bytes": 1392,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "a96126dd57635a8b65567c226bdadd3eaef05fe2d0bb6a1bdf7719909202de74"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260906-29-remote-business-update/ecobin-orangepi-zero3-0.1.0-single-card.20260906.29-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "9912c2b809fe63a6f87830107cf11321d37afdafc6855cfefd523c4ce72c64a3"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260906-29-remote-business-update/ecobin-orangepi-zero3-0.1.0-single-card.20260906.29-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "1b182a11a9119cd28dd06f884581439d748343f139f6ded2b66077ef74c79193"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260906-30-remote-business-update-enabled/build-and-offline-verification.log",
+      "bytes": 1392,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "7c7e56fb368127a2e45e5c19e89da15f13b46f7493d6957c77fda1d71e9c7c8c"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260906-30-remote-business-update-enabled/ecobin-orangepi-zero3-0.1.0-single-card.20260906.30-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "53facbdfe7c8ae62b5ac304193e8f124ff95d6241bbe26952dbd0437710a0576"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260906-30-remote-business-update-enabled/ecobin-orangepi-zero3-0.1.0-single-card.20260906.30-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "57d41c491b2a5784ab4db290c00d767eefd1bbddd91119e8f1dfa50af2aed366"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260906-31-startup-readiness/build-and-offline-verification.log",
+      "bytes": 1392,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "315d7078e0c5f748a965e1758200ac25373c1d998bb77ca193b4ca1914e994f4"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260906-31-startup-readiness/ecobin-orangepi-zero3-0.1.0-single-card.20260906.31-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "b3fbeee34baac5ce32e406b7f287bbce387513271a69ee485a793b0b1c2a7f67"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260906-31-startup-readiness/ecobin-orangepi-zero3-0.1.0-single-card.20260906.31-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "73f89760a41c003ed1a4c31b2ca728042234c3899900779e3a7191620adf5f9c"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260907-32-download-resume/build-and-offline-verification.log",
+      "bytes": 1392,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "7f01c4ff7085c3851c50fd36a084c4b3970608100bddc3b29412c7fe224821a1"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260907-32-download-resume/ecobin-orangepi-zero3-0.1.0-single-card.20260907.32-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "a4bc19aecd227b2055d271cfaba7e997c2737d6e79c04583ae7408b70718df5f"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260907-32-download-resume/ecobin-orangepi-zero3-0.1.0-single-card.20260907.32-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "cbd533341f6dc1a10f72b7550a003ba3678f78915004df72a06b3a1ca1901a73"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260907-33-update-cleanup-dependency/build-and-offline-verification.log",
+      "bytes": 1392,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "61783defd1eac806bbd0447bc42cfed47a188e73ff4ce78a3e34b01fdf565512"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260907-33-update-cleanup-dependency/ecobin-orangepi-zero3-0.1.0-single-card.20260907.33-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "289f1b45a32cb90d09183b22a4bd30103cd9c749f3b36d8756dabb686c4c914c"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260907-33-update-cleanup-dependency/ecobin-orangepi-zero3-0.1.0-single-card.20260907.33-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "826176bd70523b31737c23795f3f2925e876100c29e90fad8cb4d85f5098e010"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260908-34-download-stall-resilience/build-and-offline-verification.log",
+      "bytes": 1392,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "b55e37ac0566fac31b8ad42f6b5c85375ec7b3ce42b4ba3c3c3e78daac209b41"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260908-34-download-stall-resilience/ecobin-orangepi-zero3-0.1.0-single-card.20260908.34-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "06286842051a037bd8e86c4c4c5eaecc9c8be05e2e28c0070ac7d0905501b9d5"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260908-34-download-stall-resilience/ecobin-orangepi-zero3-0.1.0-single-card.20260908.34-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "4656e229fe5bced0c2e60f80f817eca61a93e6cc05b8e9d4617e21283e400f4d"
+    },
+    {
       "path": "local/factory-secret/config/cellular.env",
       "bytes": 464,
       "classification": "SECRET_INPUT",
@@ -1980,6 +2527,111 @@
       "sha256": "5375ad435b6dd34c9fad8d9ebff958e33a1bcbebe7314b8d59feb60b93c935f8"
     },
     {
+      "path": "local/flash-v28-disk1.ps1",
+      "bytes": 1409,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "f3660f4d788bcf01618eb776c2b1ab72b192a756af6c61320c8f6b491954b8ee"
+    },
+    {
+      "path": "local/flash-v29-disk1.ps1",
+      "bytes": 1409,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "6ee205315f33bc00bdf6b2a82f7541f46080262eb404a53808ccc04300308671"
+    },
+    {
+      "path": "local/flash-v30-disk1.exit-code.txt",
+      "bytes": 2,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "local/flash-v30-disk1.progress.log",
+      "bytes": 3433,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "36623f2ab3cbe1d7d63d40a468c9bd1091953f3e9044af0302c3d6e5cf7753eb"
+    },
+    {
+      "path": "local/flash-v30-disk1.ps1",
+      "bytes": 1417,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "f0e948b1e4b6442714619f7a10f1d73e968b7bfede9c362d9380a96d7c5505d7"
+    },
+    {
+      "path": "local/flash-v30-disk1.result.json",
+      "bytes": 751,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a6cdcb4cf9687c29701929ef970ffaa7d1bbd0633b563731c4a4b739a7292d0f"
+    },
+    {
+      "path": "local/flash-v31-disk1.exit-code.txt",
+      "bytes": 2,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "local/flash-v31-disk1.progress.log",
+      "bytes": 3433,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "fe4aab3f7945d3739be1e81bf87648afb1ef690fc4c9783ab216b35d447de96c"
+    },
+    {
+      "path": "local/flash-v31-disk1.ps1",
+      "bytes": 1404,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "813b3386d6af8de2d34b5b40c30cbc316185a34a19580f8dd9dd120ca85ec291"
+    },
+    {
+      "path": "local/flash-v31-disk1.result.json",
+      "bytes": 751,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "6be8f81078b1359ac34e28eaa3841750bd5f19c9e138cc86cb96f609a1e681ef"
+    },
+    {
+      "path": "local/flash-v32-disk1.exit-code.txt",
+      "bytes": 2,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "local/flash-v32-disk1.progress.log",
+      "bytes": 3433,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "f824c71b60d0d4535cb9db0f557daea224086227cf60cb7c6746a25325318b73"
+    },
+    {
+      "path": "local/flash-v32-disk1.ps1",
+      "bytes": 1402,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b1d2db3154bd0d90ef0da77c44c422d43e520eefc9f00945b3419bc7899b9cd8"
+    },
+    {
+      "path": "local/flash-v32-disk1.result.json",
+      "bytes": 751,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "d97a273619f06815a97733fbfc68c7df8b6a203b7113b5a5e46390dbb7be8054"
+    },
+    {
+      "path": "local/flash-v33-disk1.ps1",
+      "bytes": 1412,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "90e090e9401a17899ea6718f398551d2f4dfd747eeb681991b5c1942fa327eaa"
+    },
+    {
       "path": "local/flash-v9-disk1.ps1",
       "bytes": 1192,
       "classification": "LOCAL_ARTIFACT",
@@ -2134,6 +2786,13 @@
       "sha256": "0e57a2dce7639f4c00fb5bc253e41c0950e580a3e4c13625a085bbc9f9752585"
     },
     {
+      "path": "local/inspect-latest-business-completions.sh",
+      "bytes": 1063,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "17fdfe10a0bf60bcb0e9694756abe718bd3bf9c04d7a60f2fac09b3c327ed30c"
+    },
+    {
       "path": "local/inspect-production-db-access.sh",
       "bytes": 371,
       "classification": "LOCAL_ARTIFACT",
@@ -2148,6 +2807,20 @@
       "sha256": "b86e62d809233a27391a81103e848ee240f970a08fcbce33827f42ce6bccc5e8"
     },
     {
+      "path": "local/inspect-v31-runtime-identities.sh",
+      "bytes": 1127,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "75a4f154828a58f38b0e51dab49e479a5f00a3fa7ead2b60a558bca5bd86db9e"
+    },
+    {
+      "path": "local/inspect-v31-update-actors.sh",
+      "bytes": 683,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "1789505c2887bf9258da43d44d21b4eb01e632104f23003d1623639af2f0d7b7"
+    },
+    {
       "path": "local/install-hil-download-route.sh",
       "bytes": 1684,
       "classification": "LOCAL_ARTIFACT",
@@ -2160,6 +2833,41 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "0a497d673524c21f661f9048991e7be8125e3c7da2268706361b4afa2b49f420"
+    },
+    {
+      "path": "local/install-production-9cf01572.sh",
+      "bytes": 1104,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "518caa241b9cc5b75eab86de2407a8ab1ed2fb2bcf2a2bfcf26c80a50217ad65"
+    },
+    {
+      "path": "local/install-production-software-fact-fix.sh",
+      "bytes": 499,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9fdb0732afaa13c52a469f63c48f219a1d1471e238a18e448ffae52dc85f441f"
+    },
+    {
+      "path": "local/install-v32-readiness-tool.sh",
+      "bytes": 1540,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "5914db4dcb932678a33a5eee5f4c37612db2292fbf89aea9c4955fbf62df08c5"
+    },
+    {
+      "path": "local/Invoke-AuthoritativeBusinessRollout.ps1",
+      "bytes": 7364,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c3f67d712bf22ba8e6bf0112539211fdcad8ff84145b2a5a6c33060e84f79c1d"
+    },
+    {
+      "path": "local/Invoke-EcobinSerialCommand.ps1",
+      "bytes": 1712,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "2e2393ad6987041f160d1273dc29f2f12937357942e7d052738e8a802e2a6481"
     },
     {
       "path": "local/jinshoubao-hil.conf",
@@ -2204,6 +2912,27 @@
       "sha256": "37b375124d2c377781a984072661e174041b5502cc409ba62cbda50c96518fce"
     },
     {
+      "path": "local/monitor-v31-rc3-remote-hil.sh",
+      "bytes": 1999,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "6366dbc70f7cf6acf66f7fca446657686d2cf607aacf3a7dd4d287009a33d665"
+    },
+    {
+      "path": "local/monitor-v31-unhealthy-rollback-hil.sh",
+      "bytes": 1640,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "e0bfeefd11327dd30869da5e92ab86fec42d3acad5c1ba174e4ed51c16e06264"
+    },
+    {
+      "path": "local/monitor-v32-rc3-remote-hil.sh",
+      "bytes": 1988,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "f23f93a6a238e6f2dc37a18406c41eacf5358b29b3c2343055d80d52e9fa1114"
+    },
+    {
       "path": "local/package-cache/chrony_4.3-2+deb12u1_arm64.deb",
       "bytes": 278288,
       "classification": "LOCAL_ARTIFACT",
@@ -2232,6 +2961,20 @@
       "sha256": "8280ea9ead34a24ca37ae0dbf2e6e79359e5df34f253a3ae1b38694b69dc5e7e"
     },
     {
+      "path": "local/preflight-controlled-cleaning-updater-restart.sh",
+      "bytes": 445,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "e30b7c2f48099a238858f963aed0a77472d86f5e7575c8687cd82d3336855fbb"
+    },
+    {
+      "path": "local/preflight-v31-unhealthy-rollback-hil.sh",
+      "bytes": 2144,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "7530f6607f4248132a0e270d6f536e7993665218620ea5c5a1348ee92de1bc02"
+    },
+    {
       "path": "local/prepare-v22-business-hil-sources-fixed.sh",
       "bytes": 2081,
       "classification": "LOCAL_ARTIFACT",
@@ -2246,6 +2989,27 @@
       "sha256": "8fa1632f2f87b96768311dae3eab81f137c4cc37d234640d1b0a96f42a8bea75"
     },
     {
+      "path": "local/probe-v33-image-virtualization.sh",
+      "bytes": 2476,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "aabedeee21b069648d5cc2bb254b1e4e3593a140434d7661b3b426f33bcbbdfc"
+    },
+    {
+      "path": "local/query-authoritative-business-rollout-evidence.sh",
+      "bytes": 5802,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "fba3d72e6a24571fc4dda6e7e04b3fd86bc1fa278b5124c82479aa3b090cb48d"
+    },
+    {
+      "path": "local/query-authoritative-single-device-preflight.sh",
+      "bytes": 4677,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "938c12823dbc296b18406c73465f32fb5ba1c7bd54a81d565cee619835fe761a"
+    },
+    {
       "path": "local/query-production-business-deployment.sh",
       "bytes": 1641,
       "classification": "LOCAL_ARTIFACT",
@@ -2253,11 +3017,67 @@
       "sha256": "38c5f3426a21e4fded92469bcf57ceec9e2f31a74792079e658e827ea136c7f3"
     },
     {
+      "path": "local/query-production-business-releases.sh",
+      "bytes": 1402,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "eb2f400addb4afaf067017984b47a94bc33f1b182b4c9ee0fda61164a0a838f3"
+    },
+    {
+      "path": "local/query-production-completed-cleaning.sh",
+      "bytes": 2182,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "2ae61b5acc487e2e0c8d3a144802eac805c2106ee09f18bc1b6fadcb45566648"
+    },
+    {
+      "path": "local/query-production-direct-hil-tasks.sh",
+      "bytes": 1503,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "ed06940c3f79a4c7a44d5019d7221106f61d9768794c9ce2bc1e6bbc83f0528b"
+    },
+    {
+      "path": "local/query-production-latest-cleaning-vs-delivery.sh",
+      "bytes": 1852,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a5cb0ef209d0c5087054fff8f6a4241f3b176b6b4cf0049fb3c9f3719a7630ee"
+    },
+    {
       "path": "local/query-production-software-fact.sh",
       "bytes": 1853,
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "d40464c0bfb6b373140344381d387f785e985b6c34028acf98e6edeead0cea9a"
+    },
+    {
+      "path": "local/query-production-v31-fact-payload-shape.sh",
+      "bytes": 1714,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "df9bca836574d8f26ce135308ebcca4c458a69f9725e7e01091979de26735ce9"
+    },
+    {
+      "path": "local/query-production-v31-fact-tasks.sh",
+      "bytes": 1290,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "e1e4b6399d99b958f84c4b503d9315a78c502771e7c3f468fc827c0dc5e53356"
+    },
+    {
+      "path": "local/query-production-v31-software-fact.sh",
+      "bytes": 1950,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "4fcf33f34cddcc7b03edc378db963cc985a17692a0dbb704c7e0033069516a75"
+    },
+    {
+      "path": "local/query-production-v32-software-facts.sh",
+      "bytes": 1783,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "538251aaa14c3552b98cc7918f603b29ed114e34227c53e83296120a00a8618d"
     },
     {
       "path": "local/queue-healthy-business-update-retry.sh",
@@ -2295,6 +3115,13 @@
       "sha256": "d184b90b3e7082988a8178e0ec0634b93f114f459f347fa3035cd61df31daf9e"
     },
     {
+      "path": "local/recover-air780e-usb.sh",
+      "bytes": 896,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c4fc3521218006a2fe0c944d121a7166b7bf9246ffceccf5c7898807ac471e0c"
+    },
+    {
       "path": "local/remove-hil-download-route.sh",
       "bytes": 1937,
       "classification": "LOCAL_ARTIFACT",
@@ -2307,6 +3134,27 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "e756a0add6cf0af6b40915f45ac959ba926f2413b8a8a041d08fdd65a7f8ac1d"
+    },
+    {
+      "path": "local/remove-v31-unhealthy-cos-artifacts.py",
+      "bytes": 3745,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "2322fc08b8f0e2f52eb8d42bf45fc59da42fe1a4ebc65a62e1bdc16de93977be"
+    },
+    {
+      "path": "local/restart-v31-business-for-fresh-software-fact.sh",
+      "bytes": 2195,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "8fb9a7d53779993c3508f254c8e292d1c42dbd66578c8f73c6939f41746b5d7d"
+    },
+    {
+      "path": "local/restart-v31-updater-report.sh",
+      "bytes": 737,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c5540744f0fa13d52abb3bf6d01ddb32b0cf547f215b6be5417f7629074e6c0d"
     },
     {
       "path": "local/resume-locked-unhealthy-business-rollback.sh",
@@ -2344,11 +3192,123 @@
       "sha256": "b5108fa5a4d333bbff96253944fad866d04c10c3547232eee153a03bdb1322df"
     },
     {
+      "path": "local/resume-v31-candidate.sh",
+      "bytes": 3718,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "f17cf1f716e654ee142f95d074f892655a8bbd98095242fd7f97a55a24882709"
+    },
+    {
       "path": "local/run-v15-image-builder-offline.sh",
       "bytes": 4082,
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "274c2a3453c09dea1f679404facaf88f8e93a8c719aced1d418234194c46f2b1"
+    },
+    {
+      "path": "local/run-v31-rc3-range-resume-hil.py",
+      "bytes": 10032,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9613c28da0a056375da4d91b75e0806fe8e709e0393a6d49e0458bb788e6adc0"
+    },
+    {
+      "path": "local/run-v31-rc3-remote-hil.py",
+      "bytes": 12653,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "1ebe69fbb1bc68659ce85d2666897147b19445007642f777cba15880162e94ea"
+    },
+    {
+      "path": "local/run-v31-unhealthy-rollback-hil.py",
+      "bytes": 10125,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "1833c78380acaf923ae5c4d58a32b63f79192ca9ce558398f2dbf3715b1c4e83"
+    },
+    {
+      "path": "local/run-v32-cutover-integrity.command",
+      "bytes": 1832,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "42b3548f8d0abf2b4dcc7455a7ab526e574289c7a1db8cbea97bd70badd39780"
+    },
+    {
+      "path": "local/run-v32-device-diagnosis.command",
+      "bytes": 3951,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c25c250b0c1d90cd79b1576a88b9fcf4817e78864cc133841c075858d54ee170"
+    },
+    {
+      "path": "local/run-v32-factory-state.command",
+      "bytes": 1239,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "94680da94f835d53ec17668f238c591f00122e11858706187b0b5a497d5fa965"
+    },
+    {
+      "path": "local/run-v32-rc3-duplicate-hil.py",
+      "bytes": 3804,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "18e1367c2243bbf081756809e5780b4e26b0d38293f9eef217e6ea29424262db"
+    },
+    {
+      "path": "local/run-v32-rc3-range-resume-hil.py",
+      "bytes": 715,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "d51756f184eb8b7ef10bed65f9ffe34697d659710119b7b9ad4099e32a9dc8ae"
+    },
+    {
+      "path": "local/run-v32-rc3-remote-hil.py",
+      "bytes": 3354,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "754e2986831368411c1a74ef46136ca9e0640f63bafd7f2bee9729ab0468e7d0"
+    },
+    {
+      "path": "local/run-v32-rc3-too-late-cancel-hil.py",
+      "bytes": 2785,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "4637880b32c44a884a32903e87503b7036db71d813c66886dc973b1b11d6ab3a"
+    },
+    {
+      "path": "local/run-v33-arm64-userspace-smoke.sh",
+      "bytes": 3922,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a205f57f52021cb4f885f6803840bd20ba15f83158e8a384c71b8eae8f6859af"
+    },
+    {
+      "path": "local/run-v33-installed-update-cleanup-smoke.sh",
+      "bytes": 2924,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "318a58c672e4eeb963cc2ee0a96edfaa23a005fd909d80194888c4c6ac2a0187"
+    },
+    {
+      "path": "local/run-v34-arm64-userspace-smoke.sh",
+      "bytes": 1227,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "934ce14336af34b66f9feaae99073de6e2da5f6807936ca80bf565d070cf5fe2"
+    },
+    {
+      "path": "local/run-v34-installed-update-cleanup-smoke.sh",
+      "bytes": 912,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "0e9f160d70a317ea8d980c994fc9f9c511fc4492d79d7735938aee620bae6ddf"
+    },
+    {
+      "path": "local/sample-v31-network-stability.sh",
+      "bytes": 964,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "1d31fdcc0f678e61e584675722104ff6cbb9a57f0b3943d0037edf2f813efd27"
     },
     {
       "path": "local/serial_exec.py",
@@ -2359,10 +3319,10 @@
     },
     {
       "path": "local/serial_login_sudo.py",
-      "bytes": 3104,
+      "bytes": 3227,
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
-      "sha256": "c17961f3e6b821587b18ddd063fdfa21c56674a4cb750e8b42543b8252d9da22"
+      "sha256": "cac153f8e9807d9a0f4a4aaeea69ad84166899d52ce2810bacebf797133a25b0"
     },
     {
       "path": "local/serial_upload.py",
@@ -2384,6 +3344,13 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "e0b9e5b40d3211e401da2033168a7ab45a366acc7d590017c1ee266d5e7c3eec"
+    },
+    {
+      "path": "local/serial-push-file.py",
+      "bytes": 4258,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a3f16fadcf2db0b9fc2b752538ece317e9eb2c6ce9fd1958efc48b0b7955326b"
     },
     {
       "path": "local/server-staging-power-loss-7a45f91e50f84e45a986c3cbcf394019/business_update_coordinator.hil.py",
@@ -2447,6 +3414,13 @@
       "classification": "SOURCE_SNAPSHOT",
       "digestRecorded": true,
       "sha256": "9067ad8817ffd85d32460ce2724836f46ae0ed10ac8c269e5fbf6f3a06937d5d"
+    },
+    {
+      "path": "local/source-bundles/repository-1b89b745.bundle",
+      "bytes": 54169550,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "2cbb2a401fd42b8768ce9603aa36c9f0d79637405b74560ac318451af89e4107"
     },
     {
       "path": "local/source-bundles/repository-1baf9468.bundle",
@@ -2540,6 +3514,13 @@
       "sha256": "b36c65951004cc4ec7770eb173529ed3e23ba7f6859526e41fa8318abb53e99d"
     },
     {
+      "path": "local/source-bundles/repository-61d2620b.bundle",
+      "bytes": 53942959,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "89d7ee0f14abfdadfdf22e7bd8410beed1b44423d6427c12eb420582ad91fa9b"
+    },
+    {
       "path": "local/source-bundles/repository-62e10da0.bundle",
       "bytes": 53793951,
       "classification": "SOURCE_SNAPSHOT",
@@ -2575,6 +3556,20 @@
       "sha256": "89686273a4be1814167cf84aefd52d8a59ee7bde0c62d592063042399b4198d2"
     },
     {
+      "path": "local/source-bundles/repository-74fec28e.bundle",
+      "bytes": 53944526,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "6c0272b351045e11744a1bf59398421ad64699b123b351b0902360c2662a2b41"
+    },
+    {
+      "path": "local/source-bundles/repository-756ff54e.bundle",
+      "bytes": 54054330,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "133ac9c7abeb074aac040508cfa2247f538ed1625b8c308494833cfbb9e49ddb"
+    },
+    {
       "path": "local/source-bundles/repository-832d0226.bundle",
       "bytes": 53053611,
       "classification": "SOURCE_SNAPSHOT",
@@ -2587,6 +3582,20 @@
       "classification": "SOURCE_SNAPSHOT",
       "digestRecorded": true,
       "sha256": "98219ecb682ab70f47c59f9481ac6ad3b5fa20163f7d4160497b956100f6267e"
+    },
+    {
+      "path": "local/source-bundles/repository-90442115.bundle",
+      "bytes": 53951911,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "b1076125051179b79c11ef89fc1632fce542c51683678590781c28ad62a9067d"
+    },
+    {
+      "path": "local/source-bundles/repository-9cf01572.bundle",
+      "bytes": 54101658,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "29dadae7b2473a5daefa4d1258845e0f2465ffef4b3eb099fc9b8f2b589469ae"
     },
     {
       "path": "local/source-bundles/repository-9e8417eb.bundle",
@@ -2608,6 +3617,13 @@
       "classification": "SOURCE_SNAPSHOT",
       "digestRecorded": true,
       "sha256": "92d3f92bfa694655fcfaa8349f39b8f125295fd2580300278d5e854b21dbf828"
+    },
+    {
+      "path": "local/source-bundles/repository-adb66043.bundle",
+      "bytes": 69139918,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "5455f860592899e397309ff5d6cc39c04834b6d8e312f4f48442994699ca3520"
     },
     {
       "path": "local/source-bundles/repository-ba7b8552.bundle",
@@ -2671,6 +3687,13 @@
       "classification": "SOURCE_SNAPSHOT",
       "digestRecorded": true,
       "sha256": "0db1dc83a158706749f326f0a9fbb57d17064796bb6350ac930c06e3e314dd5b"
+    },
+    {
+      "path": "local/source-bundles/repository-e8e5bb4d.bundle",
+      "bytes": 53950617,
+      "classification": "SOURCE_SNAPSHOT",
+      "digestRecorded": true,
+      "sha256": "270e4a55f81bda6359a804b6fc1ce0e70865e628e7c712361b3a88aafb7ee28a"
     },
     {
       "path": "local/source-bundles/repository-v22-business-unhealthy.bundle",
@@ -2806,11 +3829,95 @@
       "sha256": "def8f7c1c82732742b8bba54854864516628cc38478268abac537cbe83a50cec"
     },
     {
+      "path": "local/v30-business-intentionally-unhealthy.patch",
+      "bytes": 405,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "299ef6ad2f8abfbbb98344ea39b26b006fea1ef8411d964e860ef1d5c355cdab"
+    },
+    {
+      "path": "local/v30-network-visibility-hotfix-20260906.tar.gz",
+      "bytes": 50289,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a8f6a7dbf8938365f430e29901c25ee32762c81b700f295be0d150b4b636446c"
+    },
+    {
+      "path": "local/v31-cutover-preflight.sh",
+      "bytes": 2771,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "cf861f985c60e41ea503d24c5e9c47a78a6fd3c7a1a11329ff92cd744f9e54a6"
+    },
+    {
+      "path": "local/v31-proxy-diagnostic.sh",
+      "bytes": 1249,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "1bd9f5db54ebf1c6d20108e93bca949e729adfe08972d820ace3941c9a451ae3"
+    },
+    {
+      "path": "local/v31-rc3-remote-hil.json",
+      "bytes": 906,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "95d7fb6f0b68ef2d12d819f66fcd182588539bf37df67819c119e9f74f429f0f"
+    },
+    {
+      "path": "local/v31-remote-offline-start.sh",
+      "bytes": 637,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "07f80dbd5f64eaad76685a7b2529883a8b133c8a06bfbc02b7634bbebdbb03aa"
+    },
+    {
+      "path": "local/v31-remote-preflight-hotfix.sh",
+      "bytes": 1670,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c4804c06e372e5eae9cfac3ce8e34fa83ea13333da38f647b21a18689a4c3875"
+    },
+    {
+      "path": "local/v31-unhealthy-rollback-hil.json",
+      "bytes": 973,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "3258ff349d86022dda0635df868b4325853990865fe08233644bdb76f5267be5"
+    },
+    {
+      "path": "local/v33_virtual_update_cleanup_smoke.py",
+      "bytes": 6380,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "0f0f11dd26874339dcc78709885782a0a01700130a3d0443b3be39da8e3417e6"
+    },
+    {
       "path": "local/v8-inspect.sh",
       "bytes": 2429,
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "4727dbed43be595e1eded47036cd2c4833b47b0b1abd09db88c2613598f8c62b"
+    },
+    {
+      "path": "local/verify-active-delivery-proxy-restart.sh",
+      "bytes": 865,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "7dd502e8d99d8b4670f4459572550f95001b663a249f23ea7f26fcf4bfcbb1bb"
+    },
+    {
+      "path": "local/verify-business-release-production.sh",
+      "bytes": 1271,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "b192d907c05ad825b1a845677a5e49e3e4ca3f77143d11ae4795db15fd495435"
+    },
+    {
+      "path": "local/verify-controlled-cleaning-updater-restart.sh",
+      "bytes": 5733,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "c0f9a2c289982114f4204ef82803d8da9b1f3ee996830371663556f964645361"
     },
     {
       "path": "local/verify-v10-hil-factory-image.sh",
@@ -2916,6 +4023,62 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "b4ee4652f8b6d43614aa295f4d324838927842e1a4b64a5ff1ad5f1560023459"
+    },
+    {
+      "path": "local/verify-v28-backend-allowlist.sh",
+      "bytes": 2933,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "bc5992da54e8579d90fc6171899ff74196d14a378809e7350267847e4092f7b7"
+    },
+    {
+      "path": "local/verify-v29-backend-allowlist.sh",
+      "bytes": 3038,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "71e42a76786c5db95fd418175fcda62857eb0e6aa38d228da74b7e7f08deb4e5"
+    },
+    {
+      "path": "local/verify-v30-backend-allowlist.sh",
+      "bytes": 3083,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "6aa945c46903e8f1c346ae6f4599c25f924f4642e820dfc08f851d03debbb425"
+    },
+    {
+      "path": "local/verify-v31-backend-allowlist.sh",
+      "bytes": 3077,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "7ac8f18fae75e1c1dd07cb552b94f62cef6186f4a3f1bd1aa5f05cd481a565a0"
+    },
+    {
+      "path": "local/verify-v32-backend-allowlist.sh",
+      "bytes": 3037,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "fe84a23deb7230626c4fd2b70ce59166409bf06f7abadf9303567a2200abc000"
+    },
+    {
+      "path": "local/verify-v32-update-cleanup-dependency-hotfix.sh",
+      "bytes": 2371,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "e918d8a09ef2503b97d53ccd77254ae3d1ce162433f04abe9bfd2f8c4c40b2cd"
+    },
+    {
+      "path": "local/verify-v33-backend-allowlist.sh",
+      "bytes": 3075,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "519d96f01aff92676404b15dd95991073f2aee6714b0be0df9df05e8c2812c5d"
+    },
+    {
+      "path": "local/verify-v34-backend-allowlist.sh",
+      "bytes": 3113,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "8d1273fa091bda56c4a7706babe557014a0db26494e2c379011afbc4dc42e8dc"
     },
     {
       "path": "local/verify-v8.sh",
