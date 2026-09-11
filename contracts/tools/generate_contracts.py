@@ -2815,6 +2815,85 @@ def build_onenet_examples() -> dict[str, Any]:
         command_uid=start_delivery_uid,
     )
 
+    recovery_uid = "31000000-0000-4000-8000-000000000001"
+    recovery_command_uid = "31000000-0000-4000-8000-000000000002"
+    recovery_command = _command(
+        recovery_command_uid,
+        "QUARANTINE_DELIVERY_RECOVERY",
+        "DELIVERY_SESSION",
+        session_uid,
+        {
+            "recoveryUid": recovery_uid,
+            "sessionUid": session_uid,
+            "originalCommandUid": start_delivery_uid,
+            "physicalOutcomeUnknownConfirmed": True,
+            "causeFixedConfirmed": True,
+            "devicePowerCycledConfirmed": True,
+            "motionAreaClearConfirmed": True,
+            "deliveryDoorClosedConfirmed": True,
+            "mechanismClearConfirmed": True,
+            "reason": "现场排除故障并整机断电重启后隔离原投递",
+        },
+    )
+    recovery_payload = {
+        "recoveryUid": recovery_uid,
+        "sessionUid": session_uid,
+        "originalCommandUid": start_delivery_uid,
+        "portNo": 2,
+        "reason": "现场排除故障并整机断电重启后隔离原投递",
+        "businessValue": "NONE",
+        "operatorConfirmations": {
+            "physicalOutcomeUnknownConfirmed": True,
+            "causeFixedConfirmed": True,
+            "devicePowerCycledConfirmed": True,
+            "motionAreaClearConfirmed": True,
+            "deliveryDoorClosedConfirmed": True,
+            "mechanismClearConfirmed": True,
+        },
+        "deviceEvidence": {
+            "previousBootIdentity": "boot-before-recovery",
+            "currentBootIdentity": "boot-after-recovery",
+            "firmwareIdentityHex": "0123456789abcdef",
+            "safeFlags": 15,
+            "firmwareStatusRawFrameHex": "aa550003f30000000f",
+            "selfTestWeightGrams": 1200,
+            "selfTestWeightMeasurementUid": (
+                "31000000-0000-4000-8000-000000000003"
+            ),
+            "selfTestInfraredBlocked": False,
+            "selfTestRawFrameHex": "aa550003f100000000",
+            "actionUid": "31000000-0000-4000-8000-000000000004",
+            "permitUid": start_delivery_uid,
+            "workUid": session_uid,
+            "commandUid": start_delivery_uid,
+            "actionKey": "DELIVERY:START:0",
+            "actionKind": "START_DELIVERY_SESSION",
+            "actionDigestSha256": "a" * 64,
+            "ledgerSequence": 42,
+            "actionState": "ARMED",
+            "resolutionState": "UNKNOWN_EFFECT_QUARANTINED",
+            "resolutionEvidenceSha256": "b" * 64,
+        },
+        "firstPreOpenMeasurement": None,
+        "finalPostCloseMeasurement": None,
+        "photos": [
+            _pending_photo("BEFORE_INNER"),
+            _pending_photo("BEFORE_OUTER"),
+            _pending_photo("AFTER_INNER"),
+            _pending_photo("AFTER_OUTER"),
+        ],
+    }
+    recovery_event = _event(
+        recovery_uid,
+        1057,
+        "DELIVERY_RECOVERY_QUARANTINED",
+        "RELIABLE_FACT",
+        "DELIVERY_SESSION",
+        session_uid,
+        recovery_payload,
+        command_uid=recovery_command_uid,
+    )
+
     operation_uid = "40000000-0000-4000-8000-000000000001"
     clean_payload = {
         "operationUid": operation_uid,
@@ -3739,6 +3818,10 @@ def build_onenet_examples() -> dict[str, Any]:
             delivery_event,
             "../../onenet/events/events.schema.json",
         ),
+        "quarantine-delivery-recovery.command.json": (
+            recovery_command,
+            "../../onenet/commands/commands.schema.json",
+        ),
         "clean-complete.event.json": (
             clean_event,
             "../../onenet/events/events.schema.json",
@@ -3881,6 +3964,10 @@ def build_onenet_examples() -> dict[str, Any]:
         ),
         "device-software-state-reported.event.json": (
             device_software_state_event,
+            "../../onenet/events/events.schema.json",
+        ),
+        "delivery-recovery-quarantined.event.json": (
+            recovery_event,
             "../../onenet/events/events.schema.json",
         ),
     }

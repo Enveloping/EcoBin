@@ -1,0 +1,11 @@
+{
+  "reason": "find-links alone can still prefer registry artifacts; exact locked local URLs force cache reuse",
+  "sourceCheckoutModified": false,
+  "runtimeRebuilt": false,
+  "frozenResolutionAndOriginalRequirementHashesRetained": true,
+  "onlyLockVerifiedWheelOriginsChanged": true,
+  "signedAptMetadataRetainedBetweenContainers": true,
+  "executedPayloadRecipeSha256": "2460c0c84f4fbee8249e827bf07a4eccc4daad370738f0bfc4994a6feb15f934",
+  "executedBootstrapRecipeSha256": "52559394779c155378beb7b8ad949be9320f620a7c1f81dfe2f979d8bd4ed458",
+  "wheelPinningScriptSha256": "8a41e314c5a8c8f843fdc6d6b5f0513071c1463db460fd28d3fff83a34275964"
+}

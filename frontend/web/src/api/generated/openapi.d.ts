@@ -5081,6 +5081,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/delivery-sessions/{sessionUid}/recovery-quarantines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                sessionUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Quarantine one delivery whose physical outcome cannot be established
+         * @description This command never replays the delivery action. After an onsite operator confirms a complete power cycle and a physically safe idle mechanism, the device collects fresh read-only safety evidence and closes only the exact stale delivery. Existing measurements and photos are archived as issue evidence with businessValue NONE; they cannot create an order, balance, review, refund or withdrawal.
+         */
+        post: operations["quarantinePlatformDeliveryRecovery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/delivery-recovery-quarantines/{recoveryUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                recoveryUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get one issue-only delivery recovery record
+         * @description Returns operator confirmations, device safety evidence and any pre-existing measurements or photos for display and diagnosis only. The record has no business value and cannot initiate downstream business or funds processing.
+         */
+        get: operations["getPlatformDeliveryRecoveryQuarantine"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/device-assets/{hardwareSn}/ports/{portNo}/baseline-measurement-attempts": {
         parameters: {
             query?: never;
@@ -8940,12 +8986,77 @@ export interface components {
             /** @constant */
             nextAction: "USER_RESTART_REQUIRED";
         };
+        DeliveryRecoveryQuarantineRequest: {
+            expectedTaskUid: components["schemas"]["UuidV4"];
+            expectedSessionVersion: components["schemas"]["ExpectedVersion"];
+            /**
+             * @description The operator accepts that the original physical outcome cannot be reconstructed and must never be treated as a successful delivery.
+             * @constant
+             */
+            physicalOutcomeUnknownConfirmed: true;
+            /**
+             * @description The original fault or obstruction has been inspected and removed.
+             * @constant
+             */
+            causeFixedConfirmed: true;
+            /**
+             * @description The entire device, including the MCU, has been completely powered off and restarted after the uncertain action.
+             * @constant
+             */
+            devicePowerCycledConfirmed: true;
+            /**
+             * @description No person is within the mechanism motion range.
+             * @constant
+             */
+            motionAreaClearConfirmed: true;
+            /**
+             * @description The delivery door is physically fully closed.
+             * @constant
+             */
+            deliveryDoorClosedConfirmed: true;
+            /**
+             * @description No object is trapped in or obstructing the mechanism.
+             * @constant
+             */
+            mechanismClearConfirmed: true;
+            reason: string;
+        };
+        DeliveryRecoveryQuarantine: {
+            recoveryUid: components["schemas"]["UuidV4"];
+            sessionUid: components["schemas"]["UuidV4"];
+            originalCommandUid: components["schemas"]["UuidV4"];
+            commandUid: components["schemas"]["UuidV4"];
+            taskUid: components["schemas"]["UuidV4"];
+            /** @enum {string} */
+            state: "QUEUED" | "APPLIED" | "CANCELLED";
+            /**
+             * @description This evidence is excluded from every order, reward, wallet, review, refund and withdrawal workflow.
+             * @constant
+             */
+            businessValue: "NONE";
+            reason: string;
+            portNo: number | null;
+            requestedAt: components["schemas"]["UtcTimestamp"];
+            appliedAt: components["schemas"]["UtcTimestamp"] | null;
+            statusUrl: components["schemas"]["StatusUrl"];
+            evidenceSha256: string | null;
+            operatorConfirmations: {
+                [key: string]: unknown;
+            };
+            deviceEvidence: {
+                [key: string]: unknown;
+            };
+            /** @description Measurements and photos retained only for issue display; they are not delivery completion facts. */
+            existingData: {
+                [key: string]: unknown;
+            };
+        };
         DeviceTechnicalIssue: {
             issueUid: string;
             /** @enum {string} */
             category: "ACCEPTANCE" | "FACTORY_SEAL" | "CONFIGURATION" | "DELIVERY" | "CLEANING" | "BASELINE";
             /** @enum {string} */
-            state: "AUTO_RETRYING" | "ACTION_REQUIRED" | "RECOVERY_REQUIRED";
+            state: "AUTO_RETRYING" | "ACTION_REQUIRED" | "RECOVERY_REQUIRED" | "RECOVERY_IN_PROGRESS" | "RECORDED";
             /** @enum {string} */
             severity: "INFO" | "WARNING" | "CRITICAL";
             code: string;
@@ -8963,7 +9074,7 @@ export interface components {
             automaticAttemptNo: number | null;
             automaticAttemptLimit: number | null;
             occurredAt: components["schemas"]["UtcTimestamp"] | null;
-            nextActions: ("WAIT" | "REEVALUATE_ACCEPTANCE" | "OPEN_RELIABLE_TASK" | "RESOLVE_FACTORY_SEAL_TASK_BLOCKER" | "RESYNCHRONIZE_CONFIGURATION" | "PUBLISH_NEW_CONFIGURATION" | "START_MANUAL_BASELINE_MEASUREMENT" | "CONFIRM_DELIVERY_NOT_STARTED" | "USER_RESTART_REQUIRED" | "CLEANER_RESTART_REQUIRED" | "CONTACT_SUPPORT")[];
+            nextActions: ("WAIT" | "REEVALUATE_ACCEPTANCE" | "OPEN_RELIABLE_TASK" | "RESOLVE_FACTORY_SEAL_TASK_BLOCKER" | "RESYNCHRONIZE_CONFIGURATION" | "PUBLISH_NEW_CONFIGURATION" | "START_MANUAL_BASELINE_MEASUREMENT" | "CONFIRM_DELIVERY_NOT_STARTED" | "QUARANTINE_DELIVERY_RECOVERY" | "VIEW_DELIVERY_RECOVERY_EVIDENCE" | "USER_RESTART_REQUIRED" | "CLEANER_RESTART_REQUIRED" | "CONTACT_SUPPORT")[];
         };
         /** @enum {string} */
         DeviceFactoryProgressStage: "DEVICE_ASSET" | "FACTORY_BAGS" | "MACHINE_ACCEPTANCE" | "FACTORY_SEAL_AUTHORIZATION" | "END_FACTORY_MODE" | "FACTORY_SEALED";
@@ -9501,6 +9612,12 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["DeliveryNotStartedConfirmation"];
+            requestId: string;
+        };
+        DeliveryRecoveryQuarantineEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliveryRecoveryQuarantine"];
             requestId: string;
         };
         DeviceFactoryProgressEnvelope: {
@@ -10227,6 +10344,28 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["DeliveryNotStartedConfirmationEnvelope"];
+            };
+        };
+        /** @description The issue-only recovery request is durable; the stale delivery remains occupied until the device returns fresh safety evidence */
+        DeliveryRecoveryQuarantineAccepted: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryRecoveryQuarantineEnvelope"];
+            };
+        };
+        /** @description Issue-only delivery recovery evidence; businessValue is always NONE */
+        DeliveryRecoveryQuarantineOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryRecoveryQuarantineEnvelope"];
             };
         };
         /** @description A new baseline measurement generation is durable; no physical measurement result is implied */
@@ -17623,6 +17762,53 @@ export interface operations {
             404: components["responses"]["NotFoundProblem"];
             409: components["responses"]["ConflictProblem"];
             422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    quarantinePlatformDeliveryRecovery: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                sessionUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryRecoveryQuarantineRequest"];
+            };
+        };
+        responses: {
+            202: components["responses"]["DeliveryRecoveryQuarantineAccepted"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getPlatformDeliveryRecoveryQuarantine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                recoveryUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryRecoveryQuarantineOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
         };
     };
     startPlatformBaselineMeasurementAttempt: {

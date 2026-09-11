@@ -114,6 +114,15 @@
           <p id="recovery-reason">完成受控恢复后才能继续。</p>
         </div>
 
+        <div id="weight-reference-panel" hidden>
+          <label class="field" for="reference-weight-grams">
+            <span>测试物的已知参考重量（克 / g）</span>
+            <input id="reference-weight-grams" type="number" inputmode="numeric" min="11" max="350000" step="1" value="500" required aria-describedby="weight-reference-help weight-reference-state">
+          </label>
+          <p id="weight-reference-help" class="measurement-note">例如 400 或 1000，填写物体的已知重量，不是设备显示的读数。仅支持整数克；误差范围固定为 ±10 克。软件范围 11～350000 克不代表设备承重能力，切勿超过实际额定承重。</p>
+          <p id="weight-reference-state" class="measurement-note"></p>
+        </div>
+
         <div id="camera-review" class="camera-review" hidden>
           <figure>
             <img id="camera-outside" alt="本次箱外摄像头临时画面">
@@ -137,6 +146,21 @@
           <button id="seal-confirm" class="danger-button" type="button">确认结束出厂模式</button>
           <p id="seal-result" class="action-result" role="status" aria-live="polite"></p>
         </div>
+      </section>
+
+      <section id="measurements-panel" class="operator-panel" aria-labelledby="measurements-title">
+        <div class="section-heading section-heading--compact">
+          <div><p class="section-kicker">本轮采集记录</p><h2 id="measurements-title">每一步测到了什么</h2></div>
+          <span id="measurements-revision" class="micro-state">等待采集</span>
+        </div>
+        <p class="measurement-note">下方是各次点击采集后保存的结果，不是实时电子秤；刷新网页不会额外采样或驱动机构。失败的数据也会保留，重新采集空载时会开始一组新称重记录。</p>
+        <article id="weight-measurements" class="measurement-card" aria-labelledby="weight-measurements-title">
+          <h3 id="weight-measurements-title">称重 · 尚未采集</h3>
+          <dl id="weight-summary" class="measurement-values"></dl>
+          <div id="weight-stage-readings" class="weight-stage-readings"></div>
+          <p id="weight-measurement-guidance" class="measurement-note"></p>
+        </article>
+        <div id="step-measurements" class="measurement-grid"></div>
       </section>
 
       <details id="diagnostics" class="diagnostics">

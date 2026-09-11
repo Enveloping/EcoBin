@@ -44,6 +44,10 @@ export type DeliveryNotStartedConfirmationRequest =
   Schemas['DeliveryNotStartedConfirmationRequest'];
 export type DeliveryNotStartedConfirmation =
   Schemas['DeliveryNotStartedConfirmation'];
+export type DeliveryRecoveryQuarantineRequest =
+  Schemas['DeliveryRecoveryQuarantineRequest'];
+export type DeliveryRecoveryQuarantine =
+  Schemas['DeliveryRecoveryQuarantine'];
 export type RuntimeSnapshotPolicy = Schemas['RuntimeSnapshotPolicy'];
 export type RuntimeSnapshotPolicyReleaseRequest =
   Schemas['RuntimeSnapshotPolicyReleaseRequest'];
@@ -271,6 +275,39 @@ export function confirmPlatformDeliveryNotStarted(
       + `${encodeURIComponent(sessionUid)}/not-started-confirmations`,
     method: 'POST',
     data,
+    silent: true,
+  });
+}
+
+export function quarantinePlatformDeliveryRecovery(
+  hardwareSn: string,
+  sessionUid: string,
+  data: DeliveryRecoveryQuarantineRequest,
+  intent: CommandIntent,
+) {
+  return intent.executeAccepted<
+    DeliveryRecoveryQuarantine,
+    DeliveryRecoveryQuarantineRequest
+  >({
+    url:
+      `${platformDeviceAssetUrl(hardwareSn)}/delivery-sessions/`
+      + `${encodeURIComponent(sessionUid)}/recovery-quarantines`,
+    method: 'POST',
+    data,
+    silent: true,
+  });
+}
+
+export function getPlatformDeliveryRecoveryQuarantine(
+  hardwareSn: string,
+  recoveryUid: string,
+) {
+  return request<DeliveryRecoveryQuarantine>({
+    url:
+      `${platformDeviceAssetUrl(hardwareSn)}/delivery-recovery-quarantines/`
+      + encodeURIComponent(recoveryUid),
+    method: 'GET',
+    noStore: true,
     silent: true,
   });
 }

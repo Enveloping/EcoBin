@@ -1,0 +1,97 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "31000000-0000-4000-8000-000000000002",
+  "deliveryClass": "RELIABLE_FACT",
+  "edgeEventSequence": 1057,
+  "eventType": "DELIVERY_RECOVERY_QUARANTINED",
+  "eventUid": "31000000-0000-4000-8000-000000000001",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "businessValue": "NONE",
+    "deviceEvidence": {
+      "actionDigestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "actionKey": "DELIVERY:START:0",
+      "actionKind": "START_DELIVERY_SESSION",
+      "actionState": "ARMED",
+      "actionUid": "31000000-0000-4000-8000-000000000004",
+      "commandUid": "30000000-0000-4000-8000-000000000003",
+      "currentBootIdentity": "boot-after-recovery",
+      "firmwareIdentityHex": "0123456789abcdef",
+      "firmwareStatusRawFrameHex": "aa550003f30000000f",
+      "ledgerSequence": 42,
+      "permitUid": "30000000-0000-4000-8000-000000000003",
+      "previousBootIdentity": "boot-before-recovery",
+      "resolutionEvidenceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "resolutionState": "UNKNOWN_EFFECT_QUARANTINED",
+      "safeFlags": 15,
+      "selfTestInfraredBlocked": false,
+      "selfTestRawFrameHex": "aa550003f100000000",
+      "selfTestWeightGrams": 1200,
+      "selfTestWeightMeasurementUid": "31000000-0000-4000-8000-000000000003",
+      "workUid": "30000000-0000-4000-8000-000000000001"
+    },
+    "finalPostCloseMeasurement": null,
+    "firstPreOpenMeasurement": null,
+    "operatorConfirmations": {
+      "causeFixedConfirmed": true,
+      "deliveryDoorClosedConfirmed": true,
+      "devicePowerCycledConfirmed": true,
+      "mechanismClearConfirmed": true,
+      "motionAreaClearConfirmed": true,
+      "physicalOutcomeUnknownConfirmed": true
+    },
+    "originalCommandUid": "30000000-0000-4000-8000-000000000003",
+    "photos": [
+      {
+        "capturedAt": null,
+        "missingReason": "CAMERA_NOT_READY",
+        "photoUid": null,
+        "sha256": null,
+        "sizeBytes": null,
+        "slot": "BEFORE_INNER",
+        "status": "UPLOAD_PENDING",
+        "url": null
+      },
+      {
+        "capturedAt": null,
+        "missingReason": "CAMERA_NOT_READY",
+        "photoUid": null,
+        "sha256": null,
+        "sizeBytes": null,
+        "slot": "BEFORE_OUTER",
+        "status": "UPLOAD_PENDING",
+        "url": null
+      },
+      {
+        "capturedAt": null,
+        "missingReason": "CAMERA_NOT_READY",
+        "photoUid": null,
+        "sha256": null,
+        "sizeBytes": null,
+        "slot": "AFTER_INNER",
+        "status": "UPLOAD_PENDING",
+        "url": null
+      },
+      {
+        "capturedAt": null,
+        "missingReason": "CAMERA_NOT_READY",
+        "photoUid": null,
+        "sha256": null,
+        "sizeBytes": null,
+        "slot": "AFTER_OUTER",
+        "status": "UPLOAD_PENDING",
+        "url": null
+      }
+    ],
+    "portNo": 2,
+    "reason": "现场排除故障并整机断电重启后隔离原投递",
+    "recoveryUid": "31000000-0000-4000-8000-000000000001",
+    "sessionUid": "30000000-0000-4000-8000-000000000001"
+  },
+  "payloadSha256": "e16731c7bfaa3c1cb8f2c82b428ed7ba13ffdb8fe3a363075de4810db35cc239",
+  "schemaVersion": 2,
+  "target": {
+    "type": "DELIVERY_SESSION",
+    "uid": "30000000-0000-4000-8000-000000000001"
+  }
+}

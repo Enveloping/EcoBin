@@ -59,6 +59,7 @@ body.is-terminal {
 }
 
 button,
+input,
 select {
   font: inherit;
 }
@@ -69,6 +70,7 @@ button {
 }
 
 button:focus-visible,
+input:focus-visible,
 select:focus-visible,
 .progress-viewport:focus-visible,
 summary:focus-visible {
@@ -594,7 +596,8 @@ button:disabled {
   font-weight: 700;
 }
 
-.field select {
+.field select,
+.field input {
   min-height: 48px;
   width: 100%;
   padding: 0 12px;
@@ -610,6 +613,59 @@ button:disabled {
   gap: 10px;
   margin: 15px 0;
 }
+
+.measurement-note {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 10px 0 16px;
+}
+
+.measurement-grid,
+.weight-stage-readings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.measurement-card,
+.weight-stage {
+  min-width: 0;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.measurement-card h3,
+.weight-stage h4 {
+  margin: 0 0 14px;
+  font-size: 15px;
+}
+
+#weight-measurements { border-top: 3px solid var(--green); }
+#weight-measurements.is-failed { border-top-color: var(--red); }
+.measurement-values { margin: 0; }
+.measurement-values > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.measurement-values > div:last-child { border-bottom: 0; }
+.measurement-values dt { color: var(--muted); }
+.measurement-values dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+#weight-reference-panel input:disabled { background: var(--paper); }
 
 .camera-review[hidden] {
   display: none;

@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.jinshoubao.com/schemas/orangepi/image-manifest.json",
+  "title": "EcoBin Orange Pi unsigned candidate manifest (v1/v2 dispatcher)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "artifactClass", "releaseId", "version", "gitCommit", "sourceDirty", "sourceDateEpoch", "baseImage", "builder", "locks", "platform", "layout", "software", "factory", "security", "artifacts"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"enum": [1, 2]},
+    "artifactClass": {"const": "UNSIGNED_NO_SECRET_CANDIDATE"},
+    "releaseId": {"$ref": "#/$defs/releaseId"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"},
+    "gitCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sourceDirty": {"type": "boolean"},
+    "sourceDateEpoch": {"type": "integer", "minimum": 0},
+    "baseImage": {"type": "object"},
+    "builder": {"type": "object"},
+    "locks": {"type": "object"},
+    "platform": {"type": "object"},
+    "layout": {"type": "object"},
+    "software": {"type": "object"},
+    "factory": {"type": "object"},
+    "security": {"type": "object"},
+    "artifacts": {"type": "object"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"schemaVersion": {"const": 1}}, "required": ["schemaVersion"]},
+      "then": {"properties": {"software": {"$ref": "#/$defs/softwareV1"}}}
+    },
+    {
+      "if": {"properties": {"schemaVersion": {"const": 2}}, "required": ["schemaVersion"]},
+      "then": {"properties": {"software": {"$ref": "#/$defs/softwareV2"}}}
+    }
+  ],
+  "$defs": {
+    "releaseId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "shortReleaseId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$"},
+    "implementedSlices": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "P1"}, {"const": "P2"}, {"const": "P3"}, {"const": "P4"},
+        {"const": "P5"}, {"const": "P6"}, {"const": "P7"}, {"const": "P8"}
+      ],
+      "items": false,
+      "minItems": 8,
+      "maxItems": 8,
+      "uniqueItems": true
+    },
+    "candidateReproducibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rootfsDeterministic", "releaseEligible"],
+      "properties": {
+        "rootfsDeterministic": {"type": "boolean"},
+        "releaseEligible": {"type": "boolean"}
+      }
+    },
+    "componentsV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hardwareRuntime", "enrollment", "remoteSupport", "factoryTest", "firstBoot"],
+      "properties": {
+        "hardwareRuntime": {"$ref": "#/$defs/releaseId"},
+        "enrollment": {"$ref": "#/$defs/releaseId"},
+        "remoteSupport": {"$ref": "#/$defs/releaseId"},
+        "factoryTest": {"$ref": "#/$defs/releaseId"},
+        "firstBoot": {"$ref": "#/$defs/releaseId"}
+      }
+    },
+    "componentsV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hardwareRuntime", "enrollment", "remoteSupport", "factoryTest", "firstBoot", "communicationAgent", "deviceUpdater"],
+      "properties": {
+        "hardwareRuntime": {"$ref": "#/$defs/releaseId"},
+        "enrollment": {"$ref": "#/$defs/releaseId"},
+        "remoteSupport": {"$ref": "#/$defs/releaseId"},
+        "factoryTest": {"$ref": "#/$defs/releaseId"},
+        "firstBoot": {"$ref": "#/$defs/releaseId"},
+        "communicationAgent": {"$ref": "#/$defs/shortReleaseId"},
+        "deviceUpdater": {"$ref": "#/$defs/shortReleaseId"}
+      }
+    },
+    "softwareV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["implementedSlices", "runtimeInstalled", "components", "uart5", "mcuBootControl", "rootfsExpansion", "factoryPortalInstalled", "buildReproducibility"],
+      "properties": {
+        "implementedSlices": {"$ref": "#/$defs/implementedSlices"},
+        "runtimeInstalled": {"const": true},
+        "factoryPortalInstalled": {"const": true},
+        "components": {"$ref": "#/$defs/componentsV1"},
+        "uart5": {"type": "object"},
+        "mcuBootControl": {"type": "object"},
+        "rootfsExpansion": {"type": "object"},
+        "buildReproducibility": {"$ref": "#/$defs/candidateReproducibility"}
+      }
+    },
+    "softwareV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["implementedSlices", "runtimeInstalled", "payloadSchemaVersion", "components", "uart5", "mcuBootControl", "rootfsExpansion", "factoryPortalInstalled", "buildReproducibility"],
+      "properties": {
+        "implementedSlices": {"$ref": "#/$defs/implementedSlices"},
+        "runtimeInstalled": {"const": true},
+        "payloadSchemaVersion": {"const": 2},
+        "factoryPortalInstalled": {"const": true},
+        "components": {"$ref": "#/$defs/componentsV2"},
+        "uart5": {"type": "object"},
+        "mcuBootControl": {"type": "object"},
+        "rootfsExpansion": {"type": "object"},
+        "buildReproducibility": {"$ref": "#/$defs/candidateReproducibility"}
+      }
+    }
+  }
+}

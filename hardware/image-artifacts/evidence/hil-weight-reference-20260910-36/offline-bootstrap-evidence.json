@@ -1,0 +1,15 @@
+{
+  "purpose": "HIL_ONLY_EXACT_LOCKED_DOWNLOAD_CACHE",
+  "sourceBootstrapSha256": "199e75582da2235e19b6ec431c627411c4e351276b5c9cafe1f2136343157d8f",
+  "executedBootstrapSha256": "0f53c12cc219e28a5189da1c5d3deeef8c1e0301108b023d1d976f60df5d1db4",
+  "lockedUvSha256": "9bf43b4d1a07665bf64d4c4e710930b382321a785e0eb10aac07f46471f86a31",
+  "lockedUvBytes": 21478307,
+  "sourceCheckoutModified": false,
+  "byteLengthCheckRetained": true,
+  "sha256CheckRetained": true,
+  "archiveMemberAndToolVersionChecksRetained": true,
+  "changes": [
+    "explicit original script directory",
+    "read exact locked uv archive from read-only local cache"
+  ]
+}

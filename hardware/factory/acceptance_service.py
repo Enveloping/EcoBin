@@ -27,6 +27,11 @@ except ModuleNotFoundError:  # Windows test collection; production is Debian.
 
 from .acceptance_config import AcceptanceConfiguration
 from .acceptance_core import AcceptanceError, FactoryAcceptanceExecutor
+from .acceptance_measurements import (
+    DEFAULT_REFERENCE_WEIGHT_GRAMS,
+    valid_reference_weight,
+    valid_sampling,
+)
 from .acceptance_hardware import (
     FixedFrameAcceptanceMcu,
     FixedRoleCameraProbe,
@@ -130,6 +135,10 @@ def _check_summary(value: object) -> dict[str, Any]:
         "deltaGrams",
         "targetDeltaGrams",
         "toleranceGrams",
+        "stableSampleCount",
+        "stableMaxSpreadGrams",
+        "sampleIntervalMs",
+        "sampleTimeoutMs",
         "sendAttempts",
         "prepareSendAttempts",
         "romWritePerformed",
@@ -139,6 +148,22 @@ def _check_summary(value: object) -> dict[str, Any]:
     ):
         if name in value:
             result[name] = value[name]
+    if "sampling" in value and valid_sampling(value["sampling"]):
+        result["sampling"] = copy.deepcopy(value["sampling"])
+    self_test = value.get("selfTest")
+    if isinstance(self_test, dict):
+        for key in ("weightGrams", "infraredBlocked", "smokeCode"):
+            item = self_test.get(key)
+            if type(item) is (bool if key == "infraredBlocked" else int):
+                result["selfTest" + key[0].upper() + key[1:]] = item
+    for role in ("outside", "inside"):
+        camera = value.get(role)
+        if isinstance(camera, dict):
+            if type(camera.get("captureNonEmpty")) is bool:
+                result[role + "CaptureNonEmpty"] = camera["captureNonEmpty"]
+            result[role + "RoleConfirmed"] = (
+                value.get("status") == "PASSED" and camera.get("operatorRoleConfirmed") is True
+            )
     action = value.get("result")
     if isinstance(action, dict):
         result["result"] = {
@@ -301,7 +326,7 @@ class AcceptanceCommandController:
         if checks.get("mcu", {}).get("status") != "PASSED":
             return ["CHECK_MCU"]
         weight = checks.get("weight", {})
-        if weight.get("resultCode") == "WAITING_FOR_500G_LOAD":
+        if weight.get("resultCode") in {"WAITING_FOR_500G_LOAD", "WAITING_FOR_REFERENCE_LOAD"}:
             return ["CAPTURE_LOADED_WEIGHT"]
         if weight.get("resultCode") == "WAITING_FOR_WEIGHT_REMOVAL":
             return ["CONFIRM_WEIGHT_REMOVED"]
@@ -343,13 +368,16 @@ class AcceptanceCommandController:
         if operation == "CAPTURE_EMPTY_WEIGHT":
             return checks.get("weight", {}).get("resultCode") in {
                 "WAITING_FOR_500G_LOAD",
+                "WAITING_FOR_REFERENCE_LOAD",
                 "WAITING_FOR_WEIGHT_REMOVAL",
                 "WEIGHT_500G_WITHIN_490_510_AND_REMOVED",
+                "WEIGHT_REFERENCE_WITHIN_TOLERANCE_AND_REMOVED",
             }
         if operation == "CAPTURE_LOADED_WEIGHT":
             return checks.get("weight", {}).get("resultCode") in {
                 "WAITING_FOR_WEIGHT_REMOVAL",
                 "WEIGHT_500G_WITHIN_490_510_AND_REMOVED",
+                "WEIGHT_REFERENCE_WITHIN_TOLERANCE_AND_REMOVED",
             }
         if operation == "CONFIRM_WEIGHT_REMOVED":
             return checks.get("weight", {}).get("status") == "PASSED"
@@ -440,6 +468,13 @@ class AcceptanceCommandController:
             )
         try:
             state = self._executor.snapshot()
+            # Validate even an idempotent retry: an old tab must not silently
+            # change the reference or bypass the explicit weight confirmations.
+            reference = self._validate_weight_parameters(operation, request["parameters"], state)
+            if operation == "CAPTURE_EMPTY_WEIGHT" and self._is_achieved(operation, state):
+                saved = state.get("checks", {}).get("weight", {}).get("targetDeltaGrams", DEFAULT_REFERENCE_WEIGHT_GRAMS)
+                if reference != saved:
+                    raise AcceptanceCommandError("WEIGHT_REFERENCE_LOCKED", HTTPStatus.CONFLICT)
             if state.get("revision") != expected_revision:
                 if self._is_achieved(operation, state):
                     return self.projection(idempotent=True)
@@ -465,6 +500,31 @@ class AcceptanceCommandController:
             raise AcceptanceCommandError(error.code, status) from error
         finally:
             self._action_lock.release()
+
+    @staticmethod
+    def _validate_weight_parameters(operation: str, value: object, state: Mapping[str, Any]) -> int | None:
+        if operation == "CAPTURE_EMPTY_WEIGHT":
+            fields = {"confirmScaleEmpty"}
+            if isinstance(value, dict) and "referenceWeightGrams" in value:
+                fields.add("referenceWeightGrams")
+            parameters = _exact_parameters(value, frozenset(fields))
+            _require_true(parameters, "confirmScaleEmpty", "EMPTY_SCALE_CONFIRMATION_REQUIRED")
+            reference = parameters.get("referenceWeightGrams", DEFAULT_REFERENCE_WEIGHT_GRAMS)
+            if not valid_reference_weight(reference):
+                raise AcceptanceCommandError("REFERENCE_WEIGHT_INVALID", HTTPStatus.UNPROCESSABLE_ENTITY)
+            return reference
+        weight_confirmations = {
+            "CAPTURE_LOADED_WEIGHT": ("confirmReferencePlaced", "confirm500gPlaced", "TEST_WEIGHT_CONFIRMATION_REQUIRED"),
+            "CONFIRM_WEIGHT_REMOVED": ("confirmReferenceRemoved", "confirm500gRemoved", "WEIGHT_REMOVAL_CONFIRMATION_REQUIRED"),
+        }
+        if operation in weight_confirmations:
+            generic, legacy, error = weight_confirmations[operation]
+            reference = state.get("checks", {}).get("weight", {}).get("targetDeltaGrams", DEFAULT_REFERENCE_WEIGHT_GRAMS)
+            # Retain cached 500 g page compatibility only for a 500 g run.
+            field = legacy if isinstance(value, dict) and legacy in value and reference == 500 else generic
+            parameters = _exact_parameters(value, frozenset({field}))
+            _require_true(parameters, field, error)
+        return None
 
     def _perform(
         self,
@@ -542,30 +602,13 @@ class AcceptanceCommandController:
             self._executor.check_mcu()
             return
         if operation == "CAPTURE_EMPTY_WEIGHT":
-            parameters = _exact_parameters(
-                parameters_value, frozenset({"confirmScaleEmpty"})
-            )
-            _require_true(
-                parameters, "confirmScaleEmpty", "EMPTY_SCALE_CONFIRMATION_REQUIRED"
-            )
-            self._executor.capture_empty_weight()
+            reference = self._validate_weight_parameters(operation, parameters_value, state)
+            self._executor.capture_empty_weight(reference_weight_grams=reference)
             return
         if operation == "CAPTURE_LOADED_WEIGHT":
-            parameters = _exact_parameters(
-                parameters_value, frozenset({"confirm500gPlaced"})
-            )
-            _require_true(
-                parameters, "confirm500gPlaced", "TEST_WEIGHT_CONFIRMATION_REQUIRED"
-            )
             self._executor.capture_loaded_weight()
             return
         if operation == "CONFIRM_WEIGHT_REMOVED":
-            parameters = _exact_parameters(
-                parameters_value, frozenset({"confirm500gRemoved"})
-            )
-            _require_true(
-                parameters, "confirm500gRemoved", "WEIGHT_REMOVAL_CONFIRMATION_REQUIRED"
-            )
             self._executor.confirm_weight_removed()
             return
         if operation == "CAPTURE_CAMERAS":

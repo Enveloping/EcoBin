@@ -5157,6 +5157,71 @@
       }
     }
 ,
+    "/api/v1/web/platform/device-assets/{hardwareSn}/delivery-sessions/{sessionUid}/recovery-quarantines": {
+      "parameters": [
+        {"$ref": "#/components/parameters/HardwareSn"},
+        {
+          "name": "sessionUid",
+          "in": "path",
+          "required": true,
+          "schema": {"$ref": "#/components/schemas/UuidV4"}
+        }
+      ],
+      "post": {
+        "operationId": "quarantinePlatformDeliveryRecovery",
+        "tags": ["Device management"],
+        "summary": "Quarantine one delivery whose physical outcome cannot be established",
+        "description": "This command never replays the delivery action. After an onsite operator confirms a complete power cycle and a physically safe idle mechanism, the device collects fresh read-only safety evidence and closes only the exact stale delivery. Existing measurements and photos are archived as issue evidence with businessValue NONE; they cannot create an order, balance, review, refund or withdrawal.",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/DeliveryRecoveryQuarantineRequest"}
+            }
+          }
+        },
+        "responses": {
+          "202": {"$ref": "#/components/responses/DeliveryRecoveryQuarantineAccepted"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    }
+,
+    "/api/v1/web/platform/device-assets/{hardwareSn}/delivery-recovery-quarantines/{recoveryUid}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/HardwareSn"},
+        {
+          "name": "recoveryUid",
+          "in": "path",
+          "required": true,
+          "schema": {"$ref": "#/components/schemas/UuidV4"}
+        }
+      ],
+      "get": {
+        "operationId": "getPlatformDeliveryRecoveryQuarantine",
+        "tags": ["Device management"],
+        "summary": "Get one issue-only delivery recovery record",
+        "description": "Returns operator confirmations, device safety evidence and any pre-existing measurements or photos for display and diagnosis only. The record has no business value and cannot initiate downstream business or funds processing.",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeliveryRecoveryQuarantineOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    }
+,
     "/api/v1/web/platform/device-assets/{hardwareSn}/ports/{portNo}/baseline-measurement-attempts": {
       "parameters": [
         {"$ref": "#/components/parameters/HardwareSn"},
@@ -7587,6 +7652,30 @@
         "content": {
           "application/json": {
             "schema": {"$ref": "#/components/schemas/DeliveryNotStartedConfirmationEnvelope"}
+          }
+        }
+      },
+      "DeliveryRecoveryQuarantineAccepted": {
+        "description": "The issue-only recovery request is durable; the stale delivery remains occupied until the device returns fresh safety evidence",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/DeliveryRecoveryQuarantineEnvelope"}
+          }
+        }
+      },
+      "DeliveryRecoveryQuarantineOk": {
+        "description": "Issue-only delivery recovery evidence; businessValue is always NONE",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/DeliveryRecoveryQuarantineEnvelope"}
           }
         }
       },
@@ -14712,6 +14801,116 @@
           "nextAction": {"type": "string", "const": "USER_RESTART_REQUIRED"}
         }
       },
+      "DeliveryRecoveryQuarantineRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedTaskUid",
+          "expectedSessionVersion",
+          "physicalOutcomeUnknownConfirmed",
+          "causeFixedConfirmed",
+          "devicePowerCycledConfirmed",
+          "motionAreaClearConfirmed",
+          "deliveryDoorClosedConfirmed",
+          "mechanismClearConfirmed",
+          "reason"
+        ],
+        "properties": {
+          "expectedTaskUid": {"$ref": "#/components/schemas/UuidV4"},
+          "expectedSessionVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "physicalOutcomeUnknownConfirmed": {
+            "type": "boolean",
+            "const": true,
+            "description": "The operator accepts that the original physical outcome cannot be reconstructed and must never be treated as a successful delivery."
+          },
+          "causeFixedConfirmed": {
+            "type": "boolean",
+            "const": true,
+            "description": "The original fault or obstruction has been inspected and removed."
+          },
+          "devicePowerCycledConfirmed": {
+            "type": "boolean",
+            "const": true,
+            "description": "The entire device, including the MCU, has been completely powered off and restarted after the uncertain action."
+          },
+          "motionAreaClearConfirmed": {
+            "type": "boolean",
+            "const": true,
+            "description": "No person is within the mechanism motion range."
+          },
+          "deliveryDoorClosedConfirmed": {
+            "type": "boolean",
+            "const": true,
+            "description": "The delivery door is physically fully closed."
+          },
+          "mechanismClearConfirmed": {
+            "type": "boolean",
+            "const": true,
+            "description": "No object is trapped in or obstructing the mechanism."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "DeliveryRecoveryQuarantine": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "recoveryUid",
+          "sessionUid",
+          "originalCommandUid",
+          "commandUid",
+          "taskUid",
+          "state",
+          "businessValue",
+          "reason",
+          "portNo",
+          "requestedAt",
+          "appliedAt",
+          "statusUrl",
+          "evidenceSha256",
+          "operatorConfirmations",
+          "deviceEvidence",
+          "existingData"
+        ],
+        "properties": {
+          "recoveryUid": {"$ref": "#/components/schemas/UuidV4"},
+          "sessionUid": {"$ref": "#/components/schemas/UuidV4"},
+          "originalCommandUid": {"$ref": "#/components/schemas/UuidV4"},
+          "commandUid": {"$ref": "#/components/schemas/UuidV4"},
+          "taskUid": {"$ref": "#/components/schemas/UuidV4"},
+          "state": {"type": "string", "enum": ["QUEUED", "APPLIED", "CANCELLED"]},
+          "businessValue": {
+            "type": "string",
+            "const": "NONE",
+            "description": "This evidence is excluded from every order, reward, wallet, review, refund and withdrawal workflow."
+          },
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+          "portNo": {"type": ["integer", "null"], "minimum": 1, "maximum": 6},
+          "requestedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "appliedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "statusUrl": {"$ref": "#/components/schemas/StatusUrl"},
+          "evidenceSha256": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "operatorConfirmations": {"type": "object", "additionalProperties": true},
+          "deviceEvidence": {"type": "object", "additionalProperties": true},
+          "existingData": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Measurements and photos retained only for issue display; they are not delivery completion facts."
+          }
+        }
+      },
       "DeviceTechnicalIssue": {
         "type": "object",
         "additionalProperties": false,
@@ -14745,7 +14944,7 @@
           },
           "state": {
             "type": "string",
-            "enum": ["AUTO_RETRYING", "ACTION_REQUIRED", "RECOVERY_REQUIRED"]
+            "enum": ["AUTO_RETRYING", "ACTION_REQUIRED", "RECOVERY_REQUIRED", "RECOVERY_IN_PROGRESS", "RECORDED"]
           },
           "severity": {
             "type": "string",
@@ -14805,6 +15004,8 @@
                 "PUBLISH_NEW_CONFIGURATION",
                 "START_MANUAL_BASELINE_MEASUREMENT",
                 "CONFIRM_DELIVERY_NOT_STARTED",
+                "QUARANTINE_DELIVERY_RECOVERY",
+                "VIEW_DELIVERY_RECOVERY_EVIDENCE",
                 "USER_RESTART_REQUIRED",
                 "CLEANER_RESTART_REQUIRED",
                 "CONTACT_SUPPORT"
@@ -16079,6 +16280,16 @@
         "properties": {
           "code": {"type": "string", "const": "OK"},
           "data": {"$ref": "#/components/schemas/DeliveryNotStartedConfirmation"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "DeliveryRecoveryQuarantineEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/DeliveryRecoveryQuarantine"},
           "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
         }
       },

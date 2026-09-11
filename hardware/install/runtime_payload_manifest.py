@@ -39,6 +39,7 @@ RUNTIME_APP_FILES = (
     "factory_seal/errors.py",
     "factory_seal/runtime.py",
     "factory_seal/validation.py",
+    "factory_seal/weight_validation.py",
     "main.py",
     "job_safety.py",
     "local_control.py",

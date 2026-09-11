@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "purpose": "LOCAL_HIL_CANDIDATE_NOT_PRODUCTION_RELEASE",
+  "sourceBaseCommit": "8452c6398c964c7f0d3e7a4a29a1dd204674829e",
+  "snapshotCommit": "0c336415f249ffa7824b1569dc2537e9cca561db",
+  "sourceBundleSha256": "10c85a8582b0914e90fa9b8c7b7f8fe25dc396f450587e2a6c2021a5ef90b731",
+  "sourceBundleBytes": 54260556,
+  "python": "3.11.15",
+  "environment": "Linux x86_64 / WSL",
+  "dependencyLockFrozen": true,
+  "fullSuite": {
+    "passed": 2121,
+    "skipped": 9,
+    "subtestsPassed": 5,
+    "failed": 0,
+    "durationSeconds": 316.54,
+    "baseTemp": "/var/tmp/eb36-final"
+  },
+  "testOnlyAdaptations": {
+    "clockFixture": "v35_clock_fixture.py",
+    "syncedPreconditionTestCount": 6,
+    "dedicatedClockTestsUnmodified": true,
+    "shortUnixSocketTemporaryPath": true,
+    "testProcessUmask": "0022",
+    "privateBuildDirectoryMode": "0700",
+    "productionCodeChangedForTests": false,
+    "operatingSystemClockOrSyncMarkerChanged": false
+  },
+  "initialEnvironmentDiagnostics": [
+    {
+      "passed": 2012,
+      "failed": 109,
+      "cause": "Runner umask 0077 changed fixture-created directory/file modes. Identical permission test fails under 0077 and passes under 0022; full suite rerun changes only the test-process umask.",
+      "firstFailureLogPreservedPrivately": true
+    }
+  ],
+  "physicalHilPerformed": false,
+  "deviceFlashed": false,
+  "backendOrOneNetDeployed": false
+}

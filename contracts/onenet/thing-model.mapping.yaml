@@ -169,6 +169,14 @@
       "deliveryKind": "CONTROL_COMMAND",
       "cosGrantAllowed": true
     },
+    "quarantineDeliveryRecovery": {
+      "description": "管理员在故障原因已修复、设备已重新上电且现场安全后，隔离结束一笔结果未知的旧投递；设备仅上报问题证据，不创建订单或资金价值。",
+      "commandType": "QUARANTINE_DELIVERY_RECOVERY",
+      "targetType": "DELIVERY_SESSION",
+      "schemaRef": "commands/commands.schema.json#/$defs/quarantineDeliveryRecoveryCommand",
+      "deliveryKind": "CONTROL_COMMAND",
+      "cosGrantAllowed": false
+    },
     "requestDeviceAcceptance": {
       "description": "后端发起厂家整机验收，要求设备完成存储、配置、单片机、双摄和照片上传检查并提交证据。",
       "commandType": "REQUEST_DEVICE_ACCEPTANCE",
@@ -255,6 +263,13 @@
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "DELIVERY_SESSION",
       "schemaRef": "events/events.schema.json#/$defs/deliveryCompleteEvent"
+    },
+    "deliveryRecoveryQuarantined": {
+      "description": "设备报告旧投递已按严格现场证据异常隔离结束；该事件仅形成问题记录，禁止进入订单、返现、余额和自动提现链路。",
+      "eventType": "DELIVERY_RECOVERY_QUARANTINED",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "DELIVERY_SESSION",
+      "schemaRef": "events/events.schema.json#/$defs/deliveryRecoveryQuarantinedEvent"
     },
     "cleanComplete": {
       "description": "设备上报清运员确认关门后的最终重量、换袋信息、空袋皮重和四张照片状态，后台据此完成清运换袋。",
@@ -387,6 +402,7 @@
     "payloadSha256 equals the RFC8785 canonical payload digest",
     "issuedAt is strictly before expiresAt",
     "target.uid equals the strong work UID repeated inside the payload",
+    "QUARANTINE_DELIVERY_RECOVERY requires explicit confirmation that the old physical outcome is unknown, all field-safety confirmations, a changed device boot identity, fresh fixed-frame idle safeFlags 0x0F, a healthy F1 self-test and one exact permanent ARMED action; DELIVERY_RECOVERY_QUARANTINED is issue-only evidence and must never enter delivery-order or financial projections",
     "DELIVERY_COMPLETE has exactly the four delivery slots and no intermediate cycle fields",
     "DELIVERY_COMPLETE net weight equals final stable grams minus first stable grams, otherwise is null",
     "CLEAN_COMPLETE has exactly the four cleaning slots",
@@ -436,6 +452,10 @@
     "DEVICE_ACCEPTANCE_EVIDENCE": "DEV_ACCEPT_EVIDENCE",
     "DEVICE_ASSET": "DEVICE_ASSET",
     "START_DELIVERY_SESSION": "START_DELIV_SESSION",
+    "QUARANTINE_DELIVERY_RECOVERY": "QUARANTINE_DELIV_REC",
+    "DELIVERY_RECOVERY_QUARANTINED": "DELIV_REC_QUAR",
+    "DELIVERY:START:0": "DELIV_START_0",
+    "UNKNOWN_EFFECT_QUARANTINED": "UNKNOWN_QUARANTINED",
     "START_CLEAN_OPERATION": "START_CLEAN_OPT",
     "END_CLEAN_BEFORE_UNLOCK": "END_CLEAN_PRE_UNLOCK",
     "RESUME_CLEAN_OPERATION": "RESUME_CLEAN_OPT",

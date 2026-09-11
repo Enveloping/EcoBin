@@ -2893,6 +2893,18 @@ class EdgeStore:
                        'CLOSE_REMOTE_SUPPORT_TUNNEL'
                      )"""
             ).rowcount
+            delivery_recovery = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='PENDING', processed_at=NULL,
+                       processing_started_at=NULL,
+                       last_error='PROCESS_RESTARTED'
+                   WHERE state IN (
+                       'PROCESSING', 'WAITING_MCU_RESULT',
+                       'RECOVERY_REQUIRED'
+                   )
+                     AND command_type=
+                       'QUARANTINE_DELIVERY_RECOVERY'"""
+            ).rowcount
             acceptance = self._conn.execute(
                 """UPDATE command_inbox
                    SET state='FAILED', processed_at=?,
@@ -2942,6 +2954,7 @@ class EdgeStore:
                           'START_MCU_FIRMWARE_UPDATE',
                           'OPEN_REMOTE_SUPPORT_TUNNEL',
                           'CLOSE_REMOTE_SUPPORT_TUNNEL',
+                          'QUARANTINE_DELIVERY_RECOVERY',
                           'AUTHORIZE_FACTORY_SEAL'
                       )"""
             ).fetchall()
@@ -3025,6 +3038,7 @@ class EdgeStore:
             return {
                 "configuration_requeued": config,
                 "remote_support_requeued": remote_support,
+                "delivery_recovery_requeued": delivery_recovery,
                 "acceptance_grant_lost": acceptance,
                 "firmware_grant_lost": firmware,
                 "factory_seal_requeued": factory_seal,
@@ -6991,6 +7005,172 @@ class EdgeStore:
                         work_uid,
                     ),
                 )
+            return "ACCEPTED"
+
+    def quarantine_delivery_recovery(
+        self,
+        *,
+        work_uid: str,
+        original_command_uid: str,
+        recovery_command_uid: str,
+        recovery_uid: str,
+        context: dict,
+        event_payload: dict,
+        device_name: str,
+        release_work_slot: bool = True,
+    ) -> str:
+        """Atomically publish an issue-only terminal and release exact work.
+
+        This intentionally does not call the normal fixed-frame completion
+        path: no observation, fullness, baseline, delivery order or financial
+        fact is derived from an unknown physical outcome.
+        """
+
+        if not isinstance(release_work_slot, bool):
+            raise TypeError("release_work_slot must be boolean")
+        with self.transaction():
+            existing = self._conn.execute(
+                """SELECT event_type, payload_json
+                   FROM event_outbox WHERE event_uid=?""",
+                (recovery_uid,),
+            ).fetchone()
+            if existing is not None:
+                try:
+                    event = _json.loads(existing["payload_json"])
+                except (TypeError, ValueError) as error:
+                    raise ValueError(
+                        "delivery recovery evidence is corrupt"
+                    ) from error
+                if not (
+                    existing["event_type"]
+                    == "DELIVERY_RECOVERY_QUARANTINED"
+                    and event.get("eventUid") == recovery_uid
+                    and event.get("commandUid") == recovery_command_uid
+                    and event.get("target")
+                    == {"type": "DELIVERY_SESSION", "uid": work_uid}
+                    and event.get("payload") == event_payload
+                ):
+                    raise ValueError("delivery recovery evidence conflicts")
+                return "DUPLICATE"
+
+            slot = self._conn.execute(
+                """SELECT work_type, work_uid, work_state
+                   FROM work_slot WHERE slot_id=1"""
+            ).fetchone()
+            if not (
+                slot is not None
+                and slot["work_type"] == WORK_TYPE_DELIVERY
+                and slot["work_uid"] == work_uid
+                and slot["work_state"] == "RECOVERY_REQUIRED"
+            ):
+                return "UNKNOWN"
+            original = self._conn.execute(
+                """SELECT command_type, state
+                   FROM command_inbox WHERE command_uid=?""",
+                (original_command_uid,),
+            ).fetchone()
+            recovery = self._conn.execute(
+                """SELECT command_type, state
+                   FROM command_inbox WHERE command_uid=?""",
+                (recovery_command_uid,),
+            ).fetchone()
+            if not (
+                original is not None
+                and original["command_type"] == "START_DELIVERY_SESSION"
+                and original["state"] == "RECOVERY_REQUIRED"
+                and recovery is not None
+                and recovery["command_type"]
+                == "QUARANTINE_DELIVERY_RECOVERY"
+                and recovery["state"] == "PROCESSING"
+            ):
+                raise ValueError("delivery recovery command state changed")
+
+            sequence = self._next_seq(self._conn)
+            event = build_event_envelope(
+                event_uid=recovery_uid,
+                device_name=device_name,
+                edge_event_sequence=sequence,
+                event_type="DELIVERY_RECOVERY_QUARANTINED",
+                target_type="DELIVERY_SESSION",
+                target_uid=work_uid,
+                command_uid=recovery_command_uid,
+                payload=event_payload,
+            )
+            self._insert_event(
+                self._conn,
+                event,
+                "DELIVERY_RECOVERY_QUARANTINED",
+            )
+            now = self._now()
+            original_result = {
+                "disposition": "RECOVERY_QUARANTINED",
+                "recoveryUid": recovery_uid,
+                "physicalOutcome": "UNKNOWN",
+                "businessValue": "NONE",
+            }
+            recovery_result = {
+                "disposition": "QUARANTINED",
+                "recoveryUid": recovery_uid,
+                "sessionUid": work_uid,
+                "originalCommandUid": original_command_uid,
+                "businessValue": "NONE",
+            }
+            updated_original = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='COMPLETED', processed_at=?,
+                       processing_started_at=NULL, result_json=?,
+                       last_error=NULL
+                   WHERE command_uid=? AND command_type=
+                       'START_DELIVERY_SESSION'
+                     AND state='RECOVERY_REQUIRED'""",
+                (
+                    now,
+                    _json.dumps(original_result, ensure_ascii=False),
+                    original_command_uid,
+                ),
+            )
+            updated_recovery = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='COMPLETED', processed_at=?,
+                       processing_started_at=NULL, result_json=?,
+                       last_error=NULL
+                   WHERE command_uid=? AND command_type=
+                       'QUARANTINE_DELIVERY_RECOVERY'
+                     AND state='PROCESSING'""",
+                (
+                    now,
+                    _json.dumps(recovery_result, ensure_ascii=False),
+                    recovery_command_uid,
+                ),
+            )
+            if (
+                updated_original.rowcount != 1
+                or updated_recovery.rowcount != 1
+            ):
+                raise ValueError("delivery recovery command state changed")
+            self._upsert_state(
+                self._conn,
+                "fixed_frame_latest_delivery_recovery_json",
+                _json.dumps(event_payload, ensure_ascii=False),
+                now,
+            )
+            if release_work_slot:
+                self._clear_work_slot_in_tx(self._conn)
+            else:
+                updated_slot = self._conn.execute(
+                    """UPDATE work_slot
+                       SET context_json=?, updated_at=?
+                       WHERE slot_id=1 AND work_type=? AND work_uid=?
+                         AND work_state='RECOVERY_REQUIRED'""",
+                    (
+                        _json.dumps(context, ensure_ascii=False),
+                        now,
+                        WORK_TYPE_DELIVERY,
+                        work_uid,
+                    ),
+                )
+                if updated_slot.rowcount != 1:
+                    raise ValueError("delivery recovery work changed")
             return "ACCEPTED"
 
     def fail_fixed_frame_work(

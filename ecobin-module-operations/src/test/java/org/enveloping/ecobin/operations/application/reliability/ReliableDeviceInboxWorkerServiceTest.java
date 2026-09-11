@@ -285,6 +285,7 @@ class ReliableDeviceInboxWorkerServiceTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "SAFETY_SENSOR_STATE_CHANGED",
+            "DELIVERY_RECOVERY_QUARANTINED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
             "FACTORY_SEAL_COMPLETED",
             "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
@@ -379,6 +380,7 @@ class ReliableDeviceInboxWorkerServiceTest {
                         "DEVICE_FAULT_OBSERVED",
                         "DEVICE_FAULT_RECOVERED",
                         "SAFETY_SENSOR_STATE_CHANGED",
+                        "DELIVERY_RECOVERY_QUARANTINED",
                         "REMOTE_SUPPORT_TUNNEL_STATUS",
                         "FACTORY_SEAL_COMPLETED",
                         "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",

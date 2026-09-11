@@ -3,6 +3,7 @@ package org.enveloping.ecobin.device.application.target;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedPlatformDeviceAssetFactEvent;
 import org.enveloping.ecobin.device.application.firmware.McuFirmwareRolloutService;
+import org.enveloping.ecobin.device.application.delivery.DeliveryRecoveryQuarantineService;
 import org.enveloping.ecobin.device.application.remote.RemoteSupportSessionService;
 import org.enveloping.ecobin.device.application.software.DeviceSoftwareCompatibilityService;
 import org.enveloping.ecobin.framework.reliability.TrustedPlatformInboxRef;
@@ -247,6 +248,62 @@ class TrustedPlatformDeviceAssetFactServiceTest {
     }
 
     @Test
+    void deliveryRecoveryFactUsesIssueOnlyHandlerBeforeDeviceAssetTargetRule() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        LocalDateTime now = LocalDateTime.of(2026, 9, 10, 3, 10);
+        when(jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class))
+                .thenReturn(now);
+        TrustedPlatformInboxRef sourceInbox =
+                mock(TrustedPlatformInboxRef.class);
+        when(sourceInbox.use(any())).thenAnswer(invocation -> {
+            TrustedPlatformInboxRef.PlatformInboxFunction<Object> function =
+                    invocation.getArgument(0);
+            return function.apply(19L);
+        });
+        DeliveryRecoveryQuarantineService quarantines =
+                mock(DeliveryRecoveryQuarantineService.class);
+        when(quarantines.applyTrusted(eq(19L), any(), eq(now)))
+                .thenReturn(
+                        new DeliveryRecoveryQuarantineService.ApplyResult(
+                                41L, true));
+        ReliablePlatformEdgeConfirmationService confirmations =
+                mock(ReliablePlatformEdgeConfirmationService.class);
+        TrustedPlatformDeviceAssetFactService service =
+                new TrustedPlatformDeviceAssetFactService(
+                        jdbc,
+                        JsonMapper.builder().build(),
+                        confirmations,
+                        mock(RemoteSupportSessionService.class),
+                        mock(McuFirmwareRolloutService.class),
+                        mock(FactorySealAuthorizationService.class),
+                        mock(DeviceSoftwareCompatibilityService.class),
+                        null,
+                        quarantines);
+
+        TrustedDeviceEventApplyResult result = service.apply(
+                new TrustedPlatformDeviceAssetFactEvent(
+                        sourceInbox,
+                        "DELIVERY_RECOVERY_QUARANTINED",
+                        2,
+                        deliveryRecoveryPayload()));
+
+        assertEquals(TrustedDeviceEventApplyResult.APPLIED, result);
+        verify(quarantines).applyTrusted(eq(19L), any(), eq(now));
+        verify(confirmations).ensureApplied(
+                41L,
+                "SN-CONTRACT-0001",
+                "9a000000-0000-4000-8000-000000000001",
+                "e".repeat(64),
+                "UPDATED",
+                now);
+        verify(jdbc, never()).query(
+                contains("FROM dev_device_asset"),
+                any(RowMapper.class),
+                any(Object[].class));
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void softwareStateFactIsProjectedAndConfirmedInsideItsInboxTask() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
@@ -326,6 +383,32 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                       "smokeState": "NORMAL",
                       "smokeDataUnavailable": false
                     }
+                  }
+                }
+                """;
+    }
+
+    private static String deliveryRecoveryPayload() {
+        return """
+                {
+                  "trustedSource": {
+                    "productId": "product",
+                    "deviceName": "SN-CONTRACT-0001"
+                  },
+                  "eventCanonicalSha256":
+                    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                  "event": {
+                    "schemaVersion": 2,
+                    "eventUid": "9a000000-0000-4000-8000-000000000001",
+                    "eventType": "DELIVERY_RECOVERY_QUARANTINED",
+                    "target": {
+                      "type": "DELIVERY_SESSION",
+                      "uid": "fca37401-7b2e-4b42-93cf-2fc8c6d72fb2"
+                    },
+                    "payloadSha256":
+                      "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                    "commandUid": "9b000000-0000-4000-8000-000000000001",
+                    "payload": {}
                   }
                 }
                 """;

@@ -26,6 +26,8 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceInstallationProfil
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeliveryNotStartedConfirmationRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeliveryNotStartedConfirmationView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeliveryRecoveryQuarantineRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeliveryRecoveryQuarantineView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceManagementReasonView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceManagementStatusView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceManagementSummaryView;
@@ -51,11 +53,13 @@ import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskStatusPort;
 import org.enveloping.ecobin.framework.reliability.ReliableTaskWake;
 import org.enveloping.ecobin.framework.reliability.ReliableTaskWakePort;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
+import org.enveloping.ecobin.device.application.delivery.DeliveryRecoveryQuarantineService;
 import org.enveloping.ecobin.framework.web.TargetWebAuditRequestContext;
 import org.enveloping.ecobin.identity.api.port.DeviceScopeAuthorizationPort;
 import org.enveloping.ecobin.identity.api.query.DeviceScopeAuthorizationQuery;
 import org.enveloping.ecobin.identity.api.result.AuthorizedDeviceScope;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -202,6 +206,8 @@ public class TargetDeviceApplication {
     private final AutomaticDeviceActivationService activationService;
     private final FactorySealAuthorizationService
             factorySealAuthorizations;
+    private final DeliveryRecoveryQuarantineService
+            deliveryRecoveryQuarantines;
 
     public TargetDeviceApplication(
             JdbcTemplate jdbc,
@@ -218,6 +224,41 @@ public class TargetDeviceApplication {
             @Value("${onenet.product-id:}") String oneNetProductId,
             DeviceEntryUrlFactory deviceEntryUrlFactory,
             FactorySealAuthorizationService factorySealAuthorizations) {
+        this(
+                jdbc,
+                authorizationPort,
+                auditPort,
+                objectMapper,
+                activationService,
+                canonicalizer,
+                runtimeSnapshotPolicyProvider,
+                taskRegistrationPort,
+                taskStatusPort,
+                taskWakePort,
+                taskRefFactory,
+                oneNetProductId,
+                deviceEntryUrlFactory,
+                factorySealAuthorizations,
+                null);
+    }
+
+    @Autowired
+    public TargetDeviceApplication(
+            JdbcTemplate jdbc,
+            DeviceScopeAuthorizationPort authorizationPort,
+            AuditPort auditPort,
+            ObjectMapper objectMapper,
+            AutomaticDeviceActivationService activationService,
+            DeviceConfigurationCanonicalizer canonicalizer,
+            RuntimeSnapshotPolicyProvider runtimeSnapshotPolicyProvider,
+            ReliableDeviceTaskRegistrationPort taskRegistrationPort,
+            ReliableDeviceTaskStatusPort taskStatusPort,
+            ReliableTaskWakePort taskWakePort,
+            DeviceCommandTaskRefFactory taskRefFactory,
+            @Value("${onenet.product-id:}") String oneNetProductId,
+            DeviceEntryUrlFactory deviceEntryUrlFactory,
+            FactorySealAuthorizationService factorySealAuthorizations,
+            DeliveryRecoveryQuarantineService deliveryRecoveryQuarantines) {
         this.jdbc = jdbc;
         this.authorizationPort = authorizationPort;
         this.auditPort = auditPort;
@@ -232,6 +273,7 @@ public class TargetDeviceApplication {
         this.oneNetProductId = blankToNull(oneNetProductId);
         this.deviceEntryUrlFactory = deviceEntryUrlFactory;
         this.factorySealAuthorizations = factorySealAuthorizations;
+        this.deliveryRecoveryQuarantines = deliveryRecoveryQuarantines;
     }
 
     @Transactional(readOnly = true)
@@ -410,6 +452,81 @@ public class TargetDeviceApplication {
                                     )
                                    THEN 1 ELSE 0
                                END AS delivery_not_started_confirmation_available,
+                               CASE
+                                   WHEN task.task_type =
+                                            'START_DELIVERY_SESSION'
+                                    AND (
+                                        task.state = 'DONE'
+                                        OR (
+                                            task.state = 'BLOCKED'
+                                            AND task.blocked_reason_code =
+                                                'DEVICE_EVIDENCE_TIMEOUT'
+                                        )
+                                    )
+                                    AND task.lease_token IS NULL
+                                    AND task.target_type =
+                                            'DELIVERY_SESSION'
+                                    AND task.target_stable_key =
+                                            delivery.session_uid
+                                    AND delivery.status =
+                                            'RESULT_PENDING_RECOVERY'
+                                    AND delivery.authorization_expires_at
+                                            <= UTC_TIMESTAMP(3)
+                                    AND delivery.device_completed_at IS NULL
+                                    AND delivery.ended_at IS NULL
+                                    AND delivery.end_reason IS NULL
+                                    AND command_row.physical_state IN (
+                                        'QUEUED',
+                                        'EDGE_ACCEPTED',
+                                        'PHYSICAL_STARTED',
+                                        'EDGE_RESTARTED'
+                                    )
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM dev_device_occupancy occupancy
+                                        WHERE occupancy.asset_id =
+                                                task.source_device_asset_id
+                                          AND occupancy.tenant_id =
+                                                task.tenant_id
+                                          AND occupancy.organization_id =
+                                                task.organization_id
+                                          AND occupancy.occupancy_kind =
+                                                'DELIVERY'
+                                          AND occupancy.delivery_session_id =
+                                                delivery.id
+                                    )
+                                    AND NOT EXISTS (
+                                        SELECT 1
+                                        FROM dev_physical_result physical_result
+                                        WHERE physical_result.command_id =
+                                                command_row.id
+                                    )
+                                    AND NOT EXISTS (
+                                        SELECT 1
+                                        FROM rec_delivery_order delivery_order
+                                        WHERE delivery_order.delivery_session_id =
+                                                delivery.id
+                                    )
+                                    AND NOT EXISTS (
+                                        SELECT 1
+                                        FROM dev_delivery_recovery_quarantine
+                                            recovery
+                                        WHERE recovery.delivery_session_id =
+                                                delivery.id
+                                          AND recovery.state IN (
+                                              'QUEUED', 'APPLIED'
+                                          )
+                                    )
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM dev_device_transport_state transport
+                                        WHERE transport.asset_id =
+                                                task.source_device_asset_id
+                                          AND transport.onenet_connection_status =
+                                                'ONLINE'
+                                    )
+                                   THEN 1 ELSE 0
+                               END AS delivery_recovery_quarantine_available,
                                clean_row.status AS clean_status,
                                application.status AS application_status,
                                application.edge_persisted_at,
@@ -455,6 +572,8 @@ public class TargetDeviceApplication {
                         nullableLong(rs, "delivery_session_version"),
                         rs.getBoolean(
                                 "delivery_not_started_confirmation_available"),
+                        rs.getBoolean(
+                                "delivery_recovery_quarantine_available"),
                         rs.getString("clean_status"),
                         rs.getString("application_status"),
                         rs.getObject(
@@ -466,7 +585,10 @@ public class TargetDeviceApplication {
             latestByType.putIfAbsent(row.taskType(), row);
         }
         for (TechnicalTaskRow task : latestByType.values()) {
-            if (!"BLOCKED".equals(task.state())) {
+            if (!"BLOCKED".equals(task.state())
+                    && !("START_DELIVERY_SESSION".equals(
+                    task.taskType())
+                    && task.deliveryRecoveryQuarantineAvailable())) {
                 continue;
             }
             if ("REQUEST_DEVICE_ACCEPTANCE".equals(task.taskType())
@@ -475,6 +597,7 @@ public class TargetDeviceApplication {
             }
             issues.add(taskIssue(task));
         }
+        issues.addAll(deliveryRecoveryIssues(asset.id()));
         issues.addAll(baselineIssues(asset.id()));
         issues.sort(java.util.Comparator.comparing(
                 DeviceTechnicalIssueView::occurredAt,
@@ -1118,6 +1241,96 @@ public class TargetDeviceApplication {
                         "deliveryNeverStartedConfirmed", true,
                         "originalTaskState", commandTask.taskState()),
                 reason);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public DeliveryRecoveryQuarantineView quarantineDeliveryRecovery(
+            UUID operationUid,
+            String hardwareSn,
+            UUID sessionUid,
+            DeliveryRecoveryQuarantineRequest request) {
+        Scope platform = authorize(true, null, null, "device.manage");
+        String normalizedHardwareSn = normalizeHardwareSn(hardwareSn);
+        if (deliveryRecoveryQuarantines == null) {
+            throw new IllegalStateException(
+                    "delivery recovery quarantine service is unavailable");
+        }
+        if (sessionUid == null
+                || request == null
+                || request.expectedTaskUid() == null
+                || request.expectedSessionVersion() == null
+                || !Boolean.TRUE.equals(
+                request.physicalOutcomeUnknownConfirmed())
+                || !Boolean.TRUE.equals(request.causeFixedConfirmed())
+                || !Boolean.TRUE.equals(
+                request.devicePowerCycledConfirmed())
+                || !Boolean.TRUE.equals(
+                request.motionAreaClearConfirmed())
+                || !Boolean.TRUE.equals(
+                request.deliveryDoorClosedConfirmed())
+                || !Boolean.TRUE.equals(
+                request.mechanismClearConfirmed())) {
+            throw invalid(
+                    "异常收口请求不完整，必须确认原结果未知、设备已重新上电、故障已排除，且投递门关闭、机构无卡物、运动范围无人");
+        }
+        String reason = required(request.reason(), 500, "reason");
+        var normalizedRequest =
+                new DeliveryRecoveryQuarantineRequest(
+                        request.expectedTaskUid(),
+                        request.expectedSessionVersion(),
+                        true,
+                        true,
+                        true,
+                        true,
+                        true,
+                        true,
+                        reason);
+        return command(
+                operationUid,
+                platform,
+                "device.delivery.quarantine-recovery",
+                "DELIVERY_SESSION",
+                sessionUid.toString(),
+                normalizedRequest,
+                DeliveryRecoveryQuarantineView.class,
+                () -> {
+                    DeliveryRecoveryQuarantineView response =
+                            deliveryRecoveryQuarantines.request(
+                                    operationUid,
+                                    normalizedHardwareSn,
+                                    sessionUid,
+                                    Objects.requireNonNull(
+                                            platform.platformAdminId()),
+                                    normalizedRequest);
+                    return new CommandResult<>(
+                            response,
+                            Map.of(
+                                    "sessionVersion",
+                                    request.expectedSessionVersion(),
+                                    "originalTaskUid",
+                                    request.expectedTaskUid()),
+                            Map.of(
+                                    "recoveryUid",
+                                    response.recoveryUid(),
+                                    "state",
+                                    response.state(),
+                                    "businessValue",
+                                    response.businessValue()),
+                            reason);
+                });
+    }
+
+    @Transactional(readOnly = true)
+    public DeliveryRecoveryQuarantineView deliveryRecoveryQuarantine(
+            String hardwareSn,
+            UUID recoveryUid) {
+        authorize(true, null, null, "device.read");
+        if (deliveryRecoveryQuarantines == null) {
+            throw new IllegalStateException(
+                    "delivery recovery quarantine service is unavailable");
+        }
+        return deliveryRecoveryQuarantines.detail(
+                normalizeHardwareSn(hardwareSn), recoveryUid);
     }
 
     static boolean canConfirmDeliveryNotStarted(
@@ -4006,7 +4219,9 @@ public class TargetDeviceApplication {
                 description = uncertain
                         ? task.deliveryNotStartedConfirmationAvailable()
                                 ? "原开门授权已经失效，后台也没有收到设备接受、开门或投递结果。系统不会重发开门；现场确认本次投递从未开始后，可以安全结束原投递。"
-                                : "设备云平台可能已经接收启动请求，但后台无法排除设备曾经接受或执行。系统保留设备占用且不会重发开门，请联系技术人员核对现场。"
+                                : task.deliveryRecoveryQuarantineAvailable()
+                                ? "后台无法判断原投递动作是否执行。确认设备已经完整断电重启、投递门关闭、机构无卡物且运动范围无人后，可以要求设备采集新的只读安全证据并隔离结束原业务。已有重量和照片只保存为问题证据；不会创建投递订单、不会增加余额，也不会触发自动提现。"
+                                : "设备云平台可能已经接收启动请求，但后台无法排除设备曾经接受或执行。系统保留设备占用且不会重发开门，请先让设备上线并联系技术人员核对现场。"
                         : safelyEnded
                                 ? "现场已确认设备没有开门或进入投递流程，原投递不会重发，也不会生成投递订单。故障排除后，请让用户重新扫码发起一次新投递。"
                                 : reasonDescription(reason)
@@ -4014,6 +4229,8 @@ public class TargetDeviceApplication {
                 actions = List.of(uncertain
                         ? task.deliveryNotStartedConfirmationAvailable()
                                 ? "CONFIRM_DELIVERY_NOT_STARTED"
+                                : task.deliveryRecoveryQuarantineAvailable()
+                                ? "QUARANTINE_DELIVERY_RECOVERY"
                                 : "CONTACT_SUPPORT"
                         : "USER_RESTART_REQUIRED");
             }
@@ -4060,6 +4277,85 @@ public class TargetDeviceApplication {
                 task.updatedAt() == null
                         ? null : task.updatedAt().toInstant(ZoneOffset.UTC),
                 actions);
+    }
+
+    private List<DeviceTechnicalIssueView> deliveryRecoveryIssues(
+            long assetId) {
+        return jdbc.query("""
+                        SELECT recovery.recovery_uid,
+                               recovery.state AS recovery_state,
+                               recovery.reason,
+                               recovery.requested_at,
+                               recovery.applied_at,
+                               HEX(recovery.resolution_evidence_sha256)
+                                   AS evidence_sha256,
+                               recovery.recovery_task_uid,
+                               task.state AS task_state,
+                               task.blocked_reason_code,
+                               task.blocked_diagnostic,
+                               session.session_uid,
+                               session.lock_version AS session_version
+                        FROM dev_delivery_recovery_quarantine recovery
+                        JOIN dev_delivery_session session
+                          ON session.id = recovery.delivery_session_id
+                        LEFT JOIN ops_reliable_task task
+                          ON task.task_uid = recovery.recovery_task_uid
+                        WHERE recovery.asset_id = ?
+                        ORDER BY recovery.id DESC
+                        LIMIT 20
+                        """,
+                (rs, ignored) -> {
+                    String recoveryState =
+                            rs.getString("recovery_state");
+                    boolean applied = "APPLIED".equals(recoveryState);
+                    String reason = rs.getString("reason");
+                    String taskState = rs.getString("task_state");
+                    String blockedReason =
+                            rs.getString("blocked_reason_code");
+                    return new DeviceTechnicalIssueView(
+                            rs.getString("recovery_uid"),
+                            "DELIVERY",
+                            applied
+                                    ? "RECORDED"
+                                    : "RECOVERY_IN_PROGRESS",
+                            applied ? "INFO" : "CRITICAL",
+                            applied
+                                    ? "DEVICE.DELIVERY_RECOVERY_QUARANTINED"
+                                    : "DEVICE.DELIVERY_RECOVERY_PENDING",
+                            applied
+                                    ? "异常投递已隔离收口"
+                                    : "异常投递正在等待设备安全确认",
+                            applied
+                                    ? "设备已取消原投递业务并释放占用。已有重量和照片仅作为问题证据保存；不会创建投递订单、不会增加余额，也不会触发自动提现。现场记录："
+                                    + reason
+                                    : "平台已下发独立的异常收口指令，正在等待设备用重启后的 MCU 空闲状态和传感器自检完成确认。等待期间原投递仍保持占用，也不会产生订单或资金价值。",
+                            null,
+                            optionalUuid(
+                                    rs.getString("recovery_task_uid")),
+                            UUID.fromString(
+                                    rs.getString("session_uid")),
+                            rs.getLong("session_version"),
+                            null,
+                            blockedReason,
+                            null,
+                            null,
+                            firstNonBlank(
+                                    rs.getString("evidence_sha256"),
+                                    rs.getString("blocked_diagnostic")),
+                            null,
+                            null,
+                            instant(rs, applied
+                                    ? "applied_at"
+                                    : "requested_at"),
+                            applied
+                                    ? List.of(
+                                            "VIEW_DELIVERY_RECOVERY_EVIDENCE",
+                                            "USER_RESTART_REQUIRED")
+                                    : "BLOCKED".equals(taskState)
+                                    ? List.of("OPEN_RELIABLE_TASK")
+                                    : List.of("WAIT"));
+                },
+                assetId);
     }
 
     private List<DeviceTechnicalIssueView> baselineIssues(long assetId) {
@@ -4826,6 +5122,7 @@ public class TargetDeviceApplication {
             UUID deliverySessionUid,
             Long deliverySessionVersion,
             boolean deliveryNotStartedConfirmationAvailable,
+            boolean deliveryRecoveryQuarantineAvailable,
             String cleanStatus,
             String applicationStatus,
             LocalDateTime edgePersistedAt,

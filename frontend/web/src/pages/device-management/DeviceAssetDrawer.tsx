@@ -40,6 +40,7 @@ import {
   getPlatformDeviceConfigurationApplication,
   getPlatformDeviceConfigurationVersion,
   getPlatformDeviceFactoryProgress,
+  getPlatformDeliveryRecoveryQuarantine,
   getPlatformDeviceRuntime,
   getTenantDeviceRuntime,
   listDeviceAcceptanceEvidence,
@@ -47,6 +48,7 @@ import {
   listPlatformDeviceConfigurationVersions,
   listPlatformDeviceTechnicalIssues,
   releaseDeviceConfiguration,
+  quarantinePlatformDeliveryRecovery,
   resynchronizePlatformDeviceConfiguration,
   rollForwardPlatformDeviceConfiguration,
   startPlatformBaselineMeasurementAttempt,
@@ -61,6 +63,7 @@ import {
   type DevicePortRuntime,
   type DeviceRuntime,
   type DeviceTechnicalIssue,
+  type DeliveryRecoveryQuarantine,
 } from '@/api/deviceDirectory';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { formatShanghaiTime } from '@/utils/decimal';
@@ -145,6 +148,16 @@ interface ManualBaselineAttempt {
 interface DeliveryNotStartedConfirmationForm {
   causeFixedConfirmed: boolean;
   deliveryNeverStartedConfirmed: boolean;
+  reason: string;
+}
+
+interface DeliveryRecoveryQuarantineForm {
+  physicalOutcomeUnknownConfirmed: boolean;
+  causeFixedConfirmed: boolean;
+  devicePowerCycledConfirmed: boolean;
+  motionAreaClearConfirmed: boolean;
+  deliveryDoorClosedConfirmed: boolean;
+  mechanismClearConfirmed: boolean;
   reason: string;
 }
 
@@ -1281,6 +1294,8 @@ export default function DeviceAssetDrawer({
   const [baselineForm] = Form.useForm<ManualBaselineAttempt>();
   const [deliveryRecoveryForm] =
     Form.useForm<DeliveryNotStartedConfirmationForm>();
+  const [deliveryQuarantineForm] =
+    Form.useForm<DeliveryRecoveryQuarantineForm>();
   const [evidence, setEvidence] = useState<DeviceAcceptanceEvidence[]>([]);
   const [evidenceExpanded, setEvidenceExpanded] = useState(false);
   const [evidenceLoaded, setEvidenceLoaded] = useState(false);
@@ -1312,6 +1327,16 @@ export default function DeviceAssetDrawer({
     useState(false);
   const [deliveryRecoveryIssue, setDeliveryRecoveryIssue] =
     useState<DeviceTechnicalIssue>();
+  const [deliveryQuarantineSubmitting, setDeliveryQuarantineSubmitting] =
+    useState(false);
+  const [deliveryQuarantineIssue, setDeliveryQuarantineIssue] =
+    useState<DeviceTechnicalIssue>();
+  const [deliveryQuarantineEvidence, setDeliveryQuarantineEvidence] =
+    useState<DeliveryRecoveryQuarantine>();
+  const [deliveryQuarantineEvidenceIssue,
+    setDeliveryQuarantineEvidenceIssue] = useState<DeviceTechnicalIssue>();
+  const [deliveryQuarantineEvidenceLoading,
+    setDeliveryQuarantineEvidenceLoading] = useState(false);
   const [reevaluating, setReevaluating] = useState(false);
   const [entryQrDataUrl, setEntryQrDataUrl] = useState<string>();
   const [entryQrError, setEntryQrError] = useState(false);
@@ -1512,6 +1537,9 @@ export default function DeviceAssetDrawer({
     setLatestApplication(undefined);
     setBaselineIssue(undefined);
     setDeliveryRecoveryIssue(undefined);
+    setDeliveryQuarantineIssue(undefined);
+    setDeliveryQuarantineEvidence(undefined);
+    setDeliveryQuarantineEvidenceIssue(undefined);
     void loadTechnicalIssues();
     void loadConfiguration();
     // The stable identities below intentionally define a new drawer target.
@@ -1898,6 +1926,90 @@ export default function DeviceAssetDrawer({
     }
   };
 
+  const openDeliveryRecoveryQuarantine = (issue: DeviceTechnicalIssue) => {
+    if (
+      !issue.taskUid
+      || !issue.deliverySessionUid
+      || issue.deliverySessionVersion == null
+    ) return;
+    deliveryQuarantineForm.setFieldsValue({
+      physicalOutcomeUnknownConfirmed: false,
+      causeFixedConfirmed: false,
+      devicePowerCycledConfirmed: false,
+      motionAreaClearConfirmed: false,
+      deliveryDoorClosedConfirmed: false,
+      mechanismClearConfirmed: false,
+      reason: '',
+    });
+    setDeliveryQuarantineIssue(issue);
+  };
+
+  const submitDeliveryRecoveryQuarantine = async () => {
+    if (
+      !asset
+      || !deliveryQuarantineIssue?.taskUid
+      || !deliveryQuarantineIssue.deliverySessionUid
+      || deliveryQuarantineIssue.deliverySessionVersion == null
+    ) return;
+    const values = await deliveryQuarantineForm.validateFields();
+    const payload = {
+      expectedTaskUid: deliveryQuarantineIssue.taskUid,
+      expectedSessionVersion:
+        deliveryQuarantineIssue.deliverySessionVersion,
+      physicalOutcomeUnknownConfirmed: true as const,
+      causeFixedConfirmed: true as const,
+      devicePowerCycledConfirmed: true as const,
+      motionAreaClearConfirmed: true as const,
+      deliveryDoorClosedConfirmed: true as const,
+      mechanismClearConfirmed: true as const,
+      reason: values.reason,
+    };
+    setDeliveryQuarantineSubmitting(true);
+    try {
+      await executeCommand(
+        commandKey(
+          'device.delivery.quarantine-recovery',
+          `${asset.hardwareSn}:${deliveryQuarantineIssue.deliverySessionUid}`,
+          payload,
+        ),
+        (intent) => quarantinePlatformDeliveryRecovery(
+          asset.hardwareSn,
+          deliveryQuarantineIssue.deliverySessionUid!,
+          payload,
+          intent,
+        ),
+      );
+      message.success('异常隔离指令已下发；设备确认前仍保持原占用且不会产生订单或余额');
+      setDeliveryQuarantineIssue(undefined);
+      await Promise.all([loadTechnicalIssues(), loadRuntime()]);
+      onChanged();
+    } catch (error) {
+      message.error(errorMessage(error));
+    } finally {
+      setDeliveryQuarantineSubmitting(false);
+    }
+  };
+
+  const openDeliveryRecoveryEvidence = async (issue: DeviceTechnicalIssue) => {
+    if (!asset) return;
+    setDeliveryQuarantineEvidence(undefined);
+    setDeliveryQuarantineEvidenceIssue(issue);
+    setDeliveryQuarantineEvidenceLoading(true);
+    try {
+      setDeliveryQuarantineEvidence(
+        await getPlatformDeliveryRecoveryQuarantine(
+          asset.hardwareSn,
+          issue.issueUid,
+        ),
+      );
+    } catch (error) {
+      message.error(errorMessage(error));
+      setDeliveryQuarantineEvidenceIssue(undefined);
+    } finally {
+      setDeliveryQuarantineEvidenceLoading(false);
+    }
+  };
+
   const reevaluateAcceptanceFromIssue = async () => {
     if (!asset) return;
     setReevaluating(true);
@@ -1962,6 +2074,26 @@ export default function DeviceAssetDrawer({
           onClick={() => openDeliveryNotStartedConfirmation(issue)}
         >
           确认未开始并结束本次投递
+        </Button>
+      )}
+      {issue.nextActions.includes('QUARANTINE_DELIVERY_RECOVERY') && (
+        <Button
+          size="small"
+          type="primary"
+          danger
+          onClick={() => openDeliveryRecoveryQuarantine(issue)}
+        >
+          隔离结束物理结果未知的投递
+        </Button>
+      )}
+      {issue.nextActions.includes('VIEW_DELIVERY_RECOVERY_EVIDENCE') && (
+        <Button
+          size="small"
+          loading={deliveryQuarantineEvidenceLoading
+            && deliveryQuarantineEvidenceIssue?.issueUid === issue.issueUid}
+          onClick={() => void openDeliveryRecoveryEvidence(issue)}
+        >
+          查看问题证据
         </Button>
       )}
     </Space>
@@ -2725,6 +2857,229 @@ export default function DeviceAssetDrawer({
             <Input.TextArea maxLength={500} showCount rows={3} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        width={760}
+        title="隔离结束物理结果未知的投递"
+        open={Boolean(deliveryQuarantineIssue)}
+        confirmLoading={deliveryQuarantineSubmitting}
+        onOk={() => void submitDeliveryRecoveryQuarantine()}
+        onCancel={() => setDeliveryQuarantineIssue(undefined)}
+        okText="确认现场安全并下发隔离指令"
+        okButtonProps={{ danger: true }}
+        destroyOnClose
+      >
+        <Alert
+          type="error"
+          showIcon
+          message="这是承认原动作结果未知的隔离操作，不是补报投递成功"
+          description="设备上线后只会读取控制板空闲状态、门磁和安全传感器，并核对整机确实经历了新的启动；不会再次发送开门指令。设备确认前仍保留原占用；确认后只结束这一笔异常投递，已有重量和照片仅作为问题记录展示，不会生成投递订单、增加余额、进入审核或触发自动提现。"
+          style={{ marginBottom: 20 }}
+        />
+        <Form form={deliveryQuarantineForm} layout="vertical">
+          <Form.Item
+            name="physicalOutcomeUnknownConfirmed"
+            valuePropName="checked"
+            rules={[{
+              validator: (_, value) => value
+                ? Promise.resolve()
+                : Promise.reject(new Error('请确认原投递的物理结果已经无法可靠还原')),
+            }]}
+          >
+            <Checkbox>
+              我确认原投递是否实际完成无法可靠判断，不会把它认定为成功投递
+            </Checkbox>
+          </Form.Item>
+          <Form.Item
+            name="causeFixedConfirmed"
+            valuePropName="checked"
+            rules={[{
+              validator: (_, value) => value
+                ? Promise.resolve()
+                : Promise.reject(new Error('请先确认已排除原异常原因')),
+            }]}
+          >
+            <Checkbox>我已检查并排除导致原业务卡住的故障或异常</Checkbox>
+          </Form.Item>
+          <Form.Item
+            name="devicePowerCycledConfirmed"
+            valuePropName="checked"
+            rules={[{
+              validator: (_, value) => value
+                ? Promise.resolve()
+                : Promise.reject(new Error('请先确认整机已经完全断电并重新通电')),
+            }]}
+          >
+            <Checkbox>
+              我已让整机（香橙派和控制板）完全断电，再重新通电启动
+            </Checkbox>
+          </Form.Item>
+          <Form.Item
+            name="deliveryDoorClosedConfirmed"
+            valuePropName="checked"
+            rules={[{
+              validator: (_, value) => value
+                ? Promise.resolve()
+                : Promise.reject(new Error('请先确认投递门已经完全关闭')),
+            }]}
+          >
+            <Checkbox>我在现场确认投递门已经完全关闭</Checkbox>
+          </Form.Item>
+          <Form.Item
+            name="mechanismClearConfirmed"
+            valuePropName="checked"
+            rules={[{
+              validator: (_, value) => value
+                ? Promise.resolve()
+                : Promise.reject(new Error('请先确认机构内没有卡物')),
+            }]}
+          >
+            <Checkbox>我在现场确认机构没有卡物或其他阻碍</Checkbox>
+          </Form.Item>
+          <Form.Item
+            name="motionAreaClearConfirmed"
+            valuePropName="checked"
+            rules={[{
+              validator: (_, value) => value
+                ? Promise.resolve()
+                : Promise.reject(new Error('请先确认运动范围内无人')),
+            }]}
+          >
+            <Checkbox>我在现场确认机构运动范围内无人</Checkbox>
+          </Form.Item>
+          <Form.Item
+            name="reason"
+            label="异常经过和现场处理说明"
+            rules={[{ required: true, message: '请记录异常经过和现场处理结果' }]}
+          >
+            <Input.TextArea maxLength={500} showCount rows={4} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        width={820}
+        title="异常投递的问题证据"
+        open={Boolean(deliveryQuarantineEvidenceIssue)}
+        footer={null}
+        onCancel={() => {
+          setDeliveryQuarantineEvidenceIssue(undefined);
+          setDeliveryQuarantineEvidence(undefined);
+        }}
+        destroyOnClose
+      >
+        <Spin spinning={deliveryQuarantineEvidenceLoading}>
+          {deliveryQuarantineEvidence && (
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Alert
+                type="info"
+                showIcon
+                message="该记录的业务价值固定为“无”"
+                description="以下重量、照片和诊断内容只用于展示、追查设备问题，不是投递完成凭据，也不会进入订单、余额、审核、退款或提现流程。"
+              />
+              <Descriptions bordered size="small" column={2}>
+                <Descriptions.Item label="隔离记录编号" span={2}>
+                  <Typography.Text copyable code>
+                    {deliveryQuarantineEvidence.recoveryUid}
+                  </Typography.Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="投递编号" span={2}>
+                  <Typography.Text copyable code>
+                    {deliveryQuarantineEvidence.sessionUid}
+                  </Typography.Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="处理状态">
+                  {deliveryQuarantineEvidence.state}
+                </Descriptions.Item>
+                <Descriptions.Item label="业务价值">
+                  <Tag color="default">无</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="投口">
+                  {deliveryQuarantineEvidence.portNo == null
+                    ? '设备确认前待补充'
+                    : `${deliveryQuarantineEvidence.portNo} 号`}
+                </Descriptions.Item>
+                <Descriptions.Item label="隔离完成时间">
+                  {optionalTime(deliveryQuarantineEvidence.appliedAt)}
+                </Descriptions.Item>
+                <Descriptions.Item label="现场说明" span={2}>
+                  {deliveryQuarantineEvidence.reason}
+                </Descriptions.Item>
+                <Descriptions.Item label="证据摘要" span={2}>
+                  {deliveryQuarantineEvidence.evidenceSha256
+                    ? (
+                      <Typography.Text copyable code>
+                        {deliveryQuarantineEvidence.evidenceSha256}
+                      </Typography.Text>
+                    )
+                    : '设备尚未返回终态证据'}
+                </Descriptions.Item>
+              </Descriptions>
+              <Collapse
+                items={[
+                  {
+                    key: 'operator-confirmations',
+                    label: '管理员现场确认',
+                    children: (
+                      <pre style={{
+                        margin: 0,
+                        maxHeight: 260,
+                        overflow: 'auto',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-all',
+                      }}>
+                        {JSON.stringify(
+                          deliveryQuarantineEvidence.operatorConfirmations,
+                          null,
+                          2,
+                        )}
+                      </pre>
+                    ),
+                  },
+                  {
+                    key: 'device-evidence',
+                    label: '设备重启后采集的安全证据',
+                    children: (
+                      <pre style={{
+                        margin: 0,
+                        maxHeight: 320,
+                        overflow: 'auto',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-all',
+                      }}>
+                        {JSON.stringify(
+                          deliveryQuarantineEvidence.deviceEvidence,
+                          null,
+                          2,
+                        )}
+                      </pre>
+                    ),
+                  },
+                  {
+                    key: 'existing-data',
+                    label: '原业务已存在的数据（仅展示）',
+                    children: (
+                      <pre style={{
+                        margin: 0,
+                        maxHeight: 420,
+                        overflow: 'auto',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-all',
+                      }}>
+                        {JSON.stringify(
+                          deliveryQuarantineEvidence.existingData,
+                          null,
+                          2,
+                        )}
+                      </pre>
+                    ),
+                  },
+                ]}
+              />
+            </Space>
+          )}
+        </Spin>
       </Modal>
 
       <Modal

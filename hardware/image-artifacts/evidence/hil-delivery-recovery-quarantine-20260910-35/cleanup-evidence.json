@@ -1,0 +1,9 @@
+{
+  "imageRelatedLoopDevicesRemaining": 0,
+  "taskDockerBindMountsReleased": 17,
+  "taskDockerBindMountsRemaining": 0,
+  "runningDockerContainers": 0,
+  "originalWslSwapRestored": true,
+  "swapVerificationSource": "/proc/swaps",
+  "historicalImagesOrDockerResourcesDeleted": false
+}

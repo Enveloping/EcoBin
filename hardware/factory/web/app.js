@@ -87,7 +87,8 @@ const FACTORY_PHASE_LABELS = Object.freeze({
   MCU_CHECK_FAILED: "控制板与传感器检查未通过",
   MCU_CHECK_PASSED: "控制板与传感器检查已通过",
   WAITING_FOR_500G_LOAD: "等待放置 500 克砝码",
-  WAITING_FOR_WEIGHT_REMOVAL: "等待取下 500 克砝码",
+  WAITING_FOR_REFERENCE_LOAD: "等待放置已知重量的测试物",
+  WAITING_FOR_WEIGHT_REMOVAL: "等待取下测试物",
   WEIGHT_CHECK_FAILED: "称重检查未通过",
   WEIGHT_CHECK_PASSED: "称重检查已通过",
   WAITING_FOR_CAMERA_ROLE_CONFIRMATION: "等待确认两路摄像头位置",
@@ -416,6 +417,12 @@ const TIME_SYNC_ERRORS = new Set([
 ]);
 
 const ACTION_ERROR_DESCRIPTIONS = Object.freeze({
+  REFERENCE_WEIGHT_INVALID: "参考重量必须为 11～350000 的整数克数，且不得超过设备实际额定承重。",
+  WEIGHT_REFERENCE_LOCKED: "本轮参考重量已锁定，请按当前记录完成检查；失败后可重新采集空载。",
+  WEIGHT_DELTA_OUT_OF_RANGE: "加载前后的重量差超出参考重量 ±10 克，请查看下方实测偏差。",
+  WEIGHT_READING_NOT_STABLE: "在采样时限内未取得稳定重量，请查看下方采样数值，检查物体是否放稳。",
+  TEST_WEIGHT_NOT_REMOVED: "取下后的读数未回到原空载值 ±10 克，请检查承重面和下方读数。",
+  MCU_F1_QUERY_TIMEOUT: "未收到控制板自检回复；这不是 0 克读数，请检查通信和模块状态。",
   ACCEPTANCE_EXECUTOR_BUSY: "另一项硬件操作正在执行，请等待完成后再试。",
   ACCEPTANCE_EXECUTOR_NOT_OPEN: "本机硬件检查服务尚未启动，请刷新页面后重试。",
   ACCEPTANCE_EXECUTOR_UNAVAILABLE: "本机硬件检查服务暂时不可用。",
@@ -453,9 +460,9 @@ const ACTIONS = Object.freeze({
     parameters: () => ({ confirmRestartFailedAcceptance: true, mcuUpdateLineInstalled: selectedUpdateLineState() }),
   },
   CHECK_MCU: { label: "检查控制板与传感器", prompt: "确认设备当前没有进行投递或清运动作？", parameters: () => ({}) },
-  CAPTURE_EMPTY_WEIGHT: { label: "采集稳定空载重量", prompt: "请清空承重面。确认当前没有砝码或测试物？", parameters: () => ({ confirmScaleEmpty: true }) },
-  CAPTURE_LOADED_WEIGHT: { label: "采集 500 克重量", prompt: "请将 500 克砝码放稳。确认已正确放置？", parameters: () => ({ confirm500gPlaced: true }) },
-  CONFIRM_WEIGHT_REMOVED: { label: "确认砝码已取下", prompt: "请取下 500 克砝码。确认承重面已经恢复空载？", parameters: () => ({ confirm500gRemoved: true }) },
+  CAPTURE_EMPTY_WEIGHT: { label: "采集稳定空载重量", prompt: () => `本次参考重量为 ${selectedReferenceWeight()} 克。请清空承重面并等待至少 3 秒。确认当前没有测试物？`, parameters: () => ({ confirmScaleEmpty: true, referenceWeightGrams: selectedReferenceWeight() }) },
+  CAPTURE_LOADED_WEIGHT: { label: "采集加载重量", prompt: () => `请放置已知重量为 ${recordedReferenceWeight()} 克的测试物，放稳后等待至少 3 秒。确认已正确放置？`, parameters: () => ({ confirmReferencePlaced: true }) },
+  CONFIRM_WEIGHT_REMOVED: { label: "确认测试物已取下", prompt: "请取下测试物并等待至少 3 秒。确认承重面已经恢复空载？", parameters: () => ({ confirmReferenceRemoved: true }) },
   CAPTURE_CAMERAS: { label: "拍摄双摄确认图", prompt: "将立即使用两台摄像头拍摄临时画面。确认继续？", parameters: () => ({ confirmCaptureNow: true }) },
   CONFIRM_CAMERAS: {
     label: "确认摄像头角色",
@@ -488,8 +495,8 @@ const ACTION_INSTRUCTIONS = Object.freeze({
   START: "选择控制板远程升级线路的实际装配情况，然后开始本机硬件检查。",
   RESTART_FAILED_RUN: "排除上次错误后，重新开始一轮独立检查。",
   CHECK_MCU: "系统将查询设备控制板身份和传感器自检结果。",
-  CAPTURE_EMPTY_WEIGHT: "清空承重面，等待系统取得稳定空载值。",
-  CAPTURE_LOADED_WEIGHT: "放置 500 克砝码并保持稳定。",
+  CAPTURE_EMPTY_WEIGHT: "先填写测试物的已知重量，再清空承重面，等待至少 3 秒后采集空载。不会修改传感器校准参数。",
+  CAPTURE_LOADED_WEIGHT: "放置本轮参考重量的测试物，放稳并等待至少 3 秒后采集。",
   CONFIRM_WEIGHT_REMOVED: "取下砝码，确认称重恢复到空载范围。",
   CAPTURE_CAMERAS: "拍摄本次临时画面，用于确认箱外和箱内摄像头。",
   CONFIRM_CAMERAS: "查看两张临时画面，确认摄像头角色正确。",
@@ -507,6 +514,15 @@ function selectedUpdateLineState() {
   if (value === "true") return true;
   if (value === "false") return false;
   return null;
+}
+
+function selectedReferenceWeight() {
+  const input = byId("reference-weight-grams");
+  return input.validity.valid && input.value.trim() !== "" ? input.valueAsNumber : NaN;
+}
+
+function recordedReferenceWeight() {
+  return currentStatus?.factoryTest?.checks?.weight?.targetDeltaGrams ?? 500;
 }
 
 function createUuidV4() {
@@ -837,6 +853,20 @@ function updateOperatorPanel(status) {
   const selectingUpdateLine = action === "START" || action === "RESTART_FAILED_RUN";
   byId("update-line-selection").hidden = !selectingUpdateLine;
   byId("mcu-update-line-installed").disabled = requestRunning || !selectingUpdateLine;
+  const weightActions = ["CAPTURE_EMPTY_WEIGHT", "CAPTURE_LOADED_WEIGHT", "CONFIRM_WEIGHT_REMOVED"];
+  byId("weight-reference-panel").hidden = !weightActions.includes(action);
+  const referenceInput = byId("reference-weight-grams");
+  referenceInput.disabled = requestRunning || action !== "CAPTURE_EMPTY_WEIGHT";
+  if (["CAPTURE_LOADED_WEIGHT", "CONFIRM_WEIGHT_REMOVED"].includes(action)) {
+    referenceInput.value = String(recordedReferenceWeight());
+  }
+  byId("weight-reference-state").textContent = action === "CAPTURE_EMPTY_WEIGHT"
+    ? "开始采集后，本组三阶段称重将使用同一个参考重量。"
+    : `本轮已锁定为 ${recordedReferenceWeight()} 克。此输入仅用于验收比较，不会校准或修正称重读数。`;
+  if (action === "CAPTURE_LOADED_WEIGHT") {
+    button.textContent = `采集 ${recordedReferenceWeight()} 克测试物重量`;
+    byId("action-instruction").textContent = `放置已知重量 ${recordedReferenceWeight()} 克的测试物，放稳并等待至少 3 秒后采集。`;
+  }
   byId("simulation-warning").hidden = !(
     factory.mcuPeripheralEvidenceMode === "SIMULATED_PERIPHERALS"
     && currentFlowNode?.id === "LOCAL_HARDWARE_ACCEPTANCE"
@@ -973,12 +1003,147 @@ function updateRuntimeServices(status) {
   );
 }
 
+function grams(value, signed = false) {
+  return Number.isInteger(value)
+    ? `${signed && value > 0 ? "+" : ""}${value} g`
+    : "尚未采集";
+}
+
+function measuredFlag(value, yes, no) {
+  return value === true ? yes : value === false ? no : "尚未采集";
+}
+
+function measurementStatus(check) {
+  return ({ NOT_RUN: "尚未采集", RUNNING: "进行中", PASSED: "已通过", FAILED: "未通过", FAILED_SAFE: "失败，已安全恢复", RECOVERY_REQUIRED: "需安全恢复", NOT_APPLICABLE: "未安装，已跳过" })[check?.status] || "待确认";
+}
+
+function measurementRows(list, rows) {
+  list.replaceChildren();
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const detail = document.createElement("dd");
+    term.textContent = label;
+    detail.textContent = value ?? "尚未采集";
+    row.append(term, detail);
+    list.appendChild(row);
+  }
+}
+
+function updateMeasurements(status) {
+  const factory = status.factoryTest || {};
+  const checks = factory.checks || {};
+  const weight = checks.weight || {};
+  const target = weight.targetDeltaGrams;
+  const tolerance = weight.toleranceGrams;
+  const hasRange = Number.isInteger(target) && Number.isInteger(tolerance);
+  const delta = weight.deltaGrams;
+  const error = Number.isInteger(delta) && Number.isInteger(target) ? delta - target : null;
+  const drift = Number.isInteger(weight.removedWeightGrams) && Number.isInteger(weight.emptyWeightGrams)
+    ? weight.removedWeightGrams - weight.emptyWeightGrams : null;
+  byId("measurements-revision").textContent = Number.isInteger(factory.revision) ? `记录版本 ${factory.revision}` : "等待记录";
+  byId("weight-measurements-title").textContent = `称重 · ${measurementStatus(weight)}`;
+  byId("weight-measurements").classList.toggle("is-failed", weight.status === "FAILED");
+  measurementRows(byId("weight-summary"), [
+    ["本轮已知参考重量", grams(target)],
+    ["合格重量差范围", hasRange ? `${target - tolerance}～${target + tolerance} g（±${tolerance} g）` : "尚未设定"],
+    ["实测重量差（加载 − 空载）", grams(delta)],
+    ["与参考重量的偏差", grams(error, true)],
+    ["取下后偏离空载", grams(drift, true)],
+    ["稳定条件", Number.isInteger(weight.stableSampleCount) && Number.isInteger(weight.stableMaxSpreadGrams)
+      ? `连续 ${weight.stableSampleCount} 次，最大差 ≤${weight.stableMaxSpreadGrams} g` : "尚未采集"],
+    ["采样间隔 / 时限", Number.isInteger(weight.sampleIntervalMs) && Number.isInteger(weight.sampleTimeoutMs)
+      ? `${weight.sampleIntervalMs} / ${weight.sampleTimeoutMs} ms` : "尚未采集"],
+  ]);
+  const stages = byId("weight-stage-readings");
+  stages.replaceChildren();
+  for (const [key, title] of [["empty", "01 · 空载"], ["loaded", "02 · 放上测试物"], ["removed", "03 · 取下测试物"]]) {
+    const trace = weight.sampling?.[key];
+    const samples = Array.isArray(trace?.samplesGrams) ? trace.samplesGrams.filter(Number.isInteger).slice(-32) : [];
+    const article = document.createElement("section");
+    article.className = "weight-stage";
+    article.dataset.stage = key;
+    const heading = document.createElement("h4");
+    heading.textContent = title;
+    const rows = document.createElement("dl");
+    rows.className = "measurement-values";
+    const sampleResult = !trace ? "尚未采集"
+      : trace.resultCode === "STABLE_WEIGHT_CAPTURED" ? "已取得稳定值"
+      : trace.resultCode === "SAMPLING" ? "采样中，尚无结论"
+      : actionErrorDescription(trace.resultCode);
+    measurementRows(rows, [
+      ["稳定值（中位数）", grams(weight[`${key}WeightGrams`])],
+      ["末次采样读数", grams(samples.length ? samples[samples.length - 1] : null)],
+      ["有效采样次数", Number.isInteger(trace?.readCount) ? `${trace.readCount} 次` : "尚未采集"],
+      ["最近采样序列（最多 32 次）", samples.length ? `${samples.join(" / ")} g` : "尚未取得有效读数"],
+      ["上述序列最大差", samples.length ? grams(Math.max(...samples) - Math.min(...samples)) : "尚未采集"],
+      ["采样结果", sampleResult],
+    ]);
+    article.append(heading, rows);
+    stages.appendChild(article);
+  }
+  const guidance = weight.status === "FAILED" ? actionErrorDescription(weight.resultCode)
+    : "判定依据是加载前后的重量差，不是加载后的总读数。放置或取下测试物后请等待至少 3 秒再采集；稳定值为采样窗口中位数，不能单凭连续相同读数判断传感器准确。";
+  byId("weight-measurement-guidance").textContent = `${guidance} ${weight.resultCode && weight.resultCode !== "NOT_RUN" ? `记录代码：${weight.resultCode}` : ""}`;
+
+  const list = byId("step-measurements");
+  list.replaceChildren();
+  const add = (name, title, rows) => {
+    const check = checks[name] || {};
+    const article = document.createElement("article");
+    article.className = "measurement-card";
+    article.dataset.check = name;
+    const heading = document.createElement("h3");
+    heading.textContent = `${title} · ${measurementStatus(check)}`;
+    const dl = document.createElement("dl");
+    dl.className = "measurement-values";
+    measurementRows(dl, [...rows, ["结果代码（报修用）", check.resultCode || "尚未采集"]]);
+    article.append(heading, dl);
+    list.appendChild(article);
+  };
+  const mcu = checks.mcu || {};
+  add("mcu", "控制板与传感器", [
+    ["固件版本", factory.mcuIdentity?.firmwareVersion],
+    ["自检时重量", grams(mcu.selfTestWeightGrams)],
+    ["自检时红外遮挡", measuredFlag(mcu.selfTestInfraredBlocked, "有遮挡", "无遮挡")],
+    ["自检时烟雾状态", mcu.selfTestSmokeCode === 0 ? "正常（0）" : "尚未取得有效自检"],
+  ]);
+  const cameras = checks.cameras || {};
+  add("cameras", "双摄像头", [
+    ["箱外图像非空", measuredFlag(cameras.outsideCaptureNonEmpty, "是", "否")],
+    ["箱内图像非空", measuredFlag(cameras.insideCaptureNonEmpty, "是", "否")],
+    ["箱外位置人工确认", measuredFlag(cameras.outsideRoleConfirmed, "已确认", "未确认")],
+    ["箱内位置人工确认", measuredFlag(cameras.insideRoleConfirmed, "已确认", "未确认")],
+  ]);
+  const upgrade = checks.upgradeLine || {};
+  add("upgradeLine", "远程升级线路", [
+    ["现场装配选择", measuredFlag(factory.mcuUpdateLineInstalled, "已安装", "未安装")],
+    ["升级准备命令发送次数", upgrade.prepareSendAttempts],
+    ["芯片只读识别结果", upgrade.romDeviceId ?? (upgrade.status === "NOT_APPLICABLE" ? "未安装，未探测" : null)],
+    ["是否改写程序", measuredFlag(upgrade.romWritePerformed, "是", "否")],
+  ]);
+  for (const [name, title] of [["delivery", "投递硬件动作"], ["clean", "清运硬件动作"]]) {
+    const check = checks[name] || {};
+    const result = check.result || {};
+    add(name, title, [
+      ["动作命令发送次数", check.sendAttempts],
+      ["动作前重量", grams(result.preWeightGrams)],
+      ["动作后重量", grams(result.postWeightGrams)],
+      ["控制板上报重量差", grams(result.weightDeltaGrams, true)],
+      ["结果帧红外遮挡", measuredFlag(result.infraredBlocked, "有遮挡", "无遮挡")],
+      [name === "clean" ? "清运门关闭人工确认" : "投递区域事后安全确认",
+        measuredFlag(name === "clean" ? check.cleanDoorConfirmed : check.operatorAreaSafeConfirmed, "已确认", "未确认")],
+    ]);
+  }
+}
+
 function updateStatus(status) {
   currentStatus = status;
   renderFlow(status.factoryFlow);
   updateNetworkRetry(status);
   updateRuntimeServices(status);
   updateOperatorPanel(status);
+  updateMeasurements(status);
   byId("stage").textContent = firstBootStageLabel(status.stage);
   byId("release").textContent = releaseLabel(status.image?.releaseId);
   byId("test-status").textContent = factoryTestStatusLabel(status.factoryTest?.status);
@@ -1067,6 +1232,11 @@ async function performPrimaryAction() {
   const operation = byId("primary-action").dataset.operation;
   const definition = ACTIONS[operation];
   if (!definition || requestRunning) return;
+  if (operation === "CAPTURE_EMPTY_WEIGHT" && !Number.isInteger(selectedReferenceWeight())) {
+    byId("action-result").textContent = ACTION_ERROR_DESCRIPTIONS.REFERENCE_WEIGHT_INVALID;
+    byId("reference-weight-grams").reportValidity();
+    return;
+  }
   if (["START", "RESTART_FAILED_RUN"].includes(operation) && selectedUpdateLineState() === null) {
     byId("action-result").textContent = "请先选择控制板远程升级线路的实际装配情况。";
     return;

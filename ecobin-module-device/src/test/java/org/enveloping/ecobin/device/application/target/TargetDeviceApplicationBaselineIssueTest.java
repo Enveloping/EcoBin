@@ -49,6 +49,7 @@ class TargetDeviceApplicationBaselineIssueTest {
                         null,
                         null,
                         false,
+                        false,
                         null,
                         null,
                         null,
@@ -88,6 +89,7 @@ class TargetDeviceApplicationBaselineIssueTest {
                         sessionUid,
                         3L,
                         true,
+                        true,
                         null,
                         null,
                         null,
@@ -103,7 +105,7 @@ class TargetDeviceApplicationBaselineIssueTest {
     }
 
     @Test
-    void uncertainDeliveryWithoutProofOfSafeClosureStillRequiresSupport() {
+    void uncertainDeliveryOffersRemoteIssueOnlyQuarantineWhenEligible() {
         var issue = TargetDeviceApplication.taskIssue(
                 new TargetDeviceApplication.TechnicalTaskRow(
                         23L,
@@ -119,6 +121,7 @@ class TargetDeviceApplicationBaselineIssueTest {
                                 "77f35bc9-7d56-4898-8897-247cd03d2e0f"),
                         4L,
                         false,
+                        true,
                         null,
                         null,
                         null,
@@ -126,7 +129,12 @@ class TargetDeviceApplicationBaselineIssueTest {
                         null,
                         "physical result remains uncertain"));
 
-        assertThat(issue.nextActions()).containsExactly("CONTACT_SUPPORT");
+        assertThat(issue.nextActions()).containsExactly(
+                "QUARANTINE_DELIVERY_RECOVERY");
+        assertThat(issue.description()).contains(
+                "不会创建投递订单",
+                "不会增加余额",
+                "不会触发自动提现");
     }
 
     @Test
@@ -147,6 +155,7 @@ class TargetDeviceApplicationBaselineIssueTest {
                         "PRE_OPEN_ENDED",
                         sessionUid,
                         4L,
+                        false,
                         false,
                         null,
                         null,

@@ -649,6 +649,7 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
 
     uid_field = {
         "DELIVERY_COMPLETE": "sessionUid",
+        "DELIVERY_RECOVERY_QUARANTINED": "sessionUid",
         "CLEAN_COMPLETE": "operationUid",
         "FULLNESS_SAMPLE_COMPLETE": "detectionUid",
         "BASELINE_MEASUREMENT_COMPLETE": "measurementUid",
@@ -664,6 +665,7 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         "DEVICE_COMMAND_OBSERVED",
         "CONFIGURATION_PROGRESS",
         "DELIVERY_COMPLETE",
+        "DELIVERY_RECOVERY_QUARANTINED",
         "CLEAN_COMPLETE",
         "FULLNESS_SAMPLE_COMPLETE",
         "BASELINE_MEASUREMENT_COMPLETE",
@@ -889,6 +891,34 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
                 trusted_cos=mapping["trustedCosEnvironment"]["contractTestProfile"],
             )
 
+    if event_type == "DELIVERY_RECOVERY_QUARANTINED":
+        evidence = payload["deviceEvidence"]
+        if (
+            instance["eventUid"] != payload["recoveryUid"]
+            or instance["commandUid"] == payload["originalCommandUid"]
+            or evidence["previousBootIdentity"]
+            == evidence["currentBootIdentity"]
+            or evidence["workUid"] != payload["sessionUid"]
+            or evidence["commandUid"] != payload["originalCommandUid"]
+            or evidence["permitUid"] != payload["originalCommandUid"]
+        ):
+            raise ContractError(
+                "DELIVERY_RECOVERY_QUARANTINED identity or reboot evidence mismatch"
+            )
+        slots = [photo["slot"] for photo in payload["photos"]]
+        expected = WORK_PHOTO_SLOTS["DELIVERY_SESSION"]
+        if tuple(slots) != expected:
+            raise ContractError(
+                "DELIVERY_RECOVERY_QUARANTINED photos are not in canonical order"
+            )
+        for photo in payload["photos"]:
+            _validate_photo_url(
+                photo,
+                work_type="DELIVERY_SESSION",
+                work_uid=payload["sessionUid"],
+                trusted_cos=mapping["trustedCosEnvironment"]["contractTestProfile"],
+            )
+
     if event_type == "CLEAN_COMPLETE":
         slots = [photo["slot"] for photo in payload["photos"]]
         expected = WORK_PHOTO_SLOTS["CLEAN_OPERATION"]
@@ -1054,6 +1084,7 @@ def _validate_command_semantics(
     uid_field = {
         "APPLY_CONFIGURATION": "applicationUid",
         "START_DELIVERY_SESSION": "sessionUid",
+        "QUARANTINE_DELIVERY_RECOVERY": "sessionUid",
         "START_CLEAN_OPERATION": "operationUid",
         "END_CLEAN_BEFORE_UNLOCK": "operationUid",
         "RESUME_CLEAN_OPERATION": "operationUid",
@@ -1135,6 +1166,24 @@ def _validate_command_semantics(
                 raise ContractError(
                     "APPLY_CONFIGURATION minimum valid fullness samples exceed total"
                 )
+
+    if command_type == "QUARANTINE_DELIVERY_RECOVERY":
+        if expires > issued + datetime.timedelta(minutes=5):
+            raise ContractError(
+                "QUARANTINE_DELIVERY_RECOVERY lifetime exceeds 5 minutes"
+            )
+        if instance["cosGrant"] is not None:
+            raise ContractError(
+                "QUARANTINE_DELIVERY_RECOVERY must not carry COS credentials"
+            )
+        if len({
+            instance["commandUid"],
+            payload["recoveryUid"],
+            payload["originalCommandUid"],
+        }) != 3:
+            raise ContractError(
+                "QUARANTINE_DELIVERY_RECOVERY identities must be distinct"
+            )
 
     if command_type == "START_MCU_FIRMWARE_UPDATE":
         expected_key = (

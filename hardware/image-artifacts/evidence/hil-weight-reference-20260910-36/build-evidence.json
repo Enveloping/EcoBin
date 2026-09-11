@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "artifactClass": "LOCAL_HIL_CANDIDATE_NOT_PRODUCTION_RELEASE",
+  "recordedAt": "2026-09-10T09:47:41Z",
+  "imageVersion": "0.1.0-single-card.20260910.36",
+  "releaseId": "single-card-hil-20260910-36",
+  "sourceBaseCommit": "8452c6398c964c7f0d3e7a4a29a1dd204674829e",
+  "snapshotCommit": "0c336415f249ffa7824b1569dc2537e9cca561db",
+  "sourceBundleSha256": "10c85a8582b0914e90fa9b8c7b7f8fe25dc396f450587e2a6c2021a5ef90b731",
+  "sourceBundleBytes": 54260556,
+  "buildRepositoryClean": true,
+  "originalWorktreeCommittedByBuild": false,
+  "builderDigest": "sha256:817e6cf99d6fc127ff4ffe8580049b60deba0adfbbb2bd65ddc3ef8fbb7aade0",
+  "builderOrigin": "existing local cache, exact locked digest and linux/arm64 identity verified",
+  "imageBootstrapDownloadCache": {
+    "purpose": "HIL_ONLY_EXACT_LOCKED_DOWNLOAD_CACHE",
+    "sourceBootstrapSha256": "199e75582da2235e19b6ec431c627411c4e351276b5c9cafe1f2136343157d8f",
+    "executedBootstrapSha256": "0f53c12cc219e28a5189da1c5d3deeef8c1e0301108b023d1d976f60df5d1db4",
+    "lockedUvSha256": "9bf43b4d1a07665bf64d4c4e710930b382321a785e0eb10aac07f46471f86a31",
+    "lockedUvBytes": 21478307,
+    "sourceCheckoutModified": false,
+    "byteLengthCheckRetained": true,
+    "sha256CheckRetained": true,
+    "archiveMemberAndToolVersionChecksRetained": true,
+    "changes": [
+      "explicit original script directory",
+      "read exact locked uv archive from read-only local cache"
+    ]
+  },
+  "persistentDependencyDownloadCache": {
+    "purpose": "HIL_PERSISTENT_LOCK_VERIFIED_DOWNLOAD_CACHE",
+    "cacheRoot": "/var/cache/ecobin-image-builder/arm64-py311-9d42ea99614e3763",
+    "uvLockSha256": "9d42ea99614e3763c739887b29e2c3c9bfb6293e014706b525fc7db3e9bb27c8",
+    "previousRuntimeArchiveSha256": "bf96a7ce54bdaa91123a949ea4190e16f9f57a05cc5c9320b5c2c247648acedf",
+    "reusedLockedWheels": [
+      {
+        "file": "certifi-2026.5.20-py3-none-any.whl",
+        "bytes": 134134,
+        "sha256": "3c52e209ba0a4ad7aebe60436a4ab349c39e1e602e8c134221e546902ad25897"
+      },
+      {
+        "file": "cffi-2.1.1-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl",
+        "bytes": 218716,
+        "sha256": "3311ed60d36f83378794e1009ac6258bafbf81f7888b4caa7b35a521e3f95813"
+      },
+      {
+        "file": "charset_normalizer-3.4.7-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl",
+        "bytes": 206419,
+        "sha256": "202389074300232baeb53ae2569a60901f7efadd4245cf3a3bf0617d60b439d7"
+      },
+      {
+        "file": "cos_python_sdk_v5-1.9.44-py3-none-any.whl",
+        "bytes": 99127,
+        "sha256": "584a97ecd5e9b15b04a1e511e6dd0ea4eca00ee87fe50aa9a3c91ce716149bcb"
+      },
+      {
+        "file": "cryptography-46.0.7-cp311-abi3-manylinux_2_34_aarch64.whl",
+        "bytes": 4279805,
+        "sha256": "8a469028a86f12eb7d2fe97162d0634026d92a21f3ae0ac87ed1c4a447886c83"
+      },
+      {
+        "file": "idna-3.18-py3-none-any.whl",
+        "bytes": 65455,
+        "sha256": "7f952cbe720b688055e3f87de14f5c3e5fdaa8bc3928985c4077ca689de849a2"
+      },
+      {
+        "file": "numpy-2.4.6-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl",
+        "bytes": 15966692,
+        "sha256": "0ab0a9c4ffb1a6d95ef519fe4247dba8eb6b18ad93999f76b7f657039acabd47"
+      },
+      {
+        "file": "opencv_python_headless-4.13.0.92-cp37-abi3-manylinux_2_28_aarch64.whl",
+        "bytes": 35010236,
+        "sha256": "eb60e36b237b1ebd40a912da5384b348df8ed534f6f644d8e0b4f103e272ba7d"
+      },
+      {
+        "file": "paho_mqtt-2.1.0-py3-none-any.whl",
+        "bytes": 67219,
+        "sha256": "6db9ba9b34ed5bc6b6e3812718c7e06e2fd7444540df2455d2c51bd58808feee"
+      },
+      {
+        "file": "pycparser-3.0-py3-none-any.whl",
+        "bytes": 48172,
+        "sha256": "b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992"
+      },
+      {
+        "file": "pycryptodome-3.23.0-cp37-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl",
+        "bytes": 2182625,
+        "sha256": "67bd81fcbe34f43ad9422ee8fd4843c8e7198dd88dd3d40e6de42ee65fbe1490"
+      },
+      {
+        "file": "pyserial-3.5-py2.py3-none-any.whl",
+        "bytes": 90585,
+        "sha256": "c4451db6ba391ca6ca299fb3ec7bae67a5c55dde170964c7a14ceefec02f2cf0"
+      },
+      {
+        "file": "requests-2.34.2-py3-none-any.whl",
+        "bytes": 73075,
+        "sha256": "2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0"
+      },
+      {
+        "file": "six-1.17.0-py2.py3-none-any.whl",
+        "bytes": 11050,
+        "sha256": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274"
+      },
+      {
+        "file": "urllib3-2.7.0-py3-none-any.whl",
+        "bytes": 131087,
+        "sha256": "9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897"
+      },
+      {
+        "file": "xmltodict-1.0.4-py3-none-any.whl",
+        "bytes": 13580,
+        "sha256": "a4a00d300b0e1c59fc2bfccb53d7b2e88c32f200df138a0dd2229f842497026a"
+      }
+    ],
+    "excludedNonLockWheels": [
+      "crcmod-1.7-py3-none-any.whl"
+    ],
+    "sourceCheckoutModified": false,
+    "frozenResolutionAndRequiredHashes": true,
+    "aptSignedSnapshotAndPackageVersionChecksRetained": true,
+    "sourcePayloadRecipeSha256": "07589f180a7ae125f279d20f450a1df33d2235935cdc8730a7a5ada5cb5ae89c",
+    "executedPayloadRecipeSha256": "92f8c65276ecc35b82812039ddc09c4481f3ef6b3529c40f964d53d20c5968db",
+    "sourceBootstrapRecipeSha256": "0f53c12cc219e28a5189da1c5d3deeef8c1e0301108b023d1d976f60df5d1db4",
+    "executedBootstrapRecipeSha256": "2c092afb3fbaca86afce26e701e28805b190075264eea75dc7c58592dc9ee775"
+  },
+  "forcedLocalWheelCache": {
+    "reason": "find-links alone can still prefer registry artifacts; exact locked local URLs force cache reuse",
+    "sourceCheckoutModified": false,
+    "runtimeRebuilt": false,
+    "frozenResolutionAndOriginalRequirementHashesRetained": true,
+    "onlyLockVerifiedWheelOriginsChanged": true,
+    "signedAptMetadataRetainedBetweenContainers": true,
+    "executedPayloadRecipeSha256": "2460c0c84f4fbee8249e827bf07a4eccc4daad370738f0bfc4994a6feb15f934",
+    "executedBootstrapRecipeSha256": "52559394779c155378beb7b8ad949be9320f620a7c1f81dfe2f979d8bd4ed458",
+    "wheelPinningScriptSha256": "9caee65bbd76737aa2c49a659a0b7a8cd1d429b4725939ee27ca52c702886bd0"
+  },
+  "exactCachedWheelDigestSelection": {
+    "reason": "Reproduced uv 0.12.5 local URL multi-hash rejection; single exact frozen-lock hash passes and wrong hash fails",
+    "permittedDigestsNarrowedToSelectedLockedWheel": true,
+    "hashCheckDisabled": false,
+    "sourceCheckoutModified": false,
+    "runtimeRebuilt": false,
+    "environmentMarkersPreserved": true,
+    "pinningScriptSha256": "8a41e314c5a8c8f843fdc6d6b5f0513071c1463db460fd28d3fff83a34275964"
+  },
+  "components": {
+    "hardwareRuntime": "hardware-runtime-20260910-36",
+    "communication": "communication-20260910-36",
+    "updater": "updater-20260910-36",
+    "softwarePayload": "software-payload-20260910-36"
+  },
+  "runtimeArchiveBytes": 58368839,
+  "runtimeArchiveSha256": "2d7a8270859aac15e72dd2cb54ed93011d4687fa89fd3a963f54963abfccd4fb",
+  "runtimeSigningKeyId": "hil_factory_20260830",
+  "softwarePayloadLockSha256": "b5e8c82c7877e71f45e6fc3ad7e392416c3ee1fd0125596813d173f964b25936",
+  "candidateImageBytes": 2571108352,
+  "candidateImageSha256": "3bbad00d5f025329e6b0e85001589625a8deea2ad82e89e4d438bd6c86cdfd09",
+  "candidateImageLocalPath": "/var/lib/ecobin-image-factory/hil-v36-20260910-snapshot/candidate-single-card-hil-20260910-36/ecobin-orangepi-zero3-0.1.0-single-card.20260910.36.img",
+  "hilImageBytes": 2571108352,
+  "hilImageSha256": "898938884a3a1cd8a05279780bf8c6117b2de13801118aca7ad9aa19082490c6",
+  "hilImageRelativePath": "hardware/image-artifacts/local/factory-secret/builds/hil-factory-login-20260910-36-weight-reference/ecobin-orangepi-zero3-0.1.0-single-card.20260910.36-hil-factory-login.img",
+  "protectedInputSourceImageSha256": "c6a5add51d7afe0269c235ecd89f2e369fc60c3e54148e284e945f0407d67d93",
+  "protectedValuesOrTheirIndividualDigestsRecorded": false,
+  "offlineChecks": {
+    "candidate": "PASS",
+    "hil": "PASS",
+    "permanentBoundary": "PASS",
+    "arm64Execution": "PASS"
+  },
+  "verificationLogSha256": {
+    "candidate": "2abb28b89d6acf56efde57e8710d6f9edfc20b9052f07d4673d3202f209ff288",
+    "hil": "940bbb9039be72b154e13cf652535903b1c42c52b3ef84bc4e2384ba9709c8f2",
+    "permanentBoundary": "7f95b6331f12fca14194c26ffc5f8442819a1732bd116f2125c34597ef2ebe32",
+    "arm64Execution": "af3116bcb3aa0e6ab5eb237e22947812a95b97d560470d9eac2edc7ce074c22d"
+  },
+  "arm64PythonVersion": "3.11.2",
+  "python311TestEvidence": "test-evidence.json",
+  "physicalHilPerformed": false,
+  "deviceFlashed": false,
+  "existingDeviceStateIncluded": false,
+  "backendOrOneNetDeployed": false,
+  "productionReleaseQualified": false
+}

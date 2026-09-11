@@ -410,7 +410,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V68 application exited before readiness`n$diagnostic"
+            throw "correct V69 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -448,7 +448,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V68 application did not become ready; " +
+    throw "correct V69 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -1284,8 +1284,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 68) {
-        throw "correct target must contain 68 successful Flyway migrations"
+    if ($historyCount -ne 69) {
+        throw "correct target must contain 69 successful Flyway migrations"
     }
 
     Invoke-MySql -Database "" -Sql @"
@@ -1363,8 +1363,8 @@ SELECT COUNT(*) FROM information_schema.tables
 WHERE table_schema = '$($databaseNames.Correct)'
   AND table_type = 'BASE TABLE';
 "@)
-    if ($tableCount -ne 132) {
-        throw "correct target must contain 131 domain tables plus Flyway history"
+    if ($tableCount -ne 133) {
+        throw "correct target must contain 132 domain tables plus Flyway history"
     }
     $businessReleaseControlTableCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
@@ -1461,6 +1461,31 @@ WHERE constraint_schema = '$($databaseNames.Correct)'
 "@)
     if ($softwareFactImageBridgeConstraintCount -ne 1) {
         throw "V68 image-bridge software-fact constraint is incomplete"
+    }
+    $deliveryRecoveryQuarantineTableCount = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT COUNT(*)
+FROM information_schema.tables
+WHERE table_schema = '$($databaseNames.Correct)'
+  AND table_name = 'dev_delivery_recovery_quarantine';
+"@)
+    $deliveryRecoveryQuarantineConstraintCount = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql @"
+SELECT COUNT(*)
+FROM information_schema.check_constraints
+WHERE constraint_schema = '$($databaseNames.Correct)'
+  AND constraint_name IN (
+      'ck_dev_delivery_recovery_confirmation',
+      'ck_dev_delivery_recovery_business_value',
+      'ck_dev_delivery_recovery_state',
+      'ck_ops_task_sources_v69'
+  );
+"@)
+    if ($deliveryRecoveryQuarantineTableCount -ne 1 -or
+            $deliveryRecoveryQuarantineConstraintCount -ne 4) {
+        throw "V69 delivery recovery quarantine boundary is incomplete"
     }
     $permissionCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
@@ -1770,8 +1795,8 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 68
-        domainTables = 131
+        targetVersion = 69
+        domainTables = 132
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
         runtimePrincipal = $runtimePrincipal
@@ -1779,11 +1804,12 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV68Ready = $true
+        correctV69Ready = $true
         businessReleaseValidationV65 = $true
         businessUpdateCancellationV66 = $true
         imageBridgeBaselineV67 = $true
         softwareFactImageBridgeV68 = $true
+        deliveryRecoveryQuarantineV69 = $true
         deviceAssetManagementTriggerReady = $true
         bagLabelBatchLimit500 = $true
         mcuRemoteUpdateCapabilityV60 = $true

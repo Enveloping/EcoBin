@@ -14,6 +14,7 @@ from urllib.parse import quote
 import uuid
 
 from .errors import FactorySealError
+from .weight_validation import valid_passed_weight_check
 
 
 _HEX_64 = re.compile(r"^[0-9a-f]{64}$")
@@ -529,7 +530,6 @@ def valid_passed_factory_report(
     checks = report.get("checks")
     expected_result_codes = {
         "mcu": "MCU_REVISION_2_AND_F1_HEALTHY",
-        "weight": "WEIGHT_500G_WITHIN_490_510_AND_REMOVED",
         "delivery": "DELIVERY_SAFE_VERIFIED",
         "clean": "CLEAN_SAFE_VERIFIED",
     }
@@ -544,27 +544,7 @@ def valid_passed_factory_report(
         return False
     if checks["clean"].get("cleanDoorConfirmed") is not True:
         return False
-    weight = checks["weight"]
-    delta = weight.get("deltaGrams")
-    if (
-        weight.get("targetDeltaGrams") != 500
-        or weight.get("toleranceGrams") != 10
-        or not isinstance(delta, int)
-        or isinstance(delta, bool)
-        or not 490 <= delta <= 510
-        or not isinstance(weight.get("emptyWeightGrams"), int)
-        or isinstance(weight.get("emptyWeightGrams"), bool)
-        or not isinstance(weight.get("loadedWeightGrams"), int)
-        or isinstance(weight.get("loadedWeightGrams"), bool)
-        or not isinstance(weight.get("removedWeightGrams"), int)
-        or isinstance(weight.get("removedWeightGrams"), bool)
-        or abs(weight["removedWeightGrams"] - weight["emptyWeightGrams"])
-        > 10
-        or weight.get("stableSampleCount") != 3
-        or weight.get("stableMaxSpreadGrams") != 2
-        or weight.get("sampleIntervalMs") != 100
-        or weight.get("sampleTimeoutMs") != 3000
-    ):
+    if not valid_passed_weight_check(checks.get("weight")):
         return False
     upgrade = checks.get("upgradeLine")
     if not isinstance(upgrade, dict):

@@ -5,6 +5,7 @@
   "oneOf": [
     { "$ref": "#/$defs/applyConfigurationCommand" },
     { "$ref": "#/$defs/startDeliverySessionCommand" },
+    { "$ref": "#/$defs/quarantineDeliveryRecoveryCommand" },
     { "$ref": "#/$defs/startCleanOperationCommand" },
     { "$ref": "#/$defs/endCleanBeforeUnlockCommand" },
     { "$ref": "#/$defs/resumeCleanOperationCommand" },
@@ -282,6 +283,44 @@
           "type": "integer",
           "minimum": 1000,
           "maximum": 4294967295
+        }
+      }
+    },
+    "quarantineDeliveryRecoveryPayload": {
+      "type": "object",
+      "required": [
+        "recoveryUid",
+        "sessionUid",
+        "originalCommandUid",
+        "physicalOutcomeUnknownConfirmed",
+        "causeFixedConfirmed",
+        "devicePowerCycledConfirmed",
+        "motionAreaClearConfirmed",
+        "deliveryDoorClosedConfirmed",
+        "mechanismClearConfirmed",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "recoveryUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "sessionUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "originalCommandUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "physicalOutcomeUnknownConfirmed": { "const": true },
+        "causeFixedConfirmed": { "const": true },
+        "devicePowerCycledConfirmed": { "const": true },
+        "motionAreaClearConfirmed": { "const": true },
+        "deliveryDoorClosedConfirmed": { "const": true },
+        "mechanismClearConfirmed": { "const": true },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
         }
       }
     },
@@ -970,6 +1009,32 @@
             "payload": {
               "$ref": "#/$defs/startDeliverySessionPayload"
             }
+          }
+        }
+      ]
+    },
+    "quarantineDeliveryRecoveryCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": {
+              "const": "QUARANTINE_DELIVERY_RECOVERY"
+            },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DELIVERY_SESSION" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/quarantineDeliveryRecoveryPayload"
+            },
+            "cosGrant": { "type": "null" }
           }
         }
       ]

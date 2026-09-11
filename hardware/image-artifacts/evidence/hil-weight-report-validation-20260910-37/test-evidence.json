@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "purpose": "LOCAL_HIL_CANDIDATE_NOT_PRODUCTION_RELEASE",
+  "sourceBaseCommit": "8452c6398c964c7f0d3e7a4a29a1dd204674829e",
+  "snapshotCommit": "c097673c23527a63e5c442a77cb19322e6774d42",
+  "sourceBundleSha256": "17af3c06b4ef5bdad762b01c34c2c945193f5ac23c1760656d35fe331ac79ae8",
+  "sourceBundleBytes": 54285422,
+  "python": "3.11.15",
+  "environment": "Linux x86_64 / WSL",
+  "dependencyLockFrozen": true,
+  "fullSuite": {
+    "passed": 2180,
+    "skipped": 9,
+    "subtestsPassed": 5,
+    "failed": 0,
+    "durationSeconds": 333.23,
+    "baseTemp": "/var/tmp/eb37-final"
+  },
+  "testOnlyAdaptations": {
+    "clockFixture": "v35_clock_fixture.py",
+    "syncedPreconditionTestCount": 6,
+    "dedicatedClockTestsUnmodified": true,
+    "shortUnixSocketTemporaryPath": true,
+    "testProcessUmask": "0022",
+    "privateBuildDirectoryMode": "0700",
+    "productionCodeChangedForTests": false,
+    "operatingSystemClockOrSyncMarkerChanged": false
+  },
+  "initialEnvironmentDiagnostics": [],
+  "physicalHilPerformed": false,
+  "deviceFlashed": false,
+  "backendOrOneNetDeployed": false
+}

@@ -6,6 +6,7 @@
     { "$ref": "#/$defs/deviceCommandObservedEvent" },
     { "$ref": "#/$defs/configurationProgressEvent" },
     { "$ref": "#/$defs/deliveryCompleteEvent" },
+    { "$ref": "#/$defs/deliveryRecoveryQuarantinedEvent" },
     { "$ref": "#/$defs/cleanCompleteEvent" },
     { "$ref": "#/$defs/fullnessStateChangedEvent" },
     { "$ref": "#/$defs/fullnessSampleCompleteEvent" },
@@ -1000,6 +1001,164 @@
           }
         }
       ]
+    },
+    "deliveryRecoveryQuarantinedPayload": {
+      "type": "object",
+      "required": [
+        "recoveryUid",
+        "sessionUid",
+        "originalCommandUid",
+        "portNo",
+        "reason",
+        "businessValue",
+        "operatorConfirmations",
+        "deviceEvidence",
+        "firstPreOpenMeasurement",
+        "finalPostCloseMeasurement",
+        "photos"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "recoveryUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "sessionUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "originalCommandUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "businessValue": { "const": "NONE" },
+        "operatorConfirmations": {
+          "$ref": "#/$defs/deliveryRecoveryOperatorConfirmations"
+        },
+        "deviceEvidence": {
+          "$ref": "#/$defs/deliveryRecoveryDeviceEvidence"
+        },
+        "firstPreOpenMeasurement": {
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/measurementWithQuality" },
+            { "type": "null" }
+          ]
+        },
+        "finalPostCloseMeasurement": {
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/measurementWithQuality" },
+            { "type": "null" }
+          ]
+        },
+        "photos": {
+          "$ref": "#/$defs/deliveryPhotos"
+        }
+      }
+    },
+    "deliveryRecoveryOperatorConfirmations": {
+      "type": "object",
+      "required": [
+        "physicalOutcomeUnknownConfirmed",
+        "causeFixedConfirmed",
+        "devicePowerCycledConfirmed",
+        "motionAreaClearConfirmed",
+        "deliveryDoorClosedConfirmed",
+        "mechanismClearConfirmed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "physicalOutcomeUnknownConfirmed": { "const": true },
+        "causeFixedConfirmed": { "const": true },
+        "devicePowerCycledConfirmed": { "const": true },
+        "motionAreaClearConfirmed": { "const": true },
+        "deliveryDoorClosedConfirmed": { "const": true },
+        "mechanismClearConfirmed": { "const": true }
+      }
+    },
+    "deliveryRecoveryDeviceEvidence": {
+      "type": "object",
+      "required": [
+        "previousBootIdentity",
+        "currentBootIdentity",
+        "firmwareIdentityHex",
+        "safeFlags",
+        "firmwareStatusRawFrameHex",
+        "selfTestWeightGrams",
+        "selfTestWeightMeasurementUid",
+        "selfTestInfraredBlocked",
+        "selfTestRawFrameHex",
+        "actionUid",
+        "permitUid",
+        "workUid",
+        "commandUid",
+        "actionKey",
+        "actionKind",
+        "actionDigestSha256",
+        "ledgerSequence",
+        "actionState",
+        "resolutionState",
+        "resolutionEvidenceSha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "previousBootIdentity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "currentBootIdentity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "firmwareIdentityHex": {
+          "type": "string",
+          "pattern": "^[0-9a-f]+$",
+          "maxLength": 128
+        },
+        "safeFlags": { "const": 15 },
+        "firmwareStatusRawFrameHex": {
+          "type": "string",
+          "pattern": "^[0-9a-f]+$",
+          "maxLength": 256
+        },
+        "selfTestWeightGrams": {
+          "$ref": "../common.schema.json#/$defs/signedInt32Grams"
+        },
+        "selfTestWeightMeasurementUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "selfTestInfraredBlocked": { "type": "boolean" },
+        "selfTestRawFrameHex": {
+          "type": "string",
+          "pattern": "^[0-9a-f]+$",
+          "maxLength": 256
+        },
+        "actionUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "permitUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "workUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "commandUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "actionKey": { "const": "DELIVERY:START:0" },
+        "actionKind": { "const": "START_DELIVERY_SESSION" },
+        "actionDigestSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "ledgerSequence": {
+          "$ref": "../common.schema.json#/$defs/positiveSequence"
+        },
+        "actionState": { "const": "ARMED" },
+        "resolutionState": {
+          "const": "UNKNOWN_EFFECT_QUARANTINED"
+        },
+        "resolutionEvidenceSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        }
+      }
     },
     "remoteSupportTunnelStatusPayload": {
       "type": "object",
@@ -2296,6 +2455,35 @@
             "commandUid": { "type": "null" },
             "payload": {
               "$ref": "#/$defs/fullnessStateChangedPayload"
+            }
+          }
+        }
+      ]
+    },
+    "deliveryRecoveryQuarantinedEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": {
+              "const": "DELIVERY_RECOVERY_QUARANTINED"
+            },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DELIVERY_SESSION" }
+                  }
+                }
+              ]
+            },
+            "commandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "payload": {
+              "$ref": "#/$defs/deliveryRecoveryQuarantinedPayload"
             }
           }
         }

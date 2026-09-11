@@ -4,6 +4,10 @@
 
 ## 快速开始
 
+当前硬件计划入口：[MCU—香橙派契约对齐与分批实施计划](planning/mcu-edge-contract-implementation-plan-2026-09-12.md)。
+已对照现有 contracts 列出差异、具体文件、测试、HMI/烧录与切换顺序；尚未授权编码或部署。
+分工与共识背景见[总体方案](architecture/mcu-edge-refactor-plan-2026-09-11.md)，未决事项不因计划完成而自动确认。
+
 1. [项目上下文](architecture/project-context.md)：当前阶段、跨会话决策、已知工程坑和续作入口。
 2. [V52 设备自注册、厂家初始袋与按需远程维护](architecture/device-enrollment-factory-acceptance-remote-support-v52.md)：全局厂家引导密钥的一次性清理、OneNet 自动创建设备、验收前真实装袋、管理员公钥一次登记及四端口按需反向 SSH。
 3. [V52 设备出厂与远程维护代码审查](review/device-enrollment-factory-remote-support-v52-review-2026-08-15.md)：跟踪厂家袋扫码、验收证据代次、远程租约与生产证书权限的 4 项 P1、3 项 P2 及修复证据。
@@ -37,6 +41,7 @@
 ### `architecture/` — 架构与领域设计
 
 - [项目上下文](architecture/project-context.md)
+- [单片机与香橙派最小事实逐项共识](architecture/mcu-edge-minimal-facts-consensus-2026-09-11.md)：讨论中、未整体实施；已确认启动回复、编号关联、防重复动作、结果保存确认和按编号查询。门状态保留最近有效方向（01=关、10=开）；PB5 仅处理关门防夹，不单独判故障或阻止其他条件已满足后的下一笔开门。投递失败后香橙派自动关门并检查；清运缺失数据留异常，由原清运员完成确认后核对袋子、建立新空袋基准。恢复由香橙派本机负责，后端不指挥，但开始时已有操作登记，最终依据上报应用实际结果；旧重启中止及异常结果接收需要适配。准确度交人工；已确认 250 毫秒目标读取间隔、最近 5 次最大最小差不超过 100 克取均值，最多等 5 秒，纯波动超时取中位数继续业务，无可用数据才走测量失败。需解耦清运锁计时并同步跨端规则，现场响应速度及具体协议仍待验证/设计。
 - [香橙派业务程序发布与远程更新设计](architecture/orangepi-business-runtime-release-and-update-design.md)：区分出厂程序、可替换业务程序和永久设备管理层，记录九阶段迁移顺序；第三阶段已在 v13 完成受控在线验收，第四阶段默认关闭基础已在 v19 完成指定单卡接入和普通业务真机验收；v23 已完成写卡、接入、封存、投递和清运，并在第一次所有权试切换发现问题后安全恢复；持久切换修复现已进入 v24 无秘密/HIL 候选并通过两套离线审计，尚待加入允许列表、写卡和真机更新/回滚/断电恢复，远程下发继续关闭。
 - [V52 设备自注册、厂家初始袋与按需远程维护](architecture/device-enrollment-factory-acceptance-remote-support-v52.md)
 - [V52 设备出厂与远程维护代码审查](review/device-enrollment-factory-remote-support-v52-review-2026-08-15.md)
@@ -76,7 +81,12 @@
 
 ### `deployment/` — 部署与运维
 
+- [投递异常隔离收口部署与新卡账本启用](operations/delivery-quarantine-deployment-2026-09-11.md)：2026-09-11 OneNet 18/22、V69 和后端/Web 已上线；经确认完成 v37 保留数据切换、仅账本模式修正和永久激活，更新器重启保持、后台兼容接入正常。未执行异常收口或机构动作，新 F3 `0x0B` 尚不满足收口安全要求。
 - [香橙派量产镜像、写卡与整机验收手册](deployment/orangepi-production-image-factory-runbook.md)：从输入锁、两次构建、受控注密、签名发布和写卡复读，到离线硬件验收、Air780E 注册、云端授权、单向封存、冷启动放行与返工边界；当前真实 HIL 和 32 GB 布局锁未完成，不得量产放行。
+- [v37 自定义重量报告校验镜像证据](../hardware/image-artifacts/evidence/hil-weight-report-validation-20260910-37/README.md)：2026-09-10 已将跨环节重量校验修复制成镜像，2180 项自动化测试及镜像内 ARM64 完整报告测试通过，指定 TF 卡完整写入/回读摘要一致。断电后验证已完成软件包并复用缓存，只重做中断的镜像组装；随后补齐后台认可配置，设备新报告已通过云端机器验收，实物称重精度仍未校准。
+- [v37 后端认可版本部署与现场复验](operations/orangepi-v37-backend-allowlist-deployment-2026-09-10.md)：用户确认后只追加 v37 并重载既有应用，备份及独立健康/配置核验通过；21:44 新报告通过、原失败记录保留，设备已确认封存授权。不部署 V69、OneNet 新模型或后端代码。
+- [v36 称重标准与采样展示镜像证据](../hardware/image-artifacts/evidence/hil-weight-reference-20260910-36/README.md)：2026-09-10 已完成镜像、2121 项自动化测试、ARM64 离线执行及指定 TF 卡完整写入/回读，摘要一致；保留并验证下载缓存复用。用户随后冷启动发现非 500 克报告被下游拒绝，该软件缺陷已在 v37 修复并写卡；真实 500 克测得约 28 克的精度问题仍未解决。后续诊断见[称重报告校验记录](../hardware/docs/review/factory-weight-reference-and-measurements-2026-09-10.md)。
+- [v35 投递异常隔离镜像证据](../hardware/image-artifacts/evidence/hil-delivery-recovery-quarantine-20260910-35/README.md)：2026-09-10 已完成本地镜像、2080 项自动化测试及 ARM64 离线执行，并向用户确认的新卡写入与完整回读，摘要一致。用户随后反馈热点 500 克验收不通过；旧身份与账本不迁移，服务器旧记录未清理，配套部署与真机异常隔离验收仍未完成。
 - [设备自注册、厂家验收与按需反向 SSH 部署手册](deployment/device-enrollment-and-remote-support-rollout.md)：V52 数据迁移、服务器 SSH 边界、生产秘密、香橙派注册包、试点验收和功能回退。
 - [应用修改后重新部署操作手册](deployment/application-redeployment-runbook.md)：日常代码发布的范围判断、构建、上传、安装、预检、激活、验证与回退步骤。
 - [生产部署配置、密钥与证书清单](deployment/production-configuration-secrets-certificates.md)：逐项说明服务器配置文件、秘密、微信支付公钥/商户证书、机构小程序配置和启动前验收。

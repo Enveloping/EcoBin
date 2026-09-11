@@ -201,9 +201,13 @@ class AcceptanceConfiguration:
                 raise AcceptanceConfigurationError(
                     "factory cameras must use stable V4L by-id paths"
                 )
+        # These installed defaults are part of the legacy configuration digest.
+        # The operator's per-run reference belongs to checks.weight, not this
+        # immutable configuration; do not reject a report for choosing 400/1000 g.
         if (self.weight_target_grams, self.weight_tolerance_grams) != (500, 10):
             raise AcceptanceConfigurationError(
-                "factory weight gate must remain 500g +/-10g"
+                "installed weight defaults must remain 500g +/-10g; "
+                "choose the per-run reference in the factory portal"
             )
         if (
             self.weight_stable_sample_count,

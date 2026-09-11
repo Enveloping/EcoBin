@@ -13,6 +13,10 @@
       "schema": "../../onenet/events/events.schema.json"
     },
     {
+      "file": "quarantine-delivery-recovery.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
       "file": "clean-complete.event.json",
       "schema": "../../onenet/events/events.schema.json"
     },
@@ -154,6 +158,10 @@
     },
     {
       "file": "device-software-state-reported.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "delivery-recovery-quarantined.event.json",
       "schema": "../../onenet/events/events.schema.json"
     }
   ],

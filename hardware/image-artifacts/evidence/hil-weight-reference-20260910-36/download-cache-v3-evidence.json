@@ -1,0 +1,9 @@
+{
+  "reason": "Reproduced uv 0.12.5 local URL multi-hash rejection; single exact frozen-lock hash passes and wrong hash fails",
+  "permittedDigestsNarrowedToSelectedLockedWheel": true,
+  "hashCheckDisabled": false,
+  "sourceCheckoutModified": false,
+  "runtimeRebuilt": false,
+  "environmentMarkersPreserved": true,
+  "pinningScriptSha256": "8a41e314c5a8c8f843fdc6d6b5f0513071c1463db460fd28d3fff83a34275964"
+}

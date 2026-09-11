@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.jinshoubao.com/schemas/orangepi/target-media-qualification-evidence-v1.json",
+  "title": "EcoBin 32 GB TF target-media capacity qualification evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "artifactClass",
+    "qualificationState",
+    "method",
+    "deviceClass",
+    "marketedCapacityGB",
+    "marketedCapacityBytes",
+    "batchId",
+    "measuredAt",
+    "measurementTool",
+    "sampleSelection",
+    "minimumQualifiedMediaBytes",
+    "measurements"
+  ],
+  "properties": {
+    "$schema": {"const": "./schemas/target-media-qualification-evidence.schema.json"},
+    "schemaVersion": {"const": 1},
+    "artifactClass": {
+      "enum": [
+        "TARGET_MEDIA_BATCH_CAPACITY_QUALIFICATION",
+        "TARGET_MEDIA_SINGLE_CARD_CAPACITY_QUALIFICATION"
+      ]
+    },
+    "qualificationState": {"const": "QUALIFIED"},
+    "method": {
+      "enum": [
+        "BLOCK_DEVICE_CAPACITY_SAMPLE_MINIMUM_V1",
+        "WINDOWS_STORAGE_API_SINGLE_CARD_V1"
+      ]
+    },
+    "deviceClass": {"const": "TF_CARD"},
+    "marketedCapacityGB": {"const": 32},
+    "marketedCapacityBytes": {"const": 32000000000},
+    "batchId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "measuredAt": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "measurementTool": {
+      "enum": ["blockdev --getsize64", "PowerShell Get-Disk.Size"]
+    },
+    "sampleSelection": {
+      "enum": [
+        "SAME_PROCUREMENT_BATCH_MULTIPLE_CARDS",
+        "SINGLE_CARD_PROJECT_OWNER_ACCEPTED"
+      ]
+    },
+    "minimumQualifiedMediaBytes": {"type": "integer", "minimum": 30000000000},
+    "measurements": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sampleId", "measuredBytes", "logicalSectorBytes", "wholeDevice"],
+        "properties": {
+          "sampleId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+          "measuredBytes": {"type": "integer", "minimum": 30000000000, "multipleOf": 512},
+          "logicalSectorBytes": {"const": 512},
+          "wholeDevice": {"const": true}
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "artifactClass": {"const": "TARGET_MEDIA_BATCH_CAPACITY_QUALIFICATION"},
+        "method": {"const": "BLOCK_DEVICE_CAPACITY_SAMPLE_MINIMUM_V1"},
+        "measurementTool": {"const": "blockdev --getsize64"},
+        "sampleSelection": {"const": "SAME_PROCUREMENT_BATCH_MULTIPLE_CARDS"},
+        "measurements": {"minItems": 2, "maxItems": 256}
+      }
+    },
+    {
+      "properties": {
+        "artifactClass": {"const": "TARGET_MEDIA_SINGLE_CARD_CAPACITY_QUALIFICATION"},
+        "method": {"const": "WINDOWS_STORAGE_API_SINGLE_CARD_V1"},
+        "measurementTool": {"const": "PowerShell Get-Disk.Size"},
+        "sampleSelection": {"const": "SINGLE_CARD_PROJECT_OWNER_ACCEPTED"},
+        "measurements": {"minItems": 1, "maxItems": 1}
+      }
+    }
+  ]
+}

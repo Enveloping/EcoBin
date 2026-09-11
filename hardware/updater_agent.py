@@ -121,6 +121,20 @@ JOB_ACTION_FIELDS = {
             "evidenceDigestSha256",
         }
     ),
+    "QUARANTINE_UNKNOWN_PHYSICAL_ACTION": frozenset(
+        {
+            "resolutionUid",
+            "actionUid",
+            "permitUid",
+            "workUid",
+            "commandUid",
+            "actionKey",
+            "actionKind",
+            "actionDigestSha256",
+            "expectedLedgerSequence",
+            "evidenceDigestSha256",
+        }
+    ),
 }
 
 ROOT_JOB_GATE_ACTION_FIELDS = {
@@ -328,6 +342,15 @@ class UpdaterControlHandler:
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         return self._store_call(self.store.confirm_physical_action, payload)
+
+    def quarantine_unknown_physical_action(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._store_call(
+            self.store.quarantine_unknown_physical_action,
+            payload,
+        )
 
     def queue_local_mcu_update(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self._software_update_queue_lock:
@@ -1016,6 +1039,9 @@ def build_control_actions(
         ),
         "GET_PHYSICAL_ACTION": handler.get_physical_action,
         "CONFIRM_PHYSICAL_ACTION": handler.confirm_physical_action,
+        "QUARANTINE_UNKNOWN_PHYSICAL_ACTION": (
+            handler.quarantine_unknown_physical_action
+        ),
     }
     actions.update(
         {

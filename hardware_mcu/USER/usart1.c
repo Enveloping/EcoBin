@@ -13,6 +13,8 @@
 
 #include "usart1.h"
 #include "firmware_identity.h"
+#define ECOBIN_MCU_RUNTIME_INCLUDE_WEIGHT
+#include "mcu_runtime_logic.h"
 
 /* RS485�������: RE/DE����PA1 */
 #define Set_RE  GPIO_SetBits(GPIOA,GPIO_Pin_1);
@@ -222,13 +224,10 @@ unsigned char Weight_Read(unsigned long *weight)
 	   RS485_RxBuf[RS485_RxLen - 1] != ((crc >> 8) & 0xFF))
 		return 3;  //CRC����
 
-	/* ��������: ��4�ֽ�=Data_H, ��5�ֽ�=Data_L */
-	*weight = ((unsigned long)RS485_RxBuf[5] << 24) |
-              ((unsigned long)RS485_RxBuf[6] << 16) |
-              ((unsigned long)RS485_RxBuf[3] << 8)  |
-               RS485_RxBuf[4];
-
-	return 0;  //�ɹ�
+	/* Low Modbus word arrives first; normalize the signed scale result. */
+	return McuRuntime_DecodeScaleWeight(
+		RS485_RxBuf[3], RS485_RxBuf[4],
+		RS485_RxBuf[5], RS485_RxBuf[6], weight);
 }
 
 /* ===== 非阻塞称重状态机 (配合TIM3定时器) ===== */
@@ -284,20 +283,25 @@ unsigned char Weight_Read_Poll(unsigned long *weight)
 {
     unsigned short crc;
     unsigned short tick_diff;
+    unsigned char decode_status;
+    unsigned char poll_status;
 
     if(weight_state != WEIGHT_SENT)
         return 2;  /* 未在等待状态 */
 
-    /* 超时判断: 2个滴答(200ms)无应答视为超时 */
+    /*
+     * Prefer a complete ISR-captured response over the elapsed deadline.
+     * F0 ultrasonic ranging can block the main loop beyond 200ms even though
+     * all Modbus bytes have already arrived in RS485_RxBuf.
+     */
     tick_diff = g_tick_count - weight_start_tick;
-    if(tick_diff >= 2)
+    poll_status = McuRuntime_WeightPollDecision(RS485_RxLen, tick_diff);
+    if(poll_status == MCU_WEIGHT_POLL_TIMEOUT)
     {
         weight_state = WEIGHT_IDLE;
         return 1;  /* 超时 */
     }
-
-    /* 数据未到齐 (Modbus应答至少7字节: 地址+功能码+长度+2数据+2CRC) */
-    if(RS485_RxLen < 9)
+    if(poll_status == MCU_WEIGHT_POLL_WAITING)
         return 2;  /* 等待中 */
 
     /* 数据到齐, 进行CRC校验 */
@@ -309,14 +313,12 @@ unsigned char Weight_Read_Poll(unsigned long *weight)
         return 3;  /* CRC错误 */
     }
 
-    /* 解析重量: 第4字节=Data_H, 第5字节=Data_L */
-    *weight = ((unsigned long)RS485_RxBuf[5] << 24) |
-              ((unsigned long)RS485_RxBuf[6] << 16) |
-              ((unsigned long)RS485_RxBuf[3] << 8)  |
-               RS485_RxBuf[4];
-
+    /* Low Modbus word arrives first; normalize the signed scale result. */
+    decode_status = McuRuntime_DecodeScaleWeight(
+        RS485_RxBuf[3], RS485_RxBuf[4],
+        RS485_RxBuf[5], RS485_RxBuf[6], weight);
     weight_state = WEIGHT_IDLE;
-    return 0;  /* 成功 */
+    return decode_status;
 }
 
 /* ��ʼ��USART2 */
@@ -354,17 +356,6 @@ static void Vision_SendByte(unsigned char value)
     while(USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET);
 }
 
-
-/* AA + status + AA: 推杆状态 */
-void Vision_SendPushRod(unsigned char status)
-{
-    USART_SendData(USART1, 0xAA);
-    while(USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET);
-    USART_SendData(USART1, status);
-    while(USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET);
-    USART_SendData(USART1, 0xAA);
-    while(USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET);
-}
 
 /* BB + status + BB: 溢满标志 */
 void Vision_SendOverflow(unsigned char status)

@@ -1115,6 +1115,44 @@ class FixedFrameMcuAdapter:
         finally:
             self._io_lock.release()
 
+    def has_pending_business_result(self) -> bool:
+        """Drain immediately available bytes and report queued DD/EF facts.
+
+        Recovery uses this after its read-only F3/F1 probes.  A terminal fact
+        already present in the UART buffer must be processed by the normal
+        state machine and may not be discarded by an operator quarantine.
+        """
+
+        with self._foreground_io("PENDING_BUSINESS_RESULT_CHECK"):
+            if self.is_open:
+                decoded, invalid_smoke = self._read_available_decoded()
+                for item in decoded:
+                    frame_type = item["frame_type"]
+                    if frame_type == "SELF_TEST":
+                        self._pending_events.append(
+                            self._to_safety_event(
+                                item["smoke_code"],
+                                raw_frame_hex=item["raw_frame_hex"],
+                            )
+                        )
+                    elif frame_type == "FIRMWARE_STATUS":
+                        logger.warning(
+                            "discarding unsolicited firmware status"
+                        )
+                    else:
+                        self._pending_events.append(self._to_event(item))
+                for _ in range(invalid_smoke):
+                    self._pending_events.append(
+                        self._to_safety_event(
+                            None, health="PROTOCOL_ERROR"
+                        )
+                    )
+            return any(
+                event.get("message_name")
+                in {"COMPAT_DELIVERY_RESULT", "COMPAT_CLEAN_RESULT"}
+                for event in self._pending_events
+            )
+
     def _queue_invalid_smoke_events(self, invalid_before: int) -> None:
         invalid_after = self._parser.invalid_count(SMOKE_HEADER)
         for _ in range(max(0, invalid_after - invalid_before)):

@@ -1,0 +1,9 @@
+........                                                                 [100%]
+8 passed in 7.17s
+Python 3.11.2
+installed-quarantine-ledger=PASS originalArmedPreserved=true duplicateSafe=true successRejected=true cancelled=true restartEvidenceRetained=true
+installed-communication-import=PASS
+installed-business-quarantine-import=PASS
+installed-factory-weight=PASS references=28,400,500,1000 sharedReportWeightGate=true inconsistentDeltaRejected=true failureDelta=320 boundedSamples=true portalImport=true actualHardwareAccess=false
+installed-full-report-consumers=PASS completeReports=8 references=28,400,500,1000 firstBootError=NONE true500Observed28Rejected=true
+v37-arm64-smoke=PASS imageReadOnly=true networkIsolated=true syntheticStateOnly=true

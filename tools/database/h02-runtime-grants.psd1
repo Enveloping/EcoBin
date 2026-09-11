@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 35
+    CatalogVersion = 36
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -545,6 +545,25 @@
             "device_completed_at"
             "ended_at"
             "end_reason"
+            "lock_version"
+            "updated_at"
+        )
+        # A recovery row starts QUEUED, then the trusted issue-only device
+        # event appends evidence and advances only that row to APPLIED.
+        # It is not an order, wallet or settlement projection.
+        dev_delivery_recovery_quarantine = @(
+            "recovery_task_uid"
+            "state"
+            "business_value"
+            "source_inbox_id"
+            "terminal_event_uid"
+            "terminal_event_payload_sha256"
+            "resolution_evidence_sha256"
+            "operator_confirmations_json"
+            "device_evidence_json"
+            "existing_data_json"
+            "terminal_payload_json"
+            "applied_at"
             "lock_version"
             "updated_at"
         )

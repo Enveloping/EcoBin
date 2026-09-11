@@ -16,8 +16,10 @@
     "COMMAND_SUPERSEDED_BEFORE_DISPATCH": "CMD_SUPERSEDED",
     "CONFIGURATION_APPLICATION": "CONFIG_APPLICATION",
     "CONFIGURATION_PROGRESS": "CONFIG_PROGRESS",
+    "DELIVERY:START:0": "DELIV_START_0",
     "DELIVERY_DOOR_HIL_NOT_QUALIFIED": "DOOR_HIL_NOT_QUAL",
     "DELIVERY_DOOR_OUTPUT_REJECTED": "DOOR_OUTPUT_REJECTED",
+    "DELIVERY_RECOVERY_QUARANTINED": "DELIV_REC_QUAR",
     "DEVICE_ACCEPTANCE_EVIDENCE": "DEV_ACCEPT_EVIDENCE",
     "DEVICE_ASSET": "DEVICE_ASSET",
     "DEVICE_COMMAND_OBSERVED": "DEV_CMD_OBSERVED",
@@ -43,6 +45,7 @@
     "PHOTO_STATUS_REPORTED": "PHOTO_STATUS_RPT",
     "PHOTO_UPLOAD_GRANT_REQUESTED": "PHOTO_GRANT_REQ",
     "PROVIDE_PHOTO_UPLOAD_GRANT": "PROVIDE_PHOTO_GRANT",
+    "QUARANTINE_DELIVERY_RECOVERY": "QUARANTINE_DELIV_REC",
     "REMOTE_SUPPORT_SESSION": "REMOTE_SESSION",
     "REMOTE_SUPPORT_TUNNEL_STATUS": "REMOTE_TUNNEL_STATUS",
     "REQUEST_DEVICE_ACCEPTANCE": "REQUEST_DEV_ACCEPT",
@@ -55,7 +58,8 @@
     "START_DELIVERY_SESSION": "START_DELIV_SESSION",
     "START_MCU_FIRMWARE_UPDATE": "START_MCU_FW_UPDATE",
     "SYNC_DEVICE_ENTRY_URL": "SYNC_DEVICE_URL",
-    "TERMINAL_WEIGHT_FAILURE": "TERM_WEIGHT_FAIL"
+    "TERMINAL_WEIGHT_FAILURE": "TERM_WEIGHT_FAIL",
+    "UNKNOWN_EFFECT_QUARANTINED": "UNKNOWN_QUARANTINED"
   },
   "events": {
     "baselineMeasurementComplete": {
@@ -4244,6 +4248,1220 @@
           "jsonPath": "$.payload.unitPriceTenThousandths",
           "nullable": false,
           "wireIdentifier": "unitPriceTenThousandths"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.photos",
+          "nullable": false,
+          "wireIdentifier": "photos"
+        }
+      ]
+    },
+    "deliveryRecoveryQuarantined": {
+      "eventType": "DELIVERY_RECOVERY_QUARANTINED",
+      "outputData": [
+        {
+          "dataType": {
+            "specs": {
+              "1": "2"
+            },
+            "type": "enum"
+          },
+          "identifier": "schemaVersion",
+          "name": "schemaVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "eventUid",
+          "name": "eventUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "9007199254740991",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "edgeEventSequence",
+          "name": "edgeEventSequence"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "DELIV_REC_QUAR"
+            },
+            "type": "enum"
+          },
+          "identifier": "eventType",
+          "name": "eventType"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "RELIABLE_FACT"
+            },
+            "type": "enum"
+          },
+          "identifier": "deliveryClass",
+          "name": "deliveryClass"
+        },
+        {
+          "dataType": {
+            "specs": [
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "DELIVERY_SESSION"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "type",
+                "name": "type"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 64
+                  },
+                  "type": "string"
+                },
+                "identifier": "uid",
+                "name": "uid"
+              }
+            ],
+            "type": "struct"
+          },
+          "identifier": "target",
+          "name": "target"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "commandUid",
+          "name": "commandUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "occurredAtPresent",
+          "name": "occurredAtPresent"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 30
+            },
+            "type": "string"
+          },
+          "identifier": "occurredAt",
+          "name": "occurredAt"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "SYNCED",
+              "2": "ESTIMATED",
+              "3": "UNAVAILABLE"
+            },
+            "type": "enum"
+          },
+          "identifier": "clockQuality",
+          "name": "clockQuality"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "payloadSha256",
+          "name": "payloadSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "recoveryUid",
+          "name": "recoveryUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "sessionUid",
+          "name": "sessionUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "originalCommandUid",
+          "name": "originalCommandUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "6",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int32"
+          },
+          "identifier": "portNo",
+          "name": "portNo"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 500
+            },
+            "type": "string"
+          },
+          "identifier": "reason",
+          "name": "reason"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "NONE"
+            },
+            "type": "enum"
+          },
+          "identifier": "businessValue",
+          "name": "businessValue"
+        },
+        {
+          "dataType": {
+            "specs": [
+              {
+                "dataType": {
+                  "specs": {
+                    "false": "false",
+                    "true": "true"
+                  },
+                  "type": "bool"
+                },
+                "identifier": "physicalOutcomeUnknownConfirmed",
+                "name": "physicalOutcomeUnknownConfirme"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "false": "false",
+                    "true": "true"
+                  },
+                  "type": "bool"
+                },
+                "identifier": "causeFixedConfirmed",
+                "name": "causeFixedConfirmed"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "false": "false",
+                    "true": "true"
+                  },
+                  "type": "bool"
+                },
+                "identifier": "devicePowerCycledConfirmed",
+                "name": "devicePowerCycledConfirmed"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "false": "false",
+                    "true": "true"
+                  },
+                  "type": "bool"
+                },
+                "identifier": "motionAreaClearConfirmed",
+                "name": "motionAreaClearConfirmed"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "false": "false",
+                    "true": "true"
+                  },
+                  "type": "bool"
+                },
+                "identifier": "deliveryDoorClosedConfirmed",
+                "name": "deliveryDoorClosedConfirmed"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "false": "false",
+                    "true": "true"
+                  },
+                  "type": "bool"
+                },
+                "identifier": "mechanismClearConfirmed",
+                "name": "mechanismClearConfirmed"
+              }
+            ],
+            "type": "struct"
+          },
+          "identifier": "operatorConfirmations",
+          "name": "operatorConfirmations"
+        },
+        {
+          "dataType": {
+            "specs": [
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 160
+                  },
+                  "type": "string"
+                },
+                "identifier": "previousBootIdentity",
+                "name": "previousBootIdentity"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 160
+                  },
+                  "type": "string"
+                },
+                "identifier": "currentBootIdentity",
+                "name": "currentBootIdentity"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 128
+                  },
+                  "type": "string"
+                },
+                "identifier": "firmwareIdentityHex",
+                "name": "firmwareIdentityHex"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "15"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "safeFlags",
+                "name": "safeFlags"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 256
+                  },
+                  "type": "string"
+                },
+                "identifier": "firmwareStatusRawFrameHex",
+                "name": "firmwareStatusRawFrameHex"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "2147483647",
+                    "min": "-2147483648",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int32"
+                },
+                "identifier": "selfTestWeightGrams",
+                "name": "selfTestWeightGrams"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 36
+                  },
+                  "type": "string"
+                },
+                "identifier": "selfTestWeightMeasurementUid",
+                "name": "selfTestWeightMeasurementUid"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "false": "false",
+                    "true": "true"
+                  },
+                  "type": "bool"
+                },
+                "identifier": "selfTestInfraredBlocked",
+                "name": "selfTestInfraredBlocked"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 256
+                  },
+                  "type": "string"
+                },
+                "identifier": "selfTestRawFrameHex",
+                "name": "selfTestRawFrameHex"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 36
+                  },
+                  "type": "string"
+                },
+                "identifier": "actionUid",
+                "name": "actionUid"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 36
+                  },
+                  "type": "string"
+                },
+                "identifier": "permitUid",
+                "name": "permitUid"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 36
+                  },
+                  "type": "string"
+                },
+                "identifier": "workUid",
+                "name": "workUid"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 36
+                  },
+                  "type": "string"
+                },
+                "identifier": "commandUid",
+                "name": "commandUid"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "DELIV_START_0"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "actionKey",
+                "name": "actionKey"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "START_DELIV_SESSION"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "actionKind",
+                "name": "actionKind"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 64
+                  },
+                  "type": "string"
+                },
+                "identifier": "actionDigestSha256",
+                "name": "actionDigestSha256"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "9007199254740991",
+                    "min": "1",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int64"
+                },
+                "identifier": "ledgerSequence",
+                "name": "ledgerSequence"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "ARMED"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "actionState",
+                "name": "actionState"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "UNKNOWN_QUARANTINED"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "resolutionState",
+                "name": "resolutionState"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 64
+                  },
+                  "type": "string"
+                },
+                "identifier": "resolutionEvidenceSha256",
+                "name": "resolutionEvidenceSha256"
+              }
+            ],
+            "type": "struct"
+          },
+          "identifier": "deviceEvidence",
+          "name": "deviceEvidence"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "firstPreOpenMeasurementPresent",
+          "name": "firstPreOpenMeasurementPresent"
+        },
+        {
+          "dataType": {
+            "specs": [
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 36
+                  },
+                  "type": "string"
+                },
+                "identifier": "measurementUid",
+                "name": "measurementUid"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "STABLE",
+                    "2": "UNSTABLE",
+                    "3": "TIMEOUT",
+                    "4": "SENSOR_FAULT",
+                    "5": "OVERLOAD",
+                    "6": "PROTOCOL_ERROR",
+                    "7": "CONFIG_ERROR",
+                    "8": "DISCONNECTED"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "status",
+                "name": "status"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "false": "false",
+                    "true": "true"
+                  },
+                  "type": "bool"
+                },
+                "identifier": "weightValueAvailable",
+                "name": "weightValueAvailable"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "false": "null",
+                    "true": "present"
+                  },
+                  "type": "bool"
+                },
+                "identifier": "reportedWeightGramsPresent",
+                "name": "reportedWeightGramsPresent"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "2147483647",
+                    "min": "-2147483648",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int32"
+                },
+                "identifier": "reportedWeightGrams",
+                "name": "reportedWeightGrams"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "NONE",
+                    "2": "STABLE_WINDOW_MEAN",
+                    "3": "LAST_FOUR_MEAN",
+                    "4": "AVAIL_SAMPLES_MEAN",
+                    "5": "LAST_OBSERVED"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "weightValueKind",
+                "name": "weightValueKind"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "4294967295",
+                    "min": "0",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int64"
+                },
+                "identifier": "measurementElapsedMs",
+                "name": "measurementElapsedMs"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "65535",
+                    "min": "0",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int32"
+                },
+                "identifier": "sampleCount",
+                "name": "sampleCount"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "4294967295",
+                    "min": "0",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int64"
+                },
+                "identifier": "calibrationVersion",
+                "name": "calibrationVersion"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "OK",
+                    "2": "TIMEOUT",
+                    "3": "SENSOR_FAULT",
+                    "4": "DISCONNECTED",
+                    "5": "UNKNOWN",
+                    "6": "PROTOCOL_ERROR",
+                    "7": "CONFIG_ERROR",
+                    "8": "OVERLOAD"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "sensorHealth",
+                "name": "sensorHealth"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "false": "null",
+                    "true": "present"
+                  },
+                  "type": "bool"
+                },
+                "identifier": "faultCodePresent",
+                "name": "faultCodePresent"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "UART_PROTOCOL",
+                    "10": "WEIGHT_PROTOCOL",
+                    "11": "WEIGHT_CONFIG",
+                    "12": "WEIGHT_DISCONNECTED",
+                    "13": "FULLNESS_DIAGNOSTIC",
+                    "14": "SMOKE_SENSOR",
+                    "15": "MCU_STORAGE",
+                    "16": "MCU_INTERNAL",
+                    "2": "UART_STORAGE",
+                    "3": "DOOR_OUTPUT_REJECTED",
+                    "4": "DOOR_HIL_NOT_QUAL",
+                    "5": "CLEAN_SOL_DRIVER",
+                    "6": "WEIGHT_UNSTABLE",
+                    "7": "WEIGHT_TIMEOUT",
+                    "8": "WEIGHT_SENSOR",
+                    "9": "WEIGHT_OVERLOAD"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "faultCode",
+                "name": "faultCode"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "9007199254740991",
+                    "min": "1",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int64"
+                },
+                "identifier": "mcuBootId",
+                "name": "mcuBootId"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "4294967295",
+                    "min": "1",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int64"
+                },
+                "identifier": "mcuEventSequence",
+                "name": "mcuEventSequence"
+              }
+            ],
+            "type": "struct"
+          },
+          "identifier": "firstPreOpenMeasurement",
+          "name": "firstPreOpenMeasurement"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "finalPostCloseMeasurementPresent",
+          "name": "finalPostCloseMeasurementPrese"
+        },
+        {
+          "dataType": {
+            "specs": [
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 36
+                  },
+                  "type": "string"
+                },
+                "identifier": "measurementUid",
+                "name": "measurementUid"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "STABLE",
+                    "2": "UNSTABLE",
+                    "3": "TIMEOUT",
+                    "4": "SENSOR_FAULT",
+                    "5": "OVERLOAD",
+                    "6": "PROTOCOL_ERROR",
+                    "7": "CONFIG_ERROR",
+                    "8": "DISCONNECTED"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "status",
+                "name": "status"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "false": "false",
+                    "true": "true"
+                  },
+                  "type": "bool"
+                },
+                "identifier": "weightValueAvailable",
+                "name": "weightValueAvailable"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "false": "null",
+                    "true": "present"
+                  },
+                  "type": "bool"
+                },
+                "identifier": "reportedWeightGramsPresent",
+                "name": "reportedWeightGramsPresent"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "2147483647",
+                    "min": "-2147483648",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int32"
+                },
+                "identifier": "reportedWeightGrams",
+                "name": "reportedWeightGrams"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "NONE",
+                    "2": "STABLE_WINDOW_MEAN",
+                    "3": "LAST_FOUR_MEAN",
+                    "4": "AVAIL_SAMPLES_MEAN",
+                    "5": "LAST_OBSERVED"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "weightValueKind",
+                "name": "weightValueKind"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "4294967295",
+                    "min": "0",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int64"
+                },
+                "identifier": "measurementElapsedMs",
+                "name": "measurementElapsedMs"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "65535",
+                    "min": "0",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int32"
+                },
+                "identifier": "sampleCount",
+                "name": "sampleCount"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "4294967295",
+                    "min": "0",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int64"
+                },
+                "identifier": "calibrationVersion",
+                "name": "calibrationVersion"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "OK",
+                    "2": "TIMEOUT",
+                    "3": "SENSOR_FAULT",
+                    "4": "DISCONNECTED",
+                    "5": "UNKNOWN",
+                    "6": "PROTOCOL_ERROR",
+                    "7": "CONFIG_ERROR",
+                    "8": "OVERLOAD"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "sensorHealth",
+                "name": "sensorHealth"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "false": "null",
+                    "true": "present"
+                  },
+                  "type": "bool"
+                },
+                "identifier": "faultCodePresent",
+                "name": "faultCodePresent"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "UART_PROTOCOL",
+                    "10": "WEIGHT_PROTOCOL",
+                    "11": "WEIGHT_CONFIG",
+                    "12": "WEIGHT_DISCONNECTED",
+                    "13": "FULLNESS_DIAGNOSTIC",
+                    "14": "SMOKE_SENSOR",
+                    "15": "MCU_STORAGE",
+                    "16": "MCU_INTERNAL",
+                    "2": "UART_STORAGE",
+                    "3": "DOOR_OUTPUT_REJECTED",
+                    "4": "DOOR_HIL_NOT_QUAL",
+                    "5": "CLEAN_SOL_DRIVER",
+                    "6": "WEIGHT_UNSTABLE",
+                    "7": "WEIGHT_TIMEOUT",
+                    "8": "WEIGHT_SENSOR",
+                    "9": "WEIGHT_OVERLOAD"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "faultCode",
+                "name": "faultCode"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "9007199254740991",
+                    "min": "1",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int64"
+                },
+                "identifier": "mcuBootId",
+                "name": "mcuBootId"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "max": "4294967295",
+                    "min": "1",
+                    "step": "1",
+                    "unit": ""
+                  },
+                  "type": "int64"
+                },
+                "identifier": "mcuEventSequence",
+                "name": "mcuEventSequence"
+              }
+            ],
+            "type": "struct"
+          },
+          "identifier": "finalPostCloseMeasurement",
+          "name": "finalPostCloseMeasurement"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 4,
+              "specs": [
+                {
+                  "dataType": {
+                    "specs": {
+                      "length": 512
+                    },
+                    "type": "string"
+                  },
+                  "identifier": "slot",
+                  "name": "slot"
+                },
+                {
+                  "dataType": {
+                    "specs": {
+                      "1": "AVAILABLE",
+                      "2": "UPLOAD_PENDING",
+                      "3": "PERMANENTLY_MISSING"
+                    },
+                    "type": "enum"
+                  },
+                  "identifier": "status",
+                  "name": "status"
+                },
+                {
+                  "dataType": {
+                    "specs": {
+                      "false": "null",
+                      "true": "present"
+                    },
+                    "type": "bool"
+                  },
+                  "identifier": "photoUidPresent",
+                  "name": "photoUidPresent"
+                },
+                {
+                  "dataType": {
+                    "specs": {
+                      "length": 36
+                    },
+                    "type": "string"
+                  },
+                  "identifier": "photoUid",
+                  "name": "photoUid"
+                },
+                {
+                  "dataType": {
+                    "specs": {
+                      "false": "null",
+                      "true": "present"
+                    },
+                    "type": "bool"
+                  },
+                  "identifier": "urlPresent",
+                  "name": "urlPresent"
+                },
+                {
+                  "dataType": {
+                    "specs": {
+                      "length": 512
+                    },
+                    "type": "string"
+                  },
+                  "identifier": "url",
+                  "name": "url"
+                },
+                {
+                  "dataType": {
+                    "specs": {
+                      "false": "null",
+                      "true": "present"
+                    },
+                    "type": "bool"
+                  },
+                  "identifier": "sha256Present",
+                  "name": "sha256Present"
+                },
+                {
+                  "dataType": {
+                    "specs": {
+                      "length": 64
+                    },
+                    "type": "string"
+                  },
+                  "identifier": "sha256",
+                  "name": "sha256"
+                },
+                {
+                  "dataType": {
+                    "specs": {
+                      "false": "null",
+                      "true": "present"
+                    },
+                    "type": "bool"
+                  },
+                  "identifier": "sizeBytesPresent",
+                  "name": "sizeBytesPresent"
+                },
+                {
+                  "dataType": {
+                    "specs": {
+                      "max": "20971520",
+                      "min": "1",
+                      "step": "1",
+                      "unit": ""
+                    },
+                    "type": "int32"
+                  },
+                  "identifier": "sizeBytes",
+                  "name": "sizeBytes"
+                },
+                {
+                  "dataType": {
+                    "specs": {
+                      "false": "null",
+                      "true": "present"
+                    },
+                    "type": "bool"
+                  },
+                  "identifier": "capturedAtPresent",
+                  "name": "capturedAtPresent"
+                },
+                {
+                  "dataType": {
+                    "specs": {
+                      "length": 30
+                    },
+                    "type": "string"
+                  },
+                  "identifier": "capturedAt",
+                  "name": "capturedAt"
+                },
+                {
+                  "dataType": {
+                    "specs": {
+                      "false": "null",
+                      "true": "present"
+                    },
+                    "type": "bool"
+                  },
+                  "identifier": "missingReasonPresent",
+                  "name": "missingReasonPresent"
+                },
+                {
+                  "dataType": {
+                    "specs": {
+                      "length": 64
+                    },
+                    "type": "string"
+                  },
+                  "identifier": "missingReason",
+                  "name": "missingReason"
+                }
+              ],
+              "type": "struct"
+            },
+            "type": "array"
+          },
+          "identifier": "photos",
+          "name": "photos"
+        }
+      ],
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.recoveryUid",
+          "nullable": false,
+          "wireIdentifier": "recoveryUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sessionUid",
+          "nullable": false,
+          "wireIdentifier": "sessionUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.originalCommandUid",
+          "nullable": false,
+          "wireIdentifier": "originalCommandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.portNo",
+          "nullable": false,
+          "wireIdentifier": "portNo"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.reason",
+          "nullable": false,
+          "wireIdentifier": "reason"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.businessValue",
+          "nullable": false,
+          "wireIdentifier": "businessValue"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.operatorConfirmations",
+          "nullable": false,
+          "wireIdentifier": "operatorConfirmations"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceEvidence",
+          "nullable": false,
+          "wireIdentifier": "deviceEvidence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.firstPreOpenMeasurement",
+          "nullable": true,
+          "wireIdentifier": "firstPreOpenMeasurement"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.finalPostCloseMeasurement",
+          "nullable": true,
+          "wireIdentifier": "finalPostCloseMeasurement"
         },
         {
           "encoding": "FLAT_TYPED",

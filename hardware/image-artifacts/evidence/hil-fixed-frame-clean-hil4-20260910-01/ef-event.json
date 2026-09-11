@@ -1,0 +1,23 @@
+{
+  "contentSha256": "663d302c6efb83a7756a09afab8f481871bef398ab7ad941cdf3adba9fe89bbf",
+  "lastError": null,
+  "mcuBootId": 3165910183011776,
+  "mcuEventSequence": 2,
+  "mcuReceiveGeneration": 28,
+  "messageName": "COMPAT_CLEAN_RESULT",
+  "messageType": 241,
+  "payload": {
+    "infraredBlocked": false,
+    "mcuBootId": 3165910183011776,
+    "mcuEventSequence": 2,
+    "postWeightGrams": 0,
+    "preWeightGrams": 0,
+    "rawFrameHex": "ef00000000000000ef",
+    "uptimeMs": 1996646
+  },
+  "processedAt": "2026-09-09T20:29:38Z",
+  "receivedAt": "2026-09-09T20:29:38Z",
+  "rowId": 52,
+  "sourceTxSequence": 2,
+  "state": "PROCESSED"
+}

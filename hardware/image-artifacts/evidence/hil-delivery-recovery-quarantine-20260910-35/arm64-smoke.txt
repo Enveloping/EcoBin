@@ -1,0 +1,5 @@
+Python 3.11.2
+installed-quarantine-ledger=PASS originalArmedPreserved=true duplicateSafe=true successRejected=true cancelled=true restartEvidenceRetained=true
+installed-communication-import=PASS
+installed-business-quarantine-import=PASS
+v35-arm64-smoke=PASS imageReadOnly=true networkIsolated=true syntheticStateOnly=true

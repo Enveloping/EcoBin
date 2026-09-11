@@ -141,6 +141,10 @@ public class OneNetClient
                     submission.commandType())) {
                 identifier = "startDeliverySession";
                 params = projectStartDeliverySession(envelope);
+            } else if ("QUARANTINE_DELIVERY_RECOVERY".equals(
+                    submission.commandType())) {
+                identifier = "quarantineDeliveryRecovery";
+                params = projectDeliveryRecoveryQuarantine(envelope);
             } else if ("START_CLEAN_OPERATION".equals(
                     submission.commandType())) {
                 identifier = "startCleanOperation";
@@ -1128,6 +1132,86 @@ public class OneNetClient
         params.put(
                 "cosGrantSessionTokenParts",
                 sessionTokenParts);
+        return params;
+    }
+
+    private Map<String, Object> projectDeliveryRecoveryQuarantine(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        String sessionUid = requiredUuid(payload, "sessionUid");
+        if (!"DELIVERY_SESSION".equals(requiredText(target, "type"))
+                || !sessionUid.equals(requiredUuid(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "delivery recovery target differs from its session");
+        }
+        if (payload.size() != 10) {
+            throw new IllegalArgumentException(
+                    "delivery recovery payload fields are invalid");
+        }
+        String issuedAtText = requiredInstant(envelope, "issuedAt");
+        String expiresAtText = requiredInstant(envelope, "expiresAt");
+        Instant issuedAt = Instant.parse(issuedAtText);
+        Instant expiresAt = Instant.parse(expiresAtText);
+        if (!expiresAt.isAfter(issuedAt)
+                || expiresAt.isAfter(issuedAt.plusSeconds(300))) {
+            throw new IllegalArgumentException(
+                    "delivery recovery command lifetime must not exceed five minutes");
+        }
+        String commandUid = requiredUuid(envelope, "commandUid");
+        String recoveryUid = requiredUuid(payload, "recoveryUid");
+        String originalCommandUid = requiredUuid(
+                payload, "originalCommandUid");
+        if (commandUid.equals(recoveryUid)
+                || commandUid.equals(originalCommandUid)
+                || recoveryUid.equals(originalCommandUid)) {
+            throw new IllegalArgumentException(
+                    "delivery recovery identities must be distinct");
+        }
+        String payloadSha256 = requiredMatchingText(
+                envelope, "payloadSha256", "^[0-9a-f]{64}$", 64);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> semanticPayload = objectMapper.convertValue(
+                payload, Map.class);
+        if (!payloadSha256.equals(
+                OneNetCanonicalJson.payloadSha256(semanticPayload))) {
+            throw new IllegalArgumentException(
+                    "delivery recovery payload digest differs");
+        }
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        params.put("schemaVersion", 1);
+        params.put("commandUid", commandUid);
+        params.put("commandType", 1);
+        params.put(
+                "targetDeviceName",
+                requiredBoundedText(envelope, "targetDeviceName", 64));
+        params.put("target", Map.of("type", 1, "uid", sessionUid));
+        params.put("issuedAt", issuedAtText);
+        params.put("expiresAt", expiresAtText);
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        params.put("payloadSchemaVersion", 1);
+        params.put("payloadSha256", payloadSha256);
+        params.put("recoveryUid", recoveryUid);
+        params.put("sessionUid", sessionUid);
+        params.put("originalCommandUid", originalCommandUid);
+        for (String field : List.of(
+                "physicalOutcomeUnknownConfirmed",
+                "causeFixedConfirmed",
+                "devicePowerCycledConfirmed",
+                "motionAreaClearConfirmed",
+                "deliveryDoorClosedConfirmed",
+                "mechanismClearConfirmed")) {
+            JsonNode value = payload.get(field);
+            if (value == null || !value.isBoolean() || !value.asBoolean()) {
+                throw new IllegalArgumentException(field + " must be true");
+            }
+            params.put(field, true);
+        }
+        params.put(
+                "reason", requiredBoundedText(payload, "reason", 500));
+        params.put("cosGrantPresent", false);
         return params;
     }
 

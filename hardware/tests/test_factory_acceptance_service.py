@@ -203,6 +203,65 @@ def test_controller_checks_persisted_run_against_loaded_configuration() -> None:
     ]
 
 
+def test_custom_reference_request_and_parameter_bound_retry() -> None:
+    controller, executor = _controller()
+    executor.state.update(status="RUNNING", revision=1, checks={"mcu": {"status": "PASSED"}})
+    controller.execute(_request("CAPTURE_EMPTY_WEIGHT", 1, {"confirmScaleEmpty": True, "referenceWeightGrams": 400}))
+    assert executor.calls[-1] == ("capture_empty_weight", ((), {"reference_weight_grams": 400}))
+    executor.state["checks"]["weight"] = {
+        "status": "RUNNING", "resultCode": "WAITING_FOR_REFERENCE_LOAD", "targetDeltaGrams": 400,
+    }
+    result = controller.execute(_request("CAPTURE_EMPTY_WEIGHT", 1, {"confirmScaleEmpty": True, "referenceWeightGrams": 400}))
+    assert result["idempotent"] is True
+    assert result["allowedActions"] == ["CAPTURE_LOADED_WEIGHT"]
+    before = len(executor.calls)
+    with pytest.raises(AcceptanceCommandError, match="WEIGHT_REFERENCE_LOCKED"):
+        controller.execute(_request("CAPTURE_EMPTY_WEIGHT", 1, {"confirmScaleEmpty": True, "referenceWeightGrams": 1000}))
+    with pytest.raises(AcceptanceCommandError, match="EMPTY_SCALE_CONFIRMATION_REQUIRED"):
+        controller.execute(_request("CAPTURE_EMPTY_WEIGHT", 1, {"confirmScaleEmpty": False, "referenceWeightGrams": 400}))
+    assert len(executor.calls) == before
+
+
+def test_projection_contains_only_bounded_measurement_facts() -> None:
+    from first_boot.factory_flow import _validate_acceptance_projection
+
+    controller, executor = _controller()
+    trace = {"samplesGrams": [100, 110], "readCount": 2, "resultCode": "WEIGHT_READING_NOT_STABLE"}
+    executor.state["checks"] = {
+        "weight": {"status": "FAILED", "resultCode": "WEIGHT_READING_NOT_STABLE", "sampling": {"empty": trace}, "stableSampleCount": 3},
+        "mcu": {"selfTest": {"weightGrams": 100, "infraredBlocked": False, "smokeCode": 0, "secret": "hidden"}},
+        "cameras": {"outside": {"captureNonEmpty": True, "source": "private-path"}},
+    }
+    projection = controller.projection()
+    _validate_acceptance_projection(projection)
+    assert projection["checks"]["weight"]["sampling"]["empty"] == trace
+    assert projection["checks"]["mcu"]["selfTestWeightGrams"] == 100
+    assert projection["checks"]["cameras"]["outsideCaptureNonEmpty"] is True
+    assert "hidden" not in json.dumps(projection)
+    assert "private-path" not in json.dumps(projection)
+    executor.state["checks"]["weight"]["sampling"]["empty"]["samplesGrams"] = [0] * 33
+    assert "sampling" not in controller.projection()["checks"]["weight"]
+
+
+@pytest.mark.parametrize("operation, generic, legacy", [
+    ("CAPTURE_LOADED_WEIGHT", "confirmReferencePlaced", "confirm500gPlaced"),
+    ("CONFIRM_WEIGHT_REMOVED", "confirmReferenceRemoved", "confirm500gRemoved"),
+])
+def test_weight_confirmation_names_remain_truthful_for_custom_and_legacy_runs(
+    operation: str, generic: str, legacy: str,
+) -> None:
+    controller, executor = _controller()
+    executor.state.update(status="RUNNING", revision=2, checks={
+        "weight": {"status": "PASSED", "resultCode": "WEIGHT_REFERENCE_WITHIN_TOLERANCE_AND_REMOVED", "targetDeltaGrams": 400},
+    })
+    with pytest.raises(AcceptanceCommandError, match="ACTION_PARAMETERS_INVALID"):
+        controller.execute(_request(operation, 1, {legacy: True}))
+    assert controller.execute(_request(operation, 1, {generic: True}))["idempotent"]
+    executor.state["checks"]["weight"].update(targetDeltaGrams=500, resultCode="WEIGHT_500G_WITHIN_490_510_AND_REMOVED")
+    assert controller.execute(_request(operation, 1, {legacy: True}))["idempotent"]
+    assert not executor.calls
+
+
 def test_start_requires_explicit_update_line_choice_and_binds_false() -> None:
     controller, executor = _controller()
 

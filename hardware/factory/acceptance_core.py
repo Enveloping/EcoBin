@@ -29,6 +29,14 @@ from factory.acceptance_storage import (
     AcceptanceLease,
     AtomicJsonFile,
 )
+from factory.acceptance_measurements import (
+    DEFAULT_REFERENCE_WEIGHT_GRAMS,
+    MAX_RECENT_SAMPLES,
+    WEIGHT_TOLERANCE_GRAMS,
+    passed_weight_result_code,
+    valid_passed_weight_check,
+    valid_reference_weight,
+)
 
 
 STATE_SCHEMA_VERSION = 3
@@ -721,7 +729,7 @@ class FactoryAcceptanceExecutor:
         )
         return self_test
 
-    def _stable_weight(self) -> tuple[int, list[int]]:
+    def _stable_weight(self, weight_check: dict, stage: str) -> tuple[int, list[int]]:
         """Return the median of one bounded stable window of F1 samples."""
 
         deadline = self._monotonic() + self._weight_sample_timeout_ms / 1000.0
@@ -733,9 +741,18 @@ class FactoryAcceptanceExecutor:
             + self._weight_stable_sample_count,
         )
         reads = 0
+        trace = {"samplesGrams": [], "readCount": 0, "resultCode": "SAMPLING"}
+        weight_check.setdefault("sampling", {})[stage] = trace
         while reads < maximum_reads:
             reads += 1
-            weight = self._query_self_test()["weightGrams"]
+            try:
+                weight = self._query_self_test()["weightGrams"]
+            except AcceptanceHardwareError as error:
+                trace["resultCode"] = _stable_code(error.code, "WEIGHT_CHECK_FAILED")
+                raise
+            trace["readCount"] += 1
+            trace["samplesGrams"].append(weight)
+            trace["samplesGrams"] = trace["samplesGrams"][-MAX_RECENT_SAMPLES:]
             window.append(weight)
             if len(window) > self._weight_stable_sample_count:
                 window.pop(0)
@@ -745,6 +762,7 @@ class FactoryAcceptanceExecutor:
                 <= self._weight_stable_max_spread_grams
             ):
                 ordered = sorted(window)
+                trace["resultCode"] = "STABLE_WEIGHT_CAPTURED"
                 return ordered[len(ordered) // 2], list(window)
             remaining = deadline - self._monotonic()
             if remaining <= 0:
@@ -755,6 +773,7 @@ class FactoryAcceptanceExecutor:
             )
             if interval > 0:
                 self._sleeper(interval)
+        trace["resultCode"] = "WEIGHT_READING_NOT_STABLE"
         raise AcceptanceHardwareError("WEIGHT_READING_NOT_STABLE")
 
     def _record_weight_failure(self, state: dict, code: str) -> None:
@@ -798,30 +817,43 @@ class FactoryAcceptanceExecutor:
         state["phase"] = "MCU_CHECK_PASSED"
         return self._save_state(state)
 
-    def capture_empty_weight(self) -> dict:
+    def capture_empty_weight(
+        self, *, reference_weight_grams: int = DEFAULT_REFERENCE_WEIGHT_GRAMS
+    ) -> dict:
         self._require_open()
         state = self._load_state()
         self._require_running(state)
         if not _check_passed(state, "mcu"):
             raise AcceptanceError("MCU_CHECK_REQUIRED")
-        try:
-            value, samples = self._stable_weight()
-        except AcceptanceHardwareError as error:
-            self._record_weight_failure(state, error.code)
-            raise AcceptanceError(error.code) from error
+        if not valid_reference_weight(reference_weight_grams):
+            raise AcceptanceError("REFERENCE_WEIGHT_INVALID")
+        if state.get("checks", {}).get("weight", {}).get("status") in {"RUNNING", "PASSED"}:
+            raise AcceptanceError("WEIGHT_REFERENCE_LOCKED")
+        load_code = (
+            "WAITING_FOR_500G_LOAD" if reference_weight_grams == 500
+            else "WAITING_FOR_REFERENCE_LOAD"
+        )
+        # A retry starts a new three-stage measurement. Never mix failed old
+        # loaded/removed values with the newly captured empty baseline.
         state["checks"]["weight"] = {
             "status": "RUNNING",
-            "resultCode": "WAITING_FOR_500G_LOAD",
-            "emptyWeightGrams": value,
-            "emptyStableSamplesGrams": samples,
-            "targetDeltaGrams": 500,
-            "toleranceGrams": 10,
+            "resultCode": load_code,
+            "targetDeltaGrams": reference_weight_grams,
+            "toleranceGrams": WEIGHT_TOLERANCE_GRAMS,
             "stableSampleCount": self._weight_stable_sample_count,
             "stableMaxSpreadGrams": self._weight_stable_max_spread_grams,
             "sampleIntervalMs": self._weight_sample_interval_ms,
             "sampleTimeoutMs": self._weight_sample_timeout_ms,
         }
-        state["phase"] = "WAITING_FOR_500G_LOAD"
+        weight = state["checks"]["weight"]
+        try:
+            value, samples = self._stable_weight(weight, "empty")
+        except AcceptanceHardwareError as error:
+            self._record_weight_failure(state, error.code)
+            raise AcceptanceError(error.code) from error
+        weight["emptyWeightGrams"] = value
+        weight["emptyStableSamplesGrams"] = samples
+        state["phase"] = load_code
         return self._save_state(state)
 
     def capture_loaded_weight(self) -> dict:
@@ -833,8 +865,10 @@ class FactoryAcceptanceExecutor:
             weight.get("emptyWeightGrams"), int
         ):
             raise AcceptanceError("EMPTY_WEIGHT_REQUIRED")
+        if weight.get("resultCode") not in {"WAITING_FOR_500G_LOAD", "WAITING_FOR_REFERENCE_LOAD"}:
+            raise AcceptanceError("LOADED_WEIGHT_ALREADY_CAPTURED")
         try:
-            loaded, samples = self._stable_weight()
+            loaded, samples = self._stable_weight(weight, "loaded")
         except AcceptanceHardwareError as error:
             self._record_weight_failure(state, error.code)
             raise AcceptanceError(error.code) from error
@@ -842,7 +876,7 @@ class FactoryAcceptanceExecutor:
         weight["loadedWeightGrams"] = loaded
         weight["loadedStableSamplesGrams"] = samples
         weight["deltaGrams"] = delta
-        if not 490 <= delta <= 510:
+        if abs(delta - weight["targetDeltaGrams"]) > WEIGHT_TOLERANCE_GRAMS:
             weight["status"] = "FAILED"
             weight["resultCode"] = "WEIGHT_DELTA_OUT_OF_RANGE"
             state["phase"] = "WEIGHT_CHECK_FAILED"
@@ -860,7 +894,7 @@ class FactoryAcceptanceExecutor:
         if weight.get("resultCode") != "WAITING_FOR_WEIGHT_REMOVAL":
             raise AcceptanceError("LOADED_WEIGHT_REQUIRED")
         try:
-            removed, samples = self._stable_weight()
+            removed, samples = self._stable_weight(weight, "removed")
         except AcceptanceHardwareError as error:
             self._record_weight_failure(state, error.code)
             raise AcceptanceError(error.code) from error
@@ -873,7 +907,7 @@ class FactoryAcceptanceExecutor:
             self._save_state(state)
             raise AcceptanceError("TEST_WEIGHT_NOT_REMOVED")
         weight["status"] = "PASSED"
-        weight["resultCode"] = "WEIGHT_500G_WITHIN_490_510_AND_REMOVED"
+        weight["resultCode"] = passed_weight_result_code(weight["targetDeltaGrams"])
         state["phase"] = "WEIGHT_CHECK_PASSED"
         return self._save_state(state)
 
@@ -1705,8 +1739,9 @@ class FactoryAcceptanceExecutor:
                     "loadedWeightGrams": weight.get("loadedWeightGrams"),
                     "removedWeightGrams": weight.get("removedWeightGrams"),
                     "deltaGrams": weight.get("deltaGrams"),
-                    "targetDeltaGrams": 500,
-                    "toleranceGrams": 10,
+                    "targetDeltaGrams": weight.get("targetDeltaGrams", DEFAULT_REFERENCE_WEIGHT_GRAMS),
+                    "toleranceGrams": WEIGHT_TOLERANCE_GRAMS,
+                    "sampling": copy.deepcopy(weight.get("sampling", {})),
                     "stableSampleCount": weight.get("stableSampleCount"),
                     "stableMaxSpreadGrams": weight.get(
                         "stableMaxSpreadGrams"
@@ -1847,6 +1882,10 @@ class FactoryAcceptanceExecutor:
             raise AcceptanceError(
                 "ACCEPTANCE_REPORT_CLEAN_SAFETY_CONFIRMATION_INVALID"
             )
+        if report.get("status") == "PASSED" and not valid_passed_weight_check(
+            report.get("checks", {}).get("weight")
+        ):
+            raise AcceptanceError("ACCEPTANCE_REPORT_WEIGHT_INVALID")
         forbidden_key_fragments = (
             "password",
             "secret",

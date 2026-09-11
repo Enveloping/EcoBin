@@ -4,6 +4,7 @@ import org.enveloping.ecobin.device.api.port.TrustedPlatformDeviceAssetFactPort;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedPlatformDeviceAssetFactEvent;
 import org.enveloping.ecobin.device.application.firmware.McuFirmwareRolloutService;
+import org.enveloping.ecobin.device.application.delivery.DeliveryRecoveryQuarantineService;
 import org.enveloping.ecobin.device.application.remote.RemoteSupportSessionService;
 import org.enveloping.ecobin.device.application.software.DeviceSoftwareCompatibilityService;
 import org.enveloping.ecobin.device.application.software.BusinessReleaseControlPlaneService;
@@ -37,6 +38,7 @@ public class TrustedPlatformDeviceAssetFactService
             "DEVICE_COMMAND_OBSERVED",
             "FACTORY_SEAL_COMPLETED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
+            DeliveryRecoveryQuarantineService.EVENT_TYPE,
             DeviceSoftwareCompatibilityService.EVENT_TYPE,
             BusinessReleaseControlPlaneService.EVENT_TYPE,
             BusinessReleaseControlPlaneService.CANCEL_EVENT_TYPE,
@@ -54,6 +56,8 @@ public class TrustedPlatformDeviceAssetFactService
     private final FactorySealAuthorizationService factorySealAuthorizations;
     private final DeviceSoftwareCompatibilityService softwareCompatibility;
     private final BusinessReleaseControlPlaneService businessReleases;
+    private final DeliveryRecoveryQuarantineService
+            deliveryRecoveryQuarantines;
 
     public TrustedPlatformDeviceAssetFactService(
             JdbcTemplate jdbc,
@@ -71,6 +75,28 @@ public class TrustedPlatformDeviceAssetFactService
                 firmwareRollouts,
                 factorySealAuthorizations,
                 softwareCompatibility,
+                null,
+                null);
+    }
+
+    public TrustedPlatformDeviceAssetFactService(
+            JdbcTemplate jdbc,
+            ObjectMapper objectMapper,
+            ReliablePlatformEdgeConfirmationService confirmationService,
+            RemoteSupportSessionService remoteSupportSessions,
+            McuFirmwareRolloutService firmwareRollouts,
+            FactorySealAuthorizationService factorySealAuthorizations,
+            DeviceSoftwareCompatibilityService softwareCompatibility,
+            BusinessReleaseControlPlaneService businessReleases) {
+        this(
+                jdbc,
+                objectMapper,
+                confirmationService,
+                remoteSupportSessions,
+                firmwareRollouts,
+                factorySealAuthorizations,
+                softwareCompatibility,
+                businessReleases,
                 null);
     }
 
@@ -83,7 +109,9 @@ public class TrustedPlatformDeviceAssetFactService
             McuFirmwareRolloutService firmwareRollouts,
             FactorySealAuthorizationService factorySealAuthorizations,
             DeviceSoftwareCompatibilityService softwareCompatibility,
-            BusinessReleaseControlPlaneService businessReleases) {
+            BusinessReleaseControlPlaneService businessReleases,
+            DeliveryRecoveryQuarantineService
+                    deliveryRecoveryQuarantines) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.confirmationService = confirmationService;
@@ -92,6 +120,8 @@ public class TrustedPlatformDeviceAssetFactService
         this.factorySealAuthorizations = factorySealAuthorizations;
         this.softwareCompatibility = softwareCompatibility;
         this.businessReleases = businessReleases;
+        this.deliveryRecoveryQuarantines =
+                deliveryRecoveryQuarantines;
     }
 
     @Override
@@ -172,6 +202,27 @@ public class TrustedPlatformDeviceAssetFactService
                                 ? "UPDATED" : "NO_ACTION_REQUIRED",
                         now);
                 return completed.changed()
+                        ? TrustedDeviceEventApplyResult.APPLIED
+                        : TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
+            }
+            if (DeliveryRecoveryQuarantineService.EVENT_TYPE.equals(
+                    inboxEvent.messageKind())) {
+                if (deliveryRecoveryQuarantines == null) {
+                    throw new IllegalStateException(
+                            "delivery recovery quarantine handler is unavailable");
+                }
+                DeliveryRecoveryQuarantineService.ApplyResult applied =
+                        deliveryRecoveryQuarantines.applyTrusted(
+                                sourceInboxId, normalized, now);
+                confirmationService.ensureApplied(
+                        applied.assetId(),
+                        hardwareSn,
+                        eventUid,
+                        payloadSha256,
+                        applied.changed()
+                                ? "UPDATED" : "NO_ACTION_REQUIRED",
+                        now);
+                return applied.changed()
                         ? TrustedDeviceEventApplyResult.APPLIED
                         : TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
             }

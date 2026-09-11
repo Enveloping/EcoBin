@@ -15,6 +15,8 @@
 #include "adc.h"
 #include "smoke_monitor.h"
 #include "mcu_update_execution.h"
+#define ECOBIN_MCU_RUNTIME_INCLUDE_DIRECTION
+#include "mcu_runtime_logic.h"
 
 /* ===== 定时器驱动重量采集: 全局变量 (100ms周期) ===== */
 volatile unsigned char  g_weight_tick = 0;
@@ -25,8 +27,8 @@ volatile unsigned short g_tick_count  = 0;
 #define RELAY1   PBout(6)//控制推杆方向
 #define RELAY2   PBout(7)
 
-#define LIMIT_SW1   PBin(4)   /* 下: 开盖到位 */
-#define LIMIT_SW2   PBin(5)   /* 上: 关盖到位 */
+#define LIMIT_SW1   PBin(4)   /* PB4: 关盖方向限位 */
+#define LIMIT_SW2   PBin(5)   /* PB5: 开盖方向限位 */
 
 /* HC-SR04 超声波溢满检测 */
 #define HCSR04_TRIG      PAout(11)   /* PA11=TRIG 触发输出 */
@@ -40,9 +42,9 @@ unsigned char unit_price = 8;
 #define SMOKE_THRESHOLD  1800   /* 1.5V / 3.3V * 4095 ≈ 1860 */
 
 /* 推杆方向定义 */
-#define DIR_STOP    0   /* 停止 */
-#define Close_PB4  1   /* 伸长/关盖: RELAY1=0 RELAY2=1 (+24V) */
-#define Open_PB5 2   /* 缩回/开盖: RELAY1=1 RELAY2=0 (-24V) */
+#define DIR_STOP    MCU_DIRECTION_STOP   /* 停止 */
+#define Close_PB4   MCU_DIRECTION_CLOSE  /* 伸长/关盖: RELAY1=0 RELAY2=1 (+24V) */
+#define Open_PB5    MCU_DIRECTION_OPEN   /* 缩回/开盖: RELAY1=1 RELAY2=0 (-24V) */
 
 /* 注: PA11/PA12 已分配给 HC-SR04, 见上方 HCSR04_TRIG/HCSR04_ECHO */
 
@@ -66,6 +68,8 @@ volatile unsigned char g_weight_updated = 0;
 /* Protocol v2.0 state */
 unsigned long  delivery_pre_weight = 0;
 unsigned long  cleaning_pre_weight = 0;
+unsigned char  delivery_pre_weight_valid = 0;
+unsigned char  cleaning_pre_weight_valid = 0;
 unsigned char  delivery_flow_active = 0;
 #define CLEAN_IDLE          0
 #define CLEAN_LOCK_ON       1
@@ -81,6 +85,7 @@ unsigned char  weigh_state = WEIGH_IDLE;
 
 /* 全局变量 */
 unsigned long  g_weight;                  /* 当前重量读数, 供状态机使用 */
+unsigned char  g_weight_valid = 0;        /* 最近一次完整称重是否可用于协议 */
 unsigned short kg, bg;                    /* 千克/百克 */
 unsigned long  total_price;
 unsigned short yuan, jiao, fen;
@@ -240,32 +245,19 @@ void LIMIT_SW_Init(void)
 /* 推杆控制 */
 void Motor_Control(unsigned char *pDir)
 {
+    *pDir = McuRuntime_DirectionAfterLimits(
+        *pDir, LIMIT_SW1 ? 1U : 0U, LIMIT_SW2 ? 1U : 0U);
+
     switch(*pDir)
     {
     case Close_PB4:
-        if(LIMIT_SW1)
-        {
-            RELAY1 = 0;
-            RELAY2 = 0;
-        }
-        else
-        {
-            RELAY1 = 0;
-            RELAY2 = 1;
-        }
+        RELAY1 = 0;
+        RELAY2 = 1;
         break;
 
     case Open_PB5:
-        if(LIMIT_SW2)
-        {
-            RELAY1 = 0;
-            RELAY2 = 0;
-        }
-        else
-        {
-            RELAY1 = 1;
-            RELAY2 = 0;
-        }
+        RELAY1 = 1;
+        RELAY2 = 0;
         break;
 
     case DIR_STOP:
@@ -389,6 +381,8 @@ static unsigned char Firmware_ExecuteUpdatePrepare(
     update_prepared = state.update_latched;
     delivery_flow_active = state.delivery_active;
     cleaning_state = state.cleaning_state;
+    delivery_pre_weight_valid = 0;
+    cleaning_pre_weight_valid = 0;
     lock_timer_ticks = 0;
     *pCmdDir = state.command_direction;
     *pWeighState = state.weigh_state;
@@ -444,14 +438,16 @@ void Vision_Process(unsigned char *pCmdDir, unsigned char *pPrice,
             switch(header)
             {
             case 0xAA:   /* 投递流程 (protocol 6.1) */
-                if(!update_prepared && data == 0x01)
+                if(!update_prepared && data == 0x01 &&
+                   g_weight_valid && !delivery_flow_active &&
+                   cleaning_state == CLEAN_IDLE)
                 {
                     delivery_pre_weight = g_weight;
+                    delivery_pre_weight_valid = 1;
                     delivery_flow_active = 1;
                     *pCmdDir = Open_PB5;
                     UART3_SendPage("page4");
                 }
-                else if(!update_prepared && data == 0x00) *pCmdDir = Close_PB4;  /* debug */
                 break;
             case 0xBB:   /* 垃圾单价 */
                 if(!update_prepared && data <= 9)
@@ -463,19 +459,17 @@ void Vision_Process(unsigned char *pCmdDir, unsigned char *pPrice,
                 }
                 break;
             case 0xEE:   /* 清运流程 (protocol 6.3) */
-                if(!update_prepared && data == 0x01)
+                if(!update_prepared && data == 0x01 &&
+                   g_weight_valid && !delivery_flow_active &&
+                   cleaning_state == CLEAN_IDLE)
                 {
                     cleaning_pre_weight = g_weight;
+                    cleaning_pre_weight_valid = 1;
                     SUO = 1;
                     cleaning_state = CLEAN_LOCK_ON;
                     lock_timer_ticks = 0;
-                    UART3_SendPage("page1");
+                    UART3_SendPage("page8");
                 }
-                else if(!update_prepared && data == 0x00)
-                {
-                    SUO=0;
-                    cleaning_state=CLEAN_IDLE;
-                }  /* deprecated */
                 break;
             
             case 0xF0:   /* Self-test query -> F1 */
@@ -483,10 +477,14 @@ void Vision_Process(unsigned char *pCmdDir, unsigned char *pPrice,
                 {
                     unsigned short dist = HCSR04_GetDistance();
                     unsigned char valid=0x03, smoke_st;
+                    unsigned long report_weight=0;
                     unsigned char full_flag=(dist==0xFFFF)?0x00:(dist<OVERFLOW_DIST)?0x01:0x00;
                     smoke_st = SmokeMonitor_GetState();
-                    if(g_weight==0&&!baseline_inited)valid&=~0x01;
-                    Vision_SendSelfTestResult(valid,g_weight,full_flag,smoke_st);
+                    if(g_weight_valid)
+                        report_weight=g_weight;
+                    else
+                        valid&=~0x01;
+                    Vision_SendSelfTestResult(valid,report_weight,full_flag,smoke_st);
                 }
                 break;
             case 0xF2:   /* firmware identity / execute update preparation */
@@ -565,7 +563,6 @@ int main(void)
     unsigned long  weight = 0;
     unsigned char ret;
     unsigned char cmdDir = DIR_STOP;
-    unsigned char prev_cmdDir = DIR_STOP;    /* 记录上次推杆状态, 用于检测变化 */
 
     SystemInit();
     IO_Init();
@@ -622,12 +619,10 @@ int main(void)
                 break;
             case 0x04:   /* 显示结果: 发送稳定垃圾重量+总价到 page7 */
             {
-                unsigned short d_kg, d_bg, d_yuan, d_jiao, d_fen;
-                unsigned long  d_total;
+				unsigned short d_kg, d_bg, d_yuan, d_jiao, d_fen;
 								cmdDir = Close_PB4;
                 d_kg    = stable_garbage / 1000;
                 d_bg    = stable_garbage % 1000 / 100;
-                d_total = (unsigned long)unit_price * stable_garbage/10;
 							
                 d_yuan  = d_kg*unit_price/10+(d_kg*unit_price%10+d_bg*unit_price/10)/10;
                 d_jiao  = (d_kg*unit_price%10+d_bg*unit_price/10)%10;								
@@ -649,7 +644,8 @@ int main(void)
                 weigh_state = WEIGH_IDLE;
 
                 /* DD完成帧：仅活跃投递使用已保存的投前重量，0g也是合法重量。 */
-                if(delivery_flow_active)
+                if(delivery_flow_active && delivery_pre_weight_valid &&
+                   g_weight_valid)
                 {
                     unsigned long pre_w;
                     unsigned short dist=HCSR04_GetDistance();
@@ -657,12 +653,13 @@ int main(void)
                     pre_w=delivery_pre_weight;
                     full_byte=(dist==0xFFFF)?0x00:(dist<OVERFLOW_DIST)?0x01:0x00;
                     Vision_SendDeliveryResult(pre_w,post_w,full_byte);
-                }
 
-                baseline_total=post_w;
-                baseline_inited=1;
-                delivery_flow_active=0;
-                delivery_pre_weight=0;
+                    baseline_total=post_w;
+                    baseline_inited=1;
+                    delivery_flow_active=0;
+                    delivery_pre_weight=0;
+                    delivery_pre_weight_valid=0;
+                }
 
 							matched = 1; consumed = 1;
                 break;
@@ -673,7 +670,8 @@ int main(void)
                 break;
             case 0x05:   /* 清运完成: send EF */
             {
-                if(cleaning_state == CLEAN_WAIT_CONFIRM)
+                if(cleaning_state == CLEAN_WAIT_CONFIRM &&
+                   cleaning_pre_weight_valid && g_weight_valid)
                 {
                     unsigned long pre_w,post_w;
                     unsigned short dist=HCSR04_GetDistance();
@@ -684,18 +682,24 @@ int main(void)
                     Vision_SendCleaningResult(pre_w,post_w,full_byte);
                     cleaning_state=CLEAN_IDLE;
                     cleaning_pre_weight=0;
+                    cleaning_pre_weight_valid=0;
                     baseline_total=g_weight;   /* 清运后立即刷新基准 */
                     baseline_inited=1;
+                    UART3_SendPage("page0");
                 }
                 matched = 1; consumed = 1;
                 break;
             }
-						case 0x07:
-							{
-								SUO = 1; lock_timer_ticks = 0;
-								 matched = 1; consumed = 1;
-									break;
-							}
+            case 0x07:   /* 同一次清运中重新打开清运门 */
+                if(cleaning_state == CLEAN_WAIT_CONFIRM &&
+                   cleaning_pre_weight_valid)
+                {
+                    SUO = 1;
+                    cleaning_state = CLEAN_LOCK_ON;
+                    lock_timer_ticks = 0;
+                }
+                matched = 1; consumed = 1;
+                break;
             }  /* end switch */
 
 
@@ -727,13 +731,6 @@ int main(void)
         /* 推杆控制 */
         Motor_Control(&cmdDir);
 
-        /* 推杆状态变化时发送AA帧 */
-        if(cmdDir != prev_cmdDir)
-        {
-            Vision_SendPushRod((cmdDir == Close_PB4) ? 0x00 : 0x01);
-            prev_cmdDir = cmdDir;
-        }
-
                 /* SmokeMonitor: debounced state machine */
         SmokeMonitor_Update();
         if(SmokeMonitor_PollChanged())
@@ -759,6 +756,7 @@ int main(void)
         {
           //  // printf("Weight=%d g\r\n", weight);
             g_weight = Weight_Filter(weight);   /* filtered */
+            g_weight_valid = 1;
             g_weight_updated = 1;
 
             /* 首次上电: 自动用第一个重量读数初始化基准 */
@@ -776,11 +774,18 @@ int main(void)
         }
         else if(ret == 1)
         {
+            g_weight_valid = 0;
             /* Weight Timeout */ // printf("Weight Read Timeout!\r\n");
         }
         else if(ret == 3)
         {
+            g_weight_valid = 0;
             /* Weight CRC Err */ // printf("Weight CRC Error!\r\n");
+        }
+        else if(ret == MCU_WEIGHT_READ_RANGE_ERROR)
+        {
+            g_weight_valid = 0;
+            /* Positive scale value exceeds the fixed-frame maximum. */
         }
      
 

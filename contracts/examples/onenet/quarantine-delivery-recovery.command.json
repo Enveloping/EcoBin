@@ -1,0 +1,27 @@
+{
+  "commandType": "QUARANTINE_DELIVERY_RECOVERY",
+  "commandUid": "31000000-0000-4000-8000-000000000002",
+  "cosGrant": null,
+  "expiresAt": "2026-07-24T01:01:00.000Z",
+  "issuedAt": "2026-07-24T01:00:00.000Z",
+  "payload": {
+    "causeFixedConfirmed": true,
+    "deliveryDoorClosedConfirmed": true,
+    "devicePowerCycledConfirmed": true,
+    "mechanismClearConfirmed": true,
+    "motionAreaClearConfirmed": true,
+    "originalCommandUid": "30000000-0000-4000-8000-000000000003",
+    "physicalOutcomeUnknownConfirmed": true,
+    "reason": "现场排除故障并整机断电重启后隔离原投递",
+    "recoveryUid": "31000000-0000-4000-8000-000000000001",
+    "sessionUid": "30000000-0000-4000-8000-000000000001"
+  },
+  "payloadSchemaVersion": 2,
+  "payloadSha256": "350c1a741b3da75c2dd1f1b20eec51dff09c82571345888d397531bfb9b1da76",
+  "schemaVersion": 2,
+  "target": {
+    "type": "DELIVERY_SESSION",
+    "uid": "30000000-0000-4000-8000-000000000001"
+  },
+  "targetDeviceName": "SN-CONTRACT-0001"
+}

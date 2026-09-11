@@ -20,6 +20,8 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeliveryNotStartedConfirmationRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeliveryNotStartedConfirmationView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeliveryRecoveryQuarantineRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeliveryRecoveryQuarantineView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceRuntimeView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceTechnicalIssueView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.FactoryProgressView;
@@ -210,6 +212,36 @@ public class PlatformDeviceAssetController {
                         hardwareSn,
                         sessionUid,
                         body), request));
+    }
+
+    @PostMapping("/{hardwareSn}/delivery-sessions/{sessionUid}/"
+            + "recovery-quarantines")
+    public ResponseEntity<TargetApiEnvelope<
+            DeliveryRecoveryQuarantineView>> quarantineDeliveryRecovery(
+                    @RequestHeader("Idempotency-Key") UUID operationUid,
+                    @PathVariable String hardwareSn,
+                    @PathVariable UUID sessionUid,
+                    @Valid @RequestBody
+                    DeliveryRecoveryQuarantineRequest body,
+                    HttpServletRequest request) {
+        return ResponseEntity.accepted()
+                .cacheControl(CacheControl.noStore())
+                .body(ok(application.quarantineDeliveryRecovery(
+                        operationUid,
+                        hardwareSn,
+                        sessionUid,
+                        body), request));
+    }
+
+    @GetMapping("/{hardwareSn}/delivery-recovery-quarantines/"
+            + "{recoveryUid}")
+    public ResponseEntity<TargetApiEnvelope<
+            DeliveryRecoveryQuarantineView>> deliveryRecoveryQuarantine(
+                    @PathVariable String hardwareSn,
+                    @PathVariable UUID recoveryUid,
+                    HttpServletRequest request) {
+        return noStore(application.deliveryRecoveryQuarantine(
+                hardwareSn, recoveryUid), request);
     }
 
     @GetMapping("/{hardwareSn}/configuration-applications/{applicationUid}")

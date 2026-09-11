@@ -201,6 +201,7 @@ class ReliableOperationsJdbcRepositorySqlTest {
                 + "'START_MCU_FIRMWARE_UPDATE', "
                 + "'START_BUSINESS_RUNTIME_UPDATE', "
                 + "'CANCEL_BUSINESS_RUNTIME_UPDATE', "
+                + "'QUARANTINE_DELIVERY_RECOVERY', "
                 + "'CONFIRM_EDGE_EVENT' )";
     }
 

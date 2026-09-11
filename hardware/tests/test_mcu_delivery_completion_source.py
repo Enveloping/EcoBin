@@ -18,7 +18,10 @@ def _delivery_completion_block() -> str:
 def test_delivery_completion_accepts_zero_preweight_only_for_active_flow() -> None:
     block = re.sub(r"\s+", "", _delivery_completion_block())
 
-    assert "if(delivery_flow_active)" in block
+    assert (
+        "if(delivery_flow_active&&delivery_pre_weight_valid&&g_weight_valid)"
+        in block
+    )
     assert "pre_w=delivery_pre_weight;" in block
     assert "delivery_pre_weight>0" not in block
     assert "unsignedlongpost_w=g_weight;" in block

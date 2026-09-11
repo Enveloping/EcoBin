@@ -62,15 +62,19 @@ uv run --project hardware --python 3.11 python hardware/mcu_firmware_package.py 
 
 ## 本机逻辑测试
 
-F2 模式 02 的“停止全部输出并锁存升级执行模式”转换不依赖 STM32 寄存器，可用
-Clang 在桌面直接回归：
+F2 模式 02 的“停止全部输出并锁存升级执行模式”，以及称重补码解析、协议重量边界、
+“完整 Modbus 应答优先于轮询超时”和限位停机转换，都不依赖 STM32 寄存器，可用 Clang
+在桌面直接回归。相同测试入口还检查清运进入 `page8`、`0x07` 只在同一次有效清运等待
+状态下再次开锁，以及 `0x05` 被接受后才由 MCU 切回 `page0`：
 
 ```powershell
 cd hardware
-uv run --python 3.11 --with pytest pytest -q tests/test_mcu_update_execution_c.py
+uv run --python 3.11 --with pytest pytest -q `
+  tests/test_mcu_update_execution_c.py `
+  tests/test_mcu_runtime_logic_c.py
 ```
 
-该测试只验证纯 C 转换；发布前仍需用真实 STM32、香橙派 UART 和 BOOT0/NRST
+该测试只验证桌面逻辑和源码接线；发布前仍需用真实 STM32、香橙派 UART 和 BOOT0/NRST
 接线执行硬件在环验收。
 
 如修改 `contracts/uart/` 中的契约，还应从仓库根目录重新生成并校验 MCU C 产物：

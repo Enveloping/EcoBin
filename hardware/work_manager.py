@@ -2301,7 +2301,49 @@ class WorkManager:
                 remote = self._job_safety.get_physical_action(
                     record["action_uid"]
                 )
-                if remote.get("state") != "CONFIRMED":
+                if remote.get("state") == "CONFIRMED":
+                    continue
+                local_resolution = record.get(
+                    "unknown_effect_resolution"
+                )
+                remote_resolution = remote.get(
+                    "unknownEffectResolution"
+                )
+                unknown_effect_is_exact = bool(
+                    pending.get("outcome") == "CANCELLED"
+                    and pending.get("physical_outcome")
+                    == "UNKNOWN_EFFECT_QUARANTINED"
+                    and self._remote_action_identity_matches(
+                        safety, record, remote
+                    )
+                    and remote.get("state") == "ARMED"
+                    and isinstance(local_resolution, dict)
+                    and local_resolution.get("confirmed") is True
+                    and isinstance(remote_resolution, dict)
+                    and remote_resolution.get("resolutionState")
+                    == "UNKNOWN_EFFECT_QUARANTINED"
+                    and remote_resolution.get("resolutionUid")
+                    == local_resolution.get("resolution_uid")
+                    and remote_resolution.get("actionUid")
+                    == record.get("action_uid")
+                    and remote_resolution.get("permitUid")
+                    == safety.get("permit_uid")
+                    and remote_resolution.get("workUid")
+                    == safety.get("work_uid")
+                    and remote_resolution.get("commandUid")
+                    == safety.get("command_uid")
+                    and remote_resolution.get("actionKey")
+                    == record.get("action_key")
+                    and remote_resolution.get("actionKind")
+                    == record.get("action_kind")
+                    and remote_resolution.get("actionDigestSha256")
+                    == record.get("action_digest_sha256")
+                    and remote_resolution.get("expectedLedgerSequence")
+                    == local_resolution.get("expected_ledger_sequence")
+                    and remote_resolution.get("evidenceDigestSha256")
+                    == local_resolution.get("evidence_sha256")
+                )
+                if not unknown_effect_is_exact:
                     raise JobSafetyError(
                         "PHYSICAL_ACTION_UNCONFIRMED",
                         "permanent action remains prepared or armed",
@@ -3386,6 +3428,507 @@ class WorkManager:
             expected_command_state=command_state,
             work_context=context,
         )
+
+    def quarantine_delivery_recovery(
+        self,
+        command: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Cancel one uncertain fixed-frame delivery as issue-only evidence.
+
+        This is deliberately not a delivery completion.  It requires a new
+        device boot, a fresh idle-safe MCU status, a fresh healthy sensor
+        snapshot and explicit operator confirmations before it appends an
+        unknown-effect resolution to the permanent ledger.
+        """
+
+        if command.get("commandType") != "QUARANTINE_DELIVERY_RECOVERY":
+            raise ValueError("delivery recovery command type is invalid")
+        if not getattr(self._uart, "compatibility_mode", False):
+            raise JobSafetyError(
+                "RECOVERY_MODE_NOT_SUPPORTED",
+                "delivery quarantine currently requires fixed-frame MCU mode",
+            )
+        if not self._job_safety.enabled:
+            raise JobSafetyError(
+                "JOB_PERMIT_MISSING",
+                "delivery quarantine requires the permanent job ledger",
+            )
+        payload = command.get("payload")
+        target = command.get("target")
+        if not isinstance(payload, dict) or not isinstance(target, dict):
+            raise ValueError("delivery recovery command is incomplete")
+        required_confirmations = (
+            "physicalOutcomeUnknownConfirmed",
+            "causeFixedConfirmed",
+            "devicePowerCycledConfirmed",
+            "motionAreaClearConfirmed",
+            "deliveryDoorClosedConfirmed",
+            "mechanismClearConfirmed",
+        )
+        if any(payload.get(field) is not True for field in required_confirmations):
+            raise JobSafetyError(
+                "RECOVERY_OPERATOR_CONFIRMATION_REQUIRED",
+                "every delivery recovery safety confirmation must be true",
+            )
+        reason = payload.get("reason")
+        if (
+            not isinstance(reason, str)
+            or not reason.strip()
+            or len(reason) > 500
+        ):
+            raise ValueError("delivery recovery reason is invalid")
+        recovery_uid = payload.get("recoveryUid")
+        session_uid = payload.get("sessionUid")
+        original_command_uid = payload.get("originalCommandUid")
+        recovery_command_uid = command.get("commandUid")
+        if not all(
+            isinstance(value, str) and value
+            for value in (
+                recovery_uid,
+                session_uid,
+                original_command_uid,
+                recovery_command_uid,
+            )
+        ):
+            raise ValueError("delivery recovery identity is invalid")
+        if target != {"type": "DELIVERY_SESSION", "uid": session_uid}:
+            raise JobSafetyError(
+                "RECOVERY_TARGET_MISMATCH",
+                "delivery recovery target differs from its session",
+            )
+
+        slot = self._store.get_work_slot()
+        if not (
+            slot is not None
+            and slot.get("work_type") == WORK_TYPE_DELIVERY
+            and slot.get("work_uid") == session_uid
+            and slot.get("work_state") == "RECOVERY_REQUIRED"
+        ):
+            raise JobSafetyError(
+                "RECOVERY_WORK_NOT_ELIGIBLE",
+                "the exact delivery is not locked for recovery",
+            )
+        context = slot.get("context")
+        if not isinstance(context, dict):
+            raise JobSafetyError(
+                "RECOVERY_WORK_CONTEXT_INVALID",
+                "delivery recovery context is unavailable",
+            )
+        self._require_job_safety_mode_alignment(context)
+        original_phase = context.get("phase")
+        if original_phase not in {
+            "START_RESULT_UNKNOWN",
+            "FIXED_FRAME_RESULT_OVERDUE_RECOVERY_REQUIRED",
+        }:
+            raise JobSafetyError(
+                "RECOVERY_WORK_NOT_ELIGIBLE",
+                "delivery is not in an unknown-result recovery phase",
+            )
+        if (
+            context.get("session_uid") != session_uid
+            or context.get("start_command_uid") != original_command_uid
+            or context.get("device_name") != command.get("targetDeviceName")
+        ):
+            raise JobSafetyError(
+                "RECOVERY_WORK_IDENTITY_MISMATCH",
+                "delivery recovery does not match the frozen work identity",
+            )
+        safety = context.get("job_safety")
+        if not isinstance(safety, dict) or safety.get("pending_completion"):
+            raise JobSafetyError(
+                "RECOVERY_WORK_NOT_ELIGIBLE",
+                "delivery already has a terminal completion in progress",
+            )
+        actions = safety.get("actions")
+        if not isinstance(actions, dict) or set(actions) != {
+            "DELIVERY:START:0"
+        }:
+            raise JobSafetyError(
+                "RECOVERY_ACTION_IDENTITY_MISMATCH",
+                "delivery does not have exactly one recoverable start action",
+            )
+        action_record = actions["DELIVERY:START:0"]
+        if not (
+            isinstance(action_record, dict)
+            and action_record.get("action_uid")
+            == context.get("start_mcu_command_uid")
+            and action_record.get("action_key") == "DELIVERY:START:0"
+            and action_record.get("action_kind")
+            == "START_DELIVERY_SESSION"
+            and action_record.get("preparation_result") == "PREPARED"
+            and action_record.get("dispatch_result") == "ARMED"
+            and self._is_lower_sha256(
+                action_record.get("action_digest_sha256")
+            )
+        ):
+            raise JobSafetyError(
+                "RECOVERY_ACTION_IDENTITY_MISMATCH",
+                "delivery start action is not an exact armed action",
+            )
+        confirmations = safety.get("confirmations")
+        if isinstance(confirmations, dict) and confirmations.get(
+            "DELIVERY:START:0"
+        ) is not None:
+            raise JobSafetyError(
+                "RECOVERY_NORMAL_RESULT_ALREADY_RECORDED",
+                "a normal delivery result already owns the start action",
+            )
+
+        original_row = self._store.get_command(original_command_uid)
+        recovery_row = self._store.get_command(recovery_command_uid)
+        original_envelope = (
+            original_row.get("payload")
+            if isinstance(original_row, dict)
+            else None
+        )
+        if not (
+            isinstance(original_row, dict)
+            and original_row.get("command_type")
+            == "START_DELIVERY_SESSION"
+            and original_row.get("state") == "RECOVERY_REQUIRED"
+            and isinstance(original_envelope, dict)
+            and original_envelope.get("commandUid")
+            == original_command_uid
+            and original_envelope.get("target")
+            == {"type": "DELIVERY_SESSION", "uid": session_uid}
+            and isinstance(original_envelope.get("payload"), dict)
+            and original_envelope["payload"].get("sessionUid")
+            == session_uid
+            and isinstance(recovery_row, dict)
+            and recovery_row.get("command_type")
+            == "QUARANTINE_DELIVERY_RECOVERY"
+            and recovery_row.get("state") == "PROCESSING"
+        ):
+            raise JobSafetyError(
+                "RECOVERY_COMMAND_IDENTITY_MISMATCH",
+                "delivery recovery command bindings changed",
+            )
+
+        prior_boot_identity = context.get(
+            "delivery_result_deadline_boot_identity"
+        )
+        current_boot_identity = _system_boot_identity()
+        if not (
+            isinstance(prior_boot_identity, str)
+            and prior_boot_identity
+            and isinstance(current_boot_identity, str)
+            and current_boot_identity
+            and current_boot_identity != prior_boot_identity
+        ):
+            raise JobSafetyError(
+                "RECOVERY_POWER_CYCLE_NOT_PROVEN",
+                "a device reboot after the uncertain action is not proven",
+            )
+
+        remote_action = self._job_safety.get_physical_action(
+            action_record["action_uid"]
+        )
+        if not (
+            self._remote_action_identity_matches(
+                safety, action_record, remote_action
+            )
+            and remote_action.get("state") == "ARMED"
+            and remote_action.get("dispatchMode") == "TWO_PHASE_V3"
+            and remote_action.get("confirmedOutcome") is None
+            and remote_action.get("confirmationBasis") is None
+            and remote_action.get("receiptUid") is None
+            and isinstance(remote_action.get("ledgerSequence"), int)
+            and not isinstance(remote_action.get("ledgerSequence"), bool)
+            and remote_action["ledgerSequence"] > 0
+        ):
+            raise JobSafetyError(
+                "RECOVERY_PERMANENT_ACTION_MISMATCH",
+                "permanent action is not the exact unresolved delivery start",
+            )
+
+        frozen = context.get("pending_recovery_quarantine")
+        if frozen is None:
+            firmware_status = self._uart.query_firmware_status(
+                1, timeout_ms=3_000
+            )
+            if not (
+                isinstance(firmware_status, dict)
+                and firmware_status.get("queryStatus") == "OK"
+                and firmware_status.get("mode") == 1
+                and firmware_status.get("statusCode") == 0
+                and firmware_status.get("protocolRevision") == 2
+                and firmware_status.get("safeFlags") == 0x0F
+                and isinstance(
+                    firmware_status.get("rawFrameHex"), str
+                )
+                and firmware_status["rawFrameHex"]
+            ):
+                raise JobSafetyError(
+                    "RECOVERY_MCU_NOT_IDLE_SAFE",
+                    "fresh MCU status does not prove idle safe outputs",
+                )
+            self_test = self._uart.query_self_test(timeout_ms=3_000)
+            if not (
+                isinstance(self_test, dict)
+                and self_test.get("queryStatus") == "OK"
+                and self_test.get("communicationHealthy") is True
+                and self_test.get("portNo") == context.get("port_no") == 1
+                and self_test.get("validFlags") == 3
+                and self_test.get("weightValid") is True
+                and isinstance(self_test.get("weightGrams"), int)
+                and not isinstance(self_test.get("weightGrams"), bool)
+                and self_test.get("infraredValid") is True
+                and isinstance(self_test.get("infraredBlocked"), bool)
+                and self_test.get("smokeCode") == 0
+                and self_test.get("smokeState") == "NORMAL"
+                and self_test.get("smokeSensorHealth") == "OK"
+                and self_test.get("faultCode") is None
+                and isinstance(self_test.get("rawFrameHex"), str)
+                and self_test["rawFrameHex"]
+            ):
+                raise JobSafetyError(
+                    "RECOVERY_SENSOR_EVIDENCE_UNHEALTHY",
+                    "fresh MCU self-test is incomplete or unsafe",
+                )
+            pending_result = getattr(
+                self._uart, "has_pending_business_result", None
+            )
+            if not callable(pending_result) or pending_result():
+                raise JobSafetyError(
+                    "RECOVERY_NORMAL_RESULT_PENDING",
+                    "a normal fixed-frame result must be processed first",
+                )
+            # Re-read rollbackable facts after the serial probes.  If a DD
+            # won concurrently, its normal terminal path must take priority.
+            current_slot = self._store.get_work_slot()
+            current_original = self._store.get_command(original_command_uid)
+            if not (
+                current_slot is not None
+                and current_slot.get("work_type") == WORK_TYPE_DELIVERY
+                and current_slot.get("work_uid") == session_uid
+                and current_slot.get("work_state") == "RECOVERY_REQUIRED"
+                and current_original is not None
+                and current_original.get("state") == "RECOVERY_REQUIRED"
+            ):
+                raise JobSafetyError(
+                    "RECOVERY_NORMAL_RESULT_WON",
+                    "delivery state changed while collecting recovery evidence",
+                )
+            evidence = {
+                "eventType": "DELIVERY_RECOVERY_QUARANTINE_EVIDENCE",
+                "recoveryUid": recovery_uid,
+                "recoveryCommandUid": recovery_command_uid,
+                "sessionUid": session_uid,
+                "originalCommandUid": original_command_uid,
+                "originalPhase": original_phase,
+                "originalCommandState": original_row["state"],
+                "previousBootIdentity": prior_boot_identity,
+                "currentBootIdentity": current_boot_identity,
+                "operatorConfirmations": {
+                    field: payload[field]
+                    for field in required_confirmations
+                },
+                "firmwareStatus": firmware_status,
+                "selfTest": self_test,
+                "permanentAction": {
+                    "actionUid": remote_action["actionUid"],
+                    "permitUid": remote_action["permitUid"],
+                    "workUid": remote_action["workUid"],
+                    "commandUid": remote_action["commandUid"],
+                    "actionKey": remote_action["actionKey"],
+                    "actionKind": remote_action["actionKind"],
+                    "actionDigestSha256": remote_action[
+                        "actionDigestSha256"
+                    ],
+                    "ledgerSequence": remote_action["ledgerSequence"],
+                    "state": "ARMED",
+                },
+            }
+            frozen = {
+                "recovery_uid": recovery_uid,
+                "recovery_command_uid": recovery_command_uid,
+                "session_uid": session_uid,
+                "original_command_uid": original_command_uid,
+                "evidence": evidence,
+                "evidence_sha256": canonical_sha256(evidence),
+            }
+            context["pending_recovery_quarantine"] = frozen
+            action_record["unknown_effect_resolution"] = {
+                "resolution_uid": recovery_uid,
+                "expected_ledger_sequence": remote_action[
+                    "ledgerSequence"
+                ],
+                "evidence_sha256": frozen["evidence_sha256"],
+                "confirmed": False,
+            }
+            if not self._store.update_work_context(session_uid, context):
+                raise JobSafetyError(
+                    "RECOVERY_WORK_IDENTITY_MISMATCH",
+                    "delivery work changed before evidence was frozen",
+                )
+        elif not (
+            isinstance(frozen, dict)
+            and frozen.get("recovery_uid") == recovery_uid
+            and frozen.get("recovery_command_uid")
+            == recovery_command_uid
+            and frozen.get("session_uid") == session_uid
+            and frozen.get("original_command_uid")
+            == original_command_uid
+            and isinstance(frozen.get("evidence"), dict)
+            and frozen.get("evidence_sha256")
+            == canonical_sha256(frozen["evidence"])
+        ):
+            raise JobSafetyError(
+                "RECOVERY_EVIDENCE_CONFLICT",
+                "frozen delivery recovery evidence changed",
+            )
+
+        resolution = action_record.get("unknown_effect_resolution")
+        if not (
+            isinstance(resolution, dict)
+            and resolution.get("resolution_uid") == recovery_uid
+            and resolution.get("expected_ledger_sequence")
+            == remote_action["ledgerSequence"]
+            and resolution.get("evidence_sha256")
+            == frozen["evidence_sha256"]
+        ):
+            raise JobSafetyError(
+                "RECOVERY_EVIDENCE_CONFLICT",
+                "delivery action resolution evidence changed",
+            )
+        self._job_safety.quarantine_unknown_physical_action(
+            self._permit_from_safety_context(safety),
+            action=self._physical_action(action_record),
+            resolution_uid=recovery_uid,
+            expected_ledger_sequence=remote_action["ledgerSequence"],
+            evidence_sha256=frozen["evidence_sha256"],
+        )
+        resolution["confirmed"] = True
+        context["phase"] = "RECOVERY_QUARANTINE_COMPLETING"
+
+        event_payload = {
+            "recoveryUid": recovery_uid,
+            "sessionUid": session_uid,
+            "originalCommandUid": original_command_uid,
+            "portNo": context["port_no"],
+            "reason": reason.strip(),
+            "businessValue": "NONE",
+            "operatorConfirmations": frozen["evidence"][
+                "operatorConfirmations"
+            ],
+            "deviceEvidence": {
+                "previousBootIdentity": frozen["evidence"][
+                    "previousBootIdentity"
+                ],
+                "currentBootIdentity": frozen["evidence"][
+                    "currentBootIdentity"
+                ],
+                "firmwareIdentityHex": frozen["evidence"][
+                    "firmwareStatus"
+                ]["firmwareIdentityHex"],
+                "safeFlags": frozen["evidence"]["firmwareStatus"][
+                    "safeFlags"
+                ],
+                "firmwareStatusRawFrameHex": frozen["evidence"][
+                    "firmwareStatus"
+                ]["rawFrameHex"],
+                "selfTestWeightGrams": frozen["evidence"]["selfTest"][
+                    "weightGrams"
+                ],
+                "selfTestWeightMeasurementUid": frozen["evidence"][
+                    "selfTest"
+                ]["weightMeasurementUid"],
+                "selfTestInfraredBlocked": frozen["evidence"][
+                    "selfTest"
+                ]["infraredBlocked"],
+                "selfTestRawFrameHex": frozen["evidence"]["selfTest"][
+                    "rawFrameHex"
+                ],
+                "actionUid": frozen["evidence"]["permanentAction"][
+                    "actionUid"
+                ],
+                "permitUid": frozen["evidence"]["permanentAction"][
+                    "permitUid"
+                ],
+                "workUid": frozen["evidence"]["permanentAction"][
+                    "workUid"
+                ],
+                "commandUid": frozen["evidence"]["permanentAction"][
+                    "commandUid"
+                ],
+                "actionKey": frozen["evidence"]["permanentAction"][
+                    "actionKey"
+                ],
+                "actionKind": frozen["evidence"]["permanentAction"][
+                    "actionKind"
+                ],
+                "actionDigestSha256": frozen["evidence"][
+                    "permanentAction"
+                ]["actionDigestSha256"],
+                "ledgerSequence": frozen["evidence"]["permanentAction"][
+                    "ledgerSequence"
+                ],
+                "actionState": "ARMED",
+                "resolutionState": "UNKNOWN_EFFECT_QUARANTINED",
+                "resolutionEvidenceSha256": frozen["evidence_sha256"],
+            },
+            "firstPreOpenMeasurement": _measurement_fact(
+                context.get("first_measurement")
+            ),
+            "finalPostCloseMeasurement": _measurement_fact(
+                context.get("final_measurement")
+            ),
+            "photos": self._completion_photo_facts(
+                session_uid,
+                "DELIVERY_SESSION",
+                (
+                    "BEFORE_INNER",
+                    "BEFORE_OUTER",
+                    "AFTER_INNER",
+                    "AFTER_OUTER",
+                ),
+            ),
+        }
+        completion_evidence = {
+            "eventType": "DELIVERY_RECOVERY_QUARANTINED",
+            "recoveryUid": recovery_uid,
+            "sessionUid": session_uid,
+            "originalCommandUid": original_command_uid,
+            "resolutionEvidenceSha256": frozen["evidence_sha256"],
+            "businessValue": "NONE",
+        }
+        self._prepare_job_safety_completion(
+            context,
+            outcome="CANCELLED",
+            evidence=completion_evidence,
+            physical_outcome="UNKNOWN_EFFECT_QUARANTINED",
+        )
+        persisted = self._store.quarantine_delivery_recovery(
+            work_uid=session_uid,
+            original_command_uid=original_command_uid,
+            recovery_command_uid=recovery_command_uid,
+            recovery_uid=recovery_uid,
+            context=context,
+            event_payload=event_payload,
+            device_name=command["targetDeviceName"],
+            release_work_slot=False,
+        )
+        if persisted not in {"ACCEPTED", "DUPLICATE"}:
+            raise JobSafetyError(
+                "RECOVERY_WORK_IDENTITY_MISMATCH",
+                "delivery recovery could not close the exact work slot",
+            )
+        completed = self._complete_job_safety(
+            context,
+            outcome="CANCELLED",
+            evidence=completion_evidence,
+            physical_outcome="UNKNOWN_EFFECT_QUARANTINED",
+        )
+        if completed:
+            self._store.release_work_slot(session_uid)
+        return {
+            "disposition": "QUARANTINED",
+            "recoveryUid": recovery_uid,
+            "sessionUid": session_uid,
+            "originalCommandUid": original_command_uid,
+            "businessValue": "NONE",
+            "jobCompletionConfirmed": completed,
+        }
 
     def start_delivery_command(self, command: dict[str, Any]) -> dict[str, Any]:
         """持久化并派发一次云端已授权的投递会话。"""

@@ -984,6 +984,7 @@ public class ReliableOperationsJdbcRepository {
                                         'START_MCU_FIRMWARE_UPDATE',
                                         'START_BUSINESS_RUNTIME_UPDATE',
                                         'CANCEL_BUSINESS_RUNTIME_UPDATE',
+                                        'QUARANTINE_DELIVERY_RECOVERY',
                                         'CONFIRM_EDGE_EVENT'
                                     )
                                 )
@@ -1013,7 +1014,8 @@ public class ReliableOperationsJdbcRepository {
                                         'CLOSE_REMOTE_SUPPORT_TUNNEL',
                                         'START_MCU_FIRMWARE_UPDATE',
                                         'START_BUSINESS_RUNTIME_UPDATE',
-                                        'CANCEL_BUSINESS_RUNTIME_UPDATE'
+                                        'CANCEL_BUSINESS_RUNTIME_UPDATE',
+                                        'QUARANTINE_DELIVERY_RECOVERY'
                                     )
                                     AND eligible_command.id IS NULL
                                 )
@@ -1037,7 +1039,8 @@ public class ReliableOperationsJdbcRepository {
                                         'CLOSE_REMOTE_SUPPORT_TUNNEL',
                                         'START_MCU_FIRMWARE_UPDATE',
                                         'START_BUSINESS_RUNTIME_UPDATE',
-                                        'CANCEL_BUSINESS_RUNTIME_UPDATE'
+                                        'CANCEL_BUSINESS_RUNTIME_UPDATE',
+                                        'QUARANTINE_DELIVERY_RECOVERY'
                                     )
                                     AND transport.onenet_connection_status =
                                         'ONLINE'
@@ -1091,6 +1094,7 @@ public class ReliableOperationsJdbcRepository {
                             'START_MCU_FIRMWARE_UPDATE',
                             'START_BUSINESS_RUNTIME_UPDATE',
                             'CANCEL_BUSINESS_RUNTIME_UPDATE',
+                            'QUARANTINE_DELIVERY_RECOVERY',
                             'CONFIRM_EDGE_EVENT'
                         )
                     )
@@ -1285,7 +1289,8 @@ public class ReliableOperationsJdbcRepository {
                               'CLOSE_REMOTE_SUPPORT_TUNNEL',
                               'START_MCU_FIRMWARE_UPDATE',
                               'START_BUSINESS_RUNTIME_UPDATE',
-                              'CANCEL_BUSINESS_RUNTIME_UPDATE'
+                              'CANCEL_BUSINESS_RUNTIME_UPDATE',
+                              'QUARANTINE_DELIVERY_RECOVERY'
                           )
                           AND c.id IS NULL
                       )
@@ -2012,6 +2017,7 @@ public class ReliableOperationsJdbcRepository {
                             'START_MCU_FIRMWARE_UPDATE',
                             'START_BUSINESS_RUNTIME_UPDATE',
                             'CANCEL_BUSINESS_RUNTIME_UPDATE',
+                            'QUARANTINE_DELIVERY_RECOVERY',
                             'CONFIRM_EDGE_EVENT'
                         )
                     )

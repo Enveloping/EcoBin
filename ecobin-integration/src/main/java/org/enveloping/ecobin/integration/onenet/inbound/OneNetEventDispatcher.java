@@ -77,6 +77,11 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "DELIVERY_COMPLETE",
                     "RELIABLE_FACT",
                     "DELIVERY_SESSION")),
+            Map.entry("deliveryRecoveryQuarantined",
+            new EventContract(
+                    "DELIVERY_RECOVERY_QUARANTINED",
+                    "RELIABLE_FACT",
+                    "DELIVERY_SESSION")),
             Map.entry("cleanComplete",
             new EventContract(
                     "CLEAN_COMPLETE",
@@ -596,6 +601,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         }
         if ("DEVICE_ACCEPTANCE_EVIDENCE".equals(
                 contract.messageKind())
+                || "DELIVERY_RECOVERY_QUARANTINED".equals(
+                        contract.messageKind())
                 || "REMOTE_SUPPORT_TUNNEL_STATUS".equals(
                         contract.messageKind())
                 || "FACTORY_SEAL_COMPLETED".equals(
@@ -651,6 +658,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                             : "onenet.device-event";
             case "REMOTE_SUPPORT_TUNNEL_STATUS" ->
                     "onenet.remote-support-status";
+            case "DELIVERY_RECOVERY_QUARANTINED" ->
+                    "onenet.delivery-recovery-quarantine";
             case "MCU_FIRMWARE_UPDATE_PROGRESS" ->
                     "onenet.mcu-firmware-progress";
             case "BUSINESS_RUNTIME_UPDATE_PROGRESS" ->
@@ -799,6 +808,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 || "BUSINESS_CONFIRMATION_RECEIPT".equals(
                 messageKind)
                 || "DELIVERY_COMPLETE".equals(messageKind)
+                || "DELIVERY_RECOVERY_QUARANTINED".equals(messageKind)
                 || "CLEAN_COMPLETE".equals(messageKind)
                 || "FULLNESS_SAMPLE_COMPLETE".equals(
                 messageKind)
@@ -834,6 +844,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     commandObservedPayload(wire);
             case "DELIVERY_COMPLETE" ->
                     deliveryCompletePayload(
+                            wire,
+                            trustedCosBaseUrl);
+            case "DELIVERY_RECOVERY_QUARANTINED" ->
+                    deliveryRecoveryQuarantinedPayload(
                             wire,
                             trustedCosBaseUrl);
             case "CLEAN_COMPLETE" ->
@@ -1147,6 +1161,154 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                         wire,
                         sessionUid,
                         trustedCosBaseUrl));
+        return payload;
+    }
+
+    private static Map<String, Object> deliveryRecoveryQuarantinedPayload(
+            JsonNode wire,
+            String trustedCosBaseUrl) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        String recoveryUid = pattern(wire, "recoveryUid", UUID_V4);
+        String sessionUid = pattern(wire, "sessionUid", UUID_V4);
+        payload.put("recoveryUid", recoveryUid);
+        payload.put("sessionUid", sessionUid);
+        payload.put(
+                "originalCommandUid",
+                pattern(wire, "originalCommandUid", UUID_V4));
+        payload.put(
+                "portNo",
+                requiredIntegerInRange(wire, "portNo", 1, 6));
+        payload.put("reason", text(wire, "reason", 500));
+        payload.put(
+                "businessValue",
+                exactEnum(wire, "businessValue", 1, "NONE"));
+
+        JsonNode confirmations = object(wire, "operatorConfirmations");
+        Map<String, Object> operator = new LinkedHashMap<>();
+        for (String field : List.of(
+                "physicalOutcomeUnknownConfirmed",
+                "causeFixedConfirmed",
+                "devicePowerCycledConfirmed",
+                "motionAreaClearConfirmed",
+                "deliveryDoorClosedConfirmed",
+                "mechanismClearConfirmed")) {
+            if (!bool(confirmations, field)) {
+                throw permanent(
+                        "delivery recovery operator confirmation is false");
+            }
+            operator.put(field, true);
+        }
+        payload.put("operatorConfirmations", operator);
+
+        JsonNode evidenceWire = object(wire, "deviceEvidence");
+        Map<String, Object> evidence = new LinkedHashMap<>();
+        String previousBootIdentity = text(
+                evidenceWire, "previousBootIdentity", 160);
+        String currentBootIdentity = text(
+                evidenceWire, "currentBootIdentity", 160);
+        if (previousBootIdentity.equals(currentBootIdentity)) {
+            throw permanent(
+                    "delivery recovery boot identities did not change");
+        }
+        evidence.put("previousBootIdentity", previousBootIdentity);
+        evidence.put("currentBootIdentity", currentBootIdentity);
+        evidence.put(
+                "firmwareIdentityHex",
+                pattern(
+                        evidenceWire,
+                        "firmwareIdentityHex",
+                        "^[0-9a-f]{1,128}$"));
+        evidence.put(
+                "safeFlags",
+                exactEnum(evidenceWire, "safeFlags", 1, 15L));
+        evidence.put(
+                "firmwareStatusRawFrameHex",
+                pattern(
+                        evidenceWire,
+                        "firmwareStatusRawFrameHex",
+                        "^[0-9a-f]{1,256}$"));
+        evidence.put(
+                "selfTestWeightGrams",
+                requiredIntegerInRange(
+                        evidenceWire,
+                        "selfTestWeightGrams",
+                        Integer.MIN_VALUE,
+                        Integer.MAX_VALUE));
+        evidence.put(
+                "selfTestWeightMeasurementUid",
+                pattern(
+                        evidenceWire,
+                        "selfTestWeightMeasurementUid",
+                        UUID_V4));
+        evidence.put(
+                "selfTestInfraredBlocked",
+                bool(evidenceWire, "selfTestInfraredBlocked"));
+        evidence.put(
+                "selfTestRawFrameHex",
+                pattern(
+                        evidenceWire,
+                        "selfTestRawFrameHex",
+                        "^[0-9a-f]{1,256}$"));
+        for (String field : List.of(
+                "actionUid", "permitUid", "workUid", "commandUid")) {
+            evidence.put(field, pattern(evidenceWire, field, UUID_V4));
+        }
+        evidence.put(
+                "actionKey",
+                exactEnum(
+                        evidenceWire,
+                        "actionKey",
+                        1,
+                        "DELIVERY:START:0"));
+        evidence.put(
+                "actionKind",
+                exactEnum(
+                        evidenceWire,
+                        "actionKind",
+                        1,
+                        "START_DELIVERY_SESSION"));
+        evidence.put(
+                "actionDigestSha256",
+                pattern(evidenceWire, "actionDigestSha256", SHA256));
+        evidence.put(
+                "ledgerSequence",
+                positiveSafeInteger(evidenceWire, "ledgerSequence"));
+        evidence.put(
+                "actionState",
+                exactEnum(evidenceWire, "actionState", 1, "ARMED"));
+        evidence.put(
+                "resolutionState",
+                exactEnum(
+                        evidenceWire,
+                        "resolutionState",
+                        1,
+                        "UNKNOWN_EFFECT_QUARANTINED"));
+        evidence.put(
+                "resolutionEvidenceSha256",
+                pattern(
+                        evidenceWire,
+                        "resolutionEvidenceSha256",
+                        SHA256));
+        if (!sessionUid.equals(evidence.get("workUid"))) {
+            throw permanent(
+                    "delivery recovery action work differs from session");
+        }
+        payload.put("deviceEvidence", evidence);
+        payload.put(
+                "firstPreOpenMeasurement",
+                nullableMeasurement(
+                        wire,
+                        "firstPreOpenMeasurementPresent",
+                        "firstPreOpenMeasurement"));
+        payload.put(
+                "finalPostCloseMeasurement",
+                nullableMeasurement(
+                        wire,
+                        "finalPostCloseMeasurementPresent",
+                        "finalPostCloseMeasurement"));
+        payload.put(
+                "photos",
+                deliveryPhotos(wire, sessionUid, trustedCosBaseUrl));
         return payload;
     }
 
@@ -3564,6 +3726,27 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 && !payload.get("sessionUid").equals(targetUid)) {
             throw permanent(
                     "delivery session target differs from payload");
+        }
+        if ("DELIVERY_RECOVERY_QUARANTINED".equals(
+                contract.messageKind())) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> evidence =
+                    (Map<String, Object>) payload.get("deviceEvidence");
+            if (!payload.get("sessionUid").equals(targetUid)
+                    || !payload.get("recoveryUid").equals(
+                            event.get("eventUid"))
+                    || event.get("commandUid") == null
+                    || event.get("commandUid").equals(
+                            payload.get("originalCommandUid"))
+                    || !payload.get("sessionUid").equals(
+                            evidence.get("workUid"))
+                    || !payload.get("originalCommandUid").equals(
+                            evidence.get("commandUid"))
+                    || !payload.get("originalCommandUid").equals(
+                            evidence.get("permitUid"))) {
+                throw permanent(
+                        "delivery recovery identities differ from trusted evidence");
+            }
         }
         if ("CLEAN_COMPLETE".equals(contract.messageKind())
                 && !payload.get("operationUid").equals(targetUid)) {

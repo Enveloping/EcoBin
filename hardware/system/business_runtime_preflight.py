@@ -501,6 +501,8 @@ def verify_stage_three_health(
 def verify_proxy_candidate_health(
     communication: dict[str, Any],
     updater: dict[str, Any],
+    *,
+    ledger_only: bool = False,
 ) -> None:
     """Require permanent ownership while allowing fail-closed recovery states."""
 
@@ -514,7 +516,7 @@ def verify_proxy_candidate_health(
         or communication.get("cloudConnectionState")
         not in {"CONNECTED", "DISCONNECTED"}
         or communication.get("remoteUpdateRouting")
-        != "BUSINESS_RUNTIME_ONLY"
+        != ("DISABLED" if ledger_only else "BUSINESS_RUNTIME_ONLY")
     ):
         raise BusinessRuntimePreflightError(
             "communication proxy did not report permanent OneNet ownership"
@@ -538,26 +540,27 @@ def verify_proxy_candidate_health(
         }
         or updater.get("businessUpdateEnabled") is not False
         or updater.get("mcuUpdateEnabled") is not False
-        or updater.get("mcuUpdateCandidateEnabled") is not True
+        or updater.get("mcuUpdateCandidateEnabled") is not (not ledger_only)
         or updater.get("businessUpdateCandidateEnabled") is not True
         or updater.get("privilegedHelperMutationEnabled") is not True
-        or not isinstance(mcu_candidate, dict)
-        or mcu_candidate.get("schemaVersion") != 1
-        or mcu_candidate.get("candidateEnabled") is not True
-        or mcu_candidate.get("remoteTriggerEnabled") is not False
-        or not isinstance(
-            mcu_candidate.get("unresolvedPrivilegedActionCount"),
-            int,
+        or (ledger_only and mcu_candidate is not None)
+        or (
+            not ledger_only
+            and (
+                not isinstance(mcu_candidate, dict)
+                or mcu_candidate.get("schemaVersion") != 1
+                or mcu_candidate.get("candidateEnabled") is not True
+                or mcu_candidate.get("remoteTriggerEnabled") is not False
+                or not isinstance(mcu_candidate.get("unresolvedPrivilegedActionCount"), int)
+                or isinstance(mcu_candidate.get("unresolvedPrivilegedActionCount"), bool)
+                or mcu_candidate.get("unresolvedPrivilegedActionCount") < 0
+            )
         )
-        or isinstance(
-            mcu_candidate.get("unresolvedPrivilegedActionCount"),
-            bool,
-        )
-        or mcu_candidate.get("unresolvedPrivilegedActionCount") < 0
         or not isinstance(business_candidate, dict)
         or business_candidate.get("schemaVersion") != 1
         or business_candidate.get("businessUpdateCandidateEnabled") is not True
-        or business_candidate.get("remoteTriggerEnabled") is not True
+        or business_candidate.get("remoteTriggerEnabled") is not (not ledger_only)
+        or (ledger_only and business_candidate.get("activeUpdate") is not None)
     ):
         raise BusinessRuntimePreflightError(
             "device updater did not report the activated job-safety posture"
@@ -600,7 +603,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-user", default="ecobin-business")
     parser.add_argument(
         "--posture",
-        choices=("stage-three", "proxy-candidate"),
+        choices=("stage-three", "proxy-candidate", "ledger-only"),
         default="stage-three",
     )
     parser.add_argument(
@@ -686,7 +689,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         probe_socket_directory(args.business_socket_directory)
         probe_device_capabilities(args.device_capabilities)
-        if args.posture == "proxy-candidate":
+        if args.posture in {"proxy-candidate", "ledger-only"}:
             probe_business_identity(args.business_identity)
             probe_factory_seal(args.factory_seal)
         communication = request_health(
@@ -694,8 +697,10 @@ def main(argv: list[str] | None = None) -> int:
             COMMUNICATION_PROTOCOL,
         )
         updater = request_health(args.updater_socket, UPDATER_PROTOCOL)
-        if args.posture == "proxy-candidate":
-            verify_proxy_candidate_health(communication, updater)
+        if args.posture in {"proxy-candidate", "ledger-only"}:
+            verify_proxy_candidate_health(
+                communication, updater, ledger_only=args.posture == "ledger-only"
+            )
         else:
             verify_stage_three_health(communication, updater)
         # Close the race with an operator starting the legacy runtime during

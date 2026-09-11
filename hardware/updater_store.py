@@ -27,6 +27,7 @@ from typing import Any
 
 UPDATER_SCHEMA_VERSION = 3
 JOB_GATE_CONTROL_EXTENSION_VERSION = 1
+UNKNOWN_EFFECT_RESOLUTION_EXTENSION_VERSION = 1
 UPDATER_COMPONENT = "DEVICE_UPDATER"
 MAX_RELEASE_VERSION_LENGTH = 32
 
@@ -84,6 +85,8 @@ _PRISTINE_ROLLBACK_SCHEMA_TABLES = frozenset(
         "job_gate_control_extension",
         "job_gate_control_operation",
         "operator_job_gate_lock",
+        "physical_action_unknown_effect_extension",
+        "physical_action_unknown_effect_resolution",
     }
 )
 
@@ -159,6 +162,8 @@ class UpdaterStore:
                 self._verify_v3_schema(connection)
                 self._ensure_job_gate_control_extension(connection)
                 self._verify_job_gate_control_extension(connection)
+                self._ensure_unknown_effect_resolution_extension(connection)
+                self._verify_unknown_effect_resolution_extension(connection)
                 self._apply_runtime_candidate_posture(connection)
                 self._verify_v3_invariants(connection)
                 self._verify_job_gate_control_invariants(connection)
@@ -690,6 +695,44 @@ class UpdaterStore:
         )"""
 
     @staticmethod
+    def _unknown_effect_resolution_metadata_schema_statement() -> str:
+        return """CREATE TABLE physical_action_unknown_effect_extension (
+            singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            extension_version INTEGER NOT NULL
+                CHECK (extension_version = 1),
+            created_at TEXT NOT NULL
+        )"""
+
+    @staticmethod
+    def _unknown_effect_resolution_schema_statement() -> str:
+        return """CREATE TABLE physical_action_unknown_effect_resolution (
+            resolution_uid TEXT PRIMARY KEY
+                CHECK (length(resolution_uid) = 36
+                       AND resolution_uid = lower(resolution_uid)
+                       AND resolution_uid NOT GLOB '*[^0-9a-f-]*'),
+            action_uid TEXT NOT NULL UNIQUE REFERENCES
+                physical_action_ledger(action_uid),
+            permit_uid TEXT NOT NULL,
+            work_uid TEXT NOT NULL,
+            command_uid TEXT NOT NULL,
+            action_key TEXT NOT NULL,
+            action_kind TEXT NOT NULL,
+            action_digest_sha256 TEXT NOT NULL CHECK (
+                length(action_digest_sha256) = 64
+                AND action_digest_sha256 = lower(action_digest_sha256)
+                AND action_digest_sha256 NOT GLOB '*[^0-9a-f]*'),
+            expected_ledger_sequence INTEGER NOT NULL
+                CHECK (expected_ledger_sequence >= 1),
+            resolution_state TEXT NOT NULL CHECK (
+                resolution_state = 'UNKNOWN_EFFECT_QUARANTINED'),
+            evidence_digest_sha256 TEXT NOT NULL CHECK (
+                length(evidence_digest_sha256) = 64
+                AND evidence_digest_sha256 = lower(evidence_digest_sha256)
+                AND evidence_digest_sha256 NOT GLOB '*[^0-9a-f]*'),
+            resolved_at TEXT NOT NULL
+        )"""
+
+    @staticmethod
     def _verify_v2_schema(connection: sqlite3.Connection) -> None:
         rows = connection.execute(
             "SELECT singleton_id, version FROM schema_version ORDER BY singleton_id"
@@ -840,6 +883,111 @@ class UpdaterStore:
                 raise RuntimeError(
                     "updater job-gate control extension is incompatible"
                 )
+        foreign_key_check = connection.execute(
+            "PRAGMA foreign_key_check"
+        ).fetchall()
+        if foreign_key_check:
+            raise RuntimeError("updater database integrity check failed")
+
+    def _ensure_unknown_effect_resolution_extension(
+        self,
+        connection: sqlite3.Connection,
+    ) -> None:
+        expected = {
+            "physical_action_unknown_effect_extension",
+            "physical_action_unknown_effect_resolution",
+        }
+        actual = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        present = expected.intersection(actual)
+        if present and present != expected:
+            raise RuntimeError(
+                "updater unknown-effect resolution extension is incomplete"
+            )
+        if present:
+            return
+        connection.execute(
+            self._unknown_effect_resolution_metadata_schema_statement()
+        )
+        connection.execute(self._unknown_effect_resolution_schema_statement())
+        connection.execute(
+            """INSERT INTO physical_action_unknown_effect_extension (
+                   singleton_id, extension_version, created_at
+               ) VALUES (1, ?, ?)""",
+            (
+                UNKNOWN_EFFECT_RESOLUTION_EXTENSION_VERSION,
+                _format_utc(self._utc_now()),
+            ),
+        )
+
+    @staticmethod
+    def _verify_unknown_effect_resolution_extension(
+        connection: sqlite3.Connection,
+    ) -> None:
+        rows = connection.execute(
+            """SELECT singleton_id, extension_version
+               FROM physical_action_unknown_effect_extension
+               ORDER BY singleton_id"""
+        ).fetchall()
+        if [(row[0], row[1]) for row in rows] != [
+            (1, UNKNOWN_EFFECT_RESOLUTION_EXTENSION_VERSION)
+        ]:
+            raise RuntimeError(
+                "updater unknown-effect resolution extension is incompatible"
+            )
+        expected_schemas = {
+            "physical_action_unknown_effect_extension": (
+                UpdaterStore._unknown_effect_resolution_metadata_schema_statement()
+            ),
+            "physical_action_unknown_effect_resolution": (
+                UpdaterStore._unknown_effect_resolution_schema_statement()
+            ),
+        }
+        for table, expected_schema in expected_schemas.items():
+            row = connection.execute(
+                """SELECT sql FROM sqlite_master
+                   WHERE type='table' AND name=?""",
+                (table,),
+            ).fetchone()
+            if (
+                row is None
+                or _normalize_schema_sql(row[0])
+                != _normalize_schema_sql(expected_schema)
+            ):
+                raise RuntimeError(
+                    "updater unknown-effect resolution extension is incompatible"
+                )
+        invalid = connection.execute(
+            """SELECT 1
+               FROM physical_action_unknown_effect_resolution resolution
+               LEFT JOIN physical_action_ledger action
+                 ON action.action_uid=resolution.action_uid
+               LEFT JOIN job_permit permit
+                 ON permit.permit_uid=resolution.permit_uid
+               WHERE action.action_uid IS NULL
+                  OR action.state<>'ARMED'
+                  OR action.permit_uid<>resolution.permit_uid
+                  OR action.work_uid<>resolution.work_uid
+                  OR action.command_uid<>resolution.command_uid
+                  OR action.action_key<>resolution.action_key
+                  OR action.action_kind<>resolution.action_kind
+                  OR action.action_digest_sha256<>
+                         resolution.action_digest_sha256
+                  OR action.ledger_sequence<>
+                         resolution.expected_ledger_sequence
+                  OR permit.permit_uid IS NULL
+                  OR (permit.state='COMPLETED'
+                      AND permit.completion_outcome<>'CANCELLED')
+               LIMIT 1"""
+        ).fetchone()
+        if invalid is not None:
+            raise RuntimeError(
+                "updater unknown-effect resolution evidence is incompatible"
+            )
         foreign_key_check = connection.execute(
             "PRAGMA foreign_key_check"
         ).fetchall()
@@ -1012,8 +1160,13 @@ class UpdaterStore:
             raise RuntimeError("updater management state is incompatible")
         state = rows[0]
         armed = connection.execute(
-            """SELECT COUNT(*) FROM physical_action_ledger
-               WHERE state='ARMED'"""
+            """SELECT COUNT(*)
+               FROM physical_action_ledger action
+               WHERE action.state='ARMED'
+                 AND NOT EXISTS (
+                     SELECT 1
+                     FROM physical_action_unknown_effect_resolution resolution
+                     WHERE resolution.action_uid=action.action_uid)"""
         ).fetchone()[0]
         if armed and (
             state["job_gate_state"] != "LOCKED"
@@ -2142,14 +2295,31 @@ class UpdaterStore:
             if row["state"] != "ACTIVE":
                 raise UpdaterStoreError("JOB_PERMIT_STATE_CONFLICT", "job permit is not active")
             pending = connection.execute(
-                """SELECT COUNT(*) FROM physical_action_ledger
-                   WHERE permit_uid=? AND state<>'CONFIRMED'""",
+                """SELECT COUNT(*)
+                   FROM physical_action_ledger action
+                   WHERE action.permit_uid=?
+                     AND action.state<>'CONFIRMED'
+                     AND NOT EXISTS (
+                         SELECT 1
+                         FROM physical_action_unknown_effect_resolution resolution
+                         WHERE resolution.action_uid=action.action_uid)""",
                 (permit_uid,),
             ).fetchone()[0]
             if pending:
                 raise UpdaterStoreError(
                     "PHYSICAL_ACTION_UNCONFIRMED",
                     "job has an unconfirmed physical action",
+                )
+            quarantined = connection.execute(
+                """SELECT 1
+                   FROM physical_action_unknown_effect_resolution
+                   WHERE permit_uid=? LIMIT 1""",
+                (permit_uid,),
+            ).fetchone()
+            if quarantined is not None and outcome != "CANCELLED":
+                raise UpdaterStoreError(
+                    "JOB_QUARANTINE_REQUIRES_CANCELLATION",
+                    "a job with unknown physical effect can only be cancelled",
                 )
             now = _format_utc(self._utc_now())
             try:
@@ -2667,6 +2837,118 @@ class UpdaterStore:
                 disposition="ACCEPTED",
             )
 
+    def quarantine_unknown_physical_action(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Resolve an ARMED action without inventing its physical outcome.
+
+        The original ledger row deliberately remains ARMED.  This append-only
+        fact only records that a separately evidenced recovery procedure made
+        it safe to cancel the owning job.
+        """
+
+        resolution_uid = _require_uuid4(
+            payload.get("resolutionUid"), "resolutionUid"
+        )
+        action_uid = _require_uuid4(payload.get("actionUid"), "actionUid")
+        permit_uid = _require_uuid4(payload.get("permitUid"), "permitUid")
+        work_uid = _require_uuid4(payload.get("workUid"), "workUid")
+        command_uid = _require_uuid4(
+            payload.get("commandUid"), "commandUid"
+        )
+        action_key = _require_action_key(payload.get("actionKey"))
+        action_kind = _require_token(payload.get("actionKind"), "actionKind")
+        action_digest = _require_sha256(
+            payload.get("actionDigestSha256"), "actionDigestSha256"
+        )
+        expected_sequence = _require_positive_int(
+            payload.get("expectedLedgerSequence"),
+            "expectedLedgerSequence",
+        )
+        evidence_digest = _require_sha256(
+            payload.get("evidenceDigestSha256"),
+            "evidenceDigestSha256",
+        )
+        requested_identity = (
+            permit_uid,
+            work_uid,
+            command_uid,
+            action_key,
+            action_kind,
+            action_digest,
+            expected_sequence,
+        )
+        with self._transaction() as connection:
+            self._require_candidate(connection)
+            action = self._require_action(connection, action_uid)
+            actual_identity = (
+                action["permit_uid"],
+                action["work_uid"],
+                action["command_uid"],
+                action["action_key"],
+                action["action_kind"],
+                action["action_digest_sha256"],
+                action["ledger_sequence"],
+            )
+            if actual_identity != requested_identity:
+                raise _conflict(
+                    "PHYSICAL_ACTION_IDENTITY_MISMATCH",
+                    "unknown-effect resolution does not match the exact action",
+                )
+            existing = self._unknown_effect_resolution_row(
+                connection, action_uid
+            )
+            if existing is not None:
+                if (
+                    existing["resolution_uid"] == resolution_uid
+                    and existing["evidence_digest_sha256"] == evidence_digest
+                ):
+                    return self._unknown_effect_resolution_result(
+                        existing, disposition="DUPLICATE"
+                    )
+                raise _conflict(
+                    "PHYSICAL_ACTION_QUARANTINE_CONFLICT",
+                    "unknown-effect resolution identity or evidence conflicts",
+                )
+            if action["state"] != "ARMED":
+                raise UpdaterStoreError(
+                    "PHYSICAL_ACTION_STATE_CONFLICT",
+                    "only an armed action with an unknown effect can be quarantined",
+                )
+            now = _format_utc(self._utc_now())
+            try:
+                connection.execute(
+                    """INSERT INTO
+                           physical_action_unknown_effect_resolution (
+                               resolution_uid, action_uid, permit_uid,
+                               work_uid, command_uid, action_key, action_kind,
+                               action_digest_sha256,
+                               expected_ledger_sequence, resolution_state,
+                               evidence_digest_sha256, resolved_at
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                     'UNKNOWN_EFFECT_QUARANTINED', ?, ?)""",
+                    (
+                        resolution_uid,
+                        action_uid,
+                        *requested_identity,
+                        evidence_digest,
+                        now,
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise _conflict(
+                    "PHYSICAL_ACTION_QUARANTINE_CONFLICT",
+                    "unknown-effect resolution identity is already in use",
+                ) from error
+            self._maybe_reopen_after_resolution(connection, now)
+            return self._unknown_effect_resolution_result(
+                self._require_unknown_effect_resolution(
+                    connection, action_uid
+                ),
+                disposition="ACCEPTED",
+            )
+
     def get_physical_action(self, payload: dict[str, Any]) -> dict[str, Any]:
         action_uid = _require_uuid4(payload.get("actionUid"), "actionUid")
         with self._lock:
@@ -2675,6 +2957,9 @@ class UpdaterStore:
             return self._action_result(
                 self._require_action(connection, action_uid),
                 disposition="FOUND",
+                unknown_effect_resolution=self._unknown_effect_resolution_row(
+                    connection, action_uid
+                ),
             )
 
     @staticmethod
@@ -2891,6 +3176,7 @@ class UpdaterStore:
         *,
         disposition: str,
         may_execute: bool = False,
+        unknown_effect_resolution: sqlite3.Row | None = None,
     ) -> dict[str, Any]:
         state = row["state"]
         return {
@@ -2912,8 +3198,38 @@ class UpdaterStore:
             "confirmationBasis": row["confirmation_basis"],
             "receiptUid": row["receipt_uid"],
             "evidenceDigestSha256": row["evidence_digest_sha256"],
+            "unknownEffectResolution": (
+                UpdaterStore._unknown_effect_resolution_result(
+                    unknown_effect_resolution,
+                    disposition="FOUND",
+                )
+                if unknown_effect_resolution is not None
+                else None
+            ),
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
+        }
+
+    @staticmethod
+    def _unknown_effect_resolution_result(
+        row: sqlite3.Row,
+        *,
+        disposition: str,
+    ) -> dict[str, Any]:
+        return {
+            "disposition": disposition,
+            "resolutionUid": row["resolution_uid"],
+            "actionUid": row["action_uid"],
+            "permitUid": row["permit_uid"],
+            "workUid": row["work_uid"],
+            "commandUid": row["command_uid"],
+            "actionKey": row["action_key"],
+            "actionKind": row["action_kind"],
+            "actionDigestSha256": row["action_digest_sha256"],
+            "expectedLedgerSequence": row["expected_ledger_sequence"],
+            "resolutionState": row["resolution_state"],
+            "evidenceDigestSha256": row["evidence_digest_sha256"],
+            "resolvedAt": row["resolved_at"],
         }
 
     @staticmethod
@@ -3195,9 +3511,27 @@ class UpdaterStore:
                 "JOB_GATE_CLOSED",
                 "job gate does not allow another physical action",
             )
+        quarantined_job = connection.execute(
+            """SELECT 1
+               FROM physical_action_unknown_effect_resolution resolution
+               JOIN job_permit permit
+                 ON permit.permit_uid=resolution.permit_uid
+               WHERE permit.state='ACTIVE' LIMIT 1"""
+        ).fetchone()
+        if quarantined_job is not None:
+            raise UpdaterStoreError(
+                "JOB_QUARANTINE_COMPLETION_REQUIRED",
+                "the quarantined job must be cancelled before another action",
+            )
         unresolved = connection.execute(
-            """SELECT 1 FROM physical_action_ledger
-               WHERE state<>'CONFIRMED' LIMIT 1"""
+            """SELECT 1
+               FROM physical_action_ledger action
+               WHERE action.state<>'CONFIRMED'
+                 AND NOT EXISTS (
+                     SELECT 1
+                     FROM physical_action_unknown_effect_resolution resolution
+                     WHERE resolution.action_uid=action.action_uid)
+               LIMIT 1"""
         ).fetchone()
         if unresolved is not None:
             raise UpdaterStoreError(
@@ -3222,8 +3556,15 @@ class UpdaterStore:
                 "job gate does not allow this physical action to arm",
             )
         conflicting = connection.execute(
-            """SELECT 1 FROM physical_action_ledger
-               WHERE state<>'CONFIRMED' AND action_uid<>? LIMIT 1""",
+            """SELECT 1
+               FROM physical_action_ledger action
+               WHERE action.state<>'CONFIRMED'
+                 AND action.action_uid<>?
+                 AND NOT EXISTS (
+                     SELECT 1
+                     FROM physical_action_unknown_effect_resolution resolution
+                     WHERE resolution.action_uid=action.action_uid)
+               LIMIT 1""",
             (action_uid,),
         ).fetchone()
         if conflicting is not None:
@@ -3300,6 +3641,30 @@ class UpdaterStore:
         return row
 
     @staticmethod
+    def _unknown_effect_resolution_row(
+        connection: sqlite3.Connection,
+        action_uid: str,
+    ) -> sqlite3.Row | None:
+        return connection.execute(
+            """SELECT *
+               FROM physical_action_unknown_effect_resolution
+               WHERE action_uid=?""",
+            (action_uid,),
+        ).fetchone()
+
+    def _require_unknown_effect_resolution(
+        self,
+        connection: sqlite3.Connection,
+        action_uid: str,
+    ) -> sqlite3.Row:
+        row = self._unknown_effect_resolution_row(connection, action_uid)
+        if row is None:
+            raise RuntimeError(
+                "unknown-effect resolution was not persisted"
+            )
+        return row
+
+    @staticmethod
     def _count_nonterminal_permits(connection: sqlite3.Connection) -> int:
         return connection.execute(
             "SELECT COUNT(*) FROM job_permit WHERE state IN ('GRANTED', 'ACTIVE')"
@@ -3308,7 +3673,13 @@ class UpdaterStore:
     @staticmethod
     def _count_unresolved_actions(connection: sqlite3.Connection) -> int:
         return connection.execute(
-            "SELECT COUNT(*) FROM physical_action_ledger WHERE state<>'CONFIRMED'"
+            """SELECT COUNT(*)
+               FROM physical_action_ledger action
+               WHERE action.state<>'CONFIRMED'
+                 AND NOT EXISTS (
+                     SELECT 1
+                     FROM physical_action_unknown_effect_resolution resolution
+                     WHERE resolution.action_uid=action.action_uid)"""
         ).fetchone()[0]
 
     class _Transaction:
@@ -3459,6 +3830,7 @@ def inspect_pristine_stage3_rollback_state(
 
         UpdaterStore._verify_v3_schema(connection)
         UpdaterStore._verify_job_gate_control_extension(connection)
+        UpdaterStore._verify_unknown_effect_resolution_extension(connection)
         UpdaterStore._verify_v3_invariants(connection)
         UpdaterStore._verify_job_gate_control_invariants(connection)
 
@@ -3474,6 +3846,12 @@ def inspect_pristine_stage3_rollback_state(
             ),
             "physical_action_v2_evidence_quarantine": (
                 UpdaterStore._v3_legacy_evidence_schema_statement()
+            ),
+            "physical_action_unknown_effect_extension": (
+                UpdaterStore._unknown_effect_resolution_metadata_schema_statement()
+            ),
+            "physical_action_unknown_effect_resolution": (
+                UpdaterStore._unknown_effect_resolution_schema_statement()
             ),
         }
         for table, expected_schema in expected_base_schemas.items():
@@ -3620,6 +3998,7 @@ def inspect_pristine_stage3_rollback_state(
                 "job_permit",
                 "physical_action_ledger",
                 "physical_action_v2_evidence_quarantine",
+                "physical_action_unknown_effect_resolution",
                 "maintenance_lock",
                 "operator_job_gate_lock",
             )

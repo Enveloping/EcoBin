@@ -297,19 +297,23 @@ def _set_weight(model: VirtualFixedFrameMcu, value: int) -> None:
 def _pass_prerequisites(
     executor: FactoryAcceptanceExecutor,
     model: VirtualFixedFrameMcu,
+    *,
+    reference_weight_grams: int = 500,
 ) -> None:
     _begin(executor)
-    _pass_prerequisites_after_begin(executor, model)
+    _pass_prerequisites_after_begin(executor, model, reference_weight_grams=reference_weight_grams)
 
 
 def _pass_prerequisites_after_begin(
     executor: FactoryAcceptanceExecutor,
     model: VirtualFixedFrameMcu,
+    *,
+    reference_weight_grams: int = 500,
 ) -> None:
     executor.check_mcu()
     _set_weight(model, 1_000)
-    executor.capture_empty_weight()
-    _set_weight(model, 1_500)
+    executor.capture_empty_weight(reference_weight_grams=reference_weight_grams)
+    _set_weight(model, 1_000 + reference_weight_grams)
     executor.capture_loaded_weight()
     _set_weight(model, 1_000)
     executor.confirm_weight_removed()
@@ -843,6 +847,91 @@ def test_test_weight_must_be_removed_before_actions(tmp_path: Path) -> None:
             executor.confirm_weight_removed()
 
 
+@pytest.mark.parametrize("reference", [400, 1000])
+@pytest.mark.parametrize("error", [-11, -10, 0, 10, 11])
+def test_reference_weight_binds_all_stages_and_report(tmp_path: Path, reference: int, error: int) -> None:
+    executor, model, _ = _build_executor(tmp_path)
+    with executor:
+        _begin(executor)
+        executor.check_mcu()
+        _set_weight(model, 2000)
+        executor.capture_empty_weight(reference_weight_grams=reference)
+        _set_weight(model, 2000 + reference + error)
+        if abs(error) > 10:
+            with pytest.raises(AcceptanceError, match="WEIGHT_DELTA_OUT_OF_RANGE"):
+                executor.capture_loaded_weight()
+        else:
+            executor.capture_loaded_weight()
+            _set_weight(model, 2000)
+            executor.confirm_weight_removed()
+        weight = executor.snapshot()["checks"]["weight"]
+        assert weight["targetDeltaGrams"] == reference
+        assert weight["deltaGrams"] == reference + error
+        assert weight["sampling"]["loaded"]["samplesGrams"] == [2000 + reference + error] * 3
+        assert weight["status"] == ("PASSED" if abs(error) <= 10 else "FAILED")
+        report = executor._report_from_state(executor.snapshot(), "FAILED", 1000)
+        assert report["checks"]["weight"]["targetDeltaGrams"] == reference
+        assert report["checks"]["weight"]["sampling"] == weight["sampling"]
+
+
+@pytest.mark.parametrize("reference", [None, True, 0, -1, 10, 400.5, "400", 350001])
+def test_reference_weight_invalid_before_sampling(tmp_path: Path, reference: object) -> None:
+    executor, model, _ = _build_executor(tmp_path)
+    with executor:
+        _begin(executor)
+        executor.check_mcu()
+        before = executor.snapshot()
+        with pytest.raises(AcceptanceError, match="REFERENCE_WEIGHT_INVALID"):
+            executor.capture_empty_weight(reference_weight_grams=reference)
+        assert executor.snapshot() == before
+
+
+def test_reference_locked_and_failed_retry_does_not_reuse_old_samples(tmp_path: Path) -> None:
+    executor, model, _ = _build_executor(tmp_path)
+    with executor:
+        _begin(executor)
+        executor.check_mcu()
+        _set_weight(model, 1000)
+        executor.capture_empty_weight(reference_weight_grams=400)
+        with pytest.raises(AcceptanceError, match="WEIGHT_REFERENCE_LOCKED"):
+            executor.capture_empty_weight(reference_weight_grams=1000)
+        _set_weight(model, 1500)
+        with pytest.raises(AcceptanceError, match="WEIGHT_DELTA_OUT_OF_RANGE"):
+            executor.capture_loaded_weight()
+        assert executor.snapshot()["checks"]["weight"]["deltaGrams"] == 500
+        _set_weight(model, 1100)
+        weight = executor.capture_empty_weight(reference_weight_grams=1000)["checks"]["weight"]
+        assert weight["targetDeltaGrams"] == 1000
+        assert weight["emptyWeightGrams"] == 1100
+        assert "loadedWeightGrams" not in weight
+        assert "deltaGrams" not in weight
+        assert set(weight["sampling"]) == {"empty"}
+
+
+def test_partial_weight_samples_survive_query_failure(tmp_path: Path) -> None:
+    executor, _model, _ = _build_executor(tmp_path)
+    with executor:
+        _begin(executor)
+        executor.check_mcu()
+        calls = 0
+
+        def query() -> dict:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise AcceptanceHardwareError("MCU_F1_QUERY_TIMEOUT")
+            return {"weightGrams": 1234}
+
+        executor._query_self_test = query
+        with pytest.raises(AcceptanceError, match="MCU_F1_QUERY_TIMEOUT"):
+            executor.capture_empty_weight(reference_weight_grams=1000)
+        weight = executor.snapshot()["checks"]["weight"]
+        assert "emptyWeightGrams" not in weight
+        assert weight["sampling"]["empty"] == {
+            "samplesGrams": [1234], "readCount": 1, "resultCode": "MCU_F1_QUERY_TIMEOUT",
+        }
+
+
 def test_weight_uses_three_sample_stable_median_for_all_three_stages(
     tmp_path: Path,
 ) -> None:
@@ -904,6 +993,10 @@ def test_persistent_weight_jitter_times_out_as_unstable(tmp_path: Path) -> None:
             executor.capture_empty_weight()
 
         assert executor.snapshot()["checks"]["weight"]["status"] == "FAILED"
+        trace = executor.snapshot()["checks"]["weight"]["sampling"]["empty"]
+        assert trace["samplesGrams"] == [1000, 1010, 1000, 1010, 1000, 1010]
+        assert trace["readCount"] == 6
+        assert trace["resultCode"] == "WEIGHT_READING_NOT_STABLE"
 
 
 def test_f1_timeout_during_stable_sampling_is_a_failed_weight_fact(
@@ -920,9 +1013,13 @@ def test_f1_timeout_during_stable_sampling_is_a_failed_weight_fact(
         executor._query_self_test = timeout
         with pytest.raises(AcceptanceError, match="MCU_F1_QUERY_TIMEOUT"):
             executor.capture_empty_weight()
-        assert executor.snapshot()["checks"]["weight"] == {
-            "status": "FAILED",
-            "resultCode": "MCU_F1_QUERY_TIMEOUT",
+        weight = executor.snapshot()["checks"]["weight"]
+        assert weight["status"] == "FAILED"
+        assert weight["resultCode"] == "MCU_F1_QUERY_TIMEOUT"
+        assert weight["targetDeltaGrams"] == 500
+        assert "emptyWeightGrams" not in weight
+        assert weight["sampling"]["empty"] == {
+            "samplesGrams": [], "readCount": 0, "resultCode": "MCU_F1_QUERY_TIMEOUT",
         }
 
 
@@ -2101,8 +2198,10 @@ def test_core_finalize_rejects_pending_f2_recovery(tmp_path: Path) -> None:
         _assert_finalize_rejects_pending_physical_recovery(executor)
 
 
+@pytest.mark.parametrize("reference", [500, 400, 1000])
 def test_full_pass_report_is_private_sanitized_and_does_not_touch_production_data(
     tmp_path: Path,
+    reference: int,
 ) -> None:
     production_db = tmp_path / "production" / "edge.sqlite"
     production_photo = tmp_path / "production" / "photos" / "existing.jpg"
@@ -2114,7 +2213,7 @@ def test_full_pass_report_is_private_sanitized_and_does_not_touch_production_dat
 
     executor, model, _factory = _build_executor(tmp_path)
     with executor:
-        _pass_prerequisites(executor, model)
+        _pass_prerequisites(executor, model, reference_weight_grams=reference)
         executor.run_action(
             "DELIVERY",
             operator_area_safe_confirmed=True,
@@ -2136,7 +2235,9 @@ def test_full_pass_report_is_private_sanitized_and_does_not_touch_production_dat
         assert report["status"] == "PASSED"
         assert report["recoveryRequired"] is False
         assert report["hardwareConfigDigest"] == "a" * 64
-        assert report["checks"]["weight"]["deltaGrams"] == 500
+        assert report["checks"]["weight"]["deltaGrams"] == reference
+        assert report["checks"]["weight"]["targetDeltaGrams"] == reference
+        assert report["checks"]["weight"]["sampling"]["loaded"]["samplesGrams"] == [1000 + reference] * 3
         assert report["checks"]["delivery"]["weightDeltaGrams"] == 1_200
         assert (
             report["checks"]["delivery"]["operatorAreaSafeConfirmed"]

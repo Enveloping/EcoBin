@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "purpose": "LOCAL_HIL_CANDIDATE_NOT_PRODUCTION_RELEASE",
+  "sourceBaseCommit": "8452c6398c964c7f0d3e7a4a29a1dd204674829e",
+  "snapshotCommit": "8db75561d040f955ab4d3bfab25a3a47c400204f",
+  "sourceBundleSha256": "5d7000105eac42ed2709b0a13648cff841c2997a729ab82f03825954597723ba",
+  "sourceBundleBytes": 54236354,
+  "python": "3.11.15",
+  "environment": "Linux x86_64 / WSL",
+  "dependencyLockFrozen": true,
+  "fullSuite": {
+    "passed": 2080,
+    "skipped": 9,
+    "subtestsPassed": 5,
+    "failed": 0,
+    "durationSeconds": 300.87,
+    "baseTemp": "/var/tmp/eb35-final"
+  },
+  "testOnlyAdaptations": {
+    "clockFixture": "v35_clock_fixture.py",
+    "syncedPreconditionTestCount": 6,
+    "dedicatedClockTestsUnmodified": true,
+    "clockTargetedVerificationPassed": 10,
+    "shortUnixSocketTemporaryPath": true,
+    "productionCodeChangedForTests": false,
+    "operatingSystemClockOrSyncMarkerChanged": false
+  },
+  "initialEnvironmentDiagnostics": [
+    {
+      "passed": 2074,
+      "failed": 6,
+      "cause": "Six pre-existing tests assume an NTP-synchronized host; WSL reported ESTIMATED. Reproduced independently and resolved using a per-test SYNCED fixture."
+    },
+    {
+      "passed": 2071,
+      "failed": 9,
+      "cause": "The second run's long temporary directory exceeded the Linux AF_UNIX socket path limit. A long-path reproduction failed and the same test with a short path passed."
+    }
+  ],
+  "physicalHilPerformed": false,
+  "deviceFlashed": false,
+  "backendOrOneNetDeployed": false
+}

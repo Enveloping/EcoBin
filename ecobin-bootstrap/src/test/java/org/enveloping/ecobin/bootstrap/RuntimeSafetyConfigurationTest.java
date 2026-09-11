@@ -87,7 +87,8 @@ class RuntimeSafetyConfigurationTest {
             "V65__business_runtime_validation_dispatch.sql",
             "V66__business_runtime_update_cancellation.sql",
             "V67__business_runtime_image_bridge_baseline.sql",
-            "V68__device_software_image_bridge_fact.sql"
+            "V68__device_software_image_bridge_fact.sql",
+            "V69__delivery_recovery_quarantine.sql"
     };
 
     @Test

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-10",
+  "cause": "USER_REPORTED_HOST_POWER_LOSS_AND_REBOOT",
+  "interruptedStage": "CANDIDATE_ROOTFS_TARGET_PACKAGE_INSTALL",
+  "candidateOrFlashCompletedBeforePowerLoss": false,
+  "preservedInterruptedLogSha256": "2048351ae7599afe4af4ed1e31984dd93fb9962f260fd5df4effecccf54b1f39",
+  "preservedInterruptedLogLocalPath": "/var/lib/ecobin-image-factory/hil-v37-20260910-snapshot/build-v37-candidate.power-loss.log",
+  "incompleteRootfsReused": false,
+  "incompleteRootfsDeleted": false,
+  "snapshotCommitRechecked": "c097673c23527a63e5c442a77cb19322e6774d42",
+  "snapshotWorktreeClean": true,
+  "sourceBundleSha256Rechecked": "17af3c06b4ef5bdad762b01c34c2c945193f5ac23c1760656d35fe331ac79ae8",
+  "runtimeArchiveSha256Rechecked": "a655ea4aeb8fc2995f3f955bda6591a30f1169f0fc8945d913b22b73928eb5b9",
+  "runtimeSignatureReverified": true,
+  "softwarePayloadLockSha256Rechecked": "a41e9ad6e2668445cc9fa9a7d48312c8caee7eca875075870f2cd225492d967d",
+  "softwarePayloadWholeInventoryRevalidated": true,
+  "completedRuntimeAndPayloadReused": true,
+  "lockedBuilderAndDownloadCacheReused": true,
+  "resumeRecipe": "executed-recipes/resume-v37-image.sh",
+  "scope": "RECOVERY_INPUT_VERIFICATION_ONLY_FINAL_BUILD_AND_FLASH_RECORDED_SEPARATELY"
+}

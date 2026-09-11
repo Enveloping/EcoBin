@@ -133,6 +133,13 @@ class DisabledJobSafety:
     def confirm_physical_action(self, *args: Any, **kwargs: Any) -> None:
         del args, kwargs
 
+    def quarantine_unknown_physical_action(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        del args, kwargs
+
     def complete_job(self, *args: Any, **kwargs: Any) -> None:
         del args, kwargs
 
@@ -510,6 +517,75 @@ class PermanentJobSafety:
             "GET_PHYSICAL_ACTION",
             {"actionUid": _require_uuid4(action_uid, "actionUid")},
         )
+
+    def quarantine_unknown_physical_action(
+        self,
+        permit: JobPermit,
+        *,
+        action: PhysicalAction,
+        resolution_uid: str,
+        expected_ledger_sequence: int,
+        evidence_sha256: str,
+    ) -> None:
+        if (
+            isinstance(expected_ledger_sequence, bool)
+            or not isinstance(expected_ledger_sequence, int)
+            or expected_ledger_sequence < 1
+        ):
+            raise ValueError("expectedLedgerSequence must be positive")
+        result = self._request(
+            "QUARANTINE_UNKNOWN_PHYSICAL_ACTION",
+            {
+                "resolutionUid": _require_uuid4(
+                    resolution_uid, "resolutionUid"
+                ),
+                "actionUid": _require_uuid4(
+                    action.action_uid, "actionUid"
+                ),
+                "permitUid": _require_uuid4(
+                    permit.permit_uid, "permitUid"
+                ),
+                "workUid": _require_uuid4(permit.work_uid, "workUid"),
+                "commandUid": _require_uuid4(
+                    permit.command_uid, "commandUid"
+                ),
+                "actionKey": action.action_key,
+                "actionKind": action.action_kind,
+                "actionDigestSha256": _require_sha256(
+                    action.action_digest_sha256,
+                    "actionDigestSha256",
+                ),
+                "expectedLedgerSequence": expected_ledger_sequence,
+                "evidenceDigestSha256": _require_sha256(
+                    evidence_sha256,
+                    "evidenceDigestSha256",
+                ),
+            },
+        )
+        if (
+            result.get("resolutionUid") != resolution_uid
+            or result.get("actionUid") != action.action_uid
+            or result.get("permitUid") != permit.permit_uid
+            or result.get("workUid") != permit.work_uid
+            or result.get("commandUid") != permit.command_uid
+            or result.get("actionKey") != action.action_key
+            or result.get("actionKind") != action.action_kind
+            or result.get("actionDigestSha256")
+            != action.action_digest_sha256
+            or result.get("expectedLedgerSequence")
+            != expected_ledger_sequence
+            or result.get("resolutionState")
+            != "UNKNOWN_EFFECT_QUARANTINED"
+            or result.get("evidenceDigestSha256") != evidence_sha256
+            or result.get("disposition") not in {"ACCEPTED", "DUPLICATE"}
+        ):
+            raise JobSafetyError(
+                str(
+                    result.get("errorCode")
+                    or "PHYSICAL_ACTION_QUARANTINE_UNCONFIRMED"
+                ),
+                "permanent ledger did not preserve the unknown-effect resolution",
+            )
 
     def get_job_permit(self, permit_uid: str) -> dict[str, Any]:
         return self._request(

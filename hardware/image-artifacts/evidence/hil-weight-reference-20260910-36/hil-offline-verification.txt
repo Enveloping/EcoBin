@@ -1,0 +1,29 @@
+phase=copy-candidate status=START
+raw-layout-verification=PASS
+phase=copy-candidate status=PASS
+phase=protected-input-injection status=START
+factory secret injection complete
+development-login-injection=PASS rootLocked=true orangepiDefaultPasswordEnabled=true
+ext4-inode-inventory=PASS inodes=53472
+ext4-normalization=PASS inodes=53472 epoch=1783765141
+phase=protected-input-injection status=PASS protectedValuesOrDigestsDisclosed=false
+raw-layout-verification=PASS
+e2fsck 1.47.0 (5-Feb-2023)
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+opi_root: 53481/156800 files (0.1% non-contiguous), 555944/626688 blocks
+ext4-profile-verification=PASS
+image-software-audit=PASS
+development-login-audit=PASS rootLocked=true orangepiDefaultPasswordEnabled=true
+protected-inputs=PASS inheritedFromV35=true valuesOrDigestsDisclosed=false
+clean-first-boot-state=PASS
+camera-config=PASS outside=HSK-UNIQUESKY inside=Generic-USB-Camera exactHardwareEnvironmentAudited=true
+current-source-and-units=PASS gitCommit=0c336415f249ffa7824b1569dc2537e9cca561db
+candidate-unchanged=PASS
+v35-protected-input-source-unchanged=PASS
+v36-hil-image-bytes=2571108352
+v36-hil-image-sha256=898938884a3a1cd8a05279780bf8c6117b2de13801118aca7ad9aa19082490c6
+v36-hil-image=PASS

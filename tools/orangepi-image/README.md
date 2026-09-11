@@ -136,6 +136,36 @@ Consequently, merely extracting and auditing that base is expected to fail.
 
 ## Locking workflow
 
+### 本机开发/HIL下载缓存
+
+2026-09-10 项目负责人要求后续制作镜像复用既有缓存，不再默认重下全部依赖。当前本地 v36
+接线在忽略目录 `hardware/image-artifacts/local/v36-tools/docker` 和
+`prepare-v36-download-cache.py`、`prepare-v36-cache-v2.py`、`prepare-v36-cache-v3.py`；这是一份有记录的本地 HIL
+构建配方调整，尚未改变正式发布入口。
+后续本机构建必须沿用这一缓存接线或经过验证的等价方式，不能直接遗漏缓存参数。
+
+- 固定上游 7z、固定 Docker ARM64 摘要、固定 uv 压缩包直接复用既有文件，读取前仍校验。
+- 共享下载目录是 WSL `/var/cache/ecobin-image-builder/arm64-py311-<uv.lock摘要前16位>/`，
+  包含 `wheels/`、`pip/`、`uv/`、`apt/`、`apt-lists/`、`target-debs/`。它不是每版输出目录，也不随容器退出清理。
+- v35 运行时归档先按已有构建证据核对整体摘要，再仅提取与当前 `uv.lock` 的文件名、长度、
+  SHA-256 完全吻合的 16 个发行 wheel；不使用不在锁文件中的旧本机构建 wheel。
+- Python 环境仍每次新建、使用本次源码。载荷通过 `uv export --frozen` 导出同一锁定依赖，
+  通过 `pin-cached-requirements.py` 将匹配项指向再次核对长度和摘要的本地 wheel，保留原环境条件，
+  将该项允许摘要缩小为锁文件中该 wheel 的唯一摘要，再用 `uv pip install --require-hashes`
+  安装；缺少的锁定输入才联网下载。锁定 uv 0.12.5 对本地 URL 的多个允许摘要存在已复现的拒绝，
+  不能通过关闭摘要检查处理。17 个依赖已通过断网安装，因此本次最终载荷显式使用 `UV_OFFLINE=1`。
+  不能仅使用 `--find-links` 就宣称命中缓存，安装器仍可能优先选择注册源；须核对实际安装来源。
+  `UV_CACHE_DIR`、`PIP_CACHE_DIR` 显式挂载到共享目录，安装使用复制模式，不把缓存硬链接进制品。
+- APT 保留固定快照、签名认证和包版本检查，仅持久保存下载归档。若修改 `builder.lock` 或
+  `apt-packages.lock`，须为对应 APT/目标 deb 使用新的缓存命名空间，不能混用旧目标 deb 集合。
+- 缓存不得装入设备凭证、私钥、旧设备数据库或旧业务状态，也不得复制进最终镜像。退出构建时
+  只卸载本次绑定挂载，保留缓存内容。源码快照、载荷锁、签名与镜像审计不能因缓存命中而省略。
+
+首次启用该接线前已经开始的下载不宣称为缓存命中。实际使用配方、复用包摘要和检查结果随
+对应版本的公开构建证据归档。
+
+### 固定输入
+
 1. Copy the official artifact into controlled build storage; do not build from
    an unverified network stream.
 2. Fill `source.lock.json`, including byte sizes and lowercase SHA-256, then set

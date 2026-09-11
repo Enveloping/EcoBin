@@ -1,0 +1,3 @@
+production-preflight=PASS mode=real
+runtime-security-probe=PASS mode=real enrollment=true remote_support=true backend=ecobin-target-backend web=ecobin-target-web
+v37-allowlist-deployment=PASS backup=/etc/ecobin/runtime.env.pre-v37-20260910T134328Z.a76ewakT v13=true v19=true v21=true v23=true v24=true v26=true v27=true v28=false v29=false v30=false v31=true v32=true v33=true v34=true v37=true v15=false v16=false v17=false v18=false

@@ -1,0 +1,37 @@
+multiple=1
+Using CPython 3.11.2 interpreter at: /usr/bin/python3.11
+Resolved 1 package in 124ms
+  × Failed to read `pycparser @
+  │ file:///cache/wheels/pycparser-3.0-py3-none-any.whl`
+  ╰─▶ Hash mismatch for `pycparser @
+      file:///cache/wheels/pycparser-3.0-py3-none-any.whl`
+
+      Expected:
+        sha256:600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29
+        sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
+
+      Computed:
+        sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
+
+exact=0
+Using CPython 3.11.2 interpreter at: /usr/bin/python3.11
+Resolved 1 package in 124ms
+Prepared 1 package in 71ms
+Installed 1 package in 44ms
+ + pycparser==3.0 (from file:///cache/wheels/pycparser-3.0-py3-none-any.whl)
+
+wrong=1
+Using CPython 3.11.2 interpreter at: /usr/bin/python3.11
+Resolved 1 package in 128ms
+  × Failed to read `pycparser @
+  │ file:///cache/wheels/pycparser-3.0-py3-none-any.whl`
+  ╰─▶ Hash mismatch for `pycparser @
+      file:///cache/wheels/pycparser-3.0-py3-none-any.whl`
+
+      Expected:
+        sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+      Computed:
+        sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
+
+v37-uv-hash-differential=PASS identicalWheel=true exactLockDigestRequired=true network=false

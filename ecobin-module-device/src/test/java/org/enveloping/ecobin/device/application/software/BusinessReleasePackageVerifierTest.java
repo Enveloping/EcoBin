@@ -94,6 +94,20 @@ class BusinessReleasePackageVerifierTest {
     }
 
     @Test
+    void rejectsSignedPackagesMissingSharedWeightValidation() throws Exception {
+        KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        Path archive = buildArchive(false, false, true);
+        Path signature = sign(archive, keys);
+
+        assertThatThrownBy(() -> verifier(keys).verify(
+                archive, signature, "business_2026",
+                RELEASE_UID, "1.1.0", 2))
+                .isInstanceOf(
+                        BusinessReleasePackageVerifier.VerificationException.class)
+                .hasMessageContaining("业务代码文件不符合固定白名单");
+    }
+
+    @Test
     void rejectsSignedPackagesWithAnUnexpectedEmptyDirectory() throws Exception {
         KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         Path archive = buildArchive(false, true);
@@ -134,8 +148,19 @@ class BusinessReleasePackageVerifierTest {
     private Path buildArchive(
             boolean addPermanentFile,
             boolean addUnexpectedDirectory) throws Exception {
+        return buildArchive(addPermanentFile, addUnexpectedDirectory, false);
+    }
+
+    private Path buildArchive(
+            boolean addPermanentFile,
+            boolean addUnexpectedDirectory,
+            boolean omitWeightValidation) throws Exception {
         Map<String, byte[]> files = new LinkedHashMap<>();
         for (String app : APP_FILES) {
+            if (omitWeightValidation
+                    && "factory_seal/weight_validation.py".equals(app)) {
+                continue;
+            }
             files.put("app/" + app,
                     ("# " + app + "\n").getBytes(StandardCharsets.UTF_8));
         }

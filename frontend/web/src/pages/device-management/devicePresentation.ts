@@ -130,6 +130,8 @@ export function technicalIssueStateLabel(value: string): string {
     AUTO_RETRYING: '系统正在自动处理',
     ACTION_REQUIRED: '需要管理员处理',
     RECOVERY_REQUIRED: '需要现场安全恢复',
+    RECOVERY_IN_PROGRESS: '正在等待设备安全确认',
+    RECORDED: '已隔离并留档',
   } as Record<string, string>)[value] ?? '处理状态待确认';
 }
 

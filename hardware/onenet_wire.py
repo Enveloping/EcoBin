@@ -23,6 +23,7 @@ from trusted_clock import event_clock_fields, local_deadline_reference
 COMMAND_IDENTIFIERS = {
     "applyConfiguration": "APPLY_CONFIGURATION",
     "startDeliverySession": "START_DELIVERY_SESSION",
+    "quarantineDeliveryRecovery": "QUARANTINE_DELIVERY_RECOVERY",
     "startCleanOperation": "START_CLEAN_OPERATION",
     "endCleanBeforeUnlock": "END_CLEAN_BEFORE_UNLOCK",
     "resumeCleanOperation": "RESUME_CLEAN_OPERATION",
@@ -355,6 +356,8 @@ def _validate_command_envelope(
             work_uid=payload.get("sessionUid"),
             trusted_environment=trusted_environment,
         )
+    elif command_type == "QUARANTINE_DELIVERY_RECOVERY":
+        _validate_quarantine_delivery_recovery(command)
     elif command_type in {
         "START_CLEAN_OPERATION",
         "RESUME_CLEAN_OPERATION",
@@ -377,6 +380,10 @@ def _validate_command_target(command: dict[str, Any]) -> None:
             "applicationUid",
         ),
         "START_DELIVERY_SESSION": (
+            "DELIVERY_SESSION",
+            "sessionUid",
+        ),
+        "QUARANTINE_DELIVERY_RECOVERY": (
             "DELIVERY_SESSION",
             "sessionUid",
         ),
@@ -1520,6 +1527,29 @@ def _extract_payload(identifier: str, scalars: dict[str, Any],
             "negativeWeightThresholdGrams": scalars.get("negativeWeightThresholdGrams"),
             "deliveryAutoCloseMs": scalars.get("deliveryAutoCloseMs"),
         }
+    if identifier == "quarantineDeliveryRecovery":
+        return {
+            "recoveryUid": scalars.get("recoveryUid"),
+            "sessionUid": scalars.get("sessionUid"),
+            "originalCommandUid": scalars.get("originalCommandUid"),
+            "physicalOutcomeUnknownConfirmed": scalars.get(
+                "physicalOutcomeUnknownConfirmed"
+            ),
+            "causeFixedConfirmed": scalars.get("causeFixedConfirmed"),
+            "devicePowerCycledConfirmed": scalars.get(
+                "devicePowerCycledConfirmed"
+            ),
+            "motionAreaClearConfirmed": scalars.get(
+                "motionAreaClearConfirmed"
+            ),
+            "deliveryDoorClosedConfirmed": scalars.get(
+                "deliveryDoorClosedConfirmed"
+            ),
+            "mechanismClearConfirmed": scalars.get(
+                "mechanismClearConfirmed"
+            ),
+            "reason": scalars.get("reason"),
+        }
     if identifier == "startCleanOperation":
         return {
             "operationUid": scalars.get("operationUid"),
@@ -1756,6 +1786,7 @@ def _target_type_for_command(command_type: str, wire_value: Any) -> str:
     mapping = {
         "APPLY_CONFIGURATION": "CONFIGURATION_APPLICATION",
         "START_DELIVERY_SESSION": "DELIVERY_SESSION",
+        "QUARANTINE_DELIVERY_RECOVERY": "DELIVERY_SESSION",
         "START_CLEAN_OPERATION": "CLEAN_OPERATION",
         "END_CLEAN_BEFORE_UNLOCK": "CLEAN_OPERATION",
         "RESUME_CLEAN_OPERATION": "CLEAN_OPERATION",
@@ -1773,6 +1804,53 @@ def _target_type_for_command(command_type: str, wire_value: Any) -> str:
         "CANCEL_BUSINESS_RUNTIME_UPDATE": "BUSINESS_RUNTIME_DEPLOYMENT",
     }
     return mapping.get(command_type, str(wire_value))
+
+
+def _validate_quarantine_delivery_recovery(
+    command: dict[str, Any],
+) -> None:
+    payload = command["payload"]
+    required = {
+        "recoveryUid",
+        "sessionUid",
+        "originalCommandUid",
+        "physicalOutcomeUnknownConfirmed",
+        "causeFixedConfirmed",
+        "devicePowerCycledConfirmed",
+        "motionAreaClearConfirmed",
+        "deliveryDoorClosedConfirmed",
+        "mechanismClearConfirmed",
+        "reason",
+    }
+    if set(payload) != required:
+        raise ValueError("delivery recovery payload fields are invalid")
+    recovery_uid = _require_uuid4(payload.get("recoveryUid"), "recoveryUid")
+    original_uid = _require_uuid4(
+        payload.get("originalCommandUid"), "originalCommandUid"
+    )
+    if recovery_uid in {original_uid, command["commandUid"]} or (
+        original_uid == command["commandUid"]
+    ):
+        raise ValueError("delivery recovery identities must be distinct")
+    for field in (
+        "physicalOutcomeUnknownConfirmed",
+        "causeFixedConfirmed",
+        "devicePowerCycledConfirmed",
+        "motionAreaClearConfirmed",
+        "deliveryDoorClosedConfirmed",
+        "mechanismClearConfirmed",
+    ):
+        if payload.get(field) is not True:
+            raise ValueError(f"{field} must be true")
+    reason = payload.get("reason")
+    if (
+        not isinstance(reason, str)
+        or not reason.strip()
+        or len(reason) > 500
+    ):
+        raise ValueError("delivery recovery reason is invalid")
+    if command.get("cosGrant") is not None:
+        raise ValueError("delivery recovery cannot carry a COS grant")
 
 
 def _validate_apply_configuration(command: dict[str, Any]) -> None:

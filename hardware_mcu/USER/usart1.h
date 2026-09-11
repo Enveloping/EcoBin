@@ -36,6 +36,7 @@ void USART1_RX_IntEnable(void);  /* 使能USART1接收中断 */
 void RS485_SendByte(unsigned char SendData);
 void RS485_SendBuf(unsigned char *buf, unsigned char len);
 unsigned short CRC16_Modbus(unsigned char *buf, unsigned char len);
+/* 0=成功, 1=超时, 2=等待中/短帧, 3=CRC错误, 4=正向重量越界。 */
 unsigned char Weight_Read(unsigned long *weight);
 void USART2_int(void);
 
@@ -47,7 +48,6 @@ unsigned char Weight_Read_Poll(unsigned long *weight);
 unsigned char GetRxFrameLen(unsigned char header);
 
 /* ===== 视觉模块通信 (USART1) ===== */
-void Vision_SendPushRod(unsigned char status);   /* AA+status+AA 推杆状态上报(调试用) */
 void Vision_SendOverflow(unsigned char status);  /* BB+status+BB 溢满标志(保留兼容) */
 void Vision_SendSmoke(unsigned char status);     /* CC+status+CC 烟雾状态上报(00/01/02) */
 void Vision_SendWeight(unsigned long weight);    /* DD+weight(3字节)+DD 旧版5字节(保留兼容) */

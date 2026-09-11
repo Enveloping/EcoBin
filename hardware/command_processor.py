@@ -254,6 +254,11 @@ class CommandProcessor:
                 self._start_delivery_session(command)
             elif command["commandType"] == "START_CLEAN_OPERATION":
                 self._start_clean_operation(command)
+            elif (
+                command["commandType"]
+                == "QUARANTINE_DELIVERY_RECOVERY"
+            ):
+                self._quarantine_delivery_recovery(command)
             elif command["commandType"] == "SAMPLE_FULLNESS":
                 self._sample_fullness(command)
             elif command["commandType"] == "MEASURE_EMPTY_BAG_BASELINE":
@@ -308,6 +313,7 @@ class CommandProcessor:
                     "RESUME_CLEAN_OPERATION",
                     "SAMPLE_FULLNESS",
                     "MEASURE_EMPTY_BAG_BASELINE",
+                    "QUARANTINE_DELIVERY_RECOVERY",
                 }
             ):
                 if error_code == "JOB_GATE_UNAVAILABLE":
@@ -575,6 +581,12 @@ class CommandProcessor:
             result["mcu_command_uid"],
             result,
         )
+
+    def _quarantine_delivery_recovery(self, command: dict) -> None:
+        self._require_factory_production_admission(command)
+        if self._work is None:
+            raise RuntimeError("work manager is required")
+        self._work.quarantine_delivery_recovery(command)
 
     def _sample_fullness(self, command: dict) -> None:
         self._require_factory_production_admission(command)

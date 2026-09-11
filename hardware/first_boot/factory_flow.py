@@ -16,6 +16,7 @@ from factory_progress import (
     validate_runtime_progress,
 )
 from factory_seal.runtime_health import validate_runtime_services
+from factory.acceptance_measurements import valid_sampling
 from .cellular_status import parse_cellular_status
 
 from .atomic_json import AtomicJsonFile, OwnershipSetter, root_group_owner
@@ -78,6 +79,18 @@ _P7_CHECK_OPTIONAL_FIELDS = {
     "deltaGrams",
     "targetDeltaGrams",
     "toleranceGrams",
+    "stableSampleCount",
+    "stableMaxSpreadGrams",
+    "sampleIntervalMs",
+    "sampleTimeoutMs",
+    "sampling",
+    "selfTestWeightGrams",
+    "selfTestInfraredBlocked",
+    "selfTestSmokeCode",
+    "outsideCaptureNonEmpty",
+    "insideCaptureNonEmpty",
+    "outsideRoleConfirmed",
+    "insideRoleConfirmed",
     "sendAttempts",
     "prepareSendAttempts",
     "romWritePerformed",
@@ -996,6 +1009,10 @@ def _validate_acceptance_projection(value: dict[str, Any]) -> None:
         ):
             raise ValueError("P7 action result is invalid")
         for name, item in check.items():
+            if name == "sampling":
+                if not valid_sampling(item):
+                    raise ValueError("P7 weight samples are invalid")
+                continue
             if name in {"status", "resultCode", "result"}:
                 continue
             if isinstance(item, (dict, list)):

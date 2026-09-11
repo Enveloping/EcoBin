@@ -1,0 +1,5 @@
+permanent-component-source-audit=PASS communicationFiles=10 updaterFiles=24 units=2
+permanent-component-source-audit=PASS communicationFiles=10 updaterFiles=24 units=2
+formal-business-trust-audit=PASS keyId=business_2026 fingerprint=29a1145b54e884d4f382c5a953a7673d5e477a24eea04980180b23034e14b587 obsoleteHilKey=false
+remote-business-unit-boundary=PASS enabledInProxy=true enabledInUpdater=true fixedDownloadOrigin=true updaterNetwork=true leastPrivilege=true
+v37-permanent-update-boundary=PASS automaticQueueEmpty=true privateSigningMaterial=false

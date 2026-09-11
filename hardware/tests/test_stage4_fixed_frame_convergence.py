@@ -60,6 +60,20 @@ class FakeCompatUart:
             "faultCode": None,
             "rawFrameHex": "f1030004d20000f1",
         }
+        self.firmware_status_calls: list[tuple[int, int]] = []
+        self.firmware_status_result = {
+            "queryStatus": "OK",
+            "mode": 1,
+            "statusCode": 0,
+            "status": "OK",
+            "protocolRevision": 2,
+            "firmwareVersionCode": 1,
+            "firmwareVersion": "v2-test",
+            "firmwareIdentityHex": "11" * 16,
+            "safeFlags": 0x0F,
+            "rawFrameHex": "f3010002000000010f00f3",
+        }
+        self.pending_business_result = False
 
     def send_command_before_deadline(
         self,
@@ -100,6 +114,13 @@ class FakeCompatUart:
         if on_result is not None:
             on_result(result)
         return result
+
+    def query_firmware_status(self, mode, timeout_ms=3_000):
+        self.firmware_status_calls.append((mode, timeout_ms))
+        return dict(self.firmware_status_result)
+
+    def has_pending_business_result(self) -> bool:
+        return self.pending_business_result
 
 
 class FakePhotoManager:
@@ -247,6 +268,9 @@ class CapturingStoreClient:
             ),
             "GET_PHYSICAL_ACTION": self.store.get_physical_action,
             "CONFIRM_PHYSICAL_ACTION": self.store.confirm_physical_action,
+            "QUARANTINE_UNKNOWN_PHYSICAL_ACTION": (
+                self.store.quarantine_unknown_physical_action
+            ),
         }
         if action == "ARM_PHYSICAL_ACTION":
             self.arm_calls.append(dict(payload))
@@ -529,4 +553,248 @@ def test_stage4_fixed_frame_late_dd_ef_after_business_restart_stays_locked(
     }
     assert runtime.edge.get_command(command["commandUid"])["state"] == (
         "WAITING_MCU_RESULT"
+    )
+
+
+def test_remote_delivery_quarantine_reports_evidence_without_business_complete(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    boot_identity = ["linux:10000000-0000-4000-8000-000000000001"]
+    monkeypatch.setattr(
+        "work_manager._system_boot_identity",
+        lambda: boot_identity[0],
+    )
+    runtime = _runtime(tmp_path)
+    original = _receive_and_start(
+        runtime, "start-delivery-session.service-wire.json"
+    )
+    session_uid = original["payload"]["sessionUid"]
+    action_uid, armed = _only_action(runtime)
+    assert armed["state"] == "ARMED"
+
+    boot_identity[0] = "linux:20000000-0000-4000-8000-000000000002"
+    assert runtime.work.expire_fixed_frame_work() is True
+    assert runtime.edge.get_command(original["commandUid"])["state"] == (
+        "RECOVERY_REQUIRED"
+    )
+
+    recovery_uid = "93000000-0000-4000-8000-000000000001"
+    recovery = {
+        "schemaVersion": 2,
+        "commandUid": "93000000-0000-4000-8000-000000000002",
+        "commandType": "QUARANTINE_DELIVERY_RECOVERY",
+        "targetDeviceName": original["targetDeviceName"],
+        "target": {"type": "DELIVERY_SESSION", "uid": session_uid},
+        "issuedAt": original["issuedAt"],
+        "expiresAt": original["expiresAt"],
+        "payloadSchemaVersion": 2,
+        "payloadSha256": "0" * 64,
+        "payload": {
+            "recoveryUid": recovery_uid,
+            "sessionUid": session_uid,
+            "originalCommandUid": original["commandUid"],
+            "physicalOutcomeUnknownConfirmed": True,
+            "causeFixedConfirmed": True,
+            "devicePowerCycledConfirmed": True,
+            "motionAreaClearConfirmed": True,
+            "deliveryDoorClosedConfirmed": True,
+            "mechanismClearConfirmed": True,
+            "reason": "现场已断电重启并确认机构安全，隔离旧投递。",
+        },
+        "cosGrant": None,
+    }
+    recovery["payloadSha256"] = canonical_payload_sha256(
+        recovery["payload"]
+    )
+    assert runtime.edge.receive_command(
+        recovery["commandUid"], recovery["commandType"], recovery
+    ) == "ACCEPTED"
+    assert runtime.edge.claim_next_command()["command_uid"] == recovery[
+        "commandUid"
+    ]
+
+    result = runtime.work.quarantine_delivery_recovery(recovery)
+
+    assert result["disposition"] == "QUARANTINED"
+    assert runtime.uart.firmware_status_calls == [(1, 3_000)]
+    assert runtime.uart.self_test_calls == [3_000]
+    # The recovery path performs read-only F2/F0 queries; it sends no door or
+    # clean actuation command.
+    assert [call[0] for call in runtime.uart.calls] == [
+        "START_DELIVERY_SESSION"
+    ]
+    resolved = runtime.updater.get_physical_action(
+        {"actionUid": action_uid}
+    )
+    assert resolved["state"] == "ARMED"
+    assert resolved["confirmedOutcome"] is None
+    assert resolved["unknownEffectResolution"]["resolutionUid"] == (
+        recovery_uid
+    )
+    permit = runtime.updater.get_job_permit(
+        {"permitUid": runtime.client.permit_uids[0]}
+    )
+    assert permit["state"] == "COMPLETED"
+    assert permit["completionOutcome"] == "CANCELLED"
+    assert runtime.edge.get_work_slot() is None
+    assert runtime.edge.get_command(original["commandUid"])["state"] == (
+        "COMPLETED"
+    )
+    assert runtime.edge.get_command(recovery["commandUid"])["state"] == (
+        "COMPLETED"
+    )
+    events = [
+        json.loads(row["payload_json"])
+        for row in runtime.edge.list_pending_events(100)
+    ]
+    assert len(
+        [
+            event
+            for event in events
+            if event["eventType"] == "DELIVERY_RECOVERY_QUARANTINED"
+        ]
+    ) == 1
+    assert not any(
+        event["eventType"] == "DELIVERY_COMPLETE" for event in events
+    )
+
+
+def _delivery_recovery_command(
+    original: dict[str, Any],
+    *,
+    recovery_uid: str,
+    recovery_command_uid: str,
+) -> dict[str, Any]:
+    session_uid = original["payload"]["sessionUid"]
+    recovery = {
+        "schemaVersion": 2,
+        "commandUid": recovery_command_uid,
+        "commandType": "QUARANTINE_DELIVERY_RECOVERY",
+        "targetDeviceName": original["targetDeviceName"],
+        "target": {"type": "DELIVERY_SESSION", "uid": session_uid},
+        "issuedAt": original["issuedAt"],
+        "expiresAt": original["expiresAt"],
+        "payloadSchemaVersion": 2,
+        "payloadSha256": "0" * 64,
+        "payload": {
+            "recoveryUid": recovery_uid,
+            "sessionUid": session_uid,
+            "originalCommandUid": original["commandUid"],
+            "physicalOutcomeUnknownConfirmed": True,
+            "causeFixedConfirmed": True,
+            "devicePowerCycledConfirmed": True,
+            "motionAreaClearConfirmed": True,
+            "deliveryDoorClosedConfirmed": True,
+            "mechanismClearConfirmed": True,
+            "reason": "现场重新核对后执行失败关闭测试。",
+        },
+        "cosGrant": None,
+    }
+    recovery["payloadSha256"] = canonical_payload_sha256(
+        recovery["payload"]
+    )
+    return recovery
+
+
+@pytest.mark.parametrize(
+    ("unsafe_fact", "expected_code"),
+    (
+        (
+            "operator_confirmation",
+            "RECOVERY_OPERATOR_CONFIRMATION_REQUIRED",
+        ),
+        ("unchanged_boot", "RECOVERY_POWER_CYCLE_NOT_PROVEN"),
+        ("unsafe_firmware", "RECOVERY_MCU_NOT_IDLE_SAFE"),
+        (
+            "unhealthy_self_test",
+            "RECOVERY_SENSOR_EVIDENCE_UNHEALTHY",
+        ),
+        ("pending_normal_result", "RECOVERY_NORMAL_RESULT_PENDING"),
+    ),
+)
+def test_remote_delivery_quarantine_fails_closed_for_unsafe_facts(
+    tmp_path,
+    monkeypatch,
+    unsafe_fact: str,
+    expected_code: str,
+) -> None:
+    boot_identity = ["linux:30000000-0000-4000-8000-000000000001"]
+    monkeypatch.setattr(
+        "work_manager._system_boot_identity",
+        lambda: boot_identity[0],
+    )
+    runtime = _runtime(tmp_path)
+    original = _receive_and_start(
+        runtime, "start-delivery-session.service-wire.json"
+    )
+    action_uid, armed = _only_action(runtime)
+    assert armed["state"] == "ARMED"
+
+    if unsafe_fact == "unchanged_boot":
+        deadline = runtime.edge.get_work_slot()["context"][
+            "delivery_result_deadline_monotonic_ms"
+        ]
+        monkeypatch.setattr(
+            "work_manager._monotonic_ms", lambda: deadline + 1
+        )
+    else:
+        boot_identity[0] = (
+            "linux:40000000-0000-4000-8000-000000000002"
+        )
+    assert runtime.work.expire_fixed_frame_work() is True
+
+    recovery = _delivery_recovery_command(
+        original,
+        recovery_uid="94000000-0000-4000-8000-000000000001",
+        recovery_command_uid=(
+            "94000000-0000-4000-8000-000000000002"
+        ),
+    )
+    if unsafe_fact == "operator_confirmation":
+        recovery["payload"]["motionAreaClearConfirmed"] = False
+        recovery["payloadSha256"] = canonical_payload_sha256(
+            recovery["payload"]
+        )
+    elif unsafe_fact == "unsafe_firmware":
+        runtime.uart.firmware_status_result["safeFlags"] = 0x07
+    elif unsafe_fact == "unhealthy_self_test":
+        runtime.uart.self_test_result["communicationHealthy"] = False
+    elif unsafe_fact == "pending_normal_result":
+        runtime.uart.pending_business_result = True
+
+    assert runtime.edge.receive_command(
+        recovery["commandUid"], recovery["commandType"], recovery
+    ) == "ACCEPTED"
+    assert runtime.edge.claim_next_command()["command_uid"] == recovery[
+        "commandUid"
+    ]
+
+    with pytest.raises(JobSafetyError) as raised:
+        runtime.work.quarantine_delivery_recovery(recovery)
+
+    assert raised.value.code == expected_code
+    unresolved = runtime.updater.get_physical_action(
+        {"actionUid": action_uid}
+    )
+    assert unresolved["state"] == "ARMED"
+    assert unresolved["confirmedOutcome"] is None
+    assert unresolved["unknownEffectResolution"] is None
+    permit = runtime.updater.get_job_permit(
+        {"permitUid": runtime.client.permit_uids[0]}
+    )
+    assert permit["state"] == "ACTIVE"
+    assert runtime.edge.get_work_slot()["work_state"] == (
+        "RECOVERY_REQUIRED"
+    )
+    events = [
+        json.loads(row["payload_json"])
+        for row in runtime.edge.list_pending_events(100)
+    ]
+    assert not any(
+        event["eventType"] == "DELIVERY_RECOVERY_QUARANTINED"
+        for event in events
+    )
+    assert not any(
+        event["eventType"] == "DELIVERY_COMPLETE" for event in events
     )

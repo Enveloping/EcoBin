@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "artifactClass": "LOCAL_HIL_CANDIDATE_NOT_PRODUCTION_RELEASE",
+  "recordedAt": "2026-09-10T06:55:21Z",
+  "imageVersion": "0.1.0-single-card.20260910.35",
+  "releaseId": "single-card-hil-20260910-35",
+  "sourceBaseCommit": "8452c6398c964c7f0d3e7a4a29a1dd204674829e",
+  "snapshotCommit": "8db75561d040f955ab4d3bfab25a3a47c400204f",
+  "sourceBundleSha256": "5d7000105eac42ed2709b0a13648cff841c2997a729ab82f03825954597723ba",
+  "sourceBundleBytes": 54236354,
+  "buildRepositoryClean": true,
+  "originalWorktreeCommittedByBuild": false,
+  "builderDigest": "sha256:817e6cf99d6fc127ff4ffe8580049b60deba0adfbbb2bd65ddc3ef8fbb7aade0",
+  "builderOrigin": "existing local cache, exact locked digest and linux/arm64 identity verified",
+  "imageBootstrapDownloadCache": {
+    "purpose": "HIL_ONLY_EXACT_LOCKED_DOWNLOAD_CACHE",
+    "sourceBootstrapSha256": "199e75582da2235e19b6ec431c627411c4e351276b5c9cafe1f2136343157d8f",
+    "executedBootstrapSha256": "0f53c12cc219e28a5189da1c5d3deeef8c1e0301108b023d1d976f60df5d1db4",
+    "lockedUvSha256": "9bf43b4d1a07665bf64d4c4e710930b382321a785e0eb10aac07f46471f86a31",
+    "lockedUvBytes": 21478307,
+    "sourceCheckoutModified": false,
+    "byteLengthCheckRetained": true,
+    "sha256CheckRetained": true,
+    "archiveMemberAndToolVersionChecksRetained": true,
+    "changes": [
+      "explicit original script directory",
+      "read exact locked uv archive from read-only local cache"
+    ]
+  },
+  "components": {
+    "hardwareRuntime": "hardware-runtime-20260910-35",
+    "communication": "communication-20260910-35",
+    "updater": "updater-20260910-35",
+    "softwarePayload": "software-payload-20260910-35"
+  },
+  "runtimeArchiveBytes": 58368789,
+  "runtimeArchiveSha256": "bf96a7ce54bdaa91123a949ea4190e16f9f57a05cc5c9320b5c2c247648acedf",
+  "runtimeSigningKeyId": "hil_factory_20260830",
+  "softwarePayloadLockSha256": "c258b5d604a8a0affd1509c241e4fe727a87a2a15376c62212416e7b918d9303",
+  "candidateImageBytes": 2571108352,
+  "candidateImageSha256": "7d4105e8843eb2ded8afdb47bc2ae67b323c8e4eefc278f2ffc2be58bb9c95c1",
+  "candidateImageLocalPath": "/var/lib/ecobin-image-factory/hil-v35-20260910-snapshot/candidate-single-card-hil-20260910-35/ecobin-orangepi-zero3-0.1.0-single-card.20260910.35.img",
+  "hilImageBytes": 2571108352,
+  "hilImageSha256": "c6a5add51d7afe0269c235ecd89f2e369fc60c3e54148e284e945f0407d67d93",
+  "hilImageRelativePath": "hardware/image-artifacts/local/factory-secret/builds/hil-factory-login-20260910-35-delivery-recovery-quarantine/ecobin-orangepi-zero3-0.1.0-single-card.20260910.35-hil-factory-login.img",
+  "protectedInputSourceImageSha256": "06286842051a037bd8e86c4c4c5eaecc9c8be05e2e28c0070ac7d0905501b9d5",
+  "protectedValuesOrTheirIndividualDigestsRecorded": false,
+  "offlineChecks": {
+    "candidate": "PASS",
+    "hil": "PASS",
+    "permanentBoundary": "PASS",
+    "arm64Execution": "PASS"
+  },
+  "verificationLogSha256": {
+    "candidate": "1431718cc015945b3f6c873227f2423db3c377ada2e50e53f5194ff568f6a448",
+    "hil": "f61a61337c3dfa94ee8be543f562058e37e87d1653657353d220a893dc658a00",
+    "permanentBoundary": "5c33b99eeb48e1d0f0379b21237e40a09e36bc5b7d4593b9745075ba26e78729",
+    "arm64Execution": "596480026ec5142d030aae051116ce0e9e5371fd30b7996e8e25dca65e4f42e2"
+  },
+  "arm64PythonVersion": "3.11.2",
+  "python311TestEvidence": "test-evidence.json",
+  "physicalHilPerformed": false,
+  "deviceFlashed": false,
+  "existingDeviceStateIncluded": false,
+  "backendOrOneNetDeployed": false,
+  "productionReleaseQualified": false
+}

@@ -373,6 +373,56 @@ class OneNetClientReliableSubmissionTest {
     }
 
     @Test
+    void projectsDeliveryRecoveryQuarantineWithoutIssuingAnyCredential()
+            throws Exception {
+        String envelope = Files.readString(contractPath(
+                "contracts/examples/onenet/"
+                        + "quarantine-delivery-recovery.command.json"));
+        JsonNode expected = objectMapper.readTree(Files.readString(contractPath(
+                "contracts/examples/onenet-wire/"
+                        + "quarantine-delivery-recovery.service-wire.json")));
+        UUID commandUid = UUID.fromString(
+                "31000000-0000-4000-8000-000000000002");
+        when(restTemplate.postForEntity(
+                anyString(), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"code\":0}"));
+
+        DeviceCommandSubmissionResult result = client.submit(submission(
+                envelope,
+                commandUid,
+                "QUARANTINE_DELIVERY_RECOVERY"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
+                result.outcome());
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<HttpEntity> request =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForEntity(
+                anyString(), request.capture(), eq(String.class));
+        JsonNode actual = objectMapper.valueToTree(
+                request.getValue().getBody());
+        ObjectNode expectedBody = (ObjectNode) expected
+                .path("callServiceApiBodyTemplate").deepCopy();
+        expectedBody.put("product_id", PRODUCT_ID);
+        expectedBody.put("device_name", HARDWARE_SN);
+        assertEquals(expectedBody, actual);
+        assertEquals(
+                "quarantineDeliveryRecovery",
+                actual.path("identifier").asText());
+        assertTrue(actual.path("params")
+                .path("physicalOutcomeUnknownConfirmed").asBoolean());
+        assertTrue(actual.path("params")
+                .path("devicePowerCycledConfirmed").asBoolean());
+        assertFalse(actual.toString().contains("tmpSecret"));
+        assertFalse(actual.toString().contains("sessionToken"));
+        verify(businessReleaseArtifacts, never())
+                .issueReadAuthorization(anyString(), any());
+        verify(cosUploadCredentialPort, never())
+                .issue(anyString(), any(), anyString());
+    }
+
+    @Test
     void rejectsEnvelopeWhoseStableCommandIdentityDiffers()
             throws Exception {
         String envelope = Files.readString(contractPath(

@@ -145,6 +145,26 @@ def _confirmation_payload(
     }
 
 
+def _unknown_effect_quarantine_payload(
+    number: int = 1,
+    *,
+    resolution_number: int = 17,
+    evidence: str = "9" * 64,
+) -> dict[str, object]:
+    return {
+        "resolutionUid": _uid(resolution_number),
+        "actionUid": _uid(number + 4),
+        "permitUid": _uid(number),
+        "workUid": _uid(number + 1),
+        "commandUid": _uid(number + 2),
+        "actionKey": "delivery.door.unlock.1",
+        "actionKind": "DELIVERY_DOOR_UNLOCK",
+        "actionDigestSha256": "c" * 64,
+        "expectedLedgerSequence": 1,
+        "evidenceDigestSha256": evidence,
+    }
+
+
 def _live_result_payload(
     number: int = 1,
     *,
@@ -2290,6 +2310,136 @@ def test_restart_with_unconfirmed_action_stays_locked_until_receipt_and_completi
         assert second.get_status()["jobGateState"] == "OPEN"
     finally:
         second.close()
+
+
+def test_armed_action_can_be_quarantined_without_rewriting_unknown_effect(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "updater.db", "stage4", candidate=True)
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        store.begin_job(_begin_payload())
+        _prepare_and_arm(store)
+
+        first = store.quarantine_unknown_physical_action(
+            _unknown_effect_quarantine_payload()
+        )
+        duplicate = store.quarantine_unknown_physical_action(
+            _unknown_effect_quarantine_payload()
+        )
+
+        assert first["disposition"] == "ACCEPTED"
+        assert duplicate["disposition"] == "DUPLICATE"
+        assert first["resolutionState"] == "UNKNOWN_EFFECT_QUARANTINED"
+        # The historical action remains truthful: it was armed and may have
+        # executed.  The append-only resolution only permits safe closure.
+        action = store.get_physical_action({"actionUid": _uid(5)})
+        assert action["state"] == "ARMED"
+        assert action["confirmedOutcome"] is None
+        assert action["unknownEffectResolution"]["resolutionUid"] == _uid(17)
+        assert store.get_status()["unreconciledPhysicalActionCount"] == 0
+
+        with pytest.raises(UpdaterStoreError) as wrong_outcome:
+            store.complete_job(
+                {
+                    "permitUid": _uid(1),
+                    "completionUid": _uid(18),
+                    "outcome": "SUCCEEDED",
+                    "completionDigestSha256": "8" * 64,
+                }
+            )
+        assert wrong_outcome.value.code == (
+            "JOB_QUARANTINE_REQUIRES_CANCELLATION"
+        )
+
+        completed = store.complete_job(
+            {
+                "permitUid": _uid(1),
+                "completionUid": _uid(18),
+                "outcome": "CANCELLED",
+                "completionDigestSha256": "8" * 64,
+            }
+        )
+        assert completed["state"] == "COMPLETED"
+        assert completed["completionOutcome"] == "CANCELLED"
+        assert store.get_status()["jobGateState"] == "OPEN"
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize(
+    ("changed_field", "changed_value"),
+    [
+        ("resolutionUid", _uid(19)),
+        ("permitUid", _uid(20)),
+        ("workUid", _uid(21)),
+        ("commandUid", _uid(22)),
+        ("actionKey", "delivery.door.unlock.2"),
+        ("actionKind", "CLEAN_DOOR_UNLOCK"),
+        ("actionDigestSha256", "b" * 64),
+        ("expectedLedgerSequence", 2),
+        ("evidenceDigestSha256", "7" * 64),
+    ],
+)
+def test_unknown_effect_quarantine_rejects_any_identity_or_evidence_change(
+    tmp_path: Path,
+    changed_field: str,
+    changed_value: object,
+) -> None:
+    store = _store(tmp_path / "updater.db", "stage4", candidate=True)
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        store.begin_job(_begin_payload())
+        _prepare_and_arm(store)
+        store.quarantine_unknown_physical_action(
+            _unknown_effect_quarantine_payload()
+        )
+
+        changed = {
+            **_unknown_effect_quarantine_payload(),
+            changed_field: changed_value,
+        }
+        with pytest.raises(UpdaterStoreError) as conflict:
+            store.quarantine_unknown_physical_action(changed)
+
+        assert conflict.value.code in {
+            "PHYSICAL_ACTION_QUARANTINE_CONFLICT",
+            "PHYSICAL_ACTION_IDENTITY_MISMATCH",
+        }
+        assert store.get_physical_action({"actionUid": _uid(5)})[
+            "state"
+        ] == "ARMED"
+    finally:
+        store.close()
+
+
+def test_only_armed_action_can_receive_unknown_effect_quarantine(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "updater.db", "stage4", candidate=True)
+    try:
+        _activate_candidate(store)
+        store.request_job_permit(_permit_payload())
+        store.begin_job(_begin_payload())
+        store.prepare_physical_action(_action_payload())
+
+        with pytest.raises(UpdaterStoreError) as prepared:
+            store.quarantine_unknown_physical_action(
+                _unknown_effect_quarantine_payload()
+            )
+        assert prepared.value.code == "PHYSICAL_ACTION_STATE_CONFLICT"
+
+        store.arm_physical_action(_arm_payload())
+        store.confirm_physical_action(_confirmation_payload())
+        with pytest.raises(UpdaterStoreError) as confirmed:
+            store.quarantine_unknown_physical_action(
+                _unknown_effect_quarantine_payload()
+            )
+        assert confirmed.value.code == "PHYSICAL_ACTION_STATE_CONFLICT"
+    finally:
+        store.close()
 
 
 @pytest.mark.parametrize("restart_after_begin", [False, True])

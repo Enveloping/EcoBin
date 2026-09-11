@@ -1,0 +1,8 @@
+{
+  "lockedWheelPins": 16,
+  "permittedDigestsNarrowedToExactFrozenLockArtifact": true,
+  "nonLockBuiltCrcmodWheelExcluded": true,
+  "corruptCacheRejectedBeforeRewrite": true,
+  "originalRequirementsUnchanged": true,
+  "result": "PASS"
+}

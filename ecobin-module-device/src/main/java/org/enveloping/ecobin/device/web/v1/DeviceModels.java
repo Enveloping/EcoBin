@@ -10,7 +10,10 @@ import jakarta.validation.constraints.Size;
 import jakarta.validation.constraints.AssertTrue;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public final class DeviceModels {
@@ -217,6 +220,52 @@ public final class DeviceModels {
             String sessionStatus,
             Instant endedAt,
             String nextAction) {
+    }
+
+    /**
+     * 人工发起的“物理结果未知”隔离收口请求。
+     *
+     * <p>这些确认只授权设备采集新的安全证据并取消原业务，不能把原投递解释为
+     * 成功，也不能据此创建订单或资金记录。</p>
+     */
+    public record DeliveryRecoveryQuarantineRequest(
+            @NotNull UUID expectedTaskUid,
+            @NotNull @Min(0) Long expectedSessionVersion,
+            @NotNull @AssertTrue Boolean physicalOutcomeUnknownConfirmed,
+            @NotNull @AssertTrue Boolean causeFixedConfirmed,
+            @NotNull @AssertTrue Boolean devicePowerCycledConfirmed,
+            @NotNull @AssertTrue Boolean motionAreaClearConfirmed,
+            @NotNull @AssertTrue Boolean deliveryDoorClosedConfirmed,
+            @NotNull @AssertTrue Boolean mechanismClearConfirmed,
+            @NotBlank @Size(max = 500) String reason) {
+    }
+
+    public record DeliveryRecoveryQuarantineView(
+            UUID recoveryUid,
+            UUID sessionUid,
+            UUID originalCommandUid,
+            UUID commandUid,
+            UUID taskUid,
+            String state,
+            String businessValue,
+            String reason,
+            Integer portNo,
+            Instant requestedAt,
+            Instant appliedAt,
+            String statusUrl,
+            String evidenceSha256,
+            Map<String, Object> operatorConfirmations,
+            Map<String, Object> deviceEvidence,
+            Map<String, Object> existingData) {
+
+        public DeliveryRecoveryQuarantineView {
+            operatorConfirmations = Collections.unmodifiableMap(
+                    new LinkedHashMap<>(operatorConfirmations));
+            deviceEvidence = Collections.unmodifiableMap(
+                    new LinkedHashMap<>(deviceEvidence));
+            existingData = Collections.unmodifiableMap(
+                    new LinkedHashMap<>(existingData));
+        }
     }
 
     public record DeviceTechnicalIssueView(
