@@ -1,7 +1,7 @@
 package org.enveloping.ecobin.device.api.uart;
 
 // Generated from contracts/uart/uart-registry.yaml.
-// DO NOT EDIT. Registry SHA-256: 60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808
+// DO NOT EDIT. Registry SHA-256: 20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.UUID;
 
 public final class EcobinUartProtocol {
-    public static final String REGISTRY_SHA256 = "60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808";
+    public static final String REGISTRY_SHA256 = "20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2";
     public static final String IMPLEMENTATION_STAGE = "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED";
     public static final int BAUD_RATE = 115200;
     public static final int DATA_BITS = 8;
@@ -60,6 +60,10 @@ public final class EcobinUartProtocol {
     public static final int MESSAGE_CONFIG_PORT_BLOCK = 0x12;
     public static final int MESSAGE_CONFIG_COMMIT = 0x13;
     public static final int MESSAGE_CONFIG_APPLY_RESULT = 0x14;
+    public static final int MESSAGE_DEVICE_ENTRY_URL_BEGIN = 0x15;
+    public static final int MESSAGE_DEVICE_ENTRY_URL_PART = 0x16;
+    public static final int MESSAGE_DEVICE_ENTRY_URL_COMMIT = 0x17;
+    public static final int MESSAGE_DEVICE_ENTRY_URL_APPLY_RESULT = 0x18;
     public static final int MESSAGE_START_DELIVERY_SESSION = 0x20;
     public static final int MESSAGE_START_CLEAN_OPERATION = 0x21;
     public static final int MESSAGE_UNLOCK_CLEAN_DOOR = 0x22;
@@ -497,6 +501,48 @@ public final class EcobinUartProtocol {
     public static final int CONFIG_APPLY_RESULT_CONTENT_SHA256_OFFSET = 61;
     public static final int CONFIG_APPLY_RESULT_MCU_PAYLOAD_SHA256_OFFSET = 93;
     public static final int CONFIG_APPLY_RESULT_FAULT_CODE_OFFSET = 125;
+    public static final int DEVICE_ENTRY_URL_BEGIN_PAYLOAD_MIN_LENGTH = 111;
+    public static final int DEVICE_ENTRY_URL_BEGIN_PAYLOAD_MAX_LENGTH = 111;
+    public static final int DEVICE_ENTRY_URL_BEGIN_MCU_COMMAND_UID_OFFSET = 0;
+    public static final int DEVICE_ENTRY_URL_BEGIN_COMMAND_DIGEST_SHA256_OFFSET = 16;
+    public static final int DEVICE_ENTRY_URL_BEGIN_TARGET_MCU_BOOT_ID_OFFSET = 48;
+    public static final int DEVICE_ENTRY_URL_BEGIN_COMMAND_SEQUENCE_OFFSET = 56;
+    public static final int DEVICE_ENTRY_URL_BEGIN_APPLICATION_UID_OFFSET = 60;
+    public static final int DEVICE_ENTRY_URL_BEGIN_URL_LENGTH_OFFSET = 76;
+    public static final int DEVICE_ENTRY_URL_BEGIN_URL_SHA256_OFFSET = 78;
+    public static final int DEVICE_ENTRY_URL_BEGIN_PART_COUNT_OFFSET = 110;
+    public static final int DEVICE_ENTRY_URL_PART_PAYLOAD_MIN_LENGTH = 111;
+    public static final int DEVICE_ENTRY_URL_PART_PAYLOAD_MAX_LENGTH = 175;
+    public static final int DEVICE_ENTRY_URL_PART_MCU_COMMAND_UID_OFFSET = 0;
+    public static final int DEVICE_ENTRY_URL_PART_COMMAND_DIGEST_SHA256_OFFSET = 16;
+    public static final int DEVICE_ENTRY_URL_PART_TARGET_MCU_BOOT_ID_OFFSET = 48;
+    public static final int DEVICE_ENTRY_URL_PART_COMMAND_SEQUENCE_OFFSET = 56;
+    public static final int DEVICE_ENTRY_URL_PART_APPLICATION_UID_OFFSET = 60;
+    public static final int DEVICE_ENTRY_URL_PART_URL_SHA256_OFFSET = 76;
+    public static final int DEVICE_ENTRY_URL_PART_PART_INDEX_OFFSET = 108;
+    public static final int DEVICE_ENTRY_URL_PART_PART_COUNT_OFFSET = 109;
+    public static final int DEVICE_ENTRY_URL_PART_URL_CHUNK_OFFSET = 110;
+    public static final int DEVICE_ENTRY_URL_COMMIT_PAYLOAD_MIN_LENGTH = 111;
+    public static final int DEVICE_ENTRY_URL_COMMIT_PAYLOAD_MAX_LENGTH = 111;
+    public static final int DEVICE_ENTRY_URL_COMMIT_MCU_COMMAND_UID_OFFSET = 0;
+    public static final int DEVICE_ENTRY_URL_COMMIT_COMMAND_DIGEST_SHA256_OFFSET = 16;
+    public static final int DEVICE_ENTRY_URL_COMMIT_TARGET_MCU_BOOT_ID_OFFSET = 48;
+    public static final int DEVICE_ENTRY_URL_COMMIT_COMMAND_SEQUENCE_OFFSET = 56;
+    public static final int DEVICE_ENTRY_URL_COMMIT_APPLICATION_UID_OFFSET = 60;
+    public static final int DEVICE_ENTRY_URL_COMMIT_URL_LENGTH_OFFSET = 76;
+    public static final int DEVICE_ENTRY_URL_COMMIT_URL_SHA256_OFFSET = 78;
+    public static final int DEVICE_ENTRY_URL_COMMIT_PART_COUNT_OFFSET = 110;
+    public static final int DEVICE_ENTRY_URL_APPLY_RESULT_PAYLOAD_MIN_LENGTH = 89;
+    public static final int DEVICE_ENTRY_URL_APPLY_RESULT_PAYLOAD_MAX_LENGTH = 89;
+    public static final int DEVICE_ENTRY_URL_APPLY_RESULT_MCU_BOOT_ID_OFFSET = 0;
+    public static final int DEVICE_ENTRY_URL_APPLY_RESULT_MCU_EVENT_SEQUENCE_OFFSET = 8;
+    public static final int DEVICE_ENTRY_URL_APPLY_RESULT_UPTIME_MS_OFFSET = 12;
+    public static final int DEVICE_ENTRY_URL_APPLY_RESULT_MCU_COMMAND_UID_OFFSET = 20;
+    public static final int DEVICE_ENTRY_URL_APPLY_RESULT_APPLICATION_UID_OFFSET = 36;
+    public static final int DEVICE_ENTRY_URL_APPLY_RESULT_URL_LENGTH_OFFSET = 52;
+    public static final int DEVICE_ENTRY_URL_APPLY_RESULT_URL_SHA256_OFFSET = 54;
+    public static final int DEVICE_ENTRY_URL_APPLY_RESULT_STATUS_OFFSET = 86;
+    public static final int DEVICE_ENTRY_URL_APPLY_RESULT_ERROR_CODE_OFFSET = 87;
     public static final int START_DELIVERY_SESSION_PAYLOAD_MIN_LENGTH = 137;
     public static final int START_DELIVERY_SESSION_PAYLOAD_MAX_LENGTH = 137;
     public static final int START_DELIVERY_SESSION_MCU_COMMAND_UID_OFFSET = 0;
@@ -1010,30 +1056,40 @@ public final class EcobinUartProtocol {
         for (int i = offset; i < offset + length; i++) { if (data[i] != 0) return false; }
         return true;
     }
+    private static boolean deviceEntryUrlChunkSafe(byte[] data, int offset, int length, boolean first) {
+        byte[] prefix = new byte[] {'h', 't', 't', 'p', 's', ':', '/', '/'};
+        if (length == 0 || (first && (length < prefix.length
+            || !Arrays.equals(Arrays.copyOfRange(data, offset, offset + prefix.length), prefix)))) return false;
+        for (int i = offset; i < offset + length; i++) {
+            int value = Byte.toUnsignedInt(data[i]);
+            if (value < 0x21 || value > 0x7e || value == 0x22 || value == 0x5c) return false;
+        }
+        return true;
+    }
     // Session shape only; not a runtime freshness or admission decision.
     private static void validateSessionPayload(int messageType, byte[] payload) {
         switch (messageType) {
         case MESSAGE_BOOT_PROBE:
-            if (payload.length != 8) { throw new IllegalArgumentException("invalid bootstrap payload"); }
+            if (payload.length < 8 || payload.length > 8) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             return;
         case MESSAGE_BOOT_PROBE_REPLY:
-            if (payload.length != 16) { throw new IllegalArgumentException("invalid bootstrap payload"); }
+            if (payload.length < 16 || payload.length > 16) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 0L) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             return;
         case MESSAGE_BIND_BOOT:
-            if (payload.length != 16) { throw new IllegalArgumentException("invalid bootstrap payload"); }
+            if (payload.length < 16 || payload.length > 16) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             return;
         case MESSAGE_BIND_BOOT_REPLY:
-            if (payload.length != 25) { throw new IllegalArgumentException("invalid bootstrap payload"); }
+            if (payload.length < 25 || payload.length > 25) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid bootstrap payload"); }
@@ -1044,7 +1100,7 @@ public final class EcobinUartProtocol {
             if ((Byte.toUnsignedInt(payload[24]) == 1 && ByteBuffer.wrap(payload, 16, 8).order(ByteOrder.BIG_ENDIAN).getLong() != ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong()) || (Byte.toUnsignedInt(payload[24]) == 2 && ByteBuffer.wrap(payload, 16, 8).order(ByteOrder.BIG_ENDIAN).getLong() != 0) || (Byte.toUnsignedInt(payload[24]) == 3 && ByteBuffer.wrap(payload, 16, 8).order(ByteOrder.BIG_ENDIAN).getLong() == 0)) { throw new IllegalArgumentException("invalid bootstrap payload"); }
             return;
         case MESSAGE_COMMAND_DECISION:
-            if (payload.length != 71) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 71 || payload.length > 71) { throw new IllegalArgumentException("invalid session payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1058,7 +1114,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[68]) == 6) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_QUERY_COMMAND:
-            if (payload.length != 68) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 68 || payload.length > 68) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (bytesZero(payload, 8, 16)) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1067,7 +1123,7 @@ public final class EcobinUartProtocol {
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 64, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_COMMAND_QUERY_RESULT:
-            if (payload.length != 83) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 83 || payload.length > 83) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (bytesZero(payload, 8, 16)) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1084,14 +1140,14 @@ public final class EcobinUartProtocol {
             if (ByteBuffer.wrap(payload, 68, 8).order(ByteOrder.BIG_ENDIAN).getLong() == ByteBuffer.wrap(payload, 56, 8).order(ByteOrder.BIG_ENDIAN).getLong() && ((Byte.toUnsignedInt(payload[76]) == 6 && Integer.toUnsignedLong(ByteBuffer.wrap(payload, 64, 4).order(ByteOrder.BIG_ENDIAN).getInt()) <= Integer.toUnsignedLong(ByteBuffer.wrap(payload, 79, 4).order(ByteOrder.BIG_ENDIAN).getInt())) || (Byte.toUnsignedInt(payload[76]) == 5 && Integer.toUnsignedLong(ByteBuffer.wrap(payload, 64, 4).order(ByteOrder.BIG_ENDIAN).getInt()) > Integer.toUnsignedLong(ByteBuffer.wrap(payload, 79, 4).order(ByteOrder.BIG_ENDIAN).getInt())) || ((Byte.toUnsignedInt(payload[76]) == 1 || Byte.toUnsignedInt(payload[76]) == 2 || Byte.toUnsignedInt(payload[76]) == 4) && Integer.toUnsignedLong(ByteBuffer.wrap(payload, 64, 4).order(ByteOrder.BIG_ENDIAN).getInt()) != Integer.toUnsignedLong(ByteBuffer.wrap(payload, 79, 4).order(ByteOrder.BIG_ENDIAN).getInt())))) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_RESULT_SAVED:
-            if (payload.length != 60) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 60 || payload.length > 60) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (bytesZero(payload, 12, 16)) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_RESULT_SAVED_REPLY:
-            if (payload.length != 69) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 69 || payload.length > 69) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1101,8 +1157,24 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[68]) != 1 && Byte.toUnsignedInt(payload[68]) != 2 && Byte.toUnsignedInt(payload[68]) != 3 && Byte.toUnsignedInt(payload[68]) != 4 && Byte.toUnsignedInt(payload[68]) != 5) { throw new IllegalArgumentException("invalid session payload"); }
             if ((Byte.toUnsignedInt(payload[68]) == 5) != (ByteBuffer.wrap(payload, 60, 8).order(ByteOrder.BIG_ENDIAN).getLong() != ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong())) { throw new IllegalArgumentException("invalid session payload"); }
             return;
+        case MESSAGE_DEVICE_ENTRY_URL_APPLY_RESULT:
+            if (payload.length < 89 || payload.length > 89) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 12, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 0L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 12, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (bytesZero(payload, 20, 16)) { throw new IllegalArgumentException("invalid session payload"); }
+            if (bytesZero(payload, 36, 16)) { throw new IllegalArgumentException("invalid session payload"); }
+            if (Short.toUnsignedInt(ByteBuffer.wrap(payload, 52, 2).order(ByteOrder.BIG_ENDIAN).getShort()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (Short.toUnsignedInt(ByteBuffer.wrap(payload, 52, 2).order(ByteOrder.BIG_ENDIAN).getShort()) > 192L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (Byte.toUnsignedInt(payload[86]) != 1 && Byte.toUnsignedInt(payload[86]) != 2) { throw new IllegalArgumentException("invalid session payload"); }
+            if (Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 0 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 1 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 2 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 3 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 4 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 5 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 6 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 7 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 8 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 9 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 10 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 11 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 12) { throw new IllegalArgumentException("invalid session payload"); }
+            if ((Byte.toUnsignedInt(payload[86]) == 1 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 0) || (Byte.toUnsignedInt(payload[86]) == 2 && Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) != 7)) { throw new IllegalArgumentException("invalid session payload"); }
+            if (bytesZero(payload, 54, 32)) { throw new IllegalArgumentException("invalid session payload"); }
+            return;
         case MESSAGE_WORK_RESULT:
-            if (payload.length != 199) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 199 || payload.length > 199) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1156,7 +1228,7 @@ public final class EcobinUartProtocol {
             if (!resultDigestMatches(payload)) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_QUERY_RESULT:
-            if (payload.length != 68) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 68 || payload.length > 68) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1165,7 +1237,7 @@ public final class EcobinUartProtocol {
             if (bytesZero(payload, 20, 16)) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_RESULT_QUERY_REPLY:
-            if (payload.length != 77) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 77 || payload.length > 77) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1178,7 +1250,7 @@ public final class EcobinUartProtocol {
             if ((Byte.toUnsignedInt(payload[76]) == 5) != (ByteBuffer.wrap(payload, 68, 8).order(ByteOrder.BIG_ENDIAN).getLong() != ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong())) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_QUERY_WORK:
-            if (payload.length != 86) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 86 || payload.length > 86) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (bytesZero(payload, 8, 16)) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1192,7 +1264,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[84]) != 2 && Byte.toUnsignedInt(payload[84]) != 3) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_WORK_QUERY_REPLY:
-            if (payload.length != 132) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 132 || payload.length > 132) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (bytesZero(payload, 8, 16)) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1216,7 +1288,7 @@ public final class EcobinUartProtocol {
             if (!(Byte.toUnsignedInt(payload[94]) == 2 || Byte.toUnsignedInt(payload[94]) == 3) && Byte.toUnsignedInt(payload[94]) != 1 && Byte.toUnsignedInt(payload[95]) != 0) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_QUERY_DEVICE_FACTS:
-            if (payload.length != 17) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 17 || payload.length > 17) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1225,7 +1297,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[16]) > 6L) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_DEVICE_FACTS_REPLY:
-            if (payload.length != 226) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 226 || payload.length > 226) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1307,7 +1379,7 @@ public final class EcobinUartProtocol {
             if ((Byte.toUnsignedInt(payload[198]) == 1 && Integer.toUnsignedLong(ByteBuffer.wrap(payload, 222, 4).order(ByteOrder.BIG_ENDIAN).getInt()) != 0) || (Byte.toUnsignedInt(payload[198]) > 1 && Integer.toUnsignedLong(ByteBuffer.wrap(payload, 222, 4).order(ByteOrder.BIG_ENDIAN).getInt()) == 0)) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_QUERY_PROCESS_EVENT:
-            if (payload.length != 97) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 97 || payload.length > 97) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (bytesZero(payload, 8, 16)) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1334,7 +1406,7 @@ public final class EcobinUartProtocol {
             if ((Short.toUnsignedInt(ByteBuffer.wrap(payload, 87, 2).order(ByteOrder.BIG_ENDIAN).getShort()) > 0) != (Byte.toUnsignedInt(payload[86]) == 48 || Byte.toUnsignedInt(payload[86]) == 50 || Byte.toUnsignedInt(payload[86]) == 51 || Byte.toUnsignedInt(payload[86]) == 54 || Byte.toUnsignedInt(payload[86]) == 55 || Byte.toUnsignedInt(payload[86]) == 56 || Byte.toUnsignedInt(payload[86]) == 62)) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_PROCESS_EVENT_QUERY_REPLY:
-            if (payload.length != 142) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 142 || payload.length > 142) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (bytesZero(payload, 8, 16)) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1367,14 +1439,14 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[105]) > 2 && (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 106, 4).order(ByteOrder.BIG_ENDIAN).getInt()) != 0 || !bytesZero(payload, 110, 32))) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_PROCESS_EVENT_SAVED:
-            if (payload.length != 45) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 45 || payload.length > 45) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Byte.toUnsignedInt(payload[12]) != 48 && Byte.toUnsignedInt(payload[12]) != 50 && Byte.toUnsignedInt(payload[12]) != 52 && Byte.toUnsignedInt(payload[12]) != 56 && Byte.toUnsignedInt(payload[12]) != 57 && Byte.toUnsignedInt(payload[12]) != 58 && Byte.toUnsignedInt(payload[12]) != 51 && Byte.toUnsignedInt(payload[12]) != 54 && Byte.toUnsignedInt(payload[12]) != 55 && Byte.toUnsignedInt(payload[12]) != 62) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_PROCESS_EVENT_SAVED_REPLY:
-            if (payload.length != 54) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 54 || payload.length > 54) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1385,14 +1457,14 @@ public final class EcobinUartProtocol {
             if ((Byte.toUnsignedInt(payload[53]) == 5) != (ByteBuffer.wrap(payload, 45, 8).order(ByteOrder.BIG_ENDIAN).getLong() != ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong())) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_QUERY_ACTUATOR_EVENT:
-            if (payload.length != 20) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 20 || payload.length > 20) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_ACTUATOR_EVENT_QUERY_REPLY:
-            if (payload.length != 66) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 66 || payload.length > 66) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1406,14 +1478,14 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[28]) != 1 && (Byte.toUnsignedInt(payload[33]) != 0 || Integer.toUnsignedLong(ByteBuffer.wrap(payload, 29, 4).order(ByteOrder.BIG_ENDIAN).getInt()) != 0 || !bytesZero(payload, 34, 32))) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_ACTUATOR_EVENT_SAVED:
-            if (payload.length != 45) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 45 || payload.length > 45) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Byte.toUnsignedInt(payload[12]) != 49 && Byte.toUnsignedInt(payload[12]) != 53 && Byte.toUnsignedInt(payload[12]) != 61 && Byte.toUnsignedInt(payload[12]) != 98 && Byte.toUnsignedInt(payload[12]) != 99 && Byte.toUnsignedInt(payload[12]) != 100 && Byte.toUnsignedInt(payload[12]) != 101) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_ACTUATOR_EVENT_SAVED_REPLY:
-            if (payload.length != 54) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 54 || payload.length > 54) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1424,7 +1496,7 @@ public final class EcobinUartProtocol {
             if ((Byte.toUnsignedInt(payload[53]) == 5) != (ByteBuffer.wrap(payload, 45, 8).order(ByteOrder.BIG_ENDIAN).getLong() != ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong())) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_WORK_PREOPEN_WEIGHT_READY:
-            if (payload.length != 97) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 97 || payload.length > 97) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1451,7 +1523,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[71]) > 3 && ByteBuffer.wrap(payload, 72, 4).order(ByteOrder.BIG_ENDIAN).getInt() != 0) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_WORK_POSTCLOSE_WEIGHT_READY:
-            if (payload.length != 207) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 207 || payload.length > 207) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1503,7 +1575,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[71]) > 3 && ByteBuffer.wrap(payload, 72, 4).order(ByteOrder.BIG_ENDIAN).getInt() != 0) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_WORK_PREUNLOCK_WEIGHT_READY:
-            if (payload.length != 95) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 95 || payload.length > 95) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1529,7 +1601,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[69]) > 3 && ByteBuffer.wrap(payload, 70, 4).order(ByteOrder.BIG_ENDIAN).getInt() != 0) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_CLEAN_FINAL_WEIGHT_READY:
-            if (payload.length != 191) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 191 || payload.length > 191) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1580,7 +1652,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[55]) > 3 && ByteBuffer.wrap(payload, 56, 4).order(ByteOrder.BIG_ENDIAN).getInt() != 0) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_FULLNESS_SAMPLE_RESULT:
-            if (payload.length != 106) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 106 || payload.length > 106) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1616,7 +1688,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[63]) > Byte.toUnsignedInt(payload[62])) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_BASELINE_MEASUREMENT_RESULT:
-            if (payload.length != 95) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 95 || payload.length > 95) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1642,7 +1714,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[69]) > 3 && ByteBuffer.wrap(payload, 70, 4).order(ByteOrder.BIG_ENDIAN).getInt() != 0) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_DELIVERY_SELECTION:
-            if (payload.length != 80) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 80 || payload.length > 80) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1659,7 +1731,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[79]) != 1 && Byte.toUnsignedInt(payload[79]) != 2 && Byte.toUnsignedInt(payload[79]) != 3) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_CLEAN_UNLOCK_REQUESTED:
-            if (payload.length != 63) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 63 || payload.length > 63) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1674,7 +1746,7 @@ public final class EcobinUartProtocol {
             if (ByteBuffer.wrap(payload, 55, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_CLEAN_FINISH_REQUESTED:
-            if (payload.length != 63) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 63 || payload.length > 63) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1689,7 +1761,7 @@ public final class EcobinUartProtocol {
             if (ByteBuffer.wrap(payload, 55, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_CLEAN_COMPLETION_CONFIRMED:
-            if (payload.length != 83) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 83 || payload.length > 83) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1712,7 +1784,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[73]) != 2) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_DELIVERY_DOOR_COMMAND_RESULT:
-            if (payload.length != 60) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 60 || payload.length > 60) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1733,7 +1805,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[56]) == 3 && Byte.toUnsignedInt(payload[55]) != 2) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_CLEAN_LOCK_POWER_CHANGED:
-            if (payload.length != 55) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 55 || payload.length > 55) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1747,7 +1819,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[54]) != 1 && Byte.toUnsignedInt(payload[54]) != 2 && Byte.toUnsignedInt(payload[54]) != 3 && Byte.toUnsignedInt(payload[54]) != 4) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_SAFE_CLOSE_RESULT:
-            if (payload.length != 43) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 43 || payload.length > 43) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1768,7 +1840,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[38]) != 2) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_DELIVERY_LOCAL_DOOR_RESULT:
-            if (payload.length != 64) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 64 || payload.length > 64) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1791,7 +1863,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[56]) == 3 && Byte.toUnsignedInt(payload[55]) != 2) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_DELIVERY_CYCLE_ABORTED:
-            if (payload.length != 61) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 61 || payload.length > 61) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1809,7 +1881,7 @@ public final class EcobinUartProtocol {
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 57, 4).order(ByteOrder.BIG_ENDIAN).getInt()) >= Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt())) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_DELIVERY_POSTCLOSE_INTERRUPTED:
-            if (payload.length != 61) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 61 || payload.length > 61) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1827,7 +1899,7 @@ public final class EcobinUartProtocol {
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 57, 4).order(ByteOrder.BIG_ENDIAN).getInt()) >= Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt())) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_CLEAN_OPERATION_INTERRUPTED:
-            if (payload.length != 61) { throw new IllegalArgumentException("invalid session payload"); }
+            if (payload.length < 61 || payload.length > 61) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -1846,7 +1918,7 @@ public final class EcobinUartProtocol {
             if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 57, 4).order(ByteOrder.BIG_ENDIAN).getInt()) >= Integer.toUnsignedLong(ByteBuffer.wrap(payload, 8, 4).order(ByteOrder.BIG_ENDIAN).getInt())) { throw new IllegalArgumentException("invalid session payload"); }
             return;
         case MESSAGE_QUERY_STATE:
-            if (payload.length != 76) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 76 || payload.length > 76) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -1855,7 +1927,7 @@ public final class EcobinUartProtocol {
             if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
             return;
         case MESSAGE_SAFE_CLOSE:
-            if (payload.length != 66) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 66 || payload.length > 66) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -1867,7 +1939,7 @@ public final class EcobinUartProtocol {
             if ((Byte.toUnsignedInt(payload[60]) == 1) != (Byte.toUnsignedInt(payload[61]) == 0)) { throw new IllegalArgumentException("invalid command payload"); }
             return;
         case MESSAGE_CONFIG_BEGIN:
-            if (payload.length != 151) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 151 || payload.length > 151) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -1884,7 +1956,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[149]) != Byte.toUnsignedInt(payload[150]) + 3) { throw new IllegalArgumentException("invalid command payload"); }
             return;
         case MESSAGE_CONFIG_DEVICE_BLOCK:
-            if (payload.length != 183) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 183 || payload.length > 183) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -1910,7 +1982,7 @@ public final class EcobinUartProtocol {
             if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
             return;
         case MESSAGE_CONFIG_PORT_BLOCK:
-            if (payload.length != 207) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 207 || payload.length > 207) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -1951,7 +2023,7 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[171]) > Byte.toUnsignedInt(payload[170])) { throw new IllegalArgumentException("invalid command payload"); }
             return;
         case MESSAGE_CONFIG_COMMIT:
-            if (payload.length != 150) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 150 || payload.length > 150) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -1966,8 +2038,55 @@ public final class EcobinUartProtocol {
             if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
             if (Byte.toUnsignedInt(payload[148]) != Byte.toUnsignedInt(payload[149])) { throw new IllegalArgumentException("invalid command payload"); }
             return;
+        case MESSAGE_DEVICE_ENTRY_URL_BEGIN:
+            if (payload.length < 111 || payload.length > 111) { throw new IllegalArgumentException("invalid command payload"); }
+            if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
+            if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 56, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (bytesZero(payload, 60, 16)) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Short.toUnsignedInt(ByteBuffer.wrap(payload, 76, 2).order(ByteOrder.BIG_ENDIAN).getShort()) < 1L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Short.toUnsignedInt(ByteBuffer.wrap(payload, 76, 2).order(ByteOrder.BIG_ENDIAN).getShort()) > 192L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Byte.toUnsignedInt(payload[110]) < 1L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Byte.toUnsignedInt(payload[110]) > 3L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Byte.toUnsignedInt(payload[110]) != (Short.toUnsignedInt(ByteBuffer.wrap(payload, 76, 2).order(ByteOrder.BIG_ENDIAN).getShort()) + 63) / 64) { throw new IllegalArgumentException("invalid command payload"); }
+            if (bytesZero(payload, 78, 32)) { throw new IllegalArgumentException("invalid command payload"); }
+            return;
+        case MESSAGE_DEVICE_ENTRY_URL_PART:
+            if (payload.length < 111 || payload.length > 175) { throw new IllegalArgumentException("invalid command payload"); }
+            if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
+            if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 56, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (bytesZero(payload, 60, 16)) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Byte.toUnsignedInt(payload[108]) < 1L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Byte.toUnsignedInt(payload[108]) > 3L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Byte.toUnsignedInt(payload[109]) < 1L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Byte.toUnsignedInt(payload[109]) > 3L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Byte.toUnsignedInt(payload[110]) == 0 || Byte.toUnsignedInt(payload[110]) > 64 || payload.length != 111 + Byte.toUnsignedInt(payload[110])) { throw new IllegalArgumentException("invalid command payload"); }
+            if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Byte.toUnsignedInt(payload[108]) > Byte.toUnsignedInt(payload[109])) { throw new IllegalArgumentException("invalid command payload"); }
+            if (bytesZero(payload, 76, 32)) { throw new IllegalArgumentException("invalid command payload"); }
+            if (!deviceEntryUrlChunkSafe(payload, 111, Byte.toUnsignedInt(payload[110]), Byte.toUnsignedInt(payload[108]) == 1)) { throw new IllegalArgumentException("invalid command payload"); }
+            return;
+        case MESSAGE_DEVICE_ENTRY_URL_COMMIT:
+            if (payload.length < 111 || payload.length > 111) { throw new IllegalArgumentException("invalid command payload"); }
+            if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
+            if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Integer.toUnsignedLong(ByteBuffer.wrap(payload, 56, 4).order(ByteOrder.BIG_ENDIAN).getInt()) < 1L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (bytesZero(payload, 60, 16)) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Short.toUnsignedInt(ByteBuffer.wrap(payload, 76, 2).order(ByteOrder.BIG_ENDIAN).getShort()) < 1L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Short.toUnsignedInt(ByteBuffer.wrap(payload, 76, 2).order(ByteOrder.BIG_ENDIAN).getShort()) > 192L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Byte.toUnsignedInt(payload[110]) < 1L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Byte.toUnsignedInt(payload[110]) > 3L) { throw new IllegalArgumentException("invalid command payload"); }
+            if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
+            if (Byte.toUnsignedInt(payload[110]) != (Short.toUnsignedInt(ByteBuffer.wrap(payload, 76, 2).order(ByteOrder.BIG_ENDIAN).getShort()) + 63) / 64) { throw new IllegalArgumentException("invalid command payload"); }
+            if (bytesZero(payload, 78, 32)) { throw new IllegalArgumentException("invalid command payload"); }
+            return;
         case MESSAGE_START_DELIVERY_SESSION:
-            if (payload.length != 137) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 137 || payload.length > 137) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -1985,7 +2104,7 @@ public final class EcobinUartProtocol {
             if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
             return;
         case MESSAGE_START_CLEAN_OPERATION:
-            if (payload.length != 125) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 125 || payload.length > 125) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -2000,7 +2119,7 @@ public final class EcobinUartProtocol {
             if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
             return;
         case MESSAGE_UNLOCK_CLEAN_DOOR:
-            if (payload.length != 107) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 107 || payload.length > 107) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -2014,7 +2133,7 @@ public final class EcobinUartProtocol {
             if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
             return;
         case MESSAGE_RESUME_CLEAN_OPERATION:
-            if (payload.length != 123) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 123 || payload.length > 123) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -2029,7 +2148,7 @@ public final class EcobinUartProtocol {
             if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
             return;
         case MESSAGE_END_CLEAN_BEFORE_UNLOCK:
-            if (payload.length != 102) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 102 || payload.length > 102) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -2043,7 +2162,7 @@ public final class EcobinUartProtocol {
             if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
             return;
         case MESSAGE_SAMPLE_FULLNESS:
-            if (payload.length != 130) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 130 || payload.length > 130) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -2059,7 +2178,7 @@ public final class EcobinUartProtocol {
             if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
             return;
         case MESSAGE_MEASURE_BASELINE:
-            if (payload.length != 125) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 125 || payload.length > 125) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -2074,7 +2193,7 @@ public final class EcobinUartProtocol {
             if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
             return;
         case MESSAGE_AUTHORIZE_DELIVERY_FIRST_OPEN:
-            if (payload.length != 113) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 113 || payload.length > 113) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -2088,7 +2207,7 @@ public final class EcobinUartProtocol {
             if (!commandDigestMatches(messageType, payload)) { throw new IllegalArgumentException("invalid command payload"); }
             return;
         case MESSAGE_CONFIRM_NO_ACTIVE_WORK:
-            if (payload.length != 100) { throw new IllegalArgumentException("invalid command payload"); }
+            if (payload.length < 100 || payload.length > 100) { throw new IllegalArgumentException("invalid command payload"); }
             if (bytesZero(payload, 0, 16)) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid command payload"); }
             if (ByteBuffer.wrap(payload, 48, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid command payload"); }
@@ -2157,6 +2276,10 @@ public final class EcobinUartProtocol {
             case MESSAGE_CONFIG_PORT_BLOCK -> true;
             case MESSAGE_CONFIG_COMMIT -> true;
             case MESSAGE_CONFIG_APPLY_RESULT -> true;
+            case MESSAGE_DEVICE_ENTRY_URL_BEGIN -> true;
+            case MESSAGE_DEVICE_ENTRY_URL_PART -> true;
+            case MESSAGE_DEVICE_ENTRY_URL_COMMIT -> true;
+            case MESSAGE_DEVICE_ENTRY_URL_APPLY_RESULT -> false;
             case MESSAGE_START_DELIVERY_SESSION -> true;
             case MESSAGE_START_CLEAN_OPERATION -> true;
             case MESSAGE_UNLOCK_CLEAN_DOOR -> true;
@@ -2230,6 +2353,10 @@ public final class EcobinUartProtocol {
             case MESSAGE_CONFIG_PORT_BLOCK -> Direction.EDGE_TO_MCU;
             case MESSAGE_CONFIG_COMMIT -> Direction.EDGE_TO_MCU;
             case MESSAGE_CONFIG_APPLY_RESULT -> Direction.MCU_TO_EDGE;
+            case MESSAGE_DEVICE_ENTRY_URL_BEGIN -> Direction.EDGE_TO_MCU;
+            case MESSAGE_DEVICE_ENTRY_URL_PART -> Direction.EDGE_TO_MCU;
+            case MESSAGE_DEVICE_ENTRY_URL_COMMIT -> Direction.EDGE_TO_MCU;
+            case MESSAGE_DEVICE_ENTRY_URL_APPLY_RESULT -> Direction.MCU_TO_EDGE;
             case MESSAGE_START_DELIVERY_SESSION -> Direction.EDGE_TO_MCU;
             case MESSAGE_START_CLEAN_OPERATION -> Direction.EDGE_TO_MCU;
             case MESSAGE_UNLOCK_CLEAN_DOOR -> Direction.EDGE_TO_MCU;

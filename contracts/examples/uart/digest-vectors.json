@@ -1,7 +1,7 @@
 {
   "algorithm": "SHA-256",
-  "registrySha256": "60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808",
-  "registryVersion": "2.0.0-rc.23",
+  "registrySha256": "20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2",
+  "registryVersion": "2.0.0-rc.24",
   "vectors": [
     {
       "components": {

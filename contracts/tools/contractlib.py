@@ -659,6 +659,30 @@ def validate_uart_registry(
     if len(set(message_ids)) != len(message_ids):
         raise ContractError("UART message IDs must be unique")
 
+    lifecycle = registry["messageLifecyclePolicy"]
+    lifecycle_names = [
+        name
+        for group in lifecycle.values()
+        for name in group
+    ]
+    duplicates = {
+        name for name in lifecycle_names if lifecycle_names.count(name) > 1
+    }
+    if duplicates:
+        raise ContractError(
+            "UART message lifecycle groups overlap: "
+            + ", ".join(sorted(duplicates))
+        )
+    unknown_lifecycle = set(lifecycle_names) - set(message_names)
+    missing_lifecycle = set(message_names) - set(lifecycle_names)
+    if unknown_lifecycle or missing_lifecycle:
+        raise ContractError(
+            "UART message lifecycle inventory differs: unknown="
+            + ",".join(sorted(unknown_lifecycle))
+            + " missing="
+            + ",".join(sorted(missing_lifecycle))
+        )
+
     for enum_name, enum in registry["enums"].items():
         values = list(enum["values"].values())
         if len(set(values)) != len(values):
@@ -720,6 +744,10 @@ def validate_uart_registry(
         "CONFIG_PORT_BLOCK",
         "CONFIG_COMMIT",
         "CONFIG_APPLY_RESULT",
+        "DEVICE_ENTRY_URL_BEGIN",
+        "DEVICE_ENTRY_URL_PART",
+        "DEVICE_ENTRY_URL_COMMIT",
+        "DEVICE_ENTRY_URL_APPLY_RESULT",
         "START_DELIVERY_SESSION",
         "AUTHORIZE_DELIVERY_FIRST_OPEN",
         "START_CLEAN_OPERATION",
@@ -956,6 +984,10 @@ def validate_uart_registry(
                 f"{message_name} references unknown capabilities "
                 + ", ".join(sorted(unknown_capabilities))
             )
+        if message_name in set(lifecycle["deprecatedRejectedMessages"]):
+            raise ContractError(
+                f"deprecated UART message {message_name} cannot require a current capability"
+            )
 
     expected_domains = {
         "resultDigestSha256": b"ECOBIN:UART:WORK-RESULT:v2\0",
@@ -992,9 +1024,9 @@ def validate_uart_registry(
         for item in messages
         if item["name"] == "AUTHORIZE_DELIVERY_FIRST_OPEN"
     ).get("notes", "")
-    if "不得" not in start_notes or "SQLite" not in authorize_notes:
+    if "自主开门" not in start_notes or "UNSUPPORTED_MESSAGE" not in authorize_notes:
         raise ContractError(
-            "delivery first-open authorization must be distinct from START/weight ACK"
+            "START must authorize autonomous opening and the old first-open command must be rejected"
         )
 
     clean_finish_fields = {
@@ -1677,6 +1709,68 @@ def validate_uart_payload_semantics(
             raise ContractError("CONFIG_APPLY_RESULT APPLIED requires NONE fault")
         if values["status"] == "FAILED" and values["faultCode"] == "NONE":
             raise ContractError("CONFIG_APPLY_RESULT FAILED requires a fault")
+
+    if message_name in {"DEVICE_ENTRY_URL_BEGIN", "DEVICE_ENTRY_URL_COMMIT"}:
+        if values["partCount"] != (values["urlLength"] + 63) // 64:
+            raise ContractError(
+                f"{message_name} partCount must equal ceil(urlLength/64)"
+            )
+        if _is_zero_uart_slot(
+            {"name": "urlSha256", "type": "sha256"}, values["urlSha256"]
+        ):
+            raise ContractError(f"{message_name} urlSha256 cannot be all-zero")
+
+    if message_name == "DEVICE_ENTRY_URL_PART":
+        if values["partIndex"] > values["partCount"]:
+            raise ContractError("DEVICE_ENTRY_URL_PART index exceeds partCount")
+        if _is_zero_uart_slot(
+            {"name": "urlSha256", "type": "sha256"}, values["urlSha256"]
+        ):
+            raise ContractError("DEVICE_ENTRY_URL_PART urlSha256 cannot be all-zero")
+        chunk = values["urlChunk"]
+        try:
+            raw_chunk = chunk.encode("ascii")
+        except (AttributeError, UnicodeEncodeError) as error:
+            raise ContractError(
+                "DEVICE_ENTRY_URL_PART urlChunk must be ASCII"
+            ) from error
+        if (
+            not raw_chunk
+            or any(byte < 0x21 or byte > 0x7E or byte in {0x22, 0x5C}
+                   for byte in raw_chunk)
+            or (values["partIndex"] == 1 and not raw_chunk.startswith(b"https://"))
+        ):
+            raise ContractError(
+                "DEVICE_ENTRY_URL_PART urlChunk is not a safe quoted HTTPS URL fragment"
+            )
+
+    if message_name == "DEVICE_ENTRY_URL_APPLY_RESULT":
+        status = _enum_wire_value(
+            registry,
+            {"name": "status", "enum": "DeviceEntryUrlApplyStatus"},
+            values["status"],
+        )
+        error_code = _enum_wire_value(
+            registry,
+            {"name": "errorCode", "enum": "NackError"},
+            values["errorCode"],
+        )
+        statuses = registry["enums"]["DeviceEntryUrlApplyStatus"]["values"]
+        errors = registry["enums"]["NackError"]["values"]
+        if (
+            (status == statuses["APPLIED"] and error_code != errors["NONE"])
+            or (
+                status == statuses["FAILED"]
+                and error_code != errors["BUSY"]
+            )
+            or _is_zero_uart_slot(
+                {"name": "urlSha256", "type": "sha256"},
+                values["urlSha256"],
+            )
+        ):
+            raise ContractError(
+                "DEVICE_ENTRY_URL_APPLY_RESULT status/error/hash mismatch"
+            )
 
     if message_name == "CLEAN_COMPLETION_CONFIRMED":
         if (

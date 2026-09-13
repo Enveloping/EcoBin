@@ -180,7 +180,7 @@ class CommandIdentityTests(CandidateFixture):
                 self.assertEqual([0, 16, 48, 56], [field["offset"] for field in fields[:4]])
                 self.assertEqual(1, fields[2]["minimum"])
                 self.assertEqual(1, fields[3]["minimum"])
-        self.assertEqual(15, found)
+        self.assertEqual(18, found)
 
     def test_command_digest_binds_target_boot_and_sequence(self) -> None:
         name = "SAFE_CLOSE"

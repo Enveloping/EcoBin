@@ -331,10 +331,10 @@ class UartRegistryTests(unittest.TestCase):
                 rejected_without_fault,
             )
 
-    def test_v1_baseline_does_not_require_mcu_persistence(self) -> None:
+    def test_current_baseline_requires_config_and_url_but_not_mcu_persistence(self) -> None:
         policy = self.registry["capabilityPolicy"]
-        self.assertEqual(0x300, int(policy["requiredMcuMaskHex"], 16))
-        self.assertEqual(0x300, int(policy["requiredEdgeMaskHex"], 16))
+        self.assertEqual(0x8100, int(policy["requiredMcuMaskHex"], 16))
+        self.assertEqual(0x8100, int(policy["requiredEdgeMaskHex"], 16))
         for requirements in policy["messageRequirements"].values():
             self.assertNotIn("PERSISTENT_COMMAND_DEDUP", requirements)
             self.assertNotIn("PERSISTENT_CRITICAL_EVENTS", requirements)

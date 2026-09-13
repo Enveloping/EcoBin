@@ -751,6 +751,8 @@ def build_command_guard_traces(registry, vectors):
                     value = str(uuid.UUID(int=field["offset"] + 1))
                 elif kind == "sha256":
                     value = "ab" * 32
+                elif kind == "string_u8":
+                    value = "https://a"
                 elif kind == "bool":
                     value = False
                 else:
@@ -1811,6 +1813,36 @@ def validate_payload_semantics(
             raise ProtocolError("CONFIG_PORT_BLOCK minimum valid samples exceed total")
     if message_name == "CONFIG_COMMIT" and values["partIndex"] != values["partCount"]:
         raise ProtocolError("CONFIG_COMMIT partIndex must equal partCount")
+    if message_name in ("DEVICE_ENTRY_URL_BEGIN", "DEVICE_ENTRY_URL_COMMIT"):
+        if values["partCount"] != (values["urlLength"] + 63) // 64:
+            raise ProtocolError(message_name + " partCount must equal ceil(urlLength/64)")
+        digest = values["urlSha256"]
+        if (digest.hex() if isinstance(digest, bytes) else digest) == ZERO_SHA256:
+            raise ProtocolError(message_name + " urlSha256 cannot be all-zero")
+    if message_name == "DEVICE_ENTRY_URL_PART":
+        if values["partIndex"] > values["partCount"]:
+            raise ProtocolError("DEVICE_ENTRY_URL_PART index exceeds partCount")
+        digest = values["urlSha256"]
+        if (digest.hex() if isinstance(digest, bytes) else digest) == ZERO_SHA256:
+            raise ProtocolError("DEVICE_ENTRY_URL_PART urlSha256 cannot be all-zero")
+        try:
+            chunk = values["urlChunk"].encode("ascii")
+        except (AttributeError, UnicodeEncodeError) as error:
+            raise ProtocolError("DEVICE_ENTRY_URL_PART urlChunk must be ASCII") from error
+        if (not chunk
+                or any(byte < 0x21 or byte > 0x7E or byte in (0x22, 0x5C) for byte in chunk)
+                or (values["partIndex"] == 1 and not chunk.startswith(b"https://"))):
+            raise ProtocolError("DEVICE_ENTRY_URL_PART unsafe quoted HTTPS fragment")
+    if message_name == "DEVICE_ENTRY_URL_APPLY_RESULT":
+        status = _enum_value({{"name": "status", "enum": "DeviceEntryUrlApplyStatus"}}, values["status"])
+        error_code = _enum_value({{"name": "errorCode", "enum": "NackError"}}, values["errorCode"])
+        statuses = REGISTRY["enums"]["DeviceEntryUrlApplyStatus"]["values"]
+        errors = REGISTRY["enums"]["NackError"]["values"]
+        digest = values["urlSha256"]
+        if ((status == statuses["APPLIED"] and error_code != errors["NONE"])
+                or (status == statuses["FAILED"] and error_code != errors["BUSY"])
+                or (digest.hex() if isinstance(digest, bytes) else digest) == ZERO_SHA256):
+            raise ProtocolError("DEVICE_ENTRY_URL_APPLY_RESULT status/error/hash mismatch")
     if message_name == "CONFIG_PORT_BLOCK":
         if (
             values["fullnessMinimumValidSampleCount"]
@@ -2428,6 +2460,14 @@ def render_session_validator(
         "    size_t index;",
         "    for (index = 0u; index < length; ++index) { if (data[index] != 0u) return 0; }",
         "    return 1;", "}",
+        "static inline int ecobin_uart_device_entry_url_chunk_safe(const uint8_t *data, size_t length, int first) {",
+        "    static const uint8_t prefix[8] = { 'h', 't', 't', 'p', 's', ':', '/', '/' };",
+        "    size_t index;",
+        "    if (length == 0u || (first && (length < sizeof(prefix) || memcmp(data, prefix, sizeof(prefix)) != 0))) return 0;",
+        "    for (index = 0u; index < length; ++index) {",
+        "        if (data[index] < 0x21u || data[index] > 0x7eu || data[index] == 0x22u || data[index] == 0x5cu) return 0;",
+        "    }",
+        "    return 1;", "}",
         "/* ARMCC5 shares this full validator across translation units. */",
         "#if defined(__CC_ARM) && !defined(ECOBIN_UART_SHARED_PAYLOAD_VALIDATOR)",
         "#define ECOBIN_UART_SHARED_PAYLOAD_VALIDATOR 1",
@@ -2448,6 +2488,15 @@ def render_session_validator(
         "    private static boolean bytesZero(byte[] data, int offset, int length) {",
         "        for (int i = offset; i < offset + length; i++) { if (data[i] != 0) return false; }",
         "        return true;", "    }",
+        "    private static boolean deviceEntryUrlChunkSafe(byte[] data, int offset, int length, boolean first) {",
+        "        byte[] prefix = new byte[] {'h', 't', 't', 'p', 's', ':', '/', '/'};",
+        "        if (length == 0 || (first && (length < prefix.length",
+        "            || !Arrays.equals(Arrays.copyOfRange(data, offset, offset + prefix.length), prefix)))) return false;",
+        "        for (int i = offset; i < offset + length; i++) {",
+        "            int value = Byte.toUnsignedInt(data[i]);",
+        "            if (value < 0x21 || value > 0x7e || value == 0x22 || value == 0x5c) return false;",
+        "        }",
+        "        return true;", "    }",
         "    // Session shape only; not a runtime freshness or admission decision.",
         "    private static void validateSessionPayload(int messageType, byte[] payload) {",
         "        switch (messageType) {",
@@ -2459,13 +2508,15 @@ def render_session_validator(
         spec = specs[name]
         diagnostic = "bootstrap" if name in policy["bootstrapMessages"] else "command" if name in commands else "session"
         fail = "return -1;" if is_c else f'throw new IllegalArgumentException("invalid {diagnostic} payload");'
-        if spec["minimumPayloadLength"] != spec["maximumPayloadLength"]:
-            raise ContractError("session payload must have fixed length")
         symbol = ("ECOBIN_UART_MESSAGE_" if is_c else "MESSAGE_") + name
         lines.append(indent + "case " + symbol + ":")
         def reject(condition):
             lines.append(indent + f"    if ({condition}) {{ {fail} }}")
-        reject(f"payload == NULL || length != {spec['maximumPayloadLength']}u" if is_c else f"payload.length != {spec['maximumPayloadLength']}")
+        reject(
+            f"payload == NULL || length < {spec['minimumPayloadLength']}u || length > {spec['maximumPayloadLength']}u"
+            if is_c
+            else f"payload.length < {spec['minimumPayloadLength']} || payload.length > {spec['maximumPayloadLength']}"
+        )
         fields = {field["name"]: field for field in spec["fields"]}
         def value(field_name):
             return _session_wire_expression(fields[field_name], language)
@@ -2496,6 +2547,14 @@ def render_session_validator(
                     raise ContractError("conditional UUID not implemented for session guard")
                 if not field.get("zeroAllowed"):
                     reject(f"ecobin_uart_bytes_zero(payload + {offset}u, 16u)" if is_c else f"bytesZero(payload, {offset}, 16)")
+            elif kind == "string_u8":
+                count = f"payload[{offset}u]" if is_c else f"Byte.toUnsignedInt(payload[{offset}])"
+                actual_length = "length" if is_c else "payload.length"
+                suffix = "u" if is_c else ""
+                reject(
+                    f"{count} == 0{suffix} || {count} > {field['maxLength']}{suffix} || "
+                    f"{actual_length} != {offset + 1}{suffix} + {count}"
+                )
             elif kind != "sha256":
                 raise ContractError("unsupported session field " + kind)
         if name in commands:
@@ -2512,6 +2571,40 @@ def render_session_validator(
             reject(f"{value('fullnessMinimumValidSampleCount')} > {value('fullnessSampleCount')}")
         if name == "CONFIG_COMMIT":
             reject(f"{value('partIndex')} != {value('partCount')}")
+        if name in {"DEVICE_ENTRY_URL_BEGIN", "DEVICE_ENTRY_URL_COMMIT"}:
+            reject(f"{value('partCount')} != ({value('urlLength')} + 63) / 64")
+            offset = fields["urlSha256"]["offset"]
+            reject(
+                f"ecobin_uart_bytes_zero(payload + {offset}u, 32u)"
+                if is_c else f"bytesZero(payload, {offset}, 32)"
+            )
+        if name == "DEVICE_ENTRY_URL_PART":
+            reject(f"{value('partIndex')} > {value('partCount')}")
+            hash_offset = fields["urlSha256"]["offset"]
+            reject(
+                f"ecobin_uart_bytes_zero(payload + {hash_offset}u, 32u)"
+                if is_c else f"bytesZero(payload, {hash_offset}, 32)"
+            )
+            chunk_offset = fields["urlChunk"]["offset"]
+            chunk_length = f"payload[{chunk_offset}u]" if is_c else f"Byte.toUnsignedInt(payload[{chunk_offset}])"
+            reject(
+                f"!ecobin_uart_device_entry_url_chunk_safe(payload + {chunk_offset + 1}u, {chunk_length}, {value('partIndex')} == 1)"
+                if is_c else
+                f"!deviceEntryUrlChunkSafe(payload, {chunk_offset + 1}, {chunk_length}, {value('partIndex')} == 1)"
+            )
+        if name == "DEVICE_ENTRY_URL_APPLY_RESULT":
+            status, error_code = value("status"), value("errorCode")
+            statuses = registry["enums"]["DeviceEntryUrlApplyStatus"]["values"]
+            errors = registry["enums"]["NackError"]["values"]
+            reject(
+                f"({status} == {statuses['APPLIED']} && {error_code} != {errors['NONE']}) || "
+                f"({status} == {statuses['FAILED']} && {error_code} != {errors['BUSY']})"
+            )
+            offset = fields["urlSha256"]["offset"]
+            reject(
+                f"ecobin_uart_bytes_zero(payload + {offset}u, 32u)"
+                if is_c else f"bytesZero(payload, {offset}, 32)"
+            )
         if name == "BIND_BOOT_REPLY":
             boot, proposed, status = value("mcuBootId"), value("proposedMcuBootId"), value("status")
             enum = registry["enums"]["BootBindStatus"]["values"]
@@ -7187,9 +7280,14 @@ def render_catalog(
         "",
         "## UART 消息",
         "",
-        "| ID | 消息 | 方向 | ACK | payload 字节 | 最大帧字节 | 余量 |",
-        "|---:|---|---|---|---:|---:|---:|",
+        "| ID | 消息 | 生命周期 | 方向 | ACK | payload 字节 | 最大帧字节 | 余量 |",
+        "|---:|---|---|---|---|---:|---:|---:|",
     ]
+    lifecycle_by_message = {
+        name: group
+        for group, names in registry["messageLifecyclePolicy"].items()
+        for name in names
+    }
     for message in registry["messages"]:
         spec = specs[message["name"]]
         size = (
@@ -7199,6 +7297,7 @@ def render_catalog(
         )
         lines.append(
             f"| `0x{message['id']:02X}` | `{message['name']}` | "
+            f"`{lifecycle_by_message[message['name']]}` | "
             f"`{message['direction']}` | "
             f"{'是' if message['ackRequired'] else '否'} | `{size}` | "
             f"{spec['maximumPayloadLength'] + registry['protocol']['headerLength'] + registry['protocol']['crcLength']} | "
@@ -7319,6 +7418,7 @@ def build_outputs(*, include_hardware_mcu: bool = False) -> dict[Path, str]:
         "physicalLink": registry["physicalLink"],
         "implementationStage": registry["implementationStage"],
         "sessionPolicy": registry["sessionPolicy"],
+        "messageLifecyclePolicy": registry["messageLifecyclePolicy"],
         "protocol": registry["protocol"],
         "capabilities": registry["capabilities"],
         "enums": registry["enums"],

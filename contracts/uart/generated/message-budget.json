@@ -182,6 +182,30 @@
       "minimumPayloadLength": 80,
       "remainingBytes": 162
     },
+    "DEVICE_ENTRY_URL_APPLY_RESULT": {
+      "maximumFrameLength": 103,
+      "maximumPayloadLength": 89,
+      "minimumPayloadLength": 89,
+      "remainingBytes": 153
+    },
+    "DEVICE_ENTRY_URL_BEGIN": {
+      "maximumFrameLength": 125,
+      "maximumPayloadLength": 111,
+      "minimumPayloadLength": 111,
+      "remainingBytes": 131
+    },
+    "DEVICE_ENTRY_URL_COMMIT": {
+      "maximumFrameLength": 125,
+      "maximumPayloadLength": 111,
+      "minimumPayloadLength": 111,
+      "remainingBytes": 131
+    },
+    "DEVICE_ENTRY_URL_PART": {
+      "maximumFrameLength": 189,
+      "maximumPayloadLength": 175,
+      "minimumPayloadLength": 111,
+      "remainingBytes": 67
+    },
     "DEVICE_FACTS_REPLY": {
       "maximumFrameLength": 240,
       "maximumPayloadLength": 226,
@@ -406,6 +430,6 @@
     }
   },
   "notes": "仅当前已登记消息的单帧预算；不代表未来完整结果分段或 MCU RAM/栈预算已完成。",
-  "registrySha256": "60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808",
-  "registryVersion": "2.0.0-rc.23"
+  "registrySha256": "20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2",
+  "registryVersion": "2.0.0-rc.24"
 }

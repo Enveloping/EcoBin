@@ -9,9 +9,9 @@
     "onenet/events/events.schema.json": "3a3b9bb695b4a421e034ea8c0eb199b55b0cd7221a6c7f04001e7ef808203b73",
     "onenet/thing-model.mapping.yaml": "f95f1ead1c934eb43ccf9d32fcc05e15e91316a557944dec1db7b5fd1214ff79",
     "uart/frozen-v1-runtime.json": "8543a1bd5365cc96fe7606e3c1d121bf6432c38aad42f4a090956475a2643c44",
-    "uart/uart-registry.schema.json": "daca97968bfd6231c75139b92cf6680c09a3482d4b3042cfe490383a493c0d53",
-    "uart/uart-registry.yaml": "60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808"
+    "uart/uart-registry.schema.json": "210c67959ee88ebb8e1fd2f11e616d5b911bf4659835212253b1b353b59b2caf",
+    "uart/uart-registry.yaml": "20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2"
   },
-  "uartRegistrySha256": "60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808",
-  "uartRegistryVersion": "2.0.0-rc.23"
+  "uartRegistrySha256": "20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2",
+  "uartRegistryVersion": "2.0.0-rc.24"
 }

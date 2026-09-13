@@ -2,8 +2,8 @@
 
 > 本文件由 `contracts/tools/generate_contracts.py` 生成，请勿直接编辑。
 
-- UART Registry：`2.0.0-rc.23`
-- UART Registry SHA-256：`60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808`
+- UART Registry：`2.0.0-rc.24`
+- UART Registry SHA-256：`20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2`
 - UART 状态：`MCU_REVIEW_REQUIRED`
 - 实施阶段：`SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED`；候选不可运行，旧运行制品摘要冻结，不自动覆盖。
 - 单帧预算见 `contracts/uart/generated/message-budget.json`；不代表完整结果/RAM 预算已完成。
@@ -12,75 +12,79 @@
 
 ## UART 消息
 
-| ID | 消息 | 方向 | ACK | payload 字节 | 最大帧字节 | 余量 |
-|---:|---|---|---|---:|---:|---:|
-| `0x45` | `QUERY_DEVICE_FACTS` | `EDGE_TO_MCU` | 否 | `17` | 31 | 225 |
-| `0x46` | `DEVICE_FACTS_REPLY` | `MCU_TO_EDGE` | 否 | `226` | 240 | 16 |
-| `0x60` | `ACTUATOR_EVENT_SAVED` | `EDGE_TO_MCU` | 否 | `45` | 59 | 197 |
-| `0x61` | `ACTUATOR_EVENT_SAVED_REPLY` | `MCU_TO_EDGE` | 否 | `54` | 68 | 188 |
-| `0x5E` | `QUERY_ACTUATOR_EVENT` | `EDGE_TO_MCU` | 否 | `20` | 34 | 222 |
-| `0x5F` | `ACTUATOR_EVENT_QUERY_REPLY` | `MCU_TO_EDGE` | 否 | `66` | 80 | 176 |
-| `0x5C` | `PROCESS_EVENT_SAVED` | `EDGE_TO_MCU` | 否 | `45` | 59 | 197 |
-| `0x5D` | `PROCESS_EVENT_SAVED_REPLY` | `MCU_TO_EDGE` | 否 | `54` | 68 | 188 |
-| `0x5A` | `QUERY_PROCESS_EVENT` | `EDGE_TO_MCU` | 否 | `97` | 111 | 145 |
-| `0x5B` | `PROCESS_EVENT_QUERY_REPLY` | `MCU_TO_EDGE` | 否 | `142` | 156 | 100 |
-| `0x43` | `QUERY_WORK` | `EDGE_TO_MCU` | 否 | `86` | 100 | 156 |
-| `0x44` | `WORK_QUERY_REPLY` | `MCU_TO_EDGE` | 否 | `132` | 146 | 110 |
-| `0x40` | `WORK_RESULT` | `MCU_TO_EDGE` | 否 | `199` | 213 | 43 |
-| `0x41` | `QUERY_RESULT` | `EDGE_TO_MCU` | 否 | `68` | 82 | 174 |
-| `0x42` | `RESULT_QUERY_REPLY` | `MCU_TO_EDGE` | 否 | `77` | 91 | 165 |
-| `0x01` | `HELLO` | `BIDIRECTIONAL` | 否 | `27..91` | 105 | 151 |
-| `0x02` | `HELLO_ACK` | `BIDIRECTIONAL` | 否 | `32` | 46 | 210 |
-| `0x03` | `ACK` | `BIDIRECTIONAL` | 否 | `22` | 36 | 220 |
-| `0x04` | `NACK` | `BIDIRECTIONAL` | 否 | `23` | 37 | 219 |
-| `0x05` | `QUERY_STATE` | `EDGE_TO_MCU` | 是 | `76` | 90 | 166 |
-| `0x06` | `SAFE_CLOSE` | `EDGE_TO_MCU` | 是 | `66` | 80 | 176 |
-| `0x07` | `BOOT_PROBE` | `EDGE_TO_MCU` | 否 | `8` | 22 | 234 |
-| `0x08` | `BOOT_PROBE_REPLY` | `MCU_TO_EDGE` | 否 | `16` | 30 | 226 |
-| `0x09` | `BIND_BOOT` | `EDGE_TO_MCU` | 否 | `16` | 30 | 226 |
-| `0x0A` | `BIND_BOOT_REPLY` | `MCU_TO_EDGE` | 否 | `25` | 39 | 217 |
-| `0x0B` | `COMMAND_DECISION` | `MCU_TO_EDGE` | 否 | `71` | 85 | 171 |
-| `0x0C` | `QUERY_COMMAND` | `EDGE_TO_MCU` | 否 | `68` | 82 | 174 |
-| `0x0D` | `COMMAND_QUERY_RESULT` | `MCU_TO_EDGE` | 否 | `83` | 97 | 159 |
-| `0x0E` | `RESULT_SAVED` | `EDGE_TO_MCU` | 否 | `60` | 74 | 182 |
-| `0x0F` | `RESULT_SAVED_REPLY` | `MCU_TO_EDGE` | 否 | `69` | 83 | 173 |
-| `0x10` | `CONFIG_BEGIN` | `EDGE_TO_MCU` | 是 | `151` | 165 | 91 |
-| `0x11` | `CONFIG_DEVICE_BLOCK` | `EDGE_TO_MCU` | 是 | `183` | 197 | 59 |
-| `0x12` | `CONFIG_PORT_BLOCK` | `EDGE_TO_MCU` | 是 | `207` | 221 | 35 |
-| `0x13` | `CONFIG_COMMIT` | `EDGE_TO_MCU` | 是 | `150` | 164 | 92 |
-| `0x14` | `CONFIG_APPLY_RESULT` | `MCU_TO_EDGE` | 是 | `127` | 141 | 115 |
-| `0x20` | `START_DELIVERY_SESSION` | `EDGE_TO_MCU` | 是 | `137` | 151 | 105 |
-| `0x21` | `START_CLEAN_OPERATION` | `EDGE_TO_MCU` | 是 | `125` | 139 | 117 |
-| `0x22` | `UNLOCK_CLEAN_DOOR` | `EDGE_TO_MCU` | 是 | `107` | 121 | 135 |
-| `0x23` | `RESUME_CLEAN_OPERATION` | `EDGE_TO_MCU` | 是 | `123` | 137 | 119 |
-| `0x24` | `END_CLEAN_BEFORE_UNLOCK` | `EDGE_TO_MCU` | 是 | `102` | 116 | 140 |
-| `0x25` | `SAMPLE_FULLNESS` | `EDGE_TO_MCU` | 是 | `130` | 144 | 112 |
-| `0x26` | `MEASURE_BASELINE` | `EDGE_TO_MCU` | 是 | `125` | 139 | 117 |
-| `0x27` | `AUTHORIZE_DELIVERY_FIRST_OPEN` | `EDGE_TO_MCU` | 是 | `113` | 127 | 129 |
-| `0x28` | `CONFIRM_NO_ACTIVE_WORK` | `EDGE_TO_MCU` | 是 | `100` | 114 | 142 |
-| `0x30` | `WORK_PREOPEN_WEIGHT_READY` | `MCU_TO_EDGE` | 是 | `97` | 111 | 145 |
-| `0x31` | `DELIVERY_DOOR_COMMAND_RESULT` | `MCU_TO_EDGE` | 是 | `60` | 74 | 182 |
-| `0x62` | `DELIVERY_LOCAL_DOOR_RESULT` | `MCU_TO_EDGE` | 是 | `64` | 78 | 178 |
-| `0x65` | `CLEAN_OPERATION_INTERRUPTED` | `MCU_TO_EDGE` | 是 | `61` | 75 | 181 |
-| `0x64` | `DELIVERY_POSTCLOSE_INTERRUPTED` | `MCU_TO_EDGE` | 是 | `61` | 75 | 181 |
-| `0x63` | `DELIVERY_CYCLE_ABORTED` | `MCU_TO_EDGE` | 是 | `61` | 75 | 181 |
-| `0x32` | `WORK_POSTCLOSE_WEIGHT_READY` | `MCU_TO_EDGE` | 是 | `207` | 221 | 35 |
-| `0x33` | `DELIVERY_SELECTION` | `MCU_TO_EDGE` | 是 | `80` | 94 | 162 |
-| `0x34` | `WORK_PREUNLOCK_WEIGHT_READY` | `MCU_TO_EDGE` | 是 | `95` | 109 | 147 |
-| `0x35` | `CLEAN_LOCK_POWER_CHANGED` | `MCU_TO_EDGE` | 是 | `55` | 69 | 187 |
-| `0x36` | `CLEAN_UNLOCK_REQUESTED` | `MCU_TO_EDGE` | 是 | `63` | 77 | 179 |
-| `0x37` | `CLEAN_FINISH_REQUESTED` | `MCU_TO_EDGE` | 是 | `63` | 77 | 179 |
-| `0x38` | `CLEAN_FINAL_WEIGHT_READY` | `MCU_TO_EDGE` | 是 | `191` | 205 | 51 |
-| `0x39` | `FULLNESS_SAMPLE_RESULT` | `MCU_TO_EDGE` | 是 | `106` | 120 | 136 |
-| `0x3A` | `BASELINE_MEASUREMENT_RESULT` | `MCU_TO_EDGE` | 是 | `95` | 109 | 147 |
-| `0x3B` | `FAULT_OBSERVED` | `MCU_TO_EDGE` | 是 | `59` | 73 | 183 |
-| `0x3C` | `SAFETY_SENSOR_EVENT` | `MCU_TO_EDGE` | 是 | `42` | 56 | 200 |
-| `0x3D` | `SAFE_CLOSE_RESULT` | `MCU_TO_EDGE` | 是 | `43` | 57 | 199 |
-| `0x3E` | `CLEAN_COMPLETION_CONFIRMED` | `MCU_TO_EDGE` | 是 | `83` | 97 | 159 |
-| `0x3F` | `BOOT_RECONCILIATION_RESULT` | `MCU_TO_EDGE` | 是 | `64` | 78 | 178 |
-| `0x50` | `STATE_SNAPSHOT_BEGIN` | `MCU_TO_EDGE` | 是 | `229` | 243 | 13 |
-| `0x51` | `STATE_SNAPSHOT_PORT` | `MCU_TO_EDGE` | 是 | `81` | 95 | 161 |
-| `0x52` | `STATE_SNAPSHOT_END` | `MCU_TO_EDGE` | 是 | `96` | 110 | 146 |
+| ID | 消息 | 生命周期 | 方向 | ACK | payload 字节 | 最大帧字节 | 余量 |
+|---:|---|---|---|---|---:|---:|---:|
+| `0x45` | `QUERY_DEVICE_FACTS` | `currentDiagnosticMessages` | `EDGE_TO_MCU` | 否 | `17` | 31 | 225 |
+| `0x46` | `DEVICE_FACTS_REPLY` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 否 | `226` | 240 | 16 |
+| `0x60` | `ACTUATOR_EVENT_SAVED` | `currentDiagnosticMessages` | `EDGE_TO_MCU` | 否 | `45` | 59 | 197 |
+| `0x61` | `ACTUATOR_EVENT_SAVED_REPLY` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 否 | `54` | 68 | 188 |
+| `0x5E` | `QUERY_ACTUATOR_EVENT` | `currentDiagnosticMessages` | `EDGE_TO_MCU` | 否 | `20` | 34 | 222 |
+| `0x5F` | `ACTUATOR_EVENT_QUERY_REPLY` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 否 | `66` | 80 | 176 |
+| `0x5C` | `PROCESS_EVENT_SAVED` | `currentDiagnosticMessages` | `EDGE_TO_MCU` | 否 | `45` | 59 | 197 |
+| `0x5D` | `PROCESS_EVENT_SAVED_REPLY` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 否 | `54` | 68 | 188 |
+| `0x5A` | `QUERY_PROCESS_EVENT` | `currentDiagnosticMessages` | `EDGE_TO_MCU` | 否 | `97` | 111 | 145 |
+| `0x5B` | `PROCESS_EVENT_QUERY_REPLY` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 否 | `142` | 156 | 100 |
+| `0x43` | `QUERY_WORK` | `currentBusinessMessages` | `EDGE_TO_MCU` | 否 | `86` | 100 | 156 |
+| `0x44` | `WORK_QUERY_REPLY` | `currentBusinessMessages` | `MCU_TO_EDGE` | 否 | `132` | 146 | 110 |
+| `0x40` | `WORK_RESULT` | `currentBusinessMessages` | `MCU_TO_EDGE` | 否 | `199` | 213 | 43 |
+| `0x41` | `QUERY_RESULT` | `currentBusinessMessages` | `EDGE_TO_MCU` | 否 | `68` | 82 | 174 |
+| `0x42` | `RESULT_QUERY_REPLY` | `currentBusinessMessages` | `MCU_TO_EDGE` | 否 | `77` | 91 | 165 |
+| `0x01` | `HELLO` | `currentBusinessMessages` | `BIDIRECTIONAL` | 否 | `27..91` | 105 | 151 |
+| `0x02` | `HELLO_ACK` | `currentBusinessMessages` | `BIDIRECTIONAL` | 否 | `32` | 46 | 210 |
+| `0x03` | `ACK` | `currentBusinessMessages` | `BIDIRECTIONAL` | 否 | `22` | 36 | 220 |
+| `0x04` | `NACK` | `currentBusinessMessages` | `BIDIRECTIONAL` | 否 | `23` | 37 | 219 |
+| `0x05` | `QUERY_STATE` | `deprecatedRejectedMessages` | `EDGE_TO_MCU` | 是 | `76` | 90 | 166 |
+| `0x06` | `SAFE_CLOSE` | `deprecatedRejectedMessages` | `EDGE_TO_MCU` | 是 | `66` | 80 | 176 |
+| `0x07` | `BOOT_PROBE` | `currentBusinessMessages` | `EDGE_TO_MCU` | 否 | `8` | 22 | 234 |
+| `0x08` | `BOOT_PROBE_REPLY` | `currentBusinessMessages` | `MCU_TO_EDGE` | 否 | `16` | 30 | 226 |
+| `0x09` | `BIND_BOOT` | `currentBusinessMessages` | `EDGE_TO_MCU` | 否 | `16` | 30 | 226 |
+| `0x0A` | `BIND_BOOT_REPLY` | `currentBusinessMessages` | `MCU_TO_EDGE` | 否 | `25` | 39 | 217 |
+| `0x0B` | `COMMAND_DECISION` | `currentBusinessMessages` | `MCU_TO_EDGE` | 否 | `71` | 85 | 171 |
+| `0x0C` | `QUERY_COMMAND` | `currentBusinessMessages` | `EDGE_TO_MCU` | 否 | `68` | 82 | 174 |
+| `0x0D` | `COMMAND_QUERY_RESULT` | `currentBusinessMessages` | `MCU_TO_EDGE` | 否 | `83` | 97 | 159 |
+| `0x0E` | `RESULT_SAVED` | `currentBusinessMessages` | `EDGE_TO_MCU` | 否 | `60` | 74 | 182 |
+| `0x0F` | `RESULT_SAVED_REPLY` | `currentBusinessMessages` | `MCU_TO_EDGE` | 否 | `69` | 83 | 173 |
+| `0x10` | `CONFIG_BEGIN` | `currentBusinessMessages` | `EDGE_TO_MCU` | 是 | `151` | 165 | 91 |
+| `0x11` | `CONFIG_DEVICE_BLOCK` | `currentBusinessMessages` | `EDGE_TO_MCU` | 是 | `183` | 197 | 59 |
+| `0x12` | `CONFIG_PORT_BLOCK` | `currentBusinessMessages` | `EDGE_TO_MCU` | 是 | `207` | 221 | 35 |
+| `0x13` | `CONFIG_COMMIT` | `currentBusinessMessages` | `EDGE_TO_MCU` | 是 | `150` | 164 | 92 |
+| `0x14` | `CONFIG_APPLY_RESULT` | `currentBusinessMessages` | `MCU_TO_EDGE` | 是 | `127` | 141 | 115 |
+| `0x15` | `DEVICE_ENTRY_URL_BEGIN` | `currentBusinessMessages` | `EDGE_TO_MCU` | 是 | `111` | 125 | 131 |
+| `0x16` | `DEVICE_ENTRY_URL_PART` | `currentBusinessMessages` | `EDGE_TO_MCU` | 是 | `111..175` | 189 | 67 |
+| `0x17` | `DEVICE_ENTRY_URL_COMMIT` | `currentBusinessMessages` | `EDGE_TO_MCU` | 是 | `111` | 125 | 131 |
+| `0x18` | `DEVICE_ENTRY_URL_APPLY_RESULT` | `currentBusinessMessages` | `MCU_TO_EDGE` | 否 | `89` | 103 | 153 |
+| `0x20` | `START_DELIVERY_SESSION` | `currentBusinessMessages` | `EDGE_TO_MCU` | 是 | `137` | 151 | 105 |
+| `0x21` | `START_CLEAN_OPERATION` | `currentBusinessMessages` | `EDGE_TO_MCU` | 是 | `125` | 139 | 117 |
+| `0x22` | `UNLOCK_CLEAN_DOOR` | `deprecatedRejectedMessages` | `EDGE_TO_MCU` | 是 | `107` | 121 | 135 |
+| `0x23` | `RESUME_CLEAN_OPERATION` | `deprecatedRejectedMessages` | `EDGE_TO_MCU` | 是 | `123` | 137 | 119 |
+| `0x24` | `END_CLEAN_BEFORE_UNLOCK` | `deprecatedRejectedMessages` | `EDGE_TO_MCU` | 是 | `102` | 116 | 140 |
+| `0x25` | `SAMPLE_FULLNESS` | `deprecatedRejectedMessages` | `EDGE_TO_MCU` | 是 | `130` | 144 | 112 |
+| `0x26` | `MEASURE_BASELINE` | `currentBusinessMessages` | `EDGE_TO_MCU` | 是 | `125` | 139 | 117 |
+| `0x27` | `AUTHORIZE_DELIVERY_FIRST_OPEN` | `deprecatedRejectedMessages` | `EDGE_TO_MCU` | 是 | `113` | 127 | 129 |
+| `0x28` | `CONFIRM_NO_ACTIVE_WORK` | `deprecatedRejectedMessages` | `EDGE_TO_MCU` | 是 | `100` | 114 | 142 |
+| `0x30` | `WORK_PREOPEN_WEIGHT_READY` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `97` | 111 | 145 |
+| `0x31` | `DELIVERY_DOOR_COMMAND_RESULT` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `60` | 74 | 182 |
+| `0x62` | `DELIVERY_LOCAL_DOOR_RESULT` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `64` | 78 | 178 |
+| `0x65` | `CLEAN_OPERATION_INTERRUPTED` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `61` | 75 | 181 |
+| `0x64` | `DELIVERY_POSTCLOSE_INTERRUPTED` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `61` | 75 | 181 |
+| `0x63` | `DELIVERY_CYCLE_ABORTED` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `61` | 75 | 181 |
+| `0x32` | `WORK_POSTCLOSE_WEIGHT_READY` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `207` | 221 | 35 |
+| `0x33` | `DELIVERY_SELECTION` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `80` | 94 | 162 |
+| `0x34` | `WORK_PREUNLOCK_WEIGHT_READY` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `95` | 109 | 147 |
+| `0x35` | `CLEAN_LOCK_POWER_CHANGED` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `55` | 69 | 187 |
+| `0x36` | `CLEAN_UNLOCK_REQUESTED` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `63` | 77 | 179 |
+| `0x37` | `CLEAN_FINISH_REQUESTED` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `63` | 77 | 179 |
+| `0x38` | `CLEAN_FINAL_WEIGHT_READY` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `191` | 205 | 51 |
+| `0x39` | `FULLNESS_SAMPLE_RESULT` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `106` | 120 | 136 |
+| `0x3A` | `BASELINE_MEASUREMENT_RESULT` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `95` | 109 | 147 |
+| `0x3B` | `FAULT_OBSERVED` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `59` | 73 | 183 |
+| `0x3C` | `SAFETY_SENSOR_EVENT` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `42` | 56 | 200 |
+| `0x3D` | `SAFE_CLOSE_RESULT` | `frozenHistoryMessages` | `MCU_TO_EDGE` | 是 | `43` | 57 | 199 |
+| `0x3E` | `CLEAN_COMPLETION_CONFIRMED` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 是 | `83` | 97 | 159 |
+| `0x3F` | `BOOT_RECONCILIATION_RESULT` | `frozenHistoryMessages` | `MCU_TO_EDGE` | 是 | `64` | 78 | 178 |
+| `0x50` | `STATE_SNAPSHOT_BEGIN` | `frozenHistoryMessages` | `MCU_TO_EDGE` | 是 | `229` | 243 | 13 |
+| `0x51` | `STATE_SNAPSHOT_PORT` | `frozenHistoryMessages` | `MCU_TO_EDGE` | 是 | `81` | 95 | 161 |
+| `0x52` | `STATE_SNAPSHOT_END` | `frozenHistoryMessages` | `MCU_TO_EDGE` | 是 | `96` | 110 | 146 |
 
 ## OneNet 下行
 

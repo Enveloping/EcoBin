@@ -8,6 +8,7 @@
     "status",
     "implementationStage",
     "sessionPolicy",
+    "messageLifecyclePolicy",
     "physicalLink",
     "protocol",
     "streamParser",
@@ -26,6 +27,17 @@
   "additionalProperties": false,
   "properties": {
     "implementationStage": { "const": "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED" },
+    "messageLifecyclePolicy": {
+      "type": "object",
+      "required": ["currentBusinessMessages", "currentDiagnosticMessages", "frozenHistoryMessages", "deprecatedRejectedMessages"],
+      "additionalProperties": false,
+      "properties": {
+        "currentBusinessMessages": { "$ref": "#/$defs/messageNameSet" },
+        "currentDiagnosticMessages": { "$ref": "#/$defs/messageNameSet" },
+        "frozenHistoryMessages": { "$ref": "#/$defs/messageNameSet" },
+        "deprecatedRejectedMessages": { "$ref": "#/$defs/messageNameSet" }
+      }
+    },
     "sessionPolicy": {
       "type": "object",
       "required": ["commandPayloadValidation", "actuatorEventMessages", "processMeasurementMessages", "processEventMessages", "bootstrapMessages", "sessionControlMessages", "readOnlyMessages", "savedResultMessages", "bootstrapMaximumSends", "commandMaximumSends", "commandSequencePolicy", "commandTimeout", "unassignedMcuBootId", "allocator", "probeReuse", "bindCondition", "bindTimeout", "channelPremise", "businessGate", "notes"],
@@ -353,7 +365,8 @@
               "BOOT_RECONCILIATION",
               "BOOT_BINDING",
               "COMMAND_OUTCOME",
-              "RESULT_HANDOFF"
+              "RESULT_HANDOFF",
+              "DEVICE_ENTRY_URL_APPLICATION"
             ]
           },
           "messages": {
@@ -410,6 +423,12 @@
     }
   },
   "$defs": {
+    "messageNameSet": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
+    },
     "fieldOrGroup": {
       "oneOf": [
         { "$ref": "#/$defs/field" },

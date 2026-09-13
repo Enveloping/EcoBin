@@ -1,6 +1,6 @@
 /* Generated from contracts/uart/uart-registry.yaml.
  * DO NOT EDIT.
- * Registry SHA-256: 60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808
+ * Registry SHA-256: 20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2
  */
 #ifndef ECOBIN_UART_PROTOCOL_H
 #define ECOBIN_UART_PROTOCOL_H
@@ -14,7 +14,7 @@
 #define inline __inline
 #endif
 
-#define ECOBIN_UART_REGISTRY_SHA256 "60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808"
+#define ECOBIN_UART_REGISTRY_SHA256 "20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2"
 #define ECOBIN_UART_IMPLEMENTATION_STAGE "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED"
 #define ECOBIN_UART_CONFIG_DOMAIN_LENGTH 26u
 #define ECOBIN_UART_CONFIG_DOMAIN_BYTES { 69u, 67u, 79u, 66u, 73u, 78u, 58u, 85u, 65u, 82u, 84u, 58u, 77u, 67u, 85u, 45u, 67u, 79u, 78u, 70u, 73u, 71u, 58u, 118u, 50u, 0u }
@@ -77,6 +77,10 @@ typedef enum ecobin_uart_message_type {
     ECOBIN_UART_MESSAGE_CONFIG_PORT_BLOCK = 0x12u,
     ECOBIN_UART_MESSAGE_CONFIG_COMMIT = 0x13u,
     ECOBIN_UART_MESSAGE_CONFIG_APPLY_RESULT = 0x14u,
+    ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_BEGIN = 0x15u,
+    ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_PART = 0x16u,
+    ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_COMMIT = 0x17u,
+    ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_APPLY_RESULT = 0x18u,
     ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION = 0x20u,
     ECOBIN_UART_MESSAGE_START_CLEAN_OPERATION = 0x21u,
     ECOBIN_UART_MESSAGE_UNLOCK_CLEAN_DOOR = 0x22u,
@@ -226,6 +230,10 @@ typedef uint8_t ecobin_uart_mcu_work_phase_t;
 typedef uint8_t ecobin_uart_config_apply_status_t;
 #define ECOBIN_UART_CONFIG_APPLY_STATUS_APPLIED 1u
 #define ECOBIN_UART_CONFIG_APPLY_STATUS_FAILED 2u
+
+typedef uint8_t ecobin_uart_device_entry_url_apply_status_t;
+#define ECOBIN_UART_DEVICE_ENTRY_URL_APPLY_STATUS_APPLIED 1u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_APPLY_STATUS_FAILED 2u
 
 typedef uint8_t ecobin_uart_work_query_status_t;
 #define ECOBIN_UART_WORK_QUERY_STATUS_RUNNING 1u
@@ -518,6 +526,7 @@ typedef uint8_t ecobin_uart_reset_reason_t;
 #define ECOBIN_UART_CAPABILITY_CLEAN_MANUAL_CONFIRMATION (UINT64_C(1) << 12)
 #define ECOBIN_UART_CAPABILITY_BOOT_RECONCILIATION (UINT64_C(1) << 13)
 #define ECOBIN_UART_CAPABILITY_DELIVERY_DOOR_HIL_QUALIFIED (UINT64_C(1) << 14)
+#define ECOBIN_UART_CAPABILITY_DEVICE_ENTRY_URL_APPLICATION (UINT64_C(1) << 15)
 
 #define ECOBIN_UART_QUERY_DEVICE_FACTS_PAYLOAD_MIN_LENGTH 17u
 #define ECOBIN_UART_QUERY_DEVICE_FACTS_PAYLOAD_MAX_LENGTH 17u
@@ -958,6 +967,52 @@ typedef uint8_t ecobin_uart_reset_reason_t;
 #define ECOBIN_UART_CONFIG_APPLY_RESULT_CONTENT_SHA256_OFFSET 61u
 #define ECOBIN_UART_CONFIG_APPLY_RESULT_MCU_PAYLOAD_SHA256_OFFSET 93u
 #define ECOBIN_UART_CONFIG_APPLY_RESULT_FAULT_CODE_OFFSET 125u
+
+#define ECOBIN_UART_DEVICE_ENTRY_URL_BEGIN_PAYLOAD_MIN_LENGTH 111u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_BEGIN_PAYLOAD_MAX_LENGTH 111u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_BEGIN_MCU_COMMAND_UID_OFFSET 0u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_BEGIN_COMMAND_DIGEST_SHA256_OFFSET 16u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_BEGIN_TARGET_MCU_BOOT_ID_OFFSET 48u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_BEGIN_COMMAND_SEQUENCE_OFFSET 56u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_BEGIN_APPLICATION_UID_OFFSET 60u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_BEGIN_URL_LENGTH_OFFSET 76u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_BEGIN_URL_SHA256_OFFSET 78u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_BEGIN_PART_COUNT_OFFSET 110u
+
+#define ECOBIN_UART_DEVICE_ENTRY_URL_PART_PAYLOAD_MIN_LENGTH 111u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_PART_PAYLOAD_MAX_LENGTH 175u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_PART_MCU_COMMAND_UID_OFFSET 0u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_PART_COMMAND_DIGEST_SHA256_OFFSET 16u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_PART_TARGET_MCU_BOOT_ID_OFFSET 48u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_PART_COMMAND_SEQUENCE_OFFSET 56u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_PART_APPLICATION_UID_OFFSET 60u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_PART_URL_SHA256_OFFSET 76u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_PART_PART_INDEX_OFFSET 108u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_PART_PART_COUNT_OFFSET 109u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_PART_URL_CHUNK_OFFSET 110u
+
+#define ECOBIN_UART_DEVICE_ENTRY_URL_COMMIT_PAYLOAD_MIN_LENGTH 111u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_COMMIT_PAYLOAD_MAX_LENGTH 111u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_COMMIT_MCU_COMMAND_UID_OFFSET 0u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_COMMIT_COMMAND_DIGEST_SHA256_OFFSET 16u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_COMMIT_TARGET_MCU_BOOT_ID_OFFSET 48u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_COMMIT_COMMAND_SEQUENCE_OFFSET 56u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_COMMIT_APPLICATION_UID_OFFSET 60u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_COMMIT_URL_LENGTH_OFFSET 76u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_COMMIT_URL_SHA256_OFFSET 78u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_COMMIT_PART_COUNT_OFFSET 110u
+
+#define ECOBIN_UART_DEVICE_ENTRY_URL_APPLY_RESULT_PAYLOAD_MIN_LENGTH 89u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_APPLY_RESULT_PAYLOAD_MAX_LENGTH 89u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_APPLY_RESULT_MCU_BOOT_ID_OFFSET 0u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_APPLY_RESULT_MCU_EVENT_SEQUENCE_OFFSET 8u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_APPLY_RESULT_UPTIME_MS_OFFSET 12u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_APPLY_RESULT_MCU_COMMAND_UID_OFFSET 20u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_APPLY_RESULT_APPLICATION_UID_OFFSET 36u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_APPLY_RESULT_URL_LENGTH_OFFSET 52u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_APPLY_RESULT_URL_SHA256_OFFSET 54u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_APPLY_RESULT_STATUS_OFFSET 86u
+#define ECOBIN_UART_DEVICE_ENTRY_URL_APPLY_RESULT_ERROR_CODE_OFFSET 87u
 
 #define ECOBIN_UART_START_DELIVERY_SESSION_PAYLOAD_MIN_LENGTH 137u
 #define ECOBIN_UART_START_DELIVERY_SESSION_PAYLOAD_MAX_LENGTH 137u
@@ -1606,6 +1661,10 @@ static inline int ecobin_uart_message_ack_required(uint8_t message_type) {
     case ECOBIN_UART_MESSAGE_CONFIG_PORT_BLOCK: return 1;
     case ECOBIN_UART_MESSAGE_CONFIG_COMMIT: return 1;
     case ECOBIN_UART_MESSAGE_CONFIG_APPLY_RESULT: return 1;
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_BEGIN: return 1;
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_PART: return 1;
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_COMMIT: return 1;
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_APPLY_RESULT: return 0;
     case ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION: return 1;
     case ECOBIN_UART_MESSAGE_START_CLEAN_OPERATION: return 1;
     case ECOBIN_UART_MESSAGE_UNLOCK_CLEAN_DOOR: return 1;
@@ -1679,6 +1738,10 @@ static inline int ecobin_uart_message_direction(uint8_t message_type) {
     case ECOBIN_UART_MESSAGE_CONFIG_PORT_BLOCK: return 1;
     case ECOBIN_UART_MESSAGE_CONFIG_COMMIT: return 1;
     case ECOBIN_UART_MESSAGE_CONFIG_APPLY_RESULT: return 2;
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_BEGIN: return 1;
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_PART: return 1;
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_COMMIT: return 1;
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_APPLY_RESULT: return 2;
     case ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION: return 1;
     case ECOBIN_UART_MESSAGE_START_CLEAN_OPERATION: return 1;
     case ECOBIN_UART_MESSAGE_UNLOCK_CLEAN_DOOR: return 1;
@@ -1722,6 +1785,15 @@ static inline int ecobin_uart_bytes_zero(const uint8_t *data, size_t length) {
     for (index = 0u; index < length; ++index) { if (data[index] != 0u) return 0; }
     return 1;
 }
+static inline int ecobin_uart_device_entry_url_chunk_safe(const uint8_t *data, size_t length, int first) {
+    static const uint8_t prefix[8] = { 'h', 't', 't', 'p', 's', ':', '/', '/' };
+    size_t index;
+    if (length == 0u || (first && (length < sizeof(prefix) || memcmp(data, prefix, sizeof(prefix)) != 0))) return 0;
+    for (index = 0u; index < length; ++index) {
+        if (data[index] < 0x21u || data[index] > 0x7eu || data[index] == 0x22u || data[index] == 0x5cu) return 0;
+    }
+    return 1;
+}
 /* ARMCC5 shares this full validator across translation units. */
 #if defined(__CC_ARM) && !defined(ECOBIN_UART_SHARED_PAYLOAD_VALIDATOR)
 #define ECOBIN_UART_SHARED_PAYLOAD_VALIDATOR 1
@@ -1739,25 +1811,25 @@ static inline int ecobin_uart_validate_session_payload(
     uint8_t message_type, const uint8_t *payload, uint16_t length) {
     switch (message_type) {
     case ECOBIN_UART_MESSAGE_BOOT_PROBE:
-        if (payload == NULL || length != 8u) { return -1; }
+        if (payload == NULL || length < 8u || length > 8u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_BOOT_PROBE_REPLY:
-        if (payload == NULL || length != 16u) { return -1; }
+        if (payload == NULL || length < 16u || length > 16u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 8u) > UINT64_C(9007199254740991)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_BIND_BOOT:
-        if (payload == NULL || length != 16u) { return -1; }
+        if (payload == NULL || length < 16u || length > 16u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 8u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 8u) > UINT64_C(9007199254740991)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_BIND_BOOT_REPLY:
-        if (payload == NULL || length != 25u) { return -1; }
+        if (payload == NULL || length < 25u || length > 25u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -1767,7 +1839,7 @@ static inline int ecobin_uart_validate_session_payload(
         if ((payload[24] == 1 && ecobin_uart_read_u64_be(payload + 16u) != ecobin_uart_read_u64_be(payload + 8u)) || (payload[24] == 2 && ecobin_uart_read_u64_be(payload + 16u) != 0) || (payload[24] == 3 && ecobin_uart_read_u64_be(payload + 16u) == 0)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_COMMAND_DECISION:
-        if (payload == NULL || length != 71u) { return -1; }
+        if (payload == NULL || length < 71u || length > 71u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -1780,7 +1852,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[68] == 6) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_QUERY_COMMAND:
-        if (payload == NULL || length != 68u) { return -1; }
+        if (payload == NULL || length < 68u || length > 68u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 8u, 16u)) { return -1; }
@@ -1789,7 +1861,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (ecobin_uart_read_u32_be(payload + 64u) < UINT64_C(1)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_COMMAND_QUERY_RESULT:
-        if (payload == NULL || length != 83u) { return -1; }
+        if (payload == NULL || length < 83u || length > 83u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 8u, 16u)) { return -1; }
@@ -1805,14 +1877,14 @@ static inline int ecobin_uart_validate_session_payload(
         if (ecobin_uart_read_u64_be(payload + 68u) == ecobin_uart_read_u64_be(payload + 56u) && ((payload[76] == 6 && ecobin_uart_read_u32_be(payload + 64u) <= ecobin_uart_read_u32_be(payload + 79u)) || (payload[76] == 5 && ecobin_uart_read_u32_be(payload + 64u) > ecobin_uart_read_u32_be(payload + 79u)) || ((payload[76] == 1 || payload[76] == 2 || payload[76] == 4) && ecobin_uart_read_u32_be(payload + 64u) != ecobin_uart_read_u32_be(payload + 79u)))) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_RESULT_SAVED:
-        if (payload == NULL || length != 60u) { return -1; }
+        if (payload == NULL || length < 60u || length > 60u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 12u, 16u)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_RESULT_SAVED_REPLY:
-        if (payload == NULL || length != 69u) { return -1; }
+        if (payload == NULL || length < 69u || length > 69u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -1821,8 +1893,23 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[68] != 1 && payload[68] != 2 && payload[68] != 3 && payload[68] != 4 && payload[68] != 5) { return -1; }
         if ((payload[68] == 5) != (ecobin_uart_read_u64_be(payload + 60u) != ecobin_uart_read_u64_be(payload + 0u))) { return -1; }
         return 0;
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_APPLY_RESULT:
+        if (payload == NULL || length < 89u || length > 89u) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
+        if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 12u) > UINT64_C(9007199254740991)) { return -1; }
+        if (ecobin_uart_bytes_zero(payload + 20u, 16u)) { return -1; }
+        if (ecobin_uart_bytes_zero(payload + 36u, 16u)) { return -1; }
+        if (ecobin_uart_read_u16_be(payload + 52u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_read_u16_be(payload + 52u) > UINT64_C(192)) { return -1; }
+        if (payload[86] != 1 && payload[86] != 2) { return -1; }
+        if (ecobin_uart_read_u16_be(payload + 87u) != 0 && ecobin_uart_read_u16_be(payload + 87u) != 1 && ecobin_uart_read_u16_be(payload + 87u) != 2 && ecobin_uart_read_u16_be(payload + 87u) != 3 && ecobin_uart_read_u16_be(payload + 87u) != 4 && ecobin_uart_read_u16_be(payload + 87u) != 5 && ecobin_uart_read_u16_be(payload + 87u) != 6 && ecobin_uart_read_u16_be(payload + 87u) != 7 && ecobin_uart_read_u16_be(payload + 87u) != 8 && ecobin_uart_read_u16_be(payload + 87u) != 9 && ecobin_uart_read_u16_be(payload + 87u) != 10 && ecobin_uart_read_u16_be(payload + 87u) != 11 && ecobin_uart_read_u16_be(payload + 87u) != 12) { return -1; }
+        if ((payload[86] == 1 && ecobin_uart_read_u16_be(payload + 87u) != 0) || (payload[86] == 2 && ecobin_uart_read_u16_be(payload + 87u) != 7)) { return -1; }
+        if (ecobin_uart_bytes_zero(payload + 54u, 32u)) { return -1; }
+        return 0;
     case ECOBIN_UART_MESSAGE_WORK_RESULT:
-        if (payload == NULL || length != 199u) { return -1; }
+        if (payload == NULL || length < 199u || length > 199u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -1873,7 +1960,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (!ecobin_uart_result_digest_matches(payload)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_QUERY_RESULT:
-        if (payload == NULL || length != 68u) { return -1; }
+        if (payload == NULL || length < 68u || length > 68u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -1882,7 +1969,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (ecobin_uart_bytes_zero(payload + 20u, 16u)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_RESULT_QUERY_REPLY:
-        if (payload == NULL || length != 77u) { return -1; }
+        if (payload == NULL || length < 77u || length > 77u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -1894,7 +1981,7 @@ static inline int ecobin_uart_validate_session_payload(
         if ((payload[76] == 5) != (ecobin_uart_read_u64_be(payload + 68u) != ecobin_uart_read_u64_be(payload + 8u))) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_QUERY_WORK:
-        if (payload == NULL || length != 86u) { return -1; }
+        if (payload == NULL || length < 86u || length > 86u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 8u, 16u)) { return -1; }
@@ -1908,7 +1995,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[84] != 2 && payload[84] != 3) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_WORK_QUERY_REPLY:
-        if (payload == NULL || length != 132u) { return -1; }
+        if (payload == NULL || length < 132u || length > 132u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 8u, 16u)) { return -1; }
@@ -1931,7 +2018,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (!(payload[94] == 2 || payload[94] == 3) && payload[94] != 1 && payload[95] != 0) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_QUERY_DEVICE_FACTS:
-        if (payload == NULL || length != 17u) { return -1; }
+        if (payload == NULL || length < 17u || length > 17u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -1940,7 +2027,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[16] > UINT64_C(6)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_DEVICE_FACTS_REPLY:
-        if (payload == NULL || length != 226u) { return -1; }
+        if (payload == NULL || length < 226u || length > 226u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2013,7 +2100,7 @@ static inline int ecobin_uart_validate_session_payload(
         if ((payload[198] == 1 && ecobin_uart_read_u32_be(payload + 222u) != 0) || (payload[198] > 1 && ecobin_uart_read_u32_be(payload + 222u) == 0)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_QUERY_PROCESS_EVENT:
-        if (payload == NULL || length != 97u) { return -1; }
+        if (payload == NULL || length < 97u || length > 97u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 8u, 16u)) { return -1; }
@@ -2040,7 +2127,7 @@ static inline int ecobin_uart_validate_session_payload(
         if ((ecobin_uart_read_u16_be(payload + 87u) > 0) != (payload[86] == 48 || payload[86] == 50 || payload[86] == 51 || payload[86] == 54 || payload[86] == 55 || payload[86] == 56 || payload[86] == 62)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_PROCESS_EVENT_QUERY_REPLY:
-        if (payload == NULL || length != 142u) { return -1; }
+        if (payload == NULL || length < 142u || length > 142u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 8u, 16u)) { return -1; }
@@ -2072,14 +2159,14 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[105] > 2 && (ecobin_uart_read_u32_be(payload + 106u) != 0 || !ecobin_uart_bytes_zero(payload + 110u, 32u))) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_PROCESS_EVENT_SAVED:
-        if (payload == NULL || length != 45u) { return -1; }
+        if (payload == NULL || length < 45u || length > 45u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
         if (payload[12] != 48 && payload[12] != 50 && payload[12] != 52 && payload[12] != 56 && payload[12] != 57 && payload[12] != 58 && payload[12] != 51 && payload[12] != 54 && payload[12] != 55 && payload[12] != 62) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_PROCESS_EVENT_SAVED_REPLY:
-        if (payload == NULL || length != 54u) { return -1; }
+        if (payload == NULL || length < 54u || length > 54u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2089,14 +2176,14 @@ static inline int ecobin_uart_validate_session_payload(
         if ((payload[53] == 5) != (ecobin_uart_read_u64_be(payload + 45u) != ecobin_uart_read_u64_be(payload + 0u))) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_QUERY_ACTUATOR_EVENT:
-        if (payload == NULL || length != 20u) { return -1; }
+        if (payload == NULL || length < 20u || length > 20u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 8u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 8u) > UINT64_C(9007199254740991)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_ACTUATOR_EVENT_QUERY_REPLY:
-        if (payload == NULL || length != 66u) { return -1; }
+        if (payload == NULL || length < 66u || length > 66u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2109,14 +2196,14 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[28] != 1 && (payload[33] != 0 || ecobin_uart_read_u32_be(payload + 29u) != 0 || !ecobin_uart_bytes_zero(payload + 34u, 32u))) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_ACTUATOR_EVENT_SAVED:
-        if (payload == NULL || length != 45u) { return -1; }
+        if (payload == NULL || length < 45u || length > 45u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
         if (payload[12] != 49 && payload[12] != 53 && payload[12] != 61 && payload[12] != 98 && payload[12] != 99 && payload[12] != 100 && payload[12] != 101) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_ACTUATOR_EVENT_SAVED_REPLY:
-        if (payload == NULL || length != 54u) { return -1; }
+        if (payload == NULL || length < 54u || length > 54u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2126,7 +2213,7 @@ static inline int ecobin_uart_validate_session_payload(
         if ((payload[53] == 5) != (ecobin_uart_read_u64_be(payload + 45u) != ecobin_uart_read_u64_be(payload + 0u))) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_WORK_PREOPEN_WEIGHT_READY:
-        if (payload == NULL || length != 97u) { return -1; }
+        if (payload == NULL || length < 97u || length > 97u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2152,7 +2239,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[71] > 3 && (int32_t)ecobin_uart_read_u32_be(payload + 72u) != 0) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_WORK_POSTCLOSE_WEIGHT_READY:
-        if (payload == NULL || length != 207u) { return -1; }
+        if (payload == NULL || length < 207u || length > 207u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2200,7 +2287,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[71] > 3 && (int32_t)ecobin_uart_read_u32_be(payload + 72u) != 0) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_WORK_PREUNLOCK_WEIGHT_READY:
-        if (payload == NULL || length != 95u) { return -1; }
+        if (payload == NULL || length < 95u || length > 95u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2225,7 +2312,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[69] > 3 && (int32_t)ecobin_uart_read_u32_be(payload + 70u) != 0) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_CLEAN_FINAL_WEIGHT_READY:
-        if (payload == NULL || length != 191u) { return -1; }
+        if (payload == NULL || length < 191u || length > 191u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2272,7 +2359,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[55] > 3 && (int32_t)ecobin_uart_read_u32_be(payload + 56u) != 0) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_FULLNESS_SAMPLE_RESULT:
-        if (payload == NULL || length != 106u) { return -1; }
+        if (payload == NULL || length < 106u || length > 106u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2307,7 +2394,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[63] > payload[62]) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_BASELINE_MEASUREMENT_RESULT:
-        if (payload == NULL || length != 95u) { return -1; }
+        if (payload == NULL || length < 95u || length > 95u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2332,7 +2419,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[69] > 3 && (int32_t)ecobin_uart_read_u32_be(payload + 70u) != 0) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_DELIVERY_SELECTION:
-        if (payload == NULL || length != 80u) { return -1; }
+        if (payload == NULL || length < 80u || length > 80u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2348,7 +2435,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[79] != 1 && payload[79] != 2 && payload[79] != 3) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_CLEAN_UNLOCK_REQUESTED:
-        if (payload == NULL || length != 63u) { return -1; }
+        if (payload == NULL || length < 63u || length > 63u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2362,7 +2449,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (ecobin_uart_read_u64_be(payload + 55u) > UINT64_C(9007199254740991)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_CLEAN_FINISH_REQUESTED:
-        if (payload == NULL || length != 63u) { return -1; }
+        if (payload == NULL || length < 63u || length > 63u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2376,7 +2463,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (ecobin_uart_read_u64_be(payload + 55u) > UINT64_C(9007199254740991)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_CLEAN_COMPLETION_CONFIRMED:
-        if (payload == NULL || length != 83u) { return -1; }
+        if (payload == NULL || length < 83u || length > 83u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2398,7 +2485,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[73] != 2) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_DELIVERY_DOOR_COMMAND_RESULT:
-        if (payload == NULL || length != 60u) { return -1; }
+        if (payload == NULL || length < 60u || length > 60u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2418,7 +2505,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[56] == 3 && payload[55] != 2) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_CLEAN_LOCK_POWER_CHANGED:
-        if (payload == NULL || length != 55u) { return -1; }
+        if (payload == NULL || length < 55u || length > 55u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2431,7 +2518,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[54] != 1 && payload[54] != 2 && payload[54] != 3 && payload[54] != 4) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_SAFE_CLOSE_RESULT:
-        if (payload == NULL || length != 43u) { return -1; }
+        if (payload == NULL || length < 43u || length > 43u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2451,7 +2538,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[38] != 2) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_DELIVERY_LOCAL_DOOR_RESULT:
-        if (payload == NULL || length != 64u) { return -1; }
+        if (payload == NULL || length < 64u || length > 64u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2473,7 +2560,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[56] == 3 && payload[55] != 2) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_DELIVERY_CYCLE_ABORTED:
-        if (payload == NULL || length != 61u) { return -1; }
+        if (payload == NULL || length < 61u || length > 61u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2490,7 +2577,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (ecobin_uart_read_u32_be(payload + 57u) >= ecobin_uart_read_u32_be(payload + 8u)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_DELIVERY_POSTCLOSE_INTERRUPTED:
-        if (payload == NULL || length != 61u) { return -1; }
+        if (payload == NULL || length < 61u || length > 61u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2507,7 +2594,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (ecobin_uart_read_u32_be(payload + 57u) >= ecobin_uart_read_u32_be(payload + 8u)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_CLEAN_OPERATION_INTERRUPTED:
-        if (payload == NULL || length != 61u) { return -1; }
+        if (payload == NULL || length < 61u || length > 61u) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 8u) < UINT64_C(1)) { return -1; }
@@ -2525,7 +2612,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (ecobin_uart_read_u32_be(payload + 57u) >= ecobin_uart_read_u32_be(payload + 8u)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_QUERY_STATE:
-        if (payload == NULL || length != 76u) { return -1; }
+        if (payload == NULL || length < 76u || length > 76u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2534,7 +2621,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_SAFE_CLOSE:
-        if (payload == NULL || length != 66u) { return -1; }
+        if (payload == NULL || length < 66u || length > 66u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2546,7 +2633,7 @@ static inline int ecobin_uart_validate_session_payload(
         if ((payload[60] == 1) != (payload[61] == 0)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_CONFIG_BEGIN:
-        if (payload == NULL || length != 151u) { return -1; }
+        if (payload == NULL || length < 151u || length > 151u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2563,7 +2650,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[149] != payload[150] + 3) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_CONFIG_DEVICE_BLOCK:
-        if (payload == NULL || length != 183u) { return -1; }
+        if (payload == NULL || length < 183u || length > 183u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2589,7 +2676,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_CONFIG_PORT_BLOCK:
-        if (payload == NULL || length != 207u) { return -1; }
+        if (payload == NULL || length < 207u || length > 207u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2630,7 +2717,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[171] > payload[170]) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_CONFIG_COMMIT:
-        if (payload == NULL || length != 150u) { return -1; }
+        if (payload == NULL || length < 150u || length > 150u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2645,8 +2732,55 @@ static inline int ecobin_uart_validate_session_payload(
         if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
         if (payload[148] != payload[149]) { return -1; }
         return 0;
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_BEGIN:
+        if (payload == NULL || length < 111u || length > 111u) { return -1; }
+        if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
+        if (ecobin_uart_read_u32_be(payload + 56u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_bytes_zero(payload + 60u, 16u)) { return -1; }
+        if (ecobin_uart_read_u16_be(payload + 76u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_read_u16_be(payload + 76u) > UINT64_C(192)) { return -1; }
+        if (payload[110] < UINT64_C(1)) { return -1; }
+        if (payload[110] > UINT64_C(3)) { return -1; }
+        if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
+        if (payload[110] != (ecobin_uart_read_u16_be(payload + 76u) + 63) / 64) { return -1; }
+        if (ecobin_uart_bytes_zero(payload + 78u, 32u)) { return -1; }
+        return 0;
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_PART:
+        if (payload == NULL || length < 111u || length > 175u) { return -1; }
+        if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
+        if (ecobin_uart_read_u32_be(payload + 56u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_bytes_zero(payload + 60u, 16u)) { return -1; }
+        if (payload[108] < UINT64_C(1)) { return -1; }
+        if (payload[108] > UINT64_C(3)) { return -1; }
+        if (payload[109] < UINT64_C(1)) { return -1; }
+        if (payload[109] > UINT64_C(3)) { return -1; }
+        if (payload[110u] == 0u || payload[110u] > 64u || length != 111u + payload[110u]) { return -1; }
+        if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
+        if (payload[108] > payload[109]) { return -1; }
+        if (ecobin_uart_bytes_zero(payload + 76u, 32u)) { return -1; }
+        if (!ecobin_uart_device_entry_url_chunk_safe(payload + 111u, payload[110u], payload[108] == 1)) { return -1; }
+        return 0;
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_COMMIT:
+        if (payload == NULL || length < 111u || length > 111u) { return -1; }
+        if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
+        if (ecobin_uart_read_u32_be(payload + 56u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_bytes_zero(payload + 60u, 16u)) { return -1; }
+        if (ecobin_uart_read_u16_be(payload + 76u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_read_u16_be(payload + 76u) > UINT64_C(192)) { return -1; }
+        if (payload[110] < UINT64_C(1)) { return -1; }
+        if (payload[110] > UINT64_C(3)) { return -1; }
+        if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
+        if (payload[110] != (ecobin_uart_read_u16_be(payload + 76u) + 63) / 64) { return -1; }
+        if (ecobin_uart_bytes_zero(payload + 78u, 32u)) { return -1; }
+        return 0;
     case ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION:
-        if (payload == NULL || length != 137u) { return -1; }
+        if (payload == NULL || length < 137u || length > 137u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2664,7 +2798,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_START_CLEAN_OPERATION:
-        if (payload == NULL || length != 125u) { return -1; }
+        if (payload == NULL || length < 125u || length > 125u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2679,7 +2813,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_UNLOCK_CLEAN_DOOR:
-        if (payload == NULL || length != 107u) { return -1; }
+        if (payload == NULL || length < 107u || length > 107u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2693,7 +2827,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_RESUME_CLEAN_OPERATION:
-        if (payload == NULL || length != 123u) { return -1; }
+        if (payload == NULL || length < 123u || length > 123u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2708,7 +2842,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_END_CLEAN_BEFORE_UNLOCK:
-        if (payload == NULL || length != 102u) { return -1; }
+        if (payload == NULL || length < 102u || length > 102u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2722,7 +2856,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_SAMPLE_FULLNESS:
-        if (payload == NULL || length != 130u) { return -1; }
+        if (payload == NULL || length < 130u || length > 130u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2738,7 +2872,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_MEASURE_BASELINE:
-        if (payload == NULL || length != 125u) { return -1; }
+        if (payload == NULL || length < 125u || length > 125u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2753,7 +2887,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_AUTHORIZE_DELIVERY_FIRST_OPEN:
-        if (payload == NULL || length != 113u) { return -1; }
+        if (payload == NULL || length < 113u || length > 113u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }
@@ -2767,7 +2901,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (!ecobin_uart_command_digest_matches(message_type, payload, length)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_CONFIRM_NO_ACTIVE_WORK:
-        if (payload == NULL || length != 100u) { return -1; }
+        if (payload == NULL || length < 100u || length > 100u) { return -1; }
         if (ecobin_uart_bytes_zero(payload + 0u, 16u)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u64_be(payload + 48u) > UINT64_C(9007199254740991)) { return -1; }

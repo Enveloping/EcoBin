@@ -1,5 +1,5 @@
 {
-  "registryVersion": "2.0.0-rc.23",
+  "registryVersion": "2.0.0-rc.24",
   "status": "MCU_REVIEW_REQUIRED",
   "implementationStage": "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED",
   "sessionPolicy": {
@@ -8,7 +8,7 @@
     "commandPayloadValidation": "ALL_FENCED_EDGE_MESSAGES",
     "processMeasurementMessages": ["WORK_PREOPEN_WEIGHT_READY", "WORK_POSTCLOSE_WEIGHT_READY", "WORK_PREUNLOCK_WEIGHT_READY", "CLEAN_FINAL_WEIGHT_READY", "FULLNESS_SAMPLE_RESULT", "BASELINE_MEASUREMENT_RESULT"],
     "bootstrapMessages": ["BOOT_PROBE", "BOOT_PROBE_REPLY", "BIND_BOOT", "BIND_BOOT_REPLY"],
-    "sessionControlMessages": ["COMMAND_DECISION", "QUERY_COMMAND", "COMMAND_QUERY_RESULT", "RESULT_SAVED", "RESULT_SAVED_REPLY", "WORK_RESULT", "QUERY_RESULT", "RESULT_QUERY_REPLY", "QUERY_WORK", "WORK_QUERY_REPLY", "QUERY_DEVICE_FACTS", "DEVICE_FACTS_REPLY", "QUERY_PROCESS_EVENT", "PROCESS_EVENT_QUERY_REPLY", "PROCESS_EVENT_SAVED", "PROCESS_EVENT_SAVED_REPLY", "QUERY_ACTUATOR_EVENT", "ACTUATOR_EVENT_QUERY_REPLY", "ACTUATOR_EVENT_SAVED", "ACTUATOR_EVENT_SAVED_REPLY"],
+    "sessionControlMessages": ["COMMAND_DECISION", "QUERY_COMMAND", "COMMAND_QUERY_RESULT", "RESULT_SAVED", "RESULT_SAVED_REPLY", "DEVICE_ENTRY_URL_APPLY_RESULT", "WORK_RESULT", "QUERY_RESULT", "RESULT_QUERY_REPLY", "QUERY_WORK", "WORK_QUERY_REPLY", "QUERY_DEVICE_FACTS", "DEVICE_FACTS_REPLY", "QUERY_PROCESS_EVENT", "PROCESS_EVENT_QUERY_REPLY", "PROCESS_EVENT_SAVED", "PROCESS_EVENT_SAVED_REPLY", "QUERY_ACTUATOR_EVENT", "ACTUATOR_EVENT_QUERY_REPLY", "ACTUATOR_EVENT_SAVED", "ACTUATOR_EVENT_SAVED_REPLY"],
     "readOnlyMessages": ["QUERY_COMMAND", "QUERY_RESULT", "QUERY_WORK", "QUERY_DEVICE_FACTS", "QUERY_PROCESS_EVENT", "QUERY_ACTUATOR_EVENT"],
     "savedResultMessages": ["RESULT_SAVED", "RESULT_SAVED_REPLY", "PROCESS_EVENT_SAVED", "PROCESS_EVENT_SAVED_REPLY", "ACTUATOR_EVENT_SAVED", "ACTUATOR_EVENT_SAVED_REPLY"],
     "bootstrapMaximumSends": 1,
@@ -22,7 +22,33 @@
     "bindTimeout": "FRESH_PROBE_NOT_BIND_RETRY",
     "channelPremise": "REQUESTS_MAY_BE_LOST_DELAYED_REORDERED_BUT_NOT_COPIED",
     "businessGate": "NONZERO_EXACT_TARGET_BOOT",
-    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.23精简正常路径以START作为整次本地业务授权，MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。原过程/动作消息仅供旧候选历史诊断和归档读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。成对固件/主入口和现场验证未完成，不可直接发布。"
+    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.24精简正常路径以START作为整次本地业务授权，MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。二维码URL按BEGIN/PART/COMMIT应用，QUERY_COMMAND只查询原决定并可促使MCU重发RAM中匹配的应用结果，不重写屏幕。原过程/动作消息仅供当前诊断或冻结历史读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。成对固件/主入口和现场验证未完成，不可直接发布。"
+  },
+  "messageLifecyclePolicy": {
+    "currentBusinessMessages": [
+      "HELLO", "HELLO_ACK", "ACK", "NACK", "BOOT_PROBE", "BOOT_PROBE_REPLY", "BIND_BOOT", "BIND_BOOT_REPLY",
+      "COMMAND_DECISION", "QUERY_COMMAND", "COMMAND_QUERY_RESULT", "RESULT_SAVED", "RESULT_SAVED_REPLY",
+      "CONFIG_BEGIN", "CONFIG_DEVICE_BLOCK", "CONFIG_PORT_BLOCK", "CONFIG_COMMIT", "CONFIG_APPLY_RESULT",
+      "DEVICE_ENTRY_URL_BEGIN", "DEVICE_ENTRY_URL_PART", "DEVICE_ENTRY_URL_COMMIT", "DEVICE_ENTRY_URL_APPLY_RESULT",
+      "START_DELIVERY_SESSION", "START_CLEAN_OPERATION", "MEASURE_BASELINE",
+      "WORK_RESULT", "QUERY_RESULT", "RESULT_QUERY_REPLY", "QUERY_WORK", "WORK_QUERY_REPLY"
+    ],
+    "currentDiagnosticMessages": [
+      "QUERY_DEVICE_FACTS", "DEVICE_FACTS_REPLY", "WORK_PREOPEN_WEIGHT_READY", "DELIVERY_DOOR_COMMAND_RESULT",
+      "WORK_POSTCLOSE_WEIGHT_READY", "DELIVERY_SELECTION", "WORK_PREUNLOCK_WEIGHT_READY", "CLEAN_LOCK_POWER_CHANGED",
+      "CLEAN_UNLOCK_REQUESTED", "CLEAN_FINISH_REQUESTED", "CLEAN_FINAL_WEIGHT_READY", "FULLNESS_SAMPLE_RESULT",
+      "BASELINE_MEASUREMENT_RESULT", "FAULT_OBSERVED", "SAFETY_SENSOR_EVENT", "CLEAN_COMPLETION_CONFIRMED",
+      "QUERY_PROCESS_EVENT", "PROCESS_EVENT_QUERY_REPLY", "PROCESS_EVENT_SAVED", "PROCESS_EVENT_SAVED_REPLY",
+      "QUERY_ACTUATOR_EVENT", "ACTUATOR_EVENT_QUERY_REPLY", "ACTUATOR_EVENT_SAVED", "ACTUATOR_EVENT_SAVED_REPLY",
+      "DELIVERY_LOCAL_DOOR_RESULT", "DELIVERY_CYCLE_ABORTED", "DELIVERY_POSTCLOSE_INTERRUPTED", "CLEAN_OPERATION_INTERRUPTED"
+    ],
+    "frozenHistoryMessages": [
+      "SAFE_CLOSE_RESULT", "BOOT_RECONCILIATION_RESULT", "STATE_SNAPSHOT_BEGIN", "STATE_SNAPSHOT_PORT", "STATE_SNAPSHOT_END"
+    ],
+    "deprecatedRejectedMessages": [
+      "QUERY_STATE", "SAFE_CLOSE", "UNLOCK_CLEAN_DOOR", "RESUME_CLEAN_OPERATION", "END_CLEAN_BEFORE_UNLOCK",
+      "SAMPLE_FULLNESS", "AUTHORIZE_DELIVERY_FIRST_OPEN", "CONFIRM_NO_ACTIVE_WORK"
+    ]
   },
   "physicalLink": {
     "baudRate": 115200,
@@ -228,6 +254,13 @@
       }
     },
     "ConfigApplyStatus": {
+      "wireType": "u8",
+      "values": {
+        "APPLIED": 1,
+        "FAILED": 2
+      }
+    },
+    "DeviceEntryUrlApplyStatus": {
       "wireType": "u8",
       "values": {
         "APPLIED": 1,
@@ -569,25 +602,20 @@
     "DELIVERY_SAFE_CLOSE": 11,
     "CLEAN_MANUAL_CONFIRMATION": 12,
     "BOOT_RECONCILIATION": 13,
-    "DELIVERY_DOOR_HIL_QUALIFIED": 14
+    "DELIVERY_DOOR_HIL_QUALIFIED": 14,
+    "DEVICE_ENTRY_URL_APPLICATION": 15
   },
   "capabilityPolicy": {
-    "knownMaskHex": "0000000000007fff",
-    "requiredEdgeMaskHex": "0000000000000300",
-    "requiredMcuMaskHex": "0000000000000300",
+    "knownMaskHex": "000000000000ffff",
+    "requiredEdgeMaskHex": "0000000000008100",
+    "requiredMcuMaskHex": "0000000000008100",
     "unknownBitDisposition": "HELLO_INCOMPATIBLE",
     "negotiation": "INTERSECTION_AFTER_REQUIRED_MASK_CHECK",
     "messageRequirements": {
       "START_DELIVERY_SESSION": [
         "DELIVERY_DOOR_CONTROL",
-        "DELIVERY_DOOR_COMMAND_RESULT",
         "SIGNED_WEIGHT_WITH_QUALITY",
         "DELIVERY_LOCAL_CONTINUE",
-        "DELIVERY_DOOR_HIL_QUALIFIED"
-      ],
-      "AUTHORIZE_DELIVERY_FIRST_OPEN": [
-        "DELIVERY_DOOR_CONTROL",
-        "DELIVERY_DOOR_COMMAND_RESULT",
         "DELIVERY_DOOR_HIL_QUALIFIED"
       ],
       "START_CLEAN_OPERATION": [
@@ -598,27 +626,9 @@
       "CONFIG_BEGIN": [
         "CONFIG_STAGING_COMMIT"
       ],
-      "SAMPLE_FULLNESS": [
-        "SIGNED_WEIGHT_WITH_QUALITY",
-        "FULLNESS_SENSOR_SAMPLING"
-      ],
-      "QUERY_STATE": [
-        "STATE_SNAPSHOT_SEGMENTS"
-      ],
-      "SAFE_CLOSE": [
-        "DELIVERY_SAFE_CLOSE",
-        "DELIVERY_DOOR_CONTROL",
-        "DELIVERY_DOOR_COMMAND_RESULT",
-        "DELIVERY_DOOR_HIL_QUALIFIED"
-      ],
-      "CONFIRM_NO_ACTIVE_WORK": [
-        "BOOT_RECONCILIATION"
-      ],
-      "RESUME_CLEAN_OPERATION": [
-        "BOOT_RECONCILIATION",
-        "CLEAN_SOLENOID_CONTROL",
-        "CLEAN_MANUAL_CONFIRMATION"
-      ]
+      "DEVICE_ENTRY_URL_BEGIN": ["DEVICE_ENTRY_URL_APPLICATION"],
+      "DEVICE_ENTRY_URL_PART": ["DEVICE_ENTRY_URL_APPLICATION"],
+      "DEVICE_ENTRY_URL_COMMIT": ["DEVICE_ENTRY_URL_APPLICATION"]
     }
   },
   "digestProfiles": {
@@ -1612,12 +1622,75 @@
       ]
     },
     {
+      "name": "DEVICE_ENTRY_URL_BEGIN",
+      "id": 21,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONFIGURATION",
+      "ackRequired": true,
+      "notes": "开始一份只驻留MCU RAM的二维码URL应用。urlSha256是1至192字节安全ASCII URL原字节的SHA-256；partCount固定等于向上取整(urlLength/64)。不切换页面、不驱动机械。",
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "applicationUid", "type": "uuid" },
+        { "name": "urlLength", "type": "u16", "minimum": 1, "maximum": 192 },
+        { "name": "urlSha256", "type": "sha256" },
+        { "name": "partCount", "type": "u8", "minimum": 1, "maximum": 3 }
+      ]
+    },
+    {
+      "name": "DEVICE_ENTRY_URL_PART",
+      "id": 22,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONFIGURATION",
+      "ackRequired": true,
+      "notes": "传输严格连续的1基分片。每片1至64字节，全部字节为0x21至0x7e且不含双引号或反斜杠；第一片必须以https://开头。状态机还须核对BEGIN中的总长度、总片数和摘要。",
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "applicationUid", "type": "uuid" },
+        { "name": "urlSha256", "type": "sha256" },
+        { "name": "partIndex", "type": "u8", "minimum": 1, "maximum": 3 },
+        { "name": "partCount", "type": "u8", "minimum": 1, "maximum": 3 },
+        { "name": "urlChunk", "type": "string_u8", "maxLength": 64 }
+      ]
+    },
+    {
+      "name": "DEVICE_ENTRY_URL_COMMIT",
+      "id": 23,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONFIGURATION",
+      "ackRequired": true,
+      "notes": "只有完整分片、长度和SHA-256全部一致且当前无业务时才应用。MCU必须把完整page0.qr0.txt指令原子写入UART3发送队列；调用函数或部分入队不算成功。按项目信任边界不再追踪USART发送完成。",
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "applicationUid", "type": "uuid" },
+        { "name": "urlLength", "type": "u16", "minimum": 1, "maximum": 192 },
+        { "name": "urlSha256", "type": "sha256" },
+        { "name": "partCount", "type": "u8", "minimum": 1, "maximum": 3 }
+      ]
+    },
+    {
+      "name": "DEVICE_ENTRY_URL_APPLY_RESULT",
+      "id": 24,
+      "direction": "MCU_TO_EDGE",
+      "category": "CONFIGURATION",
+      "ackRequired": false,
+      "notes": "回显COMMIT命令和应用身份。APPLIED只表示完整、未截断的page0.qr0.txt指令已经原子写入UART3发送队列，并按项目信任边界视为屏幕已显示；不追踪USART发送完成，不要求HMI回执。Pi未可靠保存时以QUERY_COMMAND查询原COMMIT，MCU只重发RAM中的同一结果，不重写屏幕。",
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
+        { "name": "applicationUid", "type": "uuid" },
+        { "name": "urlLength", "type": "u16", "minimum": 1, "maximum": 192 },
+        { "name": "urlSha256", "type": "sha256" },
+        { "name": "status", "type": "u8", "enum": "DeviceEntryUrlApplyStatus" },
+        { "name": "errorCode", "type": "u16", "enum": "NackError" }
+      ]
+    },
+    {
       "name": "START_DELIVERY_SESSION",
       "id": 32,
       "direction": "EDGE_TO_MCU",
       "category": "COMMAND",
       "ackRequired": true,
-      "notes": "只建立待首次开门会话并触发首次前置称重；不得因本命令或重量事件 ACK 直接开门",
+      "notes": "START授权整次本地投递。MCU受理后自行完成首次称重，成功即自主开门；后续关门、末重、串口屏选择和完整结果均由MCU本地推进，不等待Pi逐动作授权或过程事件确认。",
       "payload": [
         { "group": "commandIdentity" },
         { "name": "sessionUid", "type": "uuid" },
@@ -1653,7 +1726,7 @@
       "direction": "EDGE_TO_MCU",
       "category": "COMMAND",
       "ackRequired": true,
-      "notes": "电磁阀通电解锁；不声明清运门具有门磁或自动关门能力",
+      "notes": "冻结历史逐动作命令；rc.24标准固件明确返回UNSUPPORTED_MESSAGE且不产生电磁锁输出。布局只保留旧记录解码，不声明清运门具有门磁或自动关门能力。",
       "payload": [
         { "group": "commandIdentity" },
         { "name": "operationUid", "type": "uuid" },
@@ -1738,7 +1811,7 @@
       "direction": "EDGE_TO_MCU",
       "category": "COMMAND",
       "ackRequired": true,
-      "notes": "香橙派仅在首次前置重量与两张开门前照片均已可靠写入 SQLite 且开始授权仍有效后发送；ACK 只表示受理，命令输出由 DELIVERY_DOOR_COMMAND_RESULT 记录，物理门位不可观测",
+      "notes": "冻结历史逐动作命令；rc.24标准固件明确返回UNSUPPORTED_MESSAGE且不产生GPIO。当前START已授权整次本地投递，首重成功后MCU自主开门；布局只保留旧SQLite、报告和迟到证据解码。",
       "payload": [
         { "group": "commandIdentity" },
         { "name": "sessionUid", "type": "uuid" },
@@ -2215,6 +2288,12 @@
   ],
   "semanticRules": [
     {
+      "id": "DEVICE_ENTRY_URL_APPLICATION",
+      "kind": "DEVICE_ENTRY_URL_APPLICATION",
+      "messages": ["DEVICE_ENTRY_URL_BEGIN", "DEVICE_ENTRY_URL_PART", "DEVICE_ENTRY_URL_COMMIT", "DEVICE_ENTRY_URL_APPLY_RESULT", "QUERY_COMMAND"],
+      "notes": "URL原字节必须为1至192字节、以https://开头，并限制为0x21..0x7e且排除双引号和反斜杠，空格等字符使用百分号编码。BEGIN/COMMIT的partCount等于ceil(urlLength/64)，PART为1基连续分片且同一应用身份/摘要/总数完全一致。只有空闲时COMMIT；完整原子入队即回APPLIED，空间不足零字节生效并回FAILED/BUSY，不再追踪USART发送完成。MCU只在RAM保存当前URL、staging和最近应用结果；Pi可靠保存匹配原字节后才完成后台命令。Pi丢结果或重启只用QUERY_COMMAND查询原COMMIT，MCU可重发匹配的RAM结果但不得再次写屏；MCU启动号变化或UART重连由Pi以新应用身份重新应用。"
+    },
+    {
       "id": "PROCESS_EVENT_CUSTODY", "kind": "RESULT_HANDOFF",
       "messages": ["QUERY_PROCESS_EVENT", "PROCESS_EVENT_QUERY_REPLY", "PROCESS_EVENT_SAVED", "PROCESS_EVENT_SAVED_REPLY"],
       "notes": "只读查询绑定已受理原命令及业务/投口/测量类型/步骤/配置，不消费机械命令序号。MCU前台有界保留原字节，HELD返回原事件，不重新测量；同业务同类型同一步骤而原身份冲突返回IDENTITY_CONFLICT。Pi原文和原业务关系同一SQLite事务提交后才可发送精确保存确认。普通ACK不释放过程记录；保存身份匹配启动/事件序号/消息类型/全原文摘要才释放，仅数据槽释放，不改业务阶段、最终结果或准入。保存回复无queryId，不证明新鲜状态；需新查询观察。已释放引用可能被后一步骤替换，NOT_FOUND不是未执行或空闲证明。跨阶段顺序与全局事件编号由业务所有者负责，尚未接完整业务执行器。"
@@ -2414,6 +2493,76 @@
     }
   ],
   "goldenVectors": [
+    {
+      "name": "device_entry_url_begin",
+      "expected": "VALID",
+      "message": "DEVICE_ENTRY_URL_BEGIN",
+      "flags": ["ACK_REQUIRED"],
+      "txSequence": 50,
+      "payload": {
+        "mcuCommandUid": "70000000-0000-4000-8000-000000000001",
+        "commandDigestSha256": "AUTO",
+        "targetMcuBootId": 42,
+        "commandSequence": 50,
+        "applicationUid": "71000000-0000-4000-8000-000000000001",
+        "urlLength": 28,
+        "urlSha256": "672f9cad1ebcaca1228dd2a23d0ada6108bfa8721fa3fee495eadb47a9a5958c",
+        "partCount": 1
+      }
+    },
+    {
+      "name": "device_entry_url_part",
+      "expected": "VALID",
+      "message": "DEVICE_ENTRY_URL_PART",
+      "flags": ["ACK_REQUIRED"],
+      "txSequence": 51,
+      "payload": {
+        "mcuCommandUid": "70000000-0000-4000-8000-000000000002",
+        "commandDigestSha256": "AUTO",
+        "targetMcuBootId": 42,
+        "commandSequence": 51,
+        "applicationUid": "71000000-0000-4000-8000-000000000001",
+        "urlSha256": "672f9cad1ebcaca1228dd2a23d0ada6108bfa8721fa3fee495eadb47a9a5958c",
+        "partIndex": 1,
+        "partCount": 1,
+        "urlChunk": "https://device.example/q/abc"
+      }
+    },
+    {
+      "name": "device_entry_url_commit",
+      "expected": "VALID",
+      "message": "DEVICE_ENTRY_URL_COMMIT",
+      "flags": ["ACK_REQUIRED"],
+      "txSequence": 52,
+      "payload": {
+        "mcuCommandUid": "70000000-0000-4000-8000-000000000003",
+        "commandDigestSha256": "AUTO",
+        "targetMcuBootId": 42,
+        "commandSequence": 52,
+        "applicationUid": "71000000-0000-4000-8000-000000000001",
+        "urlLength": 28,
+        "urlSha256": "672f9cad1ebcaca1228dd2a23d0ada6108bfa8721fa3fee495eadb47a9a5958c",
+        "partCount": 1
+      }
+    },
+    {
+      "name": "device_entry_url_applied",
+      "expected": "VALID",
+      "message": "DEVICE_ENTRY_URL_APPLY_RESULT",
+      "flags": [],
+      "txSequence": 53,
+      "payload": {
+        "mcuBootId": 42,
+        "mcuEventSequence": 19,
+        "uptimeMs": 15000,
+        "mcuCommandUid": "70000000-0000-4000-8000-000000000003",
+        "applicationUid": "71000000-0000-4000-8000-000000000001",
+        "urlLength": 28,
+        "urlSha256": "672f9cad1ebcaca1228dd2a23d0ada6108bfa8721fa3fee495eadb47a9a5958c",
+        "status": "APPLIED",
+        "errorCode": "NONE"
+      }
+    },
     {"name": "clean_unlock_intent_original_work", "expected": "VALID", "message": "CLEAN_UNLOCK_REQUESTED", "flags": ["ACK_REQUIRED"], "txSequence": 29,
       "payload": {"mcuBootId": 42, "mcuEventSequence": 4, "uptimeMs": 11000,
         "mcuCommandUid": "11111111-1111-4111-8111-111111111111", "operationUid": "22222222-2222-4222-8222-222222222222",
@@ -2800,7 +2949,7 @@
         "minimumMinor": 0,
         "maximumMinor": 0,
         "portCount": 6,
-        "capabilityBitmap": 32767,
+        "capabilityBitmap": 65535,
         "maximumFrameLength": 256,
         "pendingCriticalEventCount": 0,
         "firmwareIdentity": "orangepi",
