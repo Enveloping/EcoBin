@@ -2,7 +2,7 @@
 #include "scale_reader.h"
 #include <string.h>
 
-typedef char weight_run_ram_budget[(sizeof(McuWeightRun) <= 512u) ? 1 : -1];
+typedef char weight_run_ram_budget[(sizeof(McuWeightRun) <= 640u) ? 1 : -1];
 
 static uint32_t elapsed(const McuWeightRun *run, uint64_t now) {
     uint64_t delta = now - run->started_ms;
@@ -10,10 +10,11 @@ static uint32_t elapsed(const McuWeightRun *run, uint64_t now) {
 }
 
 static void observe(McuWeightRun *run, uint64_t captured, uint8_t status, int32_t grams) {
+    const McuConfigWeightPolicy *policy = run->idle_in_flight ? &run->idle_policy : &run->policy;
     run->observation.captured_ms = captured;
     run->observation.attempt_sequence = run->attempt_sequence;
-    run->observation.calibration_version = run->policy.calibration_version;
-    run->observation.port_no = run->policy.port_no;
+    run->observation.calibration_version = policy->calibration_version;
+    run->observation.port_no = policy->port_no;
     run->observation.status = status;
     run->observation.grams = status == SCALE_READER_OK ? grams : 0;
 }
@@ -22,9 +23,42 @@ void McuWeightRun_Init(McuWeightRun *run) {
     memset(run, 0, sizeof(*run));
 }
 
+uint32_t McuWeightRun_StartIdleAttempt(McuWeightRun *run, const McuConfigWeightPolicy *policy, uint64_t now) {
+    if (run == NULL || policy == NULL || (run->present && !run->retired) || run->in_flight
+        || now < run->last_now_ms || !policy->enabled || policy->port_no != 1u
+        || !policy->response_timeout_ms || policy->response_timeout_ms > policy->poll_interval_ms
+        || !WeightMeasurement_ConfigValid(&policy->measurement)
+        || (run->has_started_attempt && now - run->attempt_started_ms < policy->poll_interval_ms)
+        || run->attempt_sequence == UINT32_MAX) return 0u;
+    run->idle_policy = *policy;
+    run->last_now_ms = run->attempt_started_ms = now;
+    run->has_started_attempt = run->in_flight = run->idle_in_flight = 1u;
+    return ++run->attempt_sequence;
+}
+uint8_t McuWeightRun_FinishIdleAttempt(McuWeightRun *run, uint32_t attempt,
+    uint64_t captured, uint64_t now, const uint8_t *frame, size_t length) {
+    int32_t grams = 0;
+    uint8_t status;
+    if (run == NULL || !run->in_flight || !run->idle_in_flight || attempt != run->attempt_sequence
+        || now < run->last_now_ms || captured > now || captured < run->attempt_started_ms
+        || captured - run->attempt_started_ms > run->idle_policy.response_timeout_ms) return 0u;
+    status = length <= 255u ? ScaleReader_Decode(frame, (uint8_t)length,
+        run->idle_policy.measurement.minimum_grams, run->idle_policy.measurement.maximum_grams, &grams)
+        : SCALE_READER_PROTOCOL_ERROR;
+    observe(run, captured, status, grams);
+    run->in_flight = run->idle_in_flight = 0u;
+    run->last_now_ms = now;
+    return 1u;
+}
+void McuWeightRun_CancelIdleAttempt(McuWeightRun *run, uint64_t now) {
+    if (run == NULL || !run->idle_in_flight || now < run->last_now_ms) return;
+    run->in_flight = run->idle_in_flight = 0u;
+    run->last_now_ms = now;
+}
+
 uint8_t McuWeightRun_Begin(McuWeightRun *run, const McuConfigWeightPolicy *policy,
     uint32_t sequence, uint64_t now) {
-    if (run == NULL || policy == NULL || (run->present && !run->retired)
+    if (run == NULL || policy == NULL || (run->present && !run->retired) || run->in_flight
         || sequence == 0u || sequence <= run->measurement.result.measurement_id
         || now < run->last_now_ms || policy->enabled != 1u || policy->port_no == 0u || policy->port_no > 6u
         || policy->config_version == 0u || policy->config_version > UINT64_C(9007199254740991)
@@ -55,7 +89,7 @@ uint8_t McuWeightRun_FinishOwnedAttempt(McuWeightRun *run, uint32_t sequence, ui
     uint64_t captured, uint64_t now, const uint8_t *frame, size_t length) {
     int32_t grams = 0;
     uint8_t decoded;
-    if (run == NULL || !run->present || !run->in_flight || now < run->last_now_ms
+    if (run == NULL || !run->present || !run->in_flight || run->idle_in_flight || now < run->last_now_ms
         || sequence != run->measurement.result.measurement_id || attempt != run->attempt_sequence
         || captured < run->attempt_started_ms || captured > now
         || captured - run->attempt_started_ms > run->policy.response_timeout_ms) return 0u;
@@ -72,6 +106,15 @@ uint8_t McuWeightRun_FinishOwnedAttempt(McuWeightRun *run, uint32_t sequence, ui
 }
 
 uint8_t McuWeightRun_Poll(McuWeightRun *run, uint64_t now) {
+    if (run != NULL && run->idle_in_flight) {
+        if (now < run->last_now_ms) return 0u;
+        run->last_now_ms = now;
+        if (now - run->attempt_started_ms >= run->idle_policy.response_timeout_ms) {
+            observe(run, run->attempt_started_ms + run->idle_policy.response_timeout_ms, SCALE_READER_TIMEOUT, 0);
+            run->in_flight = run->idle_in_flight = 0u;
+        }
+        return 1u;
+    }
     if (run == NULL || !run->present || run->retired || now < run->last_now_ms) return 0u;
     run->last_now_ms = now;
     if (run->in_flight && now - run->attempt_started_ms >= run->policy.response_timeout_ms) {

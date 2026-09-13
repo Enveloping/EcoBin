@@ -15,10 +15,13 @@ static void Delay_us(u32 n)
 }
 
 /* PA4 = ADC1_IN4 */
-void ADC1_Init(void)
+static unsigned char adc_ready;
+unsigned char ADC1_TryInit(void)
 {
     GPIO_InitTypeDef GPIO_InitStructure;
     ADC_InitTypeDef  ADC_InitStructure;
+    uint32_t remaining;
+    adc_ready = 0u;
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_ADC1, ENABLE);
     RCC_ADCCLKConfig(RCC_PCLK2_Div6);   /* ADC时钟 = 72M/6 = 12MHz */
@@ -44,9 +47,11 @@ void ADC1_Init(void)
 
     /* 校准 */
     ADC_ResetCalibration(ADC1);
-    while(ADC_GetResetCalibrationStatus(ADC1));
+    remaining = 100000u;
+    while(ADC_GetResetCalibrationStatus(ADC1)) if (--remaining == 0u) return 0u;
     ADC_StartCalibration(ADC1);
-    while(ADC_GetCalibrationStatus(ADC1));
+    remaining = 100000u;
+    while(ADC_GetCalibrationStatus(ADC1)) if (--remaining == 0u) return 0u;
 
     /* 空读几次, 让ADC稳定 */
     {
@@ -54,26 +59,31 @@ void ADC1_Init(void)
         for(i = 0; i < 5; i++)
         {
             ADC_SoftwareStartConvCmd(ADC1, ENABLE);
-            while(!ADC_GetFlagStatus(ADC1, ADC_FLAG_EOC));
+            remaining = 100000u;
+            while(!ADC_GetFlagStatus(ADC1, ADC_FLAG_EOC)) if (--remaining == 0u) return 0u;
             ADC_GetConversionValue(ADC1);
             Delay_us(200);
         }
     }
+    adc_ready = 1u;
+    return 1u;
 }
+void ADC1_Init(void) { (void)ADC1_TryInit(); }
 
 /* 读PA4 ADC值 (0~4095) */
 u16 ADC1_Read(void)
 {
-    ADC_SoftwareStartConvCmd(ADC1, ENABLE);
-    while(!ADC_GetFlagStatus(ADC1, ADC_FLAG_EOC));
-
-    return ADC_GetConversionValue(ADC1);
+    u16 value = 0u;
+    (void)ADC1_TryRead(&value);
+    return value;
 }
 
 /* 带超时保护的ADC读取: 返回1=成功(0~4095), 0=硬件超时 */
 unsigned char ADC1_TryRead(u16 *value)
 {
     u16 timeout = 0;
+
+    if (!adc_ready || value == 0) return 0u;
 
     ADC_SoftwareStartConvCmd(ADC1, ENABLE);
     while(!ADC_GetFlagStatus(ADC1, ADC_FLAG_EOC))

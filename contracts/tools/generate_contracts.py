@@ -4162,7 +4162,7 @@ def _event(
     }
 
 
-def build_onenet_examples() -> dict[str, Any]:
+def build_onenet_examples(digest_vectors: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     config = _config_identity()
     application_uid = "10000000-0000-4000-8000-000000000001"
     apply_payload = {
@@ -4212,6 +4212,29 @@ def build_onenet_examples() -> dict[str, Any]:
         application_uid,
         apply_payload,
     )
+    # The explicit profile binds the four new constants without expanding
+    # OneNet's 19-member port structs. Its MCU digest is an actual UART vector.
+    if digest_vectors is None:
+        registry = load_uart_registry()
+        digest_vectors = build_uart_digest_vectors(registry, uart_message_specs(registry))
+    native_vector = next(vector for vector in digest_vectors if vector["profile"] == "mcuPayloadSha256")
+    native_values = native_vector["components"]
+    profile = load_json(CONTRACTS_ROOT / "onenet" / "thing-model.mapping.yaml")[
+        "mcuConfigurationProfiles"]["UART_V2_SIMPLIFIED"]
+    native_payload = {
+        "applicationUid": "10000000-0000-4000-8000-000000000002",
+        "mcuConfigurationProfile": "UART_V2_SIMPLIFIED",
+        "config": {"version": native_values["configVersion"],
+                   "contentSha256": native_values["contentSha256"],
+                   "mcuPayloadSha256": native_vector["sha256"]},
+        "deviceConfig": {key: value for key, value in native_values["device"].items()
+                         if key not in profile["deviceConstants"]}
+                        | {"edgeHeartbeatIntervalMs": 3600000, "edgeHeartbeatMissThreshold": 3},
+        "ports": [{key: value for key, value in port.items() if key not in profile["portConstants"]}
+                  | {"displayName": f"投口{port['portNo']}"} for port in native_values["ports"]],
+    }
+    native_apply_command = _command("20000000-0000-4000-8000-000000000002",
+        "APPLY_CONFIGURATION", "CONFIGURATION_APPLICATION", native_payload["applicationUid"], native_payload)
 
     session_uid = "30000000-0000-4000-8000-000000000001"
     start_delivery_payload = {
@@ -5294,6 +5317,10 @@ def build_onenet_examples() -> dict[str, Any]:
     return {
         "apply-configuration.command.json": (
             apply_command,
+            "../../onenet/commands/commands.schema.json",
+        ),
+        "apply-native-configuration.command.json": (
+            native_apply_command,
             "../../onenet/commands/commands.schema.json",
         ),
         "start-delivery-session.command.json": (
@@ -7262,7 +7289,7 @@ def build_outputs(*, include_hardware_mcu: bool = False) -> dict[Path, str]:
     digest_vectors = build_uart_digest_vectors(registry, specs)
     mapping_path = CONTRACTS_ROOT / "onenet" / "thing-model.mapping.yaml"
     mapping = load_json(mapping_path)
-    examples = build_onenet_examples()
+    examples = build_onenet_examples(digest_vectors)
     canonicalization_vectors = build_canonicalization_vectors(examples)
     identity_digest_vectors = build_onenet_identity_digest_vectors(examples)
     thing_model, onenet_wire_mapping = build_onenet_thing_model(mapping)

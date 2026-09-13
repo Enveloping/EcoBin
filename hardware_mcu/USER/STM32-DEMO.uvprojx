@@ -311,9 +311,9 @@
           </ArmAdsMisc>
           <Cads>
             <interw>1</interw>
-            <Optim>1</Optim>
+            <Optim>3</Optim>
             <oTime>0</oTime>
-            <SplitLS>0</SplitLS>
+            <SplitLS>1</SplitLS>
             <OneElfS>0</OneElfS>
             <Strict>0</Strict>
             <EnumInt>0</EnumInt>
@@ -323,7 +323,7 @@
             <wLevel>0</wLevel>
             <uThumb>0</uThumb>
             <uSurpInc>0</uSurpInc>
-            <uC99>0</uC99>
+            <uC99>1</uC99>
             <useXO>0</useXO>
             <v6Lang>3</v6Lang>
             <v6LangP>3</v6LangP>
@@ -377,6 +377,35 @@
         </TargetArmAds>
       </TargetOption>
       <Groups>
+        <Group>
+          <GroupName>Native business</GroupName>
+          <Files>
+            <File><FileName>native_serial_buffer.c</FileName><FileType>1</FileType><FilePath>.\native_serial_buffer.c</FilePath></File>
+            <File><FileName>mcu_control_endpoint.c</FileName><FileType>1</FileType><FilePath>.\mcu_control_endpoint.c</FilePath></File>
+            <File><FileName>mcu_work_preparation.c</FileName><FileType>1</FileType><FilePath>.\mcu_work_preparation.c</FilePath></File>
+            <File><FileName>mcu_opening_gate.c</FileName><FileType>1</FileType><FilePath>.\mcu_opening_gate.c</FilePath></File>
+            <File><FileName>mcu_delivery_execution.c</FileName><FileType>1</FileType><FilePath>.\mcu_delivery_execution.c</FilePath></File>
+            <File><FileName>mcu_clean_execution.c</FileName><FileType>1</FileType><FilePath>.\mcu_clean_execution.c</FilePath></File>
+            <File><FileName>mcu_configuration.c</FileName><FileType>1</FileType><FilePath>.\mcu_configuration.c</FilePath></File>
+            <File><FileName>mcu_config_collection.c</FileName><FileType>1</FileType><FilePath>.\mcu_config_collection.c</FilePath></File>
+            <File><FileName>mcu_session.c</FileName><FileType>1</FileType><FilePath>.\mcu_session.c</FilePath></File>
+            <File><FileName>mcu_work_state.c</FileName><FileType>1</FileType><FilePath>.\mcu_work_state.c</FilePath></File>
+            <File><FileName>mcu_result_slot.c</FileName><FileType>1</FileType><FilePath>.\mcu_result_slot.c</FilePath></File>
+            <File><FileName>mcu_result_builder.c</FileName><FileType>1</FileType><FilePath>.\mcu_result_builder.c</FilePath></File>
+            <File><FileName>mcu_process_measurement.c</FileName><FileType>1</FileType><FilePath>.\mcu_process_measurement.c</FilePath></File>
+            <File><FileName>mcu_process_event_slot.c</FileName><FileType>1</FileType><FilePath>.\mcu_process_event_slot.c</FilePath></File>
+            <File><FileName>mcu_actuator_event_journal.c</FileName><FileType>1</FileType><FilePath>.\mcu_actuator_event_journal.c</FilePath></File>
+            <File><FileName>mcu_device_facts.c</FileName><FileType>1</FileType><FilePath>.\mcu_device_facts.c</FilePath></File>
+            <File><FileName>mcu_weight_run.c</FileName><FileType>1</FileType><FilePath>.\mcu_weight_run.c</FilePath></File>
+            <File><FileName>mcu_environment_monitor.c</FileName><FileType>1</FileType><FilePath>.\mcu_environment_monitor.c</FilePath></File>
+            <File><FileName>ultrasonic_reader.c</FileName><FileType>1</FileType><FilePath>.\ultrasonic_reader.c</FilePath></File>
+            <File><FileName>ultrasonic_stm32.c</FileName><FileType>1</FileType><FilePath>.\ultrasonic_stm32.c</FilePath></File>
+            <File><FileName>mcu_environment_ultrasonic.c</FileName><FileType>1</FileType><FilePath>.\mcu_environment_ultrasonic.c</FilePath></File>
+            <File><FileName>mcu_fullness_run.c</FileName><FileType>1</FileType><FilePath>.\mcu_fullness_run.c</FilePath></File>
+            <File><FileName>ecobin_uart_protocol.c</FileName><FileType>1</FileType><FilePath>..\..\contracts\uart\generated\c\ecobin_uart_protocol.c</FilePath></File>
+            <File><FileName>stm32f10x_exti.c</FileName><FileType>1</FileType><FilePath>..\FWlib\src\stm32f10x_exti.c</FilePath></File>
+          </Files>
+        </Group>
         <Group>
           <GroupName>startup</GroupName>
           <Files>

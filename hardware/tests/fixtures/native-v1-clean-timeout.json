@@ -1,0 +1,822 @@
+{
+  "description": "Synthetic host execution of checkpoint C clean flow: manual confirmation after real five-second scale timeout; no hardware or real credentials.",
+  "deviceName": "device-1",
+  "expected": {
+    "eventUid": "9e1d6ed3-b0c9-4175-b118-570c0aadd350",
+    "mcuBootId": 1,
+    "payloadSha256": "b59305b90c7fff1d7cf6893a3e81e05c05d80c8f3ee8fbefb950926378e45afb",
+    "report": {
+      "eventUid": "9e1d6ed3-b0c9-4175-b118-570c0aadd350",
+      "state": "REPORT_CREATED"
+    },
+    "resultDigestSha256": "3fa2ca20721677212e69ed11e36a367284a76b98b187f9ec3a9200e8989af1f4",
+    "resultSequence": 1
+  },
+  "pendingTables": {
+    "command_inbox": {
+      "columns": [
+        "rowid",
+        "command_uid",
+        "command_type",
+        "payload_json",
+        "state",
+        "received_at",
+        "processed_at",
+        "canonical_sha256",
+        "attempt_count",
+        "processing_started_at",
+        "last_error",
+        "result_json",
+        "mcu_command_uid",
+        "received_clock_quality"
+      ],
+      "rows": [
+        [
+          1,
+          "9676db52-791f-4e90-b6f6-c50172459b8c",
+          "START_CLEAN_OPERATION",
+          "{\"commandUid\": \"9676db52-791f-4e90-b6f6-c50172459b8c\", \"commandType\": \"START_CLEAN_OPERATION\", \"targetDeviceName\": \"device-1\", \"issuedAt\": \"2030-01-01T00:00:00.000Z\", \"expiresAt\": \"2030-01-01T00:01:00.000Z\", \"payloadSha256\": \"d593452dd7b1e73ed3643afcad0101a806941e2af085826810748c7bef6da1a7\", \"payload\": {\"operationUid\": \"22222222-2222-4222-8222-222222222222\", \"portNo\": 1, \"config\": {\"version\": 8, \"contentSha256\": \"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\", \"mcuPayloadSha256\": \"ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1\"}, \"oldBagUid\": \"88888888-8888-4888-8888-888888888888\", \"oldBaselineWeightGrams\": 80, \"newBagUid\": \"99999999-9999-4999-8999-999999999999\", \"operationWindowMs\": 300000, \"recoveryGeneration\": 0}, \"schemaVersion\": 2, \"payloadSchemaVersion\": 2, \"target\": {\"type\": \"CLEAN_OPERATION\", \"uid\": \"22222222-2222-4222-8222-222222222222\"}}",
+          "PROCESSING",
+          "2026-09-13T11:26:23.234Z",
+          null,
+          "5a873cd72da52adb2f573c562c607477ba09da28c8fac4616f926f5c5cbc7db0",
+          1,
+          "2026-09-13T11:26:23",
+          null,
+          null,
+          null,
+          "SYNCED"
+        ]
+      ]
+    },
+    "device_state": {
+      "columns": [
+        "state_key",
+        "state_value",
+        "updated_at"
+      ],
+      "rows": [
+        [
+          "edge_boot_id",
+          "",
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "edge_event_sequence",
+          "0",
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "mqtt_session_present",
+          "false",
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "mqtt_last_rc",
+          "0",
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "mcu_receive_generation",
+          "0",
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "active_mcu_boot_id",
+          "",
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "native_query_sequence",
+          "20",
+          "2026-09-13T11:26:23"
+        ],
+        [
+          "native_boot_sequence",
+          "1",
+          "2026-09-13T11:26:23"
+        ],
+        [
+          "native_current_boot",
+          "1",
+          "2026-09-13T11:26:23"
+        ],
+        [
+          "native_command_sequence:1",
+          "7",
+          "2026-09-13T11:26:23"
+        ]
+      ]
+    },
+    "mcu_firmware_state": {
+      "columns": [
+        "singleton_id",
+        "current_package_path",
+        "current_package_sha256",
+        "current_manifest_json",
+        "current_installed_at",
+        "previous_package_path",
+        "previous_package_sha256",
+        "previous_manifest_json",
+        "previous_installed_at",
+        "updated_at"
+      ],
+      "rows": [
+        [
+          1,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          "2026-09-13T11:26:23"
+        ]
+      ]
+    },
+    "native_action_binding": {
+      "columns": [
+        "action_uid",
+        "receipt_uid",
+        "work_uid",
+        "platform_command_uid",
+        "action_key",
+        "permit_json",
+        "action_json",
+        "command_payload"
+      ],
+      "rows": [
+        [
+          "77777777-7777-4777-8777-777777777777",
+          "66666666-6666-4666-8666-666666666666",
+          "22222222-2222-4222-8222-222222222222",
+          "9676db52-791f-4e90-b6f6-c50172459b8c",
+          "clean:first-unlock",
+          "{\"command_uid\":\"9676db52-791f-4e90-b6f6-c50172459b8c\",\"permit_uid\":\"9676db52-791f-4e90-b6f6-c50172459b8c\",\"request_digest_sha256\":\"5a873cd72da52adb2f573c562c607477ba09da28c8fac4616f926f5c5cbc7db0\",\"work_type\":\"CLEAN\",\"work_uid\":\"22222222-2222-4222-8222-222222222222\"}",
+          "{\"action_digest_sha256\":\"0babf77b334b6afe0795747516ad501b3cd2bf1ee3f32e782241cf3388a37a2a\",\"action_key\":\"clean:first-unlock\",\"action_kind\":\"UNLOCK_CLEAN_DOOR\",\"action_uid\":\"77777777-7777-4777-8777-777777777777\",\"receipt_uid\":\"66666666-6666-4666-8666-666666666666\"}",
+          {
+            "hex": "777777777777477787777777777777772e0578a6cd4f02f23ea4357e736b484f3b833be654dc39504634c7c9cb4e75e00000000000000001000000072222222222224222822222222222222201000000000000000003e800030d4000000000000000000000000000000001"
+          }
+        ]
+      ]
+    },
+    "native_actuator_event": {
+      "columns": [
+        "mcu_boot_id",
+        "event_sequence",
+        "message_name",
+        "reported_command_uid",
+        "reported_work_uid",
+        "port_no",
+        "payload",
+        "saved_payload",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          2,
+          "CLEAN_LOCK_POWER_CHANGED",
+          "77777777-7777-4777-8777-777777777777",
+          "22222222-2222-4222-8222-222222222222",
+          1,
+          {
+            "hex": "00000000000000010000000200000000000003fc7777777777774777877777777777777722222222222242228222222222222222010204"
+          },
+          {
+            "hex": "000000000000000100000002354bede1b0fdee3caa9eb9aba1de02b58363b8ff5deec0c6baaf30dff681364755"
+          },
+          "2026-09-13 11:26:23"
+        ],
+        [
+          1,
+          3,
+          "CLEAN_LOCK_POWER_CHANGED",
+          "77777777-7777-4777-8777-777777777777",
+          "22222222-2222-4222-8222-222222222222",
+          1,
+          {
+            "hex": "00000000000000010000000300000000000007e47777777777774777877777777777777722222222222242228222222222222222010104"
+          },
+          {
+            "hex": "00000000000000010000000335cfc1295a830b69f833b157f81613cf0fa5d63bd13c32440c7d29df491b25c830"
+          },
+          "2026-09-13 11:26:23"
+        ]
+      ]
+    },
+    "native_clean_confirmation": {
+      "columns": [
+        "mcu_boot_id",
+        "event_sequence",
+        "scope",
+        "work_uid",
+        "clean_action_sequence",
+        "finish_event_sequence",
+        "final_event_sequence",
+        "payload",
+        "saved_payload",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          6,
+          {
+            "hex": "000000000000000000000000000000012ce1c15874d0c05a0b8b1c8d321980fa612e775d295cbfe7469b2bfb4a294a180000000000000001000000062222222222224222822222222222222203013e00010000000000000008"
+          },
+          "22222222-2222-4222-8222-222222222222",
+          1,
+          4,
+          5,
+          {
+            "hex": "0000000000000001000000060000000000002724000000000000000000000000000000012222222222224222822222222222222201000145424d31000000000000000100000005010402010000000000000008"
+          },
+          {
+            "hex": "0000000000000001000000063ed758612e8750edea4eeed8882f2e2bb82d1ed01da57bcec0f6d850b5a79d1cd4"
+          },
+          "2026-09-13 11:26:23"
+        ]
+      ]
+    },
+    "native_clean_intent": {
+      "columns": [
+        "mcu_boot_id",
+        "event_sequence",
+        "message_name",
+        "scope",
+        "work_uid",
+        "clean_action_sequence",
+        "payload",
+        "saved_payload",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          4,
+          "CLEAN_FINISH_REQUESTED",
+          {
+            "hex": "000000000000000000000000000000012ce1c15874d0c05a0b8b1c8d321980fa612e775d295cbfe7469b2bfb4a294a180000000000000001000000062222222222224222822222222222222203013700010000000000000008"
+          },
+          "22222222-2222-4222-8222-222222222222",
+          1,
+          {
+            "hex": "000000000000000100000004000000000000139c00000000000000000000000000000001222222222222422282222222222222220100010000000000000008"
+          },
+          {
+            "hex": "000000000000000100000004373522d8608e5802f214e12567141ac5a4b1d51b11ddcd93af5b9847807cafa66e"
+          },
+          "2026-09-13 11:26:23"
+        ]
+      ]
+    },
+    "native_mcu_boot": {
+      "columns": [
+        "boot_id",
+        "probe_id",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          1,
+          "2026-09-13 11:26:23"
+        ]
+      ]
+    },
+    "native_mcu_boot_observation": {
+      "columns": [
+        "boot_id",
+        "probe_id",
+        "message_name",
+        "payload",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          1,
+          "BIND_BOOT_REPLY",
+          {
+            "hex": "00000000000000010000000000000001000000000000000101"
+          },
+          "2026-09-13 11:26:23"
+        ]
+      ]
+    },
+    "native_mcu_command": {
+      "columns": [
+        "command_uid",
+        "mcu_boot_id",
+        "command_sequence",
+        "message_name",
+        "payload",
+        "write_claimed",
+        "decision_outcome",
+        "decision_error",
+        "conflict",
+        "created_at",
+        "boot_retired",
+        "dispatch_retired"
+      ],
+      "rows": [
+        [
+          "00000000-0000-4000-8000-000000000001",
+          1,
+          1,
+          "CONFIG_BEGIN",
+          {
+            "hex": "000000000000400080000000000000015c179fafb8a994635d974685b45bb66f48664641005f17e39d8493502176c603000000000000000100000001111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1010502"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 11:26:23",
+          0,
+          0
+        ],
+        [
+          "00000000-0000-4000-8000-000000000002",
+          1,
+          2,
+          "CONFIG_DEVICE_BLOCK",
+          {
+            "hex": "00000000000040008000000000000002f7c0b7c6f9818cd802ee688d89d00204e4e36d632bb8251d70180d4b45af2c39000000000000000100000002111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1020500007530000001f40001d4c00000138800007530000003e801000000fa000000c8"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 11:26:23",
+          0,
+          0
+        ],
+        [
+          "00000000-0000-4000-8000-000000000003",
+          1,
+          3,
+          "CONFIG_PORT_BLOCK",
+          {
+            "hex": "000000000000400080000000000000031e8eea815e64e100def58deb2ed5cc724e794a078c0bb81c2bfded2258bd36cc000000000000000100000003111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba10305010100001195030000c350000013880100000258050300007530000005dc00000064000500001388ffffec78000186a000000004000002ee05"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 11:26:23",
+          0,
+          0
+        ],
+        [
+          "00000000-0000-4000-8000-000000000004",
+          1,
+          4,
+          "CONFIG_PORT_BLOCK",
+          {
+            "hex": "000000000000400080000000000000042618ddbec96d9698a4c5c9b98471307e30c3f3d23a4a82350b3314feb8cceeb5000000000000000100000004111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba10405020100001196030000c350000013880100000258050300007530000005dc00000064000500001388ffffec78000186a000000004000002ee05"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 11:26:23",
+          0,
+          0
+        ],
+        [
+          "00000000-0000-4000-8000-000000000005",
+          1,
+          5,
+          "CONFIG_COMMIT",
+          {
+            "hex": "00000000000040008000000000000005f959a43a466c6ab982247cf0781c87aba09e6ad44aae3594faa8dee9fbfef438000000000000000100000005111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba10505"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 11:26:23",
+          0,
+          0
+        ],
+        [
+          "00000000-0000-0000-0000-000000000001",
+          1,
+          6,
+          "START_CLEAN_OPERATION",
+          {
+            "hex": "000000000000000000000000000000012ce1c15874d0c05a0b8b1c8d321980fa612e775d295cbfe7469b2bfb4a294a1800000000000000010000000622222222222242228222222222222222010000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a100007530000493e0"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 11:26:23",
+          0,
+          0
+        ],
+        [
+          "77777777-7777-4777-8777-777777777777",
+          1,
+          7,
+          "UNLOCK_CLEAN_DOOR",
+          {
+            "hex": "777777777777477787777777777777772e0578a6cd4f02f23ea4357e736b484f3b833be654dc39504634c7c9cb4e75e00000000000000001000000072222222222224222822222222222222201000000000000000003e800030d4000000000000000000000000000000001"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 11:26:23",
+          0,
+          0
+        ]
+      ]
+    },
+    "native_mcu_command_observation": {
+      "columns": [
+        "command_uid",
+        "outcome",
+        "current_boot_id",
+        "error_code",
+        "highest_sequence",
+        "message_name",
+        "payload",
+        "created_at"
+      ],
+      "rows": [
+        [
+          "00000000-0000-4000-8000-000000000001",
+          "ACCEPTED",
+          1,
+          "NONE",
+          -1,
+          "COMMAND_DECISION",
+          {
+            "hex": "000000000000400080000000000000015c179fafb8a994635d974685b45bb66f48664641005f17e39d8493502176c6030000000000000001000000010000000000000001010000"
+          },
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000002",
+          "ACCEPTED",
+          1,
+          "NONE",
+          -1,
+          "COMMAND_DECISION",
+          {
+            "hex": "00000000000040008000000000000002f7c0b7c6f9818cd802ee688d89d00204e4e36d632bb8251d70180d4b45af2c390000000000000001000000020000000000000001010000"
+          },
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000003",
+          "ACCEPTED",
+          1,
+          "NONE",
+          -1,
+          "COMMAND_DECISION",
+          {
+            "hex": "000000000000400080000000000000031e8eea815e64e100def58deb2ed5cc724e794a078c0bb81c2bfded2258bd36cc0000000000000001000000030000000000000001010000"
+          },
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000004",
+          "ACCEPTED",
+          1,
+          "NONE",
+          -1,
+          "COMMAND_DECISION",
+          {
+            "hex": "000000000000400080000000000000042618ddbec96d9698a4c5c9b98471307e30c3f3d23a4a82350b3314feb8cceeb50000000000000001000000040000000000000001010000"
+          },
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000005",
+          "ACCEPTED",
+          1,
+          "NONE",
+          -1,
+          "COMMAND_DECISION",
+          {
+            "hex": "00000000000040008000000000000005f959a43a466c6ab982247cf0781c87aba09e6ad44aae3594faa8dee9fbfef4380000000000000001000000050000000000000001010000"
+          },
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "00000000-0000-0000-0000-000000000001",
+          "ACCEPTED",
+          1,
+          "NONE",
+          -1,
+          "COMMAND_DECISION",
+          {
+            "hex": "000000000000000000000000000000012ce1c15874d0c05a0b8b1c8d321980fa612e775d295cbfe7469b2bfb4a294a180000000000000001000000060000000000000001010000"
+          },
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "77777777-7777-4777-8777-777777777777",
+          "ACCEPTED",
+          1,
+          "NONE",
+          7,
+          "COMMAND_QUERY_RESULT",
+          {
+            "hex": "0000000000000006777777777777477787777777777777772e0578a6cd4f02f23ea4357e736b484f3b833be654dc39504634c7c9cb4e75e0000000000000000100000007000000000000000101000000000007"
+          },
+          "2026-09-13 11:26:23"
+        ]
+      ]
+    },
+    "native_mcu_result": {
+      "columns": [
+        "mcu_boot_id",
+        "result_sequence",
+        "work_uid",
+        "result_digest",
+        "payload",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          1,
+          "22222222-2222-4222-8222-222222222222",
+          "3fa2ca20721677212e69ed11e36a367284a76b98b187f9ec3a9200e8989af1f4",
+          {
+            "hex": "000000000000000100000001222222222222422282222222222222223fa2ca20721677212e69ed11e36a367284a76b98b187f9ec3a9200e8989af1f403010000000000000008000000000000000000000000000000010000000600000000000027240000000000010301000245424d31000000000000000100000001000000000000000100000001000001f403fc05000000000000000400000445424d310000000000000001000000050000000000000001000000050000000013880000000000000000040401"
+          },
+          "2026-09-13 11:26:23"
+        ]
+      ]
+    },
+    "native_measurement_event": {
+      "columns": [
+        "mcu_boot_id",
+        "event_sequence",
+        "message_name",
+        "measurement_uid",
+        "payload",
+        "payload_sha256",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          1,
+          "WORK_PREUNLOCK_WEIGHT_READY",
+          "45424d31-0000-0000-0000-000100000001",
+          {
+            "hex": "00000000000000010000000100000000000003fc00000000000000000000000000000001222222222222422282222222222222220145424d3100000000000000010000000102000001f403fc05000000000000000400000000000000000008"
+          },
+          "870dd837a9fea1ec2b29e33b8bf2210fc6b7564c2fb8e7ff7d4fd0b41b78a712",
+          "2026-09-13 11:26:23"
+        ],
+        [
+          1,
+          5,
+          "CLEAN_FINAL_WEIGHT_READY",
+          "45424d31-0000-0000-0000-000100000005",
+          {
+            "hex": "00000000000000010000000500000000000027242222222222224222822222222222222201000145424d3100000000000000010000000504000000001388000000000000000004040100000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "5b38aea60e11b0222978d54bd403b0c0595de73bb8eec8f26eaab698ee8823f9",
+          "2026-09-13 11:26:23"
+        ]
+      ]
+    },
+    "native_process_receipt": {
+      "columns": [
+        "mcu_boot_id",
+        "event_sequence",
+        "scope",
+        "saved_payload",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          1,
+          {
+            "hex": "000000000000000000000000000000012ce1c15874d0c05a0b8b1c8d321980fa612e775d295cbfe7469b2bfb4a294a180000000000000001000000062222222222224222822222222222222203013400000000000000000008"
+          },
+          {
+            "hex": "00000000000000010000000134d6f06ec028e151846f79df3b3be9920c5dfd59247cc36c1a1851e8a57c2106ff"
+          },
+          "2026-09-13 11:26:23"
+        ],
+        [
+          1,
+          5,
+          {
+            "hex": "000000000000000000000000000000012ce1c15874d0c05a0b8b1c8d321980fa612e775d295cbfe7469b2bfb4a294a180000000000000001000000062222222222224222822222222222222203013800010000000000000008"
+          },
+          {
+            "hex": "00000000000000010000000538833d6565285c9351b7e05ed082557cc92317fa250bc58ef7f492c4173e2a685f"
+          },
+          "2026-09-13 11:26:23"
+        ]
+      ]
+    },
+    "native_result_report_outbox": {
+      "columns": [
+        "task_uid",
+        "mcu_boot_id",
+        "result_sequence",
+        "state",
+        "created_at",
+        "event_uid",
+        "report_json"
+      ],
+      "rows": [
+        [
+          "9e1d6ed3-b0c9-4175-b118-570c0aadd350",
+          1,
+          1,
+          "PENDING_CLASSIFICATION",
+          "2026-09-13 11:26:23",
+          null,
+          null
+        ]
+      ]
+    },
+    "work_slot": {
+      "columns": [
+        "slot_id",
+        "work_type",
+        "work_uid",
+        "work_state",
+        "port_no",
+        "context_json",
+        "created_at",
+        "updated_at"
+      ],
+      "rows": [
+        [
+          1,
+          "CLEAN",
+          "22222222-2222-4222-8222-222222222222",
+          "ACTIVE",
+          1,
+          "{\"phase\": \"NATIVE_PREPARING\"}",
+          "2026-09-13 11:26:23",
+          "2026-09-13T11:26:23"
+        ]
+      ]
+    }
+  },
+  "permit": {
+    "command_uid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+    "permit_uid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+    "request_digest_sha256": "5a873cd72da52adb2f573c562c607477ba09da28c8fac4616f926f5c5cbc7db0",
+    "work_type": "CLEAN",
+    "work_uid": "22222222-2222-4222-8222-222222222222"
+  },
+  "producer": "test_mcu_work_preparation.library/runtime + executed_action_case(clean_work=True) + finish_with_samples([]) + NativeResultReporter.prepare",
+  "reportedOverrides": {
+    "device_state": {
+      "columns": [
+        "state_key",
+        "state_value",
+        "updated_at"
+      ],
+      "rows": [
+        [
+          "edge_boot_id",
+          "",
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "edge_event_sequence",
+          "1",
+          "2026-09-13T11:26:23"
+        ],
+        [
+          "mqtt_session_present",
+          "false",
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "mqtt_last_rc",
+          "0",
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "mcu_receive_generation",
+          "0",
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "active_mcu_boot_id",
+          "",
+          "2026-09-13 11:26:23"
+        ],
+        [
+          "native_query_sequence",
+          "20",
+          "2026-09-13T11:26:23"
+        ],
+        [
+          "native_boot_sequence",
+          "1",
+          "2026-09-13T11:26:23"
+        ],
+        [
+          "native_current_boot",
+          "1",
+          "2026-09-13T11:26:23"
+        ],
+        [
+          "native_command_sequence:1",
+          "7",
+          "2026-09-13T11:26:23"
+        ]
+      ]
+    },
+    "event_outbox": {
+      "columns": [
+        "event_uid",
+        "edge_event_sequence",
+        "event_type",
+        "payload_json",
+        "state",
+        "mqtt_msg_id",
+        "retry_count",
+        "next_retry_at",
+        "created_at",
+        "confirmed_at",
+        "last_platform_code",
+        "platform_accepted_at",
+        "last_platform_reply_at",
+        "work_uid",
+        "tombstoned"
+      ],
+      "rows": [
+        [
+          "9e1d6ed3-b0c9-4175-b118-570c0aadd350",
+          1,
+          "CLEAN_COMPLETE",
+          "{\"schemaVersion\": 2, \"eventUid\": \"9e1d6ed3-b0c9-4175-b118-570c0aadd350\", \"edgeEventSequence\": 1, \"eventType\": \"CLEAN_COMPLETE\", \"deliveryClass\": \"RELIABLE_FACT\", \"target\": {\"type\": \"CLEAN_OPERATION\", \"uid\": \"22222222-2222-4222-8222-222222222222\"}, \"commandUid\": \"9676db52-791f-4e90-b6f6-c50172459b8c\", \"occurredAt\": \"2026-09-13T11:26:23.352Z\", \"clockQuality\": \"SYNCED\", \"payloadSha256\": \"b59305b90c7fff1d7cf6893a3e81e05c05d80c8f3ee8fbefb950926378e45afb\", \"payload\": {\"operationUid\": \"22222222-2222-4222-8222-222222222222\", \"portNo\": 1, \"oldBagUid\": \"88888888-8888-4888-8888-888888888888\", \"newBagUid\": \"99999999-9999-4999-8999-999999999999\", \"preUnlockMeasurement\": {\"measurementUid\": \"45424d31-0000-0000-0000-000100000001\", \"status\": \"STABLE\", \"weightValueAvailable\": true, \"reportedWeightGrams\": 500, \"weightValueKind\": \"STABLE_WINDOW_MEAN\", \"measurementElapsedMs\": 1020, \"sampleCount\": 5, \"calibrationVersion\": 4, \"sensorHealth\": \"OK\", \"faultCode\": null, \"mcuBootId\": 1, \"mcuEventSequence\": 1}, \"cleanerConfirmedFinalMeasurement\": {\"measurementUid\": \"45424d31-0000-0000-0000-000100000005\", \"status\": \"TIMEOUT\", \"weightValueAvailable\": false, \"reportedWeightGrams\": null, \"weightValueKind\": \"NONE\", \"measurementElapsedMs\": 5000, \"sampleCount\": 0, \"calibrationVersion\": 4, \"sensorHealth\": \"TIMEOUT\", \"faultCode\": \"WEIGHT_TIMEOUT\", \"mcuBootId\": 1, \"mcuEventSequence\": 5}, \"removedNetWeightGrams\": null, \"newBaselineWeightGrams\": null, \"cleanerCompletionConfirmed\": true, \"cleanActionSequence\": 1, \"cleanLockAndManualDoorConfirmation\": {\"lockPowerState\": \"DEENERGIZED\", \"solenoidHealth\": \"UNKNOWN\", \"physicalDoorStateBasis\": \"CLEANER_CONFIRMATION\", \"cleanerPhysicalCloseConfirmed\": true}, \"frozenConfig\": {\"version\": 8, \"contentSha256\": \"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\", \"mcuPayloadSha256\": \"ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1\"}, \"photos\": [{\"slot\": \"FIRST_OPEN_INNER\", \"status\": \"UPLOAD_PENDING\", \"photoUid\": null, \"url\": null, \"sha256\": null, \"sizeBytes\": null, \"capturedAt\": null, \"missingReason\": \"PHOTO_METADATA_PENDING\"}, {\"slot\": \"FIRST_OPEN_OUTER\", \"status\": \"UPLOAD_PENDING\", \"photoUid\": null, \"url\": null, \"sha256\": null, \"sizeBytes\": null, \"capturedAt\": null, \"missingReason\": \"PHOTO_METADATA_PENDING\"}, {\"slot\": \"FINAL_CLOSE_INNER\", \"status\": \"UPLOAD_PENDING\", \"photoUid\": null, \"url\": null, \"sha256\": null, \"sizeBytes\": null, \"capturedAt\": null, \"missingReason\": \"PHOTO_METADATA_PENDING\"}, {\"slot\": \"FINAL_CLOSE_OUTER\", \"status\": \"UPLOAD_PENDING\", \"photoUid\": null, \"url\": null, \"sha256\": null, \"sizeBytes\": null, \"capturedAt\": null, \"missingReason\": \"PHOTO_METADATA_PENDING\"}]}}",
+          "PENDING",
+          null,
+          0,
+          null,
+          "2026-09-13 11:26:23",
+          null,
+          null,
+          null,
+          null,
+          "22222222-2222-4222-8222-222222222222",
+          0
+        ]
+      ]
+    },
+    "native_action_confirmation": {
+      "columns": [
+        "action_uid",
+        "bundle_json",
+        "evidence_sha256",
+        "state"
+      ],
+      "rows": [
+        [
+          "77777777-7777-4777-8777-777777777777",
+          "{\"acceptance\":{\"action\":{\"messageName\":\"COMMAND_QUERY_RESULT\",\"payloadHex\":\"0000000000000006777777777777477787777777777777772e0578a6cd4f02f23ea4357e736b484f3b833be654dc39504634c7c9cb4e75e0000000000000000100000007000000000000000101000000000007\"},\"start\":{\"messageName\":\"COMMAND_DECISION\",\"payloadHex\":\"000000000000000000000000000000012ce1c15874d0c05a0b8b1c8d321980fa612e775d295cbfe7469b2bfb4a294a180000000000000001000000060000000000000001010000\"}},\"action\":{\"action_digest_sha256\":\"0babf77b334b6afe0795747516ad501b3cd2bf1ee3f32e782241cf3388a37a2a\",\"action_key\":\"clean:first-unlock\",\"action_kind\":\"UNLOCK_CLEAN_DOOR\",\"action_uid\":\"77777777-7777-4777-8777-777777777777\",\"receipt_uid\":\"66666666-6666-4666-8666-666666666666\"},\"basis\":\"MCU_IDENTITY_BOUND_FACT\",\"command\":{\"messageName\":\"UNLOCK_CLEAN_DOOR\",\"payloadHex\":\"777777777777477787777777777777772e0578a6cd4f02f23ea4357e736b484f3b833be654dc39504634c7c9cb4e75e00000000000000001000000072222222222224222822222222222222201000000000000000003e800030d4000000000000000000000000000000001\"},\"initial\":{\"messageName\":\"WORK_PREUNLOCK_WEIGHT_READY\",\"payloadHex\":\"00000000000000010000000100000000000003fc00000000000000000000000000000001222222222222422282222222222222220145424d3100000000000000010000000102000001f403fc05000000000000000400000000000000000008\",\"savedHex\":\"00000000000000010000000134d6f06ec028e151846f79df3b3be9920c5dfd59247cc36c1a1851e8a57c2106ff\",\"scopeHex\":\"000000000000000000000000000000012ce1c15874d0c05a0b8b1c8d321980fa612e775d295cbfe7469b2bfb4a294a180000000000000001000000062222222222224222822222222222222203013400000000000000000008\"},\"outcome\":\"EXECUTED\",\"outputs\":[{\"messageName\":\"CLEAN_LOCK_POWER_CHANGED\",\"payloadHex\":\"00000000000000010000000200000000000003fc7777777777774777877777777777777722222222222242228222222222222222010204\",\"savedHex\":\"000000000000000100000002354bede1b0fdee3caa9eb9aba1de02b58363b8ff5deec0c6baaf30dff681364755\"},{\"messageName\":\"CLEAN_LOCK_POWER_CHANGED\",\"payloadHex\":\"00000000000000010000000300000000000007e47777777777774777877777777777777722222222222242228222222222222222010104\",\"savedHex\":\"00000000000000010000000335cfc1295a830b69f833b157f81613cf0fa5d63bd13c32440c7d29df491b25c830\"}],\"permit\":{\"command_uid\":\"9676db52-791f-4e90-b6f6-c50172459b8c\",\"permit_uid\":\"9676db52-791f-4e90-b6f6-c50172459b8c\",\"request_digest_sha256\":\"5a873cd72da52adb2f573c562c607477ba09da28c8fac4616f926f5c5cbc7db0\",\"work_type\":\"CLEAN\",\"work_uid\":\"22222222-2222-4222-8222-222222222222\"},\"start\":{\"messageName\":\"START_CLEAN_OPERATION\",\"payloadHex\":\"000000000000000000000000000000012ce1c15874d0c05a0b8b1c8d321980fa612e775d295cbfe7469b2bfb4a294a1800000000000000010000000622222222222242228222222222222222010000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a100007530000493e0\"},\"version\":\"ecobin-native-output-effect-v1\"}",
+          "26300178da694874456e3c3342f8a88ac80d9fbf28dfc64ca154ec47dea9ef57",
+          "CONFIRMED"
+        ]
+      ]
+    },
+    "native_result_report_outbox": {
+      "columns": [
+        "task_uid",
+        "mcu_boot_id",
+        "result_sequence",
+        "state",
+        "created_at",
+        "event_uid",
+        "report_json"
+      ],
+      "rows": [
+        [
+          "9e1d6ed3-b0c9-4175-b118-570c0aadd350",
+          1,
+          1,
+          "REPORT_CREATED",
+          "2026-09-13 11:26:23",
+          "9e1d6ed3-b0c9-4175-b118-570c0aadd350",
+          "{\"deviceName\": \"device-1\", \"eventSha256\": \"1e0fa51a3daea0947b12bc78535953b3a1c4d53be531e8ca63266322d9bd8363\", \"eventUid\": \"9e1d6ed3-b0c9-4175-b118-570c0aadd350\", \"permit\": {\"command_uid\": \"9676db52-791f-4e90-b6f6-c50172459b8c\", \"permit_uid\": \"9676db52-791f-4e90-b6f6-c50172459b8c\", \"request_digest_sha256\": \"5a873cd72da52adb2f573c562c607477ba09da28c8fac4616f926f5c5cbc7db0\", \"work_type\": \"CLEAN\", \"work_uid\": \"22222222-2222-4222-8222-222222222222\"}, \"resultDigest\": \"3fa2ca20721677212e69ed11e36a367284a76b98b187f9ec3a9200e8989af1f4\", \"startCommandUid\": \"00000000-0000-0000-0000-000000000001\", \"version\": \"ecobin-native-result-report-v1\"}"
+        ]
+      ]
+    }
+  },
+  "sourceCommit": "3178a99455ecbaf936d4468ede81e395afe94fcf",
+  "startCommandUid": "00000000-0000-0000-0000-000000000001"
+}

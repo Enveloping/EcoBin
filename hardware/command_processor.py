@@ -649,6 +649,11 @@ class CommandProcessor:
         gate.require_command_allowed(command.get("commandType"))
 
     def _accept_dispatch_result(self, command: dict, result: dict) -> bool:
+        if result.get("native_pending") is True and getattr(self._work, "native_protocol", None) == 2:
+            # Explicit asynchronous native dispatch: WAITING_MCU_RESULT means
+            # waiting, not an invented acceptance ACK or physical completion.
+            self._store.mark_command_waiting_mcu(command["commandUid"], result["mcu_command_uid"], result)
+            return False
         if result.get("acked"):
             return True
         error = _symbol(str(result.get("error") or "UART_FAILURE"))
@@ -664,6 +669,9 @@ class CommandProcessor:
         return False
 
     def _apply_configuration(self, command: dict) -> None:
+        if getattr(self._work, "native_protocol", None) == 2:
+            self._work.apply_configuration_command(command)
+            return
         payload = command["payload"]
         config = payload["config"]
         application_uid = payload["applicationUid"]

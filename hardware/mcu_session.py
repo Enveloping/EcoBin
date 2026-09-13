@@ -105,12 +105,13 @@ class McuBootSession:
 class McuCommandDispatcher:
     """Persisted single dispatch, followed only by original-command queries.
 
-    'arm' is REQUIRED: its production adapter must revalidate original business
-    deadlines and permanent-ledger permission, and durably arm the exact action
-    before returning a final read-only validation callback. That callback runs
+    'arm' is REQUIRED: its production adapter revalidates original business
+    deadlines and permanent authority before returning a final validation
+    callback. The simplified START uses the original ACTIVE job permit; it
+    does not recreate individual actuator permissions. That callback runs
     after SQLite's dispatch claim commits, immediately before the serial write.
-    It must never be a disabled compatibility no-op. NativePhysicalActionGate supplies the actuating path;
-    non-actuating controls need their own explicitly scoped business gate.
+    It must never be a disabled compatibility no-op. NativePhysicalActionGate
+    remains the old per-action candidate; configuration uses a scoped gate.
     It never translates command acceptance into physical completion/admission.
     """
     def __init__(self, store: EdgeStore, boot: McuBootSession, write: Callable[[bytes], int], *,

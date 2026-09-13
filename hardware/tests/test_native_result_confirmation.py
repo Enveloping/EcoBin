@@ -1,4 +1,8 @@
-"""Actual C result and OneNet service boundary -> durable native confirmation."""
+"""Autonomous C result and OneNet service -> durable native confirmation.
+
+Historical v31 upgrade and clean missing-weight report cases load unchanged
+3178a994 v1 snapshots; they never rerun obsolete mechanical authorization.
+"""
 import copy
 import json
 from pathlib import Path
@@ -15,10 +19,9 @@ from device_identity import DeviceIdentity
 from edge_store import EdgeStore
 from native_result_report import NativeResultReporter
 from onenet_wire import canonical_payload_sha256, decode_service_command, validate_stored_confirmation_envelope
-from hardware.tests.test_mcu_work_preparation import library, runtime
-from hardware.tests.test_mcu_delivery_execution import executed_action_case
-from hardware.tests.test_native_result_report import original_command, finish_with_samples
+from hardware.tests.test_mcu_simplified_execution import library, runtime
 from hardware.tests.test_business_message_handler import load_command, invoke, complete_reply
+from hardware.tests.native_confirmation_fixture import autonomous_result_case, legacy_result_case
 
 
 def confirmation_wire(case, event_uid, *, quarantined=False):
@@ -40,8 +43,7 @@ def confirmation_wire(case, event_uid, *, quarantined=False):
 
 @pytest.mark.parametrize("clean", [False, True])
 def test_actual_report_confirmation_is_bound_before_reply_without_releasing_the_work(runtime, tmp_path, clean):
-    with executed_action_case(runtime, tmp_path, clean_work=clean, cloud_command_factory=original_command) as case:
-        finish_with_samples(case, runtime, [700] * 5)
+    with autonomous_result_case(runtime, tmp_path, clean=clean) as case:
         reporter = NativeResultReporter(case.store, case.safety, device_name="device-1")
         report = reporter.prepare(case.permit, case.start["mcuCommandUid"])
         service, params, command = confirmation_wire(case, report["eventUid"])
@@ -64,11 +66,18 @@ def test_actual_report_confirmation_is_bound_before_reply_without_releasing_the_
 
 @pytest.mark.parametrize("clean", [False, True])
 def test_platform_acceptance_is_not_a_business_decision_and_quarantine_never_becomes_success(runtime, tmp_path, clean):
-    with executed_action_case(runtime, tmp_path, clean_work=clean, cloud_command_factory=original_command) as case:
-        finish_with_samples(case, runtime, [])
+    # A v1 clean report could legitimately already be frozen with no final
+    # weight. Today's C produces FAILED instead: do not fabricate a v2 success.
+    original = (legacy_result_case(tmp_path, clean=True) if clean else
+        autonomous_result_case(runtime, tmp_path, clean=False, samples=()))
+    with original as case:
         reporter = NativeResultReporter(case.store, case.safety, device_name="device-1")
         report = reporter.prepare(case.permit, case.start["mcuCommandUid"])
         event = case.store.get_event(report["eventUid"])
+        if clean:
+            payload = json.loads(event["payload_json"])["payload"]
+            assert payload["cleanerConfirmedFinalMeasurement"]["reportedWeightGrams"] is None
+            assert json.loads(case.store.list_native_result_report_tasks()[0]["report_json"])["version"] == "ecobin-native-result-report-v1"
         case.store.record_event_platform_reply(event["edge_event_sequence"], 200)
         assert case.store.get_native_result_confirmation(case.permit, case.start["mcuCommandUid"], device_name="device-1") is None
         service, params, command = confirmation_wire(case, report["eventUid"], quarantined=True)
@@ -85,8 +94,7 @@ def test_platform_acceptance_is_not_a_business_decision_and_quarantine_never_bec
 @pytest.mark.parametrize("clean", [False, True])
 @pytest.mark.parametrize("wrong", ["reference", "effect", "missing_reference", "digest", "device"])
 def test_unrelated_confirmation_never_marks_the_original_report_as_applied(runtime, tmp_path, clean, wrong):
-    with executed_action_case(runtime, tmp_path, clean_work=clean, cloud_command_factory=original_command) as case:
-        finish_with_samples(case, runtime, [700] * 5)
+    with autonomous_result_case(runtime, tmp_path, clean=clean) as case:
         report = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(case.permit, case.start["mcuCommandUid"])
         before = case.store.get_event(report["eventUid"])
         service, params, _ = confirmation_wire(case, report["eventUid"])
@@ -105,8 +113,7 @@ def test_unrelated_confirmation_never_marks_the_original_report_as_applied(runti
 
 @pytest.mark.parametrize("clean", [False, True])
 def test_confirmation_commit_rolls_back_as_one_unit_then_can_be_retried(runtime, tmp_path, clean):
-    with executed_action_case(runtime, tmp_path, clean_work=clean, cloud_command_factory=original_command) as case:
-        finish_with_samples(case, runtime, [700, 1000] * 10)
+    with autonomous_result_case(runtime, tmp_path, clean=clean, samples=[700, 1000] * 10) as case:
         report = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(case.permit, case.start["mcuCommandUid"])
         _, _, command = confirmation_wire(case, report["eventUid"])
         before = case.store.get_event(report["eventUid"])
@@ -127,8 +134,7 @@ def test_confirmation_commit_rolls_back_as_one_unit_then_can_be_retried(runtime,
 
 @pytest.mark.parametrize("clean", [False, True])
 def test_restart_and_duplicate_reuse_the_original_qualified_confirmation_and_receipt(runtime, tmp_path, clean):
-    with executed_action_case(runtime, tmp_path, clean_work=clean, cloud_command_factory=original_command) as case:
-        finish_with_samples(case, runtime, [700] * 5)
+    with autonomous_result_case(runtime, tmp_path, clean=clean) as case:
         report = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(case.permit, case.start["mcuCommandUid"])
         service, params, _ = confirmation_wire(case, report["eventUid"])
         handler = BusinessMessageHandler(case.store, DeviceIdentity("device-1"), edge_boot_id=10)
@@ -147,8 +153,7 @@ def test_restart_and_duplicate_reuse_the_original_qualified_confirmation_and_rec
 
 @pytest.mark.parametrize("clean", [False, True])
 def test_legacy_flag_only_confirmation_cannot_bypass_native_command_custody(runtime, tmp_path, clean):
-    with executed_action_case(runtime, tmp_path, clean_work=clean, cloud_command_factory=original_command) as case:
-        finish_with_samples(case, runtime, [700] * 5)
+    with autonomous_result_case(runtime, tmp_path, clean=clean) as case:
         report = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(case.permit, case.start["mcuCommandUid"])
         with pytest.raises(ValueError, match="complete backend confirmation"):
             case.store.receive_business_confirmation(str(uuid.uuid4()), report["eventUid"], "BUSINESS_APPLIED")
@@ -157,8 +162,7 @@ def test_legacy_flag_only_confirmation_cannot_bypass_native_command_custody(runt
 
 @pytest.mark.parametrize("corruption", ["schema", "clock"])
 def test_confirmation_does_not_hide_corruption_of_its_original_receipt(runtime, tmp_path, corruption):
-    with executed_action_case(runtime, tmp_path, clean_work=False, cloud_command_factory=original_command) as case:
-        finish_with_samples(case, runtime, [700] * 5)
+    with autonomous_result_case(runtime, tmp_path, clean=False) as case:
         report = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(case.permit, case.start["mcuCommandUid"])
         _, _, command = confirmation_wire(case, report["eventUid"])
         assert case.store.receive_business_confirmation_and_create_receipt(command=command, device_name="device-1") == "ACCEPTED"
@@ -173,9 +177,9 @@ def test_confirmation_does_not_hide_corruption_of_its_original_receipt(runtime, 
 
 @pytest.mark.parametrize("clean", [False, True])
 def test_v31_upgrade_does_not_promote_an_unqualified_flag_without_replayed_original_command(runtime, tmp_path, clean):
-    with executed_action_case(runtime, tmp_path, clean_work=clean, cloud_command_factory=original_command) as case:
-        finish_with_samples(case, runtime, [700] * 5)
+    with legacy_result_case(tmp_path, clean=clean) as case:
         report = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(case.permit, case.start["mcuCommandUid"])
+        original_report = case.store.get_event(report["eventUid"])["payload_json"]
         _, _, command = confirmation_wire(case, report["eventUid"])
         assert case.store.receive_business_confirmation_and_create_receipt(command=command, device_name="device-1") == "ACCEPTED"
         saved = case.store.get_native_result_confirmation(case.permit, case.start["mcuCommandUid"], device_name="device-1")
@@ -186,14 +190,15 @@ def test_v31_upgrade_does_not_promote_an_unqualified_flag_without_replayed_origi
         case.store = EdgeStore(str(tmp_path / "edge.db"))
         case.store.initialize()
         assert case.store.get_native_result_confirmation(case.permit, case.start["mcuCommandUid"], device_name="device-1") is None
+        assert case.store.get_event(report["eventUid"])["payload_json"] == original_report
+        assert json.loads(case.store.list_native_result_report_tasks()[0]["report_json"])["version"] == "ecobin-native-result-report-v1"
         assert case.store.receive_business_confirmation_and_create_receipt(command=command, device_name="device-1") == "DUPLICATE"
         assert case.store.get_native_result_confirmation(case.permit, case.start["mcuCommandUid"], device_name="device-1") == saved
 
 
 @pytest.mark.parametrize("clean", [False, True])
 def test_accepted_confirmation_does_not_expire_on_restart_but_new_expired_command_is_rejected(runtime, tmp_path, clean, monkeypatch):
-    with executed_action_case(runtime, tmp_path, clean_work=clean, cloud_command_factory=original_command) as case:
-        finish_with_samples(case, runtime, [700] * 5)
+    with autonomous_result_case(runtime, tmp_path, clean=clean) as case:
         report = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(case.permit, case.start["mcuCommandUid"])
         _, _, command = confirmation_wire(case, report["eventUid"])
         assert case.store.receive_business_confirmation_and_create_receipt(command=command, device_name="device-1") == "ACCEPTED"
@@ -212,8 +217,7 @@ def test_accepted_confirmation_does_not_expire_on_restart_but_new_expired_comman
 @pytest.mark.parametrize("boundary", ["before_insert", "during_insert", "after_commit"])
 @pytest.mark.parametrize("clean", [False, True])
 def test_process_death_at_confirmation_commit_keeps_only_whole_decisions(runtime, tmp_path, boundary, clean):
-    with executed_action_case(runtime, tmp_path, clean_work=clean, cloud_command_factory=original_command) as case:
-        finish_with_samples(case, runtime, [700] * 5)
+    with autonomous_result_case(runtime, tmp_path, clean=clean) as case:
         report = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(case.permit, case.start["mcuCommandUid"])
         _, _, command = confirmation_wire(case, report["eventUid"])
         case.store.close()
@@ -253,8 +257,7 @@ def test_stored_confirmation_validation_cannot_be_used_for_physical_commands():
 
 @pytest.mark.parametrize("clean", [False, True])
 def test_conflicting_second_decision_cannot_replace_the_first_backend_conclusion(runtime, tmp_path, clean):
-    with executed_action_case(runtime, tmp_path, clean_work=clean, cloud_command_factory=original_command) as case:
-        finish_with_samples(case, runtime, [700] * 5)
+    with autonomous_result_case(runtime, tmp_path, clean=clean) as case:
         report = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(case.permit, case.start["mcuCommandUid"])
         _, _, first = confirmation_wire(case, report["eventUid"], quarantined=True)
         assert case.store.receive_business_confirmation_and_create_receipt(command=first, device_name="device-1") == "ACCEPTED"

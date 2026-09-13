@@ -211,7 +211,81 @@
         }
       }
     },
+    "nativeDeviceConfig": {
+      "type": "object",
+      "required": [
+        "continueDeliveryWaitMs", "negativeWeightThresholdGrams", "deliveryAutoCloseMs",
+        "weightMeasurementTimeoutMs", "deliveryDoorTravelWaitMs", "cleanSolenoidPulseMs",
+        "smokeMonitoringEnabled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "edgeHeartbeatIntervalMs": { "$ref": "#/$defs/deviceConfig/properties/edgeHeartbeatIntervalMs" },
+        "edgeHeartbeatMissThreshold": { "$ref": "#/$defs/deviceConfig/properties/edgeHeartbeatMissThreshold" },
+        "continueDeliveryWaitMs": { "$ref": "#/$defs/deviceConfig/properties/continueDeliveryWaitMs" },
+        "negativeWeightThresholdGrams": { "$ref": "#/$defs/deviceConfig/properties/negativeWeightThresholdGrams" },
+        "deliveryAutoCloseMs": { "$ref": "#/$defs/deviceConfig/properties/deliveryAutoCloseMs" },
+        "weightMeasurementTimeoutMs": { "type": "integer", "const": 5000 },
+        "deliveryDoorTravelWaitMs": { "$ref": "#/$defs/deviceConfig/properties/deliveryDoorTravelWaitMs" },
+        "cleanSolenoidPulseMs": { "$ref": "#/$defs/deviceConfig/properties/cleanSolenoidPulseMs" },
+        "smokeMonitoringEnabled": { "$ref": "#/$defs/deviceConfig/properties/smokeMonitoringEnabled" }
+      }
+    },
+    "nativePortConfig": {
+      "type": "object",
+      "required": [
+        "portNo", "displayName", "enabled", "unitPriceTenThousandths", "fullnessMode",
+        "configuredFullWeightGrams", "fullnessSettleWaitMs", "fullnessSensorKind",
+        "fullnessDistanceThresholdMm", "fullnessSampleCount", "fullnessMinimumValidSampleCount",
+        "fullnessEchoTimeoutUs", "weightStableWindowMs", "weightMaximumFluctuationGrams",
+        "weightRequiredSampleCount", "weightMeasurementTimeoutMs", "weightMinimumGrams",
+        "weightMaximumGrams", "calibrationVersion"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "portNo": { "$ref": "#/$defs/portConfig/properties/portNo" },
+        "displayName": { "$ref": "#/$defs/portConfig/properties/displayName" },
+        "enabled": { "$ref": "#/$defs/portConfig/properties/enabled" },
+        "unitPriceTenThousandths": { "$ref": "#/$defs/portConfig/properties/unitPriceTenThousandths" },
+        "fullnessMode": { "$ref": "#/$defs/portConfig/properties/fullnessMode" },
+        "configuredFullWeightGrams": { "$ref": "#/$defs/portConfig/properties/configuredFullWeightGrams" },
+        "fullnessSettleWaitMs": { "$ref": "#/$defs/portConfig/properties/fullnessSettleWaitMs" },
+        "fullnessSensorKind": { "$ref": "#/$defs/portConfig/properties/fullnessSensorKind" },
+        "fullnessDistanceThresholdMm": { "$ref": "#/$defs/portConfig/properties/fullnessDistanceThresholdMm" },
+        "fullnessSampleCount": { "$ref": "#/$defs/portConfig/properties/fullnessSampleCount" },
+        "fullnessMinimumValidSampleCount": { "$ref": "#/$defs/portConfig/properties/fullnessMinimumValidSampleCount" },
+        "fullnessEchoTimeoutUs": { "$ref": "#/$defs/portConfig/properties/fullnessEchoTimeoutUs" },
+        "weightStableWindowMs": { "type": "integer", "const": 1500 },
+        "weightMaximumFluctuationGrams": { "type": "integer", "const": 100 },
+        "weightRequiredSampleCount": { "type": "integer", "const": 5 },
+        "weightMeasurementTimeoutMs": { "type": "integer", "const": 5000 },
+        "weightMinimumGrams": { "$ref": "#/$defs/portConfig/properties/weightMinimumGrams" },
+        "weightMaximumGrams": { "$ref": "#/$defs/portConfig/properties/weightMaximumGrams" },
+        "calibrationVersion": { "$ref": "#/$defs/portConfig/properties/calibrationVersion" }
+      }
+    },
     "applyConfigurationPayload": {
+      "oneOf": [
+        { "$ref": "#/$defs/legacyApplyConfigurationPayload" },
+        { "$ref": "#/$defs/nativeApplyConfigurationPayload" }
+      ]
+    },
+    "nativeApplyConfigurationPayload": {
+      "type": "object",
+      "required": ["applicationUid", "config", "mcuConfigurationProfile", "deviceConfig", "ports"],
+      "additionalProperties": false,
+      "properties": {
+        "applicationUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "config": { "$ref": "#/$defs/configIdentity" },
+        "mcuConfigurationProfile": { "const": "UART_V2_SIMPLIFIED" },
+        "deviceConfig": { "$ref": "#/$defs/nativeDeviceConfig" },
+        "ports": {
+          "type": "array", "minItems": 1, "maxItems": 6,
+          "items": { "$ref": "#/$defs/nativePortConfig" }
+        }
+      }
+    },
+    "legacyApplyConfigurationPayload": {
       "type": "object",
       "required": [
         "applicationUid",

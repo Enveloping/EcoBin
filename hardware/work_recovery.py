@@ -62,7 +62,7 @@ def original_work(store, permit, start_uid):
     return record, start
 
 
-def complete_result(store, conn, permit, record, start, *, validate_report=True):
+def complete_result(store, conn, permit, record, start, *, validate_report=True, legacy_evidence=False):
     """A complete wire result includes FAILED results, not only usable weights."""
     if store.get_native_delivery_issue(permit.work_uid) is not None:
         raise ValueError("native delivery is archived; complete result is evidence only")
@@ -95,9 +95,9 @@ def complete_result(store, conn, permit, record, start, *, validate_report=True)
         raise ValueError("native complete result lacks its durable classification task")
     if task["state"] == "REPORT_CREATED" and validate_report:
         store._native_report_binding(conn, task)
-    from native_result_evidence import reconcile
+    from native_result_evidence import reconcile, reconcile_legacy
     return dict(status="COMPLETE_RESULT_AVAILABLE", result=dict(row), task=dict(task),
-        evidence=reconcile(store, record, start, value, permit))
+        evidence=(reconcile_legacy if legacy_evidence else reconcile)(store, record, start, value, permit))
 
 
 def canonical(value):

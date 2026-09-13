@@ -469,9 +469,9 @@ PHOTO_RETENTION_HOURS = int(os.getenv(
 # ── 凭证校验 ──
 def validate():
     """检查必填环境变量是否已设置，缺失则报 error。"""
-    if MCU_PROTOCOL_MODE not in {"fixed-frame", "uart-v1"}:
+    if MCU_PROTOCOL_MODE not in {"fixed-frame", "uart-v1", "uart-v2"}:
         raise ValueError(
-            "ECOBIN_MCU_PROTOCOL must be fixed-frame or uart-v1"
+            "ECOBIN_MCU_PROTOCOL must be fixed-frame, uart-v1 or uart-v2"
         )
     if _mcu_simulated_raw not in {
         "true", "1", "yes", "false", "0", "no",

@@ -5,19 +5,22 @@
 #include "mcu_weight_run.h"
 #include "mcu_process_measurement.h"
 
-/* Candidate preparation by default: no mechanical actions, HMI or business
- * release unless a separate action executor is explicitly attached at boot.
+/* Configuration/START/measurement owner: mechanical execution is attached
+ * explicitly at boot; no legacy fallback or automatic cloud work release.
  * Explicit guard MUST check remaining whole-application prerequisites (actual
  * configuration application, safety, capabilities, authorization, other work).
  * NONE is not a default permission. This owner additionally checks its own
  * config/work/measurement state. Guard is non-mutating and may not reenter.
- * DELIVERY_SELECTION input is a local CONTINUE preflight, not a Pi command:
- * check local capabilities/safety, not new cloud authorization or normal fullness.
+ * Guard owns CONFIG/START prerequisites; local execution is under that same
+ * accepted START and does not request new cloud/per-action authorization.
  * Unknown message contexts must reject, never return NONE as a fallback.
  */
 typedef uint16_t (*McuPreparationGuard)(uint8_t message, const uint8_t *payload,
     size_t length, uint64_t now_ms, void *context);
 typedef void (*McuPreparedActionPoll)(McuControlEndpoint *endpoint, uint64_t now_ms, void *context);
+/* Main applies its real remaining consumers (for example smoke monitoring).
+ * Return one only when they use this active configuration. No GPIO actions. */
+typedef uint8_t (*McuPreparationApplyConfiguration)(const McuConfiguration *configuration, void *context);
 typedef struct {
     McuControlCommandHandler handler;
     McuPreparedActionPoll poll;
@@ -36,6 +39,8 @@ typedef struct {
     uint8_t scratch[ECOBIN_UART_MAX_PAYLOAD_LENGTH];
     McuPreparationGuard guard;
     void *guard_context;
+    McuPreparationApplyConfiguration apply_configuration;
+    void *configuration_context;
     McuPreparedActions actions[2]; /* Fixed DELIVERY/CLEAN slots, not a dynamic registry. */
     McuPreparedActions recovery; /* Explicit standalone recovery close owner. */
     uint8_t port_count;
@@ -47,9 +52,11 @@ typedef struct {
 
 uint8_t McuWorkPreparation_Attach(McuWorkPreparation *owner, McuControlEndpoint *endpoint,
     uint8_t port_count, McuPreparationGuard guard, void *context);
+uint8_t McuWorkPreparation_SetConfigurationApply(McuWorkPreparation *owner, McuControlEndpoint *endpoint,
+    McuPreparationApplyConfiguration apply, void *context);
 /* Explicit boot-only attachment after real ultrasonic source initialization.
  * Poll the real source alongside post-close/clean-final weight acquisition.
- * A combined immutable event owns the group bytes before the local run retires.
+ * Diagnostics may include the actual group; it is never required for weighing.
  * No separate cloud detection, movement, current-bag decision or business release.
  * Without attachment/available source, the event explicitly says NOT_SAMPLED. */
 uint8_t McuWorkPreparation_AttachFullness(McuWorkPreparation *owner, McuControlEndpoint *endpoint);
@@ -67,9 +74,10 @@ uint8_t McuWorkPreparation_AttachRecovery(McuWorkPreparation *owner, McuControlE
  * replay or extend a window. External non-overlapping output. No partial copy. */
 size_t McuWorkPreparation_CopyStart(const McuWorkPreparation *owner, uint8_t *output,
     size_t capacity, uint8_t *message, uint64_t *accepted_at_ms);
-/* Shared foreground measurement-to-custody operation for an already started
+/* Shared foreground measurement operation for an already started
  * work phase: 0 blocked/invalid, 1 pending observation, 2 exact terminal retained
  * and local weight buffer retired. Does not advance phase or imply Pi SAVED.
+ * Process mailbox publication is best effort and never gates local progress.
  * measurement/meta are the caller's zero-initialized persistent phase records,
  * not temporary scratch; they survive publication retries and final assembly.
  * Only these records/scratch may be written; no recursive action polling. */

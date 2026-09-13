@@ -1,7 +1,7 @@
 package org.enveloping.ecobin.device.api.uart;
 
 // Generated from contracts/uart/uart-registry.yaml.
-// DO NOT EDIT. Registry SHA-256: a41d80dd9c349b847107a3afc7844580ac0c7a371920a78dfb22bf1506512e70
+// DO NOT EDIT. Registry SHA-256: 60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -13,8 +13,8 @@ import java.util.List;
 import java.util.UUID;
 
 public final class EcobinUartProtocol {
-    public static final String REGISTRY_SHA256 = "a41d80dd9c349b847107a3afc7844580ac0c7a371920a78dfb22bf1506512e70";
-    public static final String IMPLEMENTATION_STAGE = "WORK_FULLNESS_CUSTODY_NOT_RUNNABLE";
+    public static final String REGISTRY_SHA256 = "60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808";
+    public static final String IMPLEMENTATION_STAGE = "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED";
     public static final int BAUD_RATE = 115200;
     public static final int DATA_BITS = 8;
     public static final int STOP_BITS = 1;

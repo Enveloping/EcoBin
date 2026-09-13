@@ -1,775 +1,319 @@
-/******************** (C) COPYRIGHT 2019 Designed by Captain *********************
- * 文件名  ：main.c
- * 功能    ：RS485称重传感器读取 + 继电器控制(智能垃圾桶)
- * 实现平台：STM32F103C8T6工控板
- * 版本    ：ST3.5.0
- * 店主    ：踏上电子工作室
- * 淘宝店  ：https://shop151358311.taobao.com/
-*********************************************************************************/
-
+/* Native MCU entry. USART1 is Pi UART 2.0; USART2 is the Modbus scale.
+ * The fixed-frame entry is preserved in main_legacy.c, never co-parsed here.
+ * MCU owns mechanics and HMI. Pi saves the complete result before RESULT_SAVED.
+ */
 #include "stm32f10x.h"
 #include "usart1.h"
 #include "usart3.h"
-#include "led.h"
-#include "sys.h"
 #include "adc.h"
-#include "smoke_monitor.h"
-#include "mcu_update_execution.h"
+#include "led.h"
 #include "actuator_runtime.h"
 #include "runtime_clock.h"
+#include "smoke_monitor.h"
+#include "ultrasonic_stm32.h"
+#include "mcu_environment_monitor.h"
+#include "mcu_delivery_execution.h"
+#include "mcu_clean_execution.h"
+#include <string.h>
 
-/* Local candidate schedule; native measurement configuration is wired in P3. */
-#define WEIGHT_POLL_INTERVAL_MS 250U
-#define CLEAN_LOCK_PULSE_MS 4800U
+#define DEVICE(field) (ECOBIN_UART_CONFIG_PREIMAGE_DEVICE_OFFSET + ECOBIN_UART_CONFIG_DEVICE_BLOCK_##field##_OFFSET - ECOBIN_UART_CONFIG_DEVICE_BLOCK_CONTINUE_DELIVERY_WAIT_MS_OFFSET)
+#define START(field) ECOBIN_UART_START_DELIVERY_SESSION_##field##_OFFSET
+static McuControlEndpoint control;
+static McuWorkPreparation preparation;
+static McuDeliveryExecution delivery;
+static McuCleanExecution clean;
+static uint8_t smoke_enabled = 1u, control_tx_failed, initialization_failed;
+static uint8_t display_phase = 0xffu, display_status = 0xffu;
+static uint8_t displayed_measurement[16];
+static uint32_t display_tick, displayed_scale_attempt;
 
-#define SUO   PBout(8)
-
-#define RELAY1   PBout(6)//控制推杆方向
-#define RELAY2   PBout(7)
-
-#define PINCH_INPUT PBin(5)   /* PB5: high-active, CLOSE only; PB4 is unused. */
-
-/* HC-SR04 超声波溢满检测 */
-#define HCSR04_TRIG      PAout(11)   /* PA11=TRIG 触发输出 */
-#define HCSR04_ECHO      PAin(12)    /* PA12=ECHO 回波输入 */
-#define OVERFLOW_DIST    30          /* 距离<30cm判定溢满 */
-
-/* 单价 (元/kg), 视觉模块可修改 */
-unsigned char unit_price = 8;
-
-/* 烟雾阈值: MQ-2电压>1.5V 判定有烟雾 (0~3.3V, 对应ADC 0~4095) */
-#define SMOKE_THRESHOLD  1800   /* 1.5V / 3.3V * 4095 ≈ 1860 */
-
-/* 推杆方向定义 */
-#define DIR_STOP    MCU_DIRECTION_STOP   /* 停止 */
-#define DIR_CLOSE   MCU_DIRECTION_CLOSE  /* PB6/PB7=01 */
-#define DIR_OPEN    MCU_DIRECTION_OPEN   /* PB6/PB7=10 */
-
-/* 注: PA11/PA12 已分配给 HC-SR04, 见上方 HCSR04_TRIG/HCSR04_ECHO */
-
-/* ===== 称重状态机 ===== */
-#define WEIGH_IDLE    0   /* 空闲: 等待03指令 */
-#define WEIGH_ACTIVE  1   /* 测重中: 收到03后监测垃圾重量, 发送page6 */
-#define WEIGH_RESULT  2   /* 结果: 收到04后显示page7, 停止page6 */
-
-/* 称重状态机变量 */
-unsigned long  baseline_total     = 0;   /* 投放前总重 (上电或02时更新) */
-unsigned long  stable_garbage     = 0;   /* 当前稳定的垃圾重量值 */
-unsigned char  garbage_stable_cnt = 0;   /* 垃圾重量连续稳定计数 */
-unsigned char  baseline_inited    = 0;   /* baseline是否已初始化 */
-
-/* Legacy display/fixed-frame filter, not proof of a native stable measurement. */
-#define WEIGHT_FILTER_N  4
-static unsigned long weight_history[WEIGHT_FILTER_N];
-static unsigned char weight_hist_cnt = 0;
-volatile unsigned char g_weight_updated = 0;
-
-/* Protocol v2.0 state */
-unsigned long  delivery_pre_weight = 0;
-unsigned long  cleaning_pre_weight = 0;
-unsigned char  delivery_pre_weight_valid = 0;
-unsigned char  cleaning_pre_weight_valid = 0;
-unsigned char  delivery_flow_active = 0;
-#define CLEAN_IDLE          0
-#define CLEAN_LOCK_ON       1
-#define CLEAN_WAIT_CONFIRM  2
-unsigned char  cleaning_state = CLEAN_IDLE;
-volatile unsigned char update_prepared = 0;
-unsigned char  weigh_state = WEIGH_IDLE;
-
-/* 稳定判定: 连续3次读数波动≤5g视为稳定 */
-#define STABLE_THRESHOLD  5
-#define STABLE_COUNT      3
-
-/* 全局变量 */
-unsigned long  g_weight;                  /* 当前重量读数, 供状态机使用 */
-unsigned char  g_weight_valid = 0;        /* 最近一次完整称重是否可用于协议 */
-unsigned short kg, bg;                    /* 千克/百克 */
-unsigned long  total_price;
-unsigned short yuan, jiao, fen;
-
-void Delay(vu32 nCount)
-{
-    for(; nCount != 0; nCount--);
+static uint32_t enter(void) { uint32_t mask = __get_PRIMASK(); __disable_irq(); return mask; }
+static void leave(uint32_t mask) { __set_PRIMASK(mask); }
+static uint64_t now_ms(void) { uint64_t now; uint32_t mask = enter(); now = RuntimeClock_Now64Locked(); leave(mask); return now; }
+static uint8_t pinch(void) { return (uint8_t)((GPIOB->IDR & GPIO_Pin_5) != 0u); }
+static void outputs(uint8_t mask) {
+    GPIOB->BSRR = (((uint32_t)mask & 7u) << 6) | ((((uint32_t)~mask & 7u) << 6) << 16);
 }
-/* 4-point moving average: reduces sensor jitter on display */
-unsigned long Weight_Filter(unsigned long raw)
-{
-    unsigned long sum = 0;
-    unsigned char i;
-    for(i = 0; i < WEIGHT_FILTER_N - 1; i++)
-        weight_history[i] = weight_history[i + 1];
-    weight_history[WEIGHT_FILTER_N - 1] = raw;
-    if(weight_hist_cnt < WEIGHT_FILTER_N) weight_hist_cnt++;
-    for(i = WEIGHT_FILTER_N - weight_hist_cnt; i < WEIGHT_FILTER_N; i++)
-        sum += weight_history[i];
-    return sum / weight_hist_cnt;
+static const ActuatorHardware actuators = {enter, leave, pinch, outputs};
+
+static void board_io(void) {
+    GPIO_InitTypeDef gpio;
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_GPIOB | RCC_APB2Periph_AFIO, ENABLE);
+    GPIO_ResetBits(GPIOB, GPIO_Pin_6 | GPIO_Pin_7 | GPIO_Pin_8);
+    gpio.GPIO_Pin = GPIO_Pin_6 | GPIO_Pin_7 | GPIO_Pin_8;
+    gpio.GPIO_Speed = GPIO_Speed_10MHz;
+    gpio.GPIO_Mode = GPIO_Mode_Out_PP;
+    GPIO_Init(GPIOB, &gpio);
+    gpio.GPIO_Pin = GPIO_Pin_5; /* PB4 is not a door limit input. */
+    gpio.GPIO_Mode = GPIO_Mode_IPD;
+    GPIO_Init(GPIOB, &gpio);
 }
-
-
-/*
- * TIM3 初始化: 10ms 周期中断
- * APB1=36MHz, 因APB1预分频≠1, TIM3时钟=72MHz
- * 预分频=7200 → 10kHz, 自动重载=100 → 10ms
- */
-void TIM3_Init(void)
-{
-    TIM_TimeBaseInitTypeDef TIM_TimeBaseStructure;
-    NVIC_InitTypeDef NVIC_InitStructure;
-
+static void tick_init(void) {
+    TIM_TimeBaseInitTypeDef timer;
+    NVIC_InitTypeDef irq;
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3, ENABLE);
-
-    TIM_TimeBaseStructure.TIM_Period        = 100 - 1;
-    TIM_TimeBaseStructure.TIM_Prescaler      = 7200 - 1;
-    TIM_TimeBaseStructure.TIM_ClockDivision  = TIM_CKD_DIV1;
-    TIM_TimeBaseStructure.TIM_CounterMode    = TIM_CounterMode_Up;
-    TIM_TimeBaseInit(TIM3, &TIM_TimeBaseStructure);
-
+    TIM_TimeBaseStructInit(&timer);
+    timer.TIM_Period = 99u;
+    timer.TIM_Prescaler = 7199u;
+    TIM_TimeBaseInit(TIM3, &timer);
+    TIM_ClearITPendingBit(TIM3, TIM_IT_Update);
     TIM_ITConfig(TIM3, TIM_IT_Update, ENABLE);
-
-    NVIC_InitStructure.NVIC_IRQChannel            = TIM3_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 2;
-    NVIC_InitStructure.NVIC_IRQChannelCmd         = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
-
+    irq.NVIC_IRQChannel = TIM3_IRQn;
+    irq.NVIC_IRQChannelPreemptionPriority = 0u;
+    irq.NVIC_IRQChannelSubPriority = 0u;
+    irq.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&irq);
     TIM_Cmd(TIM3, ENABLE);
 }
-
-/*
- * HC-SR04 超声波测距初始化 (TIM4: 1MHz时基, 1μs精度)
- * APB1=36MHz, TIM4时钟=72MHz, 预分频=72 → 1MHz
- */
-void HCSR04_Init(void)
-{
-    TIM_TimeBaseInitTypeDef TIM_TimeBaseStructure;
-
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM4, ENABLE);
-
-    TIM_TimeBaseStructure.TIM_Period        = 65535;   /* 最大65ms, 覆盖4m量程 */
-    TIM_TimeBaseStructure.TIM_Prescaler      = 72 - 1;   /* 72MHz / 72 = 1MHz */
-    TIM_TimeBaseStructure.TIM_ClockDivision  = TIM_CKD_DIV1;
-    TIM_TimeBaseStructure.TIM_CounterMode    = TIM_CounterMode_Up;
-    TIM_TimeBaseInit(TIM4, &TIM_TimeBaseStructure);
+static void serial_irqs(void) {
+    NVIC_InitTypeDef irq;
+    irq.NVIC_IRQChannelPreemptionPriority = 0u;
+    irq.NVIC_IRQChannelSubPriority = 1u;
+    irq.NVIC_IRQChannelCmd = ENABLE;
+    irq.NVIC_IRQChannel = USART1_IRQn; NVIC_Init(&irq);
+    irq.NVIC_IRQChannel = USART2_IRQn; NVIC_Init(&irq);
+    irq.NVIC_IRQChannel = USART3_IRQn; NVIC_Init(&irq);
 }
-
-/*
- * HC-SR04 获取距离 (阻塞式, 约40ms)
- * 返回: 距离(cm), 0xFFFF=超时/无回波
- * 原理: TRIG发10μs脉冲 → ECHO高电平宽度(μs) / 58 = 距离(cm)
- */
-unsigned short HCSR04_GetDistance(void)
-{
-    unsigned long timeout;
-
-    /* 发送15μs触发脉冲 */
-    HCSR04_TRIG = 1;
-    Delay(400);            /* ~16μs */
-    HCSR04_TRIG = 0;
-
-    /* 等待模块发出8个40kHz脉冲 (~200μs), 超时40ms */
-    Delay(5000);
-
-    /* 等待ECHO上升沿 */
-    timeout = 0;
-    while(!HCSR04_ECHO)
-    {
-        if(++timeout > 500000) return 0xFFFF;
+static void send_control(const uint8_t *bytes, size_t length, void *context) {
+    (void)context;
+    if (!NativeUsart_SendControl(bytes, length)) control_tx_failed = 1u;
+}
+static uint16_t guard(uint8_t message, const uint8_t *payload, size_t length, uint64_t now, void *context) {
+    (void)payload; (void)length; (void)now; (void)context;
+    if (initialization_failed || control_tx_failed || ActuatorRuntime_Snapshot().update_latched)
+        return ECOBIN_UART_NACK_ERROR_SAFETY_BLOCKED;
+    switch (message) {
+    case ECOBIN_UART_MESSAGE_CONFIG_BEGIN:
+    case ECOBIN_UART_MESSAGE_CONFIG_DEVICE_BLOCK:
+    case ECOBIN_UART_MESSAGE_CONFIG_PORT_BLOCK:
+    case ECOBIN_UART_MESSAGE_CONFIG_COMMIT:
+    case ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION:
+    case ECOBIN_UART_MESSAGE_START_CLEAN_OPERATION:
+    case ECOBIN_UART_MESSAGE_DELIVERY_SELECTION:
+    case ECOBIN_UART_MESSAGE_CLEAN_UNLOCK_REQUESTED:
+    case ECOBIN_UART_MESSAGE_CLEAN_FINISH_REQUESTED:
+    case ECOBIN_UART_MESSAGE_CLEAN_COMPLETION_CONFIRMED:
+        return ECOBIN_UART_NACK_ERROR_NONE;
+    default: return ECOBIN_UART_NACK_ERROR_UNSUPPORTED_MESSAGE;
     }
+}
+static uint8_t apply_configuration(const McuConfiguration *configuration, void *context) {
+    McuConfigWeightPolicy policy;
+    (void)context;
+    if (!McuConfiguration_ReadWeightPolicy(configuration, 1u, &policy)) return 0u;
+    smoke_enabled = configuration->active.preimage[DEVICE(SMOKE_MONITORING_ENABLED)];
+    /* Execution/weight/fullness use immutable active settings at each operation.
+     * No physical action or artificial sensor success is produced by config. */
+    return 1u;
+}
 
-    /* 启动TIM4计时, 测量ECHO高电平宽度 */
-    TIM_SetCounter(TIM4, 0);
-    TIM_Cmd(TIM4, ENABLE);
+static void control_poll(void) {
+    uint8_t bytes[32];
+    size_t count;
+    uint32_t mask = enter();
+    if (NativeRx_DiscardOverflow(&NativeControlRx)) {
+        ecobin_uart_stream_parser_init(&control.parser, control.parser.sender);
+        control.parser.diagnostics |= ECOBIN_UART_DIAG_SEMANTIC_REJECTED;
+    }
+    leave(mask);
+    /* Bounded per turn, so serial floods cannot starve local control/sampling. */
+    count = NativeRx_Read(&NativeControlRx, bytes, sizeof(bytes));
+    if (count) {
+        /* Do not let a background health query make START randomly BUSY or let
+         * its response become the new business's first weight. */
+        if (preparation.weight.idle_in_flight) {
+            uint64_t now = now_ms();
+            mask = enter(); NativeScale_Cancel(&NativeScaleRx, now); leave(mask);
+            McuWeightRun_CancelIdleAttempt(&preparation.weight, now);
+        }
+        McuControlEndpoint_Feed(&control, bytes, count, now_ms());
+    }
+}
 
-    /* 等待ECHO下降沿 */
-    timeout = 0;
-    while(HCSR04_ECHO)
-    {
-        if(++timeout > 500000)
-        {
-            TIM_Cmd(TIM4, DISABLE);
-            return 0xFFFF;
+static void scale_poll(void) {
+    uint8_t bytes[9], ready, can_begin, idle_allowed;
+    uint32_t measurement, attempt, mask;
+    uint64_t captured, now = now_ms();
+    McuConfigWeightPolicy policy;
+    ScaleReaderObservation observation;
+    ActuatorSnapshot snapshot = ActuatorRuntime_Snapshot();
+    idle_allowed = (uint8_t)(control.work.status != ECOBIN_UART_WORK_QUERY_STATUS_RUNNING
+        || (control.work.phase == ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_OPEN_COUNTDOWN
+            && snapshot.door.action_active && snapshot.door.target == MCU_DIRECTION_OPEN));
+    if (preparation.weight.idle_in_flight && !idle_allowed) {
+        mask = enter(); NativeScale_Cancel(&NativeScaleRx, now); leave(mask);
+        McuWeightRun_CancelIdleAttempt(&preparation.weight, now);
+    }
+    mask = enter();
+    ready = NativeScale_Take(&NativeScaleRx, bytes, &measurement, &attempt, &captured);
+    if (!ready) (void)NativeScale_Expire(&NativeScaleRx, now);
+    leave(mask);
+    if (ready) {
+        if (measurement == 0u) (void)McuWeightRun_FinishIdleAttempt(&preparation.weight,
+            attempt, captured, now, bytes, sizeof(bytes));
+        else (void)McuWeightRun_FinishOwnedAttempt(&preparation.weight,
+            measurement, attempt, captured, now, bytes, sizeof(bytes));
+    }
+    /* Drain actual complete responses before the measurement owner checks time. */
+    (void)McuWeightRun_Poll(&preparation.weight, now);
+    if (McuWeightRun_CopyObservation(&preparation.weight, &observation))
+        (void)McuDeviceFacts_PublishScaleObservation(&control.facts, &observation);
+    mask = enter();
+    if (NativeScaleRx.active && (!preparation.weight.in_flight
+        || (!preparation.weight.idle_in_flight && NativeScaleRx.measurement != preparation.weight.measurement.result.measurement_id)))
+        NativeScale_Cancel(&NativeScaleRx, now);
+    can_begin = NativeScale_CanBegin(&NativeScaleRx, now);
+    leave(mask);
+    if (!can_begin) return;
+    measurement = preparation.weight.measurement.result.measurement_id;
+    policy = preparation.weight.policy;
+    if (idle_allowed
+        && !McuConfiguration_IsStaging(&preparation.configuration)
+        && McuConfiguration_ReadWeightPolicy(&preparation.configuration, 1u, &policy)) {
+        attempt = McuWeightRun_StartIdleAttempt(&preparation.weight, &policy, now);
+        measurement = 0u; /* A health read is never a business measurement. */
+    } else attempt = McuWeightRun_StartOwnedAttempt(&preparation.weight, now);
+    if (!attempt) return;
+    mask = enter();
+    ready = NativeScale_Begin(&NativeScaleRx, measurement, attempt, now, policy.response_timeout_ms);
+    leave(mask);
+    if (ready) (void)NativeUsart_SendScaleQuery(); /* Failure resolves as unreadable, never a reused old frame. */
+}
+
+static void hmi_poll(void) {
+    uint8_t bytes[32];
+    size_t i, count;
+    uint32_t mask = enter();
+    (void)NativeRx_DiscardOverflow(&NativeHmiRx);
+    leave(mask);
+    count = NativeRx_Read(&NativeHmiRx, bytes, sizeof(bytes));
+    for (i = 0u; i < count; ++i) {
+        if (control.work.status != ECOBIN_UART_WORK_QUERY_STATUS_RUNNING) continue;
+        if (preparation.start_message == ECOBIN_UART_MESSAGE_START_CLEAN_OPERATION) {
+            if (bytes[i] == 0x05u || bytes[i] == 0x07u)
+                (void)McuCleanExecution_Request(&clean, &control,
+                    preparation.start_payload + ECOBIN_UART_START_CLEAN_OPERATION_OPERATION_UID_OFFSET,
+                    bytes[i] == 0x05u ? ECOBIN_UART_MESSAGE_CLEAN_FINISH_REQUESTED : ECOBIN_UART_MESSAGE_CLEAN_UNLOCK_REQUESTED,
+                    clean.action_sequence, now_ms());
+        } else if (preparation.start_message == ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION) {
+            if ((bytes[i] == 0x02u || bytes[i] == 0x06u)
+                && display_phase == ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_WAIT_SELECTION)
+                (void)McuDeliveryExecution_Select(&delivery, &control, displayed_measurement,
+                    bytes[i] == 0x02u ? ECOBIN_UART_DELIVERY_SELECTION_END : ECOBIN_UART_DELIVERY_SELECTION_CONTINUE, now_ms());
+            if (bytes[i] == 0x00u || bytes[i] == 0x04u)
+                (void)McuDeliveryExecution_CloseCurrent(&delivery, &control, now_ms());
+            /* 01/03 never bypass START or drive pins from the screen. */
         }
     }
-
-    TIM_Cmd(TIM4, DISABLE);
-
-    /* pulse_us / 58 = 距离(cm) */
-    return (unsigned short)(TIM_GetCounter(TIM4) / 58);
 }
-
-void IO_Init(void)
-{
-    GPIO_InitTypeDef GPIO_InitStructure;
-
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOA, ENABLE);
-
-    /* PB6=RELAY1, PB7=RELAY2, PB8=SUO(锁) 推挽输出 */
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_6 | GPIO_Pin_7 | GPIO_Pin_8;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_10MHz;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
-    GPIO_Init(GPIOB, &GPIO_InitStructure);
-
-    /* PA11=HCSR04 TRIG(推挽输出), PA12=HCSR04 ECHO(上拉输入) */
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_11;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_10MHz;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
-    GPIO_Init(GPIOA, &GPIO_InitStructure);
-
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_12;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_10MHz;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPU;  /* 内部上拉, 增强抗干扰 */
-    GPIO_Init(GPIOA, &GPIO_InitStructure);
-
-    /* 上电默认: 停止, 锁释放, TRIG拉低 */
-    PBout(6)=0;
-    PBout(7)=0;
-    PBout(8)=0;
-    HCSR04_TRIG = 0;
+static void display_weight(uint8_t result_page) {
+    int64_t net = (int64_t)delivery.postclose.grams - preparation.initial.grams;
+    uint32_t grams = net > 0 ? (uint32_t)net : 0u;
+    uint64_t cents;
+    if (!result_page) return;
+    cents = ((uint64_t)grams * ecobin_uart_read_u32_be(preparation.start_payload + START(UNIT_PRICE_TEN_THOUSANDTHS))) / 100000u;
+    UART3_SendScreenVal("page7.n1.val=", (int)(grams / 1000u));
+    UART3_SendScreenVal("page7.n3.val=", (int)((grams % 1000u) / 100u));
+    UART3_SendScreenVal("page7.n2.val=", (int)(cents / 100u));
+    UART3_SendScreenVal("page7.n4.val=", (int)((cents / 10u) % 10u));
+    UART3_SendScreenVal("page7.n5.val=", (int)(cents % 10u));
 }
-
-void LIMIT_SW_Init(void)
-{
-    GPIO_InitTypeDef GPIO_InitStructure;
-
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
-
-    /* PB4 unused; PB5 bottom anti-pinch, keep existing active-high wiring. */
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_4 | GPIO_Pin_5;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_10MHz;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPD;
-    GPIO_Init(GPIOB, &GPIO_InitStructure);
+static void display_price(char *prefix) {
+    uint32_t price = ecobin_uart_read_u32_be(preparation.start_payload + START(UNIT_PRICE_TEN_THOUSANDTHS));
+    /* The existing screen has a fixed "0." plus one numeric component. Show
+     * only a price this layout can represent exactly, never the previous price.
+     * General decimal-price formatting remains a small HMI integration item. */
+    uint8_t supported = (uint8_t)(price < 10000u && price % 1000u == 0u);
+    UART3_SendScreenVal(prefix, supported ? (int)(price / 1000u) : 0);
+    UART3_SendVisible("n0", supported);
 }
-
-static uint32_t Actuator_EnterCritical(void)
-{
-    uint32_t previous = __get_PRIMASK();
-    __disable_irq();
-    return previous;
-}
-static void Actuator_LeaveCritical(uint32_t previous) { __set_PRIMASK(previous); }
-static uint8_t Actuator_ReadPinch(void) { return PINCH_INPUT ? 1U : 0U; }
-static void Actuator_WriteOutputs(uint8_t mask)
-{
-    /* One atomic write: never pass through PB6/PB7=11 on a direction change. */
-    uint32_t set_bits = ((uint32_t)mask & 7U) << 6;
-    uint32_t reset_bits = ((uint32_t)(~mask) & 7U) << 6;
-    GPIOB->BSRR = set_bits | (reset_bits << 16);
-}
-static const ActuatorHardware actuator_hardware = {
-    Actuator_EnterCritical, Actuator_LeaveCritical,
-    Actuator_ReadPinch, Actuator_WriteOutputs
-};
-
-/*
- * 称重状态机处理
- * WEIGH_IDLE:  空闲, page6 随 tick 更新当前总重
- * WEIGH_ACTIVE: 收到03后进入, 持续计算 垃圾重量 = 当前总重 - 投放前总重,
- *               检测到稳定垃圾重量时发送 page7 显示重量和总价
- */
-void chengzhing(unsigned char *pir)
-{
-    unsigned long  diff;
-
-    switch(*pir)
-    {
-    case WEIGH_ACTIVE:
-    {
-        unsigned long  garbage;
-
-        /* 垃圾重量 = 当前总重 - 投放前总重 (防下溢) */
-        if(g_weight > baseline_total)
-            garbage = g_weight - baseline_total;
-        else
-            garbage = 0;
-
-        /* 稳定性检测: 连续STABLE_COUNT次波动≤STABLE_THRESHOLD */
-        diff = (garbage > stable_garbage)
-            ? (garbage - stable_garbage)
-            : (stable_garbage - garbage);
-
-        if(diff <= STABLE_THRESHOLD)
-        {
-            garbage_stable_cnt++;
-            if(garbage_stable_cnt >= STABLE_COUNT
-               && garbage > 0
-               && garbage != stable_garbage)
-            {
-                stable_garbage = garbage;
-                garbage_stable_cnt = 0;
-            }
-        }
-        else
-        {
-            garbage_stable_cnt = 0;
-            stable_garbage = garbage;
-        }
-
-                /* page6: only refresh on new weight data */
-        if(g_weight_updated)
-        {
-            g_weight_updated = 0;
-            UART3_SendScreenVal("page6.n1.val=", kg);
-            UART3_SendScreenVal("page6.n3.val=", bg);
-        }
+static void display_poll(void) {
+    uint8_t phase = control.work.phase, status = control.work.status;
+    uint32_t mask;
+    if (phase == display_phase && status == display_status) return;
+    /* An already queued byte from the previous displayed phase is not a new
+     * round's button. No per-button delivery to Pi or new recovery obligation. */
+    mask = enter(); NativeHmiRx.tail = NativeHmiRx.head; leave(mask);
+    display_phase = phase; display_status = status;
+    if (status != ECOBIN_UART_WORK_QUERY_STATUS_RUNNING) { UART3_SendPage("page0"); return; }
+    if (preparation.start_message == ECOBIN_UART_MESSAGE_START_CLEAN_OPERATION) {
+        UART3_SendPage("page8"); return;
+    }
+    switch (phase) {
+    case ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_OPEN_COMMAND:
+        UART3_SendPage("page4"); break;
+    case ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_OPEN_COUNTDOWN:
+        displayed_scale_attempt = preparation.weight.attempt_sequence;
+        UART3_SendPage("page6");
+        display_price("page6.n0.val=");
+        UART3_SendScreenVal("page6.n1.val=", 0);
+        UART3_SendScreenVal("page6.n3.val=", 0);
+        UART3_SendVisible("n1", 0u); UART3_SendVisible("n3", 0u);
+        display_tick = RuntimeClock_Now() - 250u;
         break;
-    }
-
-    case WEIGH_RESULT:
-        /* 结果显示中: 不发page6, page7 已在04时发送, 等待02结束 */
-        break;
-
-    case WEIGH_IDLE:
-    default:
-        /* 空闲时不做任何事, page6 由 main loop 在重量更新时发送 */
-        break;
+    case ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_WAIT_SELECTION:
+        memcpy(displayed_measurement, delivery.postclose.uid, 16u);
+        UART3_SendPage("page7"); display_price("page7.n0.val="); display_weight(1u); break;
+    default: break;
     }
 }
 
-/*
- * 视觉模块协议解析 (USART1接收)
- * 帧格式: [帧头] [数据] [帧头]
- * AA + data + AA: 推杆控制 (00=开盖, 01=关盖)
- * BB + data + BB: 垃圾单价 (0~9)
- */
-static unsigned char Firmware_ExecutionFlags(
-    unsigned char cmdDir,
-    unsigned char current_weigh_state)
-{
-    McuUpdateExecutionState state;
-
-    state.delivery_active = delivery_flow_active;
-    state.cleaning_state = cleaning_state;
-    state.command_direction = cmdDir;
-    state.weigh_state = current_weigh_state;
-    state.relay1 = RELAY1;
-    state.relay2 = RELAY2;
-    state.lock_output = SUO;
-    state.update_latched = update_prepared;
-    return McuUpdateExecution_Flags(&state);
-}
-
-static unsigned char Firmware_ExecuteUpdatePrepare(
-    unsigned char *pCmdDir,
-    unsigned char *pWeighState)
-{
-    McuUpdateExecutionState state;
-    unsigned char flags;
-
-    state.delivery_active = delivery_flow_active;
-    state.cleaning_state = cleaning_state;
-    state.command_direction = *pCmdDir;
-    state.weigh_state = *pWeighState;
-    state.relay1 = RELAY1;
-    state.relay2 = RELAY2;
-    state.lock_output = SUO;
-    state.update_latched = update_prepared;
-    McuUpdateExecution_Apply(&state);
-
-    /*
-     * The Orange Pi owns admission.  Once it sends F2/02, the MCU must execute
-     * the stop-and-latch transition even if a local flow had still been active.
-     * Latch first so later local input cannot turn an output back on.
-     */
-    update_prepared = state.update_latched;
-    ActuatorRuntime_StopForUpdate();
-    delivery_flow_active = state.delivery_active;
-    cleaning_state = state.cleaning_state;
-    delivery_pre_weight_valid = 0;
-    cleaning_pre_weight_valid = 0;
-    *pCmdDir = state.command_direction;
-    *pWeighState = state.weigh_state;
-    UART3_RxLen = 0;
-
-    flags = Firmware_ExecutionFlags(*pCmdDir, *pWeighState);
-    return flags == MCU_UPDATE_ALL_FLAGS
-        ? MCU_UPDATE_EXECUTION_OK
-        : MCU_UPDATE_EXECUTION_INTERNAL;
-}
-
-void Vision_Process(unsigned char *pCmdDir, unsigned char *pPrice,
-                    unsigned char *pWeighState)
-{
-        /* A0 frame (195 bytes) */
-    if(Vision_RxLen>=195 && Vision_RxBuf[0]==0xA0 && Vision_RxBuf[194]==0xA0)
-    {
-        unsigned char url_len_rx=Vision_RxBuf[1],j;
-        if(!update_prepared && url_len_rx>=1 && url_len_rx<=192)
-        {
-            url_len=url_len_rx;
-            for(j=0;j<url_len_rx;j++)url_buffer[j]=Vision_RxBuf[2+j];
-            url_buffer[url_len_rx]=0;
-            UART3_SendQRCode((char*)url_buffer);
-        }
-        Vision_RxLen-=195;
-        if(Vision_RxLen>0)
-        {
-            unsigned char i;
-            USART_ITConfig(USART1, USART_IT_RXNE, DISABLE);   /* 防搬移时新字节插入 */
-            for(i=0;i<Vision_RxLen;i++)Vision_RxBuf[i]=Vision_RxBuf[i+195];
-            USART_ITConfig(USART1, USART_IT_RXNE, ENABLE);
-        }
+static void display_live_weight(void) {
+    ScaleReaderObservation observation;
+    ActuatorDeliveryCycle cycle;
+    uint64_t now, deadline;
+    int64_t delta;
+    uint32_t grams;
+    if (display_phase != ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_OPEN_COUNTDOWN
+        || control.work.status != ECOBIN_UART_WORK_QUERY_STATUS_RUNNING
+        || !RuntimeClock_PeriodDue(RuntimeClock_Now(), &display_tick, 250u)) return;
+    now = now_ms(); cycle = ActuatorRuntime_DeliveryCycle();
+    deadline = cycle.opened_at_ms + ecobin_uart_read_u32_be(preparation.start_payload + START(DELIVERY_AUTO_CLOSE_MS));
+    UART3_SendScreenVal("page6.n2.val=", (int)(now < deadline ? (deadline - now + 999u) / 1000u : 0u));
+    if (!McuWeightRun_CopyObservation(&preparation.weight, &observation)
+        || observation.status != SCALE_READER_OK || observation.captured_ms > now
+        || now - observation.captured_ms > preparation.weight.policy.measurement.maximum_age_ms) {
+        UART3_SendVisible("n1", 0u); UART3_SendVisible("n3", 0u); return;
     }
-    
-    while(Vision_RxLen >= 3)
-    {
-        unsigned char header = Vision_RxBuf[0];
-        unsigned char data, tail;
-
-        /* A0=195 bytes, don't parse as 3-byte frame */
-        if(header == 0xA0)
-            break;
-
-        data = Vision_RxBuf[1];
-        tail = Vision_RxBuf[2];
-
-        if(header == tail)
-        {
-            switch(header)
-            {
-            case 0xAA:   /* 投递流程 (protocol 6.1) */
-                if(!update_prepared && data == 0x01 &&
-                   g_weight_valid && !delivery_flow_active &&
-                   cleaning_state == CLEAN_IDLE)
-                {
-                    delivery_pre_weight = g_weight;
-                    delivery_pre_weight_valid = 1;
-                    delivery_flow_active = 1;
-                    *pCmdDir = DIR_OPEN;
-                    ActuatorRuntime_SetDoorTarget(*pCmdDir);
-                    UART3_SendPage("page4");
-                }
-                break;
-            case 0xBB:   /* 垃圾单价 */
-                if(!update_prepared && data <= 9)
-                {
-                    *pPrice = data;
-                    UART3_SendScreenVal("page0.n0.val=", unit_price);
-                    UART3_SendScreenVal("page3.n0.val=", unit_price);
-                    UART3_SendScreenVal("page7.n0.val=", unit_price);
-                }
-                break;
-            case 0xEE:   /* 清运流程 (protocol 6.3) */
-                if(!update_prepared && data == 0x01 &&
-                   g_weight_valid && !delivery_flow_active &&
-                   cleaning_state == CLEAN_IDLE)
-                {
-                    cleaning_pre_weight = g_weight;
-                    cleaning_pre_weight_valid = 1;
-                    ActuatorRuntime_Unlock(CLEAN_LOCK_PULSE_MS);
-                    cleaning_state = CLEAN_LOCK_ON;
-                    UART3_SendPage("page8");
-                }
-                break;
-            
-            case 0xF0:   /* Self-test query -> F1 */
-                if(Vision_RxBuf[1] == 0x01)
-                {
-                    unsigned short dist = HCSR04_GetDistance();
-                    unsigned char valid=0x03, smoke_st;
-                    unsigned long report_weight=0;
-                    unsigned char full_flag=(dist==0xFFFF)?0x00:(dist<OVERFLOW_DIST)?0x01:0x00;
-                    smoke_st = SmokeMonitor_GetState();
-                    if(g_weight_valid)
-                        report_weight=g_weight;
-                    else
-                        valid&=~0x01;
-                    Vision_SendSelfTestResult(valid,report_weight,full_flag,smoke_st);
-                }
-                break;
-            case 0xF2:   /* firmware identity / execute update preparation */
-                if(data == 0x01)
-                {
-                    Vision_SendFirmwareStatus(
-                        0x01, 0x00,
-                        Firmware_ExecutionFlags(
-                            *pCmdDir, *pWeighState));
-                }
-                else if(data == 0x02)
-                {
-                    unsigned char status =
-                        Firmware_ExecuteUpdatePrepare(
-                            pCmdDir, pWeighState);
-                    Vision_SendFirmwareStatus(
-                        0x02, status,
-                        Firmware_ExecutionFlags(
-                            *pCmdDir, *pWeighState));
-                }
-                break;
-            }
-            /* 消费3字节 */
-            Vision_RxLen -= 3;
-            if(Vision_RxLen > 0)
-            {
-                unsigned char i;
-                USART_ITConfig(USART1, USART_IT_RXNE, DISABLE);   /* 防搬移时新字节插入 */
-                for(i = 0; i < Vision_RxLen; i++)
-                    Vision_RxBuf[i] = Vision_RxBuf[i + 3];
-                USART_ITConfig(USART1, USART_IT_RXNE, ENABLE);
-            }
-        }
-        else
-        {
-            /* 帧头不匹配: 丢弃1字节 */
-            Vision_RxLen--;
-            if(Vision_RxLen > 0)
-            {
-                unsigned char i;
-                USART_ITConfig(USART1, USART_IT_RXNE, DISABLE);   /* 防搬移时新字节插入 */
-                for(i = 0; i < Vision_RxLen; i++)
-                    Vision_RxBuf[i] = Vision_RxBuf[i + 1];
-                USART_ITConfig(USART1, USART_IT_RXNE, ENABLE);
-            }
-        }
-    }
+    if (observation.attempt_sequence <= displayed_scale_attempt) return;
+    displayed_scale_attempt = observation.attempt_sequence;
+    delta = (int64_t)observation.grams - preparation.initial.grams;
+    grams = delta > 0 ? (uint32_t)delta : 0u;
+    UART3_SendScreenVal("page6.n1.val=", (int)(grams / 1000u));
+    UART3_SendScreenVal("page6.n3.val=", (int)((grams % 1000u) / 100u));
+    UART3_SendVisible("n1", 1u); UART3_SendVisible("n3", 1u);
+    /* Display-only delta, not a new first/final measurement or business result. */
 }
 
-/* UART2/UART3 中断优先级配置 */
-void NVIC_Configuration(void)
-{
-    NVIC_InitTypeDef NVIC_InitStructure;
-
-    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_0);
-
-    NVIC_InitStructure.NVIC_IRQChannel = USART2_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
-    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
-
-    NVIC_InitStructure.NVIC_IRQChannel = USART3_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 1;
-    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
-
-    NVIC_InitStructure.NVIC_IRQChannel = USART1_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 2;
-    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
-}
-
-
-int main(void)
-{
-    unsigned long  weight = 0;
-    unsigned char ret;
-    unsigned char cmdDir = DIR_STOP;
-    uint32_t last_weight_poll_ms = 0U;
-
+int main(void) {
     SystemInit();
-    IO_Init();
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_0);
+    board_io();
     RuntimeClock_Init();
-    ActuatorRuntime_Init(&actuator_hardware);
+    ActuatorRuntime_Init(&actuators);
+    (void)ActuatorRuntime_SetDoorTarget(MCU_DIRECTION_CLOSE);
+    tick_init(); /* Pinch/timed outputs are alive before optional ADC initialization. */
+    NativeUsart_InitBuffers(); NativeHmi_InitBuffer();
+    USART1_Init(); USART2_int(); USART3_Init();
+    serial_irqs();
     LED_GPIO_Config();
-    NVIC_Configuration();
-    USART1_Init();
-    USART1_RX_IntEnable(); /* 使能视觉模块接收中断 */
-    USART2_int();          /* RS485 仅用于采集重量 */
-    USART3_Init();         /* UART3 串口屏幕通信 */
-    LIMIT_SW_Init();
-    ADC1_Init();        /* PA4 MQ-2烟雾传感器 */
-    HCSR04_Init();      /* HC-SR04超声波溢满检测 */
-    SmokeMonitor_Init();
-    TIM3_Init();        /* Enable last: actuator/smoke state is initialized. */
-
-
-    while (1)
-    {
-		
-        /* ========== UART3 命令处理 ========== */
-			        /* ========== 视觉模块命令处理 (USART1) ========== */
-        Vision_Process(&cmdDir, &unit_price, &weigh_state);
-        if(update_prepared)
-        {
-            cmdDir = DIR_STOP;
-            weigh_state = WEIGH_IDLE;
-            ActuatorRuntime_StopForUpdate();
-            UART3_RxLen = 0;
-        }
-        while(!update_prepared && UART3_RxLen > 0)
-        {
-            unsigned char consumed = 0;
-            unsigned char matched  = 0;
-
-            switch(UART3_RxBuf[0])
-            {
-            case 0x01:   /* 开盖 */
-                cmdDir = DIR_OPEN;
-                ActuatorRuntime_SetDoorTarget(cmdDir);
-//                UART3_SendByte(0xC1); UART3_SendByte(0xC1);
-                matched = 1; consumed = 1;
-                break;
-            case 0x00:   /* 关盖 */
-                cmdDir = DIR_CLOSE;
-                ActuatorRuntime_SetDoorTarget(cmdDir);
-//                UART3_SendByte(0xC3); UART3_SendByte(0xF0);
-                matched = 1; consumed = 1;
-                break;
-            case 0x03:   /* 开始测重: 进入测重模式, 不清零baseline(由02统一更新) */
-                weigh_state = WEIGH_ACTIVE;
-                stable_garbage = 0;
-                garbage_stable_cnt = 0;
-                matched = 1; consumed = 1;
-                break;
-            case 0x04:   /* 显示结果: 发送稳定垃圾重量+总价到 page7 */
-            {
-				unsigned short d_kg, d_bg, d_yuan, d_jiao, d_fen;
-                cmdDir = DIR_CLOSE;
-                ActuatorRuntime_SetDoorTarget(cmdDir);
-                d_kg    = stable_garbage / 1000;
-                d_bg    = stable_garbage % 1000 / 100;
-							
-                d_yuan  = d_kg*unit_price/10+(d_kg*unit_price%10+d_bg*unit_price/10)/10;
-                d_jiao  = (d_kg*unit_price%10+d_bg*unit_price/10)%10;								
-                d_fen   =d_bg*unit_price%10 ;
-								weigh_state = WEIGH_RESULT;  /* 停止page6发送 */
-                UART3_SendScreenVal("page7.n1.val=", d_kg);
-                UART3_SendScreenVal("page7.n3.val=", d_bg);
-                UART3_SendScreenVal("page7.n2.val=", d_yuan);
-                UART3_SendScreenVal("page7.n4.val=", d_jiao);
-                UART3_SendScreenVal("page7.n5.val=", d_fen);
-               //	baseline_total = 0;//清零前
-                matched = 1; consumed = 1;
-                break;
-            }
-            case 0x02:   /* 测重结束: 保存基准, 发送溢满检测+重量结果 */
-            {
-                unsigned long post_w=g_weight;
-
-                weigh_state = WEIGH_IDLE;
-
-                /* DD完成帧：仅活跃投递使用已保存的投前重量，0g也是合法重量。 */
-                if(delivery_flow_active && delivery_pre_weight_valid &&
-                   g_weight_valid)
-                {
-                    unsigned long pre_w;
-                    unsigned short dist=HCSR04_GetDistance();
-                    unsigned char full_byte;
-                    pre_w=delivery_pre_weight;
-                    full_byte=(dist==0xFFFF)?0x00:(dist<OVERFLOW_DIST)?0x01:0x00;
-                    Vision_SendDeliveryResult(pre_w,post_w,full_byte);
-
-                    baseline_total=post_w;
-                    baseline_inited=1;
-                    delivery_flow_active=0;
-                    delivery_pre_weight=0;
-                    delivery_pre_weight_valid=0;
-                }
-
-							matched = 1; consumed = 1;
-                break;
-            }
-						 case 0x06:   /* continue: no report, keep pre-weight */
-                weigh_state = WEIGH_IDLE;
-                matched = 1; consumed = 1;
-                break;
-            case 0x05:   /* 清运完成: send EF */
-            {
-                if(cleaning_state == CLEAN_WAIT_CONFIRM &&
-                   cleaning_pre_weight_valid && g_weight_valid)
-                {
-                    unsigned long pre_w,post_w;
-                    unsigned short dist=HCSR04_GetDistance();
-                    unsigned char full_byte;
-                    pre_w=cleaning_pre_weight;
-                    post_w=g_weight;
-                    full_byte=(dist==0xFFFF)?0x00:(dist<OVERFLOW_DIST)?0x01:0x00;
-                    Vision_SendCleaningResult(pre_w,post_w,full_byte);
-                    cleaning_state=CLEAN_IDLE;
-                    cleaning_pre_weight=0;
-                    cleaning_pre_weight_valid=0;
-                    baseline_total=g_weight;   /* 清运后立即刷新基准 */
-                    baseline_inited=1;
-                    UART3_SendPage("page0");
-                }
-                matched = 1; consumed = 1;
-                break;
-            }
-            case 0x07:   /* 同一次清运中重新打开清运门 */
-                if(cleaning_state == CLEAN_WAIT_CONFIRM &&
-                   cleaning_pre_weight_valid)
-                {
-                    ActuatorRuntime_Unlock(CLEAN_LOCK_PULSE_MS);
-                    cleaning_state = CLEAN_LOCK_ON;
-                }
-                matched = 1; consumed = 1;
-                break;
-            }  /* end switch */
-
-
-
-            if(!matched)
-            {
-                /* 未知字节: 丢弃, 防止卡死缓冲区 */
-                consumed = 1;
-            }
-
-            /* 将剩余字节前移 */
-            if(UART3_RxLen > consumed)
-            {
-                unsigned char i;
-                USART_ITConfig(USART3, USART_IT_RXNE, DISABLE);
-                for(i = 0; i < UART3_RxLen - consumed; i++)
-                    UART3_RxBuf[i] = UART3_RxBuf[consumed + i];
-                UART3_RxLen -= consumed;
-                USART_ITConfig(USART3, USART_IT_RXNE, ENABLE);
-            }
-            else
-            {
-                UART3_RxLen = 0;
-            }
-        }
-
-
-
-        /* Timer-owned outputs continue even while the main loop is blocked. */
-        if(cleaning_state == CLEAN_LOCK_ON &&
-           !ActuatorRuntime_Snapshot().lock_powered)
-            cleaning_state = CLEAN_WAIT_CONFIRM;
-
-                /* SmokeMonitor: debounced state machine */
-        SmokeMonitor_Update();
-        if(SmokeMonitor_PollChanged())
-            Vision_SendSmoke(SmokeMonitor_GetState());
-
-
-        /* ========== 定时器驱动的非阻塞称重采集 ========== */
-        if(RuntimeClock_PeriodDue(RuntimeClock_Now(), &last_weight_poll_ms,
-                                  WEIGHT_POLL_INTERVAL_MS))
-        {
-            Weight_Read_Start();
-        }
-
-        ret = Weight_Read_Poll(&weight);
-
-        if(ret == 0)  /* 重量数据就绪 */
-        {
-          //  // printf("Weight=%d g\r\n", weight);
-            g_weight = Weight_Filter(weight);   /* filtered */
-            g_weight_valid = 1;
-            g_weight_updated = 1;
-
-            /* 首次上电: 自动用第一个重量读数初始化基准 */
-            if(!baseline_inited)
-            {
-                baseline_total = g_weight;
-                baseline_inited = 1;
-            }
-            kg = weight / 1000;
-            bg = weight % 1000 / 100;
-            total_price = (unsigned long)unit_price * weight;
-            yuan = total_price / 1000;
-            jiao = (total_price / 100) % 10;
-            fen  = (total_price / 10) % 10;
-        }
-        else if(ret != 2U)
-        {
-            g_weight_valid = 0;
-            /* Timeout, CRC, structure or range error: never reuse as valid. */
-        }
-     
-
-        /* 称重状态机: 每次循环都执行 */
-        chengzhing(&weigh_state);
-
-        Delay(50000);  /* ~5ms */
+    (void)ADC1_TryInit(); SmokeMonitor_Init();
+    McuControlEndpoint_Init(&control, 1u, send_control, 0);
+    initialization_failed = (uint8_t)(!McuWorkPreparation_Attach(&preparation, &control, 1u, guard, 0)
+        || !McuDeliveryExecution_Attach(&delivery, &preparation, &control)
+        || !McuCleanExecution_Attach(&clean, &preparation, &control)
+        || !McuWorkPreparation_SetConfigurationApply(&preparation, &control, apply_configuration, 0));
+    if (UltrasonicStm32_Init()) (void)McuWorkPreparation_AttachFullness(&preparation, &control);
+    USART1_RX_IntEnable();
+    UART3_SendPage("page0");
+    for (;;) {
+        scale_poll();
+        hmi_poll(); /* Old unscoped screen bytes are consumed before a new START. */
+        control_poll();
+        (void)McuWorkPreparation_Poll(&preparation, &control, now_ms());
+        if (smoke_enabled) (void)McuEnvironmentMonitor_PollSmoke(&control.facts);
+        display_poll();
+        display_live_weight();
+        /* No Delay: timer owns mechanical timing and each producer is bounded. */
     }
 }

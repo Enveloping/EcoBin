@@ -200,6 +200,26 @@ ActuatorDeliveryCycle ActuatorRuntime_DeliveryCycle(void)
     return copy;
 }
 
+uint8_t ActuatorRuntime_RequestDeliveryClose(uint32_t token)
+{
+    uint32_t previous = io.enter_critical();
+    uint8_t accepted = 0U;
+    if(token != 0U && delivery.present && token == delivery.token && delivery.opened
+        && !delivery.expired && !delivery.interrupted && !update_latched)
+    {
+        if(delivery_phase == 2U)
+        {
+            DoorControl_Stop(&door);
+            delivery_due_ms = RuntimeClock_Now64Locked() + 100U;
+            delivery_phase = 3U;
+            refresh();
+        }
+        accepted = delivery_phase == 3U || delivery_phase == 4U;
+    }
+    io.leave_critical(previous);
+    return accepted;
+}
+
 uint8_t ActuatorRuntime_ReleaseDeliveryCycle(uint32_t token)
 {
     uint32_t previous = io.enter_critical();

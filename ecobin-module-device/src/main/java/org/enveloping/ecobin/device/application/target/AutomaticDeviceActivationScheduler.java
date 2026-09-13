@@ -7,7 +7,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
+import java.util.LinkedHashSet;
 
 /**
  * 自动启用的补偿扫描器。
@@ -162,9 +162,12 @@ public class AutomaticDeviceActivationScheduler {
             fixedDelayString =
                     "${ecobin.device.activation-reconcile-ms:30000}")
     public void reconcileIncompleteAssets() {
-        List<Long> assetIds = jdbc.query(
+        var assetIds = new LinkedHashSet<>(jdbc.query(
                 FIND_INCOMPLETE_ASSET_IDS_SQL,
-                (rs, ignored) -> rs.getLong("id"));
+                (rs, ignored) -> rs.getLong("id")));
+        // Independently bounded scan: an already activated device can install a new protocol.
+        assetIds.addAll(jdbc.query(McuConfigurationProfileProvider.PROFILE_CHANGE_ASSET_IDS_SQL,
+                (rs, ignored) -> rs.getLong("id")));
         for (Long assetId : assetIds) {
             try {
                 targetDeviceApplication.reconcileAutomaticActivation(assetId);

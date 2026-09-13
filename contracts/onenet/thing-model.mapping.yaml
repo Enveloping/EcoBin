@@ -1,5 +1,5 @@
 {
-  "mappingVersion": "2.2.0",
+  "mappingVersion": "2.3.0",
   "status": "IMPLEMENTATION_CANDIDATE",
   "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "transport": {
@@ -78,6 +78,18 @@
       "OneNet request_id",
       "log metadata"
     ]
+  },
+  "mcuConfigurationProfiles": {
+    "legacyWhenAbsent": {
+      "mcuDigestDomain": "ECOBIN:UART:MCU-CONFIG:v1\\0",
+      "policy": "Only absence of payload.mcuConfigurationProfile selects the unchanged legacy field set and v1 digest; never guess or upgrade a stored hash."
+    },
+    "UART_V2_SIMPLIFIED": {
+      "mcuDigestDomain": "ECOBIN:UART:MCU-CONFIG:v2\\0",
+      "deviceConstants": { "weightPollIntervalMs": 250, "weightResponseTimeoutMs": 200 },
+      "portConstants": { "weightMaximumSampleAgeMs": 750, "weightMinimumMedianSampleCount": 5 },
+      "policy": "Explicit payload.mcuConfigurationProfile is required. These immutable profile constants are projected into MCU bytes, not repeated in cloud deviceConfig/ports. Canonical configuration content binds the profile and its constants. Changing any constant requires a new profile name. Existing timeout/window/fluctuation/sample-count fields remain explicit and strictly constrained by the native schema."
+    }
   },
   "oneNetProjection": {
     "generatedImportFile": "generated/onenet-thing-model.candidate.json",

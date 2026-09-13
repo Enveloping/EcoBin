@@ -8,15 +8,26 @@ import json
 import uuid
 
 from job_safety import JobPermit, PermanentJobSafety, command_request_digest
-from mcu_action_evidence import NativeActionReconciler, check_ledger
 from onenet_wire import canonical_payload_sha256, WORK_PHOTO_SLOTS
 from native_result_evidence import terminal_weight_failure_candidate
 import uart2_protocol as uart
 
+_UNQUERIED_PERMIT = object()
 
-def supports_result_policy(result):
-    return (result["finishReason"] in {"DELIVERY_END", "DELIVERY_WINDOW_EXPIRED", "CLEAN_CONFIRMED"}
-        or terminal_weight_failure_candidate(result))
+
+def supports_result_policy(result, *, legacy=False):
+    normal = result["finishReason"] in {"DELIVERY_END", "DELIVERY_WINDOW_EXPIRED", "CLEAN_CONFIRMED"}
+    available = all(result[role + "Kind"] in {"STABLE_MEAN", "TIMEOUT_MEDIAN"} for role in ("initial", "final"))
+    return (normal and (available or legacy)) or terminal_weight_failure_candidate(result)
+
+
+def check_job_permit(permit, original):
+    """Keep job ownership, without reconstructing individual physical actions."""
+    expected = dict(permitUid=permit.permit_uid, workUid=permit.work_uid,
+        commandUid=permit.command_uid, workType=permit.work_type,
+        requestDigestSha256=permit.request_digest_sha256, state="ACTIVE")
+    if not isinstance(original, dict) or any(original.get(key) != value for key, value in expected.items()):
+        raise ValueError("native report differs from the original active job permit")
 
 
 def original_authority(store, permit, start, evidence, device_name):
@@ -78,7 +89,8 @@ def original_authority(store, permit, start, evidence, device_name):
 
 
 def measurement(source):
-    value = uart.decode_payload(source["messageName"], source["payload"])
+    value = (source["measurement"] if source.get("source") == "WORK_RESULT"
+        else uart.decode_payload(source["messageName"], source["payload"]))
     kind = value["measurementKind"]
     if kind == "UNAVAILABLE" and value["faultCode"] == "WEIGHT_TIMEOUT":
         return dict(measurementUid=value["measurementUid"], status="TIMEOUT", weightValueAvailable=False,
@@ -102,8 +114,13 @@ def pending_photos(work_type):
 
 def report_payload(result, evidence, command, photos):
     first, final = measurement(evidence["initial"]), measurement(evidence["final"])
-    close = uart.decode_payload(evidence["execution"]["events"][-1]["message_name"],
-        evidence["execution"]["events"][-1]["payload"])
+    # v2 reads terminal control semantics from the trusted complete result.
+    # The old event projection is retained only to verify frozen v1 reports.
+    close = (evidence["finalControl"] if "finalControl" in evidence else
+        uart.decode_payload(evidence["execution"]["events"][-1]["message_name"],
+            evidence["execution"]["events"][-1]["payload"]))
+    if close is None:
+        raise ValueError("native result does not establish final control state")
     if result["workType"] == "CLEAN_OPERATION":
         if not result["physicalCloseConfirmed"] or close["lockPowerState"] != "DEENERGIZED":
             raise ValueError("native clean report requires lock-off and original manual confirmation")
@@ -128,7 +145,7 @@ def report_payload(result, evidence, command, photos):
 
 
 def report_binding(permit, start_uid, result, event, device_name):
-    return dict(version="ecobin-native-result-report-v1", permit=asdict(permit), startCommandUid=start_uid,
+    return dict(version="ecobin-native-result-report-v2", permit=asdict(permit), startCommandUid=start_uid,
         resultDigest=result["result_digest"], eventUid=event["eventUid"],
         eventSha256=canonical_payload_sha256(event), deviceName=device_name)
 
@@ -137,29 +154,33 @@ def checked_report(store, conn, row, result, event):
     if row["state"] != "REPORT_CREATED":
         return None
     binding = json.loads(row["report_json"])
-    if (result is None or binding.get("version") != "ecobin-native-result-report-v1"
+    if (result is None or binding.get("version") not in {"ecobin-native-result-report-v1", "ecobin-native-result-report-v2"}
             or binding["resultDigest"] != result["result_digest"] or row["event_uid"] != binding["eventUid"]
             or row["task_uid"] != row["event_uid"]
             or event is None or binding["eventSha256"] != canonical_payload_sha256(event)
             or event["payloadSha256"] != canonical_payload_sha256(event["payload"])):
         raise ValueError("native report custody is corrupt")
     permit = JobPermit(**binding["permit"])
-    first = store.get_native_action_by_key(permit.work_uid,
-        "clean:first-unlock" if permit.work_type == "CLEAN" else "delivery:first-open")
-    if first is None or first["permit"] != permit:
-        raise ValueError("native report lost its original permit binding")
     record = store.get_native_command(binding["startCommandUid"])
     if record is None or record["conflict"]:
         raise ValueError("native report lost its original START")
     start = uart.decode_payload(record["message_name"], record["payload"])
     from work_recovery import complete_result
-    decision = complete_result(store, conn, permit, record, start, validate_report=False)
+    decision = complete_result(store, conn, permit, record, start, validate_report=False,
+        legacy_evidence=binding["version"] == "ecobin-native-result-report-v1")
     if decision is None or decision["evidence"]["state"] != "MATCHED":
         raise ValueError("native report lost its original result evidence")
     evidence = decision["evidence"]
+    if binding["version"] == "ecobin-native-result-report-v1":
+        # Already-created reports keep their original, stricter interpretation;
+        # do not rewrite old cloud payloads during a software update.
+        first = store.get_native_action_by_key(permit.work_uid,
+            "clean:first-unlock" if permit.work_type == "CLEAN" else "delivery:first-open")
+        if evidence["state"] != "MATCHED" or first is None or first["permit"] != permit:
+            raise ValueError("native legacy report lost its original evidence")
     command = original_authority(store, permit, start, evidence, binding["deviceName"])
     value = uart.decode_payload("WORK_RESULT", result["payload"])
-    if not supports_result_policy(value):
+    if not supports_result_policy(value, legacy=binding["version"] == "ecobin-native-result-report-v1"):
         raise ValueError("native report has no supported result policy")
     if command is None or report_payload(value, evidence, command, event["payload"]["photos"]) != event["payload"]:
         raise ValueError("native report no longer matches original business evidence")
@@ -205,7 +226,7 @@ class NativeResultReporter:
             raise ValueError("native result reporting requires the device identity")
         self.store, self.safety, self.device_name, self.photo = store, safety, device_name, photo_manager
 
-    def prepare(self, permit, start_command_uid):
+    def prepare(self, permit, start_command_uid, *, permit_snapshot=_UNQUERIED_PERMIT):
         if not isinstance(permit, JobPermit):
             raise ValueError("native report requires the original job permit")
         existing = self.store.get_native_result_report(permit, start_command_uid, device_name=self.device_name)
@@ -228,15 +249,10 @@ class NativeResultReporter:
         start = uart.decode_payload(record["message_name"], record["payload"])
         if original_authority(self.store, permit, start, evidence, self.device_name) is None:
             return dict(state="WAITING_FOR_CLOUD_COMMAND_CUSTODY")
-        reconciler = NativeActionReconciler(self.store, self.safety)
-        ledgers = {}
-        for command in evidence["execution"]["commands"]:
-            uid = command["binding"]["action"]["action_uid"]
-            confirmed = reconciler.reconcile(uid)
-            if confirmed is None or confirmed["state"] != "CONFIRMED":
-                return dict(state="WAITING_FOR_ACTION_CONFIRMATION")
-            ledgers[uid] = self.safety.get_physical_action(uid)
-            check_ledger(self.store.get_native_action_binding(uid), ledgers[uid],
-                self.store.get_native_action_confirmation(uid))
+        # Native foreground callers obtain this exact snapshot asynchronously.
+        # The synchronous standalone API remains for existing offline tooling.
+        original = (self.safety.get_job_permit(permit.permit_uid)
+            if permit_snapshot is _UNQUERIED_PERMIT else permit_snapshot)
+        check_job_permit(permit, original)
         return self.store.create_native_result_report(permit, start_command_uid,
-            device_name=self.device_name, ledgers=ledgers, photo_manager=self.photo)
+            device_name=self.device_name, photo_manager=self.photo, permit_snapshot=original)

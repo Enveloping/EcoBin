@@ -1,5 +1,5 @@
 /* Generated from contracts/uart/uart-registry.yaml. DO NOT EDIT.
- * Registry SHA-256: a41d80dd9c349b847107a3afc7844580ac0c7a371920a78dfb22bf1506512e70
+ * Registry SHA-256: 60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808
  * Compile exactly once when using the shared payload validator. */
 #define ECOBIN_UART_SHARED_PAYLOAD_VALIDATOR 1
 #define ECOBIN_UART_PROTOCOL_IMPLEMENTATION 1

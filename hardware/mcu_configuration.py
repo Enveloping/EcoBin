@@ -1,7 +1,7 @@
 """Immutable native-v2 MCU subset, validated before any command is prepared.
 
-Not a cloud/OneNet decoder, configuration applier, allocator, or UART owner.
-The caller must authenticate/validate the full cloud configuration and its
+Not a configuration applier, allocator, or UART owner.
+The caller must authenticate the full cloud command and its
 content digest, persist each real command identity, obtain configuration-specific
 authorization, and fence each single write. Legacy v1 hashes are never upgraded
 by guessing defaults. No existing runtime imports this candidate module.
@@ -10,9 +10,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+from types import MappingProxyType
 from typing import Mapping, Sequence
 
 import uart2_protocol as uart
+
+
+NATIVE_CONFIGURATION_PROFILE = "UART_V2_SIMPLIFIED"
+# Immutable meaning of this explicit profile, not a fallback for legacy input.
+# Changing these constants requires a distinct profile name and contract.
+NATIVE_DEVICE_CONSTANTS = MappingProxyType({"weightPollIntervalMs": 250, "weightResponseTimeoutMs": 200})
+NATIVE_PORT_CONSTANTS = MappingProxyType({"weightMaximumSampleAgeMs": 750, "weightMinimumMedianSampleCount": 5})
 
 
 def _sha256(value: str) -> str:
@@ -93,6 +101,28 @@ class NativeMcuConfiguration:
     @property
     def part_count(self) -> int:
         return len(self._parts)
+
+    @classmethod
+    def from_cloud_payload(cls, payload: Mapping) -> NativeMcuConfiguration:
+        """Project a structurally valid explicit profile and verify its v2 MCU digest.
+
+        The caller authenticates the cloud envelope and verifies payload/content
+        custody. This does not select a device profile, authorize a command, or
+        apply configuration. Pi heartbeat policy and display names never enter
+        MCU bytes. Missing profile never upgrades v1 by guessing its meaning.
+        """
+        from onenet_wire import validate_configuration_payload
+
+        if validate_configuration_payload(payload) != NATIVE_CONFIGURATION_PROFILE:
+            raise ValueError("explicit UART_V2_SIMPLIFIED profile required; v1 fallback is forbidden")
+        device = {key: value for key, value in payload["deviceConfig"].items()
+                  if key not in {"edgeHeartbeatIntervalMs", "edgeHeartbeatMissThreshold"}}
+        device.update(NATIVE_DEVICE_CONSTANTS)
+        ports = [{key: value for key, value in port.items() if key != "displayName"}
+                 | dict(NATIVE_PORT_CONSTANTS) for port in payload["ports"]]
+        identity = payload["config"]
+        return cls(config_version=identity["version"], content_sha256=identity["contentSha256"],
+                   expected_sha256=identity["mcuPayloadSha256"], device=device, ports=ports)
 
     @classmethod
     def from_parts(cls, parts: Sequence[tuple[str, bytes]]) -> NativeMcuConfiguration:

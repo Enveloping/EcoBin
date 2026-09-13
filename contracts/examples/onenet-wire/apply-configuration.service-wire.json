@@ -25,6 +25,8 @@
       },
       "expiresAt": "2026-07-24T01:01:00.000Z",
       "issuedAt": "2026-07-24T01:00:00.000Z",
+      "mcuConfigurationProfile": 1,
+      "mcuConfigurationProfilePresent": false,
       "payloadSchemaVersion": 1,
       "payloadSha256": "dd3f8c52cb3b1188b56991123288ceb54c87ba4fa2e977e454fb7cc13f7321d1",
       "ports": [

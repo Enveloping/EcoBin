@@ -1,0 +1,102 @@
+{
+  "callServiceApiBodyTemplate": {
+    "device_name": "<HARDWARE_SN>",
+    "identifier": "applyConfiguration",
+    "params": {
+      "applicationUid": "10000000-0000-4000-8000-000000000002",
+      "commandType": 1,
+      "commandUid": "20000000-0000-4000-8000-000000000002",
+      "config": {
+        "contentSha256": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "mcuPayloadSha256": "ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1",
+        "version": 8
+      },
+      "cosGrantPresent": false,
+      "deviceConfig": {
+        "cleanSolenoidPulseMs": 1000,
+        "continueDeliveryWaitMs": 30000,
+        "deliveryAutoCloseMs": 120000,
+        "deliveryDoorTravelWaitMs": 30000,
+        "edgeHeartbeatIntervalMs": 3600000,
+        "edgeHeartbeatMissThreshold": 3,
+        "negativeWeightThresholdGrams": 500,
+        "smokeMonitoringEnabled": true,
+        "weightMeasurementTimeoutMs": 5000
+      },
+      "expiresAt": "2026-07-24T01:01:00.000Z",
+      "issuedAt": "2026-07-24T01:00:00.000Z",
+      "mcuConfigurationProfile": 1,
+      "mcuConfigurationProfilePresent": true,
+      "payloadSchemaVersion": 1,
+      "payloadSha256": "e3ffef0e6928056bc3b2c474af6d1f49a15b55095fc472f6e02359ce8d5d43be",
+      "ports": [
+        {
+          "calibrationVersion": 4,
+          "configuredFullWeightGrams": 50000,
+          "displayName": "投口1",
+          "enabled": true,
+          "fullnessDistanceThresholdMm": 600,
+          "fullnessEchoTimeoutUs": 30000,
+          "fullnessMinimumValidSampleCount": 3,
+          "fullnessMode": 3,
+          "fullnessSampleCount": 5,
+          "fullnessSensorKind": 1,
+          "fullnessSettleWaitMs": 5000,
+          "portNo": 1,
+          "unitPriceTenThousandths": 4501,
+          "weightMaximumFluctuationGrams": 100,
+          "weightMaximumGrams": 100000,
+          "weightMeasurementTimeoutMs": 5000,
+          "weightMinimumGrams": -5000,
+          "weightRequiredSampleCount": 5,
+          "weightStableWindowMs": 1500
+        },
+        {
+          "calibrationVersion": 4,
+          "configuredFullWeightGrams": 50000,
+          "displayName": "投口2",
+          "enabled": true,
+          "fullnessDistanceThresholdMm": 600,
+          "fullnessEchoTimeoutUs": 30000,
+          "fullnessMinimumValidSampleCount": 3,
+          "fullnessMode": 3,
+          "fullnessSampleCount": 5,
+          "fullnessSensorKind": 1,
+          "fullnessSettleWaitMs": 5000,
+          "portNo": 2,
+          "unitPriceTenThousandths": 4502,
+          "weightMaximumFluctuationGrams": 100,
+          "weightMaximumGrams": 100000,
+          "weightMeasurementTimeoutMs": 5000,
+          "weightMinimumGrams": -5000,
+          "weightRequiredSampleCount": 5,
+          "weightStableWindowMs": 1500
+        }
+      ],
+      "schemaVersion": 1,
+      "target": {
+        "type": 1,
+        "uid": "10000000-0000-4000-8000-000000000002"
+      },
+      "targetDeviceName": "SN-CONTRACT-0001"
+    },
+    "product_id": "<PRODUCT_ID>"
+  },
+  "deviceAcceptedReplyTemplate": {
+    "code": 200,
+    "data": {
+      "commandUid": "20000000-0000-4000-8000-000000000002",
+      "edgeBootId": 9001,
+      "errorCode": "",
+      "errorCodePresent": false,
+      "receiptState": 1,
+      "schemaVersion": 1
+    },
+    "id": "<COPY_REQUEST_ID>",
+    "msg": "accepted"
+  },
+  "deviceInvokeTopicTemplate": "$sys/{pid}/{device-name}/thing/service/applyConfiguration/invoke",
+  "deviceReplyTopicTemplate": "$sys/{pid}/{device-name}/thing/service/applyConfiguration/invoke_reply",
+  "identifier": "applyConfiguration",
+  "kind": "SYNC_SERVICE"
+}

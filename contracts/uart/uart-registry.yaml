@@ -1,7 +1,7 @@
 {
-  "registryVersion": "2.0.0-rc.22",
+  "registryVersion": "2.0.0-rc.23",
   "status": "MCU_REVIEW_REQUIRED",
-  "implementationStage": "WORK_FULLNESS_CUSTODY_NOT_RUNNABLE",
+  "implementationStage": "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED",
   "sessionPolicy": {
     "processEventMessages": ["WORK_PREOPEN_WEIGHT_READY", "WORK_POSTCLOSE_WEIGHT_READY", "WORK_PREUNLOCK_WEIGHT_READY", "CLEAN_FINAL_WEIGHT_READY", "FULLNESS_SAMPLE_RESULT", "BASELINE_MEASUREMENT_RESULT", "DELIVERY_SELECTION", "CLEAN_UNLOCK_REQUESTED", "CLEAN_FINISH_REQUESTED", "CLEAN_COMPLETION_CONFIRMED"],
     "actuatorEventMessages": ["DELIVERY_DOOR_COMMAND_RESULT", "CLEAN_LOCK_POWER_CHANGED", "SAFE_CLOSE_RESULT", "DELIVERY_LOCAL_DOOR_RESULT", "DELIVERY_CYCLE_ABORTED", "DELIVERY_POSTCLOSE_INTERRUPTED", "CLEAN_OPERATION_INTERRUPTED"],
@@ -22,7 +22,7 @@
     "bindTimeout": "FRESH_PROBE_NOT_BIND_RETRY",
     "channelPremise": "REQUESTS_MAY_BE_LOST_DELAYED_REORDERED_BUT_NOT_COPIED",
     "businessGate": "NONZERO_EXACT_TARGET_BOOT",
-    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU 只在 RAM 保存启动编号及待绑定询问，接受绑定后消费待绑定询问，已有非零编号绝不重绑。绑定回复只关联本次请求，不证明 MCU 此后未重启；每条命令仍须核对目标启动。真实串口单次写入及旧帧边界尚未接入，禁止启用候选。"
+    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.23精简正常路径以START作为整次本地业务授权，MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。原过程/动作消息仅供旧候选历史诊断和归档读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。成对固件/主入口和现场验证未完成，不可直接发布。"
   },
   "physicalLink": {
     "baudRate": 115200,
@@ -1959,7 +1959,7 @@
       "category": "EVENT",
       "ackRequired": true,
       "criticalEvent": true,
-      "notes": "清运员第一次按完成只请求最终称重并进入结果展示；它不是人工关门完成确认。cleanActionSequence 与再次解锁请求共享并严格递增",
+      "notes": "历史rc.22线级过程事件只请求最终称重，旧确认另行保存。rc.23精简正常路径不要求向Pi可靠发送此事件：MCU本地收到真实完成按钮即锁存人工已关门并请求最终称重，完成后直接冻结WORK_RESULT；没有轮询伪造的第二次人工确认。cleanActionSequence与本地再次解锁请求共享递增。",
       "payload": [
         { "group": "criticalEventIdentity" },
         { "name": "mcuCommandUid", "type": "uuid" },
@@ -2089,7 +2089,7 @@
       "category": "EVENT",
       "ackRequired": true,
       "criticalEvent": true,
-      "notes": "只在同代 CLEAN_FINAL_WEIGHT_READY 已获 PROCESS_EVENT_SAVED 精确确认、屏幕展示结果且清运员再次明确确认安装与人工关门完成后产生；最终称重可以失败。锁断电不等于门已关闭，人工确认是唯一完成依据",
+      "notes": "保留读取历史rc.22已保存的第二次人工确认事件；旧事件要求同代末重已保存，末重可失败。rc.23精简正常路径不生成或等待该独立事件：真实一次完成按钮的人工关门事实随WORK_RESULT交接。任何版本都不以锁断电推断清运门物理关闭。",
       "payload": [
         { "group": "criticalEventIdentity" },
         { "name": "mcuCommandUid", "type": "uuid" },
@@ -2254,7 +2254,7 @@
     },
     {
       "id": "WORK_RESULT_FINISH_SCOPE", "kind": "WORK_SCOPE", "messages": ["WORK_RESULT"],
-      "notes": "仅DELIVERY_SESSION/CLEAN_OPERATION。投递不携带cleanActionSequence或清运员关门确认，不使用CLEAN_CONFIRMED；正常投递结束/窗口到期roundCount非零。清运roundCount=0且negativeWeightAnomaly=false，不使用投递结束原因；CLEAN_CONFIRMED要求physicalCloseConfirmed=true与非零cleanActionSequence。该确认是清运员事实，不是电气测得清运门关闭。FAILED/CANCELLED只描述MCU结束原因，正常/异常订单/重启问题记录和迟到冲突须由后续Pi分类器结合持久事实裁定。"
+      "notes": "仅DELIVERY_SESSION/CLEAN_OPERATION。投递不携带清运步骤或清运员确认；正常投递结束/窗口到期roundCount非零。正常三种结束原因必须有本启动独立有效首末重量。精简MCU仅在最近CLOSE已经实际下发且控制仍有效时冻结DELIVERY_END/DELIVERY_WINDOW_EXPIRED，以及FAILED+有效首重+非零轮数+末重UNAVAILABLE/WEIGHT_TIMEOUT/5000ms这一纯末称重失败组合；PB5暂停不改变最近CLOSE。Pi可据此投影CLOSE/COMMAND_DISPATCHED/NOT_OBSERVABLE，不猜物理到位；控制丢失/更新停止使用CANCELLED而不冒充纯称重超时。清运roundCount=0且无投递负重异常；CLEAN_CONFIRMED要求真实人工结束意图、锁断电、非零cleanActionSequence及physicalCloseConfirmed=true，人工事实不是门位传感器；无电磁锁反馈时健康为UNKNOWN。FAILED/CANCELLED不自动产生正常结算；已归档迟到包仅补证。"
     },
     {
       "id": "RESULT_SAVED_CURRENT_BOOT", "kind": "RESULT_HANDOFF", "messages": ["RESULT_SAVED_REPLY"],
@@ -3008,16 +3008,17 @@
     }
   ],
   "recoveryPolicy": [
-    "本版完成 P1 身份、最终结果交接、原业务查询、单投口设备事实与过程测量精确交接局部候选；多投口/完整安全快照、实际采集及业务恢复接线仍待完成，不得直接发布或接单。必须区分帧 ACK、命令受理、过程记录保存确认和最终结果保存确认。",
-    "MCU 每次启动先停止 PB6/PB7/PB8 输出，mcuBootId=0，只保存在 RAM；不自动继续旧动作。启动绑定遵循 sessionPolicy，未绑定不处理业务命令。",
-    "香橙派独自重启时不重新分配已绑定 MCU 的启动编号，恢复本地业务及持久命令序号；无回复只代表是否执行未知，继续查询原命令，不盲目重发机械命令。",
+    "rc.23进入精简正常业务集成，尚非可发布整机。MCU负责本地硬件和按钮状态机，Pi保留业务必要数据；旧逐动作/过程交接及多代机械恢复条目只用于历史候选读取，不接入新正常执行。",
+    "MCU每次启动放弃未完成业务，先清输出再自行设置投递CLOSE及清运锁断电；mcuBootId=0仅在RAM，绑定前不接业务，不重建旧执行。CLOSE是控制状态而非实测门位。",
+    "香橙派单独重启继续原业务，恢复同一MCU启动下的查询和完整结果保存，不重放START。仅超时不能证明MCU重启；达到明确控制通信故障阈值后当前未完成业务失败、停接单交人工，不无限机械重试。",
     "命令先校验非零目标启动编号；相同启动/序号/UUID/摘要只返回原决定，身份冲突拒绝。已淘汰详情的旧序号不能重新执行；高水位在结果释放后仍保留。序号可因已预留未发送而有空洞，但不能据空洞清除未知动作占用。",
-    "完整结果及精确保存确认已定义并有独立模块：MCU 保留同一不可变结果直到香橙派完整校验并 SQLite 提交后明确确认。通用帧 ACK 不释放业务结果；MCU 空闲也不等于香橙派可接单。业务分类及实际串口接线仍待完成。",
+    "MCU保留同一不可变WORK_RESULT直到Pi完整校验并SQLite提交后精确RESULT_SAVED；过程/按钮/动作消息缺失或未确认不阻止本地推进或Pi处理完整结果。保存确认本身不等于云端结算、释放全部占用或可接新业务。",
     "QUERY_WORK 每次先持久分配新 queryId，再单次写入；回复必须完整匹配原查询身份。只读查询不改业务/结果，不重发动作。无回复、过期回复或同查询异文冲突均为未知；NOT_FOUND 只是详情未保留，不能当作未执行。结果引用不替代完整结果保存。",
-    "MCU 重启导致投递必要数据真正丢失时只留问题记录、不结算、不增加余额或提现；已保存完整结果不作废。香橙派发新的关门动作并核对恢复条件后自动接单，不普遍要求人工解锁。",
-    "MCU 重启导致清运旧重量丢失时保留原 operationUid 和原清运员；换袋、人工关门确认、新袋核对及新皮重完成后上报，缺失旧重量不得补零或以新皮重代填；后端原子应用新袋基准。相关结果形状尚待后续契约迁移。",
+    "确认MCU重启且Pi没有可靠完整投递最终包时，只归档问题记录，原因为单片机重启、未取得最终结果包；已有重量等事实全部保留，不据过程重建正常结算。归档前已保存完整包优先；归档后迟到完整包核对原身份后只补证，不增加余额/自动提现或覆盖新袋/后续业务。",
+    "清运中断且袋状态不明交人工确认，必要时重新换袋并称空袋；不恢复旧机械步骤、不虚构前重或清运量。正常清运按本次前重减后重，后重作为新皮重。",
     "门业务状态依据最近有效推杆方向 01=关、10=开，不是实测门位；施加的输出另报。PB5 仅暂停关门并在释放后继续，开门忽略；PB4 未接，PB5 不单独证明到位或故障。DEVICE_FACTS_REPLY已有同一次控制刷新事实候选，旧多包快照/真实UART接线未完成。",
-    "称重向 250ms 目标采样、最近5点全跨度不超过100g取均值、最多5s纯波动取中位数迁移；旧均值字段暂存等待跨端同步，不得把旧字段当作新策略。非重启的真正最终称重失败保留系统异常审核。",
-    "START 与首次开门授权保持分离；清运锁断电不推导清运门关闭，清运完成需原清运员明确确认。MCU 暂不新增 Flash 结果存储，不宣称跨重启 exactly-once。"
+    "称重250ms目标，最近5点跨度不超过100g取均值，最长5s按既定有效点中位数；不做自动校准。始终不可读时本次失败，新真实读数恢复前停接单提示人工，恢复只允许新业务、旧失败不改。非重启最终称重失败保留系统异常审核，不自动给钱。",
+    "START即授权一次本地业务，不再分离首次开门授权；清运真实人工结束意图一次锁存，之后MCU称重/锁断电并冻结结果，不伪造第二次按键。MCU不新增Flash结果日志。新正常结果生产/分类要求有效首末重，通用解码仍保留旧已保存缺测包，旧v1报告保持原文。",
+    "烟感/测距/相机采集失败及烟雾报警只提示，不单独阻断。必要存储损坏停接单交人工。仅断网且MCU/存储正常时原业务完成并待补报，离线不接新业务；连续离线超过10分钟后台释放用户/设备占用，但保留原结果身份和补报，不转成问题归档。"
   ]
 }

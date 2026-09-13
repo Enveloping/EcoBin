@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
+import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -14,6 +16,69 @@ class DeviceConfigurationCanonicalizerTest {
 
     private final DeviceConfigurationCanonicalizer canonicalizer =
             new DeviceConfigurationCanonicalizer();
+
+    @Test
+    void matchesFrozenNativeMcuDigestVector() throws java.io.IOException {
+        var request = new ConfigurationReleaseRequest(0L, null,
+                new ConfigurationDeviceRequest(5_000L, 3L, 3L, 30_000L, 500L,
+                        120_000L, 6_000L, 30_000L, 1_000L, true),
+                List.of(port(1, "0.4501"), port(2, "0.4502")));
+        var normalized = canonicalizer.normalize(request, 2, 3_600_000L, 3L,
+                McuConfigurationProfile.UART_V2_SIMPLIFIED);
+        assertThat(HexFormat.of().formatHex(canonicalizer.mcuPayloadSha256(8,
+                HexFormat.of().parseHex("a1".repeat(32)), normalized.device(), normalized.ports(), normalized.profile())))
+                .isEqualTo("ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1");
+        var payload = canonicalizer.commandPayload("10000000-0000-4000-8000-000000000002", 8,
+                normalized, canonicalizer.mcuPayloadSha256(8, normalized));
+        var mapper = new tools.jackson.databind.ObjectMapper();
+        try (var fixture = getClass().getResourceAsStream("/native-configuration-java.json")) {
+            var expected = mapper.readTree(fixture);
+            assertThat(expected.path("canonicalContent").asString())
+                    .isEqualTo(new String(normalized.canonicalBytes(), StandardCharsets.UTF_8));
+            assertThat(mapper.readTree(canonicalizer.canonicalBytes(payload)))
+                    .isEqualTo(expected.path("payload"));
+        }
+    }
+
+    @Test
+    void explicitNativeProfileFreezesEngineeringPolicyWithoutExpandingCloudPortShape() {
+        var request = new InitialDeviceConfigurationFactory(new InitialDeviceConfigurationProperties())
+                .create("EC-M0", 2);
+        var legacy = canonicalizer.normalize(request, 2, 3_600_000L, 3L);
+        var nativeConfig = canonicalizer.normalize(request, 2, 3_600_000L, 3L,
+                McuConfigurationProfile.UART_V2_SIMPLIFIED);
+
+        assertThat(legacy.device().weightMeasurementTimeoutMs()).isEqualTo(6_000);
+        assertThat(legacy.ports().getFirst().view().weightMaximumFluctuationGram()).isEqualTo(20);
+        assertThat(legacy.ports().getFirst().view().weightRequiredSampleCount()).isEqualTo(10);
+        assertThat(new String(legacy.canonicalBytes(), StandardCharsets.UTF_8))
+                .doesNotContain("mcuConfigurationProfile", "weightPollIntervalMs", "weightMaximumSampleAgeMs");
+        assertThat(nativeConfig.contentSha256Hex()).isNotEqualTo(legacy.contentSha256Hex());
+        assertThat(new String(nativeConfig.canonicalBytes(), StandardCharsets.UTF_8))
+                .contains("\"mcuConfigurationProfile\":\"UART_V2_SIMPLIFIED\"",
+                        "\"weightPollIntervalMs\":250", "\"weightResponseTimeoutMs\":200",
+                        "\"weightMaximumSampleAgeMs\":750", "\"weightMinimumMedianSampleCount\":5");
+
+        var payload = canonicalizer.commandPayload("application", 2, nativeConfig,
+                canonicalizer.mcuPayloadSha256(2, nativeConfig));
+        assertThat(payload).containsEntry("mcuConfigurationProfile", "UART_V2_SIMPLIFIED");
+        @SuppressWarnings("unchecked")
+        var device = (Map<String, Object>) payload.get("deviceConfig");
+        @SuppressWarnings("unchecked")
+        var ports = (List<Map<String, Object>>) payload.get("ports");
+        assertThat(device).containsEntry("weightMeasurementTimeoutMs", 5_000L)
+                .doesNotContainKeys("weightPollIntervalMs", "weightResponseTimeoutMs");
+        assertThat(ports).allSatisfy(port -> assertThat(port)
+                .containsEntry("weightMeasurementTimeoutMs", 5_000L)
+                .containsEntry("weightStableWindowMs", 1_500L)
+                .containsEntry("weightMaximumFluctuationGrams", 100L)
+                .containsEntry("weightRequiredSampleCount", 5)
+                .doesNotContainKeys("weightMaximumSampleAgeMs", "weightMinimumMedianSampleCount"));
+        assertThat(ports.getFirst()).hasSize(19);
+        assertThat((Map<?, ?>) payload.get("config")).hasSize(3);
+        assertThat(canonicalizer.commandPayload("application", 1, legacy,
+                canonicalizer.mcuPayloadSha256(1, legacy))).doesNotContainKey("mcuConfigurationProfile");
+    }
 
     @Test
     void matchesFrozenTwoPortMcuDigestVector() {

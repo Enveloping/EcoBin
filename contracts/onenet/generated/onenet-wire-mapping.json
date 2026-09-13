@@ -82,6 +82,13 @@
           "wireIdentifier": "ports"
         },
         {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuConfigurationProfile",
+          "nullable": true,
+          "optional": true,
+          "wireIdentifier": "mcuConfigurationProfile"
+        },
+        {
           "encoding": "FLATTENED_OPTIONAL_OBJECT",
           "jsonPath": "$.cosGrant",
           "nullable": true,
@@ -5964,7 +5971,7 @@
     }
   },
   "generated": true,
-  "mappingVersion": "2.2.0",
+  "mappingVersion": "2.3.0",
   "projection": {
     "dataProtocol": "OneJSON",
     "enumEncoding": "JSON string enums are encoded as OneNet integer enums; generated wire mapping is authoritative for integer-to-symbol conversion.",

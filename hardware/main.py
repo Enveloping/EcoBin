@@ -187,6 +187,7 @@ class EcoBinEdge:
     """EcoBin 香橙派边缘网关 v2。"""
 
     def __init__(self):
+        self._native_mode = MCU_PROTOCOL_MODE == "uart-v2"
         self._exit_flag = threading.Event()
         self._uart_recovering = threading.Event()
         self._runtime_snapshot_requested = threading.Event()
@@ -248,7 +249,7 @@ class EcoBinEdge:
             UART_HIL_REQUIRED_CAPABILITIES,
             MCU_SIMULATED,
             self.store.get_device_entry_url,
-        )
+        ) if not self._native_mode else self._make_native_business()
         maintenance_port = None
         if MCU_PROTOCOL_MODE == "fixed-frame":
             maintenance_port = FixedFrameMcuMaintenancePort(
@@ -325,9 +326,12 @@ class EcoBinEdge:
             self.device_identity,
             self.photo,
             job_safety=self.job_safety,
-        )
+        ) if not self._native_mode else self.uart
+        if self._native_mode:
+            self.work.photo = self.photo
+            self.work.reporter.photo = self.photo
         self.acceptance = None
-        if not cloud_proxy_enabled:
+        if not cloud_proxy_enabled and not self._native_mode:
             from device_acceptance import DeviceAcceptanceRunner
 
             self.acceptance = DeviceAcceptanceRunner(
@@ -663,6 +667,8 @@ class EcoBinEdge:
         logger.info("factory progress heartbeat stopped")
 
     def _current_uart_progress_state(self) -> str:
+        if getattr(self, "_native_mode", False):
+            return "FAILED" if self.uart.uart_state == "FAULT" else self.uart.uart_state
         if self._uart_recovering.is_set():
             return "RECOVERING"
         if not getattr(self.uart, "is_open", False):
@@ -672,6 +678,8 @@ class EcoBinEdge:
         return "STARTING"
 
     def run(self):
+        if getattr(self, "_native_mode", False):
+            return self._run_native()
         logger.info("EcoBin Edge v2 starting (boot_id=%d)", self._edge_boot_id)
         self._report_factory_progress(
             service_state="STARTING",
@@ -858,6 +866,70 @@ class EcoBinEdge:
         # -- Selected cloud transport main loop --
         self.cloud_transport.run_forever()
         self._shutdown()
+
+    def _make_native_business(self):
+        from native_business_runtime import NativeBusinessRuntime
+        return NativeBusinessRuntime(self.store, self.job_safety,
+            device_name=DEVICE_NAME,
+            connected=lambda: self.cloud_transport.connected)
+
+    def _run_native(self):
+        """One foreground UART owner; reuse cloud/photo/management services.
+
+        No legacy boot abort, second UART reader or per-action recovery loop.
+        READY below means the service can process management/reporting, not
+        that hardware is admitted for a new physical business.
+        """
+        self._report_factory_progress(service_state="STARTING", uart_state="STARTING")
+        try:
+            if self.business_control is not None:
+                self.business_control.start()
+            self.uart.open(port=SERIAL_PORT, baudrate=SERIAL_BAUDRATE)
+            # Connect/status/remote-support IPC and cloud submission can wait
+            # seconds. They never own the UART and must not stall its owner.
+            threading.Thread(target=self._run_native_cloud,
+                daemon=True, name="native-cloud").start()
+            threading.Thread(target=self._clock_health_loop,
+                daemon=True, name="clock-health").start()
+            if self.business_control is not None:
+                self.business_control.mark_ready()
+            self._runtime_ready = True
+            notify_systemd_ready("NATIVE_STARTING")
+            self._report_factory_progress(service_state="RUNNING")
+            self._runtime_snapshot_requested.set()
+            threading.Thread(target=self._runtime_snapshot_loop,
+                daemon=True, name="runtime-snap").start()
+            threading.Thread(target=self._factory_progress_loop,
+                daemon=True, name="factory-progress").start()
+            threading.Thread(target=self._native_remote_support_loop,
+                daemon=True, name="native-support").start()
+            previous_status = None
+            while not self._exit_flag.is_set():
+                try:
+                    status = self.work.poll()
+                    self.commands.process_next()
+                    if status != previous_status:
+                        previous_status = status
+                        self._request_runtime_snapshot()
+                except Exception as error:
+                    # Persistence errors must not masquerade as optional camera
+                    # failure or permit another START. No retry of an old action.
+                    code = getattr(error, "code", "NATIVE_RUNTIME_FAILED")
+                    logger.error("native runtime blocked: %s", code)
+                    self.store.set_state("native_blocking_fault", code)
+                    self._request_runtime_snapshot()
+                self._exit_flag.wait(0.05)
+        finally:
+            self._shutdown()
+
+    def _run_native_cloud(self):
+        self.cloud_transport.connect()
+        self.cloud_transport.run_forever()
+
+    def _native_remote_support_loop(self):
+        while not self._exit_flag.is_set():
+            self._poll_remote_support_status()
+            self._exit_flag.wait(1.0)
 
     def _run_permanent_mcu_maintenance_mode(
         self,
@@ -1337,7 +1409,7 @@ class EcoBinEdge:
                     None,
                 ),
                 "uart_protocol_major": (
-                    None if compatibility_mode else 1
+                    None if compatibility_mode else 2 if getattr(self, "_native_mode", False) else 1
                 ),
                 "uart_protocol_minor": (
                     None if compatibility_mode else 0
@@ -1347,7 +1419,8 @@ class EcoBinEdge:
                     if compatibility_mode
                     else "ULTRASONIC"
                 ),
-                "uart_state": runtime_uart_state(self.store, self.uart),
+                "uart_state": (self.uart.uart_state if getattr(self, "_native_mode", False)
+                    else runtime_uart_state(self.store, self.uart)),
                 "compatibility_mode": compatibility_mode,
                 },
                 [],
@@ -1418,11 +1491,12 @@ class EcoBinEdge:
                 }
         return {
             "mcuFirmware": mcu_firmware,
-            "uartState": runtime_uart_state(self.store, self.uart),
+            "uartState": (self.uart.uart_state if getattr(self, "_native_mode", False)
+                else runtime_uart_state(self.store, self.uart)),
             "uartProtocol": (
                 None
                 if compatibility_mode
-                else {"major": 1, "minor": 0}
+                else {"major": 2 if getattr(self, "_native_mode", False) else 1, "minor": 0}
             ),
             "capabilityBitmapHex": f"{raw_capability:016x}",
         }
@@ -1477,6 +1551,8 @@ def _make_uart_link(
     device_entry_url_provider=None,
 ):
     """Create the explicitly configured MCU link."""
+    if MCU_PROTOCOL_MODE == "uart-v2":
+        raise ValueError("native UART requires the foreground business owner, not the v1 link")
     if MCU_PROTOCOL_MODE == "fixed-frame":
         from fixed_frame_mcu_adapter import FixedFrameMcuAdapter
         if port_count != 1:

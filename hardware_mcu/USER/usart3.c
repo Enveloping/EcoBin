@@ -12,6 +12,14 @@
 
 #include "usart3.h"
 
+NativeRxBuffer NativeHmiRx;
+NativeRxBuffer NativeHmiTx;
+static uint8_t hmi_drop_frame, hmi_end_count;
+void NativeHmi_InitBuffer(void) {
+    NativeRx_Init(&NativeHmiRx); NativeRx_Init(&NativeHmiTx);
+    hmi_drop_frame = hmi_end_count = 0u;
+}
+
 /* UART3 接收缓冲区 */
 unsigned char UART3_RxBuf[UART3_RX_BUF_SIZE];
 volatile unsigned char UART3_RxLen = 0;
@@ -61,8 +69,28 @@ void USART3_Init(void)
  */
 void UART3_SendByte(unsigned char SendData)
 {
-    USART_SendData(USART3, SendData);
-    while(USART_GetFlagStatus(USART3, USART_FLAG_TXE) == RESET);
+    uint32_t previous = __get_PRIMASK();
+    __disable_irq();
+    if (hmi_drop_frame) {
+        hmi_end_count = SendData == 0xffu ? (uint8_t)(hmi_end_count + 1u) : 0u;
+        if (hmi_end_count == 3u) {
+            /* End any partially transmitted display instruction before the
+             * next full one. No blocking wait or mechanical side effect. */
+            NativeRx_PushIrq(&NativeHmiTx, 0xffu);
+            NativeRx_PushIrq(&NativeHmiTx, 0xffu);
+            NativeRx_PushIrq(&NativeHmiTx, 0xffu);
+            hmi_drop_frame = hmi_end_count = 0u;
+        }
+    } else {
+        NativeRx_PushIrq(&NativeHmiTx, SendData);
+        if (NativeHmiTx.overflow) {
+            (void)NativeRx_DiscardOverflow(&NativeHmiTx);
+            hmi_drop_frame = 1u;
+            hmi_end_count = SendData == 0xffu ? 1u : 0u;
+        }
+    }
+    USART_ITConfig(USART3, USART_IT_TXE, ENABLE);
+    __set_PRIMASK(previous);
 }
 
 /*
@@ -74,6 +102,14 @@ void UART3_SendString(char *str)
     {
         UART3_SendByte((unsigned char)*str++);
     }
+}
+
+/* Trusted current-page component names only, e.g. n1 / n3. */
+void UART3_SendVisible(char *component, unsigned char visible)
+{
+    UART3_SendString("vis "); UART3_SendString(component);
+    UART3_SendByte(','); UART3_SendByte(visible ? '1' : '0');
+    UART3_SendByte(0xff); UART3_SendByte(0xff); UART3_SendByte(0xff);
 }
 
 /*

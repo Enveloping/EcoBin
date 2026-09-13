@@ -1,4 +1,4 @@
-"""Original result/process/configuration reconciliation, not a business verdict.
+"""Reconcile the trusted MCU's complete result with the original local work.
 
 Called inside the existing EdgeStore result/recovery transaction. All inputs
 are already durable; this neither acknowledges UART nor creates cloud work.
@@ -11,7 +11,7 @@ from mcu_action_evidence import accepted_command_witness, clean_unlock_action_ke
 from mcu_configuration import NativeMcuConfiguration
 
 
-def original_configuration(store, start_record, start):
+def original_configuration(store, start_record, start, *, require_acceptance=False):
     records = [row for row in store.list_native_commands()
         if row["mcu_boot_id"] == start["targetMcuBootId"]
         and row["command_sequence"] < start_record["command_sequence"]
@@ -27,7 +27,11 @@ def original_configuration(store, start_record, start):
         value = uart.decode_payload(record["message_name"], record["payload"])
         if record["command_sequence"] > commit["command_sequence"] or value["applicationUid"] != last["applicationUid"]:
             continue
-        if accepted_command_witness(store, record) is None:
+        if record["conflict"] or record["decision_outcome"] == "REJECTED":
+            raise ValueError("native result configuration command is conflicted or rejected")
+        if not record["write_claimed"]:
+            return None
+        if require_acceptance and accepted_command_witness(store, record) is None:
             return None
         parts.append((record["message_name"], bytes(record["payload"])))
     if len(parts) < last["partCount"]:
@@ -308,11 +312,12 @@ def execution(store, permit, start_record, start, result, initial, final):
         events=events, firstAction=first_bundle), missing
 
 
-def reconcile(store, start_record, start, result, permit):
+def reconcile_legacy(store, start_record, start, result, permit):
+    """Read-only verifier for already-created v1 reports, not new work admission."""
     """Late complete results remain complete even while their evidence is missing."""
     initial, first_missing = measurement(store, result, start, "initial")
     final, last_missing = measurement(store, result, start, "final")
-    config = original_configuration(store, start_record, start)
+    config = original_configuration(store, start_record, start, require_acceptance=True)
     if config is not None:
         for source in (initial, final):
             if source is not None and uart.decode_payload(source["messageName"], source["payload"])["calibrationVersion"] != config["port"]["calibrationVersion"]:
@@ -353,3 +358,60 @@ def reconcile(store, start_record, start, result, permit):
             if any(item["role"] == "actuatorOutput" for item in execution_missing) else "WAITING_FOR_COMMAND_CUSTODY")
     missing.extend(execution_missing)
     return evidence
+
+
+def result_measurement(result, role):
+    """Project a slot of WORK_RESULT; do not fabricate a process-event payload."""
+    if role not in {"initial", "final"}:
+        raise ValueError("unknown result measurement slot")
+    if result[role + "Kind"] in {"NOT_TAKEN", "MCU_RESET_LOST"}:
+        return None
+    fields = {"Kind": "measurementKind", "MeasurementUid": "measurementUid",
+        "SourceMcuBootId": "mcuBootId", "McuEventSequence": "mcuEventSequence",
+        "WeightGrams": "reportedWeightGrams", "ElapsedMs": "measurementElapsedMs",
+        "SampleCount": "sampleCount", "SpanGrams": "sampleSpanGrams",
+        "CalibrationVersion": "calibrationVersion", "FaultCode": "faultCode"}
+    return dict(source="WORK_RESULT", role=role,
+        measurement={field: result[role + suffix] for suffix, field in fields.items()})
+
+
+def result_control(result):
+    """Control facts guaranteed by the MCU terminal-result contract, not sensors.
+
+    A normal delivery or final scale timeout is frozen only after CLOSE was
+    dispatched. Pinch pause does not change that last commanded direction.
+    CLEAN_CONFIRMED means the local lock is off and the cleaner confirmed.
+    There is no solenoid feedback, so never infer its physical health as OK.
+    Other FAILED/CANCELLED results cannot be used to infer a closed control.
+    """
+    reason = result["finishReason"]
+    if result["workType"] == "DELIVERY_SESSION" and (
+            reason in {"DELIVERY_END", "DELIVERY_WINDOW_EXPIRED"}
+            or terminal_weight_failure_candidate(result)):
+        return dict(command="CLOSE", outputStatus="COMMAND_DISPATCHED",
+            physicalDoorStateBasis="NOT_OBSERVABLE")
+    if result["workType"] == "CLEAN_OPERATION" and reason == "CLEAN_CONFIRMED":
+        return dict(lockPowerState="DEENERGIZED", solenoidHealth="UNKNOWN")
+    return None
+
+
+def reconcile(store, start_record, start, result, permit):
+    """The complete result is sufficient; process ACKs are not prerequisites.
+
+    complete_result checks the exact original START/boot/work/result identity
+    and durable result conflict state before calling here. Configuration is
+    retained locally for original pricing/calibration, not recollected from
+    optional button/actuator messages. A lost command ACK is not lost business.
+    """
+    initial, final = (result_measurement(result, role) for role in ("initial", "final"))
+    config = original_configuration(store, start_record, start)
+    if config is not None:
+        for source in (initial, final):
+            if source is not None and source["measurement"]["calibrationVersion"] != config["port"]["calibrationVersion"]:
+                raise ValueError("native measurement calibration differs from original configuration")
+    # A complete historical packet may describe unusable weights. Its business
+    # policy is decided separately; never turn classification into "no result"
+    # when a reboot occurs after this exact packet was already committed.
+    return dict(state="MATCHED" if config is not None else "WAITING_FOR_CONFIGURATION_CUSTODY",
+        initial=initial, final=final, configuration=config, finalControl=result_control(result),
+        missing=[] if config is not None else [dict(role="configuration")])

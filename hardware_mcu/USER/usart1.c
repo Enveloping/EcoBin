@@ -18,6 +18,45 @@
 #define ECOBIN_MCU_RUNTIME_INCLUDE_WEIGHT_POLL
 #include "mcu_runtime_logic.h"
 
+NativeRxBuffer NativeControlRx;
+NativeScaleTransport NativeScaleRx;
+void NativeUsart_InitBuffers(void) {
+    NativeRx_Init(&NativeControlRx);
+    NativeScale_Init(&NativeScaleRx);
+}
+static uint8_t NativeUsart_Wait(USART_TypeDef *uart, uint16_t flag) {
+    uint32_t remaining = 100000u;
+    while (USART_GetFlagStatus(uart, flag) == RESET) if (--remaining == 0u) return 0u;
+    return 1u;
+}
+uint8_t NativeUsart_SendControl(const uint8_t *bytes, size_t length) {
+    size_t i;
+    if (bytes == 0 || length > 256u) return 0u;
+    for (i = 0u; i < length; ++i) {
+        if (!NativeUsart_Wait(USART1, USART_FLAG_TXE)) return 0u;
+        USART_SendData(USART1, bytes[i]);
+    }
+    return NativeUsart_Wait(USART1, USART_FLAG_TC);
+}
+uint8_t NativeUsart_SendScaleQuery(void) {
+    static const uint8_t request[8] = {1u, 3u, 0u, 0u, 0u, 2u, 0xc4u, 0x0bu};
+    uint8_t i, ok = 1u;
+    GPIO_SetBits(GPIOA, GPIO_Pin_1);
+    for (i = 0u; i < 8u; ++i) {
+        if (!NativeUsart_Wait(USART2, USART_FLAG_TXE)) { ok = 0u; break; }
+        USART_SendData(USART2, request[i]);
+    }
+    if (!NativeUsart_Wait(USART2, USART_FLAG_TC)) ok = 0u;
+    GPIO_ResetBits(GPIOA, GPIO_Pin_1);
+    return ok;
+}
+void NativeUsart_ReceiveScaleIrq(uint8_t byte) {
+    uint32_t previous = __get_PRIMASK();
+    __disable_irq();
+    NativeScale_ReceiveIrq(&NativeScaleRx, byte, RuntimeClock_Now64Locked());
+    __set_PRIMASK(previous);
+}
+
 /* RS485�������: RE/DE����PA1 */
 #define Set_RE  GPIO_SetBits(GPIOA,GPIO_Pin_1);
 #define Clr_RE  GPIO_ResetBits(GPIOA,GPIO_Pin_1);

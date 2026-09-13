@@ -200,6 +200,7 @@ public class TargetDeviceApplication {
     private final AuditPort auditPort;
     private final ObjectMapper objectMapper;
     private final DeviceConfigurationCanonicalizer canonicalizer;
+    private final McuConfigurationProfileProvider configurationProfiles;
     private final RuntimeSnapshotPolicyProvider runtimeSnapshotPolicyProvider;
     private final DevicePolicyProvider devicePolicyProvider;
     private final DevicePolicyStore devicePolicyStore;
@@ -322,6 +323,7 @@ public class TargetDeviceApplication {
         this.objectMapper = objectMapper;
         this.activationService = activationService;
         this.canonicalizer = canonicalizer;
+        this.configurationProfiles = new McuConfigurationProfileProvider(jdbc, objectMapper);
         this.runtimeSnapshotPolicyProvider = runtimeSnapshotPolicyProvider;
         this.taskRegistrationPort = taskRegistrationPort;
         this.taskStatusPort = taskStatusPort;
@@ -1639,7 +1641,8 @@ public class TargetDeviceApplication {
                 devicePolicy.apply(request),
                 asset.expectedPortCount(),
                 runtimePolicy.fallbackIntervalMs(),
-                RuntimeSnapshotPolicyProvider.FIXED_MISS_THRESHOLD);
+                RuntimeSnapshotPolicyProvider.FIXED_MISS_THRESHOLD,
+                configurationProfiles.forPublication(asset.id()));
         Optional<ConfigurationVersionRow> previous = latestVersion == 0
                 ? Optional.empty()
                 : findConfigurationVersion(scope, asset.id(), latestVersion);
@@ -2337,6 +2340,8 @@ public class TargetDeviceApplication {
                 || asset.organizationId() == null) {
             return;
         }
+        // Publish a changed encoding before activation can schedule an old-profile baseline.
+        ensureCurrentMcuConfigurationProfile(asset, systemAssignedScope(asset), UUID.randomUUID());
         activationService.reconcileInCurrentTransaction(
                 asset.id(), UUID.randomUUID());
         ensureCurrentRuntimeSnapshotPolicy(
@@ -2345,6 +2350,25 @@ public class TargetDeviceApplication {
                 policy,
                 UUID.randomUUID());
         ensureCurrentDevicePolicy(asset, systemAssignedScope(asset), UUID.randomUUID());
+    }
+
+    private void ensureCurrentMcuConfigurationProfile(
+            Asset asset, Scope scope, UUID correlationUid) {
+        var recognized = configurationProfiles.recognized(asset.id());
+        if (recognized.isEmpty()
+                || recognized.get() == configurationProfiles.latestFrozen(asset.id())) {
+            return;
+        }
+        ConfigurationVersionRow latest = latestConfigurationVersion(scope, asset.id());
+        if (latest == null) {
+            return;
+        }
+        var request = cloneConfigurationRequest(latest.versionNo(),
+                "按已认可的设备软件同步单片机配置档位 " + recognized.get().name(),
+                latest, configurationPorts(scope, asset.id(), latest.id()));
+        releaseConfiguration(correlationUid, scope, asset,
+                platformConfigurationApplicationCollectionUrl(asset.hardwareSn()),
+                request, true, "SYSTEM");
     }
 
     private boolean ensureCurrentRuntimeSnapshotPolicy(

@@ -25,8 +25,8 @@ typedef struct {
 /* Native timed cycle evidence, retained until the foreground owner releases it.
  * Open/close are logical command dispatch, NEVER a measured physical position.
  * Timer owns both 100ms all-off intervals and the automatic close deadline.
- * Beginning a cycle is NOT authorization: the caller must first reserve its
- * evidence slots, validate the original grant and cache command acceptance.
+ * Beginning a cycle is NOT authorization: the application first retains the
+ * accepted original START. Optional diagnostics do not gate this timer owner.
  */
 typedef struct {
     uint32_t token;
@@ -78,9 +78,13 @@ uint8_t ActuatorRuntime_Unlock(uint32_t duration_ms);
  * Returns a non-wrapping boot-local token, or zero without changing outputs. */
 uint32_t ActuatorRuntime_BeginDeliveryCycle(uint64_t execute_before_ms, uint32_t auto_close_ms);
 ActuatorDeliveryCycle ActuatorRuntime_DeliveryCycle(void);
+/* Current local HMI "finished placing items": shorten only this opened cycle's
+ * countdown. Still applies the timer-owned 100 ms all-off reversal interval.
+ * Duplicate requests cannot restart/extend the interval or act on another run. */
+uint8_t ActuatorRuntime_RequestDeliveryClose(uint32_t token);
 /* Only terminal exact token. Does not stop CLOSE or clear update latch. */
 uint8_t ActuatorRuntime_ReleaseDeliveryCycle(uint32_t token);
-/* Caller first validates the original command and reserves ON/OFF custody.
+/* Caller first validates the accepted original work/local button context.
  * Immediate dispatch before execute_before_ms; requires logical CLOSE (PB5 may
  * pause it). Timer independently de-energizes. No legacy override after native
  * entry. A retained pulse blocks another pulse/delivery until exact release. */

@@ -2,6 +2,14 @@
 #define	__USART1_H
 
 #include "stm32f10x.h"
+#include "native_serial_buffer.h"
+
+extern NativeRxBuffer NativeControlRx;
+extern NativeScaleTransport NativeScaleRx;
+void NativeUsart_InitBuffers(void);
+uint8_t NativeUsart_SendControl(const uint8_t *bytes, size_t length);
+uint8_t NativeUsart_SendScaleQuery(void);
+void NativeUsart_ReceiveScaleIrq(uint8_t byte);
 
 /* RS485 接收缓冲区 */
 #define RS485_RX_BUF_SIZE  64

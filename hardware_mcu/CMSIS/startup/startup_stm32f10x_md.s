@@ -29,7 +29,10 @@
 ;   <o> Stack Size (in Bytes) <0x0-0xFFFFFFFF:8>
 ; </h>
 
-Stack_Size      EQU     0x00000200
+; Full native foreground callgraph exceeds the original 512-byte stack.
+; Reserve 4096 bytes including explicit callback and ISR nesting margin.
+; This remains within the real 20 KiB RAM region, heap stays disabled.
+Stack_Size      EQU     0x00001000
 
                 AREA    STACK, NOINIT, READWRITE, ALIGN=3
 Stack_Mem       SPACE   Stack_Size

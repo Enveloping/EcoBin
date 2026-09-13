@@ -1516,12 +1516,25 @@ def _extract_payload(identifier: str, scalars: dict[str, Any],
                 port.get("fullnessSensorKind"), port.get("fullnessSensorKind")
             )
             ports.append(port)
-        return {
+        payload = {
             "applicationUid": scalars.get("applicationUid"),
             "config": params.get("config"),
             "deviceConfig": params.get("deviceConfig"),
             "ports": ports,
         }
+        profile_key = "mcuConfigurationProfile"
+        presence_key = profile_key + "Present"
+        if presence_key in scalars:
+            if type(scalars[presence_key]) is not bool:
+                raise ValueError("mcuConfigurationProfilePresent must be a boolean")
+            if scalars[presence_key]:
+                profile = scalars.get(profile_key)
+                if type(profile) not in (int, str):
+                    raise ValueError("mcuConfigurationProfile must be an enum value")
+                payload[profile_key] = {1: "UART_V2_SIMPLIFIED"}.get(profile, profile)
+        elif profile_key in scalars:
+            raise ValueError("mcuConfigurationProfile presence flag is required")
+        return payload
     if identifier == "confirmEdgeEvent":
         result_references = params.get("resultReferences") or []
         return {
@@ -1874,47 +1887,102 @@ def _validate_quarantine_delivery_recovery(
 
 def _validate_apply_configuration(command: dict[str, Any]) -> None:
     payload = command["payload"]
+    profile = validate_configuration_payload(payload)
+    if command["target"].get("uid") != payload["applicationUid"]:
+        raise ValueError("configuration target does not match applicationUid")
+    if profile == "UART_V2_SIMPLIFIED":
+        from mcu_configuration import NativeMcuConfiguration
+        NativeMcuConfiguration.from_cloud_payload(payload)
+
+
+def validate_configuration_payload(payload: Mapping[str, Any]) -> str | None:
+    """Check the two explicit configuration shapes; this does not authenticate cloud authority.
+
+    No profile means the unchanged v1 shape, not a native hash with guessed defaults.
+    Profile constants are not repeated as mutable device/port fields on OneNet.
+    """
+    required = {"applicationUid", "config", "deviceConfig", "ports"}
+    if not isinstance(payload, Mapping):
+        raise ValueError("configuration payload must be an object")
+    native = "mcuConfigurationProfile" in payload
+    if native:
+        required.add("mcuConfigurationProfile")
+        if payload["mcuConfigurationProfile"] != "UART_V2_SIMPLIFIED":
+            raise ValueError("unsupported mcuConfigurationProfile")
+    _configuration_fields(payload, required, set(), "payload")
     application_uid = payload.get("applicationUid")
     _require_uuid4(application_uid, "applicationUid")
-    if command["target"].get("uid") != application_uid:
-        raise ValueError("configuration target does not match applicationUid")
-
     config = payload.get("config")
     device_config = payload.get("deviceConfig")
     ports = payload.get("ports")
-    if not isinstance(config, dict) or not isinstance(device_config, dict):
-        raise ValueError("configuration blocks are required")
-    heartbeat_interval = device_config.get(
-        "edgeHeartbeatIntervalMs",
-        3_600_000,
-    )
-    heartbeat_misses = device_config.get(
-        "edgeHeartbeatMissThreshold",
-        3,
-    )
-    for field, value in (
-        ("edgeHeartbeatIntervalMs", heartbeat_interval),
-        ("edgeHeartbeatMissThreshold", heartbeat_misses),
-    ):
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, int)
-            or not 1 <= value <= 4_294_967_295
-        ):
-            raise ValueError(f"deviceConfig.{field} out of range")
+    _configuration_fields(config, {"version", "contentSha256", "mcuPayloadSha256"}, set(), "config")
+    device_ranges = {
+        "continueDeliveryWaitMs": (1000, 4_294_967_295),
+        "negativeWeightThresholdGrams": (1, 4_294_967_295),
+        "deliveryAutoCloseMs": (1000, 600_000),
+        "weightMeasurementTimeoutMs": (5000, 5000) if native else (1000, 6000),
+        "deliveryDoorTravelWaitMs": (30_000, 45_000),
+        "cleanSolenoidPulseMs": (1, 5000),
+    }
+    heartbeat_fields = {"edgeHeartbeatIntervalMs", "edgeHeartbeatMissThreshold"}
+    _configuration_fields(device_config, set(device_ranges) | {"smokeMonitoringEnabled"},
+                          heartbeat_fields, "deviceConfig")
+    for field, bounds in device_ranges.items():
+        _configuration_integer(device_config[field], bounds, f"deviceConfig.{field}")
+    for field in heartbeat_fields & set(device_config):
+        _configuration_integer(device_config[field], (1, 4_294_967_295), f"deviceConfig.{field}")
+    if type(device_config["smokeMonitoringEnabled"]) is not bool:
+        raise ValueError("deviceConfig.smokeMonitoringEnabled must be a boolean")
     if not isinstance(ports, list) or not 1 <= len(ports) <= 6:
         raise ValueError("ports must contain 1..6 entries")
-    version = config.get("version")
-    if isinstance(version, bool) or not isinstance(version, int):
-        raise ValueError("config.version must be an integer")
-    if not 1 <= version <= 9_007_199_254_740_991:
-        raise ValueError("config.version out of range")
+    _configuration_integer(config["version"], (1, 9_007_199_254_740_991), "config.version")
     for field in ("contentSha256", "mcuPayloadSha256"):
         if not _is_sha256(config.get(field)):
             raise ValueError(f"config.{field} must be 64 lowercase hex characters")
-    port_numbers = [port.get("portNo") for port in ports if isinstance(port, dict)]
-    if port_numbers != list(range(1, len(ports) + 1)):
-        raise ValueError("ports must be ordered and contiguous from 1")
+    port_ranges = {
+        "portNo": (1, 6), "unitPriceTenThousandths": (1, 4_294_967_295),
+        "configuredFullWeightGrams": (1, 4_294_967_295),
+        "fullnessSettleWaitMs": (0, 4_294_967_295),
+        "fullnessDistanceThresholdMm": (1, 4000),
+        "fullnessSampleCount": (3, 9), "fullnessMinimumValidSampleCount": (1, 9),
+        "fullnessEchoTimeoutUs": (100, 100_000),
+        "weightStableWindowMs": (1500, 1500) if native else (1, 6000),
+        "weightMaximumFluctuationGrams": (100, 100) if native else (0, 4_294_967_295),
+        "weightRequiredSampleCount": (5, 5) if native else (1, 65_535),
+        "weightMeasurementTimeoutMs": (5000, 5000) if native else (1000, 6000),
+        "weightMinimumGrams": (-2_147_483_648, 2_147_483_647),
+        "weightMaximumGrams": (1, 2_147_483_647), "calibrationVersion": (0, 4_294_967_295),
+    }
+    for port_no, port in enumerate(ports, 1):
+        _configuration_fields(port, set(port_ranges) | {
+            "displayName", "enabled", "fullnessMode", "fullnessSensorKind"}, set(), "port")
+        for field, bounds in port_ranges.items():
+            _configuration_integer(port[field], bounds, f"port.{field}")
+        if port["portNo"] != port_no:
+            raise ValueError("ports must be ordered and contiguous from 1")
+        if not isinstance(port["displayName"], str) or not 1 <= len(port["displayName"]) <= 32:
+            raise ValueError("port.displayName must be 1..32 characters")
+        if type(port["enabled"]) is not bool:
+            raise ValueError("port.enabled must be a boolean")
+        if port["fullnessMode"] not in ("SENSOR_ONLY", "WEIGHT_ONLY", "SENSOR_OR_WEIGHT"):
+            raise ValueError("port.fullnessMode is invalid")
+        if port["fullnessSensorKind"] not in ("ULTRASONIC", "DIGITAL_INFRARED"):
+            raise ValueError("port.fullnessSensorKind is invalid")
+        if port["weightMinimumGrams"] >= port["weightMaximumGrams"]:
+            raise ValueError("port weight range is invalid")
+        if port["fullnessMinimumValidSampleCount"] > port["fullnessSampleCount"]:
+            raise ValueError("port fullness minimum valid samples exceed sample count")
+    return "UART_V2_SIMPLIFIED" if native else None
+
+
+def _configuration_fields(value: Any, required: set[str], optional: set[str], name: str) -> None:
+    if not isinstance(value, Mapping) or not required <= set(value) or set(value) - required - optional:
+        raise ValueError(f"{name} fields differ from the explicit configuration profile")
+
+
+def _configuration_integer(value: Any, bounds: tuple[int, int], name: str) -> None:
+    if type(value) is not int or not bounds[0] <= value <= bounds[1]:
+        raise ValueError(f"{name} out of range")
 
 
 def _require_uuid4(value: Any, field: str) -> str:

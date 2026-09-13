@@ -25,9 +25,17 @@ typedef struct {
     uint64_t started_ms, last_now_ms, attempt_started_ms;
     uint32_t attempt_sequence;
     uint8_t present, in_flight, has_started_attempt, retired;
+    /* Idle health reads share the physical attempt counter, not the historical
+     * business measurement/policy. They cannot revise an already frozen result. */
+    McuConfigWeightPolicy idle_policy;
+    uint8_t idle_in_flight;
 } McuWeightRun;
 
 void McuWeightRun_Init(McuWeightRun *run);
+uint32_t McuWeightRun_StartIdleAttempt(McuWeightRun *run, const McuConfigWeightPolicy *policy, uint64_t now_ms);
+uint8_t McuWeightRun_FinishIdleAttempt(McuWeightRun *run, uint32_t attempt_sequence,
+    uint64_t captured_ms, uint64_t now_ms, const uint8_t *frame, size_t length);
+void McuWeightRun_CancelIdleAttempt(McuWeightRun *run, uint64_t now_ms);
 uint8_t McuWeightRun_Begin(McuWeightRun *run, const McuConfigWeightPolicy *policy,
     uint32_t measurement_sequence, uint64_t now_ms);
 /* Reserve a single actual request start. 0 means not due/not allowed. No TX or

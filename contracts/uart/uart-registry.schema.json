@@ -25,7 +25,7 @@
   ],
   "additionalProperties": false,
   "properties": {
-    "implementationStage": { "const": "WORK_FULLNESS_CUSTODY_NOT_RUNNABLE" },
+    "implementationStage": { "const": "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED" },
     "sessionPolicy": {
       "type": "object",
       "required": ["commandPayloadValidation", "actuatorEventMessages", "processMeasurementMessages", "processEventMessages", "bootstrapMessages", "sessionControlMessages", "readOnlyMessages", "savedResultMessages", "bootstrapMaximumSends", "commandMaximumSends", "commandSequencePolicy", "commandTimeout", "unassignedMcuBootId", "allocator", "probeReuse", "bindCondition", "bindTimeout", "channelPremise", "businessGate", "notes"],

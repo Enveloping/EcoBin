@@ -26,6 +26,9 @@ def runner(tmp_path_factory):
     target = tmp_path_factory.mktemp("weight-run") / "run.dll"
     signatures = {
         "McuWeightRun_Init": (None, [c.c_void_p]),
+        "McuWeightRun_StartIdleAttempt": (c.c_uint32, [c.c_void_p, c.c_void_p, c.c_uint64]),
+        "McuWeightRun_FinishIdleAttempt": (c.c_uint8, [c.c_void_p, c.c_uint32, c.c_uint64, c.c_uint64, c.c_void_p, c.c_size_t]),
+        "McuWeightRun_CancelIdleAttempt": (None, [c.c_void_p, c.c_uint64]),
         "McuWeightRun_Begin": (c.c_uint8, [c.c_void_p, c.c_void_p, c.c_uint32, c.c_uint64]),
         "McuWeightRun_StartOwnedAttempt": (c.c_uint32, [c.c_void_p, c.c_uint64]),
         "McuWeightRun_FinishOwnedAttempt": (c.c_uint8, [c.c_void_p, c.c_uint32, c.c_uint32,
@@ -60,7 +63,7 @@ def policy(collection):
 
 
 def state(runner, policy, *, sequence=1, start=100):
-    memory = (c.c_uint64 * 64)()
+    memory = (c.c_uint64 * 80)()  # Includes independent idle-read policy; never copy old measurements.
     runner.McuWeightRun_Init(memory)
     assert runner.McuWeightRun_Begin(memory, c.byref(policy), sequence, start)
     return memory
@@ -107,6 +110,43 @@ def test_observation_retains_original_calibration_until_a_new_owned_read(runner,
     assert runner.McuWeightRun_FinishOwnedAttempt(memory, 2, 6, 2020, 2100, frame, len(frame))
     actual = observation(runner, memory)
     assert (actual.status, actual.grams, actual.captured, actual.calibration) == (0, 0, 2020, policy.calibration_version)
+
+
+def test_new_idle_read_updates_health_but_preserves_old_failed_measurement(runner, policy):
+    memory = state(runner, policy)
+    runner.McuWeightRun_Poll(memory, 5100)
+    old_result, old_policy = copy(runner, memory)
+    assert old_result.status == 3 and runner.McuWeightRun_Retire(memory, 1)
+    policy.calibration_version += 1
+    attempt = runner.McuWeightRun_StartIdleAttempt(memory, c.byref(policy), 5500)
+    assert attempt == 1
+    frame = scale_frame(-100)
+    assert not runner.McuWeightRun_FinishOwnedAttempt(memory, 1, attempt, 5520, 5600, frame, len(frame))
+    assert runner.McuWeightRun_FinishIdleAttempt(memory, attempt, 5520, 5600, frame, len(frame))
+    current = observation(runner, memory)
+    assert (current.status, current.grams, current.calibration) == (0, -100, policy.calibration_version)
+    retained, retained_policy = copy(runner, memory)
+    assert bytes(retained) == bytes(old_result) and bytes(retained_policy) == bytes(old_policy)
+    assert runner.McuWeightRun_Begin(memory, c.byref(policy), 2, 6000)
+    assert runner.McuWeightRun_StartOwnedAttempt(memory, 6000) == attempt + 1
+
+
+def test_idle_timeout_and_cancel_never_become_business_measurements(runner, policy):
+    memory = (c.c_uint64 * 80)()
+    runner.McuWeightRun_Init(memory)
+    assert runner.McuWeightRun_StartIdleAttempt(memory, c.byref(policy), 100) == 1
+    assert not runner.McuWeightRun_Begin(memory, c.byref(policy), 1, 150)
+    runner.McuWeightRun_Poll(memory, 300)
+    previous = observation(runner, memory)
+    assert (previous.status, previous.captured, previous.attempt) == (2, 300, 1)
+    assert not runner.McuWeightRun_Copy(memory, c.byref(WeightResult()), c.byref(WeightPolicy()))
+    assert runner.McuWeightRun_StartIdleAttempt(memory, c.byref(policy), 400) == 2
+    runner.McuWeightRun_CancelIdleAttempt(memory, 410)
+    frame = scale_frame(1000)
+    assert not runner.McuWeightRun_FinishIdleAttempt(memory, 2, 420, 420, frame, len(frame))
+    assert bytes(observation(runner, memory)) == bytes(previous)
+    assert runner.McuWeightRun_Begin(memory, c.byref(policy), 1, 500)
+    assert not runner.McuWeightRun_StartIdleAttempt(memory, c.byref(policy), 750)
 
 
 @pytest.mark.parametrize("start,poll,timeout", [(4900, 5100, True), (4901, 5300, False), (5050, 5300, False)])

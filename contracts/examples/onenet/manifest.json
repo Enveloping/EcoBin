@@ -5,6 +5,10 @@
       "schema": "../../onenet/commands/commands.schema.json"
     },
     {
+      "file": "apply-native-configuration.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
       "file": "start-delivery-session.command.json",
       "schema": "../../onenet/commands/commands.schema.json"
     },

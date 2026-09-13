@@ -65,3 +65,12 @@ CREATE TABLE dev_device_command(id BIGINT AUTO_INCREMENT PRIMARY KEY, command_ui
     edge_accepted_at TIMESTAMP, physical_started_at TIMESTAMP, physical_ended_at TIMESTAMP, lock_version BIGINT,
     created_at TIMESTAMP, updated_at TIMESTAMP);
 CREATE TABLE ops_reliable_task(task_type VARCHAR, target_type VARCHAR, target_stable_key VARCHAR, state VARCHAR);
+CREATE TABLE dev_device_compatibility_projection(asset_id BIGINT PRIMARY KEY, latest_software_fact_id BIGINT,
+    management_state_sequence BIGINT, compatibility_status VARCHAR);
+CREATE TABLE dev_device_software_fact(id BIGINT PRIMARY KEY, asset_id BIGINT, management_state_sequence BIGINT,
+    active_business_release_uid VARCHAR, active_business_release_sequence BIGINT, active_business_version_name VARCHAR,
+    active_business_package_sha256 VARBINARY(32), uart_state VARCHAR, uart_protocol_family VARCHAR,
+    uart_protocol_major INT, uart_protocol_minor INT, mcu_fixed_frame_revision INT);
+CREATE TABLE dev_edge_software_release(release_uid VARCHAR PRIMARY KEY, release_sequence BIGINT, version_name VARCHAR,
+    package_sha256 VARBINARY(32), uart_protocol_family VARCHAR, uart_protocol_major INT, uart_protocol_minor INT,
+    required_fixed_frame_revision INT);

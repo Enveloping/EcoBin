@@ -1,6 +1,7 @@
 {
   "examples": [
     "apply-configuration.service-wire.json",
+    "apply-native-configuration.service-wire.json",
     "authorize-factory-seal.service-wire.json",
     "baseline-measurement-complete.event-wire.json",
     "business-confirmation-receipt.event-wire.json",

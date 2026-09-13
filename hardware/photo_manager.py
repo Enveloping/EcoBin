@@ -219,6 +219,23 @@ class PhotoManager:
             CLEAN_SLOTS,
         )
 
+    def capture_clean_open_photos_async(self, work_uid):
+        return self._enqueue_capture(work_uid, "CLEAN_OPERATION", CLEAN_OPEN_SLOTS)
+
+    def capture_clean_close_photos_async(self, work_uid):
+        return self._enqueue_capture(work_uid, "CLEAN_OPERATION", CLEAN_CLOSE_SLOTS)
+
+    def expire_pending_captures(self, work_uid, slot_names):
+        """End a bounded phase wait without waiting on the camera worker.
+
+        A camera result committed before the atomic state check wins; a late
+        result cannot revive a retired slot or be assigned to another phase.
+        Failure to persist the missing fact propagates to the business owner.
+        """
+        for photo in self._store.get_photos_by_work(work_uid):
+            if photo["slot_name"] in slot_names and photo["state"] == "CAPTURE_PENDING":
+                self._report_permanently_missing(photo, "PHOTO_CAPTURE_FAILED", only_if_pending=True)
+
     def capture_acceptance_probe(self, challenge_uid: str) -> dict[str, Any]:
         """Capture one fresh image from each configured physical camera.
 
@@ -986,6 +1003,8 @@ class PhotoManager:
         self,
         photo: dict,
         reason: str,
+        *,
+        only_if_pending: bool = False,
     ) -> None:
         was_captured = bool(
             photo.get("content_sha256")
@@ -1023,7 +1042,10 @@ class PhotoManager:
             },
             state="DEAD",
             error_code=reason,
+            expected_state="CAPTURE_PENDING" if only_if_pending else None,
         )
+        if only_if_pending and created == "STATE_CHANGED":
+            return
         if created not in ("ACCEPTED", "DUPLICATE"):
             raise RuntimeError(
                 f"missing photo status persistence {created.lower()}"

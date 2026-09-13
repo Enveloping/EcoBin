@@ -1,17 +1,17 @@
 {
-  "onenetMappingVersion": "2.2.0",
+  "onenetMappingVersion": "2.3.0",
   "sources": {
     "onenet/command-envelope.schema.json": "bcd3fa5ef32e015412261608fd772a6f7e51e61aa35ba734e8f647516c47d652",
     "onenet/command-receipt.schema.json": "196cb96b85a8e9d501ea79a5a9cf8e40a23a3d13172cab489c301ff9a528e447",
-    "onenet/commands/commands.schema.json": "75d228d93c4221e185694f807d53563c47637bbb6e251bb6b1f6d39b4b570921",
+    "onenet/commands/commands.schema.json": "532258ca897047af9969cd673f172958086788b77a9b17a008ab294616bf4513",
     "onenet/common.schema.json": "c9f3c3cfc541f5e15f574b9727fc2d40779c33fcdf087b651a60cc6177591b18",
     "onenet/event-envelope.schema.json": "3f319c39c0d84e9dbcc5dbaf6e14162cd2233c109d61b70702d3878d87f7741e",
     "onenet/events/events.schema.json": "3a3b9bb695b4a421e034ea8c0eb199b55b0cd7221a6c7f04001e7ef808203b73",
-    "onenet/thing-model.mapping.yaml": "c873869d6d3bfa3b215f16741b134bb43633068a2c3b16abdba9a16280a66270",
+    "onenet/thing-model.mapping.yaml": "f95f1ead1c934eb43ccf9d32fcc05e15e91316a557944dec1db7b5fd1214ff79",
     "uart/frozen-v1-runtime.json": "8543a1bd5365cc96fe7606e3c1d121bf6432c38aad42f4a090956475a2643c44",
-    "uart/uart-registry.schema.json": "bfae4a0c0cd5116eb24b254b4450baf27ab6dc1f7c296a38d6f768753c6484f1",
-    "uart/uart-registry.yaml": "a41d80dd9c349b847107a3afc7844580ac0c7a371920a78dfb22bf1506512e70"
+    "uart/uart-registry.schema.json": "daca97968bfd6231c75139b92cf6680c09a3482d4b3042cfe490383a493c0d53",
+    "uart/uart-registry.yaml": "60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808"
   },
-  "uartRegistrySha256": "a41d80dd9c349b847107a3afc7844580ac0c7a371920a78dfb22bf1506512e70",
-  "uartRegistryVersion": "2.0.0-rc.22"
+  "uartRegistrySha256": "60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808",
+  "uartRegistryVersion": "2.0.0-rc.23"
 }

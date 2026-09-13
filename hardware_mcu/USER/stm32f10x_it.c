@@ -145,14 +145,12 @@ void USART1_IRQHandler(void)
 {
   if(USART_GetITStatus(USART1, USART_IT_RXNE) != RESET)
   {
-    if(Vision_RxLen < VISION_RX_BUF_SIZE)
-    {
-      Vision_RxBuf[Vision_RxLen++] = USART_ReceiveData(USART1);
-    }
-    else
-    {
-      USART_ReceiveData(USART1);  /* 缓冲区满则丢弃 */
-    }
+#ifdef ECOBIN_LEGACY_FIXED_FRAME
+    uint8_t byte = (uint8_t)USART_ReceiveData(USART1);
+    if (Vision_RxLen < VISION_RX_BUF_SIZE) Vision_RxBuf[Vision_RxLen++] = byte;
+#else
+    NativeRx_PushIrq(&NativeControlRx, (uint8_t)USART_ReceiveData(USART1));
+#endif
   }
 }
 
@@ -160,30 +158,30 @@ void USART2_IRQHandler(void)
 {
   if(USART_GetITStatus(USART2, USART_IT_RXNE) != RESET)
   {
-    /* 将接收到的字节存入缓冲区 */
-    if(RS485_RxLen < RS485_RX_BUF_SIZE)
-    {
-      RS485_RxBuf[RS485_RxLen++] = USART_ReceiveData(USART2);
-    }
-    else
-    {
-      USART_ReceiveData(USART2);  //缓冲区满则丢弃
-    }
+#ifdef ECOBIN_LEGACY_FIXED_FRAME
+    uint8_t byte = (uint8_t)USART_ReceiveData(USART2);
+    if (RS485_RxLen < RS485_RX_BUF_SIZE) RS485_RxBuf[RS485_RxLen++] = byte;
+#else
+    NativeUsart_ReceiveScaleIrq((uint8_t)USART_ReceiveData(USART2));
+#endif
   }
 }
 void USART3_IRQHandler(void)
 {
   if(USART_GetITStatus(USART3, USART_IT_RXNE) != RESET)
   {
-    /* 将接收到的字节存入缓冲区 */
-    if(UART3_RxLen < UART3_RX_BUF_SIZE)
-    {
-      UART3_RxBuf[UART3_RxLen++] = USART_ReceiveData(USART3);
-    }
-    else
-    {
-      USART_ReceiveData(USART3);  /* 缓冲区满则丢弃 */
-    }
+#ifdef ECOBIN_LEGACY_FIXED_FRAME
+    uint8_t byte = (uint8_t)USART_ReceiveData(USART3);
+    if (UART3_RxLen < UART3_RX_BUF_SIZE) UART3_RxBuf[UART3_RxLen++] = byte;
+#else
+    NativeRx_PushIrq(&NativeHmiRx, (uint8_t)USART_ReceiveData(USART3));
+#endif
+  }
+  if (USART_GetITStatus(USART3, USART_IT_TXE) != RESET)
+  {
+    uint8_t byte;
+    if (NativeRx_Read(&NativeHmiTx, &byte, 1u)) USART_SendData(USART3, byte);
+    else USART_ITConfig(USART3, USART_IT_TXE, DISABLE);
   }
 }
 

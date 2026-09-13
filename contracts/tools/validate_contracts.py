@@ -504,9 +504,8 @@ def validate_onenet_wire_examples(summary: ValidationSummary) -> None:
         service["identifier"]: service for service in model["services"]
     }
     events = {event["identifier"]: event for event in model["events"]}
-    expected_count = len(services) + len(events)
-    if len(manifest["examples"]) != expected_count:
-        raise ContractError("OneNet wire samples must cover every service and event")
+    if len(manifest["examples"]) != len(set(manifest["examples"])):
+        raise ContractError("OneNet wire sample filenames must be unique")
 
     def validate_bare_type(type_name: str, value: Any, path: str) -> None:
         if type_name == "bool" and not isinstance(value, bool):
@@ -591,11 +590,17 @@ def validate_onenet_wire_examples(summary: ValidationSummary) -> None:
             )
 
     covered: set[str] = set()
+    covered_variants: set[tuple[str, str]] = set()
     for filename in manifest["examples"]:
         example = load_json(root / filename)
         identifier = example["identifier"]
-        if identifier in covered:
-            raise ContractError(f"duplicate OneNet wire sample {identifier}")
+        variant = "default"
+        if identifier == "applyConfiguration" and example["kind"] == "SYNC_SERVICE":
+            params = example["callServiceApiBodyTemplate"]["params"]
+            variant = "native" if params.get("mcuConfigurationProfilePresent") is True else "legacy"
+        if (identifier, variant) in covered_variants:
+            raise ContractError(f"duplicate OneNet wire sample {identifier}/{variant}")
+        covered_variants.add((identifier, variant))
         covered.add(identifier)
         if example["kind"] == "SYNC_SERVICE":
             service = services[identifier]
@@ -628,8 +633,10 @@ def validate_onenet_wire_examples(summary: ValidationSummary) -> None:
             raise ContractError(f"{filename}: unknown OneNet wire sample kind")
     if covered != {*services, *events}:
         raise ContractError("OneNet wire samples do not cover the imported model")
+    if not {("applyConfiguration", "legacy"), ("applyConfiguration", "native")} <= covered_variants:
+        raise ContractError("OneNet wire samples must cover both explicit configuration profiles")
     summary.passed(
-        f"{len(covered)} OneNet service/event wire samples match the import candidate"
+        f"{len(manifest['examples'])} OneNet wire samples cover {len(covered)} services/events and both configuration profiles"
     )
 
 

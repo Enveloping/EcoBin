@@ -42,7 +42,7 @@ static uint8_t command_received(McuControlEndpoint *endpoint, uint8_t message,
     McuSessionCommand command;
     McuConfigWeightPolicy policy;
     uint8_t identity[MCU_WORK_IDENTITY_LENGTH];
-    uint8_t phase, action;
+    uint8_t phase, action, handled;
     uint16_t error;
     uint32_t measurement_sequence;
     if (message != ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION && message != ECOBIN_UART_MESSAGE_START_CLEAN_OPERATION
@@ -53,6 +53,14 @@ static uint8_t command_received(McuControlEndpoint *endpoint, uint8_t message,
         for (action = 0u; action < 2u; ++action)
             if (owner->actions[action].handler != NULL && owner->actions[action].handler(endpoint,
                 message, payload, length, now, owner->actions[action].context, decision)) return 1u;
+        if (message == ECOBIN_UART_MESSAGE_AUTHORIZE_DELIVERY_FIRST_OPEN || message == ECOBIN_UART_MESSAGE_UNLOCK_CLEAN_DOOR) {
+            command.target_boot_id = ecobin_uart_read_u64_be(payload + START(TARGET_MCU_BOOT_ID));
+            command.sequence = ecobin_uart_read_u32_be(payload + START(COMMAND_SEQUENCE));
+            memcpy(command.uid, payload + START(MCU_COMMAND_UID), sizeof(command.uid));
+            memcpy(command.digest, payload + START(COMMAND_DIGEST_SHA256), sizeof(command.digest));
+            return McuSession_ReceiveCommand(&endpoint->session, &command,
+                ECOBIN_UART_NACK_ERROR_UNSUPPORTED_MESSAGE, decision);
+        }
         return 0u;
     }
     command.target_boot_id = ecobin_uart_read_u64_be(payload + START(TARGET_MCU_BOOT_ID));
@@ -63,12 +71,21 @@ static uint8_t command_received(McuControlEndpoint *endpoint, uint8_t message,
     if (decision->outcome != ECOBIN_UART_COMMAND_OUTCOME_NOT_SEEN) return 1u;
     error = owner->guard(message, payload, length, now, owner->guard_context);
     if (error > ECOBIN_UART_NACK_ERROR_INTERNAL_FAULT) error = ECOBIN_UART_NACK_ERROR_INTERNAL_FAULT;
-    if (error == ECOBIN_UART_NACK_ERROR_NONE && (owner->recovery_active || endpoint->process_event.held
+    if (error == ECOBIN_UART_NACK_ERROR_NONE && (owner->recovery_active
         || (owner->weight.present && !owner->weight.retired) || owner->weight.in_flight))
         error = ECOBIN_UART_NACK_ERROR_BUSY;
-    if (message >= ECOBIN_UART_MESSAGE_CONFIG_BEGIN && message <= ECOBIN_UART_MESSAGE_CONFIG_COMMIT)
-        return McuConfiguration_Receive(&owner->configuration, &endpoint->session, &endpoint->work,
+    if (message >= ECOBIN_UART_MESSAGE_CONFIG_BEGIN && message <= ECOBIN_UART_MESSAGE_CONFIG_COMMIT) {
+        handled = McuConfiguration_Receive(&owner->configuration, &endpoint->session, &endpoint->work,
             error, message, payload, length, decision);
+        if (handled && message == ECOBIN_UART_MESSAGE_CONFIG_COMMIT && decision->execute_once
+            && owner->apply_configuration != NULL
+            && owner->apply_configuration(&owner->configuration, owner->configuration_context))
+            McuDeviceFacts_PublishConfiguration(&endpoint->facts,
+                ecobin_uart_read_u64_be(payload + ECOBIN_UART_CONFIG_COMMIT_CONFIG_VERSION_OFFSET),
+                owner->configuration.active.preimage + ECOBIN_UART_CONFIG_PREIMAGE_CONTENT_SHA256_OFFSET,
+                owner->configuration.active.expected_digest, 0u);
+        return handled;
+    }
     memcpy(identity, payload, START(PORT_NO));
     identity[START(PORT_NO)] = message == ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION
         ? ECOBIN_UART_WORK_TYPE_DELIVERY_SESSION : ECOBIN_UART_WORK_TYPE_CLEAN_OPERATION;
@@ -132,6 +149,15 @@ uint8_t McuWorkPreparation_AttachRecovery(McuWorkPreparation *owner, McuControlE
     return 1u;
 }
 
+uint8_t McuWorkPreparation_SetConfigurationApply(McuWorkPreparation *owner, McuControlEndpoint *endpoint,
+    McuPreparationApplyConfiguration apply, void *context) {
+    if (owner == NULL || endpoint == NULL || apply == NULL || endpoint->application_context != owner
+        || endpoint->session.boot_id != 0u || endpoint->feeding || owner->apply_configuration != NULL) return 0u;
+    owner->apply_configuration = apply;
+    owner->configuration_context = context;
+    return 1u;
+}
+
 uint8_t McuWorkPreparation_AttachFullness(McuWorkPreparation *owner, McuControlEndpoint *endpoint) {
     if (owner == NULL || endpoint == NULL || endpoint->application_context != owner
         || endpoint->session.boot_id != 0u || endpoint->feeding || owner->fullness_enabled
@@ -169,12 +195,12 @@ uint8_t McuWorkPreparation_InterruptMeasurement(McuWorkPreparation *owner, uint6
     uint32_t sequence;
     if (owner == NULL) return 0u;
     sequence = owner->weight.measurement.result.measurement_id;
-    if (owner->fullness.present && owner->fullness_measurement_sequence != sequence) return 0u;
     if (!McuWeightRun_Interrupt(&owner->weight, sequence, now)) return 0u;
     /* Weight may already be terminal, so its status alone cannot signal a
      * business interruption to the independently pending sensor group. */
-    owner->fullness_measurement_sequence = sequence;
-    return !owner->fullness.present || McuFullnessRun_Interrupt(&owner->fullness);
+    if (owner->fullness.present) McuFullnessRun_Interrupt(&owner->fullness);
+    else owner->fullness_measurement_sequence = sequence;
+    return 1u; /* Optional-source cleanup never blocks the business fault exit. */
 }
 
 uint8_t McuWorkPreparation_PollMeasurement(McuWorkPreparation *owner, McuControlEndpoint *endpoint,
@@ -216,23 +242,28 @@ uint8_t McuWorkPreparation_PollMeasurement(McuWorkPreparation *owner, McuControl
     if (owner->fullness_enabled && (message == ECOBIN_UART_MESSAGE_WORK_POSTCLOSE_WEIGHT_READY
         || message == ECOBIN_UART_MESSAGE_CLEAN_FINAL_WEIGHT_READY)) {
         if (owner->fullness_measurement_sequence != result.measurement_id) {
-            if (owner->fullness.present) return 0u;
-            owner->fullness_measurement_sequence = result.measurement_id;
+            if (owner->fullness.present && McuFullnessRun_Interrupt(&owner->fullness))
+                McuFullnessRun_Retire(&owner->fullness, owner->fullness.result.sequence);
             /* One attempt to establish this phase's group. Unsupported or
              * unavailable source is explicitly NOT_SAMPLED, not a CLEAR result.
              * Never retry into a different phase or start sampling after stop. */
-            if (result.status != WEIGHT_MEASUREMENT_INTERRUPTED && !ActuatorRuntime_Snapshot().update_latched)
-                McuFullnessRun_Begin(&owner->fullness, &endpoint->facts, &owner->configuration);
+            if (!owner->fullness.present) {
+                owner->fullness_measurement_sequence = result.measurement_id;
+                if (result.status != WEIGHT_MEASUREMENT_INTERRUPTED && !ActuatorRuntime_Snapshot().update_latched)
+                    McuFullnessRun_Begin(&owner->fullness, &endpoint->facts, &owner->configuration);
+            }
         }
-        if (owner->fullness.present)
+        if (owner->fullness.present && owner->fullness_measurement_sequence == result.measurement_id)
             fullness_ready = result.status == WEIGHT_MEASUREMENT_INTERRUPTED || ActuatorRuntime_Snapshot().update_latched
                 ? McuFullnessRun_Interrupt(&owner->fullness) : McuFullnessRun_Poll(&owner->fullness);
     }
     if (result.status == WEIGHT_MEASUREMENT_PENDING) return 1u;
-    if (!fullness_ready) return 1u;
+    /* Auxiliary sampling is best effort. It cannot extend a completed weight
+     * acquisition or keep this business waiting for a broken optional source. */
+    if (!fullness_ready && owner->fullness.present)
+        McuFullnessRun_Interrupt(&owner->fullness);
     if (result.status != WEIGHT_MEASUREMENT_STABLE_MEAN && result.status != WEIGHT_MEASUREMENT_TIMEOUT_MEDIAN
         && result.status != WEIGHT_MEASUREMENT_UNAVAILABLE && result.status != WEIGHT_MEASUREMENT_INTERRUPTED) return 0u;
-    if (endpoint->process_event.held) return 0u;
     if (measurement->event_sequence == 0u) {
         event_sequence = McuControlEndpoint_ReserveEventSequence(endpoint);
         if (event_sequence == 0u) return 0u;
@@ -258,18 +289,22 @@ uint8_t McuWorkPreparation_PollMeasurement(McuWorkPreparation *owner, McuControl
         meta->observed_uptime_ms = observed;
         meta->step_sequence = step;
     }
-    length = owner->fullness.present
+    length = owner->fullness.present && owner->fullness_measurement_sequence == result.measurement_id
         ? McuProcessMeasurement_BuildWorkEventWithFullness(&endpoint->work, measurement, meta,
             &owner->fullness, message, owner->scratch, sizeof(owner->scratch))
         : McuProcessMeasurement_BuildWorkEvent(&endpoint->work, measurement, meta,
             message, owner->scratch, sizeof(owner->scratch));
-    if (!length) return 0u;
     memcpy(scope, endpoint->work.identity, MCU_WORK_IDENTITY_LENGTH);
     scope[ECOBIN_UART_QUERY_PROCESS_EVENT_EVENT_MESSAGE_TYPE_OFFSET - 8u] = message;
     ecobin_uart_write_u16_be(scope + ECOBIN_UART_QUERY_PROCESS_EVENT_STEP_SEQUENCE_OFFSET - 8u, step);
     ecobin_uart_write_u64_be(scope + ECOBIN_UART_QUERY_PROCESS_EVENT_CONFIG_VERSION_OFFSET - 8u, policy.config_version);
-    if (!McuProcessEventSlot_Freeze(&endpoint->process_event, scope, sizeof(scope),
-        message, owner->scratch, length)) return 0u;
+    /* Diagnostic mailbox only: retain an existing unacknowledged event, or
+     * offer this event if empty. Neither loss nor SAVED controls local work.
+     * The authoritative first/final measurements live in the executor and
+     * subsequently in WORK_RESULT, retained until its own durable ACK. */
+    if (length && !endpoint->process_event.held)
+        McuProcessEventSlot_Freeze(&endpoint->process_event, scope, sizeof(scope),
+            message, owner->scratch, length);
     McuWeightRun_Retire(&owner->weight, result.measurement_id);
     if (owner->fullness.present) McuFullnessRun_Retire(&owner->fullness, owner->fullness.result.sequence);
     return 2u;

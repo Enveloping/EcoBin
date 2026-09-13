@@ -1,0 +1,9 @@
+; Complete STM32F103C8 image: actual reset vector, startup stack, all live drivers.
+LR_ROM 0x08000000 0x10000 {
+  ER_ROM 0x08000000 0x10000 {
+    startup_stm32f10x_md.o (RESET, +First)
+    *(InRoot$$Sections)
+    .ANY (+RO)
+  }
+  RW_RAM 0x20000000 0x5000 { .ANY (+RW +ZI) }
+}

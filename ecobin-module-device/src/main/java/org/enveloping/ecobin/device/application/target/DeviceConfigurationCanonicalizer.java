@@ -38,6 +38,8 @@ public class DeviceConfigurationCanonicalizer
     private static final long SAFE_INTEGER_MAX = 9_007_199_254_740_991L;
     private static final byte[] MCU_DOMAIN =
             domain("ECOBIN:UART:MCU-CONFIG:v1");
+    private static final byte[] NATIVE_MCU_DOMAIN =
+            domain("ECOBIN:UART:MCU-CONFIG:v2");
     private static final Set<String> FULLNESS_MODES = Set.of(
             "INFRARED_ONLY", "WEIGHT_ONLY", "INFRARED_OR_WEIGHT");
     private static final Set<String> SENSOR_KINDS = Set.of(
@@ -48,6 +50,17 @@ public class DeviceConfigurationCanonicalizer
             int expectedPortCount,
             long edgeHeartbeatIntervalMs,
             long edgeHeartbeatMissThreshold) {
+        return normalize(request, expectedPortCount, edgeHeartbeatIntervalMs,
+                edgeHeartbeatMissThreshold, McuConfigurationProfile.LEGACY_V1);
+    }
+
+    public NormalizedConfiguration normalize(
+            ConfigurationReleaseRequest request,
+            int expectedPortCount,
+            long edgeHeartbeatIntervalMs,
+            long edgeHeartbeatMissThreshold,
+            McuConfigurationProfile profile) {
+        Objects.requireNonNull(profile, "profile");
         if (request == null
                 || request.device() == null
                 || request.ports() == null) {
@@ -57,9 +70,9 @@ public class DeviceConfigurationCanonicalizer
                 normalizeDevice(
                         request.device(),
                         edgeHeartbeatIntervalMs,
-                        edgeHeartbeatMissThreshold);
+                        edgeHeartbeatMissThreshold, profile);
         List<NormalizedPort> ports = request.ports().stream()
-                .map(this::normalizePort)
+                .map(port -> normalizePort(port, profile))
                 .sorted(Comparator.comparingInt(port -> port.view().portNo()))
                 .toList();
         TreeSet<Integer> actualPorts = new TreeSet<>();
@@ -76,13 +89,17 @@ public class DeviceConfigurationCanonicalizer
 
         Map<String, Object> canonical = new LinkedHashMap<>();
         canonical.put("schemaVersion", CONFIGURATION_SCHEMA_VERSION);
-        canonical.put("device", contentDevice(device));
+        if (profile.nativeUart()) {
+            canonical.put("mcuConfigurationProfile", profile.name());
+        }
+        canonical.put("device", contentDevice(device, profile));
         canonical.put("ports", ports.stream()
-                .map(this::contentPort)
+                .map(port -> contentPort(port, profile))
                 .toList());
         byte[] canonicalBytes = canonicalBytes(canonical);
         byte[] contentSha256 = sha256(canonicalBytes);
         return new NormalizedConfiguration(
+                profile,
                 device,
                 ports,
                 canonicalBytes,
@@ -97,7 +114,7 @@ public class DeviceConfigurationCanonicalizer
                 versionNo,
                 configuration.contentSha256(),
                 configuration.device(),
-                configuration.ports());
+                configuration.ports(), configuration.profile());
     }
 
     byte[] mcuPayloadSha256(
@@ -105,6 +122,16 @@ public class DeviceConfigurationCanonicalizer
             byte[] contentSha256,
             ConfigurationDeviceSnapshot device,
             List<NormalizedPort> ports) {
+        return mcuPayloadSha256(versionNo, contentSha256, device, ports,
+                McuConfigurationProfile.LEGACY_V1);
+    }
+
+    byte[] mcuPayloadSha256(
+            long versionNo,
+            byte[] contentSha256,
+            ConfigurationDeviceSnapshot device,
+            List<NormalizedPort> ports,
+            McuConfigurationProfile profile) {
         if (versionNo < 1 || versionNo > SAFE_INTEGER_MAX) {
             throw valueInvalid("配置版本超出机器协议范围");
         }
@@ -112,7 +139,7 @@ public class DeviceConfigurationCanonicalizer
             throw valueInvalid("配置内容摘要必须是 SHA-256");
         }
         ByteArrayOutputStream output = new ByteArrayOutputStream();
-        output.writeBytes(MCU_DOMAIN);
+        output.writeBytes(profile.nativeUart() ? NATIVE_MCU_DOMAIN : MCU_DOMAIN);
         writeUnsigned(output, versionNo, 8);
         output.writeBytes(contentSha256);
         writeUnsigned(output, ports.size(), 1);
@@ -123,6 +150,10 @@ public class DeviceConfigurationCanonicalizer
         writeUnsigned(output, device.deliveryDoorTravelWaitMs(), 4);
         writeUnsigned(output, device.cleanSolenoidPulseMs(), 4);
         writeUnsigned(output, device.smokeMonitoringEnabled() ? 1 : 0, 1);
+        if (profile.nativeUart()) {
+            writeUnsigned(output, McuConfigurationProfile.POLL_INTERVAL_MS, 4);
+            writeUnsigned(output, McuConfigurationProfile.RESPONSE_TIMEOUT_MS, 4);
+        }
         for (NormalizedPort port : ports) {
             ConfigurationPortSnapshot view = port.view();
             writeUnsigned(output, view.portNo(), 1);
@@ -144,6 +175,10 @@ public class DeviceConfigurationCanonicalizer
             writeSigned(output, view.weightMinimumGram(), 4);
             writeSigned(output, view.weightMaximumGram(), 4);
             writeUnsigned(output, view.calibrationVersion(), 4);
+            if (profile.nativeUart()) {
+                writeUnsigned(output, McuConfigurationProfile.MAXIMUM_SAMPLE_AGE_MS, 4);
+                writeUnsigned(output, McuConfigurationProfile.MINIMUM_MEDIAN_SAMPLE_COUNT, 1);
+            }
         }
         return sha256(output.toByteArray());
     }
@@ -160,6 +195,9 @@ public class DeviceConfigurationCanonicalizer
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("applicationUid", applicationUid);
+        if (configuration.profile().nativeUart()) {
+            payload.put("mcuConfigurationProfile", configuration.profile().name());
+        }
         payload.put("config", config);
         payload.put("deviceConfig", machineDevice(configuration.device()));
         payload.put("ports", configuration.ports().stream()
@@ -185,7 +223,8 @@ public class DeviceConfigurationCanonicalizer
     private ConfigurationDeviceSnapshot normalizeDevice(
             ConfigurationDeviceRequest request,
             long edgeHeartbeatIntervalMs,
-            long edgeHeartbeatMissThreshold) {
+            long edgeHeartbeatMissThreshold,
+            McuConfigurationProfile profile) {
         long edgeHeartbeat = range(
                 edgeHeartbeatIntervalMs,
                 RuntimeSnapshotPolicyProvider.MINIMUM_FALLBACK_INTERVAL_MS,
@@ -216,7 +255,8 @@ public class DeviceConfigurationCanonicalizer
                 defaultLong(request.deliveryAutoCloseMs(), 120_000),
                 1_000, 600_000, "投递门自动关闭时间");
         long measurementTimeout = range(
-                defaultLong(request.weightMeasurementTimeoutMs(), 6_000),
+                profile.nativeUart() ? McuConfigurationProfile.MEASUREMENT_TIMEOUT_MS
+                        : defaultLong(request.weightMeasurementTimeoutMs(), 6_000),
                 1_000, 6_000, "整机称重超时");
         long travelWait = range(
                 defaultLong(request.deliveryDoorTravelWaitMs(), 30_000),
@@ -241,7 +281,8 @@ public class DeviceConfigurationCanonicalizer
                 smoke);
     }
 
-    private NormalizedPort normalizePort(ConfigurationPortRequest request) {
+    private NormalizedPort normalizePort(
+            ConfigurationPortRequest request, McuConfigurationProfile profile) {
         if (request == null || request.portNo() == null) {
             throw portSetInvalid();
         }
@@ -301,17 +342,20 @@ public class DeviceConfigurationCanonicalizer
                 defaultLong(request.fullnessEchoTimeoutUs(), 30_000),
                 100, 100_000, "超声回波超时");
         long stableWindow = range(
-                defaultLong(request.weightStableWindowMs(), 1_500),
+                profile.nativeUart() ? McuConfigurationProfile.STABLE_WINDOW_MS
+                        : defaultLong(request.weightStableWindowMs(), 1_500),
                 1, 6_000, "重量稳定窗口");
         long maximumFluctuation = range(
-                defaultLong(
-                        request.weightMaximumFluctuationGram(), 20),
+                profile.nativeUart() ? McuConfigurationProfile.MAXIMUM_FLUCTUATION_GRAMS
+                        : defaultLong(request.weightMaximumFluctuationGram(), 20),
                 0, UINT32_MAX, "重量最大波动");
         int requiredSamples = Math.toIntExact(range(
-                defaultInteger(request.weightRequiredSampleCount(), 10),
+                profile.nativeUart() ? McuConfigurationProfile.REQUIRED_SAMPLE_COUNT
+                        : defaultInteger(request.weightRequiredSampleCount(), 10),
                 1, 65_535, "重量最小采样数"));
         long weightTimeout = range(
-                defaultLong(request.weightMeasurementTimeoutMs(), 6_000),
+                profile.nativeUart() ? McuConfigurationProfile.MEASUREMENT_TIMEOUT_MS
+                        : defaultLong(request.weightMeasurementTimeoutMs(), 6_000),
                 1_000, 6_000, "投口称重超时");
         long weightMinimum = range(
                 defaultLong(request.weightMinimumGram(), -5_000),
@@ -366,7 +410,7 @@ public class DeviceConfigurationCanonicalizer
     }
 
     private Map<String, Object> contentDevice(
-            ConfigurationDeviceSnapshot device) {
+            ConfigurationDeviceSnapshot device, McuConfigurationProfile profile) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put(
                 "edgeHeartbeatIntervalMs",
@@ -400,10 +444,15 @@ public class DeviceConfigurationCanonicalizer
         result.put(
                 "smokeMonitoringEnabled",
                 device.smokeMonitoringEnabled());
+        if (profile.nativeUart()) {
+            result.put("weightPollIntervalMs", McuConfigurationProfile.POLL_INTERVAL_MS);
+            result.put("weightResponseTimeoutMs", McuConfigurationProfile.RESPONSE_TIMEOUT_MS);
+        }
         return result;
     }
 
-    private Map<String, Object> contentPort(NormalizedPort port) {
+    private Map<String, Object> contentPort(
+            NormalizedPort port, McuConfigurationProfile profile) {
         ConfigurationPortSnapshot view = port.view();
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("portNo", view.portNo());
@@ -448,6 +497,10 @@ public class DeviceConfigurationCanonicalizer
         result.put(
                 "deliveryDoorOperationTimeoutMs",
                 view.deliveryDoorOperationTimeoutMs());
+        if (profile.nativeUart()) {
+            result.put("weightMaximumSampleAgeMs", McuConfigurationProfile.MAXIMUM_SAMPLE_AGE_MS);
+            result.put("weightMinimumMedianSampleCount", McuConfigurationProfile.MINIMUM_MEDIAN_SAMPLE_COUNT);
+        }
         return result;
     }
 
@@ -797,6 +850,7 @@ public class DeviceConfigurationCanonicalizer
     }
 
     public record NormalizedConfiguration(
+            McuConfigurationProfile profile,
             ConfigurationDeviceSnapshot device,
             List<NormalizedPort> ports,
             byte[] canonicalBytes,
@@ -804,6 +858,7 @@ public class DeviceConfigurationCanonicalizer
             String contentSha256Hex) {
 
         public NormalizedConfiguration {
+            Objects.requireNonNull(profile, "profile");
             ports = List.copyOf(ports);
             canonicalBytes = canonicalBytes.clone();
             contentSha256 = contentSha256.clone();

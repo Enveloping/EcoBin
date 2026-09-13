@@ -108,6 +108,11 @@ class _McuReadOnlyQuery:
             return None
         return dict(self._observation)
 
+    @property
+    def request_started_ms(self) -> int:
+        """Origin of the current reply's conservative transport-age allowance."""
+        return self._request_started_ms
+
 
 class McuActuatorEventQuery(_McuReadOnlyQuery):
     """Always fetch oldest unconfirmed data; a missing event is not work idle."""

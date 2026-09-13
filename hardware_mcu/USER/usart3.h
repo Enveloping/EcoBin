@@ -2,6 +2,11 @@
 #define __USART3_H
 
 #include "stm32f10x.h"
+#include "native_serial_buffer.h"
+extern NativeRxBuffer NativeHmiRx;
+extern NativeRxBuffer NativeHmiTx;
+void NativeHmi_InitBuffer(void);
+void UART3_SendVisible(char *component, unsigned char visible);
 
 /* UART3 接收缓冲区 */
 #define UART3_RX_BUF_SIZE  64

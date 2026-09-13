@@ -186,6 +186,7 @@ public class AutomaticDeviceActivationService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final DeviceConfigurationCanonicalizer canonicalizer;
+    private final McuConfigurationProfileProvider configurationProfiles;
     private final RuntimeSnapshotPolicyProvider runtimeSnapshotPolicyProvider;
     private final InitialDeviceConfigurationFactory initialConfigurationFactory;
     private final ReliableDeviceTaskRegistrationPort taskRegistration;
@@ -202,6 +203,7 @@ public class AutomaticDeviceActivationService {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.canonicalizer = canonicalizer;
+        this.configurationProfiles = new McuConfigurationProfileProvider(jdbc, objectMapper);
         this.runtimeSnapshotPolicyProvider = runtimeSnapshotPolicyProvider;
         this.initialConfigurationFactory = initialConfigurationFactory;
         this.taskRegistration = taskRegistration;
@@ -464,7 +466,8 @@ public class AutomaticDeviceActivationService {
                         devicePolicy.apply(request),
                         asset.portCount(),
                         runtimePolicy.fallbackIntervalMs(),
-                        RuntimeSnapshotPolicyProvider.FIXED_MISS_THRESHOLD);
+                        RuntimeSnapshotPolicyProvider.FIXED_MISS_THRESHOLD,
+                        configurationProfiles.forPublication(asset.id()));
         long versionNo = 1;
         byte[] mcuPayloadSha256 = canonicalizer.mcuPayloadSha256(
                 versionNo, normalized);

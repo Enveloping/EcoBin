@@ -1,6 +1,6 @@
 {
   "generatedFrom": "contracts/uart/uart-registry.yaml",
-  "implementationStage": "WORK_FULLNESS_CUSTODY_NOT_RUNNABLE",
+  "implementationStage": "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED",
   "messages": {
     "ACK": {
       "maximumFrameLength": 36,
@@ -406,6 +406,6 @@
     }
   },
   "notes": "仅当前已登记消息的单帧预算；不代表未来完整结果分段或 MCU RAM/栈预算已完成。",
-  "registrySha256": "a41d80dd9c349b847107a3afc7844580ac0c7a371920a78dfb22bf1506512e70",
-  "registryVersion": "2.0.0-rc.22"
+  "registrySha256": "60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808",
+  "registryVersion": "2.0.0-rc.23"
 }

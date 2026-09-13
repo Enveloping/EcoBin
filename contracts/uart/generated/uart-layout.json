@@ -582,7 +582,7 @@
     }
   },
   "generatedFrom": "contracts/uart/uart-registry.yaml",
-  "implementationStage": "WORK_FULLNESS_CUSTODY_NOT_RUNNABLE",
+  "implementationStage": "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED",
   "messages": {
     "ACK": {
       "ackRequired": false,
@@ -7672,8 +7672,8 @@
     "minor": 0,
     "receiveBufferLimit": 512
   },
-  "registrySha256": "a41d80dd9c349b847107a3afc7844580ac0c7a371920a78dfb22bf1506512e70",
-  "registryVersion": "2.0.0-rc.22",
+  "registrySha256": "60376c4192efc667de95962052555e395e717e1b8727139e919b200b4c1b6808",
+  "registryVersion": "2.0.0-rc.23",
   "sessionPolicy": {
     "actuatorEventMessages": [
       "DELIVERY_DOOR_COMMAND_RESULT",
@@ -7700,7 +7700,7 @@
     "commandPayloadValidation": "ALL_FENCED_EDGE_MESSAGES",
     "commandSequencePolicy": "DURABLE_MONOTONIC_PER_MCU_BOOT_NO_WRAP",
     "commandTimeout": "QUERY_ORIGINAL_NOT_MECHANICAL_RETRY",
-    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU 只在 RAM 保存启动编号及待绑定询问，接受绑定后消费待绑定询问，已有非零编号绝不重绑。绑定回复只关联本次请求，不证明 MCU 此后未重启；每条命令仍须核对目标启动。真实串口单次写入及旧帧边界尚未接入，禁止启用候选。",
+    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.23精简正常路径以START作为整次本地业务授权，MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。原过程/动作消息仅供旧候选历史诊断和归档读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。成对固件/主入口和现场验证未完成，不可直接发布。",
     "probeReuse": "NEVER",
     "processEventMessages": [
       "WORK_PREOPEN_WEIGHT_READY",

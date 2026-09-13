@@ -16,10 +16,15 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.DelegatingDataSource;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -49,7 +54,26 @@ public class DevicePolicyIntegrationTest {
 
     @BeforeEach
     void setup() {
-        var source = new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
+        var h2 = new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
+        // H2 CAST(text AS JSON) stores a JSON string, unlike MySQL's parsed object.
+        // Adapt only this fixture's SQL, never relax production frozen-envelope validation.
+        var source = new DelegatingDataSource(h2) {
+            @Override
+            public Connection getConnection() throws SQLException {
+                Connection connection = super.getConnection();
+                return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(),
+                        new Class<?>[]{Connection.class}, (proxy, method, arguments) -> {
+                            if (method.getName().equals("prepareStatement") && arguments[0] instanceof String sql) {
+                                arguments[0] = sql.replace("CAST(? AS JSON)", "? FORMAT JSON");
+                            }
+                            try {
+                                return method.invoke(connection, arguments);
+                            } catch (InvocationTargetException error) {
+                                throw error.getCause();
+                            }
+                        });
+            }
+        };
         new ResourceDatabasePopulator(new ClassPathResource("device-policy-fixture.sql")).execute(source);
         jdbc = new JdbcTemplate(source);
         tx = new TransactionTemplate(new DataSourceTransactionManager(source));
@@ -351,6 +375,88 @@ public class DevicePolicyIntegrationTest {
     }
 
     private static String code(long id) { return "Dv_" + "a".repeat(24) + id; }
+
+    @Test
+    void recognizedNativeSoftwarePublishesNewProfileWithoutRewritingLegacyHistory() {
+        asset(1, "NORMAL", "PASSED", 9L);
+        tx.executeWithoutResult(status -> activation.reconcileInCurrentTransaction(1, UUID.randomUUID()));
+        var oldEnvelope = configurationEnvelope(1);
+        var oldHash = jdbc.queryForObject("SELECT content_sha256 FROM dev_config_version WHERE version_no=1", byte[].class);
+        recognizedNativeSoftware(1, "BASE_COMPATIBLE");
+
+        tx.executeWithoutResult(status -> app.reconcileAutomaticActivation(1));
+        assertThat(configurationEnvelope(1)).isEqualTo(oldEnvelope);
+        assertThat(jdbc.queryForObject("SELECT content_sha256 FROM dev_config_version WHERE version_no=1", byte[].class))
+                .containsExactly(oldHash);
+        var nativeEnvelope = new ObjectMapper().readTree(configurationEnvelope(2));
+        assertThat(nativeEnvelope.path("payload").path("mcuConfigurationProfile").asString())
+                .isEqualTo("UART_V2_SIMPLIFIED");
+        assertThat(jdbc.queryForObject("SELECT weight_measurement_timeout_ms FROM dev_config_version WHERE version_no=2", Long.class))
+                .isEqualTo(5_000L);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dev_port_config_snapshot WHERE config_version_id=2 AND weight_required_sample_count=5 AND weight_maximum_fluctuation_g=100", Integer.class)).isEqualTo(2);
+        tx.executeWithoutResult(status -> app.reconcileAutomaticActivation(1));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dev_config_version", Integer.class)).isEqualTo(2);
+
+        jdbc.update("UPDATE dev_device_compatibility_projection SET compatibility_status='UNKNOWN'");
+        jdbc.update("UPDATE dev_device_software_fact SET uart_state='DISCONNECTED'");
+        tx.executeWithoutResult(status -> app.reconcileAutomaticActivation(1));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dev_config_version", Integer.class)).isEqualTo(2);
+        var defaults = initial.create("EC-M0", 2);
+        tx.execute(status -> app.releaseConfiguration(UUID.randomUUID(), "org", code(1),
+                new ConfigurationReleaseRequest(2L, "离线时调整配置", defaults.device(),
+                        defaults.ports().stream().map(port -> new ConfigurationPortRequest(port.portNo(), "更新" + port.portNo(),
+                                port.enabled(), port.unitPriceYuanPerKg(), port.fullnessMode(), port.fullnessWeightKg(),
+                                port.deliverySettleDelayMs(), port.fullnessInitialDelayMs(), port.fullnessRecheckDelayMs(),
+                                port.doorAutoCloseTimeoutMs(), port.fullnessSensorKind(), port.fullnessDistanceThresholdMm(),
+                                port.fullnessSampleCount(), port.fullnessMinimumValidSampleCount(), port.fullnessEchoTimeoutUs(),
+                                port.weightStableWindowMs(), port.weightMaximumFluctuationGram(), port.weightRequiredSampleCount(),
+                                port.weightMeasurementTimeoutMs(), port.weightMinimumGram(), port.weightMaximumGram(),
+                                port.calibrationVersion(), port.infraredSampleTimeoutMs(), port.deliveryDoorOperationTimeoutMs())).toList())));
+        assertThat(new ObjectMapper().readTree(configurationEnvelope(3)).path("payload").path("mcuConfigurationProfile").asString())
+                .isEqualTo("UART_V2_SIMPLIFIED");
+    }
+
+    @Test
+    void initialActivationUsesNativeOnlyWhenTheWholeInstalledReleaseIsRecognized() {
+        asset(1, "NORMAL", "PASSED", 9L);
+        recognizedNativeSoftware(1, "BASE_COMPATIBLE");
+        tx.executeWithoutResult(status -> activation.reconcileInCurrentTransaction(1, UUID.randomUUID()));
+        assertThat(configurationEnvelope(1)).contains("UART_V2_SIMPLIFIED");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"unknown", "package", "version", "sequence", "release", "major", "minor", "asset", "stale", "notReady"})
+    void aHashOrUnrecognizedOrMismatchedRuntimeCannotSelectNative(String mismatch) {
+        asset(1, "NORMAL", "PASSED", 9L);
+        recognizedNativeSoftware(1, "BASE_COMPATIBLE");
+        switch (mismatch) {
+            case "unknown" -> jdbc.update("UPDATE dev_device_compatibility_projection SET compatibility_status='UNKNOWN'");
+            case "package" -> jdbc.update("UPDATE dev_device_software_fact SET active_business_package_sha256=?", new byte[32]);
+            case "version" -> jdbc.update("UPDATE dev_device_software_fact SET active_business_version_name='other'");
+            case "sequence" -> jdbc.update("UPDATE dev_device_software_fact SET active_business_release_sequence=99");
+            case "release" -> jdbc.update("UPDATE dev_device_software_fact SET active_business_release_uid='other'");
+            case "major" -> jdbc.update("UPDATE dev_device_software_fact SET uart_protocol_major=1");
+            case "minor" -> jdbc.update("UPDATE dev_device_software_fact SET uart_protocol_minor=9");
+            case "asset" -> jdbc.update("UPDATE dev_device_software_fact SET asset_id=2");
+            case "stale" -> jdbc.update("UPDATE dev_device_software_fact SET management_state_sequence=99");
+            case "notReady" -> jdbc.update("UPDATE dev_device_software_fact SET uart_state='NEGOTIATING'");
+        }
+        tx.executeWithoutResult(status -> activation.reconcileInCurrentTransaction(1, UUID.randomUUID()));
+        assertThat(configurationEnvelope(1)).doesNotContain("mcuConfigurationProfile");
+        assertThat(jdbc.queryForObject("SELECT weight_measurement_timeout_ms FROM dev_config_version", Long.class)).isEqualTo(6_000L);
+    }
+
+    private void recognizedNativeSoftware(long assetId, String compatibility) {
+        byte[] hash = HexFormat.of().parseHex("a1".repeat(32));
+        jdbc.update("INSERT INTO dev_edge_software_release VALUES ('release-native', 2, 'native-2', ?, 'ECOBIN_UART', 2, 0, NULL)", hash);
+        jdbc.update("INSERT INTO dev_device_software_fact VALUES (11, ?, 4, 'release-native', 2, 'native-2', ?, 'READY', 'ECOBIN_UART', 2, 0, NULL)", assetId, hash);
+        jdbc.update("INSERT INTO dev_device_compatibility_projection VALUES (?, 11, 4, ?)", assetId, compatibility);
+    }
+
+    private String configurationEnvelope(long version) {
+        return jdbc.queryForObject("SELECT command.semantic_payload FROM dev_device_command command JOIN dev_config_application application ON application.id=command.config_application_id JOIN dev_config_version config ON config.id=application.config_version_id WHERE config.version_no=?", String.class, version);
+    }
+
     private void asset(long id, String lifecycle, String acceptance, Long organization) {
         jdbc.update("INSERT INTO dev_device_asset VALUES (?, ?, ?, 'EC-M0', 2, 7, ?, ?, ?, 0)", id, "TEST-"+id, code(id), organization, acceptance, lifecycle);
         if (organization != null) {

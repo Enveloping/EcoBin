@@ -1284,6 +1284,22 @@ class EdgeStore:
             raise ValueError("native confirmation identity conflicts")
         self._native_result_confirmation_binding(conn, row)
 
+    def prepare_native_business_completion(self, permit, start_command_uid, *, device_name, permit_snapshot):
+        from native_business_completion import prepare
+        return prepare(self, permit, start_command_uid, device_name=device_name, permit_snapshot=permit_snapshot)
+
+    def apply_native_business_completion(self, permit, start_command_uid, *, device_name, permit_snapshot):
+        from native_business_completion import apply
+        return apply(self, permit, start_command_uid, device_name=device_name, permit_snapshot=permit_snapshot)
+
+    def prepare_native_issue_completion(self, permit, start_command_uid, *, device_name, permit_snapshot):
+        from native_issue_completion import prepare
+        return prepare(self, permit, start_command_uid, device_name=device_name, permit_snapshot=permit_snapshot)
+
+    def apply_native_issue_completion(self, permit, start_command_uid, *, device_name, permit_snapshot):
+        from native_issue_completion import apply
+        return apply(self, permit, start_command_uid, device_name=device_name, permit_snapshot=permit_snapshot)
+
     def _migrate_v31(self) -> None:
         """Consume native result custody into the existing reliable event outbox."""
         conn = self._conn
@@ -1342,10 +1358,10 @@ class EdgeStore:
                 raise ValueError("native report differs from original permit/START")
             return dict(state="REPORT_CREATED", eventUid=binding["eventUid"])
 
-    def create_native_result_report(self, permit, start_command_uid: str, *, device_name, ledgers, photo_manager=None):
-        from native_result_report import original_authority, report_payload, pending_photos, report_binding, supports_result_policy
+    def create_native_result_report(self, permit, start_command_uid: str, *, device_name,
+                                   photo_manager=None, permit_snapshot=None, ledgers=None):
+        from native_result_report import original_authority, report_payload, pending_photos, report_binding, supports_result_policy, check_job_permit
         from work_recovery import original_work, complete_result
-        from mcu_action_evidence import check_ledger
         from onenet_wire import build_event_envelope, encode_event_post
         import uart2_protocol as uart
         with self._standalone_native_transaction() as conn:
@@ -1354,6 +1370,7 @@ class EdgeStore:
             existing = self.get_native_result_report(permit, start_command_uid, device_name=device_name)
             if existing is not None:
                 return existing
+            check_job_permit(permit, permit_snapshot)
             record, start = original_work(self, permit, start_command_uid)
             decision = complete_result(self, conn, permit, record, start)
             if decision is None or decision["evidence"]["state"] != "MATCHED":
@@ -1365,14 +1382,6 @@ class EdgeStore:
             command = original_authority(self, permit, start, evidence, device_name)
             if command is None:
                 raise ValueError("native report lacks original cloud command custody")
-            for item in evidence["execution"]["commands"]:
-                uid = item["binding"]["action"]["action_uid"]
-                proof = self.get_native_action_confirmation(uid)
-                if proof is None:
-                    raise ValueError("native report action has no durable confirmation")
-                if uid not in ledgers:
-                    raise ValueError("native report action lacks the queried permanent confirmation")
-                check_ledger(self.get_native_action_binding(uid), ledgers[uid], proof)
             work_type = value["workType"]
             event_type = "CLEAN_COMPLETE" if work_type == "CLEAN_OPERATION" else "DELIVERY_COMPLETE"
             photos = (photo_manager.get_completion_photo_facts(permit.work_uid, work_type)
@@ -5666,6 +5675,16 @@ class EdgeStore:
         )
         return result
 
+    def list_pending_configurations(self) -> list[dict]:
+        """Read original configuration custody; do not requeue physical commands."""
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT application_uid FROM configuration_state
+                   WHERE state IN ('EDGE_SAVED', 'WAITING_MCU_RESULT', 'RECOVERY_REQUIRED')
+                   ORDER BY config_version, application_uid"""
+            ).fetchall()
+            return [self.get_configuration(row["application_uid"]) for row in rows]
+
     def get_latest_applied_configuration(self) -> Optional[dict]:
         with self._lock:
             row = self._conn.execute(
@@ -8860,6 +8879,7 @@ class EdgeStore:
         cos_key: Optional[str] = None,
         url: Optional[str] = None,
         error_code: Optional[str] = None,
+        expected_state: Optional[str] = None,
     ) -> str:
         """Atomically persist a terminal photo state and its reliable fact."""
         if state not in (PHOTO_UPLOADED, PHOTO_DEAD):
@@ -8876,6 +8896,8 @@ class EdgeStore:
             ).fetchone()
             if not photo:
                 return "UNKNOWN"
+            if expected_state is not None and photo["state"] != expected_state:
+                return "STATE_CHANGED"
             if photo["status_event_uid"]:
                 return "DUPLICATE"
             seq = self._next_seq(self._conn)

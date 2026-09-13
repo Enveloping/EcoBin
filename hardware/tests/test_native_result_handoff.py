@@ -155,26 +155,15 @@ def test_v18_upgrade_is_atomic_and_preserves_existing_business(tmp_path):
     work_uid = "22222222-2222-4222-8222-222222222222"
     assert store.acquire_work_slot("DELIVERY", work_uid, 1, {"phase": "WAITING_COMPAT_DELIVERY_RESULT"})
     with store.transaction(immediate=True) as conn:
-        conn.execute("DROP TABLE native_work_recovery_fact")
-        conn.execute("DROP TABLE native_work_recovery_intent")
-        conn.execute("DROP TABLE native_action_confirmation")
-        conn.execute("DROP TABLE native_action_binding")
-        conn.execute("DROP TABLE native_clean_confirmation")
-        conn.execute("DROP TABLE native_clean_intent")
-        conn.execute("DROP TABLE native_delivery_selection")
-        conn.execute("DROP TABLE native_actuator_event_conflict")
-        conn.execute("DROP TABLE native_actuator_event")
-        conn.execute("DROP TABLE native_process_receipt_conflict")
-        conn.execute("DROP TABLE native_process_receipt")
-        conn.execute("DROP TABLE native_measurement_event_conflict")
-        conn.execute("DROP TABLE native_measurement_event")
-        conn.execute("DROP TABLE native_mcu_command_observation")
-        conn.execute("DROP TABLE native_mcu_command")
-        conn.execute("DROP TABLE native_mcu_boot_observation")
-        conn.execute("DROP TABLE native_mcu_boot")
-        conn.execute("DROP TABLE native_mcu_result_conflict")
-        conn.execute("DROP TABLE native_result_report_outbox")
-        conn.execute("DROP TABLE native_mcu_result")
+        # This test synthesizes a pre-native v18 database from a fresh current
+        # schema. Include later native tables too; a stale handwritten list
+        # otherwise tests an impossible mixture of old/new schema, not upgrade.
+        names = [row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'native_%' ORDER BY rowid DESC")]
+        for name in names:
+            assert name.replace("_", "").isalnum()
+            assert conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0] == 0
+            conn.execute(f'DROP TABLE "{name}"')
         conn.execute("DELETE FROM schema_version WHERE version >= 19")
         assert conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'native_%'").fetchone()[0] == 0
     previous = store.get_work_slot()
