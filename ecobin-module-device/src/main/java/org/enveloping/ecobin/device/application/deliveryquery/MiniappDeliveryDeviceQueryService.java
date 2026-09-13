@@ -155,6 +155,7 @@ public class MiniappDeliveryDeviceQueryService
                 instant(row.deviceCompletedAt()),
                 instant(row.endedAt()),
                 row.endReason(),
+                instant(row.offlineOccupancyReleasedAt()),
                 queryRefFactory.issueSessionBusiness(
                         tenantId,
                         organizationId,

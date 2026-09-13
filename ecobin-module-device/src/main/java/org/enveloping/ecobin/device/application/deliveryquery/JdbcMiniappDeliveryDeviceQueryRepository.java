@@ -26,8 +26,25 @@ class JdbcMiniappDeliveryDeviceQueryRepository
                    asset.lifecycle_status,
                    asset.acceptance_status,
                    CASE
-                       WHEN occupancy.asset_id IS NULL THEN 0
-                       ELSE 1
+                       WHEN occupancy.asset_id IS NOT NULL THEN 1
+                       WHEN EXISTS (
+                           SELECT 1
+                           FROM dev_delivery_session pending_delivery
+                           WHERE pending_delivery.tenant_id = asset.tenant_id
+                             AND pending_delivery.organization_id =
+                                 asset.organization_id
+                             AND pending_delivery.asset_id = asset.id
+                             AND pending_delivery.ended_at IS NULL
+                             AND pending_delivery.offline_occupancy_released_at
+                                 IS NOT NULL
+                             AND pending_delivery.status IN (
+                                 'PREPARED',
+                                 'AUTHORIZATION_QUEUED',
+                                 'IN_PROGRESS',
+                                 'RESULT_PENDING_RECOVERY'
+                             )
+                       ) THEN 1
+                       ELSE 0
                    END AS device_busy,
                    configuration.id AS configuration_id,
                    configuration.version_no AS configuration_version,
@@ -173,7 +190,8 @@ class JdbcMiniappDeliveryDeviceQueryRepository
                    delivery_session.first_physical_progress_at,
                    delivery_session.device_completed_at,
                    delivery_session.ended_at,
-                   delivery_session.end_reason
+                   delivery_session.end_reason,
+                   delivery_session.offline_occupancy_released_at
             FROM dev_delivery_session delivery_session
             JOIN dev_device_asset asset
               ON asset.tenant_id = delivery_session.tenant_id
@@ -262,7 +280,10 @@ class JdbcMiniappDeliveryDeviceQueryRepository
                         rs.getObject(
                                 "ended_at",
                                 LocalDateTime.class),
-                        rs.getString("end_reason")),
+                        rs.getString("end_reason"),
+                        rs.getObject(
+                                "offline_occupancy_released_at",
+                                LocalDateTime.class)),
                 tenantId,
                 organizationId,
                 organizationUserId,

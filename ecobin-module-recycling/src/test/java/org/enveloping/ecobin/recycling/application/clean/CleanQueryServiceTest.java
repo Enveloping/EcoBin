@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.util.List;
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -84,6 +85,19 @@ class CleanQueryServiceTest {
         assertThat(option.cleaningAllowed()).isTrue();
         assertThat(option.blockers()).isEqualTo(List.of());
         assertThat(option.fullnessStatus()).isEqualTo("FULL");
+    }
+
+    @Test
+    void releasedPendingWorkStillMakesTheOriginalDeviceBusy() {
+        String sql = CleanQueryService.DEVICE_BUSY_SQL
+                .toLowerCase(Locale.ROOT);
+
+        assertThat(sql).contains(
+                "from dev_device_occupancy",
+                "from dev_delivery_session",
+                "from rec_clean_operation",
+                "offline_occupancy_released_at is not null",
+                "ended_at is null");
     }
 
     private static ResultSet port(

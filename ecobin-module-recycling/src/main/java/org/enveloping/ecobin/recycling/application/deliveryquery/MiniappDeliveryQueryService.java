@@ -23,6 +23,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -52,6 +53,7 @@ public class MiniappDeliveryQueryService {
             "PORT_CLEAN_OPERATION_ACTIVE";
     static final String CLEAN_RESTARTED_CLEAN_REQUIRED =
             "CLEAN_RESTARTED_CLEAN_REQUIRED";
+    static final String DEVICE_BUSY = "DEVICE_BUSY";
 
     private final MiniappDeliveryIdentityQueryPort identity;
     private final MiniappDeliveryDeviceQueryPort device;
@@ -83,6 +85,9 @@ public class MiniappDeliveryQueryService {
         DeliveryOptionsBusinessFacts businessOptions =
                 business.currentOptions(
                         deviceOptions.businessQueryRef());
+        boolean effectiveDeviceBusy = deviceOptions.deviceBusy()
+                || businessOptions.ports().stream()
+                .anyMatch(DeliveryPortBusinessFacts::cleanOperationActive);
 
         LinkedHashSet<String> userBlockers = new LinkedHashSet<>();
         if (!current.phoneBound()) {
@@ -108,13 +113,14 @@ public class MiniappDeliveryQueryService {
                         .map(port -> portOption(
                                 port,
                                 businessOptions.port(port.portNo()),
-                                userBlockers))
+                                userBlockers,
+                                effectiveDeviceBusy))
                         .toList();
         return new DeliveryOptionsView(
                 deviceOptions.deviceCode(),
                 deviceOptions.displayName(),
                 deviceOptions.address(),
-                deviceOptions.deviceBusy(),
+                effectiveDeviceBusy,
                 deviceOptions.asOf(),
                 ports);
     }
@@ -142,6 +148,7 @@ public class MiniappDeliveryQueryService {
                 session.firstPhysicalProgressAt(),
                 session.endedAt(),
                 session.endReason(),
+                session.offlineOccupancyReleasedAt(),
                 deliveryOrderNo,
                 presentation.recommendedPollAfterMs(),
                 presentation.nextActions());
@@ -150,10 +157,14 @@ public class MiniappDeliveryQueryService {
     private static DeliveryPortOption portOption(
             DeliveryDevicePortOptionSnapshot devicePort,
             Optional<DeliveryPortBusinessFacts> businessPort,
-            LinkedHashSet<String> userBlockers) {
+            LinkedHashSet<String> userBlockers,
+            boolean deviceBusy) {
         LinkedHashSet<String> blockers =
                 new LinkedHashSet<>(userBlockers);
         blockers.addAll(devicePort.blockers());
+        if (deviceBusy) {
+            blockers.add(DEVICE_BUSY);
+        }
         String fullnessPercent = null;
         if (businessPort.isEmpty()) {
             blockers.add(CURRENT_BAG_MISSING);
@@ -215,6 +226,19 @@ public class MiniappDeliveryQueryService {
     private static SessionPresentation presentSession(
             OwnedDeliverySessionSnapshot session) {
         // 内部状态保留设备/恢复语义；对小程序只暴露用户能理解并采取行动的阶段。
+        if (session.offlineOccupancyReleasedAt() != null
+                && Set.of(
+                        "PREPARED",
+                        "AUTHORIZATION_QUEUED",
+                        "IN_PROGRESS",
+                        "RESULT_PENDING_RECOVERY")
+                .contains(session.deviceStatus())) {
+            return new SessionPresentation(
+                    "ACTIVE",
+                    "OFFLINE_RESULT_PENDING",
+                    RECOMMENDED_POLL_AFTER_MS,
+                    List.of("USE_ANOTHER_DEVICE"));
+        }
         return switch (session.deviceStatus()) {
             case "PREPARED", "AUTHORIZATION_QUEUED" ->
                     active(

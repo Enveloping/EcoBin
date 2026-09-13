@@ -117,6 +117,7 @@ class DeliveryRecoveryQuarantinePolicyTest {
                 null,
                 null,
                 null,
+                null,
                 4L);
     }
 

@@ -28,6 +28,7 @@ class JdbcStartDeliveryDeviceRepository
                   'IN_PROGRESS',
                   'RESULT_PENDING_RECOVERY'
               )
+              AND offline_occupancy_released_at IS NULL
             ORDER BY id
             FOR UPDATE
             """;
@@ -79,6 +80,22 @@ class JdbcStartDeliveryDeviceRepository
             SELECT occupancy_kind
             FROM dev_device_occupancy
             WHERE asset_id = ?
+            FOR UPDATE
+            """;
+
+    static final String LOCK_RELEASED_PENDING_DELIVERY_SQL = """
+            SELECT id
+            FROM dev_delivery_session
+            WHERE asset_id = ?
+              AND offline_occupancy_released_at IS NOT NULL
+              AND ended_at IS NULL
+              AND status IN (
+                  'PREPARED',
+                  'AUTHORIZATION_QUEUED',
+                  'IN_PROGRESS',
+                  'RESULT_PENDING_RECOVERY'
+              )
+            ORDER BY id
             FOR UPDATE
             """;
 
@@ -332,6 +349,14 @@ class JdbcStartDeliveryDeviceRepository
                 (rs, ignored) -> new OccupancyRow(
                         rs.getString("occupancy_kind")),
                 assetId).stream().findFirst();
+    }
+
+    @Override
+    public List<Long> lockReleasedPendingDeliveryIds(long assetId) {
+        return jdbc.query(
+                LOCK_RELEASED_PENDING_DELIVERY_SQL,
+                (rs, ignored) -> rs.getLong("id"),
+                assetId);
     }
 
     @Override

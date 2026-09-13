@@ -124,6 +124,10 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
                 tenantId,
                 organizationId,
                 portId);
+        rejectReleasedPendingCleanWork(
+                tenantId,
+                organizationId,
+                assetId);
         rejectCleanRestartInterlock(
                 tenantId,
                 organizationId,
@@ -356,6 +360,38 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
             throw conflict(
                     "CLEAN.RESTARTED_CLEAN_REQUIRED",
                     "上一次清运被设备重启中断，必须先重新完成一次完整清运");
+        }
+    }
+
+    private void rejectReleasedPendingCleanWork(
+            long tenantId,
+            long organizationId,
+            long assetId) {
+        List<Long> rows = jdbc.query("""
+                        SELECT id
+                        FROM rec_clean_operation
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND offline_occupancy_released_at IS NOT NULL
+                          AND ended_at IS NULL
+                          AND status IN (
+                              'PREPARED',
+                              'EDGE_SAVED',
+                              'IN_PROGRESS',
+                              'RECOVERY_REQUIRED'
+                          )
+                        ORDER BY id
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> rs.getLong("id"),
+                tenantId,
+                organizationId,
+                assetId);
+        if (!rows.isEmpty()) {
+            throw conflict(
+                    "DEVICE.OFFLINE_RESULT_PENDING",
+                    "设备仍有离线期间完成的原业务等待补报，暂时不能开始新业务");
         }
     }
 

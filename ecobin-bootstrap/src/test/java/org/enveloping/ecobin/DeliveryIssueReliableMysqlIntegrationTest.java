@@ -179,7 +179,7 @@ class DeliveryIssueReliableMysqlIntegrationTest {
         for (String table : new String[]{"dev_delivery_issue", "dev_delivery_issue_part", "dev_delivery_issue_evidence", "dev_device_occupancy"})
             countsBefore.put(table, jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class));
         assertEquals("ecobin_app@%", jdbc.queryForObject("SELECT CURRENT_USER()", String.class));
-        assertEquals(79, jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success=1", Integer.class));
+        assertEquals(80, jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success=1", Integer.class));
         String sn = "P1BL-" + UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO dev_device_asset(asset_uid,device_public_code,hardware_sn,model_name,

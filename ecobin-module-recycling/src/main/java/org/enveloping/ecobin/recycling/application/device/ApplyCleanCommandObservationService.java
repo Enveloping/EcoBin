@@ -33,7 +33,8 @@ public class ApplyCleanCommandObservationService
         List<OperationRow> rows = jdbc.query("""
                         SELECT id, port_id, new_bag_id, status,
                                first_unlock_may_have_executed,
-                               created_at
+                               created_at,
+                               offline_occupancy_released_at
                         FROM rec_clean_operation
                         WHERE id = ?
                           AND tenant_id = ?
@@ -49,7 +50,10 @@ public class ApplyCleanCommandObservationService
                         rs.getBoolean(
                                 "first_unlock_may_have_executed"),
                         rs.getObject(
-                                "created_at", LocalDateTime.class)),
+                                "created_at", LocalDateTime.class),
+                        rs.getObject(
+                                "offline_occupancy_released_at",
+                                LocalDateTime.class)),
                 observation.cleanOperationId(),
                 observation.tenantId(),
                 observation.organizationId(),
@@ -205,6 +209,7 @@ public class ApplyCleanCommandObservationService
             throw new IllegalArgumentException(
                     "pre-unlock clean failure requires a stable error code");
         }
+        requireMatchingOrReleasedOccupancy(observation, operation);
         requireSingle(jdbc.update("""
                         UPDATE rec_clean_operation
                         SET status = 'PRE_UNLOCK_ENDED',
@@ -227,7 +232,7 @@ public class ApplyCleanCommandObservationService
                 observation.organizationId(),
                 observation.assetId()),
                 "end clean before unlock");
-        requireSingle(jdbc.update("""
+        requireOccupancyRelease(jdbc.update("""
                         DELETE FROM dev_device_occupancy
                         WHERE tenant_id = ?
                           AND organization_id = ?
@@ -239,6 +244,7 @@ public class ApplyCleanCommandObservationService
                 observation.organizationId(),
                 observation.assetId(),
                 operation.id()),
+                operation.offlineOccupancyReleasedAt(),
                 "release pre-unlock clean occupancy");
         requireSingle(jdbc.update("""
                         DELETE FROM rec_bag_current_occupancy
@@ -291,6 +297,36 @@ public class ApplyCleanCommandObservationService
                 operation.id());
     }
 
+    private void requireMatchingOrReleasedOccupancy(
+            TrustedCleanCommandObservation observation,
+            OperationRow operation) {
+        List<OccupancyRow> rows = jdbc.query("""
+                        SELECT occupancy_kind,
+                               delivery_session_id,
+                               clean_operation_id
+                        FROM dev_device_occupancy
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new OccupancyRow(
+                        rs.getString("occupancy_kind"),
+                        nullableLong(rs, "delivery_session_id"),
+                        nullableLong(rs, "clean_operation_id")),
+                observation.tenantId(),
+                observation.organizationId(),
+                observation.assetId());
+        boolean valid = operation.offlineOccupancyReleasedAt() == null
+                ? rows.size() == 1
+                    && rows.getFirst().matchesClean(operation.id())
+                : rows.isEmpty();
+        if (!valid) {
+            throw new IllegalStateException(
+                    "trusted clean command occupancy differs");
+        }
+    }
+
     static LocalDateTime trustedOperationTime(
             LocalDateTime occurredAt,
             LocalDateTime createdAt,
@@ -307,12 +343,45 @@ public class ApplyCleanCommandObservationService
         }
     }
 
+    private static void requireOccupancyRelease(
+            int updated,
+            LocalDateTime offlineReleasedAt,
+            String action) {
+        int expected = offlineReleasedAt == null ? 1 : 0;
+        if (updated != expected) {
+            throw new IllegalStateException(
+                    action + " expected " + expected
+                            + " rows but updated " + updated);
+        }
+    }
+
+    private static Long nullableLong(
+            java.sql.ResultSet rs,
+            String column) throws java.sql.SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
+    }
+
     private record OperationRow(
             long id,
             long portId,
             long newBagId,
             String status,
             boolean firstUnlockMayHaveExecuted,
-            LocalDateTime createdAt) {
+            LocalDateTime createdAt,
+            LocalDateTime offlineOccupancyReleasedAt) {
+    }
+
+    private record OccupancyRow(
+            String kind,
+            Long deliverySessionId,
+            Long cleanOperationId) {
+
+        private boolean matchesClean(long operationId) {
+            return "CLEAN".equals(kind)
+                    && deliverySessionId == null
+                    && cleanOperationId != null
+                    && cleanOperationId == operationId;
+        }
     }
 }

@@ -200,7 +200,7 @@ public class TrustedDeliveryCompletionService
                     tenantId,
                     organizationId);
             lockOccupancy(
-                    session.id(),
+                    session,
                     assetId,
                     tenantId,
                     organizationId);
@@ -338,7 +338,7 @@ public class TrustedDeliveryCompletionService
                 tenantId,
                 organizationId),
                 "complete delivery session");
-        requireSingle(jdbc.update("""
+        requireOccupancyRelease(jdbc.update("""
                         DELETE FROM dev_device_occupancy
                         WHERE asset_id = ?
                           AND tenant_id = ?
@@ -352,6 +352,7 @@ public class TrustedDeliveryCompletionService
                 organizationId,
                 assetId,
                 session.id()),
+                session.offlineOccupancyReleasedAt(),
                 "release delivery occupancy");
         requireSingle(jdbc.update("""
                         UPDATE dev_device_runtime_state
@@ -525,7 +526,8 @@ public class TrustedDeliveryCompletionService
                                unit_price_yuan_per_kg,
                                open_balance_floor_cent,
                                max_review_abs_weight_g,
-                               negative_weight_anomaly_threshold_g
+                               negative_weight_anomaly_threshold_g,
+                               offline_occupancy_released_at
                         FROM dev_delivery_session
                         WHERE session_uid = ?
                           AND tenant_id = ?
@@ -551,25 +553,35 @@ public class TrustedDeliveryCompletionService
     }
 
     private void lockOccupancy(
-            long sessionId,
+            SessionRow session,
             long assetId,
             long tenantId,
             long organizationId) {
-        List<Long> rows = jdbc.query("""
-                        SELECT delivery_session_id
+        List<OccupancyRow> rows = jdbc.query("""
+                        SELECT occupancy_kind,
+                               delivery_session_id,
+                               clean_operation_id
                         FROM dev_device_occupancy
                         WHERE asset_id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND occupancy_kind = 'DELIVERY'
                         FOR UPDATE
                         """,
-                (rs, ignored) ->
-                        rs.getLong("delivery_session_id"),
+                (rs, ignored) -> new OccupancyRow(
+                        rs.getString("occupancy_kind"),
+                        nullableLong(rs, "delivery_session_id"),
+                        nullableLong(rs, "clean_operation_id")),
                 assetId,
                 tenantId,
                 organizationId);
-        if (rows.size() != 1 || rows.getFirst() != sessionId) {
+        if (session.offlineOccupancyReleasedAt() != null) {
+            if (!rows.isEmpty()) {
+                throw untrusted();
+            }
+            return;
+        }
+        if (rows.size() != 1
+                || !rows.getFirst().matchesDelivery(session.id())) {
             throw untrusted();
         }
     }
@@ -1136,7 +1148,10 @@ public class TrustedDeliveryCompletionService
                 rs.getLong("open_balance_floor_cent"),
                 rs.getLong("max_review_abs_weight_g"),
                 rs.getLong(
-                        "negative_weight_anomaly_threshold_g"));
+                        "negative_weight_anomaly_threshold_g"),
+                rs.getObject(
+                        "offline_occupancy_released_at",
+                        LocalDateTime.class));
     }
 
     private static JsonNode requiredObject(
@@ -1245,6 +1260,13 @@ public class TrustedDeliveryCompletionService
         }
     }
 
+    private static Long nullableLong(
+            ResultSet resultSet,
+            String column) throws SQLException {
+        long value = resultSet.getLong(column);
+        return resultSet.wasNull() ? null : value;
+    }
+
     private static long exactLong(
             JsonNode parent,
             String field) {
@@ -1290,6 +1312,18 @@ public class TrustedDeliveryCompletionService
         if (updated != 1) {
             throw new IllegalStateException(
                     operation + " affected " + updated + " rows");
+        }
+    }
+
+    private static void requireOccupancyRelease(
+            int affected,
+            LocalDateTime offlineReleasedAt,
+            String operation) {
+        int expected = offlineReleasedAt == null ? 1 : 0;
+        if (affected != expected) {
+            throw new IllegalStateException(
+                    operation + " affected " + affected
+                            + " rows; expected " + expected);
         }
     }
 
@@ -1341,7 +1375,21 @@ public class TrustedDeliveryCompletionService
             BigDecimal unitPrice,
             long openBalanceFloorCent,
             long maxReviewAbsWeightGrams,
-            long negativeWeightThresholdGrams) {
+            long negativeWeightThresholdGrams,
+            LocalDateTime offlineOccupancyReleasedAt) {
+    }
+
+    private record OccupancyRow(
+            String kind,
+            Long deliverySessionId,
+            Long cleanOperationId) {
+
+        private boolean matchesDelivery(long sessionId) {
+            return "DELIVERY".equals(kind)
+                    && deliverySessionId != null
+                    && deliverySessionId == sessionId
+                    && cleanOperationId == null;
+        }
     }
 
     private record ExistingEdge(

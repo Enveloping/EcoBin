@@ -113,6 +113,7 @@ export type DeliverySessionPhase =
   | 'START_QUEUED'
   | 'IN_PROGRESS'
   | 'FINAL_RESULT_PENDING'
+  | 'OFFLINE_RESULT_PENDING'
   | 'RECOVERY_REQUIRED'
   | 'BUSINESS_CONFIRMED'
   | 'PRE_START_FAILED'
@@ -123,6 +124,7 @@ export type DeliverySessionNextAction =
   | 'WAIT_ON_DEVICE'
   | 'VIEW_ORDER'
   | 'SESSION_ENDED'
+  | 'USE_ANOTHER_DEVICE'
 
 export interface DeliverySessionAccepted {
   operationId: string
@@ -145,6 +147,7 @@ export interface DeliverySessionView {
   startedAt: string | null
   endedAt: string | null
   endReason: string | null
+  offlineOccupancyReleasedAt: string | null
   deliveryOrderNo: string | null
   recommendedPollAfterMs: number | null
   nextActions: [DeliverySessionNextAction]
@@ -555,6 +558,7 @@ export interface CleanOperationView {
   startAuthorizationExpiresAt: string
   executionDeadlineAt: string | null
   completedAt: string | null
+  offlineOccupancyReleasedAt: string | null
   cleanRecordNo: string | null
   recommendedPollAfterMs: number | null
   nextActions: string[]

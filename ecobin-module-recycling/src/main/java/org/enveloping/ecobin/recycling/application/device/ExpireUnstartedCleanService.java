@@ -33,6 +33,7 @@ public class ExpireUnstartedCleanService
                             operation.asset_id,
                             operation.port_id,
                             operation.new_bag_id,
+                            operation.offline_occupancy_released_at,
                             command_row.id AS command_id
                         FROM rec_clean_operation operation
                         JOIN dev_device_command command_row
@@ -65,6 +66,9 @@ public class ExpireUnstartedCleanService
                         rs.getLong("asset_id"),
                         rs.getLong("port_id"),
                         rs.getLong("new_bag_id"),
+                        rs.getObject(
+                                "offline_occupancy_released_at",
+                                LocalDateTime.class),
                         rs.getLong("command_id")),
                 now);
         List<Long> commandIds = new ArrayList<>(candidates.size());
@@ -76,6 +80,7 @@ public class ExpireUnstartedCleanService
     }
 
     private void close(ExpiredClean candidate, LocalDateTime now) {
+        requireMatchingOrReleasedOccupancy(candidate);
         requireSingle(jdbc.update("""
                         UPDATE rec_clean_operation
                         SET status = 'PRE_UNLOCK_ENDED',
@@ -96,7 +101,7 @@ public class ExpireUnstartedCleanService
                 candidate.organizationId(),
                 candidate.assetId()),
                 "expire clean authorization");
-        requireSingle(jdbc.update("""
+        requireOccupancyRelease(jdbc.update("""
                         DELETE FROM dev_device_occupancy
                         WHERE tenant_id = ?
                           AND organization_id = ?
@@ -108,6 +113,7 @@ public class ExpireUnstartedCleanService
                 candidate.organizationId(),
                 candidate.assetId(),
                 candidate.operationId()),
+                candidate.offlineOccupancyReleasedAt(),
                 "release expired clean occupancy");
         int reservationReleased = jdbc.update("""
                         DELETE FROM rec_bag_current_occupancy
@@ -161,11 +167,59 @@ public class ExpireUnstartedCleanService
                 candidate.operationId());
     }
 
+    private void requireMatchingOrReleasedOccupancy(
+            ExpiredClean candidate) {
+        List<OccupancyRow> rows = jdbc.query("""
+                        SELECT occupancy_kind,
+                               delivery_session_id,
+                               clean_operation_id
+                        FROM dev_device_occupancy
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new OccupancyRow(
+                        rs.getString("occupancy_kind"),
+                        nullableLong(rs, "delivery_session_id"),
+                        nullableLong(rs, "clean_operation_id")),
+                candidate.tenantId(),
+                candidate.organizationId(),
+                candidate.assetId());
+        boolean valid = candidate.offlineOccupancyReleasedAt() == null
+                ? rows.size() == 1
+                    && rows.getFirst().matchesClean(candidate.operationId())
+                : rows.isEmpty();
+        if (!valid) {
+            throw new IllegalStateException(
+                    "expired clean occupancy differs");
+        }
+    }
+
     private static void requireSingle(int updated, String action) {
         if (updated != 1) {
             throw new IllegalStateException(
                     action + " expected one row but updated " + updated);
         }
+    }
+
+    private static void requireOccupancyRelease(
+            int updated,
+            LocalDateTime offlineReleasedAt,
+            String action) {
+        int expected = offlineReleasedAt == null ? 1 : 0;
+        if (updated != expected) {
+            throw new IllegalStateException(
+                    action + " expected " + expected
+                            + " rows but updated " + updated);
+        }
+    }
+
+    private static Long nullableLong(
+            java.sql.ResultSet rs,
+            String column) throws java.sql.SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
     }
 
     private record ExpiredClean(
@@ -175,6 +229,20 @@ public class ExpireUnstartedCleanService
             long assetId,
             long portId,
             long newBagId,
+            LocalDateTime offlineOccupancyReleasedAt,
             long commandId) {
+    }
+
+    private record OccupancyRow(
+            String kind,
+            Long deliverySessionId,
+            Long cleanOperationId) {
+
+        private boolean matchesClean(long operationId) {
+            return "CLEAN".equals(kind)
+                    && deliverySessionId == null
+                    && cleanOperationId != null
+                    && cleanOperationId == operationId;
+        }
     }
 }

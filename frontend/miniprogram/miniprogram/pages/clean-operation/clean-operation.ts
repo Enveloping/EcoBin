@@ -617,7 +617,10 @@ Page({
       if (this.intent?.operationUid !== operationUid) return
       this.intent = projectCleanOperationIntent(intent, projection)
       this.setData({ cleanRecordNo: projection.cleanRecordNo || '' })
-      this.applyStatus(projection.status)
+      this.applyStatus(
+        projection.status,
+        projection.offlineOccupancyReleasedAt,
+      )
       if (
         projection.status === 'PREPARED'
         || projection.status === 'EDGE_SAVED'
@@ -636,8 +639,17 @@ Page({
     }
   },
 
-  applyStatus(status: CleanOperationStatus) {
-    const copy = statusCopy(status)
+  applyStatus(
+    status: CleanOperationStatus,
+    offlineOccupancyReleasedAt: string | null = null,
+  ) {
+    const copy = offlineOccupancyReleasedAt
+      && ['PREPARED', 'EDGE_SAVED', 'IN_PROGRESS', 'RECOVERY_REQUIRED'].includes(status)
+      ? {
+        title: '设备离线，原清运结果待补报',
+        description: '本次占用已释放，可以使用其他在线设备；原清运结果仍会归到本次操作。',
+      }
+      : statusCopy(status)
     const stage = status === 'COMPLETED'
       ? 'completed'
       : status === 'PRE_UNLOCK_ENDED'

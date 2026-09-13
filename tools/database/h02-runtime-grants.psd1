@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 40
+    CatalogVersion = 41
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -474,6 +474,7 @@
             "onenet_connection_status"
             "status_observed_at"
             "status_received_at"
+            "offline_since_at"
             "evidence_source"
             "source_inbox_id"
             "lock_version"
@@ -588,6 +589,7 @@
             "device_completed_at"
             "ended_at"
             "end_reason"
+            "offline_occupancy_released_at"
             "lock_version"
             "updated_at"
         )
@@ -683,6 +685,7 @@
             "completion_record_id"
             "ended_at"
             "end_reason"
+            "offline_occupancy_released_at"
             "lock_version"
             "updated_at"
         )

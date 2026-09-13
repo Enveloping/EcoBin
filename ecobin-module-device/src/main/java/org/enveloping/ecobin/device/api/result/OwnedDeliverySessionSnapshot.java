@@ -18,6 +18,7 @@ public record OwnedDeliverySessionSnapshot(
         Instant deviceCompletedAt,
         Instant endedAt,
         String endReason,
+        Instant offlineOccupancyReleasedAt,
         DeliverySessionBusinessQueryRef businessQueryRef) {
 
     public OwnedDeliverySessionSnapshot {

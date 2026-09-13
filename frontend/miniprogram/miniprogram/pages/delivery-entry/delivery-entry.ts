@@ -84,6 +84,7 @@ const PHASE_TEXT: Record<DeliverySessionPhase, string> = {
   START_QUEUED: '投递请求已受理，正在等待设备响应',
   IN_PROGRESS: '投递已开始，请按照设备屏幕提示操作',
   FINAL_RESULT_PENDING: '投递已结束，正在生成投递结果',
+  OFFLINE_RESULT_PENDING: '设备离线时间较长，本次投递结果仍在等待补报；你可以使用其他在线设备',
   RECOVERY_REQUIRED: '设备结果需要恢复处理，请勿重复扫码',
   BUSINESS_CONFIRMED: '投递已完成',
   PRE_START_FAILED: '设备未能开始本次投递',

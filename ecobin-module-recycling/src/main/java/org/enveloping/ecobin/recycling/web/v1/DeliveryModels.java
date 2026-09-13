@@ -30,6 +30,7 @@ public final class DeliveryModels {
             Instant startedAt,
             Instant endedAt,
             String endReason,
+            Instant offlineOccupancyReleasedAt,
             String deliveryOrderNo,
             Long recommendedPollAfterMs,
             List<String> nextActions) {

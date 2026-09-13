@@ -147,6 +147,8 @@ public class StartDeliveryDeviceParticipationService
                         .orElse(null));
         StartDeliveryDevicePolicy.requireUnoccupied(
                 repository.lockOccupancy(asset.id()).orElse(null));
+        StartDeliveryDevicePolicy.requireNoReleasedPendingWork(
+                repository.lockReleasedPendingDeliveryIds(asset.id()));
 
         StartDeliveryDeviceRepository.ConfigurationRow configuration =
                 repository.lockLatestConfiguration(

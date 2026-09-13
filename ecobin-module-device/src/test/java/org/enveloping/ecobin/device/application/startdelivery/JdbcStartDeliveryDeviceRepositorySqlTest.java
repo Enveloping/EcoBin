@@ -22,7 +22,9 @@ class JdbcStartDeliveryDeviceRepositorySqlTest {
                 JdbcStartDeliveryDeviceRepository
                         .LOCK_TRANSPORT_PRESENCE_SQL,
                 JdbcStartDeliveryDeviceRepository
-                        .LOCK_OCCUPANCY_SQL);
+                        .LOCK_OCCUPANCY_SQL,
+                JdbcStartDeliveryDeviceRepository
+                        .LOCK_RELEASED_PENDING_DELIVERY_SQL);
 
         assertThat(lockSql)
                 .allSatisfy(sql ->
@@ -114,5 +116,20 @@ class JdbcStartDeliveryDeviceRepositorySqlTest {
                 .doesNotContain("'clean'");
         assertThat(occupancy.chars().filter(value -> value == '?').count())
                 .isEqualTo(5);
+    }
+
+    @Test
+    void userCanLeaveAReleasedSessionButItsOriginalDeviceCannotBeReused() {
+        assertThat(JdbcStartDeliveryDeviceRepository
+                .LOCK_ACTIVE_SESSION_SQL.toLowerCase(Locale.ROOT))
+                .contains("offline_occupancy_released_at is null");
+        assertThat(JdbcStartDeliveryDeviceRepository
+                .LOCK_RELEASED_PENDING_DELIVERY_SQL
+                .toLowerCase(Locale.ROOT))
+                .contains(
+                        "asset_id = ?",
+                        "offline_occupancy_released_at is not null",
+                        "ended_at is null",
+                        "for update");
     }
 }

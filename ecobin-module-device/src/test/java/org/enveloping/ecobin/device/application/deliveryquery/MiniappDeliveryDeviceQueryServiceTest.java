@@ -125,6 +125,7 @@ class MiniappDeliveryDeviceQueryServiceTest {
                                 STARTED_AT,
                                 null,
                                 null,
+                                null,
                                 null)));
         when(queryRefFactory.issueSessionBusiness(
                 TENANT_ID,

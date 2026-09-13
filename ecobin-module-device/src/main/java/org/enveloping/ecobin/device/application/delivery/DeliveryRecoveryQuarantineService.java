@@ -154,15 +154,17 @@ public class DeliveryRecoveryQuarantineService {
         }
         CommandTaskRow command = lockOriginalCommand(
                 asset.id(), session.id());
-        boolean exactOccupancy = lockExactOccupancy(
-                asset, session.id());
+        boolean expectedOccupancy = lockExpectedOccupancy(
+                asset,
+                session.id(),
+                session.offlineOccupancyReleasedAt());
         BusinessEvidence evidence = loadBusinessEvidence(
                 command.commandId(), session.id());
         LocalDateTime now = databaseNow();
         if (!canRequest(
                 session,
                 command,
-                exactOccupancy,
+                expectedOccupancy,
                 evidence,
                 asset.tenantId(),
                 asset.organizationId(),
@@ -433,7 +435,10 @@ public class DeliveryRecoveryQuarantineService {
                 recovery.deliverySessionId());
         if (businessEvidence.physicalResultExists()
                 || businessEvidence.deliveryOrderExists()
-                || !lockExactOccupancy(asset, recovery.deliverySessionId())) {
+                || !lockExpectedOccupancy(
+                        asset,
+                        recovery.deliverySessionId(),
+                        recovery.offlineOccupancyReleasedAt())) {
             throw untrusted();
         }
 
@@ -446,12 +451,13 @@ public class DeliveryRecoveryQuarantineService {
                 recovery.organizationId(),
                 asset.id(),
                 recovery.sessionLockVersion()));
-        requireSingle(jdbc.update(
+        requireOccupancyRelease(jdbc.update(
                 RELEASE_OCCUPANCY_SQL,
                 asset.id(),
                 recovery.tenantId(),
                 recovery.organizationId(),
-                recovery.deliverySessionId()));
+                recovery.deliverySessionId()),
+                recovery.offlineOccupancyReleasedAt());
 
         Map<String, Object> existingData = new LinkedHashMap<>();
         existingData.put(
@@ -485,7 +491,7 @@ public class DeliveryRecoveryQuarantineService {
     static boolean canRequest(
             SessionRow session,
             CommandTaskRow command,
-            boolean exactOccupancy,
+            boolean expectedOccupancy,
             BusinessEvidence evidence,
             Long assetTenantId,
             Long assetOrganizationId,
@@ -530,7 +536,7 @@ public class DeliveryRecoveryQuarantineService {
                         "PHYSICAL_STARTED",
                         "EDGE_RESTARTED")
                 .contains(command.physicalState())
-                && exactOccupancy
+                && expectedOccupancy
                 && !evidence.physicalResultExists()
                 && !evidence.deliveryOrderExists();
     }
@@ -568,7 +574,7 @@ public class DeliveryRecoveryQuarantineService {
                                asset_id, status, authorization_expires_at,
                                first_physical_progress_at,
                                device_completed_at, ended_at, end_reason,
-                               lock_version
+                               offline_occupancy_released_at, lock_version
                         FROM dev_delivery_session
                         WHERE asset_id = ?
                           AND session_uid = ?
@@ -592,6 +598,9 @@ public class DeliveryRecoveryQuarantineService {
                                 LocalDateTime.class),
                         rs.getObject("ended_at", LocalDateTime.class),
                         rs.getString("end_reason"),
+                        rs.getObject(
+                                "offline_occupancy_released_at",
+                                LocalDateTime.class),
                         rs.getLong("lock_version")),
                 assetId,
                 sessionUid.toString());
@@ -646,23 +655,32 @@ public class DeliveryRecoveryQuarantineService {
         return rows.getFirst();
     }
 
-    private boolean lockExactOccupancy(
+    private boolean lockExpectedOccupancy(
             AssetRow asset,
-            long sessionId) {
-        List<Long> rows = jdbc.query("""
-                        SELECT delivery_session_id
+            long sessionId,
+            LocalDateTime offlineOccupancyReleasedAt) {
+        List<OccupancyRow> rows = jdbc.query("""
+                        SELECT occupancy_kind,
+                               delivery_session_id,
+                               clean_operation_id
                         FROM dev_device_occupancy
                         WHERE asset_id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND occupancy_kind = 'DELIVERY'
                         FOR UPDATE
                         """,
-                (rs, ignored) -> rs.getLong("delivery_session_id"),
+                (rs, ignored) -> new OccupancyRow(
+                        rs.getString("occupancy_kind"),
+                        nullableLong(rs, "delivery_session_id"),
+                        nullableLong(rs, "clean_operation_id")),
                 asset.id(),
                 asset.tenantId(),
                 asset.organizationId());
-        return rows.size() == 1 && rows.getFirst() == sessionId;
+        if (offlineOccupancyReleasedAt != null) {
+            return rows.isEmpty();
+        }
+        return rows.size() == 1
+                && rows.getFirst().matchesDelivery(sessionId);
     }
 
     private BusinessEvidence loadBusinessEvidence(
@@ -708,6 +726,7 @@ public class DeliveryRecoveryQuarantineService {
                                session.status AS session_status,
                                session.ended_at AS session_ended_at,
                                session.end_reason AS session_end_reason,
+                               session.offline_occupancy_released_at,
                                session.lock_version AS session_lock_version,
                                port.port_no
                         FROM dev_delivery_recovery_quarantine recovery
@@ -742,6 +761,9 @@ public class DeliveryRecoveryQuarantineService {
                                 "session_ended_at",
                                 LocalDateTime.class),
                         rs.getString("session_end_reason"),
+                        rs.getObject(
+                                "offline_occupancy_released_at",
+                                LocalDateTime.class),
                         rs.getLong("session_lock_version"),
                         rs.getInt("port_no")),
                 assetId,
@@ -1023,6 +1045,17 @@ public class DeliveryRecoveryQuarantineService {
         }
     }
 
+    private static void requireOccupancyRelease(
+            int updated,
+            LocalDateTime offlineOccupancyReleasedAt) {
+        int expected = offlineOccupancyReleasedAt == null ? 1 : 0;
+        if (updated != expected) {
+            throw new IllegalStateException(
+                    "delivery recovery occupancy release affected "
+                            + updated + " rows; expected " + expected);
+        }
+    }
+
     private static TargetApiException invalid(String message) {
         return new TargetApiException(
                 400,
@@ -1061,6 +1094,7 @@ public class DeliveryRecoveryQuarantineService {
             LocalDateTime deviceCompletedAt,
             LocalDateTime endedAt,
             String endReason,
+            LocalDateTime offlineOccupancyReleasedAt,
             long lockVersion) {
     }
 
@@ -1108,8 +1142,22 @@ public class DeliveryRecoveryQuarantineService {
             String sessionStatus,
             LocalDateTime sessionEndedAt,
             String sessionEndReason,
+            LocalDateTime offlineOccupancyReleasedAt,
             long sessionLockVersion,
             int portNo) {
+    }
+
+    private record OccupancyRow(
+            String kind,
+            Long deliverySessionId,
+            Long cleanOperationId) {
+
+        private boolean matchesDelivery(long sessionId) {
+            return "DELIVERY".equals(kind)
+                    && deliverySessionId != null
+                    && deliverySessionId == sessionId
+                    && cleanOperationId == null;
+        }
     }
 
     private record RecoveryViewRow(

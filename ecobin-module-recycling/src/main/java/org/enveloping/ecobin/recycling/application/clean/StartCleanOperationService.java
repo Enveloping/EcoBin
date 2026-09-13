@@ -420,6 +420,10 @@ public class StartCleanOperationService {
                 asset.id()).isEmpty()) {
             throw CleanReadinessBlocker.DEVICE_BUSY.problem();
         }
+        requireNoReleasedPendingWork(
+                tenantId,
+                organizationId,
+                asset.id());
 
         Configuration configuration = one(
                 LOAD_LATEST_CONFIGURATION_SQL,
@@ -720,6 +724,60 @@ public class StartCleanOperationService {
                 portId).isEmpty();
         if (fullnessBusy || baselineBusy) {
             throw CleanReadinessBlocker.PORT_WORK_ACTIVE.problem();
+        }
+    }
+
+    private void requireNoReleasedPendingWork(
+            long tenantId,
+            long organizationId,
+            long assetId) {
+        boolean deliveryPending = !query("""
+                        SELECT id
+                        FROM dev_delivery_session
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND offline_occupancy_released_at IS NOT NULL
+                          AND ended_at IS NULL
+                          AND status IN (
+                              'PREPARED',
+                              'AUTHORIZATION_QUEUED',
+                              'IN_PROGRESS',
+                              'RESULT_PENDING_RECOVERY'
+                          )
+                        ORDER BY id
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> rs.getLong("id"),
+                tenantId,
+                organizationId,
+                assetId).isEmpty();
+        boolean cleanPending = !query("""
+                        SELECT id
+                        FROM rec_clean_operation
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND offline_occupancy_released_at IS NOT NULL
+                          AND ended_at IS NULL
+                          AND status IN (
+                              'PREPARED',
+                              'EDGE_SAVED',
+                              'IN_PROGRESS',
+                              'RECOVERY_REQUIRED'
+                          )
+                        ORDER BY id
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> rs.getLong("id"),
+                tenantId,
+                organizationId,
+                assetId).isEmpty();
+        if (deliveryPending || cleanPending) {
+            throw new TargetApiException(
+                    409,
+                    "DEVICE.OFFLINE_RESULT_PENDING",
+                    "设备仍有离线期间完成的原业务等待补报，暂时不能开始新业务");
         }
     }
 

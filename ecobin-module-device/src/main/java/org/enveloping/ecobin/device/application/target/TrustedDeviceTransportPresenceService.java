@@ -123,7 +123,8 @@ public class TrustedDeviceTransportPresenceService
                             asset.id,
                             transport.onenet_connection_status,
                             transport.status_observed_at,
-                            transport.status_received_at
+                            transport.status_received_at,
+                            transport.offline_since_at
                         FROM dev_device_asset asset
                         JOIN dev_device_transport_state transport
                           ON transport.asset_id = asset.id
@@ -138,6 +139,9 @@ public class TrustedDeviceTransportPresenceService
                                 LocalDateTime.class),
                         rs.getObject(
                                 "status_received_at",
+                                LocalDateTime.class),
+                        rs.getObject(
+                                "offline_since_at",
                                 LocalDateTime.class)),
                 hardwareSn);
         if (rows.size() != 1) {
@@ -151,11 +155,14 @@ public class TrustedDeviceTransportPresenceService
                     current.status(),
                     false);
         }
+        LocalDateTime offlineSinceAt = offlineSinceAt(
+                status, receivedAt, current);
         int updated = jdbc.update("""
                         UPDATE dev_device_transport_state
                         SET onenet_connection_status = ?,
                             status_observed_at = ?,
                             status_received_at = ?,
+                            offline_since_at = ?,
                             evidence_source = ?,
                             source_inbox_id = ?,
                             lock_version = lock_version + 1,
@@ -165,6 +172,7 @@ public class TrustedDeviceTransportPresenceService
                 status,
                 observedAt,
                 receivedAt,
+                offlineSinceAt,
                 evidenceSource,
                 sourceInboxId,
                 receivedAt,
@@ -204,6 +212,20 @@ public class TrustedDeviceTransportPresenceService
         }
         return current.receivedAt() == null
                 || candidateReceivedAt.isAfter(current.receivedAt());
+    }
+
+    static LocalDateTime offlineSinceAt(
+            String candidateStatus,
+            LocalDateTime candidateReceivedAt,
+            TransportRow current) {
+        if (!"OFFLINE".equals(candidateStatus)) {
+            return null;
+        }
+        if ("OFFLINE".equals(current.status())
+                && current.offlineSinceAt() != null) {
+            return current.offlineSinceAt();
+        }
+        return candidateReceivedAt;
     }
 
     private LocalDateTime databaseNow() {
@@ -270,10 +292,11 @@ public class TrustedDeviceTransportPresenceService
         }
     }
 
-    private record TransportRow(
+    record TransportRow(
             long assetId,
             String status,
             LocalDateTime observedAt,
-            LocalDateTime receivedAt) {
+            LocalDateTime receivedAt,
+            LocalDateTime offlineSinceAt) {
     }
 }

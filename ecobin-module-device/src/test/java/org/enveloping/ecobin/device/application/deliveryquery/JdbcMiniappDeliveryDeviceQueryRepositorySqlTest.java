@@ -102,4 +102,18 @@ class JdbcMiniappDeliveryDeviceQueryRepositorySqlTest {
                 "management.architecture_generation",
                 "compatibility.business_admission_status");
     }
+
+    @Test
+    void releasedPendingDeliveryStillMakesTheOriginalDeviceBusy() {
+        String asset =
+                JdbcMiniappDeliveryDeviceQueryRepository
+                        .FIND_CURRENT_ASSET_SQL
+                        .toLowerCase(Locale.ROOT);
+
+        assertThat(asset).contains(
+                "from dev_delivery_session pending_delivery",
+                "pending_delivery.offline_occupancy_released_at",
+                "pending_delivery.ended_at is null",
+                "'result_pending_recovery'");
+    }
 }

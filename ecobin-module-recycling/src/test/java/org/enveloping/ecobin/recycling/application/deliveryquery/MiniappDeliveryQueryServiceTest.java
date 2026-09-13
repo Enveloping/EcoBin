@@ -172,6 +172,41 @@ class MiniappDeliveryQueryServiceTest {
     }
 
     @Test
+    void releasedPendingCleanMakesTheWholeOriginalDeviceUnavailable() {
+        when(identity.current()).thenReturn(identity(true));
+        when(device.deliveryOptions(any())).thenReturn(
+                healthyDeviceOptions());
+        when(business.currentOptions(optionsBusinessRef)).thenReturn(
+                new DeliveryOptionsBusinessFacts(
+                        OptionalLong.of(-500),
+                        List.of(new DeliveryPortBusinessFacts(
+                                2,
+                                true,
+                                DeliveryPortBusinessFacts
+                                        .BaselineState.VALID,
+                                new BigDecimal("35.20"),
+                                DeliveryPortBusinessFacts
+                                        .DetectionGate.READY,
+                                DeliveryPortBusinessFacts
+                                        .ConfirmedFullnessState.NOT_FULL,
+                                false,
+                                true,
+                                false))));
+        when(wallet.current(any())).thenReturn(eligibleWallet());
+
+        var result = service.deliveryOptions(
+                "Dv_0123456789abcdefghijklmn");
+
+        assertThat(result.deviceBusy()).isTrue();
+        assertThat(result.ports()).singleElement().satisfies(port -> {
+            assertThat(port.deliveryAllowed()).isFalse();
+            assertThat(port.blockers()).containsExactly(
+                    "DEVICE_BUSY",
+                    "PORT_CLEAN_OPERATION_ACTIVE");
+        });
+    }
+
+    @Test
     void deviceSoftwareAdmissionBlockerMakesPreviewUnavailable() {
         when(identity.current()).thenReturn(identity(true));
         when(device.deliveryOptions(any())).thenReturn(
@@ -373,6 +408,7 @@ class MiniappDeliveryQueryServiceTest {
                         deviceCompletedAt,
                         terminal(deviceStatus) ? COMPLETED_AT : null,
                         terminal(deviceStatus) ? "USER_ENDED" : null,
+                        null,
                         sessionBusinessRef));
         when(business.findDeliveryOrderNo(sessionBusinessRef))
                 .thenReturn(
@@ -394,6 +430,34 @@ class MiniappDeliveryQueryServiceTest {
             assertThat(result.deliveryOrderNo())
                     .isEqualTo("DO202607290001");
         }
+    }
+
+    @Test
+    void releasedOfflineOccupancyIsShownAsPendingWithoutEndingTheSession() {
+        when(identity.current()).thenReturn(identity(true));
+        when(device.ownedSession(any())).thenReturn(
+                new OwnedDeliverySessionSnapshot(
+                        DELIVERY_SESSION_UID,
+                        "IN_PROGRESS",
+                        "Dv_0123456789abcdefghijklmn",
+                        2,
+                        STARTED_AT,
+                        COMPLETED_AT,
+                        null,
+                        null,
+                        COMPLETED_AT.plusSeconds(601),
+                        sessionBusinessRef));
+        when(business.findDeliveryOrderNo(sessionBusinessRef))
+                .thenReturn(Optional.empty());
+
+        var result = service.deliverySession(DELIVERY_SESSION_UID);
+
+        assertThat(result.status()).isEqualTo("ACTIVE");
+        assertThat(result.phase()).isEqualTo("OFFLINE_RESULT_PENDING");
+        assertThat(result.offlineOccupancyReleasedAt())
+                .isEqualTo(COMPLETED_AT.plusSeconds(601));
+        assertThat(result.nextActions())
+                .containsExactly("USE_ANOTHER_DEVICE");
     }
 
     private static Stream<Arguments> sessionPresentations() {

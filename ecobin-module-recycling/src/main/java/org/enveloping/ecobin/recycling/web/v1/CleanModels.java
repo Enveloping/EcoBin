@@ -46,6 +46,7 @@ public final class CleanModels {
             Instant startAuthorizationExpiresAt,
             Instant executionDeadlineAt,
             Instant completedAt,
+            Instant offlineOccupancyReleasedAt,
             String cleanRecordNo,
             Long recommendedPollAfterMs,
             List<String> nextActions) {

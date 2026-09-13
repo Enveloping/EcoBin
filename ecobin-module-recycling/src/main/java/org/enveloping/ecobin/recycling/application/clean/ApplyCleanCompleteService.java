@@ -414,7 +414,8 @@ public class ApplyCleanCompleteService
                                new_bag.bag_uid AS new_bag_uid,
                                operation.pending_delivery_result_session_id,
                                operation.status,
-                               operation.completion_record_id
+                               operation.completion_record_id,
+                               operation.offline_occupancy_released_at
                         FROM rec_clean_operation operation
                         JOIN dev_port port
                           ON port.tenant_id = operation.tenant_id
@@ -481,23 +482,33 @@ public class ApplyCleanCompleteService
     private void lockDeviceOccupancy(
             long assetId,
             Operation operation) {
-        List<Long> rows = jdbc.query("""
-                        SELECT clean_operation_id
+        List<DeviceOccupancy> rows = jdbc.query("""
+                        SELECT occupancy_kind,
+                               delivery_session_id,
+                               clean_operation_id
                         FROM dev_device_occupancy
                         WHERE asset_id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
                           AND asset_id = ?
-                          AND occupancy_kind = 'CLEAN'
                         FOR UPDATE
                         """,
-                (rs, ignored) -> rs.getLong("clean_operation_id"),
+                (rs, ignored) -> new DeviceOccupancy(
+                        rs.getString("occupancy_kind"),
+                        nullableLong(rs, "delivery_session_id"),
+                        nullableLong(rs, "clean_operation_id")),
                 assetId,
                 operation.tenantId(),
                 operation.organizationId(),
                 operation.assetId());
+        if (operation.offlineOccupancyReleasedAt() != null) {
+            if (!rows.isEmpty()) {
+                throw untrusted("clean device occupancy differs");
+            }
+            return;
+        }
         if (rows.size() != 1
-                || rows.getFirst() != operation.id()) {
+                || !rows.getFirst().matchesClean(operation.id())) {
             throw untrusted("clean device occupancy differs");
         }
     }
@@ -1474,7 +1485,7 @@ public class ApplyCleanCompleteService
     private void releaseDeviceOccupancy(
             long assetId,
             Operation operation) {
-        requireSingle(jdbc.update("""
+        requireOccupancyRelease(jdbc.update("""
                         DELETE FROM dev_device_occupancy
                         WHERE asset_id = ?
                           AND tenant_id = ?
@@ -1488,6 +1499,7 @@ public class ApplyCleanCompleteService
                 operation.organizationId(),
                 operation.assetId(),
                 operation.id()),
+                operation.offlineOccupancyReleasedAt(),
                 "release clean device occupancy");
     }
 
@@ -1944,6 +1956,18 @@ public class ApplyCleanCompleteService
         }
     }
 
+    private static void requireOccupancyRelease(
+            int affected,
+            LocalDateTime offlineReleasedAt,
+            String action) {
+        int expected = offlineReleasedAt == null ? 1 : 0;
+        if (affected != expected) {
+            throw new IllegalStateException(
+                    action + " affected " + affected
+                            + " rows; expected " + expected);
+        }
+    }
+
     private static void requireSingleOrInserted(
             int affected,
             String action) {
@@ -1998,7 +2022,10 @@ public class ApplyCleanCompleteService
                         rs,
                         "pending_delivery_result_session_id"),
                 rs.getString("status"),
-                nullableLong(rs, "completion_record_id"));
+                nullableLong(rs, "completion_record_id"),
+                rs.getObject(
+                        "offline_occupancy_released_at",
+                        LocalDateTime.class));
     }
 
     private static UUID nullableUuid(String value) {
@@ -2105,7 +2132,8 @@ public class ApplyCleanCompleteService
             UUID newBagUid,
             Long pendingDeliverySessionId,
             String status,
-            Long completionRecordId) {
+            Long completionRecordId,
+            LocalDateTime offlineOccupancyReleasedAt) {
 
         private Operation {
             configContentSha256 = configContentSha256.clone();
@@ -2120,6 +2148,19 @@ public class ApplyCleanCompleteService
         @Override
         public byte[] configMcuSha256() {
             return configMcuSha256.clone();
+        }
+    }
+
+    private record DeviceOccupancy(
+            String kind,
+            Long deliverySessionId,
+            Long cleanOperationId) {
+
+        private boolean matchesClean(long operationId) {
+            return "CLEAN".equals(kind)
+                    && deliverySessionId == null
+                    && cleanOperationId != null
+                    && cleanOperationId == operationId;
         }
     }
 

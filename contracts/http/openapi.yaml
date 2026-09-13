@@ -12745,6 +12745,7 @@
           "START_QUEUED",
           "IN_PROGRESS",
           "FINAL_RESULT_PENDING",
+          "OFFLINE_RESULT_PENDING",
           "RECOVERY_REQUIRED",
           "BUSINESS_CONFIRMED",
           "PRE_START_FAILED",
@@ -12757,7 +12758,8 @@
           "WAIT",
           "WAIT_ON_DEVICE",
           "VIEW_ORDER",
-          "SESSION_ENDED"
+          "SESSION_ENDED",
+          "USE_ANOTHER_DEVICE"
         ]
       },
       "DeliverySessionAccepted": {
@@ -12825,6 +12827,7 @@
           "startedAt",
           "endedAt",
           "endReason",
+          "offlineOccupancyReleasedAt",
           "deliveryOrderNo",
           "recommendedPollAfterMs",
           "nextActions"
@@ -12871,6 +12874,16 @@
             "type": ["string", "null"],
             "minLength": 1,
             "maxLength": 64
+          },
+          "offlineOccupancyReleasedAt": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UtcTimestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "deliveryOrderNo": {
             "type": ["string", "null"],
@@ -13606,6 +13619,7 @@
           "startAuthorizationExpiresAt",
           "executionDeadlineAt",
           "completedAt",
+          "offlineOccupancyReleasedAt",
           "cleanRecordNo",
           "recommendedPollAfterMs",
           "nextActions"
@@ -13624,6 +13638,7 @@
           "startAuthorizationExpiresAt": {"$ref": "#/components/schemas/UtcTimestamp"},
           "executionDeadlineAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
           "completedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "offlineOccupancyReleasedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
           "cleanRecordNo": {"type": ["string", "null"], "maxLength": 64},
           "recommendedPollAfterMs": {"type": ["integer", "null"], "minimum": 1},
           "nextActions": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 100}}

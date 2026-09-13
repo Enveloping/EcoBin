@@ -10,7 +10,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.UUID;
 
-/** Synthetic original work; all real V79 CHECKs/FKs/triggers and runtime grants stay enabled. */
+/** Synthetic original work; all real V80 CHECKs/FKs/triggers and runtime grants stay enabled. */
 final class DeliveryIssueFullSchemaFixture {
     final JdbcTemplate jdbc;
     final LocalDateTime now;

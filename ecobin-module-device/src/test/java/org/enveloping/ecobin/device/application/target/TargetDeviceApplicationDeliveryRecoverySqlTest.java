@@ -170,6 +170,7 @@ class TargetDeviceApplicationDeliveryRecoverySqlTest {
                 null,
                 null,
                 null,
+                null,
                 1L);
     }
 

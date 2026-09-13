@@ -58,7 +58,8 @@ public class ApplyDeliveryCommandObservationService {
             return;
         }
         List<SessionRow> rows = jdbc.query("""
-                        SELECT id, status, first_edge_accepted_at, created_at
+                        SELECT id, status, first_edge_accepted_at, created_at,
+                               offline_occupancy_released_at
                         FROM dev_delivery_session
                         WHERE id = ?
                           AND tenant_id = ?
@@ -72,7 +73,10 @@ public class ApplyDeliveryCommandObservationService {
                         rs.getObject(
                                 "first_edge_accepted_at",
                                 LocalDateTime.class),
-                        rs.getObject("created_at", LocalDateTime.class)),
+                        rs.getObject("created_at", LocalDateTime.class),
+                        rs.getObject(
+                                "offline_occupancy_released_at",
+                                LocalDateTime.class)),
                 deliverySessionId,
                 tenantId,
                 organizationId,
@@ -200,6 +204,8 @@ public class ApplyDeliveryCommandObservationService {
             String errorCode,
             LocalDateTime receivedAt) {
         String reason = stableReason(errorCode);
+        requireMatchingOrReleasedOccupancy(
+                tenantId, organizationId, assetId, session);
         requireSingle(jdbc.update("""
                         UPDATE dev_delivery_session
                         SET status = 'PRE_OPEN_ENDED',
@@ -222,7 +228,7 @@ public class ApplyDeliveryCommandObservationService {
                 organizationId,
                 assetId),
                 "end delivery before open");
-        requireSingle(jdbc.update("""
+        requireOccupancyRelease(jdbc.update("""
                         DELETE FROM dev_device_occupancy
                         WHERE tenant_id = ?
                           AND organization_id = ?
@@ -234,7 +240,40 @@ public class ApplyDeliveryCommandObservationService {
                 organizationId,
                 assetId,
                 session.id()),
+                session.offlineOccupancyReleasedAt(),
                 "release pre-open delivery occupancy");
+    }
+
+    private void requireMatchingOrReleasedOccupancy(
+            long tenantId,
+            long organizationId,
+            long assetId,
+            SessionRow session) {
+        List<OccupancyRow> rows = jdbc.query("""
+                        SELECT occupancy_kind,
+                               delivery_session_id,
+                               clean_operation_id
+                        FROM dev_device_occupancy
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new OccupancyRow(
+                        rs.getString("occupancy_kind"),
+                        nullableLong(rs, "delivery_session_id"),
+                        nullableLong(rs, "clean_operation_id")),
+                tenantId,
+                organizationId,
+                assetId);
+        boolean valid = session.offlineOccupancyReleasedAt() == null
+                ? rows.size() == 1
+                    && rows.getFirst().matchesDelivery(session.id())
+                : rows.isEmpty();
+        if (!valid) {
+            throw new IllegalStateException(
+                    "trusted delivery command occupancy differs");
+        }
     }
 
     private void requireRecovery(
@@ -293,10 +332,43 @@ public class ApplyDeliveryCommandObservationService {
         }
     }
 
+    private static void requireOccupancyRelease(
+            int updated,
+            LocalDateTime offlineReleasedAt,
+            String action) {
+        int expected = offlineReleasedAt == null ? 1 : 0;
+        if (updated != expected) {
+            throw new IllegalStateException(
+                    action + " expected " + expected
+                            + " rows but updated " + updated);
+        }
+    }
+
+    private static Long nullableLong(
+            java.sql.ResultSet rs,
+            String column) throws java.sql.SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
+    }
+
     private record SessionRow(
             long id,
             String status,
             LocalDateTime firstEdgeAcceptedAt,
-            LocalDateTime createdAt) {
+            LocalDateTime createdAt,
+            LocalDateTime offlineOccupancyReleasedAt) {
+    }
+
+    private record OccupancyRow(
+            String kind,
+            Long deliverySessionId,
+            Long cleanOperationId) {
+
+        private boolean matchesDelivery(long sessionId) {
+            return "DELIVERY".equals(kind)
+                    && deliverySessionId != null
+                    && deliverySessionId == sessionId
+                    && cleanOperationId == null;
+        }
     }
 }

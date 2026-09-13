@@ -97,6 +97,7 @@ interface MiniappDeliveryDeviceQueryRepository {
             LocalDateTime firstPhysicalProgressAt,
             LocalDateTime deviceCompletedAt,
             LocalDateTime endedAt,
-            String endReason) {
+            String endReason,
+            LocalDateTime offlineOccupancyReleasedAt) {
     }
 }

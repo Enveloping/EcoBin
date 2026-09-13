@@ -27,6 +27,8 @@ interface StartDeliveryDeviceRepository {
 
     Optional<OccupancyRow> lockOccupancy(long assetId);
 
+    List<Long> lockReleasedPendingDeliveryIds(long assetId);
+
     Optional<ConfigurationRow> lockLatestConfiguration(
             long tenantId,
             long organizationId,

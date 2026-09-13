@@ -55,6 +55,15 @@ final class StartDeliveryDevicePolicy {
         }
     }
 
+    static void requireNoReleasedPendingWork(List<Long> workIds) {
+        if (!workIds.isEmpty()) {
+            throw new TargetApiException(
+                    409,
+                    "DEVICE.OFFLINE_RESULT_PENDING",
+                    "设备仍有离线期间完成的原业务等待补报，暂时不能开始新业务");
+        }
+    }
+
     static void requireOnenetOnline(
             StartDeliveryDeviceRepository.TransportPresenceRow presence) {
         if (presence == null

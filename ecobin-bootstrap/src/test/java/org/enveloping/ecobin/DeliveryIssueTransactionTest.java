@@ -91,7 +91,7 @@ class DeliveryIssueTransactionTest {
         jdbc.execute("CREATE TABLE ops_inbox_message(id BIGINT PRIMARY KEY)");
         jdbc.execute("INSERT INTO ops_inbox_message WITH RECURSIVE n AS(SELECT 1 AS v UNION ALL SELECT v+1 FROM n WHERE v<600) SELECT v FROM n");
         // Execute the unmodified production migration, including its real foreign/unique keys and CHECKs.
-        // Parent fixtures remain minimal: this is not a complete V1..V79 database or funds integration.
+        // Parent fixtures remain minimal: this is not a complete V1..V80 database or funds integration.
         String migration = Files.readString(root.resolve("ecobin-bootstrap/src/main/resources/db/p0-migration/V79__native_delivery_issue.sql"));
         for(String statement:migration.split(";")) {
             int at=statement.indexOf("CREATE TABLE "); if(at<0)continue;

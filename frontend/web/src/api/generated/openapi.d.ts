@@ -7338,9 +7338,9 @@ export interface components {
         /** @enum {string} */
         DeliverySessionStatus: "ACTIVE" | "COMPLETED" | "ENDED";
         /** @enum {string} */
-        DeliverySessionPhase: "START_QUEUED" | "IN_PROGRESS" | "FINAL_RESULT_PENDING" | "RECOVERY_REQUIRED" | "BUSINESS_CONFIRMED" | "PRE_START_FAILED" | "DEVICE_RESTART_ABORTED";
+        DeliverySessionPhase: "START_QUEUED" | "IN_PROGRESS" | "FINAL_RESULT_PENDING" | "OFFLINE_RESULT_PENDING" | "RECOVERY_REQUIRED" | "BUSINESS_CONFIRMED" | "PRE_START_FAILED" | "DEVICE_RESTART_ABORTED";
         /** @enum {string} */
-        DeliverySessionNextAction: "WAIT" | "WAIT_ON_DEVICE" | "VIEW_ORDER" | "SESSION_ENDED";
+        DeliverySessionNextAction: "WAIT" | "WAIT_ON_DEVICE" | "VIEW_ORDER" | "SESSION_ENDED" | "USE_ANOTHER_DEVICE";
         DeliverySessionAccepted: {
             operationId: components["schemas"]["UuidV4"];
             resourceId: components["schemas"]["DeliverySessionUid"];
@@ -7364,6 +7364,7 @@ export interface components {
             startedAt: components["schemas"]["UtcTimestamp"] | null;
             endedAt: components["schemas"]["UtcTimestamp"] | null;
             endReason: string | null;
+            offlineOccupancyReleasedAt: components["schemas"]["UtcTimestamp"] | null;
             deliveryOrderNo: string | null;
             recommendedPollAfterMs: number | null;
             nextActions: components["schemas"]["DeliverySessionNextAction"][];
@@ -7615,6 +7616,7 @@ export interface components {
             startAuthorizationExpiresAt: components["schemas"]["UtcTimestamp"];
             executionDeadlineAt: components["schemas"]["UtcTimestamp"] | null;
             completedAt: components["schemas"]["UtcTimestamp"] | null;
+            offlineOccupancyReleasedAt: components["schemas"]["UtcTimestamp"] | null;
             cleanRecordNo: string | null;
             recommendedPollAfterMs: number | null;
             nextActions: string[];

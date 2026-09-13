@@ -114,7 +114,8 @@ public class TargetDeviceApplication {
             SELECT id, session_uid, tenant_id, organization_id, asset_id,
                    status, authorization_expires_at,
                    first_edge_accepted_at, first_physical_progress_at,
-                   device_completed_at, ended_at, end_reason, lock_version
+                   device_completed_at, ended_at, end_reason,
+                   offline_occupancy_released_at, lock_version
             FROM dev_delivery_session
             WHERE session_uid = ?
               AND asset_id = ?
@@ -1236,6 +1237,9 @@ public class TargetDeviceApplication {
                                 LocalDateTime.class),
                         rs.getObject("ended_at", LocalDateTime.class),
                         rs.getString("end_reason"),
+                        rs.getObject(
+                                "offline_occupancy_released_at",
+                                LocalDateTime.class),
                         rs.getLong("lock_version")),
                 sessionUid.toString(),
                 asset.id());
@@ -1294,16 +1298,20 @@ public class TargetDeviceApplication {
                 commandTask.commandId(),
                 session.id());
         LocalDateTime now = databaseNow();
-        boolean exactOccupancy = occupancies.size() == 1
-                && "DELIVERY".equals(
-                        occupancies.getFirst().occupancyKind())
-                && Objects.equals(
-                        session.id(),
-                        occupancies.getFirst().deliverySessionId());
+        boolean expectedOccupancy =
+                session.offlineOccupancyReleasedAt() == null
+                        ? occupancies.size() == 1
+                            && "DELIVERY".equals(
+                                    occupancies.getFirst().occupancyKind())
+                            && Objects.equals(
+                                    session.id(),
+                                    occupancies.getFirst()
+                                            .deliverySessionId())
+                        : occupancies.isEmpty();
         boolean allowed = canConfirmDeliveryNotStarted(
                 session,
                 commandTask,
-                exactOccupancy,
+                expectedOccupancy,
                 evidence,
                 asset.tenantId(),
                 asset.organizationId(),
@@ -1323,12 +1331,13 @@ public class TargetDeviceApplication {
                 asset.id(),
                 now,
                 session.lockVersion()));
-        requireSingle(jdbc.update(
+        requireOccupancyRelease(jdbc.update(
                 RELEASE_CONFIRMED_NOT_STARTED_OCCUPANCY_SQL,
                 asset.id(),
                 session.tenantId(),
                 session.organizationId(),
-                session.id()));
+                session.id()),
+                session.offlineOccupancyReleasedAt());
         var response = new DeliveryNotStartedConfirmationView(
                 sessionUid,
                 commandTask.taskUid(),
@@ -1444,7 +1453,7 @@ public class TargetDeviceApplication {
     static boolean canConfirmDeliveryNotStarted(
             DeliveryRecoverySessionRow session,
             DeliveryRecoveryCommandTaskRow commandTask,
-            boolean exactOccupancy,
+            boolean expectedOccupancy,
             DeliveryRecoveryEvidenceRow evidence,
             Long assetTenantId,
             Long assetOrganizationId,
@@ -1485,7 +1494,7 @@ public class TargetDeviceApplication {
                 && commandTask.edgeAcceptedAt() == null
                 && commandTask.physicalStartedAt() == null
                 && commandTask.physicalEndedAt() == null
-                && exactOccupancy
+                && expectedOccupancy
                 && !evidence.commandEventExists()
                 && !evidence.physicalResultExists()
                 && !evidence.deliveryOrderExists();
@@ -5177,6 +5186,17 @@ public class TargetDeviceApplication {
         }
     }
 
+    private static void requireOccupancyRelease(
+            int updated,
+            LocalDateTime offlineOccupancyReleasedAt) {
+        int expected = offlineOccupancyReleasedAt == null ? 1 : 0;
+        if (updated != expected) {
+            throw conflict(
+                    "DEVICE.CONCURRENT_CHANGE",
+                    "设备占用状态已被其他请求修改，请刷新后重试");
+        }
+    }
+
     private static void requireEnabledTenant(Scope scope) {
         if (!scope.tenantEnabled()) {
             throw unprocessable("TENANT.DISABLED", "当前租户已禁用");
@@ -5314,6 +5334,7 @@ public class TargetDeviceApplication {
             LocalDateTime deviceCompletedAt,
             LocalDateTime endedAt,
             String endReason,
+            LocalDateTime offlineOccupancyReleasedAt,
             long lockVersion) {
     }
 

@@ -26,6 +26,38 @@ import java.util.UUID;
 @Service
 public class CleanQueryService {
 
+    static final String DEVICE_BUSY_SQL = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM dev_device_occupancy
+                WHERE asset_id = ?
+            ) OR EXISTS (
+                SELECT 1
+                FROM dev_delivery_session
+                WHERE asset_id = ?
+                  AND offline_occupancy_released_at IS NOT NULL
+                  AND ended_at IS NULL
+                  AND status IN (
+                      'PREPARED',
+                      'AUTHORIZATION_QUEUED',
+                      'IN_PROGRESS',
+                      'RESULT_PENDING_RECOVERY'
+                  )
+            ) OR EXISTS (
+                SELECT 1
+                FROM rec_clean_operation
+                WHERE asset_id = ?
+                  AND offline_occupancy_released_at IS NOT NULL
+                  AND ended_at IS NULL
+                  AND status IN (
+                      'PREPARED',
+                      'EDGE_SAVED',
+                      'IN_PROGRESS',
+                      'RECOVERY_REQUIRED'
+                  )
+            )
+            """;
+
     static final String LOAD_ASSET_SQL = """
             SELECT asset.id,
                    asset.installation_display_name AS display_name,
@@ -131,14 +163,11 @@ public class CleanQueryService {
                 organizationId,
                 deviceCode).stream().findFirst().orElseThrow(
                 CleanQueryService::notFound);
-        boolean deviceBusy = Boolean.TRUE.equals(jdbc.queryForObject("""
-                        SELECT EXISTS (
-                            SELECT 1
-                            FROM dev_device_occupancy
-                            WHERE asset_id = ?
-                        )
-                        """,
+        boolean deviceBusy = Boolean.TRUE.equals(jdbc.queryForObject(
+                DEVICE_BUSY_SQL,
                 Boolean.class,
+                asset.id(),
+                asset.id(),
                 asset.id()));
         boolean cleanConfigurationAvailable = Boolean.TRUE.equals(
                 jdbc.queryForObject("""
@@ -312,6 +341,7 @@ public class CleanQueryService {
                                operation.start_authorization_expires_at,
                                operation.execution_deadline_at,
                                operation.ended_at,
+                               operation.offline_occupancy_released_at,
                                record.clean_record_no
                         FROM rec_clean_operation operation
                         JOIN dev_device_asset asset
@@ -397,6 +427,8 @@ public class CleanQueryService {
     private static CleanOperationView operationView(ResultSet rs)
             throws SQLException {
         String status = rs.getString("status");
+        Instant offlineReleasedAt = nullableInstant(
+                rs, "offline_occupancy_released_at");
         Long poll = switch (status) {
             case "PREPARED", "EDGE_SAVED", "IN_PROGRESS" -> 1_000L;
             default -> null;
@@ -409,6 +441,14 @@ public class CleanQueryService {
             case "COMPLETED" -> List.of("VIEW_RECORD");
             default -> List.of();
         };
+        if (offlineReleasedAt != null
+                && List.of(
+                        "PREPARED",
+                        "EDGE_SAVED",
+                        "IN_PROGRESS",
+                        "RECOVERY_REQUIRED").contains(status)) {
+            actions = List.of("USE_ANOTHER_DEVICE");
+        }
         return new CleanOperationView(
                 UUID.fromString(rs.getString("operation_uid")),
                 status,
@@ -423,6 +463,7 @@ public class CleanQueryService {
                 instant(rs, "start_authorization_expires_at"),
                 nullableInstant(rs, "execution_deadline_at"),
                 nullableInstant(rs, "ended_at"),
+                offlineReleasedAt,
                 rs.getString("clean_record_no"),
                 poll,
                 actions);

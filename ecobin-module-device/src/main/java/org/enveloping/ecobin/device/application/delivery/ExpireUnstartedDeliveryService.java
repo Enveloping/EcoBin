@@ -30,6 +30,7 @@ public class ExpireUnstartedDeliveryService
                             session.tenant_id,
                             session.organization_id,
                             session.asset_id,
+                            session.offline_occupancy_released_at,
                             command_row.id AS command_id
                         FROM dev_delivery_session session
                         JOIN dev_device_command command_row
@@ -60,10 +61,14 @@ public class ExpireUnstartedDeliveryService
                         rs.getLong("tenant_id"),
                         rs.getLong("organization_id"),
                         rs.getLong("asset_id"),
+                        rs.getObject(
+                                "offline_occupancy_released_at",
+                                LocalDateTime.class),
                         rs.getLong("command_id")),
                 now);
         List<Long> commandIds = new ArrayList<>(candidates.size());
         for (ExpiredDelivery candidate : candidates) {
+            requireMatchingOrReleasedOccupancy(candidate);
             int ended = jdbc.update("""
                             UPDATE dev_delivery_session
                             SET status = 'PRE_OPEN_ENDED',
@@ -85,7 +90,7 @@ public class ExpireUnstartedDeliveryService
                     candidate.organizationId(),
                     candidate.assetId());
             requireSingle(ended, "expire delivery authorization");
-            requireSingle(jdbc.update("""
+            requireOccupancyRelease(jdbc.update("""
                             DELETE FROM dev_device_occupancy
                             WHERE tenant_id = ?
                               AND organization_id = ?
@@ -97,10 +102,40 @@ public class ExpireUnstartedDeliveryService
                     candidate.organizationId(),
                     candidate.assetId(),
                     candidate.sessionId()),
+                    candidate.offlineOccupancyReleasedAt(),
                     "release expired delivery occupancy");
             commandIds.add(candidate.commandId());
         }
         return List.copyOf(commandIds);
+    }
+
+    private void requireMatchingOrReleasedOccupancy(
+            ExpiredDelivery candidate) {
+        List<OccupancyRow> rows = jdbc.query("""
+                        SELECT occupancy_kind,
+                               delivery_session_id,
+                               clean_operation_id
+                        FROM dev_device_occupancy
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new OccupancyRow(
+                        rs.getString("occupancy_kind"),
+                        nullableLong(rs, "delivery_session_id"),
+                        nullableLong(rs, "clean_operation_id")),
+                candidate.tenantId(),
+                candidate.organizationId(),
+                candidate.assetId());
+        boolean valid = candidate.offlineOccupancyReleasedAt() == null
+                ? rows.size() == 1
+                    && rows.getFirst().matchesDelivery(candidate.sessionId())
+                : rows.isEmpty();
+        if (!valid) {
+            throw new IllegalStateException(
+                    "expired delivery occupancy differs");
+        }
     }
 
     private static void requireSingle(int updated, String action) {
@@ -110,11 +145,44 @@ public class ExpireUnstartedDeliveryService
         }
     }
 
+    private static void requireOccupancyRelease(
+            int updated,
+            LocalDateTime offlineReleasedAt,
+            String action) {
+        int expected = offlineReleasedAt == null ? 1 : 0;
+        if (updated != expected) {
+            throw new IllegalStateException(
+                    action + " expected " + expected
+                            + " rows but updated " + updated);
+        }
+    }
+
+    private static Long nullableLong(
+            java.sql.ResultSet rs,
+            String column) throws java.sql.SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
+    }
+
     private record ExpiredDelivery(
             long sessionId,
             long tenantId,
             long organizationId,
             long assetId,
+            LocalDateTime offlineOccupancyReleasedAt,
             long commandId) {
+    }
+
+    private record OccupancyRow(
+            String kind,
+            Long deliverySessionId,
+            Long cleanOperationId) {
+
+        private boolean matchesDelivery(long sessionId) {
+            return "DELIVERY".equals(kind)
+                    && deliverySessionId != null
+                    && deliverySessionId == sessionId
+                    && cleanOperationId == null;
+        }
     }
 }

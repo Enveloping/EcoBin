@@ -28,6 +28,7 @@ import tools.jackson.databind.node.ObjectNode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.DriverManager;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -148,6 +149,33 @@ class CleanMedianTransactionTest {
         assertEquals("VALID", text("SELECT baseline_state FROM rec_port_capacity_state"));
         assertEquals(2L, number("SELECT current_bag_id FROM rec_port_capacity_state"));
         assertEquals(2L, number("SELECT bag_id FROM rec_bag_current_occupancy"));
+    }
+
+    @Test
+    void lateCompletionAfterOfflineReleaseStillUsesReservedOriginalBag() {
+        jdbc.update("""
+                UPDATE rec_clean_operation
+                SET offline_occupancy_released_at = UTC_TIMESTAMP(3)
+                WHERE id = 1
+                """);
+        assertEquals(1, jdbc.update(
+                "DELETE FROM dev_device_occupancy WHERE asset_id = 1"));
+        assertEquals("CLEAN_RESERVED", text("""
+                SELECT occupancy_type
+                FROM rec_bag_current_occupancy
+                WHERE bag_id = 2
+                """));
+
+        assertEquals(TrustedDeviceEventApplyResult.APPLIED, apply());
+        assertEquals("COMPLETED", text(
+                "SELECT status FROM rec_clean_operation"));
+        assertNotNull(jdbc.queryForObject(
+                "SELECT offline_occupancy_released_at FROM rec_clean_operation",
+                LocalDateTime.class));
+        assertEquals(0, count("dev_device_occupancy"));
+        assertEquals(2L, number(
+                "SELECT bag_id FROM rec_bag_current_occupancy"));
+        assertEquals(1, count("rec_clean_record"));
     }
 
     private TrustedDeviceEventApplyResult apply() {
@@ -369,7 +397,8 @@ class CleanMedianTransactionTest {
                   first_unlock_may_have_executed TINYINT DEFAULT 1,clean_lock_deenergized_confirmed TINYINT DEFAULT 0,
                   cleaner_physical_close_confirmed TINYINT DEFAULT 0,pre_unlock_weight_status VARCHAR(32),
                   pre_unlock_weight_g BIGINT,pre_unlock_weight_fault_code VARCHAR(32),ended_at DATETIME(3),
-                  end_reason VARCHAR(32),lock_version INT DEFAULT 0,updated_at DATETIME(3))
+                  end_reason VARCHAR(32),offline_occupancy_released_at DATETIME(3),
+                  lock_version INT DEFAULT 0,updated_at DATETIME(3))
                 """);
         jdbc.execute("""
                 INSERT INTO rec_clean_operation (id,operation_uid,tenant_id,organization_id,asset_id,port_id,
@@ -379,8 +408,8 @@ class CleanMedianTransactionTest {
                 VALUES (1,'40000000-0000-4000-8000-000000000001',1,1,1,1,1,1,1,1,
                   'BOUND',1,'OLD-P1AT','TRUSTED',1,1200,2,'NEW-P1AT','IN_PROGRESS')
                 """);
-        jdbc.execute("CREATE TABLE dev_device_occupancy (asset_id BIGINT PRIMARY KEY,tenant_id BIGINT,organization_id BIGINT,occupancy_kind VARCHAR(32),clean_operation_id BIGINT)");
-        jdbc.execute("INSERT INTO dev_device_occupancy VALUES (1,1,1,'CLEAN',1)");
+        jdbc.execute("CREATE TABLE dev_device_occupancy (asset_id BIGINT PRIMARY KEY,tenant_id BIGINT,organization_id BIGINT,occupancy_kind VARCHAR(32),delivery_session_id BIGINT,clean_operation_id BIGINT)");
+        jdbc.execute("INSERT INTO dev_device_occupancy VALUES (1,1,1,'CLEAN',NULL,1)");
         jdbc.execute("""
                 CREATE TABLE dev_device_command (
                   id BIGINT PRIMARY KEY,command_uid CHAR(36),tenant_id BIGINT,organization_id BIGINT,asset_id BIGINT,

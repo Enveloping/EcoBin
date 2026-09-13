@@ -148,6 +148,33 @@ class DeliveryMedianTransactionTest {
     }
 
     @Test
+    void lateCompletionAfterOfflineReleaseKeepsOriginalResultAndDeletesNoNewSlot() {
+        jdbc.update("""
+                UPDATE dev_delivery_session
+                SET offline_occupancy_released_at = UTC_TIMESTAMP(3)
+                WHERE id = 1
+                """);
+        assertEquals(1, jdbc.update(
+                "DELETE FROM dev_device_occupancy WHERE asset_id = 1"));
+        DeliveryCompletionBusinessWriter writer = reference ->
+                reference.useOnce(facts -> {
+                    assertEquals(1L, facts.deliverySessionId());
+                    jdbc.update("INSERT INTO p1as_effect VALUES ('BUSINESS')");
+                    return new DeliveryCompletionBusinessResult(
+                            "DO-P1AS-LATE", List.of());
+                });
+
+        assertEquals(TrustedDeviceEventApplyResult.APPLIED, complete(writer));
+        assertEquals("BUSINESS_CONFIRMED", jdbc.queryForObject(
+                "SELECT status FROM dev_delivery_session", String.class));
+        assertNotNull(jdbc.queryForObject(
+                "SELECT offline_occupancy_released_at FROM dev_delivery_session",
+                java.time.LocalDateTime.class));
+        assertEquals(0, count("dev_device_occupancy"));
+        assertEquals(1, count("dev_physical_result"));
+    }
+
+    @Test
     void terminalWeightTimeoutPreservesEvidenceAndFinishesOriginalCommandAsFailed() {
         ObjectNode payload = (ObjectNode) normalized.path("event").path("payload");
         payload.put("completionReason", "TERMINAL_WEIGHT_FAILURE").putNull("deliveryNetWeightGrams");
@@ -370,7 +397,8 @@ class DeliveryMedianTransactionTest {
                   unit_price_yuan_per_kg DECIMAL(10,4),open_balance_floor_cent BIGINT,max_review_abs_weight_g BIGINT,
                   negative_weight_anomaly_threshold_g BIGINT,first_edge_accepted_at DATETIME(3),
                   first_physical_progress_at DATETIME(3),device_completed_at DATETIME(3),ended_at DATETIME(3),
-                  end_reason VARCHAR(32),lock_version INT DEFAULT 0,updated_at DATETIME(3))
+                  end_reason VARCHAR(32),offline_occupancy_released_at DATETIME(3),
+                  lock_version INT DEFAULT 0,updated_at DATETIME(3))
                 """);
         jdbc.execute("""
                 INSERT INTO dev_delivery_session (id,session_uid,tenant_id,organization_id,asset_id,
@@ -383,8 +411,8 @@ class DeliveryMedianTransactionTest {
                   UNHEX(REPEAT('aa',32)),UNHEX(REPEAT('bb',32)),1,1,UNHEX(REPEAT('cc',32)),1,
                   '50000000-0000-4000-8000-000000000001','P1AS','IN_PROGRESS',0.4500,-1000,100000,100)
                 """);
-        jdbc.execute("CREATE TEMPORARY TABLE dev_device_occupancy (asset_id BIGINT PRIMARY KEY,tenant_id BIGINT,organization_id BIGINT,occupancy_kind VARCHAR(32),delivery_session_id BIGINT)");
-        jdbc.execute("INSERT INTO dev_device_occupancy VALUES (1,1,1,'DELIVERY',1)");
+        jdbc.execute("CREATE TEMPORARY TABLE dev_device_occupancy (asset_id BIGINT PRIMARY KEY,tenant_id BIGINT,organization_id BIGINT,occupancy_kind VARCHAR(32),delivery_session_id BIGINT,clean_operation_id BIGINT)");
+        jdbc.execute("INSERT INTO dev_device_occupancy VALUES (1,1,1,'DELIVERY',1,NULL)");
         jdbc.execute("""
                 CREATE TEMPORARY TABLE dev_device_command (
                   id BIGINT PRIMARY KEY,command_uid CHAR(36),tenant_id BIGINT,organization_id BIGINT,asset_id BIGINT,
