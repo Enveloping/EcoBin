@@ -50,7 +50,7 @@ public class BusinessReleasePackageVerifier {
     private static final Pattern GIT_COMMIT = Pattern.compile("^[0-9a-f]{40}$");
     private static final Pattern BITMAP = Pattern.compile("^[0-9a-f]{16}$");
     private static final String APP_ALLOWLIST_SHA256 =
-            "c351806f8656137c3c90bef2e7df4354a701e8818aafecf53b6540e265ca40bd";
+            "f45f43700d82ad785b302616885bc6e2c7b0d055193e16860df6fd2a9f568d2c";
     private static final Set<String> TOP_LEVEL = Set.of(
             "app", "wheelhouse", "migrations", "manifest.env", "release.env",
             "requirements-runtime.txt", "requirements-offline.txt", "SHA256SUMS");
@@ -65,6 +65,9 @@ public class BusinessReleasePackageVerifier {
             "native_result_report.py",
             "native_delivery_issue_report.py",
             "native_delivery_recovery_close.py",
+            "native_recovery_close_isolation.py",
+            "native_recovery_entry.py",
+            "native_recovery_runtime.py",
             "native_business_completion.py",
             "native_business_runtime.py",
             "native_configuration_reload.py",
@@ -404,7 +407,7 @@ public class BusinessReleasePackageVerifier {
         requireManifest(manifest, "ECOBIN_RELEASE_SEQUENCE", Long.toString(sequence));
         requireManifest(manifest, "ECOBIN_PYTHON_SERIES", "3.11");
         requireManifest(manifest, "ECOBIN_TARGET_PLATFORM", "linux-arm64");
-        requireManifest(manifest, "ECOBIN_EDGE_SCHEMA_VERSION", "25");
+        requireManifest(manifest, "ECOBIN_EDGE_SCHEMA_VERSION", "40");
         requireManifest(manifest, "ECOBIN_BUSINESS_ALLOWLIST_SHA256", APP_ALLOWLIST_SHA256);
         requireManifest(manifest, "ECOBIN_UART_PROTOCOL_FAMILY", "FIXED_FRAME");
         requireManifest(manifest, "ECOBIN_UART_PROTOCOL_MAJOR", "NONE");

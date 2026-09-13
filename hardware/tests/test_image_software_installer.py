@@ -73,6 +73,8 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
         "trusted_clock.py",
     }
     assert set(DEVICE_UPDATER_FILES) == {
+        "job_safety.py",
+        "uart2_protocol.py",
         "business_runtime_cutover.py",
         "business_runtime_cutover_state.py",
         "business_update_coordinator.py",
@@ -128,6 +130,9 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
     assert "business_runtime_cutover_state.py" in DEVICE_UPDATER_FILES
     assert "fixed_frame_mcu_maintenance.py" in RUNTIME_APP_FILES
     assert "job_safety.py" in RUNTIME_APP_FILES
+    assert "native_recovery_close_isolation.py" in RUNTIME_APP_FILES
+    assert "native_recovery_entry.py" in RUNTIME_APP_FILES
+    assert "native_recovery_runtime.py" in RUNTIME_APP_FILES
     assert "local_control.py" in RUNTIME_APP_FILES
     assert "communication_agent.py" not in RUNTIME_APP_FILES
     assert "communication_store.py" not in RUNTIME_APP_FILES

@@ -156,6 +156,9 @@ def test_business_allowlist_excludes_permanent_and_legacy_owners() -> None:
     assert "system/orangepi_boot_config.py" not in BUSINESS_APP_FILES
     assert "factory_seal/admission.py" in BUSINESS_APP_FILES
     assert "factory_seal/validation.py" in BUSINESS_APP_FILES
+    assert "native_recovery_close_isolation.py" in BUSINESS_APP_FILES
+    assert "native_recovery_entry.py" in BUSINESS_APP_FILES
+    assert "native_recovery_runtime.py" in BUSINESS_APP_FILES
 
 
 def test_proxy_business_sources_import_without_factory_only_modules(

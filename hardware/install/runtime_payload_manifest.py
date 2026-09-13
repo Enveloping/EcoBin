@@ -7,7 +7,7 @@ release tooling and the immutable image builder.
 from __future__ import annotations
 
 
-EDGE_SCHEMA_VERSION = "25"
+EDGE_SCHEMA_VERSION = "40"
 
 
 def verify_source_schema_version(source_root):
@@ -46,6 +46,9 @@ RUNTIME_APP_FILES = (
     "native_result_report.py",
     "native_delivery_issue_report.py",
     "native_delivery_recovery_close.py",
+    "native_recovery_close_isolation.py",
+    "native_recovery_entry.py",
+    "native_recovery_runtime.py",
     "native_business_completion.py",
     "native_business_runtime.py",
     "native_configuration_reload.py",
