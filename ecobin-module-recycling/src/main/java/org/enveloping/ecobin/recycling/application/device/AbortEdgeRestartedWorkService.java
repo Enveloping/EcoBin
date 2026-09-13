@@ -8,7 +8,6 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Closes recycling-owned physical work after a trusted EDGE_RESTARTED fact.
@@ -43,7 +42,7 @@ public class AbortEdgeRestartedWorkService
             return;
         }
         List<CleanTarget> rows = jdbc.query("""
-                        SELECT id, port_id, new_bag_id, status
+                        SELECT id, port_id, status
                         FROM rec_clean_operation
                         WHERE id = ?
                           AND tenant_id = ?
@@ -54,7 +53,6 @@ public class AbortEdgeRestartedWorkService
                 (rs, ignored) -> new CleanTarget(
                         rs.getLong("id"),
                         rs.getLong("port_id"),
-                        rs.getLong("new_bag_id"),
                         rs.getString("status")),
                 work.cleanOperationId(),
                 work.tenantId(),
@@ -91,50 +89,10 @@ public class AbortEdgeRestartedWorkService
         if (updated != 1) {
             return;
         }
-        jdbc.update("""
-                        DELETE FROM dev_device_occupancy
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND asset_id = ?
-                          AND occupancy_kind = 'CLEAN'
-                          AND clean_operation_id = ?
-                        """,
-                work.tenantId(),
-                work.organizationId(),
-                work.assetId(),
-                target.id());
-        int reservationReleased = jdbc.update("""
-                        DELETE FROM rec_bag_current_occupancy
-                        WHERE bag_id = ?
-                          AND tenant_id = ?
-                          AND organization_id = ?
-                          AND occupancy_type = 'CLEAN_RESERVED'
-                          AND clean_operation_id = ?
-                        """,
-                target.newBagId(),
-                work.tenantId(),
-                work.organizationId(),
-                target.id());
-        if (reservationReleased == 1) {
-            jdbc.update("""
-                            INSERT INTO rec_bag_occupancy_event (
-                                event_uid, tenant_id, organization_id,
-                                bag_id, port_id, clean_operation_id,
-                                event_type, occurred_at, created_at
-                            ) VALUES (
-                                ?, ?, ?, ?, ?, ?,
-                                'RESERVATION_RELEASED', ?, ?
-                            )
-                            """,
-                    UUID.randomUUID().toString(),
-                    work.tenantId(),
-                    work.organizationId(),
-                    target.newBagId(),
-                    target.portId(),
-                    target.id(),
-                    work.observedAt(),
-                    work.observedAt());
-        }
+        // Native Pi restarts keep their permanent work permit and do not
+        // emit this legacy terminal fact. If an older edge does emit it,
+        // preserve both occupancies so the same two-bag manual recovery can
+        // reconcile the physical bag instead of creating another dead lock.
         jdbc.update("""
                         UPDATE rec_clean_photo
                         SET status = 'PERMANENTLY_MISSING',
@@ -173,7 +131,26 @@ public class AbortEdgeRestartedWorkService
         if (work.baselineMeasurementId() == null) {
             return;
         }
-        jdbc.update("""
+        List<BaselineTarget> rows = jdbc.query("""
+                        SELECT clean_bag_recovery_id, status
+                        FROM rec_port_baseline_measurement
+                        WHERE id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new BaselineTarget(
+                        nullableLong(rs, "clean_bag_recovery_id"),
+                        rs.getString("status")),
+                work.baselineMeasurementId(),
+                work.tenantId(),
+                work.organizationId(),
+                work.assetId());
+        if (rows.size() != 1 || !"PENDING".equals(rows.getFirst().status())) {
+            return;
+        }
+        requireSingle(jdbc.update("""
                         UPDATE rec_port_baseline_measurement
                         SET status = 'FAILED',
                             physical_result_id = NULL,
@@ -194,7 +171,25 @@ public class AbortEdgeRestartedWorkService
                 work.baselineMeasurementId(),
                 work.tenantId(),
                 work.organizationId(),
-                work.assetId());
+                work.assetId()),
+                "abort restarted baseline measurement");
+        if (rows.getFirst().cleanBagRecoveryId() != null) {
+            requireSingle(jdbc.update("""
+                            UPDATE rec_clean_bag_recovery
+                            SET status = 'BASELINE_REQUIRED',
+                                lock_version = lock_version + 1,
+                                updated_at = ?
+                            WHERE id = ?
+                              AND tenant_id = ?
+                              AND organization_id = ?
+                              AND status = 'BASELINE_PENDING'
+                            """,
+                    work.observedAt(),
+                    rows.getFirst().cleanBagRecoveryId(),
+                    work.tenantId(),
+                    work.organizationId()),
+                    "return restarted clean bag recovery to baseline required");
+        }
     }
 
     private void abortFullness(TrustedEdgeRestartedWork work) {
@@ -270,7 +265,25 @@ public class AbortEdgeRestartedWorkService
     private record CleanTarget(
             long id,
             long portId,
-            long newBagId,
+            String status) {
+    }
+
+    private static Long nullableLong(
+            java.sql.ResultSet resultSet,
+            String column) throws java.sql.SQLException {
+        long value = resultSet.getLong(column);
+        return resultSet.wasNull() ? null : value;
+    }
+
+    private static void requireSingle(int updated, String action) {
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    action + " expected one row but updated " + updated);
+        }
+    }
+
+    private record BaselineTarget(
+            Long cleanBagRecoveryId,
             String status) {
     }
 }

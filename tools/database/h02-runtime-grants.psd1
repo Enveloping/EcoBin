@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 41
+    CatalogVersion = 42
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -686,6 +686,12 @@
             "ended_at"
             "end_reason"
             "offline_occupancy_released_at"
+            "lock_version"
+            "updated_at"
+        )
+        rec_clean_bag_recovery = @(
+            "status"
+            "completed_at"
             "lock_version"
             "updated_at"
         )

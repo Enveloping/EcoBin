@@ -674,8 +674,48 @@ class EdgeStore:
                 raise ValueError("native dispatch retirement marker missing")
             self._conn.execute("""ALTER TABLE native_mcu_command ADD COLUMN dispatch_retired
                 INTEGER NOT NULL DEFAULT 0 CHECK (dispatch_retired IN (0,1))""")
-            self._conn.execute("""UPDATE native_mcu_command SET dispatch_retired=1 WHERE command_uid IN
-                (SELECT action_uid FROM native_recovery_close_retirement WHERE state='RETIRED')""")
+        self._conn.execute("""CREATE INDEX IF NOT EXISTS idx_cmd_inbox_mcu_command_state
+            ON command_inbox(mcu_command_uid, state)
+            WHERE result_json IS NOT NULL""")
+        self._conn.execute("""CREATE INDEX IF NOT EXISTS idx_cmd_inbox_native_failure_start
+            ON command_inbox(
+                json_extract(
+                    result_json,
+                    '$.nativeControlFailure.evidence.startCommandUid'
+                ),
+                state
+            )
+            WHERE result_json IS NOT NULL
+              AND state IN ('FAILED','REJECTED')""")
+        # Old software could permanently apply a local control failure or
+        # baseline completion and release its work slot before the explicit
+        # dispatch fence column existed.  Rebuild that derived fence on every
+        # open from the exact terminal proof; the operation is idempotent and
+        # cannot retire an unrelated or merely PREPARED command.
+        self._conn.execute("""UPDATE native_mcu_command SET dispatch_retired=1 WHERE command_uid IN
+            (SELECT action_uid FROM native_recovery_close_retirement WHERE state='RETIRED')""")
+        for raw in self._conn.execute(
+            """SELECT * FROM native_mcu_command
+               WHERE dispatch_retired=0
+                 AND decision_outcome IS NULL
+                 AND boot_retired=0"""
+        ).fetchall():
+            record = self._checked_native_command(raw)
+            if (
+                self._native_control_failure_proves_dispatch_retirement(
+                    self._conn,
+                    record,
+                )
+                or self._native_baseline_completion_proves_dispatch_retirement(
+                    self._conn,
+                    record,
+                )
+            ):
+                self._conn.execute(
+                    """UPDATE native_mcu_command SET dispatch_retired=1
+                       WHERE command_uid=? AND dispatch_retired=0""",
+                    (record["command_uid"],),
+                )
         self._verify_native_dispatch_retirements(self._conn)
         self._conn.execute("DROP INDEX IF EXISTS native_mcu_one_pending_command")
         self._conn.execute("""CREATE UNIQUE INDEX native_mcu_one_pending_command
@@ -744,13 +784,213 @@ class EdgeStore:
             raise ValueError("native recovery close ancestry migration broke foreign keys")
 
     def _verify_native_dispatch_retirements(self, conn):
-        if conn.execute("""SELECT 1 FROM native_mcu_command c
-            LEFT JOIN native_recovery_close_retirement r ON r.action_uid=c.command_uid
-            WHERE c.dispatch_retired NOT IN (0,1) OR c.dispatch_retired IS NULL
-                OR c.dispatch_retired != CASE WHEN r.state='RETIRED' THEN 1 ELSE 0 END LIMIT 1""").fetchone():
-            raise ValueError("native dispatch retirement marker differs from durable proof")
+        rows = conn.execute("""SELECT c.*, r.state AS recovery_retirement_state
+            FROM native_mcu_command c
+            LEFT JOIN native_recovery_close_retirement r
+              ON r.action_uid=c.command_uid""").fetchall()
+        for raw in rows:
+            record = self._checked_native_command(raw)
+            recovery_retired = raw["recovery_retirement_state"] == "RETIRED"
+            locally_retired = bool(record["dispatch_retired"])
+            if record["dispatch_retired"] not in {0, 1}:
+                raise ValueError(
+                    "native dispatch retirement marker differs from durable proof"
+                )
+            if recovery_retired and not locally_retired:
+                raise ValueError(
+                    "native dispatch retirement marker differs from durable proof"
+                )
+            if locally_retired and not recovery_retired and not (
+                self._native_control_failure_proves_dispatch_retirement(
+                    conn,
+                    record,
+                )
+                or self._native_baseline_completion_proves_dispatch_retirement(
+                    conn,
+                    record,
+                )
+            ):
+                raise ValueError(
+                    "native dispatch retirement marker differs from durable proof"
+                )
         for row in conn.execute("SELECT action_uid FROM native_recovery_close_retirement WHERE state='RETIRED'").fetchall():
             self.get_native_recovery_close_retirement(row[0])
+
+    def _native_control_failure_proves_dispatch_retirement(self, conn, record):
+        """Accept only an exact applied local failure as a dispatch fence.
+
+        This does not claim that the MCU rejected or observed the command.  It
+        proves only that the immutable bytes reached their permanent local
+        disposition and no longer own the one-pending-command gate.
+        """
+        from job_safety import JobPermit
+        from native_control_failure import MARKER, _checked_marker
+        import uart2_protocol as uart2
+
+        matches = []
+        for raw_command in conn.execute(
+            """SELECT * FROM command_inbox
+               WHERE state IN ('FAILED','REJECTED')
+                 AND result_json IS NOT NULL
+                 AND json_extract(
+                       result_json,
+                       '$.nativeControlFailure.evidence.startCommandUid'
+                     )=?""",
+            (record["command_uid"],),
+        ).fetchall():
+            command = self._decode_command_row(raw_command)
+            result = command.get("result")
+            marker = result.get(MARKER) if isinstance(result, dict) else None
+            evidence = marker.get("evidence") if isinstance(marker, dict) else None
+            if (
+                not isinstance(evidence, dict)
+                or evidence.get("startCommandUid") != record["command_uid"]
+            ):
+                continue
+            try:
+                saved_permit = evidence["permit"]
+                permit = JobPermit(
+                    permit_uid=saved_permit["permit_uid"],
+                    work_uid=saved_permit["work_uid"],
+                    command_uid=saved_permit["command_uid"],
+                    work_type=saved_permit["work_type"],
+                    request_digest_sha256=saved_permit[
+                        "request_digest_sha256"
+                    ],
+                )
+                start = uart2.decode_payload(
+                    record["message_name"],
+                    record["payload"],
+                )
+                _, checked = _checked_marker(
+                    self,
+                    permit,
+                    record,
+                    start,
+                    command,
+                    evidence["deviceName"],
+                )
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError(
+                    "native control failure dispatch retirement proof is corrupt"
+                ) from error
+            if checked is not None and checked.get("state") == "APPLIED":
+                matches.append(command["command_uid"])
+        if len(matches) > 1:
+            raise ValueError(
+                "native command has multiple control failure retirement proofs"
+            )
+        return len(matches) == 1
+
+    def _native_baseline_completion_proves_dispatch_retirement(
+        self,
+        conn,
+        record,
+    ):
+        """Validate the applied exact-result receipt used as a local fence."""
+        from job_safety import command_request_digest
+        import uart2_protocol as uart2
+
+        if record["message_name"] != "MEASURE_BASELINE":
+            return False
+        native = uart2.decode_payload("MEASURE_BASELINE", record["payload"])
+        matches = []
+        for raw_command in conn.execute(
+            """SELECT * FROM command_inbox
+               WHERE state='COMPLETED' AND result_json IS NOT NULL
+                 AND mcu_command_uid=?""",
+            (record["command_uid"],),
+        ).fetchall():
+            command = self._decode_command_row(raw_command)
+            result = command.get("result")
+            marker = (
+                result.get("nativeBaselineCompletion")
+                if isinstance(result, dict)
+                else None
+            )
+            evidence = marker.get("evidence") if isinstance(marker, dict) else None
+            if (
+                not isinstance(evidence, dict)
+                or evidence.get("nativeCommandUid") != record["command_uid"]
+            ):
+                continue
+            if marker.get("state") != "APPLIED":
+                continue
+            cloud = command["payload"]
+            payload = cloud.get("payload") if isinstance(cloud, dict) else None
+            saved_permit = evidence.get("permit")
+            event_row = self.get_event(evidence.get("eventUid"))
+            event = (
+                _json.loads(event_row["payload_json"])
+                if event_row is not None
+                else None
+            )
+            scope = self._native_baseline_scope(record)
+            raw_scope = uart2.encode_payload(
+                "QUERY_PROCESS_EVENT",
+                scope | {"queryId": 1},
+            )[8:]
+            receipt = self.get_native_process_receipt(raw_scope)
+            measured = (
+                uart2.decode_payload(
+                    "BASELINE_MEASUREMENT_RESULT",
+                    bytes(receipt["payload"]),
+                )
+                if receipt is not None
+                else None
+            )
+            if (
+                marker.get("evidenceSha256")
+                != canonical_payload_sha256(evidence)
+                or not isinstance(payload, dict)
+                or not isinstance(saved_permit, dict)
+                or saved_permit
+                != {
+                    "permit_uid": command["command_uid"],
+                    "work_uid": payload.get("measurementUid"),
+                    "command_uid": command["command_uid"],
+                    "work_type": WORK_TYPE_BASELINE,
+                    "request_digest_sha256": command_request_digest(cloud),
+                }
+                or command["mcu_command_uid"] != record["command_uid"]
+                or cloud.get("commandType")
+                != "MEASURE_EMPTY_BAG_BASELINE"
+                or payload.get("measurementUid") != native["measurementUid"]
+                or payload.get("portNo") != native["portNo"]
+                or evidence.get("sourceMcuBootId")
+                != native["targetMcuBootId"]
+                or measured is None
+                or measured["mcuCommandUid"] != record["command_uid"]
+                or measured["measurementUid"] != native["measurementUid"]
+                or evidence.get("sourceMcuEventSequence")
+                != measured["mcuEventSequence"]
+                or evidence.get("sourceEventDigestSha256")
+                != uart2.compute_process_event_digest(
+                    "BASELINE_MEASUREMENT_RESULT",
+                    bytes(receipt["payload"]),
+                )
+                or not isinstance(event, dict)
+                or event.get("eventType")
+                != "BASELINE_MEASUREMENT_COMPLETE"
+                or event.get("eventUid") != evidence.get("eventUid")
+                or event.get("commandUid") != command["command_uid"]
+                or event.get("target")
+                != {
+                    "type": "BASELINE_MEASUREMENT",
+                    "uid": native["measurementUid"],
+                }
+                or event.get("payloadSha256")
+                != evidence.get("eventPayloadSha256")
+            ):
+                raise ValueError(
+                    "native baseline dispatch retirement proof is corrupt"
+                )
+            matches.append(command["command_uid"])
+        if len(matches) > 1:
+            raise ValueError(
+                "native baseline has multiple completion retirement proofs"
+            )
+        return len(matches) == 1
 
     def _migrate_v38(self):
         self._conn.execute("""CREATE TABLE IF NOT EXISTS native_recovery_close_retirement (
@@ -2338,6 +2578,617 @@ class EdgeStore:
                 raise ValueError("native process receipt has an unresolved context conflict")
             return dict(row)
 
+    @staticmethod
+    def _native_baseline_scope(record: dict) -> dict:
+        """Rebuild the sole query scope from the immutable MEASURE_BASELINE."""
+        import uart2_protocol as uart2
+
+        if (
+            record is None
+            or record.get("message_name") != "MEASURE_BASELINE"
+            or record.get("conflict")
+        ):
+            raise ValueError("native baseline command is missing or conflicted")
+        values = uart2.decode_payload("MEASURE_BASELINE", record["payload"])
+        return {
+            "mcuCommandUid": values["mcuCommandUid"],
+            "commandDigestSha256": values["commandDigestSha256"],
+            "targetMcuBootId": values["targetMcuBootId"],
+            "commandSequence": values["commandSequence"],
+            "workUid": values["measurementUid"],
+            "workType": "BASELINE_MEASUREMENT",
+            "portNo": values["portNo"],
+            "eventMessageType": "BASELINE_MEASUREMENT_RESULT",
+            "stepSequence": 0,
+            "configVersion": values["configVersion"],
+        }
+
+    @staticmethod
+    def _native_baseline_measurement_fact(values: dict) -> dict:
+        """Project the richer UART result without turning a failed zero into weight."""
+        available = values["measurementKind"] in {
+            "STABLE_MEAN",
+            "TIMEOUT_MEDIAN",
+        }
+        if values["measurementKind"] == "STABLE_MEAN":
+            status, value_kind, health = (
+                "STABLE",
+                "STABLE_WINDOW_MEAN",
+                "OK",
+            )
+        elif values["measurementKind"] == "TIMEOUT_MEDIAN":
+            status, value_kind, health = "UNSTABLE", "TIMEOUT_MEDIAN", "OK"
+        else:
+            value_kind = "NONE"
+            by_kind = {
+                "OVERLOAD": ("OVERLOAD", "OVERLOAD"),
+                "PROTOCOL_ERROR": ("PROTOCOL_ERROR", "PROTOCOL_ERROR"),
+                "CONFIG_ERROR": ("CONFIG_ERROR", "CONFIG_ERROR"),
+                "DISCONNECTED": ("DISCONNECTED", "DISCONNECTED"),
+                "SENSOR_FAULT": ("SENSOR_FAULT", "SENSOR_FAULT"),
+            }
+            if values["measurementKind"] == "UNAVAILABLE" and values["faultCode"] == "WEIGHT_TIMEOUT":
+                status, health = "TIMEOUT", "TIMEOUT"
+            else:
+                status, health = by_kind.get(
+                    values["measurementKind"],
+                    ("SENSOR_FAULT", "UNKNOWN"),
+                )
+        fault = values["faultCode"]
+        # MEASUREMENT_INTERRUPTED has no OneNet fault symbol. The exact UART
+        # bytes remain authoritative locally; do not invent another sensor
+        # diagnosis merely to populate an optional cloud field.
+        if fault in {"NONE", "MEASUREMENT_INTERRUPTED"}:
+            fault = None
+        return {
+            "measurementUid": values["weightMeasurementUid"],
+            "status": status,
+            "weightValueAvailable": available,
+            "reportedWeightGrams": (
+                values["reportedWeightGrams"] if available else None
+            ),
+            "weightValueKind": value_kind,
+            "measurementElapsedMs": values["measurementElapsedMs"],
+            "sampleCount": values["sampleCount"],
+            "calibrationVersion": values["calibrationVersion"],
+            "sensorHealth": health,
+            "faultCode": fault,
+            "mcuBootId": values["mcuBootId"],
+            "mcuEventSequence": values["mcuEventSequence"],
+        }
+
+    @staticmethod
+    def _native_baseline_permit_dict(permit) -> dict:
+        return {
+            "permit_uid": permit.permit_uid,
+            "work_uid": permit.work_uid,
+            "command_uid": permit.command_uid,
+            "work_type": permit.work_type,
+            "request_digest_sha256": permit.request_digest_sha256,
+        }
+
+    def prepare_native_baseline_completion(
+        self,
+        permit,
+        native_command_uid: str,
+        *,
+        device_name: str,
+        event_uid: str,
+    ) -> dict:
+        """Freeze one exact native baseline result before permanent completion.
+
+        The scoped MCU receipt, reliable event, cloud-command terminal state,
+        optional non-negative local tare and COMPLETING slot are one commit.
+        A restart can therefore only repeat the same permanent completion; it
+        cannot manufacture another result event or dispatch the measurement.
+        """
+        from job_safety import JobPermit, command_request_digest
+        import uart2_protocol as uart2
+
+        marker_name = "nativeBaselineCompletion"
+        if not isinstance(permit, JobPermit) or permit.work_type != WORK_TYPE_BASELINE:
+            raise ValueError("native baseline completion requires its original permit")
+        if not isinstance(device_name, str) or not device_name:
+            raise ValueError("native baseline completion requires the device identity")
+        with self._standalone_native_transaction() as conn:
+            record = self.get_native_command(native_command_uid)
+            scope_values = self._native_baseline_scope(record)
+            raw_scope = uart2.encode_payload(
+                "QUERY_PROCESS_EVENT",
+                scope_values | {"queryId": 1},
+            )[8:]
+            receipt = self.get_native_process_receipt(raw_scope)
+            if receipt is None:
+                return {"state": "WAITING_FOR_RESULT"}
+            values = uart2.decode_payload(
+                "BASELINE_MEASUREMENT_RESULT",
+                bytes(receipt["payload"]),
+            )
+            native = uart2.decode_payload("MEASURE_BASELINE", record["payload"])
+            command = self.get_command(permit.command_uid)
+            if command is None:
+                raise ValueError("native baseline lost its original cloud command")
+            cloud = command["payload"]
+            payload = cloud.get("payload") if isinstance(cloud, dict) else None
+            if (
+                cloud.get("commandUid") != permit.command_uid
+                or cloud.get("commandType") != "MEASURE_EMPTY_BAG_BASELINE"
+                or cloud.get("targetDeviceName") != device_name
+                or not isinstance(payload, dict)
+                or payload.get("measurementUid") != permit.work_uid
+                or payload.get("measurementUid") != native["measurementUid"]
+                or payload.get("portNo") != native["portNo"]
+                or payload.get("emptyBagConfirmed") is not True
+                or payload.get("measurementTimeoutMs") != 5000
+                or payload.get("config", {}).get("version") != native["configVersion"]
+                or payload.get("config", {}).get("contentSha256")
+                != native["configContentSha256"]
+                or command_request_digest(cloud) != permit.request_digest_sha256
+                or values["mcuCommandUid"] != native_command_uid
+                or values["measurementUid"] != permit.work_uid
+                or values["portNo"] != native["portNo"]
+                or values["configVersion"] != native["configVersion"]
+                or values["mcuBootId"] != native["targetMcuBootId"]
+                or not record["write_claimed"]
+                or record["decision_outcome"] == "REJECTED"
+            ):
+                raise ValueError("native baseline result differs from original authority")
+            slot_row = conn.execute(
+                "SELECT * FROM work_slot WHERE slot_id=1"
+            ).fetchone()
+            if (
+                slot_row is None
+                or (slot_row["work_type"], slot_row["work_uid"], slot_row["port_no"])
+                != (WORK_TYPE_BASELINE, permit.work_uid, native["portNo"])
+            ):
+                raise ValueError("native baseline lost its original work slot")
+            context = (
+                _json.loads(slot_row["context_json"])
+                if slot_row["context_json"]
+                else {}
+            )
+            if (
+                context.get("native_protocol") != 2
+                or context.get("start_command_uid") != permit.command_uid
+                or context.get("start_mcu_command_uid") != native_command_uid
+                or context.get("job_safety")
+                != (
+                    self._native_baseline_permit_dict(permit)
+                    | {"begin_uid": permit.work_uid}
+                )
+            ):
+                raise ValueError("native baseline slot differs from its original permit")
+
+            measurement = self._native_baseline_measurement_fact(values)
+            event_payload = {
+                "measurementUid": permit.work_uid,
+                "portNo": payload["portNo"],
+                "bagUid": payload["bagUid"],
+                "emptyBagConfirmed": True,
+                "totalWeightMeasurement": measurement,
+                "frozenConfig": dict(payload["config"]),
+            }
+            baseline = None
+            weight = measurement["reportedWeightGrams"]
+            if measurement["weightValueAvailable"] and weight >= 0:
+                baseline = {
+                    "bag_uid": payload["bagUid"],
+                    "weight_grams": weight,
+                    "source_kind": "NATIVE_BASELINE",
+                    "source_work_type": WORK_TYPE_BASELINE,
+                    "source_work_uid": permit.work_uid,
+                    "source_mcu_boot_id": values["mcuBootId"],
+                    "source_mcu_event_sequence": values["mcuEventSequence"],
+                    "source_observed_at": None,
+                    "measurement_uid": values["weightMeasurementUid"],
+                }
+                saved_baseline = conn.execute(
+                    "SELECT * FROM bag_baseline WHERE bag_uid=?",
+                    (payload["bagUid"],),
+                ).fetchone()
+                stable_fields = tuple(baseline)
+                baseline["updated_at"] = (
+                    saved_baseline["updated_at"]
+                    if saved_baseline is not None
+                    and all(
+                        saved_baseline[field] == baseline[field]
+                        for field in stable_fields
+                    )
+                    else self._now()
+                )
+            evidence = {
+                "profile": "ecobin-native-baseline-completion-v1",
+                "deviceName": device_name,
+                "permit": self._native_baseline_permit_dict(permit),
+                "nativeCommandUid": native_command_uid,
+                "sourceMcuBootId": values["mcuBootId"],
+                "sourceMcuEventSequence": values["mcuEventSequence"],
+                "sourceEventDigestSha256": uart2.compute_process_event_digest(
+                    "BASELINE_MEASUREMENT_RESULT",
+                    bytes(receipt["payload"]),
+                ),
+                "eventUid": event_uid,
+                "eventPayloadSha256": canonical_payload_sha256(event_payload),
+                "baseline": baseline,
+            }
+            digest = canonical_payload_sha256(evidence)
+            result = {} if command["result"] is None else dict(command["result"])
+            old = result.get(marker_name)
+            if old is not None:
+                if (
+                    not isinstance(old, dict)
+                    or old.get("state") not in {"PREPARED", "APPLIED"}
+                    or old.get("evidence") != evidence
+                    or old.get("evidenceSha256") != digest
+                    or command["state"] != "COMPLETED"
+                    or slot_row["work_state"] != "COMPLETING"
+                    or context.get(marker_name)
+                    != {
+                        "eventUid": event_uid,
+                        "evidenceSha256": digest,
+                    }
+                ):
+                    raise ValueError("native baseline completion receipt conflicts")
+                event_row = self.get_event(event_uid)
+                event = (
+                    _json.loads(event_row["payload_json"])
+                    if event_row is not None
+                    else None
+                )
+                if (
+                    event is None
+                    or event.get("eventType") != "BASELINE_MEASUREMENT_COMPLETE"
+                    or event.get("commandUid") != permit.command_uid
+                    or event.get("target")
+                    != {"type": "BASELINE_MEASUREMENT", "uid": permit.work_uid}
+                    or event.get("payload") != event_payload
+                    or event.get("payloadSha256") != evidence["eventPayloadSha256"]
+                ):
+                    raise ValueError("native baseline reliable event conflicts")
+                return {
+                    "state": "PREPARED",
+                    "eventUid": event_uid,
+                    "evidenceSha256": digest,
+                }
+            if command["state"] not in {"PROCESSING", "WAITING_MCU_RESULT"}:
+                raise ValueError("native baseline cannot replace a terminal command")
+            sequence = self._next_seq(conn)
+            event = build_event_envelope(
+                event_uid=event_uid,
+                device_name=device_name,
+                edge_event_sequence=sequence,
+                event_type="BASELINE_MEASUREMENT_COMPLETE",
+                target_type="BASELINE_MEASUREMENT",
+                target_uid=permit.work_uid,
+                command_uid=permit.command_uid,
+                payload=event_payload,
+            )
+            self._insert_event(conn, event, "BASELINE_MEASUREMENT_COMPLETE")
+            if baseline is not None:
+                self._upsert_bag_baseline_in_tx(conn, baseline)
+            marker = {
+                "state": "PREPARED",
+                "evidence": evidence,
+                "evidenceSha256": digest,
+            }
+            result.update(
+                measurementStatus=measurement["status"],
+                weightValuePresent=measurement["weightValueAvailable"],
+                reportedWeightGrams=measurement["reportedWeightGrams"],
+            )
+            result[marker_name] = marker
+            context = dict(context)
+            context["phase"] = "NATIVE_BASELINE_COMPLETING"
+            context[marker_name] = {
+                "eventUid": event_uid,
+                "evidenceSha256": digest,
+            }
+            updated = conn.execute(
+                """UPDATE command_inbox
+                   SET state='COMPLETED', processed_at=?,
+                       processing_started_at=NULL, mcu_command_uid=?,
+                       result_json=?, last_error=NULL
+                   WHERE command_uid=? AND state IN ('PROCESSING','WAITING_MCU_RESULT')""",
+                (
+                    self._now(),
+                    native_command_uid,
+                    _json.dumps(result, ensure_ascii=False, sort_keys=True),
+                    permit.command_uid,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("native baseline cloud command changed")
+            updated = conn.execute(
+                """UPDATE work_slot
+                   SET work_state='COMPLETING', context_json=?, updated_at=?
+                   WHERE slot_id=1 AND work_type=? AND work_uid=? AND port_no=?""",
+                (
+                    _json.dumps(context, ensure_ascii=False, sort_keys=True),
+                    self._now(),
+                    WORK_TYPE_BASELINE,
+                    permit.work_uid,
+                    native["portNo"],
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("native baseline work slot changed")
+            return {
+                "state": "PREPARED",
+                "eventUid": event_uid,
+                "evidenceSha256": digest,
+            }
+
+    def apply_native_baseline_completion(
+        self,
+        permit,
+        native_command_uid: str,
+        *,
+        device_name: str,
+        permit_snapshot: dict,
+    ) -> dict:
+        """Release only after reading the exact permanent completion receipt."""
+        marker_name = "nativeBaselineCompletion"
+        expected_permit = {
+            "permitUid": permit.permit_uid,
+            "commandUid": permit.command_uid,
+            "workUid": permit.work_uid,
+            "workType": permit.work_type,
+            "requestDigestSha256": permit.request_digest_sha256,
+        }
+        if not isinstance(permit_snapshot, dict) or any(
+            permit_snapshot.get(key) != value
+            for key, value in expected_permit.items()
+        ):
+            raise ValueError("native baseline permanent permit identity conflicts")
+        with self._standalone_native_transaction() as conn:
+            command = self.get_command(permit.command_uid)
+            result = command.get("result") if command is not None else None
+            marker = result.get(marker_name) if isinstance(result, dict) else None
+            if (
+                command is None
+                or command["state"] != "COMPLETED"
+                or not isinstance(marker, dict)
+                or marker.get("state") not in {"PREPARED", "APPLIED"}
+                or marker.get("evidence", {}).get("nativeCommandUid")
+                != native_command_uid
+            ):
+                raise ValueError("native baseline completion was not prepared")
+            expected_completion = {
+                "state": "COMPLETED",
+                "completionUid": permit.command_uid,
+                "completionOutcome": "SUCCEEDED",
+                "completionDigestSha256": marker["evidenceSha256"],
+            }
+            if any(
+                permit_snapshot.get(key) != value
+                for key, value in expected_completion.items()
+            ):
+                raise ValueError("native baseline lacks permanent completion receipt")
+            if marker["state"] == "APPLIED":
+                return {
+                    "state": "COMPLETED",
+                    "eventUid": marker["evidence"]["eventUid"],
+                }
+            slot = conn.execute(
+                "SELECT * FROM work_slot WHERE slot_id=1"
+            ).fetchone()
+            context = (
+                _json.loads(slot["context_json"])
+                if slot is not None and slot["context_json"]
+                else {}
+            )
+            release = context.get("nativeBaselineMcuRelease")
+            if (
+                slot is None
+                or (slot["work_type"], slot["work_uid"], slot["work_state"])
+                != (WORK_TYPE_BASELINE, permit.work_uid, "COMPLETING")
+                or context.get(marker_name)
+                != {
+                    "eventUid": marker["evidence"]["eventUid"],
+                    "evidenceSha256": marker["evidenceSha256"],
+                }
+                or not isinstance(release, dict)
+                or release.get("profile")
+                != "native-baseline-process-release-v1"
+                or release.get("basis")
+                not in {
+                    "FRESH_PROCESS_EVENT_QUERY_RELEASED",
+                    "RECOGNIZED_MCU_RESTART",
+                }
+                or release.get("nativeCommandUid") != native_command_uid
+                or release.get("sourceMcuBootId")
+                != marker["evidence"]["sourceMcuBootId"]
+                or release.get("sourceMcuEventSequence")
+                != marker["evidence"]["sourceMcuEventSequence"]
+                or release.get("sourceEventDigestSha256")
+                != marker["evidence"]["sourceEventDigestSha256"]
+            ):
+                raise ValueError(
+                    "native baseline completion lacks exact MCU release proof"
+                )
+            marker["state"] = "APPLIED"
+            result[marker_name] = marker
+            updated = conn.execute(
+                "UPDATE command_inbox SET result_json=? WHERE command_uid=? AND state='COMPLETED'",
+                (
+                    _json.dumps(result, ensure_ascii=False, sort_keys=True),
+                    permit.command_uid,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("native baseline completion command changed")
+            retired = conn.execute(
+                """UPDATE native_mcu_command SET dispatch_retired=1
+                   WHERE command_uid=? AND dispatch_retired=0""",
+                (native_command_uid,),
+            )
+            if retired.rowcount != 1:
+                raise ValueError(
+                    "native baseline completion dispatch fence changed"
+                )
+            released = conn.execute(
+                """UPDATE work_slot
+                   SET work_type='NONE', work_uid=NULL, work_state=NULL,
+                       port_no=NULL, context_json=NULL, updated_at=?
+                   WHERE slot_id=1 AND work_type=? AND work_uid=?
+                     AND work_state='COMPLETING'""",
+                (self._now(), WORK_TYPE_BASELINE, permit.work_uid),
+            )
+            if released.rowcount != 1:
+                raise ValueError("native baseline completion slot was not released")
+            return {
+                "state": "COMPLETED",
+                "eventUid": marker["evidence"]["eventUid"],
+            }
+
+    def confirm_native_baseline_mcu_release(
+        self,
+        permit,
+        native_command_uid: str,
+        *,
+        release_observation: Optional[dict] = None,
+        replacement_mcu_boot_id: Optional[int] = None,
+    ) -> dict:
+        """Persist exact proof that the old MCU process slot cannot stay held."""
+        from job_safety import JobPermit
+        import uart2_protocol as uart2
+
+        key = "nativeBaselineMcuRelease"
+        if not isinstance(permit, JobPermit) or permit.work_type != WORK_TYPE_BASELINE:
+            raise ValueError("native baseline release requires its original permit")
+        if (release_observation is None) == (replacement_mcu_boot_id is None):
+            raise ValueError("native baseline release requires exactly one proof")
+        with self._standalone_native_transaction() as conn:
+            record = self.get_native_command(native_command_uid)
+            native = uart2.decode_payload("MEASURE_BASELINE", record["payload"])
+            scope = self._native_baseline_scope(record)
+            raw_scope = uart2.encode_payload(
+                "QUERY_PROCESS_EVENT",
+                scope | {"queryId": 1},
+            )[8:]
+            receipt = self.get_native_process_receipt(raw_scope)
+            if receipt is None:
+                raise ValueError("native baseline release lacks local result custody")
+            measured = uart2.decode_payload(
+                "BASELINE_MEASUREMENT_RESULT",
+                bytes(receipt["payload"]),
+            )
+            source_digest = uart2.compute_process_event_digest(
+                "BASELINE_MEASUREMENT_RESULT",
+                bytes(receipt["payload"]),
+            )
+            slot = conn.execute(
+                "SELECT * FROM work_slot WHERE slot_id=1"
+            ).fetchone()
+            context = (
+                _json.loads(slot["context_json"])
+                if slot is not None and slot["context_json"]
+                else {}
+            )
+            command = self.get_command(permit.command_uid)
+            marker = (
+                command.get("result", {}).get("nativeBaselineCompletion")
+                if command is not None and isinstance(command.get("result"), dict)
+                else None
+            )
+            if (
+                slot is None
+                or (slot["work_type"], slot["work_uid"], slot["work_state"])
+                != (WORK_TYPE_BASELINE, permit.work_uid, "COMPLETING")
+                or not isinstance(marker, dict)
+                or marker.get("state") != "PREPARED"
+                or context.get("nativeBaselineCompletion")
+                != {
+                    "eventUid": marker["evidence"]["eventUid"],
+                    "evidenceSha256": marker["evidenceSha256"],
+                }
+                or native["measurementUid"] != permit.work_uid
+                or measured["mcuCommandUid"] != native_command_uid
+            ):
+                raise ValueError("native baseline release lost its prepared completion")
+
+            if release_observation is not None:
+                try:
+                    encoded = uart2.encode_payload(
+                        "PROCESS_EVENT_QUERY_REPLY",
+                        release_observation,
+                    )
+                    observed = uart2.decode_payload(
+                        "PROCESS_EVENT_QUERY_REPLY",
+                        encoded,
+                    )
+                except (TypeError, ValueError) as error:
+                    raise ValueError("native baseline release observation is invalid") from error
+                if (
+                    any(observed.get(field) != value for field, value in scope.items())
+                    or observed["status"] != "RELEASED"
+                    or observed["currentMcuBootId"] != native["targetMcuBootId"]
+                    or observed["mcuEventSequence"] != measured["mcuEventSequence"]
+                    or observed["eventDigestSha256"] != source_digest
+                ):
+                    raise ValueError("native baseline release observation differs from custody")
+                proof = {
+                    "profile": "native-baseline-process-release-v1",
+                    "basis": "FRESH_PROCESS_EVENT_QUERY_RELEASED",
+                    "nativeCommandUid": native_command_uid,
+                    "sourceMcuBootId": measured["mcuBootId"],
+                    "sourceMcuEventSequence": measured["mcuEventSequence"],
+                    "sourceEventDigestSha256": source_digest,
+                    "queryId": observed["queryId"],
+                    "queryPayloadSha256": canonical_payload_sha256(observed),
+                }
+            else:
+                if (
+                    type(replacement_mcu_boot_id) is not int
+                    or replacement_mcu_boot_id == native["targetMcuBootId"]
+                    or replacement_mcu_boot_id
+                    != self._native_counter(conn, "native_current_boot")
+                    or conn.execute(
+                        "SELECT 1 FROM native_mcu_boot WHERE boot_id=?",
+                        (replacement_mcu_boot_id,),
+                    ).fetchone()
+                    is None
+                ):
+                    raise ValueError("native baseline replacement boot is not recognized")
+                proof = {
+                    "profile": "native-baseline-process-release-v1",
+                    "basis": "RECOGNIZED_MCU_RESTART",
+                    "nativeCommandUid": native_command_uid,
+                    "sourceMcuBootId": measured["mcuBootId"],
+                    "sourceMcuEventSequence": measured["mcuEventSequence"],
+                    "sourceEventDigestSha256": source_digest,
+                    "replacementMcuBootId": replacement_mcu_boot_id,
+                }
+            existing = context.get(key)
+            if existing is not None:
+                if (
+                    not isinstance(existing, dict)
+                    or existing.get("profile")
+                    != "native-baseline-process-release-v1"
+                    or existing.get("nativeCommandUid") != native_command_uid
+                    or existing.get("sourceMcuBootId") != measured["mcuBootId"]
+                    or existing.get("sourceMcuEventSequence")
+                    != measured["mcuEventSequence"]
+                    or existing.get("sourceEventDigestSha256") != source_digest
+                ):
+                    raise ValueError("native baseline release proof conflicts")
+                return existing
+            context[key] = proof
+            updated = conn.execute(
+                """UPDATE work_slot SET context_json=?, updated_at=?
+                   WHERE slot_id=1 AND work_type=? AND work_uid=?
+                     AND work_state='COMPLETING'""",
+                (
+                    _json.dumps(context, ensure_ascii=False, sort_keys=True),
+                    self._now(),
+                    WORK_TYPE_BASELINE,
+                    permit.work_uid,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("native baseline release slot changed")
+            return proof
+
     def _migrate_v21(self) -> None:
         """Native terminal process evidence, not a business/OneNet outbox."""
         self._conn.execute("""CREATE TABLE IF NOT EXISTS native_measurement_event (
@@ -2655,6 +3506,154 @@ class EdgeStore:
         with self._standalone_native_transaction() as conn:
             return self._prepare_native_command_in_tx(conn, name, command_uid, boot_id, fields)
 
+    def prepare_native_baseline_work(
+        self,
+        command: dict,
+        permit,
+        native_command_uid: str,
+        boot_id: int,
+        *,
+        runtime_instance_uid: str,
+    ) -> dict:
+        """Atomically bind one baseline cloud command, MCU intent and slot.
+
+        The volatile runtime token that permits the first write is deliberately
+        created only after this commit.  A process death at the return boundary
+        therefore leaves a complete query/technical-failure identity, never an
+        unresolved native row without its owning work slot.
+        """
+        from dataclasses import asdict
+        from job_safety import JobPermit, command_request_digest
+
+        stable = dict(command) if isinstance(command, dict) else None
+        if stable is None:
+            raise ValueError("native baseline cloud command must be an object")
+        stable.pop("cosGrant", None)
+        payload = stable.get("payload")
+        target = stable.get("target")
+        if (
+            not isinstance(permit, JobPermit)
+            or permit.work_type != WORK_TYPE_BASELINE
+            or not isinstance(payload, dict)
+            or not isinstance(target, dict)
+            or stable.get("commandType") != "MEASURE_EMPTY_BAG_BASELINE"
+            or stable.get("commandUid") != permit.command_uid
+            or target.get("type") != "BASELINE_MEASUREMENT"
+            or target.get("uid") != permit.work_uid
+            or payload.get("measurementUid") != permit.work_uid
+            or payload.get("emptyBagConfirmed") is not True
+            or payload.get("measurementTimeoutMs") != 5000
+            or payload.get("portNo") != 1
+            or not isinstance(payload.get("bagUid"), str)
+            or not payload["bagUid"]
+            or not isinstance(payload.get("config"), dict)
+            or command_request_digest(stable)
+            != permit.request_digest_sha256
+            or permit.permit_uid != permit.command_uid
+        ):
+            raise ValueError("native baseline authority is inconsistent")
+        try:
+            parsed_runtime_uid = _uuid.UUID(runtime_instance_uid)
+        except (ValueError, TypeError, AttributeError) as error:
+            raise ValueError("native baseline runtime identity is invalid") from error
+        if (
+            parsed_runtime_uid.version != 4
+            or str(parsed_runtime_uid) != runtime_instance_uid
+        ):
+            raise ValueError("native baseline runtime identity is invalid")
+        config = payload["config"]
+        fields = {
+            "measurementUid": permit.work_uid,
+            "portNo": payload["portNo"],
+            "configVersion": config.get("version"),
+            "configContentSha256": config.get("contentSha256"),
+            "startExecutionWindowMs": 5000,
+            "measurementTimeoutMs": 5000,
+        }
+        context = {
+            "native_protocol": 2,
+            "phase": "NATIVE_BASELINE_RUNNING",
+            "start_command_uid": permit.command_uid,
+            "start_mcu_command_uid": native_command_uid,
+            "start_runtime_instance_uid": runtime_instance_uid,
+            "bag_uid": payload["bagUid"],
+            "empty_bag_confirmed": True,
+            "config": dict(config),
+            "job_safety": asdict(permit) | {"begin_uid": permit.work_uid},
+        }
+        pending_result = {
+            "native_pending": True,
+            "mcu_command_uid": native_command_uid,
+        }
+        with self._standalone_native_transaction() as conn:
+            row = conn.execute(
+                "SELECT * FROM command_inbox WHERE command_uid=?",
+                (permit.command_uid,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("native baseline cloud command is missing")
+            stored = _json.loads(row["payload_json"])
+            if stored.get("cosGrant") is None:
+                stored.pop("cosGrant", None)
+            if (
+                row["state"] != "PROCESSING"
+                or row["command_type"] != "MEASURE_EMPTY_BAG_BASELINE"
+                or row["canonical_sha256"]
+                != canonical_payload_sha256(stable)
+                or stored != stable
+            ):
+                raise ValueError("native baseline cloud command changed")
+            if conn.execute(
+                "SELECT 1 FROM maintenance_lock WHERE singleton_id=1"
+            ).fetchone():
+                return None
+            slot = conn.execute(
+                "SELECT work_type FROM work_slot WHERE slot_id=1"
+            ).fetchone()
+            if slot is None or slot["work_type"] != WORK_TYPE_NONE:
+                return None
+            record = self._prepare_native_command_in_tx(
+                conn,
+                "MEASURE_BASELINE",
+                native_command_uid,
+                boot_id,
+                fields,
+            )
+            acquired = conn.execute(
+                """UPDATE work_slot
+                   SET work_type=?, work_uid=?, work_state='ACTIVE',
+                       port_no=?, context_json=?, updated_at=?
+                   WHERE slot_id=1 AND work_type=?""",
+                (
+                    WORK_TYPE_BASELINE,
+                    permit.work_uid,
+                    payload["portNo"],
+                    _json.dumps(context, ensure_ascii=False, sort_keys=True),
+                    self._now(),
+                    WORK_TYPE_NONE,
+                ),
+            )
+            if acquired.rowcount != 1:
+                raise ValueError("native baseline work slot changed")
+            waiting = conn.execute(
+                """UPDATE command_inbox
+                   SET state='WAITING_MCU_RESULT', mcu_command_uid=?,
+                       result_json=?, processing_started_at=NULL
+                   WHERE command_uid=? AND state='PROCESSING'""",
+                (
+                    native_command_uid,
+                    _json.dumps(
+                        pending_result,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    permit.command_uid,
+                ),
+            )
+            if waiting.rowcount != 1:
+                raise ValueError("native baseline cloud command changed")
+            return record
+
     def _prepare_native_command_in_tx(self, conn, name, command_uid, boot_id, fields):
         self._verify_native_dispatch_retirements(conn)
         existing = self._checked_native_command(conn.execute(
@@ -2757,6 +3756,122 @@ class EdgeStore:
             return [dict(row) for row in self._conn.execute(
                 "SELECT * FROM native_mcu_command_observation WHERE command_uid=? ORDER BY created_at, outcome",
                 (command_uid,)).fetchall()]
+
+    def native_baseline_result_deadline_status(
+        self,
+        command_uid: str,
+        *,
+        communication_timeout_ms: int,
+    ) -> dict:
+        """Compare against the first durable ACCEPTED fact, never process age.
+
+        The MCU's immutable command contributes its fixed five-second
+        measurement bound.  The configured communication timeout is the
+        remaining query/handoff allowance.  Because the acceptance row is
+        committed before this read and survives a Pi restart, reopening the
+        runtime cannot reset an accepted measurement's deadline.
+        """
+        import uart2_protocol as uart2
+
+        if (
+            type(communication_timeout_ms) is not int
+            or communication_timeout_ms < 1000
+        ):
+            raise ValueError("native baseline communication timeout is invalid")
+        with self._lock:
+            record = self._checked_native_command(
+                self._conn.execute(
+                    "SELECT * FROM native_mcu_command WHERE command_uid=?",
+                    (command_uid,),
+                ).fetchone()
+            )
+            if (
+                record is None
+                or record["message_name"] != "MEASURE_BASELINE"
+                or not record["write_claimed"]
+                or record["conflict"]
+            ):
+                raise ValueError("native baseline deadline lost its original command")
+            values = uart2.decode_payload("MEASURE_BASELINE", record["payload"])
+            if values["measurementTimeoutMs"] != 5000:
+                raise ValueError("native baseline deadline is not five seconds")
+            if record["decision_outcome"] != "ACCEPTED":
+                return {"state": "WAITING_FOR_ACCEPTANCE", "expired": False}
+            if record["decision_error"] != "NONE":
+                raise ValueError("accepted native baseline carries a rejection error")
+            row = self._conn.execute(
+                """SELECT MIN(created_at) AS accepted_at,
+                          CAST((julianday('now') - julianday(MIN(created_at)))
+                               * 86400000 AS INTEGER) AS elapsed_ms
+                   FROM native_mcu_command_observation
+                   WHERE command_uid=? AND outcome='ACCEPTED'
+                     AND current_boot_id=? AND error_code='NONE'""",
+                (command_uid, values["targetMcuBootId"]),
+            ).fetchone()
+            if row is None or row["accepted_at"] is None or row["elapsed_ms"] is None:
+                raise ValueError("accepted native baseline lacks its durable observation")
+            # SQLite's historical observation column has whole-second
+            # precision.  Treat the unknown sub-second fraction
+            # conservatively so an ACCEPTED fact can never expire almost one
+            # second before the MCU's five-second measurement bound.
+            allowance = (
+                values["measurementTimeoutMs"]
+                + communication_timeout_ms
+                + 1000
+            )
+            elapsed = int(row["elapsed_ms"])
+            return {
+                "state": "ACCEPTED",
+                "acceptedAt": row["accepted_at"],
+                "deadlineAfterMs": allowance,
+                # A backwards wall-clock discontinuity must not create an
+                # unbounded permit. It fails closed as an elapsed deadline.
+                "expired": elapsed < 0 or elapsed >= allowance,
+            }
+
+    def native_baseline_release_deadline_status(
+        self,
+        command_uid: str,
+        *,
+        communication_timeout_ms: int,
+    ) -> dict:
+        """Bound exact-result handoff without discarding the saved result."""
+        import uart2_protocol as uart2
+
+        if (
+            type(communication_timeout_ms) is not int
+            or communication_timeout_ms < 1000
+        ):
+            raise ValueError("native baseline release timeout is invalid")
+        with self._lock:
+            record = self._checked_native_command(
+                self._conn.execute(
+                    "SELECT * FROM native_mcu_command WHERE command_uid=?",
+                    (command_uid,),
+                ).fetchone()
+            )
+            scope = self._native_baseline_scope(record)
+            raw_scope = uart2.encode_payload(
+                "QUERY_PROCESS_EVENT",
+                scope | {"queryId": 1},
+            )[8:]
+            row = self._conn.execute(
+                """SELECT created_at,
+                          CAST((julianday('now') - julianday(created_at))
+                               * 86400000 AS INTEGER) AS elapsed_ms
+                   FROM native_process_receipt WHERE scope=?""",
+                (raw_scope,),
+            ).fetchone()
+            if row is None or row["elapsed_ms"] is None:
+                raise ValueError("native baseline release lacks exact result receipt")
+            elapsed = int(row["elapsed_ms"])
+            allowance = communication_timeout_ms + 1000
+            return {
+                "state": "WAITING_FOR_MCU_RELEASE",
+                "resultSavedAt": row["created_at"],
+                "deadlineAfterMs": allowance,
+                "expired": elapsed < 0 or elapsed >= allowance,
+            }
 
     def _migrate_v19(self) -> None:
         """Native result handoff is durable but isolated from business relay."""
@@ -5243,6 +6358,7 @@ class EdgeStore:
         command: Any,
         slot: Optional[sqlite3.Row],
         context: Any,
+        native_command: Optional[dict] = None,
     ) -> bool:
         """Prove an interrupted command belongs to the retained safe lock.
 
@@ -5273,6 +6389,83 @@ class EdgeStore:
         stable_command.pop("cosGrant", None)
         if canonical_payload_sha256(stable_command) != row["canonical_sha256"]:
             return False
+
+        if (
+            command_type == "MEASURE_EMPTY_BAG_BASELINE"
+            and context.get("native_protocol") == 2
+        ):
+            # Native-v2 baseline owns no per-action permit map.  Its sole
+            # permanent JobPermit and immutable MCU command are instead bound
+            # directly into the active slot.  Keep exactly that shape in its
+            # original PROCESSING/WAITING state so NativeBusinessRuntime can
+            # continue query-only recovery after a Pi restart.
+            work_uid = payload.get("measurementUid")
+            native_uid = context.get("start_mcu_command_uid")
+            safety = context.get("job_safety")
+            if (
+                not isinstance(native_command, dict)
+                or native_command.get("message_name") != "MEASURE_BASELINE"
+                or native_command.get("command_uid") != native_uid
+                or native_command.get("conflict")
+                or not isinstance(safety, dict)
+            ):
+                return False
+            try:
+                import uart2_protocol as uart2
+
+                native = uart2.decode_payload(
+                    "MEASURE_BASELINE",
+                    native_command["payload"],
+                )
+            except (KeyError, TypeError, ValueError):
+                return False
+            stable_digest = canonical_payload_sha256(stable_command)
+            return bool(
+                isinstance(work_uid, str)
+                and work_uid
+                and slot["work_type"] == WORK_TYPE_BASELINE
+                and slot["work_uid"] == work_uid
+                and slot["port_no"] == payload.get("portNo")
+                and slot["work_state"] in {"ACTIVE", "RECOVERY_REQUIRED"}
+                and target.get("type") == "BASELINE_MEASUREMENT"
+                and target.get("uid") == work_uid
+                and payload.get("emptyBagConfirmed") is True
+                and payload.get("measurementTimeoutMs") == 5000
+                and context.get("phase") == "NATIVE_BASELINE_RUNNING"
+                and context.get("start_command_uid") == command_uid
+                and context.get("bag_uid") == payload.get("bagUid")
+                and context.get("empty_bag_confirmed") is True
+                and context.get("config") == payload.get("config")
+                and safety
+                == {
+                    "permit_uid": command_uid,
+                    "work_uid": work_uid,
+                    "command_uid": command_uid,
+                    "work_type": WORK_TYPE_BASELINE,
+                    "request_digest_sha256": stable_digest,
+                    "begin_uid": work_uid,
+                }
+                and native["mcuCommandUid"] == native_uid
+                and native["measurementUid"] == work_uid
+                and native["portNo"] == payload.get("portNo")
+                and native["configVersion"]
+                == payload.get("config", {}).get("version")
+                and native["configContentSha256"]
+                == payload.get("config", {}).get("contentSha256")
+                and native["startExecutionWindowMs"] == 5000
+                and native["measurementTimeoutMs"] == 5000
+                and (
+                    row["mcu_command_uid"] == native_uid
+                    or (
+                        row["state"] == "PROCESSING"
+                        and row["mcu_command_uid"] is None
+                    )
+                )
+                and (
+                    native_command["write_claimed"]
+                    or native_command["decision_outcome"] is None
+                )
+            )
 
         start_bindings = {
             "START_DELIVERY_SESSION": (
@@ -5493,7 +6686,7 @@ class EdgeStore:
             ).rowcount
             rows = self._conn.execute(
                 """SELECT command_uid, command_type, canonical_sha256,
-                          state, last_error, payload_json
+                          state, last_error, mcu_command_uid, payload_json
                    FROM command_inbox
                    WHERE state IN (
                        'PROCESSING', 'WAITING_MCU_RESULT',
@@ -5526,6 +6719,22 @@ class EdgeStore:
             physical_failed = 0
             for row in rows:
                 command = _json.loads(row["payload_json"])
+                native_command = None
+                if (
+                    row["command_type"] == "MEASURE_EMPTY_BAG_BASELINE"
+                    and isinstance(context, dict)
+                    and context.get("native_protocol") == 2
+                    and isinstance(context.get("start_mcu_command_uid"), str)
+                ):
+                    try:
+                        native_command = self._checked_native_command(
+                            self._conn.execute(
+                                "SELECT * FROM native_mcu_command WHERE command_uid=?",
+                                (context["start_mcu_command_uid"],),
+                            ).fetchone()
+                        )
+                    except ValueError:
+                        native_command = None
                 if (
                     physical_recovery_required
                     and self._protected_command_matches_work_slot(
@@ -5533,8 +6742,20 @@ class EdgeStore:
                         command,
                         slot,
                         context,
+                        native_command,
                     )
                 ):
+                    if (
+                        row["command_type"]
+                        == "MEASURE_EMPTY_BAG_BASELINE"
+                        and context.get("native_protocol") == 2
+                    ):
+                        # The native runtime's durable write fence, result
+                        # receipt and permanent permit already define recovery.
+                        # Re-labeling either row would destroy that state
+                        # machine, so startup only counts and preserves it.
+                        physical_locked += 1
+                        continue
                     last_error = (
                         row["last_error"]
                         if row["state"] == "RECOVERY_REQUIRED"
@@ -7228,6 +8449,7 @@ class EdgeStore:
         context: dict,
         *,
         observed_command: Optional[dict] = None,
+        clean_restart_interlock_clearance: Optional[dict] = None,
     ) -> bool:
         with self.transaction():
             conn = self._conn
@@ -7239,10 +8461,58 @@ class EdgeStore:
             slot = conn.execute("SELECT work_type FROM work_slot WHERE slot_id=1").fetchone()
             if not slot or slot["work_type"] != WORK_TYPE_NONE:
                 return False
+            interlock_raw = self._clean_restart_interlock_raw_in_tx(
+                conn,
+                port_no,
+            )
+            interlock_active = self._clean_restart_interlock_value_active(
+                interlock_raw,
+            )
+            if clean_restart_interlock_clearance is not None and (
+                work_type not in {WORK_TYPE_DELIVERY, WORK_TYPE_CLEAN}
+                or not interlock_active
+            ):
+                return False
+            if (
+                work_type in {WORK_TYPE_DELIVERY, WORK_TYPE_CLEAN}
+                and interlock_active
+            ):
+                metadata = self._decode_clean_restart_interlock_metadata(
+                    interlock_raw,
+                )
+                if (
+                    metadata is None
+                    or clean_restart_interlock_clearance != metadata
+                    or context.get("start_bag_uid")
+                    not in {
+                        bag_uid
+                        for bag_uid in (
+                            metadata.get("oldBagUid"),
+                            metadata.get("newBagUid"),
+                        )
+                        if isinstance(bag_uid, str) and bag_uid
+                    }
+                ):
+                    return False
             conn.execute(
                 "UPDATE work_slot SET work_type=?, work_uid=?, work_state='ACTIVE', port_no=?, context_json=?, updated_at=? WHERE slot_id=1",
                 (work_type, work_uid, port_no, _json.dumps(context, ensure_ascii=False), self._now()),
             )
+            if clean_restart_interlock_clearance is not None:
+                cleared = conn.execute(
+                    """UPDATE device_state
+                       SET state_value='false', updated_at=?
+                       WHERE state_key=? AND state_value=?""",
+                    (
+                        self._now(),
+                        self._clean_restart_interlock_key(port_no),
+                        interlock_raw,
+                    ),
+                )
+                if cleared.rowcount != 1:
+                    raise ValueError(
+                        "clean restart interlock changed while acquiring work"
+                    )
             if observed_command is not None:
                 observation = self._record_command_observation_in_tx(
                     conn,
@@ -10289,24 +11559,104 @@ class EdgeStore:
     def _clean_restart_interlock_key(port_no: int) -> str:
         return f"port_{port_no}_clean_restart_interlock"
 
+    @staticmethod
+    def _clean_restart_interlock_value_active(value: Optional[str]) -> bool:
+        # Unknown historical/corrupt values fail closed.  Only the explicit
+        # inactive representation admits work without a matching handoff.
+        return value not in {None, "", "false"}
+
+    @staticmethod
+    def _decode_clean_restart_interlock_metadata(
+        value: Optional[str],
+    ) -> Optional[dict]:
+        if not value or value in {"true", "false"}:
+            return None
+        try:
+            metadata = _json.loads(value)
+        except (TypeError, ValueError):
+            return None
+        if (
+            not isinstance(metadata, dict)
+            or metadata.get("profile")
+            != "native-clean-bag-interlock-v1"
+        ):
+            return None
+        return metadata
+
+    def _clean_restart_interlock_raw_in_tx(
+        self,
+        conn,
+        port_no: int,
+    ) -> Optional[str]:
+        row = conn.execute(
+            """SELECT state_value FROM device_state
+               WHERE state_key=?""",
+            (self._clean_restart_interlock_key(port_no),),
+        ).fetchone()
+        return row["state_value"] if row else None
+
     def _set_clean_restart_interlock_in_tx(
         self,
         conn,
         port_no: int,
         active: bool,
+        *,
+        metadata: Optional[dict] = None,
     ) -> None:
+        current = self._clean_restart_interlock_raw_in_tx(conn, port_no)
+        current_metadata = self._decode_clean_restart_interlock_metadata(
+            current,
+        )
+        if active and metadata is not None:
+            if (
+                not isinstance(metadata, dict)
+                or metadata.get("profile")
+                != "native-clean-bag-interlock-v1"
+                or metadata.get("portNo") != port_no
+            ):
+                raise ValueError("invalid native clean bag interlock metadata")
+            if current_metadata is not None and current_metadata != metadata:
+                raise ValueError("another native clean bag interlock is active")
+            value = _json.dumps(
+                metadata,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        elif active:
+            # A legacy writer may not erase the evidence carried by a newer
+            # structured lock.
+            value = current if current_metadata is not None else "true"
+        else:
+            # Old completion/restart paths are allowed to clear only the old
+            # boolean latch. Structured recovery is cleared exclusively by a
+            # matching backend-authorized START inside acquire_work_slot().
+            value = current if current_metadata is not None else "false"
         self._upsert_state(
             conn,
             self._clean_restart_interlock_key(port_no),
-            "true" if active else "false",
+            value,
             self._now(),
         )
 
     def clean_restart_interlock_active(self, port_no: int) -> bool:
-        return self.get_state(
-            self._clean_restart_interlock_key(port_no),
-            "false",
-        ) == "true"
+        return self._clean_restart_interlock_value_active(
+            self.get_state(
+                self._clean_restart_interlock_key(port_no),
+                "false",
+            )
+        )
+
+    def get_clean_restart_interlock_metadata(
+        self,
+        port_no: int,
+    ) -> Optional[dict]:
+        return self._decode_clean_restart_interlock_metadata(
+            self.get_state(
+                self._clean_restart_interlock_key(port_no),
+                "false",
+            )
+        )
 
     def clear_clean_restart_interlock(self, port_no: int) -> None:
         with self.transaction():

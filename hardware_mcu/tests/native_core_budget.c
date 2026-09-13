@@ -50,7 +50,7 @@ static Entry const entries[] = {
     ROOT(McuResultSlot_Init), ROOT(McuResultSlot_Freeze), ROOT(McuResultSlot_CopyHeld),
     ROOT(McuResultSlot_Query), ROOT(McuResultSlot_Saved),
     ROOT(McuResultBuilder_Complete), ROOT(McuResultMeasurement_FromAvailable),
-    ROOT(McuProcessMeasurement_BuildWorkEvent),
+    ROOT(McuProcessMeasurement_BuildWorkEvent), ROOT(McuProcessMeasurement_BuildBaselineEvent),
     ROOT(McuProcessEventSlot_Init), ROOT(McuProcessEventSlot_Freeze), ROOT(McuProcessEventSlot_CopyHeld),
     ROOT(McuProcessEventSlot_Query), ROOT(McuProcessEventSlot_Saved),
     ROOT(McuActuatorEventJournal_Init), ROOT(McuActuatorEventJournal_Reserve),

@@ -89,6 +89,7 @@ static uint16_t guard(uint8_t message, const uint8_t *payload, size_t length, ui
     case ECOBIN_UART_MESSAGE_CONFIG_COMMIT:
     case ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION:
     case ECOBIN_UART_MESSAGE_START_CLEAN_OPERATION:
+    case ECOBIN_UART_MESSAGE_MEASURE_BASELINE:
     case ECOBIN_UART_MESSAGE_DELIVERY_SELECTION:
     case ECOBIN_UART_MESSAGE_CLEAN_UNLOCK_REQUESTED:
     case ECOBIN_UART_MESSAGE_CLEAN_FINISH_REQUESTED:
@@ -137,9 +138,10 @@ static void scale_poll(void) {
     McuConfigWeightPolicy policy;
     ScaleReaderObservation observation;
     ActuatorSnapshot snapshot = ActuatorRuntime_Snapshot();
-    idle_allowed = (uint8_t)(control.work.status != ECOBIN_UART_WORK_QUERY_STATUS_RUNNING
+    idle_allowed = (uint8_t)(!preparation.baseline_active
+        && (control.work.status != ECOBIN_UART_WORK_QUERY_STATUS_RUNNING
         || (control.work.phase == ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_OPEN_COUNTDOWN
-            && snapshot.door.action_active && snapshot.door.target == MCU_DIRECTION_OPEN));
+            && snapshot.door.action_active && snapshot.door.target == MCU_DIRECTION_OPEN)));
     if (preparation.weight.idle_in_flight && !idle_allowed) {
         mask = enter(); NativeScale_Cancel(&NativeScaleRx, now); leave(mask);
         McuWeightRun_CancelIdleAttempt(&preparation.weight, now);

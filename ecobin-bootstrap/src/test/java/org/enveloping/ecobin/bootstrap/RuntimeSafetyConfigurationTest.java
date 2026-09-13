@@ -99,7 +99,8 @@ class RuntimeSafetyConfigurationTest {
             "V77__fullness_state_timeout_median.sql",
             "V78__native_business_measurement_identity.sql",
             "V79__native_delivery_issue.sql",
-            "V80__offline_occupancy_release.sql"
+            "V80__offline_occupancy_release.sql",
+            "V81__interrupted_clean_bag_recovery.sql"
     };
 
     @Test

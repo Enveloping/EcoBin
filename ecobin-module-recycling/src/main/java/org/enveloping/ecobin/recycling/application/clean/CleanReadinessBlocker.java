@@ -38,6 +38,10 @@ enum CleanReadinessBlocker {
             409,
             "CLEAN.PORT_OPERATION_ACTIVE",
             "当前投口已有未结束清运操作"),
+    CLEAN_BAG_RECOVERY_REQUIRED(
+            409,
+            "CLEAN.BAG_RECOVERY_REQUIRED",
+            "上次清运中断后尚未确认设备内实际袋，需人工处理后才能开始新业务"),
     PORT_WORK_ACTIVE(
             409,
             "DEVICE.PORT_WORK_ACTIVE",

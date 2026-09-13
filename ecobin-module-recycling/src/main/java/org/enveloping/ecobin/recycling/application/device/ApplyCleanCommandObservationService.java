@@ -32,6 +32,7 @@ public class ApplyCleanCommandObservationService
         }
         List<OperationRow> rows = jdbc.query("""
                         SELECT id, port_id, new_bag_id, status,
+                               end_reason,
                                first_unlock_may_have_executed,
                                created_at,
                                offline_occupancy_released_at
@@ -47,6 +48,7 @@ public class ApplyCleanCommandObservationService
                         rs.getLong("port_id"),
                         rs.getLong("new_bag_id"),
                         rs.getString("status"),
+                        rs.getString("end_reason"),
                         rs.getBoolean(
                                 "first_unlock_may_have_executed"),
                         rs.getObject(
@@ -177,11 +179,19 @@ public class ApplyCleanCommandObservationService
     private void requireRecovery(
             TrustedCleanCommandObservation observation,
             OperationRow operation) {
+        String reason = observation.errorCode();
+        if (!("MCU_RESTART_FINAL_RESULT_UNAVAILABLE".equals(reason)
+                || "MCU_COMMUNICATION_UNAVAILABLE".equals(reason))) {
+            throw new IllegalArgumentException(
+                    "interrupted clean requires a supported terminal fault");
+        }
         requireSingle(jdbc.update("""
                         UPDATE rec_clean_operation
-                        SET status = 'RECOVERY_REQUIRED',
+                        SET status = 'ABORTED',
                             edge_saved_confirmed = 1,
                             first_unlock_may_have_executed = 1,
+                            ended_at = ?,
+                            end_reason = ?,
                             lock_version = lock_version + 1,
                             updated_at = ?
                         WHERE id = ?
@@ -194,11 +204,58 @@ public class ApplyCleanCommandObservationService
                           )
                         """,
                 observation.receivedAt(),
+                reason,
+                observation.receivedAt(),
                 operation.id(),
                 observation.tenantId(),
                 observation.organizationId(),
                 observation.assetId()),
-                "project uncertain clean failure");
+                "terminate interrupted clean before manual bag recovery");
+        ensureBagRecoveryInterlock(observation, operation);
+    }
+
+    private void ensureBagRecoveryInterlock(
+            TrustedCleanCommandObservation observation,
+            OperationRow operation) {
+        List<Long> existing = jdbc.query("""
+                        SELECT source_clean_operation_id
+                        FROM rec_port_clean_restart_interlock
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND port_id = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> rs.getLong(
+                        "source_clean_operation_id"),
+                observation.tenantId(),
+                observation.organizationId(),
+                observation.assetId(),
+                operation.portId());
+        if (existing.size() == 1
+                && existing.getFirst() == operation.id()) {
+            return;
+        }
+        if (!existing.isEmpty()) {
+            throw new IllegalStateException(
+                    "another interrupted clean owns the port interlock");
+        }
+        requireSingle(jdbc.update("""
+                        INSERT INTO rec_port_clean_restart_interlock (
+                            tenant_id, organization_id, asset_id,
+                            port_id, source_clean_operation_id,
+                            activated_at, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                observation.tenantId(),
+                observation.organizationId(),
+                observation.assetId(),
+                operation.portId(),
+                operation.id(),
+                observation.receivedAt(),
+                observation.receivedAt(),
+                observation.receivedAt()),
+                "create interrupted clean bag interlock");
     }
 
     private void endBeforeUnlock(
@@ -367,6 +424,7 @@ public class ApplyCleanCommandObservationService
             long portId,
             long newBagId,
             String status,
+            String endReason,
             boolean firstUnlockMayHaveExecuted,
             LocalDateTime createdAt,
             LocalDateTime offlineOccupancyReleasedAt) {

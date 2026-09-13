@@ -201,14 +201,37 @@ public class CleanQueryService {
                 .findFirst()
                 .orElse(false);
         List<RecoverableCleanOperation> recoverable = jdbc.query("""
-                        SELECT operation_uid, port.port_no, status
+                        SELECT operation.operation_uid,
+                               port.port_no,
+                               COALESCE(
+                                   recovery.status,
+                                   'AWAITING_ACTUAL_BAG'
+                               ) AS status
                         FROM rec_clean_operation operation
                         JOIN dev_port port ON port.id = operation.port_id
+                        JOIN rec_port_clean_restart_interlock interlock_row
+                          ON interlock_row.tenant_id = operation.tenant_id
+                         AND interlock_row.organization_id =
+                             operation.organization_id
+                         AND interlock_row.asset_id = operation.asset_id
+                         AND interlock_row.port_id = operation.port_id
+                         AND interlock_row.source_clean_operation_id =
+                             operation.id
+                        LEFT JOIN rec_clean_bag_recovery recovery
+                          ON recovery.clean_operation_id = operation.id
+                         AND recovery.tenant_id = operation.tenant_id
+                         AND recovery.organization_id =
+                             operation.organization_id
                         WHERE operation.tenant_id = ?
                           AND operation.organization_id = ?
                           AND operation.asset_id = ?
                           AND operation.cleaner_organization_user_id = ?
-                          AND operation.status = 'RECOVERY_REQUIRED'
+                          AND operation.status = 'ABORTED'
+                          AND operation.end_reason IN (
+                              'MCU_RESTART_FINAL_RESULT_UNAVAILABLE',
+                              'MCU_COMMUNICATION_UNAVAILABLE',
+                              'EDGE_RESTARTED'
+                          )
                         ORDER BY operation.id
                         """,
                 (rs, ignored) -> {
@@ -256,6 +279,18 @@ public class CleanQueryService {
                                          'IN_PROGRESS', 'RECOVERY_REQUIRED'
                                      )
                                ) AS operation_active,
+                               EXISTS (
+                                   SELECT 1
+                                   FROM rec_port_clean_restart_interlock
+                                       interlock_row
+                                   WHERE interlock_row.tenant_id =
+                                         port.tenant_id
+                                     AND interlock_row.organization_id =
+                                         port.organization_id
+                                     AND interlock_row.asset_id =
+                                         port.asset_id
+                                     AND interlock_row.port_id = port.id
+                               ) AS bag_recovery_required,
                                EXISTS (
                                    SELECT 1
                                    FROM rec_fullness_detection detection
@@ -342,6 +377,22 @@ public class CleanQueryService {
                                operation.execution_deadline_at,
                                operation.ended_at,
                                operation.offline_occupancy_released_at,
+                               EXISTS (
+                                   SELECT 1
+                                   FROM rec_port_clean_restart_interlock
+                                       interlock_row
+                                   WHERE interlock_row.tenant_id =
+                                         operation.tenant_id
+                                     AND interlock_row.organization_id =
+                                         operation.organization_id
+                                     AND interlock_row.asset_id =
+                                         operation.asset_id
+                                     AND interlock_row.port_id =
+                                         operation.port_id
+                                     AND interlock_row.source_clean_operation_id =
+                                         operation.id
+                               ) AS bag_recovery_required,
+                               recovery.status AS bag_recovery_status,
                                record.clean_record_no
                         FROM rec_clean_operation operation
                         JOIN dev_device_asset asset
@@ -349,6 +400,11 @@ public class CleanQueryService {
                         JOIN dev_port port ON port.id = operation.port_id
                         LEFT JOIN rec_clean_record record
                           ON record.id = operation.completion_record_id
+                        LEFT JOIN rec_clean_bag_recovery recovery
+                          ON recovery.clean_operation_id = operation.id
+                         AND recovery.tenant_id = operation.tenant_id
+                         AND recovery.organization_id =
+                             operation.organization_id
                         WHERE operation.tenant_id = ?
                           AND operation.organization_id = ?
                           AND operation.cleaner_organization_user_id = ?
@@ -397,6 +453,11 @@ public class CleanQueryService {
         if (rs.getBoolean("operation_active")) {
             blockers.add(CleanReadinessBlocker.CLEAN_OPERATION_ACTIVE);
         }
+        if (rs.getBoolean("bag_recovery_required")) {
+            blockers.add(
+                    CleanReadinessBlocker
+                            .CLEAN_BAG_RECOVERY_REQUIRED);
+        }
         if (rs.getBoolean("port_work_active")) {
             blockers.add(CleanReadinessBlocker.PORT_WORK_ACTIVE);
         }
@@ -433,6 +494,10 @@ public class CleanQueryService {
             case "PREPARED", "EDGE_SAVED", "IN_PROGRESS" -> 1_000L;
             default -> null;
         };
+        boolean bagRecoveryRequired = rs.getBoolean(
+                "bag_recovery_required");
+        String bagRecoveryStatus = rs.getString(
+                "bag_recovery_status");
         List<String> actions = switch (status) {
             case "PREPARED", "EDGE_SAVED", "IN_PROGRESS" ->
                     List.of("WAIT");
@@ -441,6 +506,19 @@ public class CleanQueryService {
             case "COMPLETED" -> List.of("VIEW_RECORD");
             default -> List.of();
         };
+        if ("ABORTED".equals(status) && bagRecoveryRequired) {
+            actions = switch (bagRecoveryStatus == null
+                    ? "AWAITING_ACTUAL_BAG"
+                    : bagRecoveryStatus) {
+                case "AWAITING_ACTUAL_BAG" ->
+                        List.of("SCAN_ACTUAL_BAG");
+                case "BASELINE_PENDING" ->
+                        List.of("WAIT_FOR_EMPTY_BAG_BASELINE");
+                case "BASELINE_REQUIRED" ->
+                        List.of("RETRY_EMPTY_BAG_BASELINE");
+                default -> List.of("CONTACT_SUPPORT");
+            };
+        }
         if (offlineReleasedAt != null
                 && List.of(
                         "PREPARED",

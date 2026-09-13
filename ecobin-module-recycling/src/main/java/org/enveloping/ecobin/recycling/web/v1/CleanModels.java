@@ -1,6 +1,8 @@
 package org.enveloping.ecobin.recycling.web.v1;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
@@ -16,6 +18,28 @@ public final class CleanModels {
             @NotBlank
             @Size(min = 8, max = 64)
             String installedBagQr) {
+    }
+
+    /** Human statement used only to close an interrupted clean safely. */
+    public record RecoverInterruptedCleanBagRequest(
+            @NotBlank
+            @Size(min = 8, max = 64)
+            String actualBagQr,
+            @NotNull Boolean actualBagConfirmed,
+            @NotNull Boolean emptyBagConfirmed,
+            @NotNull @PositiveOrZero Long expectedOperationVersion,
+            @NotBlank @Size(max = 500) String reason) {
+    }
+
+    public record InterruptedCleanBagRecoveryAccepted(
+            UUID recoveryUid,
+            UUID operationUid,
+            String state,
+            String decision,
+            String actualBagQr,
+            UUID baselineMeasurementUid,
+            UUID baselineTaskUid,
+            String nextAction) {
     }
 
     public record CleanOperationAccepted(

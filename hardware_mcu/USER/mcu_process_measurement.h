@@ -19,7 +19,8 @@ typedef struct {
  * Caller-owned non-overlapping scratch; returns payload length or zero. Failure
  * may alter scratch but never work/measurement/meta. No UID allocation, event
  * retention, ACK, send, measurement, GPIO, work release or authorization here.
- * FULLNESS/BASELINE wire weights are validated but their owners are not wired.
+ * FULLNESS uses the work-event extension below. BASELINE has a separate
+ * command-scoped encoder because it is not a delivery/clean work state.
  */
 size_t McuProcessMeasurement_BuildWorkEvent(const McuWorkState *work,
     const McuResultMeasurement *measurement, const McuProcessMeasurementMeta *meta,
@@ -32,4 +33,12 @@ size_t McuProcessMeasurement_BuildWorkEvent(const McuWorkState *work,
 size_t McuProcessMeasurement_BuildWorkEventWithFullness(const McuWorkState *work,
     const McuResultMeasurement *measurement, const McuProcessMeasurementMeta *meta,
     const McuFullnessRun *fullness, uint8_t message_type, uint8_t *scratch, size_t capacity);
+/* Pure encoder for one accepted MEASURE_BASELINE scope. The scope is the
+ * QUERY_PROCESS_EVENT payload without queryId and remains owned by the caller.
+ * measurementUid in that scope identifies the baseline task; the result's uid
+ * identifies the actual boot-local weight acquisition. No work/result state,
+ * GPIO, ACK, retirement or recovery semantics are created here. */
+size_t McuProcessMeasurement_BuildBaselineEvent(const uint8_t *scope, size_t scope_length,
+    const McuResultMeasurement *measurement, const McuProcessMeasurementMeta *meta,
+    uint8_t *scratch, size_t capacity);
 #endif

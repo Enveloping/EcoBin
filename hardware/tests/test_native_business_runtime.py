@@ -607,6 +607,17 @@ def test_confirmed_mcu_restart_ends_clean_and_latches_bag_confirmation(
             )
             assert marker["evidence"]["businessValue"] == "NONE"
             assert case.store.clean_restart_interlock_active(1)
+            original_command = case.store.get_command(
+                case.permit.command_uid
+            )["payload"]
+            assert case.store.get_clean_restart_interlock_metadata(1) == {
+                "profile": "native-clean-bag-interlock-v1",
+                "sourceWorkUid": original_command["payload"]["operationUid"],
+                "portNo": 1,
+                "oldBagUid": original_command["payload"]["oldBagUid"],
+                "newBagUid": original_command["payload"]["newBagUid"],
+                "sourceCommandUid": original_command["commandUid"],
+            }
             permanent = case.safety.get_job_permit(
                 case.permit.permit_uid
             )

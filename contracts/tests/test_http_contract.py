@@ -794,6 +794,10 @@ class HttpContractTests(unittest.TestCase):
                 "/clean-options"
             ): {"get"},
             "/api/v1/miniapp/clean-operations/{operationUid}": {"get"},
+            (
+                "/api/v1/miniapp/clean-operations/{operationUid}"
+                "/bag-recoveries"
+            ): {"post"},
             "/api/v1/miniapp/me/clean-devices": {"get"},
             "/api/v1/miniapp/me/clean-records": {"get"},
             "/api/v1/miniapp/me/clean-records/{cleanRecordNo}": {"get"},
@@ -1168,6 +1172,7 @@ class HttpContractTests(unittest.TestCase):
             {"$ref": "#/components/parameters/Cursor"},
             list_operation["parameters"],
         )
+
         limit = next(
             item
             for item in list_operation["parameters"]
@@ -1241,6 +1246,7 @@ class HttpContractTests(unittest.TestCase):
                 "DEVICE_BUSY",
                 "PORT_DISABLED",
                 "CLEAN_OPERATION_ACTIVE",
+                "CLEAN_BAG_RECOVERY_REQUIRED",
                 "PORT_WORK_ACTIVE",
             ],
         )
@@ -1254,6 +1260,58 @@ class HttpContractTests(unittest.TestCase):
         self.assertEqual(installed_bag["minLength"], 54)
         self.assertEqual(installed_bag["maxLength"], 59)
         self.assertTrue(installed_bag["pattern"].startswith("^EB1_"))
+
+    def test_interrupted_clean_bag_recovery_contract_is_explicit(self) -> None:
+        document = load_openapi()
+        path = (
+            "/api/v1/miniapp/clean-operations/{operationUid}"
+            "/bag-recoveries"
+        )
+        operation = document["paths"][path]["post"]
+        self.assertEqual(operation["security"], [{"miniappBearer": []}])
+        self.assertIn(
+            {"$ref": "#/components/parameters/IdempotencyKey"},
+            operation["parameters"],
+        )
+        self.assertEqual(
+            operation["requestBody"]["content"]["application/json"][
+                "schema"
+            ]["$ref"],
+            "#/components/schemas/RecoverInterruptedCleanBagRequest",
+        )
+        self.assertEqual(
+            operation["responses"]["202"]["$ref"],
+            "#/components/responses/InterruptedCleanBagRecoveryAcceptedResponse",
+        )
+
+        schemas = document["components"]["schemas"]
+        request = schemas["RecoverInterruptedCleanBagRequest"]
+        self.assertEqual(
+            set(request["required"]),
+            {
+                "actualBagQr",
+                "actualBagConfirmed",
+                "emptyBagConfirmed",
+                "expectedOperationVersion",
+                "reason",
+            },
+        )
+        self.assertEqual(
+            request["properties"]["actualBagConfirmed"]["const"],
+            True,
+        )
+        self.assertEqual(
+            schemas["InterruptedCleanBagRecoveryAccepted"]["properties"][
+                "state"
+            ]["enum"],
+            ["COMPLETED", "BASELINE_PENDING", "BASELINE_REQUIRED"],
+        )
+        self.assertEqual(
+            schemas["RecoverableCleanOperation"]["properties"]["status"][
+                "enum"
+            ],
+            ["AWAITING_ACTUAL_BAG", "BASELINE_PENDING", "BASELINE_REQUIRED"],
+        )
 
     def test_clean_record_detail_allows_missing_post_clean_detection_fact(
         self,

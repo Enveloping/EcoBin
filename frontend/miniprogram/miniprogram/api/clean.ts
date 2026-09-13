@@ -11,6 +11,8 @@ import type {
   MiniappCleanRecordDetail,
   DeviceInstallationProfile,
   UpdateDeviceInstallationProfileRequest,
+  InterruptedCleanBagRecoveryAccepted,
+  RecoverInterruptedCleanBagRequest,
 } from '../types/api'
 
 function requireRealCleaningSession(): void {
@@ -99,6 +101,21 @@ export function cleanOperation(operationUid: string, toast = false) {
     `/api/v1/miniapp/clean-operations/${encodeURIComponent(operationUid)}`,
     undefined,
     { toast, noStore: true },
+  )
+}
+
+export function recoverInterruptedCleanBag(
+  operationUid: string,
+  body: RecoverInterruptedCleanBagRequest,
+  idempotencyKey: string,
+) {
+  requireRealCleaningSession()
+  return http.post<InterruptedCleanBagRecoveryAccepted>(
+    `/api/v1/miniapp/clean-operations/${
+      encodeURIComponent(operationUid)
+    }/bag-recoveries`,
+    body as unknown as Record<string, unknown>,
+    { idempotencyKey, toast: false, noStore: true },
   )
 }
 

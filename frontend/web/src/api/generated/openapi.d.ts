@@ -2703,6 +2703,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/miniapp/clean-operations/{operationUid}/bag-recoveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operationUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm the actual old or reserved new bag after an interrupted clean operation
+         * @description The original clean operation remains ABORTED. Scanning does not submit this request. A reserved new bag requires explicit empty-bag confirmation and starts an independent baseline measurement.
+         */
+        post: operations["recoverInterruptedMiniappCleanBag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/miniapp/me/clean-records": {
         parameters: {
             query?: never;
@@ -7542,6 +7564,27 @@ export interface components {
         StartCleanOperationRequest: {
             installedBagQr: components["schemas"]["AuthenticatedBagCode"];
         };
+        RecoverInterruptedCleanBagRequest: {
+            actualBagQr: components["schemas"]["AuthenticatedBagCode"];
+            /** @constant */
+            actualBagConfirmed: true;
+            emptyBagConfirmed: boolean;
+            expectedOperationVersion: components["schemas"]["ExpectedVersion"];
+            reason: string;
+        };
+        InterruptedCleanBagRecoveryAccepted: {
+            recoveryUid: components["schemas"]["UuidV4"];
+            operationUid: components["schemas"]["UuidV4"];
+            /** @enum {string} */
+            state: "COMPLETED" | "BASELINE_PENDING" | "BASELINE_REQUIRED";
+            /** @enum {string} */
+            decision: "RETAIN_OLD_BAG" | "USE_RESERVED_NEW_BAG";
+            actualBagQr: components["schemas"]["AuthenticatedBagCode"];
+            baselineMeasurementUid: components["schemas"]["UuidV4"] | null;
+            baselineTaskUid: components["schemas"]["UuidV4"] | null;
+            /** @enum {string} */
+            nextAction: "WAIT_FOR_NEXT_BUSINESS" | "WAIT_FOR_EMPTY_BAG_BASELINE" | "RETRY_EMPTY_BAG_BASELINE";
+        };
         CleanOperationAccepted: {
             operationId: components["schemas"]["UuidV4"];
             resourceId: components["schemas"]["UuidV4"];
@@ -7560,11 +7603,11 @@ export interface components {
             operationUid: components["schemas"]["UuidV4"];
             portNo: number;
             /** @enum {string} */
-            status: "RECOVERY_REQUIRED";
+            status: "AWAITING_ACTUAL_BAG" | "BASELINE_PENDING" | "BASELINE_REQUIRED";
             statusUrl: components["schemas"]["StatusUrl"];
         };
         /** @enum {string} */
-        CleanOptionBlocker: "CLEAN_CONFIGURATION_UNAVAILABLE" | "CONFIGURATION_NOT_APPLIED" | "DEVICE_SOFTWARE_NOT_ACCEPTING" | "EDGE_OFFLINE" | "DEVICE_BUSY" | "PORT_DISABLED" | "CLEAN_OPERATION_ACTIVE" | "PORT_WORK_ACTIVE";
+        CleanOptionBlocker: "CLEAN_CONFIGURATION_UNAVAILABLE" | "CONFIGURATION_NOT_APPLIED" | "DEVICE_SOFTWARE_NOT_ACCEPTING" | "EDGE_OFFLINE" | "DEVICE_BUSY" | "PORT_DISABLED" | "CLEAN_OPERATION_ACTIVE" | "CLEAN_BAG_RECOVERY_REQUIRED" | "PORT_WORK_ACTIVE";
         /** @enum {string} */
         CleanDeviceFilter: "ALL" | "ONLINE" | "NO_DELIVERY_24H" | "NO_CLEAN_24H" | "FULL" | "FULL_TIMEOUT_2H";
         CleanDeviceItem: {
@@ -7868,6 +7911,12 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["CleanOperationAccepted"];
+            requestId: string;
+        };
+        InterruptedCleanBagRecoveryAcceptedEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["InterruptedCleanBagRecoveryAccepted"];
             requestId: string;
         };
         CleanOperationPageEnvelope: {
@@ -10789,6 +10838,17 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["CleanOperationAcceptedEnvelope"];
+            };
+        };
+        /** @description The actual bag decision was accepted; an independent empty-bag baseline may still be pending or require retry */
+        InterruptedCleanBagRecoveryAcceptedResponse: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["InterruptedCleanBagRecoveryAcceptedEnvelope"];
             };
         };
         /** @description Stable cursor page of cleaning operations */
@@ -14403,6 +14463,33 @@ export interface operations {
             401: components["responses"]["UnauthorizedProblem"];
             403: components["responses"]["ForbiddenProblem"];
             404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    recoverInterruptedMiniappCleanBag: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                operationUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecoverInterruptedCleanBagRequest"];
+            };
+        };
+        responses: {
+            202: components["responses"]["InterruptedCleanBagRecoveryAcceptedResponse"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
         };
     };
     listMyMiniappCleanRecords: {

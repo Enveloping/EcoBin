@@ -117,3 +117,44 @@ size_t McuProcessMeasurement_BuildWorkEventWithFullness(const McuWorkState *work
     out[FULL(FULLNESS_STOP_REASON)] = result->stop_reason;
     return ecobin_uart_validate_session_payload(message_type, scratch, (uint16_t)length) == 0 ? length : 0u;
 }
+
+#define SCOPE_OFFSET(field) (ECOBIN_UART_QUERY_PROCESS_EVENT_##field##_OFFSET - ECOBIN_UART_QUERY_PROCESS_EVENT_MCU_COMMAND_UID_OFFSET)
+size_t McuProcessMeasurement_BuildBaselineEvent(const uint8_t *scope, size_t scope_length,
+    const McuResultMeasurement *measurement, const McuProcessMeasurementMeta *meta,
+    uint8_t *scratch, size_t capacity) {
+    size_t length = ECOBIN_UART_BASELINE_MEASUREMENT_RESULT_PAYLOAD_MAX_LENGTH;
+    uint8_t request[ECOBIN_UART_QUERY_PROCESS_EVENT_PAYLOAD_MAX_LENGTH];
+    if (scope == NULL || measurement == NULL || meta == NULL || scratch == NULL
+        || scope_length != ECOBIN_UART_QUERY_PROCESS_EVENT_PAYLOAD_MAX_LENGTH
+            - ECOBIN_UART_QUERY_PROCESS_EVENT_MCU_COMMAND_UID_OFFSET
+        || capacity < length || measurement->source_boot_id == 0u || measurement->event_sequence == 0u
+        || measurement->source_boot_id != ecobin_uart_read_u64_be(scope + SCOPE_OFFSET(TARGET_MCU_BOOT_ID))
+        || scope[SCOPE_OFFSET(WORK_TYPE)] != ECOBIN_UART_WORK_TYPE_BASELINE_MEASUREMENT
+        || scope[SCOPE_OFFSET(EVENT_MESSAGE_TYPE)] != ECOBIN_UART_MESSAGE_BASELINE_MEASUREMENT_RESULT
+        || ecobin_uart_read_u16_be(scope + SCOPE_OFFSET(STEP_SEQUENCE)) != 0u
+        || meta->step_sequence != 0u
+        || meta->config_version != ecobin_uart_read_u64_be(scope + SCOPE_OFFSET(CONFIG_VERSION))) return 0u;
+    memset(request, 0, ECOBIN_UART_QUERY_PROCESS_EVENT_MCU_COMMAND_UID_OFFSET);
+    ecobin_uart_write_u64_be(request, 1u); /* Local shape validation only. */
+    memcpy(request + ECOBIN_UART_QUERY_PROCESS_EVENT_MCU_COMMAND_UID_OFFSET, scope, scope_length);
+    if (ecobin_uart_validate_session_payload(ECOBIN_UART_MESSAGE_QUERY_PROCESS_EVENT,
+        request, sizeof(request)) != 0) return 0u;
+    memset(scratch, 0, length);
+    ecobin_uart_write_u64_be(scratch + ECOBIN_UART_BASELINE_MEASUREMENT_RESULT_MCU_BOOT_ID_OFFSET,
+        measurement->source_boot_id);
+    ecobin_uart_write_u32_be(scratch + ECOBIN_UART_BASELINE_MEASUREMENT_RESULT_MCU_EVENT_SEQUENCE_OFFSET,
+        measurement->event_sequence);
+    ecobin_uart_write_u64_be(scratch + ECOBIN_UART_BASELINE_MEASUREMENT_RESULT_UPTIME_MS_OFFSET,
+        meta->observed_uptime_ms);
+    memcpy(scratch + ECOBIN_UART_BASELINE_MEASUREMENT_RESULT_MCU_COMMAND_UID_OFFSET,
+        scope + SCOPE_OFFSET(MCU_COMMAND_UID), 16u);
+    memcpy(scratch + ECOBIN_UART_BASELINE_MEASUREMENT_RESULT_MEASUREMENT_UID_OFFSET,
+        scope + SCOPE_OFFSET(WORK_UID), 16u);
+    scratch[ECOBIN_UART_BASELINE_MEASUREMENT_RESULT_PORT_NO_OFFSET] = scope[SCOPE_OFFSET(PORT_NO)];
+    memcpy(scratch + ECOBIN_UART_BASELINE_MEASUREMENT_RESULT_WEIGHT_MEASUREMENT_UID_OFFSET,
+        measurement->uid, 16u);
+    encode_weight(scratch + ECOBIN_UART_BASELINE_MEASUREMENT_RESULT_MEASUREMENT_KIND_OFFSET,
+        measurement, meta);
+    return ecobin_uart_validate_session_payload(ECOBIN_UART_MESSAGE_BASELINE_MEASUREMENT_RESULT,
+        scratch, (uint16_t)length) == 0 ? length : 0u;
+}

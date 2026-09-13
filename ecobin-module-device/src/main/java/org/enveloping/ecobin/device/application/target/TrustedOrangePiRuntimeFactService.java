@@ -35,6 +35,7 @@ import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -71,12 +72,56 @@ public class TrustedOrangePiRuntimeFactService
             """;
 
     static final String LOAD_BASELINE_LOCK_COORDINATES_SQL = """
-            SELECT id AS measurement_id, port_id
+            SELECT id AS measurement_id, port_id,
+                   clean_bag_recovery_id
             FROM rec_port_baseline_measurement
             WHERE tenant_id = ?
               AND organization_id = ?
               AND asset_id = ?
               AND measurement_uid = ?
+            """;
+
+    static final String LOCK_CLEAN_BAG_RECOVERY_SQL = """
+            SELECT id
+            FROM rec_clean_bag_recovery
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND asset_id = ?
+              AND port_id = ?
+              AND id = ?
+            FOR UPDATE
+            """;
+
+    static final String LOCK_CLEAN_BAG_RECOVERY_OPERATION_SQL = """
+            SELECT operation.id
+            FROM rec_clean_operation operation
+            JOIN rec_clean_bag_recovery recovery
+              ON recovery.clean_operation_id = operation.id
+             AND recovery.tenant_id = operation.tenant_id
+             AND recovery.organization_id = operation.organization_id
+             AND recovery.asset_id = operation.asset_id
+             AND recovery.port_id = operation.port_id
+            WHERE recovery.tenant_id = ?
+              AND recovery.organization_id = ?
+              AND recovery.asset_id = ?
+              AND recovery.port_id = ?
+              AND recovery.id = ?
+            FOR UPDATE
+            """;
+
+    static final String MARK_CLEAN_BAG_RECOVERY_BASELINE_REQUIRED_SQL = """
+            UPDATE rec_clean_bag_recovery
+            SET status = 'BASELINE_REQUIRED',
+                lock_version = lock_version + 1,
+                updated_at = ?
+            WHERE id = ?
+              AND status = 'BASELINE_PENDING'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM rec_port_baseline_measurement active_attempt
+                  WHERE active_attempt.clean_bag_recovery_id = ?
+                    AND active_attempt.status = 'PENDING'
+              )
             """;
 
     static final String LOCK_BASELINE_RUNTIME_SQL = """
@@ -146,7 +191,45 @@ public class TrustedOrangePiRuntimeFactService
                        AS applied_mcu_payload_sha256,
                    command_row.id AS command_id,
                    command_row.physical_state AS command_state,
-                   factory_bag.id AS factory_bag_id
+                   factory_bag.id AS factory_bag_id,
+                   recovery.id AS clean_bag_recovery_id,
+                   recovery.status AS clean_bag_recovery_status,
+                   recovery.decision AS clean_bag_recovery_decision,
+                   recovery.actual_bag_id AS recovery_actual_bag_id,
+                   recovery.source_fault_code,
+                   operation.id AS recovery_operation_id,
+                   operation.status AS recovery_operation_status,
+                   operation.end_reason AS recovery_operation_end_reason,
+                   operation.old_bag_id AS recovery_old_bag_id,
+                   operation.new_bag_id AS recovery_new_bag_id,
+                   operation.offline_occupancy_released_at,
+                   (
+                       SELECT occupancy.bag_id
+                       FROM rec_bag_current_occupancy occupancy
+                       WHERE occupancy.tenant_id = measurement.tenant_id
+                         AND occupancy.organization_id =
+                             measurement.organization_id
+                         AND occupancy.port_id = measurement.port_id
+                         AND occupancy.occupancy_type = 'PORT_BOUND'
+                   ) AS recovery_bound_bag_id,
+                   (
+                       SELECT reservation.bag_id
+                       FROM rec_bag_current_occupancy reservation
+                       WHERE reservation.tenant_id = measurement.tenant_id
+                         AND reservation.organization_id =
+                             measurement.organization_id
+                         AND reservation.clean_operation_id = operation.id
+                         AND reservation.occupancy_type = 'CLEAN_RESERVED'
+                   ) AS recovery_reserved_bag_id,
+                   (
+                       SELECT interlock.source_clean_operation_id
+                       FROM rec_port_clean_restart_interlock interlock
+                       WHERE interlock.tenant_id = measurement.tenant_id
+                         AND interlock.organization_id =
+                             measurement.organization_id
+                         AND interlock.asset_id = measurement.asset_id
+                         AND interlock.port_id = measurement.port_id
+                   ) AS recovery_interlock_operation_id
             FROM rec_port_baseline_measurement measurement
             JOIN dev_port port
               ON port.tenant_id = measurement.tenant_id
@@ -186,10 +269,22 @@ public class TrustedOrangePiRuntimeFactService
              AND command_row.asset_id = measurement.asset_id
              AND command_row.baseline_measurement_id = measurement.id
              AND command_row.command_type = 'MEASURE_EMPTY_BAG_BASELINE'
-            JOIN dev_factory_installed_bag factory_bag
+            LEFT JOIN dev_factory_installed_bag factory_bag
               ON factory_bag.asset_id = measurement.asset_id
              AND factory_bag.port_no = port.port_no
              AND factory_bag.bag_code = bag.bag_code
+            LEFT JOIN rec_clean_bag_recovery recovery
+              ON recovery.id = measurement.clean_bag_recovery_id
+             AND recovery.tenant_id = measurement.tenant_id
+             AND recovery.organization_id = measurement.organization_id
+             AND recovery.asset_id = measurement.asset_id
+             AND recovery.port_id = measurement.port_id
+            LEFT JOIN rec_clean_operation operation
+              ON operation.id = recovery.clean_operation_id
+             AND operation.tenant_id = recovery.tenant_id
+             AND operation.organization_id = recovery.organization_id
+             AND operation.asset_id = recovery.asset_id
+             AND operation.port_id = recovery.port_id
             WHERE measurement.tenant_id = ?
               AND measurement.organization_id = ?
               AND measurement.asset_id = ?
@@ -738,7 +833,9 @@ public class TrustedOrangePiRuntimeFactService
                 LOAD_BASELINE_LOCK_COORDINATES_SQL,
                 (rs, ignored) -> new BaselineLockCoordinates(
                         rs.getLong("measurement_id"),
-                        rs.getLong("port_id")),
+                        rs.getLong("port_id"),
+                        nullableDatabaseLong(
+                                rs, "clean_bag_recovery_id")),
                 tenantId,
                 organizationId,
                 asset.assetId(),
@@ -774,6 +871,43 @@ public class TrustedOrangePiRuntimeFactService
                 asset.assetId(),
                 coordinates.measurementId(),
                 commandUid);
+        if (coordinates.cleanBagRecoveryId() != null) {
+            requireBaselineLock(
+                    LOCK_CLEAN_BAG_RECOVERY_SQL,
+                    tenantId,
+                    organizationId,
+                    asset.assetId(),
+                    coordinates.portId(),
+                    coordinates.cleanBagRecoveryId());
+            requireBaselineLock(
+                    LOCK_CLEAN_BAG_RECOVERY_OPERATION_SQL,
+                    tenantId,
+                    organizationId,
+                    asset.assetId(),
+                    coordinates.portId(),
+                    coordinates.cleanBagRecoveryId());
+            jdbc.query(
+                    """
+                    SELECT bag_id
+                    FROM rec_bag_current_occupancy
+                    WHERE tenant_id = ?
+                      AND organization_id = ?
+                      AND (
+                          port_id = ?
+                          OR clean_operation_id = (
+                              SELECT clean_operation_id
+                              FROM rec_clean_bag_recovery
+                              WHERE id = ?
+                          )
+                      )
+                    FOR UPDATE
+                    """,
+                    (rs, ignored) -> rs.getLong("bag_id"),
+                    tenantId,
+                    organizationId,
+                    coordinates.portId(),
+                    coordinates.cleanBagRecoveryId());
+        }
 
         List<BaselineTarget> rows = jdbc.query(
                 LOAD_BASELINE_TARGET_SQL,
@@ -801,7 +935,32 @@ public class TrustedOrangePiRuntimeFactService
                         rs.getString("applied_mcu_payload_sha256"),
                         rs.getLong("command_id"),
                         rs.getString("command_state"),
-                        rs.getLong("factory_bag_id")),
+                        nullableDatabaseLong(rs, "factory_bag_id"),
+                        nullableDatabaseLong(
+                                rs, "clean_bag_recovery_id"),
+                        rs.getString("clean_bag_recovery_status"),
+                        rs.getString("clean_bag_recovery_decision"),
+                        nullableDatabaseLong(
+                                rs, "recovery_actual_bag_id"),
+                        rs.getString("source_fault_code"),
+                        nullableDatabaseLong(
+                                rs, "recovery_operation_id"),
+                        rs.getString("recovery_operation_status"),
+                        rs.getString("recovery_operation_end_reason"),
+                        nullableDatabaseLong(
+                                rs, "recovery_old_bag_id"),
+                        nullableDatabaseLong(
+                                rs, "recovery_new_bag_id"),
+                        rs.getObject(
+                                "offline_occupancy_released_at",
+                                LocalDateTime.class),
+                        nullableDatabaseLong(
+                                rs, "recovery_bound_bag_id"),
+                        nullableDatabaseLong(
+                                rs, "recovery_reserved_bag_id"),
+                        nullableDatabaseLong(
+                                rs,
+                                "recovery_interlock_operation_id")),
                 tenantId,
                 organizationId,
                 asset.assetId(),
@@ -812,6 +971,11 @@ public class TrustedOrangePiRuntimeFactService
                     "baseline result does not resolve its frozen intent");
         }
         BaselineTarget target = rows.getFirst();
+        if (target.cleanBagRecoveryId() == null
+                && target.factoryBagId() == null) {
+            throw new UntrustedInboxSourceException(
+                    "baseline result has no supported business source");
+        }
         boolean technicallyAborted = "TECHNICAL_ABORTED".equals(
                 target.measurementStatus());
         if (!canApplyBaselineResult(
@@ -850,15 +1014,17 @@ public class TrustedOrangePiRuntimeFactService
                 now);
         boolean stale = technicallyAborted || target.capacityVersion()
                 != target.capacityVersionSnapshot()
-                || !Long.valueOf(target.bagId()).equals(
-                        target.currentBagId())
                 || target.currentDetectionId() != null
                 || !Long.valueOf(target.versionNo()).equals(
                         target.appliedVersionNo())
                 || !target.contentSha256().equals(
                         target.appliedContentSha256())
                 || !target.mcuPayloadSha256().equals(
-                        target.appliedMcuPayloadSha256());
+                        target.appliedMcuPayloadSha256())
+                || (target.isCleanBagRecovery()
+                        ? !currentCleanBagRecovery(target)
+                        : !Long.valueOf(target.bagId()).equals(
+                                target.currentBagId()));
         boolean success = !stale
                 && normalized.hasUsableWeight()
                 && normalized.weightGrams() != null
@@ -868,30 +1034,51 @@ public class TrustedOrangePiRuntimeFactService
                     target,
                     physicalResultId,
                     now);
+            markCleanBagRecoveryBaselineRequired(target, now);
         } else if (success) {
-            applySuccessfulBaseline(
-                    target,
-                    physicalResultId,
-                    normalized.weightGrams(),
-                    tenantId,
-                    organizationId,
-                    asset.assetId(),
-                    now);
+            if (target.isCleanBagRecovery()) {
+                applySuccessfulCleanBagRecoveryBaseline(
+                        target,
+                        physicalResultId,
+                        normalized.weightGrams(),
+                        tenantId,
+                        organizationId,
+                        asset.assetId(),
+                        now);
+            } else {
+                applySuccessfulBaseline(
+                        target,
+                        physicalResultId,
+                        normalized.weightGrams(),
+                        tenantId,
+                        organizationId,
+                        asset.assetId(),
+                        now);
+            }
         } else {
             String failureCode = stale
                     ? "BASELINE_FACT_STALE"
                     : normalized.hasUsableWeight()
                     ? "NEGATIVE_EMPTY_BAG_WEIGHT"
                     : normalized.faultCode();
-            applyFailedBaseline(
-                    target,
-                    physicalResultId,
-                    failureCode,
-                    stale,
-                    tenantId,
-                    organizationId,
-                    asset.assetId(),
-                    now);
+            if (target.isCleanBagRecovery()) {
+                applyFailedCleanBagRecoveryBaseline(
+                        target,
+                        physicalResultId,
+                        failureCode,
+                        stale,
+                        now);
+            } else {
+                applyFailedBaseline(
+                        target,
+                        physicalResultId,
+                        failureCode,
+                        stale,
+                        tenantId,
+                        organizationId,
+                        asset.assetId(),
+                        now);
+            }
         }
         if (!technicallyAborted) {
             completeBaselineCommand(
@@ -1028,6 +1215,325 @@ public class TrustedOrangePiRuntimeFactService
                     "baseline physical result id is missing");
         }
         return resultId;
+    }
+
+    private static boolean currentCleanBagRecovery(
+            BaselineTarget target) {
+        return "USE_RESERVED_NEW_BAG".equals(
+                    target.cleanBagRecoveryDecision())
+                && "BASELINE_PENDING".equals(
+                        target.cleanBagRecoveryStatus())
+                && "ABORTED".equals(
+                        target.recoveryOperationStatus())
+                && target.sourceFaultCode() != null
+                && target.sourceFaultCode().equals(
+                        target.recoveryOperationEndReason())
+                && Objects.equals(
+                        target.recoveryActualBagId(), target.bagId())
+                && Objects.equals(
+                        target.recoveryNewBagId(), target.bagId())
+                && Objects.equals(
+                        target.recoveryBoundBagId(),
+                        target.recoveryOldBagId())
+                && Objects.equals(
+                        target.currentBagId(),
+                        target.recoveryOldBagId())
+                && Objects.equals(
+                        target.recoveryReservedBagId(),
+                        target.recoveryNewBagId())
+                && Objects.equals(
+                        target.recoveryInterlockOperationId(),
+                        target.recoveryOperationId());
+    }
+
+    private void applySuccessfulCleanBagRecoveryBaseline(
+            BaselineTarget target,
+            long physicalResultId,
+            long weightGrams,
+            long tenantId,
+            long organizationId,
+            long assetId,
+            LocalDateTime now) {
+        Long latestVersion = jdbc.queryForObject("""
+                        SELECT COALESCE(MAX(version_no), 0)
+                        FROM rec_port_weight_baseline
+                        WHERE port_id = ?
+                        """,
+                Long.class,
+                target.portId());
+        long baselineVersion = (latestVersion == null ? 0 : latestVersion) + 1;
+        requireSingle(jdbc.update("""
+                        INSERT INTO rec_port_weight_baseline (
+                            tenant_id, organization_id,
+                            port_id, bag_id, version_no,
+                            source_type, source_bag_event_id,
+                            source_physical_result_id,
+                            source_clean_record_id,
+                            source_measurement_id,
+                            baseline_weight_g,
+                            established_at, created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?,
+                            'MANUAL_REMEASUREMENT', NULL, ?, NULL, ?,
+                            ?, ?, ?
+                        )
+                        """,
+                tenantId,
+                organizationId,
+                target.portId(),
+                target.bagId(),
+                baselineVersion,
+                physicalResultId,
+                target.measurementId(),
+                weightGrams,
+                now,
+                now),
+                "insert interrupted-clean manual baseline");
+        Long baselineId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM rec_port_weight_baseline
+                        WHERE source_measurement_id = ?
+                        """,
+                Long.class,
+                target.measurementId());
+        if (baselineId == null) {
+            throw new IllegalStateException(
+                    "interrupted-clean baseline id is missing");
+        }
+        requireSingle(jdbc.update("""
+                        UPDATE rec_port_baseline_measurement
+                        SET status = 'COMPLETED',
+                            physical_result_id = ?,
+                            stable_total_weight_g = ?,
+                            fault_code = NULL,
+                            result_baseline_id = ?,
+                            completed_at = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                          AND status = 'PENDING'
+                          AND clean_bag_recovery_id = ?
+                        """,
+                physicalResultId,
+                weightGrams,
+                baselineId,
+                now,
+                now,
+                target.measurementId(),
+                target.cleanBagRecoveryId()),
+                "complete interrupted-clean baseline measurement");
+
+        if (target.recoveryOldBagId() != null) {
+            requireSingle(jdbc.update("""
+                            DELETE FROM rec_bag_current_occupancy
+                            WHERE bag_id = ?
+                              AND tenant_id = ?
+                              AND organization_id = ?
+                              AND port_id = ?
+                              AND occupancy_type = 'PORT_BOUND'
+                            """,
+                    target.recoveryOldBagId(),
+                    tenantId,
+                    organizationId,
+                    target.portId()),
+                    "remove old bag during interrupted-clean recovery");
+            insertCleanRecoveryBagEvent(
+                    target,
+                    target.recoveryOldBagId(),
+                    "REMOVED_BY_CLEAN_RECOVERY",
+                    tenantId,
+                    organizationId,
+                    now);
+        }
+        requireSingle(jdbc.update("""
+                        UPDATE rec_bag_current_occupancy
+                        SET occupancy_type = 'PORT_BOUND',
+                            port_id = ?,
+                            clean_operation_id = NULL,
+                            acquired_at = ?
+                        WHERE bag_id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                          AND occupancy_type = 'CLEAN_RESERVED'
+                          AND clean_operation_id = ?
+                        """,
+                target.portId(),
+                now,
+                target.recoveryNewBagId(),
+                tenantId,
+                organizationId,
+                target.recoveryOperationId()),
+                "bind new bag during interrupted-clean recovery");
+        insertCleanRecoveryBagEvent(
+                target,
+                target.recoveryNewBagId(),
+                "INSTALLED_BY_CLEAN_RECOVERY",
+                tenantId,
+                organizationId,
+                now);
+
+        requireSingle(jdbc.update("""
+                        UPDATE rec_port_capacity_state
+                        SET baseline_state = 'VALID',
+                            current_baseline_id = ?,
+                            current_baseline_weight_g = ?,
+                            latest_stable_total_weight_g = ?,
+                            raw_net_weight_g = 0,
+                            displayed_fullness_percent = 0,
+                            detection_gate = 'READY',
+                            current_detection_id = NULL,
+                            current_rule_fingerprint = ?,
+                            confirmed_fullness_state = 'NOT_FULL',
+                            last_detection_id = NULL,
+                            current_fullness_event_id = NULL,
+                            current_bag_id = ?,
+                            current_fullness_state_change_id = NULL,
+                            last_fullness_edge_event_id = NULL,
+                            last_fullness_edge_event_sequence = NULL,
+                            last_fullness_reported_at = NULL,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND port_id = ?
+                          AND lock_version = ?
+                          AND current_bag_id <=> ?
+                          AND current_detection_id IS NULL
+                        """,
+                baselineId,
+                weightGrams,
+                weightGrams,
+                target.ruleFingerprint(),
+                target.recoveryNewBagId(),
+                now,
+                tenantId,
+                organizationId,
+                assetId,
+                target.portId(),
+                target.capacityVersionSnapshot(),
+                target.recoveryOldBagId()),
+                "publish interrupted-clean bag and baseline");
+
+        int released = jdbc.update("""
+                        DELETE FROM dev_device_occupancy
+                        WHERE asset_id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                          AND occupancy_kind = 'CLEAN'
+                          AND clean_operation_id = ?
+                        """,
+                assetId,
+                tenantId,
+                organizationId,
+                target.recoveryOperationId());
+        int expectedRelease = target.offlineOccupancyReleasedAt() == null
+                ? 1 : 0;
+        if (released != expectedRelease) {
+            throw new IllegalStateException(
+                    "interrupted-clean device occupancy changed");
+        }
+        requireSingle(jdbc.update("""
+                        DELETE FROM rec_port_clean_restart_interlock
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND port_id = ?
+                          AND source_clean_operation_id = ?
+                        """,
+                tenantId,
+                organizationId,
+                assetId,
+                target.portId(),
+                target.recoveryOperationId()),
+                "release interrupted-clean port interlock");
+        requireSingle(jdbc.update("""
+                        UPDATE rec_clean_bag_recovery
+                        SET status = 'COMPLETED',
+                            completed_at = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                          AND status = 'BASELINE_PENDING'
+                        """,
+                now,
+                now,
+                target.cleanBagRecoveryId()),
+                "complete interrupted-clean bag recovery");
+    }
+
+    private void insertCleanRecoveryBagEvent(
+            BaselineTarget target,
+            long bagId,
+            String eventType,
+            long tenantId,
+            long organizationId,
+            LocalDateTime now) {
+        requireSingle(jdbc.update("""
+                        INSERT INTO rec_bag_occupancy_event (
+                            event_uid, tenant_id, organization_id,
+                            bag_id, port_id, clean_operation_id,
+                            event_type, occurred_at, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                UUID.randomUUID().toString(),
+                tenantId,
+                organizationId,
+                bagId,
+                target.portId(),
+                target.recoveryOperationId(),
+                eventType,
+                now,
+                now),
+                "record interrupted-clean bag event");
+    }
+
+    private void applyFailedCleanBagRecoveryBaseline(
+            BaselineTarget target,
+            long physicalResultId,
+            String failureCode,
+            boolean stale,
+            LocalDateTime now) {
+        requireSingle(jdbc.update("""
+                        UPDATE rec_port_baseline_measurement
+                        SET status = ?,
+                            physical_result_id = ?,
+                            stable_total_weight_g = NULL,
+                            fault_code = ?,
+                            result_baseline_id = NULL,
+                            completed_at = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                          AND status = 'PENDING'
+                          AND clean_bag_recovery_id = ?
+                        """,
+                stale ? "STALE_IGNORED" : "FAILED",
+                physicalResultId,
+                failureCode,
+                now,
+                now,
+                target.measurementId(),
+                target.cleanBagRecoveryId()),
+                "fail interrupted-clean baseline measurement");
+        markCleanBagRecoveryBaselineRequired(target, now);
+    }
+
+    private void markCleanBagRecoveryBaselineRequired(
+            BaselineTarget target,
+            LocalDateTime now) {
+        if (!target.isCleanBagRecovery()) {
+            return;
+        }
+        int updated = jdbc.update(
+                MARK_CLEAN_BAG_RECOVERY_BASELINE_REQUIRED_SQL,
+                now,
+                target.cleanBagRecoveryId(),
+                target.cleanBagRecoveryId());
+        if (updated != 0 && updated != 1) {
+            throw new IllegalStateException(
+                    "interrupted-clean recovery state changed");
+        }
     }
 
     private void applySuccessfulBaseline(
@@ -3455,7 +3961,8 @@ public class TrustedOrangePiRuntimeFactService
 
     private record BaselineLockCoordinates(
             long measurementId,
-            long portId) {
+            long portId,
+            Long cleanBagRecoveryId) {
     }
 
     private record BaselineTarget(
@@ -3481,7 +3988,25 @@ public class TrustedOrangePiRuntimeFactService
             String appliedMcuPayloadSha256,
             long commandId,
             String commandState,
-            long factoryBagId) {
+            Long factoryBagId,
+            Long cleanBagRecoveryId,
+            String cleanBagRecoveryStatus,
+            String cleanBagRecoveryDecision,
+            Long recoveryActualBagId,
+            String sourceFaultCode,
+            Long recoveryOperationId,
+            String recoveryOperationStatus,
+            String recoveryOperationEndReason,
+            Long recoveryOldBagId,
+            Long recoveryNewBagId,
+            LocalDateTime offlineOccupancyReleasedAt,
+            Long recoveryBoundBagId,
+            Long recoveryReservedBagId,
+            Long recoveryInterlockOperationId) {
+
+        private boolean isCleanBagRecovery() {
+            return cleanBagRecoveryId != null;
+        }
     }
 
     private record BaselineMeasurementFact(

@@ -37,6 +37,7 @@ public class BaselineMeasurementTechnicalAbortService {
                                measurement.asset_id,
                                measurement.port_id,
                                measurement.bag_id,
+                               measurement.clean_bag_recovery_id,
                                factory_bag.id AS factory_bag_id
                         FROM dev_device_command command_row
                         JOIN rec_port_baseline_measurement measurement
@@ -65,6 +66,7 @@ public class BaselineMeasurementTechnicalAbortService {
                         rs.getLong("asset_id"),
                         rs.getLong("port_id"),
                         rs.getLong("bag_id"),
+                        nullableLong(rs, "clean_bag_recovery_id"),
                         nullableLong(rs, "factory_bag_id")),
                 commandUid.toString());
         if (rows.size() != 1) {
@@ -101,6 +103,23 @@ public class BaselineMeasurementTechnicalAbortService {
                 abortedAt,
                 target.measurementId()),
                 "abort baseline measurement");
+        if (target.cleanBagRecoveryId() != null) {
+            requireSingle(jdbc.update("""
+                            UPDATE rec_clean_bag_recovery
+                            SET status = 'BASELINE_REQUIRED',
+                                lock_version = lock_version + 1,
+                                updated_at = ?
+                            WHERE id = ?
+                              AND tenant_id = ?
+                              AND organization_id = ?
+                              AND status = 'BASELINE_PENDING'
+                            """,
+                    abortedAt,
+                    target.cleanBagRecoveryId(),
+                    target.tenantId(),
+                    target.organizationId()),
+                    "return clean bag recovery to baseline required");
+        }
         jdbc.update("""
                         UPDATE rec_port_capacity_state
                         SET detection_gate = 'FAILED',
@@ -155,6 +174,7 @@ public class BaselineMeasurementTechnicalAbortService {
             long assetId,
             long portId,
             long bagId,
+            Long cleanBagRecoveryId,
             Long factoryBagId) {
     }
 }

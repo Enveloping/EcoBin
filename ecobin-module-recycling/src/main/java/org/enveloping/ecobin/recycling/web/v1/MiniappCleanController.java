@@ -7,6 +7,7 @@ import org.enveloping.ecobin.framework.web.v1.TargetRequestIds;
 import org.enveloping.ecobin.recycling.application.clean.CleanQueryService;
 import org.enveloping.ecobin.recycling.application.clean.CleanDeviceQueryService;
 import org.enveloping.ecobin.recycling.application.clean.CleanRecordQueryService;
+import org.enveloping.ecobin.recycling.application.clean.InterruptedCleanBagRecoveryService;
 import org.enveloping.ecobin.recycling.application.clean.StartCleanOperationService;
 import org.enveloping.ecobin.recycling.web.v1.CleanRecordModels.CleanRecordItem;
 import org.enveloping.ecobin.recycling.web.v1.CleanDeviceModels.CleanDeviceItem;
@@ -14,6 +15,8 @@ import org.enveloping.ecobin.recycling.web.v1.CleanRecordModels.MiniappCleanReco
 import org.enveloping.ecobin.recycling.web.v1.CleanModels.CleanOperationAccepted;
 import org.enveloping.ecobin.recycling.web.v1.CleanModels.CleanOperationView;
 import org.enveloping.ecobin.recycling.web.v1.CleanModels.CleanOptionsView;
+import org.enveloping.ecobin.recycling.web.v1.CleanModels.InterruptedCleanBagRecoveryAccepted;
+import org.enveloping.ecobin.recycling.web.v1.CleanModels.RecoverInterruptedCleanBagRequest;
 import org.enveloping.ecobin.recycling.web.v1.CleanModels.StartCleanOperationRequest;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.CursorPage;
 import org.springframework.http.ResponseEntity;
@@ -35,16 +38,19 @@ public class MiniappCleanController {
     private final CleanQueryService queryService;
     private final CleanDeviceQueryService deviceQueryService;
     private final CleanRecordQueryService recordQueryService;
+    private final InterruptedCleanBagRecoveryService bagRecoveryService;
 
     public MiniappCleanController(
             StartCleanOperationService startService,
             CleanQueryService queryService,
             CleanDeviceQueryService deviceQueryService,
-            CleanRecordQueryService recordQueryService) {
+            CleanRecordQueryService recordQueryService,
+            InterruptedCleanBagRecoveryService bagRecoveryService) {
         this.startService = startService;
         this.queryService = queryService;
         this.deviceQueryService = deviceQueryService;
         this.recordQueryService = recordQueryService;
+        this.bagRecoveryService = bagRecoveryService;
     }
 
     @GetMapping("/api/v1/miniapp/me/clean-devices")
@@ -113,6 +119,27 @@ public class MiniappCleanController {
                 body.installedBagQr());
         return ResponseEntity.accepted()
                 .location(URI.create(accepted.statusUrl()))
+                .body(TargetApiEnvelope.ok(
+                        accepted,
+                        TargetRequestIds.resolve(request)));
+    }
+
+    @PostMapping(
+            "/api/v1/miniapp/clean-operations/{operationUid}"
+                    + "/bag-recoveries")
+    public ResponseEntity<TargetApiEnvelope<
+            InterruptedCleanBagRecoveryAccepted>> recoverBag(
+                    @RequestHeader("Idempotency-Key") UUID idempotencyKey,
+                    @PathVariable UUID operationUid,
+                    @Valid @RequestBody
+                    RecoverInterruptedCleanBagRequest body,
+                    HttpServletRequest request) {
+        InterruptedCleanBagRecoveryAccepted accepted =
+                bagRecoveryService.recover(
+                        idempotencyKey,
+                        operationUid,
+                        body);
+        return ResponseEntity.accepted()
                 .body(TargetApiEnvelope.ok(
                         accepted,
                         TargetRequestIds.resolve(request)));

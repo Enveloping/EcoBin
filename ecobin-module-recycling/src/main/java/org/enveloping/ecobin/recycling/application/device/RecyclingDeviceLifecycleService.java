@@ -41,6 +41,22 @@ public class RecyclingDeviceLifecycleService implements DeviceLifecycleParticipa
 
     private void cancelDeviceWork(long assetId, String reasonCode, LocalDateTime now) {
         jdbc.update("""
+                UPDATE rec_clean_bag_recovery recovery
+                SET recovery.status = 'BASELINE_REQUIRED',
+                    recovery.updated_at = ?,
+                    recovery.lock_version = recovery.lock_version + 1
+                WHERE recovery.status = 'BASELINE_PENDING'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM rec_port_baseline_measurement measurement
+                      WHERE measurement.clean_bag_recovery_id = recovery.id
+                        AND measurement.tenant_id = recovery.tenant_id
+                        AND measurement.organization_id = recovery.organization_id
+                        AND measurement.asset_id = ?
+                        AND measurement.status = 'PENDING'
+                  )
+                """, now, assetId);
+        jdbc.update("""
                 UPDATE rec_port_baseline_measurement
                 SET status = 'TECHNICAL_ABORTED', fault_code = ?, completed_at = ?,
                     updated_at = ?, lock_version = lock_version + 1

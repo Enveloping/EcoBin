@@ -1101,15 +1101,18 @@ WHERE table_schema = '$DatabaseName'
                 $existingMaxVersion -eq 79) -or
             ($existingDomainTableCount -eq 137 -and
                 $existingHistoryCount -eq 80 -and
-                $existingMaxVersion -eq 80)
+                $existingMaxVersion -eq 80) -or
+            ($existingDomainTableCount -eq 138 -and
+                $existingHistoryCount -eq 81 -and
+                $existingMaxVersion -eq 81)
         )
         if (-not $resumeLayoutValid) {
             throw (
-                "Migrated resume requires a complete V30 through V80 " +
+                "Migrated resume requires a complete V30 through V81 " +
                 "target database"
             )
         }
-        if ($existingMaxVersion -lt 80) {
+        if ($existingMaxVersion -lt 81) {
             # Check before changing the owner account so a stale local tunnel
             # fails without opening a database mutation window.
             if ($RemoteHost.Length -gt 0) {
@@ -1228,13 +1231,13 @@ GRANT SELECT (
     TO 'ecobin_trigger_definer'@'%';
 "@ | Out-Null
 
-        Invoke-FlywayMigration -Target 80 -OwnerPassword $ownerPassword
-        $currentMigrationVersion = 80
+        Invoke-FlywayMigration -Target 81 -OwnerPassword $ownerPassword
+        $currentMigrationVersion = 81
         $migrationCompleted = $true
     }
 
     # Converge the trigger definer even when a resumed database is already at
-    # V80. MySQL preserves column grants under their old table/column names
+    # V81. MySQL preserves column grants under their old table/column names
     # across V36/V39 renames, so remove those historical entries explicitly
     # before applying the exact current grant matrix.
     Invoke-RootSql -Sql @"
@@ -1394,8 +1397,8 @@ ORDER BY grant_key;
         (Invoke-RootSql -Sql $tableSql) -split "`r?`n" |
             Where-Object { $_.Length -gt 0 }
     )
-    if ($tables.Count -ne 137) {
-        throw "Expected 137 domain tables, got $($tables.Count)"
+    if ($tables.Count -ne 138) {
+        throw "Expected 138 domain tables, got $($tables.Count)"
     }
 
     $grantCatalog = Import-PowerShellDataFile -Path $grantCatalogPath
@@ -1434,8 +1437,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 80) {
-        throw "Expected eighty successful Flyway migrations"
+    if ($historyCount -ne 81) {
+        throw "Expected eighty-one successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
@@ -1752,7 +1755,7 @@ WHERE user = 'ecobin_schema_owner' AND host = '%';
     if (-not $migrationCompleted) {
         if ($upgradeExistingMigratedEnvironment) {
             Write-Warning (
-                "The target may contain a failed forward migration up to V80. " +
+                "The target may contain a failed forward migration up to V81. " +
                 "It was intentionally preserved. Restore from the " +
                 "pre-migration backup; do not run Flyway repair. " +
                 "Container=$ContainerName Volume=$VolumeName"

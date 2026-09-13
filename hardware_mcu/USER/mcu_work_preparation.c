@@ -6,6 +6,8 @@ typedef char preparation_ram_budget[(sizeof(McuWorkPreparation) <= 3072u) ? 1 : 
 typedef char start_storage_budget[(ECOBIN_UART_START_CLEAN_OPERATION_PAYLOAD_MAX_LENGTH <= ECOBIN_UART_START_DELIVERY_SESSION_PAYLOAD_MAX_LENGTH
     && ECOBIN_UART_START_DELIVERY_SESSION_PAYLOAD_MAX_LENGTH <= UINT8_MAX) ? 1 : -1];
 #define START(field) ECOBIN_UART_START_DELIVERY_SESSION_##field##_OFFSET
+#define BASELINE(field) ECOBIN_UART_MEASURE_BASELINE_##field##_OFFSET
+#define PROCESS_SCOPE(field) (ECOBIN_UART_QUERY_PROCESS_EVENT_##field##_OFFSET - ECOBIN_UART_QUERY_PROCESS_EVENT_MCU_COMMAND_UID_OFFSET)
 #define DEVICE(field) (ECOBIN_UART_CONFIG_PREIMAGE_DEVICE_OFFSET + ECOBIN_UART_CONFIG_DEVICE_BLOCK_##field##_OFFSET - ECOBIN_UART_CONFIG_DEVICE_BLOCK_CONTINUE_DELIVERY_WAIT_MS_OFFSET)
 #define PORT(field) (ECOBIN_UART_CONFIG_PREIMAGE_PORTS_OFFSET + (policy->port_no - 1u) * ECOBIN_UART_CONFIG_PORT_SEMANTIC_LENGTH + ECOBIN_UART_CONFIG_PORT_BLOCK_##field##_OFFSET - ECOBIN_UART_CONFIG_PORT_BLOCK_PORT_NO_OFFSET)
 
@@ -21,6 +23,22 @@ static uint8_t matching_configuration(const McuWorkPreparation *owner, uint8_t m
         && memcmp(payload + START(UNIT_PRICE_TEN_THOUSANDTHS), preimage + PORT(UNIT_PRICE_TEN_THOUSANDTHS), 4u) == 0);
 }
 
+/* Keep this in lockstep with every fallible McuWeightRun_Begin precondition.
+ * A baseline command may be recorded ACCEPTED only when the following Begin
+ * is guaranteed to succeed in this single-foreground owner. */
+static uint8_t baseline_can_begin(const McuWeightRun *run,
+    const McuConfigWeightPolicy *policy, uint8_t port_no, uint64_t now) {
+    if (run == NULL || policy == NULL || (run->present && !run->retired) || run->in_flight
+        || run->measurement.result.measurement_id == UINT32_MAX || now < run->last_now_ms
+        || policy->enabled != 1u || port_no == 0u || port_no > 6u
+        || policy->port_no != port_no
+        || policy->config_version == 0u || policy->config_version > UINT64_C(9007199254740991)
+        || policy->poll_interval_ms == 0u || policy->poll_interval_ms > policy->measurement.timeout_ms
+        || policy->response_timeout_ms == 0u || policy->response_timeout_ms > policy->poll_interval_ms)
+        return 0u;
+    return WeightMeasurement_ConfigValid(&policy->measurement);
+}
+
 static void bound(McuControlEndpoint *endpoint, void *context) {
     McuWorkPreparation *owner = (McuWorkPreparation *)context;
     McuConfiguration_Init(&owner->configuration, endpoint->session.boot_id, owner->port_count);
@@ -29,11 +47,89 @@ static void bound(McuControlEndpoint *endpoint, void *context) {
     owner->fullness_measurement_sequence = 0u;
     memset(&owner->initial, 0, sizeof(owner->initial));
     memset(&owner->initial_meta, 0, sizeof(owner->initial_meta));
+    memset(&owner->baseline, 0, sizeof(owner->baseline));
+    memset(&owner->baseline_meta, 0, sizeof(owner->baseline_meta));
+    memset(owner->baseline_scope, 0, sizeof(owner->baseline_scope));
     owner->initial_ready = 0u;
     owner->start_length = 0u;
     owner->start_message = 0u;
     owner->accepted_at_ms = 0u;
     owner->recovery_active = 0u;
+    owner->baseline_active = 0u;
+    owner->baseline_published = 0u;
+    owner->baseline_begin_failed = 0u;
+    owner->baseline_first_attempt_sequence = 0u;
+}
+
+static uint8_t baseline_command_received(McuWorkPreparation *owner, McuControlEndpoint *endpoint,
+    const uint8_t *payload, size_t length, uint64_t now, McuSessionDecision *decision) {
+    McuSessionCommand command;
+    McuConfigWeightPolicy policy;
+    uint16_t error;
+    uint32_t measurement_sequence;
+    command.target_boot_id = ecobin_uart_read_u64_be(payload + BASELINE(TARGET_MCU_BOOT_ID));
+    command.sequence = ecobin_uart_read_u32_be(payload + BASELINE(COMMAND_SEQUENCE));
+    memcpy(command.uid, payload + BASELINE(MCU_COMMAND_UID), sizeof(command.uid));
+    memcpy(command.digest, payload + BASELINE(COMMAND_DIGEST_SHA256), sizeof(command.digest));
+    if (!McuSession_QueryCommand(&endpoint->session, &command, decision)) return 0u;
+    if (decision->outcome != ECOBIN_UART_COMMAND_OUTCOME_NOT_SEEN) return 1u;
+    error = owner->guard(ECOBIN_UART_MESSAGE_MEASURE_BASELINE, payload, length, now, owner->guard_context);
+    if (error > ECOBIN_UART_NACK_ERROR_INTERNAL_FAULT) error = ECOBIN_UART_NACK_ERROR_INTERNAL_FAULT;
+    if (error == ECOBIN_UART_NACK_ERROR_NONE) {
+        if (owner->recovery_active || owner->baseline_active
+            || (owner->weight.present && !owner->weight.retired) || owner->weight.in_flight
+            || endpoint->work.status == ECOBIN_UART_WORK_QUERY_STATUS_RUNNING || endpoint->work.result.held
+            || endpoint->process_event.held || McuConfiguration_IsStaging(&owner->configuration))
+            error = ECOBIN_UART_NACK_ERROR_BUSY;
+        else if (payload[BASELINE(PORT_NO)] != endpoint->facts.port_no
+            || owner->configuration.active.boot_id != endpoint->session.boot_id
+            || !McuConfiguration_ReadWeightPolicy(&owner->configuration, payload[BASELINE(PORT_NO)], &policy)
+            || endpoint->facts.config_staging || endpoint->facts.config_version != policy.config_version
+            || ecobin_uart_read_u64_be(payload + BASELINE(CONFIG_VERSION)) != policy.config_version
+            || memcmp(payload + BASELINE(CONFIG_CONTENT_SHA256),
+                owner->configuration.active.preimage + ECOBIN_UART_CONFIG_PREIMAGE_CONTENT_SHA256_OFFSET, 32u) != 0
+            || memcmp(endpoint->facts.content_sha256,
+                owner->configuration.active.preimage + ECOBIN_UART_CONFIG_PREIMAGE_CONTENT_SHA256_OFFSET, 32u) != 0
+            || memcmp(endpoint->facts.mcu_sha256, owner->configuration.active.expected_digest, 32u) != 0
+            || !baseline_can_begin(&owner->weight, &policy, payload[BASELINE(PORT_NO)], now)
+            || ecobin_uart_read_u32_be(payload + BASELINE(MEASUREMENT_TIMEOUT_MS)) != policy.measurement.timeout_ms
+            || UINT32_MAX - endpoint->critical_event_sequence
+                <= McuActuatorEventJournal_PendingCount(&endpoint->actuator_events))
+            error = ECOBIN_UART_NACK_ERROR_STATE_CONFLICT;
+    }
+    if (!McuSession_ReceiveCommand(&endpoint->session, &command, error, decision)) return 0u;
+    if (!decision->execute_once) return 1u;
+    memset(&owner->baseline, 0, sizeof(owner->baseline));
+    memset(&owner->baseline_meta, 0, sizeof(owner->baseline_meta));
+    memset(owner->baseline_scope, 0, sizeof(owner->baseline_scope));
+    memcpy(owner->baseline_scope + PROCESS_SCOPE(MCU_COMMAND_UID), command.uid, sizeof(command.uid));
+    memcpy(owner->baseline_scope + PROCESS_SCOPE(COMMAND_DIGEST_SHA256), command.digest, sizeof(command.digest));
+    ecobin_uart_write_u64_be(owner->baseline_scope + PROCESS_SCOPE(TARGET_MCU_BOOT_ID), command.target_boot_id);
+    ecobin_uart_write_u32_be(owner->baseline_scope + PROCESS_SCOPE(COMMAND_SEQUENCE), command.sequence);
+    memcpy(owner->baseline_scope + PROCESS_SCOPE(WORK_UID), payload + BASELINE(MEASUREMENT_UID), 16u);
+    owner->baseline_scope[PROCESS_SCOPE(WORK_TYPE)] = ECOBIN_UART_WORK_TYPE_BASELINE_MEASUREMENT;
+    owner->baseline_scope[PROCESS_SCOPE(PORT_NO)] = payload[BASELINE(PORT_NO)];
+    owner->baseline_scope[PROCESS_SCOPE(EVENT_MESSAGE_TYPE)] = ECOBIN_UART_MESSAGE_BASELINE_MEASUREMENT_RESULT;
+    ecobin_uart_write_u64_be(owner->baseline_scope + PROCESS_SCOPE(CONFIG_VERSION), policy.config_version);
+    owner->baseline_first_attempt_sequence = owner->weight.attempt_sequence;
+    measurement_sequence = owner->weight.measurement.result.measurement_id + 1u;
+    owner->baseline_active = 1u;
+    owner->baseline_published = 0u;
+    owner->baseline_begin_failed = 0u;
+    owner->baseline_meta.config_version = policy.config_version;
+    owner->baseline_meta.observed_uptime_ms = now;
+    if (!McuWeightRun_Begin(&owner->weight, &policy, measurement_sequence, now)) {
+        /* Preflight above makes this unreachable without an internal state or
+         * implementation defect. Do not leave an accepted command resultless:
+         * publish an explicit non-value CONFIG_ERROR through the normal
+         * retained event slot and expose a local diagnostic. */
+        endpoint->parser.diagnostics |= ECOBIN_UART_DIAG_SEMANTIC_REJECTED;
+        owner->baseline_begin_failed = 1u;
+        owner->baseline.kind = ECOBIN_UART_RESULT_MEASUREMENT_KIND_CONFIG_ERROR;
+        owner->baseline.calibration_version = policy.calibration_version;
+        owner->baseline.fault_code = ECOBIN_UART_FAULT_CODE_WEIGHT_CONFIG;
+    }
+    return 1u;
 }
 
 static uint8_t command_received(McuControlEndpoint *endpoint, uint8_t message,
@@ -45,6 +141,8 @@ static uint8_t command_received(McuControlEndpoint *endpoint, uint8_t message,
     uint8_t phase, action, handled;
     uint16_t error;
     uint32_t measurement_sequence;
+    if (message == ECOBIN_UART_MESSAGE_MEASURE_BASELINE)
+        return baseline_command_received(owner, endpoint, payload, length, now, decision);
     if (message != ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION && message != ECOBIN_UART_MESSAGE_START_CLEAN_OPERATION
         && (message < ECOBIN_UART_MESSAGE_CONFIG_BEGIN || message > ECOBIN_UART_MESSAGE_CONFIG_COMMIT)) {
         if (message == ECOBIN_UART_MESSAGE_SAFE_CLOSE)
@@ -71,7 +169,7 @@ static uint8_t command_received(McuControlEndpoint *endpoint, uint8_t message,
     if (decision->outcome != ECOBIN_UART_COMMAND_OUTCOME_NOT_SEEN) return 1u;
     error = owner->guard(message, payload, length, now, owner->guard_context);
     if (error > ECOBIN_UART_NACK_ERROR_INTERNAL_FAULT) error = ECOBIN_UART_NACK_ERROR_INTERNAL_FAULT;
-    if (error == ECOBIN_UART_NACK_ERROR_NONE && (owner->recovery_active
+    if (error == ECOBIN_UART_NACK_ERROR_NONE && (owner->recovery_active || owner->baseline_active
         || (owner->weight.present && !owner->weight.retired) || owner->weight.in_flight))
         error = ECOBIN_UART_NACK_ERROR_BUSY;
     if (message >= ECOBIN_UART_MESSAGE_CONFIG_BEGIN && message <= ECOBIN_UART_MESSAGE_CONFIG_COMMIT) {
@@ -122,6 +220,95 @@ static uint8_t command_received(McuControlEndpoint *endpoint, uint8_t message,
             || !McuWeightRun_Begin(&owner->weight, &policy, measurement_sequence, now))
             McuWorkState_SetPhase(&endpoint->work, ECOBIN_UART_MCU_WORK_PHASE_SAFETY_LOCKED);
     }
+    return 1u;
+}
+
+static void baseline_failure(McuResultMeasurement *measurement, const ScaleReaderObservation *observation,
+    uint8_t has_observation) {
+    measurement->kind = ECOBIN_UART_RESULT_MEASUREMENT_KIND_UNAVAILABLE;
+    measurement->fault_code = ECOBIN_UART_FAULT_CODE_WEIGHT_TIMEOUT;
+    if (!has_observation) return;
+    switch (observation->status) {
+    case SCALE_READER_RANGE_ERROR:
+        measurement->kind = ECOBIN_UART_RESULT_MEASUREMENT_KIND_OVERLOAD;
+        measurement->fault_code = ECOBIN_UART_FAULT_CODE_WEIGHT_OVERLOAD;
+        break;
+    case SCALE_READER_CRC_ERROR:
+    case SCALE_READER_PROTOCOL_ERROR:
+        measurement->kind = ECOBIN_UART_RESULT_MEASUREMENT_KIND_PROTOCOL_ERROR;
+        measurement->fault_code = ECOBIN_UART_FAULT_CODE_WEIGHT_PROTOCOL;
+        break;
+    case SCALE_READER_TIMEOUT:
+        measurement->kind = ECOBIN_UART_RESULT_MEASUREMENT_KIND_DISCONNECTED;
+        measurement->fault_code = ECOBIN_UART_FAULT_CODE_WEIGHT_DISCONNECTED;
+        break;
+    default: break;
+    }
+}
+
+static uint8_t poll_baseline(McuWorkPreparation *owner, McuControlEndpoint *endpoint, uint64_t now) {
+    WeightMeasurementResult result;
+    McuConfigWeightPolicy policy;
+    ScaleReaderObservation observation;
+    uint8_t uid[16], has_observation;
+    uint32_t event_sequence;
+    uint64_t observed;
+    size_t length;
+    if (owner->baseline_published) {
+        if (endpoint->process_event.held) return 1u;
+        owner->baseline_active = owner->baseline_published = 0u;
+        owner->baseline_begin_failed = 0u;
+        return 1u;
+    }
+    has_observation = 0u;
+    observed = owner->baseline_meta.observed_uptime_ms;
+    memset(&result, 0, sizeof(result));
+    memset(&policy, 0, sizeof(policy));
+    if (!owner->baseline_begin_failed) {
+        if (!McuWeightRun_Poll(&owner->weight, now)
+            || !McuWeightRun_Copy(&owner->weight, &result, &policy)) return 0u;
+        has_observation = McuWeightRun_CopyObservation(&owner->weight, &observation)
+            && observation.attempt_sequence > owner->baseline_first_attempt_sequence
+            && observation.captured_ms >= owner->weight.started_ms;
+        if (has_observation && !McuDeviceFacts_PublishScaleObservation(&endpoint->facts, &observation)) return 0u;
+        observed = result.status == WEIGHT_MEASUREMENT_PENDING ? now : owner->weight.started_ms + result.elapsed_ms;
+        if (!McuDeviceFacts_PublishMeasurement(&endpoint->facts, &result, policy.config_version, observed)) return 0u;
+        if (result.status == WEIGHT_MEASUREMENT_PENDING) return 1u;
+        if (result.status != WEIGHT_MEASUREMENT_STABLE_MEAN && result.status != WEIGHT_MEASUREMENT_TIMEOUT_MEDIAN
+            && result.status != WEIGHT_MEASUREMENT_UNAVAILABLE) return 0u;
+    }
+    event_sequence = McuControlEndpoint_ReserveEventSequence(endpoint);
+    if (!event_sequence) return 0u;
+    memcpy(uid, "EBM1", 4u);
+    ecobin_uart_write_u64_be(uid + 4u, endpoint->session.boot_id);
+    ecobin_uart_write_u32_be(uid + 12u, event_sequence);
+    if (owner->baseline_begin_failed) {
+        memcpy(owner->baseline.uid, uid, sizeof(uid));
+        owner->baseline.source_boot_id = endpoint->session.boot_id;
+        owner->baseline.event_sequence = event_sequence;
+    } else if (!McuResultMeasurement_FromAvailable(&owner->baseline, &result, uid,
+            endpoint->session.boot_id, event_sequence, policy.calibration_version)) {
+        memset(&owner->baseline, 0, sizeof(owner->baseline));
+        memcpy(owner->baseline.uid, uid, sizeof(uid));
+        owner->baseline.source_boot_id = endpoint->session.boot_id;
+        owner->baseline.event_sequence = event_sequence;
+        owner->baseline.elapsed_ms = (uint16_t)result.elapsed_ms;
+        owner->baseline.sample_count = result.sample_count;
+        owner->baseline.calibration_version = policy.calibration_version;
+        baseline_failure(&owner->baseline, &observation, has_observation);
+    }
+    if (!owner->baseline_begin_failed)
+        owner->baseline_meta.config_version = policy.config_version;
+    owner->baseline_meta.observed_uptime_ms = observed;
+    length = McuProcessMeasurement_BuildBaselineEvent(owner->baseline_scope,
+        sizeof(owner->baseline_scope), &owner->baseline, &owner->baseline_meta,
+        owner->scratch, sizeof(owner->scratch));
+    if (!length || !McuProcessEventSlot_Freeze(&endpoint->process_event, owner->baseline_scope,
+        sizeof(owner->baseline_scope), ECOBIN_UART_MESSAGE_BASELINE_MEASUREMENT_RESULT,
+        owner->scratch, length)) return 0u;
+    if (!owner->baseline_begin_failed
+        && !McuWeightRun_Retire(&owner->weight, result.measurement_id)) return 0u;
+    owner->baseline_published = 1u;
     return 1u;
 }
 
@@ -317,6 +504,7 @@ uint8_t McuWorkPreparation_Poll(McuWorkPreparation *owner, McuControlEndpoint *e
     for (action = 0u; action < 2u; ++action)
         if (owner->actions[action].poll != NULL)
             owner->actions[action].poll(endpoint, now, owner->actions[action].context);
+    if (owner->baseline_active) return poll_baseline(owner, endpoint, now);
     if (owner->initial_ready) return 1u;
     clean = endpoint->work.identity[MCU_WORK_IDENTITY_LENGTH - 2u] == ECOBIN_UART_WORK_TYPE_CLEAN_OPERATION;
     result = McuWorkPreparation_PollMeasurement(owner, endpoint, now,

@@ -67,7 +67,10 @@ class CandidateFixture(unittest.TestCase):
 class BootWireTests(CandidateFixture):
     def test_candidate_major_cannot_be_mistaken_for_v1(self) -> None:
         self.assertEqual(2, self.registry["protocol"]["major"])
-        self.assertTrue(self.registry["implementationStage"].endswith("_NOT_RUNNABLE"))
+        # rc.23 is wired into the local MCU/Pi runtime, but it is still an
+        # unreleased v2 candidate.  The older NOT_RUNNABLE suffix described
+        # pre-integration revisions and must not be used as the release fence.
+        self.assertTrue(self.registry["implementationStage"].endswith("_NOT_RELEASED"))
 
     def test_bootstrap_layouts_are_fixed_and_do_not_use_ack_retry(self) -> None:
         expected = {

@@ -452,6 +452,7 @@ export type CleanOptionBlocker =
   | 'DEVICE_BUSY'
   | 'PORT_DISABLED'
   | 'CLEAN_OPERATION_ACTIVE'
+  | 'CLEAN_BAG_RECOVERY_REQUIRED'
   | 'PORT_WORK_ACTIVE'
 
 export type CleanDeviceFilter =
@@ -497,8 +498,42 @@ export interface UpdateDeviceInstallationProfileRequest {
 export interface RecoverableCleanOperation {
   operationUid: string
   portNo: number
-  status: 'RECOVERY_REQUIRED'
+  status:
+    | 'AWAITING_ACTUAL_BAG'
+    | 'BASELINE_PENDING'
+    | 'BASELINE_REQUIRED'
   statusUrl: string
+}
+
+export type CleanBagRecoveryDecision =
+  | 'RETAIN_OLD_BAG'
+  | 'USE_RESERVED_NEW_BAG'
+
+export type CleanBagRecoveryState =
+  | 'COMPLETED'
+  | 'BASELINE_PENDING'
+  | 'BASELINE_REQUIRED'
+
+export interface RecoverInterruptedCleanBagRequest {
+  actualBagQr: string
+  actualBagConfirmed: true
+  emptyBagConfirmed: boolean
+  expectedOperationVersion: number
+  reason: string
+}
+
+export interface InterruptedCleanBagRecoveryAccepted {
+  recoveryUid: string
+  operationUid: string
+  state: CleanBagRecoveryState
+  decision: CleanBagRecoveryDecision
+  actualBagQr: string
+  baselineMeasurementUid: string | null
+  baselineTaskUid: string | null
+  nextAction:
+    | 'WAIT_FOR_NEXT_BUSINESS'
+    | 'WAIT_FOR_EMPTY_BAG_BASELINE'
+    | 'RETRY_EMPTY_BAG_BASELINE'
 }
 
 export interface CleanPortOption {

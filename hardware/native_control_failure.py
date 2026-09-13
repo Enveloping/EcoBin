@@ -18,30 +18,80 @@ PROFILE = "ecobin-native-control-failure-v1"
 COMMUNICATION_REASON = "MCU_COMMUNICATION_UNAVAILABLE"
 RESTART_REASON = "EDGE_RESTARTED_BEFORE_START"
 MCU_RESTART_REASON = "MCU_RESTART_FINAL_RESULT_UNAVAILABLE"
-REASONS = {COMMUNICATION_REASON, RESTART_REASON, MCU_RESTART_REASON}
-STAGES = {"PRE_START_FAILED", "FAILED"}
+BASELINE_RESULT_REASON = "MCU_BASELINE_RESULT_UNAVAILABLE"
+REASONS = {
+    COMMUNICATION_REASON,
+    RESTART_REASON,
+    MCU_RESTART_REASON,
+    BASELINE_RESULT_REASON,
+}
+STAGES = {"PRE_START_FAILED", "FAILED", "REJECTED"}
+INTERLOCK_PROFILE = "native-clean-bag-interlock-v1"
+
+
+def _rejection_reasons():
+    """Use only stable rejection symbols carried by the UART contract."""
+    return set(uart.REGISTRY["enums"]["NackError"]["values"]) - {"NONE"}
 
 
 def _original(store, permit, start_uid, device_name):
-    if not isinstance(permit, JobPermit) or permit.work_type not in {"DELIVERY", "CLEAN"}:
+    if not isinstance(permit, JobPermit) or permit.work_type not in {
+        "DELIVERY",
+        "CLEAN",
+        "BASELINE",
+    }:
         raise ValueError("native control failure requires an original business permit")
     if not isinstance(device_name, str) or not device_name:
         raise ValueError("native control failure requires the original device")
     record = store.get_native_command(start_uid)
-    expected_name = "START_CLEAN_OPERATION" if permit.work_type == "CLEAN" else "START_DELIVERY_SESSION"
+    expected_name = {
+        "CLEAN": "START_CLEAN_OPERATION",
+        "DELIVERY": "START_DELIVERY_SESSION",
+        "BASELINE": "MEASURE_BASELINE",
+    }[permit.work_type]
+    expected_cloud_name = {
+        "CLEAN": "START_CLEAN_OPERATION",
+        "DELIVERY": "START_DELIVERY_SESSION",
+        "BASELINE": "MEASURE_EMPTY_BAG_BASELINE",
+    }[permit.work_type]
     if record is None or record["message_name"] != expected_name or record["conflict"]:
         raise ValueError("native control failure lost its original START")
     start = uart.decode_payload(expected_name, record["payload"])
-    work_key = "operationUid" if permit.work_type == "CLEAN" else "sessionUid"
+    work_key = {
+        "CLEAN": "operationUid",
+        "DELIVERY": "sessionUid",
+        "BASELINE": "measurementUid",
+    }[permit.work_type]
     command = store.get_command(permit.command_uid)
     if (command is None or command["payload"].get("targetDeviceName") != device_name
             or command["payload"].get("commandUid") != permit.command_uid
-            or command["payload"].get("commandType") != expected_name
+            or command["payload"].get("commandType") != expected_cloud_name
             or command["payload"].get("payload", {}).get(work_key) != permit.work_uid
             or command_request_digest(command["payload"]) != permit.request_digest_sha256
             or start[work_key] != permit.work_uid):
         raise ValueError("native control failure differs from its original cloud authority")
     return record, start, command
+
+
+def _baseline_result_saved(store, record):
+    """Let an exact committed measurement beat a later technical timeout."""
+    if record["message_name"] != "MEASURE_BASELINE":
+        return False
+    values = uart.decode_payload("MEASURE_BASELINE", record["payload"])
+    scope = dict(
+        mcuCommandUid=values["mcuCommandUid"],
+        commandDigestSha256=values["commandDigestSha256"],
+        targetMcuBootId=values["targetMcuBootId"],
+        commandSequence=values["commandSequence"],
+        workUid=values["measurementUid"],
+        workType="BASELINE_MEASUREMENT",
+        portNo=values["portNo"],
+        eventMessageType="BASELINE_MEASUREMENT_RESULT",
+        stepSequence=0,
+        configVersion=values["configVersion"],
+    )
+    raw = uart.encode_payload("QUERY_PROCESS_EVENT", scope | {"queryId": 1})[8:]
+    return store.get_native_process_receipt(raw) is not None
 
 
 def _slot(store, permit, port_no):
@@ -72,8 +122,16 @@ def _event(store, command_uid, start_uid, message_name, stage, reason):
     if event_row is None:
         raise ValueError("native control failure observation event disappeared")
     event = json.loads(event_row["payload_json"])
-    expected_payload = dict(observedCommandType=message_name, stage=stage,
-        mcuCommandUid=start_uid, errorCode=reason)
+    expected_payload = dict(
+        observedCommandType=(
+            "MEASURE_EMPTY_BAG_BASELINE"
+            if message_name == "MEASURE_BASELINE"
+            else message_name
+        ),
+        stage=stage,
+        mcuCommandUid=None if stage == "REJECTED" else start_uid,
+        errorCode=reason,
+    )
     if (event.get("eventType") != "DEVICE_COMMAND_OBSERVED"
             or event.get("commandUid") != command_uid or event.get("payload") != expected_payload):
         raise ValueError("native control failure observation differs from its original command")
@@ -92,15 +150,28 @@ def _checked_marker(store, permit, record, start, command, device_name):
         raise ValueError("native control failure receipt is malformed")
     evidence = marker["evidence"]
     stage, reason = evidence.get("stage"), evidence.get("reason")
-    if stage not in STAGES or reason not in REASONS:
+    if stage not in STAGES or (
+        reason not in REASONS
+        and not (stage == "REJECTED" and reason in _rejection_reasons())
+    ):
         raise ValueError("native control failure receipt has an unsupported disposition")
     event = _event(store, permit.command_uid, record["command_uid"], record["message_name"], stage, reason)
     expected = _expected_evidence(permit, record, start, device_name, stage, reason, event)
     if (evidence != expected or marker.get("evidenceSha256") != canonical_payload_sha256(expected)
-            or command["state"] != "FAILED" or command["last_error"] != reason
-            or bool(record["write_claimed"]) != (stage == "FAILED")
+            or command["state"] != ("REJECTED" if stage == "REJECTED" else "FAILED")
+            or command["last_error"] != reason
+            or bool(record["write_claimed"])
+            != (stage in {"FAILED", "REJECTED"})
             or (reason == RESTART_REASON and stage != "PRE_START_FAILED")
-            or (reason == MCU_RESTART_REASON and stage != "FAILED")):
+            or (reason == MCU_RESTART_REASON and stage != "FAILED")
+            or (
+                stage == "REJECTED"
+                and (
+                    permit.work_type != "BASELINE"
+                    or record["decision_outcome"] != "REJECTED"
+                    or record["decision_error"] != reason
+                )
+            )):
         raise ValueError("native control failure receipt conflicts with its original work")
     return result, marker
 
@@ -109,6 +180,40 @@ def _slot_receipt(marker):
     evidence = marker["evidence"]
     return dict(startCommandUid=evidence["startCommandUid"], stage=evidence["stage"],
         reason=evidence["reason"], evidenceSha256=marker["evidenceSha256"])
+
+
+def _clean_bag_interlock(permit, start, command):
+    """Keep only identities proven by the original cloud and MCU STARTs."""
+    cloud = command["payload"]
+    payload = cloud["payload"]
+    metadata = dict(
+        profile=INTERLOCK_PROFILE,
+        sourceWorkUid=payload["operationUid"],
+        portNo=start["portNo"],
+        oldBagUid=payload.get("oldBagUid"),
+        newBagUid=payload["newBagUid"],
+        sourceCommandUid=cloud["commandUid"],
+    )
+    # A first bag installation has no old bag. Preserve that authoritative
+    # null instead of inventing an identity or dropping the field.
+    if (
+        metadata["sourceWorkUid"] != permit.work_uid
+        or metadata["sourceCommandUid"] != permit.command_uid
+        or metadata["portNo"] != payload["portNo"]
+        or not isinstance(metadata["newBagUid"], str)
+        or not metadata["newBagUid"]
+        or (
+            metadata["oldBagUid"] is not None
+            and (
+                not isinstance(metadata["oldBagUid"], str)
+                or not metadata["oldBagUid"]
+            )
+        )
+    ):
+        raise ValueError(
+            "native clean bag interlock differs from original authority"
+        )
+    return metadata
 
 
 def _check_slot_receipt(slot, marker):
@@ -127,7 +232,10 @@ def _result(marker):
 
 def prepare(store, permit, start_uid, *, device_name, stage, reason):
     """Freeze the failure before touching the permanent ledger or releasing occupancy."""
-    if stage not in STAGES or reason not in REASONS:
+    if stage not in STAGES or (
+        reason not in REASONS
+        and not (stage == "REJECTED" and reason in _rejection_reasons())
+    ):
         raise ValueError("native control failure stage or reason is unsupported")
     with store._standalone_native_transaction() as conn:
         record, start, command = _original(store, permit, start_uid, device_name)
@@ -135,22 +243,36 @@ def prepare(store, permit, start_uid, *, device_name, stage, reason):
         if marker is not None:
             _check_slot_receipt(_slot(store, permit, start["portNo"]), marker)
             return _result(marker)
-        if store.get_native_delivery_issue(permit.work_uid) is not None:
+        if permit.work_type == "BASELINE" and _baseline_result_saved(store, record):
             return dict(state="OTHER_TERMINAL_PATH")
-        completed = complete_result(store, conn, permit, record, start)
-        if completed is not None:
-            return completed
-        expected_stage = "FAILED" if record["write_claimed"] else "PRE_START_FAILED"
+        if permit.work_type == "DELIVERY" and store.get_native_delivery_issue(permit.work_uid) is not None:
+            return dict(state="OTHER_TERMINAL_PATH")
+        if permit.work_type in {"DELIVERY", "CLEAN"}:
+            completed = complete_result(store, conn, permit, record, start)
+            if completed is not None:
+                return completed
+        expected_stage = (
+            "REJECTED"
+            if permit.work_type == "BASELINE"
+            and record["decision_outcome"] == "REJECTED"
+            else "FAILED" if record["write_claimed"] else "PRE_START_FAILED"
+        )
         if (stage != expected_stage
                 or (reason == RESTART_REASON and record["write_claimed"])
                 or (reason == MCU_RESTART_REASON
-                    and (permit.work_type != "CLEAN"
-                         or not record["write_claimed"]))):
+                    and (permit.work_type not in {"CLEAN", "BASELINE"}
+                         or not record["write_claimed"]))
+                or (stage == "REJECTED" and record["decision_error"] != reason)):
             raise ValueError("native control failure stage does not match the durable write fence")
         if command["state"] in {"COMPLETED", "FAILED", "REJECTED"}:
             raise ValueError("native control failure cannot replace another terminal command result")
-        observation = store._record_command_observation_in_tx(conn, command["payload"], stage,
-            mcu_command_uid=start_uid, error_code=reason)
+        observation = store._record_command_observation_in_tx(
+            conn,
+            command["payload"],
+            stage,
+            mcu_command_uid=None if stage == "REJECTED" else start_uid,
+            error_code=reason,
+        )
         if observation == "CONFLICT":
             raise ValueError("native control failure command observation conflicts")
         event = _event(store, permit.command_uid, record["command_uid"], record["message_name"], stage, reason)
@@ -162,9 +284,10 @@ def prepare(store, permit, start_uid, *, device_name, stage, reason):
             raise ValueError("native control failure has an orphan slot receipt")
         context = dict(slot["context"])
         context[MARKER] = _slot_receipt(marker)
-        updated = conn.execute("""UPDATE command_inbox SET state='FAILED', processed_at=?,
+        terminal_state = "REJECTED" if stage == "REJECTED" else "FAILED"
+        updated = conn.execute("""UPDATE command_inbox SET state=?, processed_at=?,
             processing_started_at=NULL, result_json=?, last_error=? WHERE command_uid=? AND state=?""",
-            (store._now(), json.dumps(result, ensure_ascii=False, sort_keys=True), reason,
+            (terminal_state, store._now(), json.dumps(result, ensure_ascii=False, sort_keys=True), reason,
              permit.command_uid, command["state"]))
         if updated.rowcount != 1:
             raise ValueError("native control failure original command changed")
@@ -185,6 +308,11 @@ def prepare(store, permit, start_uid, *, device_name, stage, reason):
                 conn,
                 start["portNo"],
                 True,
+                metadata=_clean_bag_interlock(
+                    permit,
+                    start,
+                    command,
+                ),
             )
         return _result(marker)
 
@@ -227,10 +355,30 @@ def apply(store, permit, start_uid, *, device_name, permit_snapshot):
             return _result(marker)
         _check_slot_receipt(_slot(store, permit, start["portNo"]), marker)
         marker["state"] = "APPLIED"
-        updated = conn.execute("UPDATE command_inbox SET result_json=? WHERE command_uid=? AND state='FAILED'",
-            (json.dumps(result, ensure_ascii=False, sort_keys=True), permit.command_uid))
+        terminal_state = (
+            "REJECTED"
+            if marker["evidence"]["stage"] == "REJECTED"
+            else "FAILED"
+        )
+        updated = conn.execute(
+            "UPDATE command_inbox SET result_json=? WHERE command_uid=? AND state=?",
+            (
+                json.dumps(result, ensure_ascii=False, sort_keys=True),
+                permit.command_uid,
+                terminal_state,
+            ),
+        )
         if updated.rowcount != 1:
             raise ValueError("native control failure original command changed")
+        retired = conn.execute(
+            """UPDATE native_mcu_command SET dispatch_retired=1
+               WHERE command_uid=? AND dispatch_retired=0""",
+            (start_uid,),
+        )
+        if retired.rowcount != 1:
+            raise ValueError(
+                "native control failure dispatch fence changed"
+            )
         released = conn.execute("""UPDATE work_slot SET work_type='NONE', work_uid=NULL, work_state=NULL,
             port_no=NULL, context_json=NULL, updated_at=?
             WHERE slot_id=1 AND work_uid=? AND work_type=? AND port_no=?""",

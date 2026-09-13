@@ -16,6 +16,7 @@ from job_safety import JobPermit, JobSafetyError, PermanentJobSafety, command_re
 from mcu_configuration import NativeMcuConfiguration, NATIVE_DEVICE_CONSTANTS, NATIVE_PORT_CONSTANTS
 from camera_capture import CAMERA_CAPTURE_GROUP_TIMEOUT_SECONDS
 from photo_manager import DELIVERY_OPEN_SLOTS, DELIVERY_CLOSE_SLOTS, CLEAN_OPEN_SLOTS, CLEAN_CLOSE_SLOTS
+from mcu_process_handoff import McuProcessEventHandoff
 from mcu_result_handoff import McuResultHandoff
 from mcu_session import McuBootSession, McuCommandDispatcher
 from mcu_work_query import McuDeviceFactsQuery, McuWorkQuery
@@ -74,6 +75,8 @@ class NativeBusinessRuntime:
         self._scale_wait = None
         self._control_wait_uid = None
         self._control_wait_since = None
+        self._baseline_recovery_deadlines = {}
+        self._baseline_release_recovery_deadlines = {}
         self._runtime_instance_uid = str(uuid.uuid4())
         self._dispatch_authority = None
         self.reporter = NativeResultReporter(store, safety, device_name=device_name, photo_manager=photo_manager)
@@ -333,6 +336,64 @@ class NativeBusinessRuntime:
         age = facts["capturedUptimeMs"] - facts["scaleCapturedUptimeMs"] + now - self._facts_requested_at
         return facts["scaleWeightGrams"] if 0 <= age <= FACTS_MAXIMUM_AGE_MS else None
 
+    def _clean_bag_interlock_clearance(self, command):
+        payload = command["payload"]
+        port_no = payload["portNo"]
+        if not self.store.clean_restart_interlock_active(port_no):
+            return None
+        metadata = self.store.get_clean_restart_interlock_metadata(port_no)
+        stored = self.store.get_command(command["commandUid"])
+        expected_type = command["commandType"]
+        if (
+            metadata is None
+            or metadata.get("profile")
+            != "native-clean-bag-interlock-v1"
+            or metadata.get("portNo") != port_no
+            or not all(
+                isinstance(metadata.get(name), str)
+                and metadata[name]
+                for name in (
+                    "sourceWorkUid",
+                    "sourceCommandUid",
+                    "newBagUid",
+                )
+            )
+            or "oldBagUid" not in metadata
+            or (
+                metadata.get("oldBagUid") is not None
+                and (
+                    not isinstance(metadata["oldBagUid"], str)
+                    or not metadata["oldBagUid"]
+                )
+            )
+            or stored is None
+            or stored["state"] != "PROCESSING"
+            or stored["command_type"] != expected_type
+            or stored["payload"] != command
+        ):
+            raise JobSafetyError(
+                "CLEAN_BAG_CONFIRMATION_REQUIRED",
+                "an interrupted clean requires a matching backend-authorized START",
+            )
+        actual_bag_uid = (
+            payload["bagUid"]
+            if expected_type == "START_DELIVERY_SESSION"
+            else payload["oldBagUid"]
+        )
+        if actual_bag_uid not in {
+            bag_uid
+            for bag_uid in (
+                metadata.get("oldBagUid"),
+                metadata["newBagUid"],
+            )
+            if isinstance(bag_uid, str) and bag_uid
+        }:
+            raise JobSafetyError(
+                "CLEAN_BAG_CONFIRMATION_REQUIRED",
+                "the backend-authorized START does not match the confirmed current bag",
+            )
+        return metadata
+
     def _check_start(self, command, *, permit=None, permit_snapshot=None):
         validate_command_envelope({key: value for key, value in command.items() if key != "cosGrant"})
         if command["targetDeviceName"] != self.device_name:
@@ -346,11 +407,7 @@ class NativeBusinessRuntime:
         if self.boot is None or self.boot.current_boot(self.clock()) is None:
             raise JobSafetyError("MCU_COMMUNICATION_UNAVAILABLE", "fresh MCU communication required")
         payload = command["payload"]
-        if self.store.clean_restart_interlock_active(payload["portNo"]):
-            raise JobSafetyError(
-                "CLEAN_BAG_CONFIRMATION_REQUIRED",
-                "an interrupted clean requires current bag and tare confirmation",
-            )
+        interlock_clearance = self._clean_bag_interlock_clearance(command)
         configuration, facts = self._check_configuration(payload["config"])
         port = next((row for row in configuration["payload"]["ports"] if row["portNo"] == payload["portNo"]), None)
         if port is None or not port["enabled"] or payload["portNo"] != 1:
@@ -380,6 +437,105 @@ class NativeBusinessRuntime:
             if slot is None or self._permit(slot) != permit:
                 raise ValueError("native START lost its original slot")
             check_job_permit(permit, permit_snapshot)
+        return interlock_clearance
+
+    def _check_baseline(self, command, *, permit=None, permit_snapshot=None):
+        """Validate one non-mechanical empty-bag measurement authority."""
+        validate_command_envelope(
+            {key: value for key, value in command.items() if key != "cosGrant"}
+        )
+        if (
+            command["commandType"] != "MEASURE_EMPTY_BAG_BASELINE"
+            or command["targetDeviceName"] != self.device_name
+        ):
+            raise ValueError("baseline command belongs to another target")
+        if not self.connected():
+            raise JobSafetyError(
+                "NETWORK_UNAVAILABLE",
+                "offline devices do not accept a new baseline measurement",
+            )
+        fault = self.store.get_state("native_blocking_fault")
+        if fault:
+            raise JobSafetyError(
+                fault,
+                "native baseline is awaiting communication fault handling",
+            )
+        self._require_maintenance_free()
+        now = self.clock()
+        boot_id = self.boot.current_boot(now) if self.boot is not None else None
+        if boot_id is None:
+            raise JobSafetyError(
+                "MCU_COMMUNICATION_UNAVAILABLE",
+                "fresh MCU communication is required for baseline measurement",
+            )
+        payload = command["payload"]
+        if payload["emptyBagConfirmed"] is not True:
+            raise JobSafetyError(
+                "EMPTY_BAG_NOT_CONFIRMED",
+                "the physical empty bag must be explicitly confirmed",
+            )
+        if payload["measurementTimeoutMs"] != 5000:
+            raise JobSafetyError(
+                "BASELINE_TIMEOUT_INVALID",
+                "native baseline measurement timeout must be exactly five seconds",
+            )
+        configuration, facts = self._check_configuration(payload["config"])
+        port = next(
+            (
+                row
+                for row in configuration["payload"]["ports"]
+                if row["portNo"] == payload["portNo"]
+            ),
+            None,
+        )
+        if port is None or not port["enabled"] or payload["portNo"] != 1:
+            raise JobSafetyError(
+                "PORT_UNAVAILABLE",
+                "this MCU exposes one enabled physical port",
+            )
+        if facts["updateLatched"]:
+            raise JobSafetyError(
+                "MCU_CONTROL_NOT_READY",
+                "MCU update control is not ready for baseline measurement",
+            )
+        slot = self.store.get_work_slot()
+        if permit is None:
+            if any(
+                row["payload"].get("mcuConfigurationProfile") == PROFILE
+                for row in self.store.list_pending_configurations()
+            ) or self._configuration_reload_pending():
+                raise JobSafetyError(
+                    "MCU_CONFIGURATION_BUSY",
+                    "the original configuration is changing",
+                )
+            if slot is not None or facts["retainedWorkState"] not in {
+                "NONE",
+                "RESULT_RELEASED",
+            }:
+                raise JobSafetyError(
+                    "DEVICE_BUSY",
+                    "an original business still owns the device",
+                )
+            if facts["retainedWorkState"] == "RESULT_RELEASED":
+                saved = self.store.get_native_mcu_result(
+                    facts["currentMcuBootId"], facts["retainedResultSequence"]
+                )
+                if saved is None or saved["work_uid"] != facts["retainedWorkUid"]:
+                    raise ValueError(
+                        "MCU released result has no corresponding local custody"
+                    )
+        else:
+            if slot is None or self._permit(slot) != permit:
+                raise ValueError("native baseline lost its original slot")
+            record = self.store.get_native_command(
+                slot["context"]["start_mcu_command_uid"]
+            )
+            if record is None or record["mcu_boot_id"] != boot_id:
+                raise JobSafetyError(
+                    "MCU_RESTART_FINAL_RESULT_UNAVAILABLE",
+                    "baseline command belongs to an earlier MCU boot",
+                )
+            check_job_permit(permit, permit_snapshot)
 
     def start_delivery_command(self, command):
         return self._start(command, clean=False)
@@ -387,10 +543,37 @@ class NativeBusinessRuntime:
     def start_clean_command(self, command):
         return self._start(command, clean=True)
 
+    def start_baseline_command(self, command):
+        self._check_baseline(command)
+        payload = command["payload"]
+        native_uid = str(uuid.uuid4())
+        permit = JobPermit(
+            command["commandUid"],
+            payload["measurementUid"],
+            command["commandUid"],
+            "BASELINE",
+            command_request_digest(command),
+        )
+        record = self.store.prepare_native_baseline_work(
+            command,
+            permit,
+            native_uid,
+            self.boot.current_boot(self.clock()),
+            runtime_instance_uid=self._runtime_instance_uid,
+        )
+        if record is None:
+            raise JobSafetyError(
+                "DEVICE_BUSY",
+                "device slot was acquired by another owner",
+            )
+        self._live_starts.add(record["command_uid"])
+        return {"native_pending": True, "mcu_command_uid": native_uid}
+
     def _start(self, command, *, clean):
-        self._check_start(command)
+        interlock_clearance = self._check_start(command)
         payload = command["payload"]
         key, work_type = ("operationUid", "CLEAN") if clean else ("sessionUid", "DELIVERY")
+        start_bag_uid = payload["oldBagUid"] if clean else payload["bagUid"]
         uid = str(uuid.uuid4())
         values = {key: payload[key], "portNo": payload["portNo"],
             "configVersion": payload["config"]["version"], "configContentSha256": payload["config"]["contentSha256"],
@@ -405,8 +588,20 @@ class NativeBusinessRuntime:
             command_request_digest(command))
         context = dict(native_protocol=2, phase="NATIVE_RUNNING", start_command_uid=command["commandUid"],
             start_mcu_command_uid=uid, start_runtime_instance_uid=self._runtime_instance_uid,
+            start_bag_uid=start_bag_uid,
             job_safety=asdict(permit) | {"begin_uid": permit.work_uid})
-        if not self.store.acquire_work_slot(work_type, permit.work_uid, payload["portNo"], context):
+        if not self.store.acquire_work_slot(
+            work_type,
+            permit.work_uid,
+            payload["portNo"],
+            context,
+            clean_restart_interlock_clearance=interlock_clearance,
+        ):
+            if self.store.clean_restart_interlock_active(payload["portNo"]):
+                raise JobSafetyError(
+                    "CLEAN_BAG_CONFIRMATION_REQUIRED",
+                    "the interrupted clean bag interlock changed before START acquisition",
+                )
             raise JobSafetyError("DEVICE_BUSY", "device slot was acquired by another owner")
         if self.photo is not None:
             if command.get("cosGrant"):
@@ -592,6 +787,15 @@ class NativeBusinessRuntime:
         permit = self._permit(slot) if slot else None
         if permit is None or slot["context"]["start_mcu_command_uid"] != record["command_uid"]:
             raise ValueError("native dispatch is not the original START")
+        if record["message_name"] == "MEASURE_BASELINE":
+            command = self.store.get_command(permit.command_uid)["payload"]
+            check = lambda: self._check_baseline(
+                command,
+                permit=permit,
+                permit_snapshot=authority[1],
+            )
+            check()
+            return check
         if record["message_name"] not in {"START_DELIVERY_SESSION", "START_CLEAN_OPERATION"}:
             raise ValueError("native business does not dispatch per-action commands")
         command = self.store.get_command(permit.command_uid)["payload"]
@@ -751,6 +955,9 @@ class NativeBusinessRuntime:
         if isinstance(result, dict) and CONTROL_FAILURE_MARKER in result:
             self._complete_control_failure(permit, uid, result[CONTROL_FAILURE_MARKER])
             return
+        if permit.work_type == "BASELINE":
+            self._baseline_poll(slot, permit, record, now)
+            return
         start = uart.decode_payload(record["message_name"], record["payload"])
         if self._query_start_uid != uid:
             identity = {key: start[key] for key in IDENTITY_FIELDS}
@@ -829,6 +1036,165 @@ class NativeBusinessRuntime:
                 self._complete_reported_result(permit, uid, decision)
 
     @staticmethod
+    def _baseline_scope(record):
+        values = uart.decode_payload("MEASURE_BASELINE", record["payload"])
+        return {
+            "mcuCommandUid": values["mcuCommandUid"],
+            "commandDigestSha256": values["commandDigestSha256"],
+            "targetMcuBootId": values["targetMcuBootId"],
+            "commandSequence": values["commandSequence"],
+            "workUid": values["measurementUid"],
+            "workType": "BASELINE_MEASUREMENT",
+            "portNo": values["portNo"],
+            "eventMessageType": "BASELINE_MEASUREMENT_RESULT",
+            "stepSequence": 0,
+            "configVersion": values["configVersion"],
+        }
+
+    def _baseline_receipt(self, record):
+        scope = self._baseline_scope(record)
+        raw_scope = uart.encode_payload(
+            "QUERY_PROCESS_EVENT",
+            scope | {"queryId": 1},
+        )[8:]
+        return self.store.get_native_process_receipt(raw_scope)
+
+    def _baseline_poll(self, slot, permit, record, now):
+        """Dispatch once, then use only exact query/receipt custody to finish."""
+        uid = record["command_uid"]
+        scope = self._baseline_scope(record)
+        if self._query_start_uid != uid or not isinstance(
+            self._handoff, McuProcessEventHandoff
+        ):
+            self._work_query = None
+            self._handoff = McuProcessEventHandoff(
+                self.store,
+                self.transport.write,
+                scope,
+            )
+            self._query_start_uid = uid
+        if (
+            uid in self._live_starts
+            and not record["write_claimed"]
+            and self.boot.current_boot(now) == record["mcu_boot_id"]
+        ):
+            proof = self._start_authorization(permit, record)
+            if proof is not _RPC_PENDING:
+                self._send_with_authority(record, proof)
+                self._live_starts.discard(uid)
+                self._start_grants.discard(uid)
+        if record["write_claimed"]:
+            self.dispatcher.poll(uid, now)
+            had_receipt = self._baseline_receipt(record) is not None
+            query_id = self._handoff.poll(now)
+            if (
+                query_id is not None
+                and slot["context"].get("start_runtime_instance_uid")
+                != self._runtime_instance_uid
+            ):
+                if had_receipt and slot["context"].get(
+                    "nativeBaselineMcuRelease"
+                ) is None:
+                    # The first inherited query can legitimately observe HELD
+                    # and send PROCESS_EVENT_SAVED.  The MCU only exposes
+                    # RELEASED to the following query, while control-failure
+                    # polling runs before that query on the next tick.  Keep a
+                    # fixed, non-renewing window for both query/reply rounds.
+                    self._baseline_release_recovery_deadlines.setdefault(
+                        uid,
+                        now + (2 * self.timeout_ms),
+                    )
+                elif record["decision_outcome"] == "ACCEPTED":
+                    # A process that inherited an already-accepted command
+                    # gets one query-only recovery window even when the durable
+                    # total deadline elapsed while Pi was down. Starting this
+                    # bound at the actual committed query prevents an idle/new
+                    # process from extending the business and never authorizes
+                    # MEASURE replay.
+                    self._baseline_recovery_deadlines.setdefault(
+                        uid,
+                        now + self.timeout_ms,
+                    )
+        receipt = self._baseline_receipt(record)
+        if receipt is None:
+            return
+        command = self.store.get_command(permit.command_uid)
+        result = command.get("result") if command is not None else None
+        marker = (
+            result.get("nativeBaselineCompletion")
+            if isinstance(result, dict)
+            else None
+        )
+        event_uid = (
+            marker.get("evidence", {}).get("eventUid")
+            if isinstance(marker, dict)
+            else None
+        ) or str(uuid.uuid4())
+        pending = self.store.prepare_native_baseline_completion(
+            permit,
+            uid,
+            device_name=self.device_name,
+            event_uid=event_uid,
+        )
+        if pending["state"] != "PREPARED":
+            return
+        current_slot = self.store.get_work_slot()
+        if current_slot is None:
+            raise ValueError("native baseline released before permanent completion")
+        release_proof = current_slot["context"].get(
+            "nativeBaselineMcuRelease"
+        )
+        if release_proof is None:
+            observed = self._handoff.observation(now)
+            current_boot = self.boot.current_boot(now)
+            if observed is not None and observed.get("status") == "RELEASED":
+                release_proof = self.store.confirm_native_baseline_mcu_release(
+                    permit,
+                    uid,
+                    release_observation=observed,
+                )
+            elif current_boot is not None and current_boot != record["mcu_boot_id"]:
+                # A newly recognized MCU boot proves that the prior boot's
+                # volatile held process slot no longer exists. The exact local
+                # result remains the successful authority.
+                release_proof = self.store.confirm_native_baseline_mcu_release(
+                    permit,
+                    uid,
+                    replacement_mcu_boot_id=current_boot,
+                )
+            else:
+                return
+        digest = pending["evidenceSha256"]
+
+        def complete():
+            self.safety.complete_job(
+                permit,
+                completion_uid=permit.command_uid,
+                outcome="SUCCEEDED",
+                completion_digest_sha256=digest,
+            )
+            return self.safety.get_job_permit(permit.permit_uid)
+
+        snapshot = self._rpc_call(
+            ("BASELINE_COMPLETE", permit.permit_uid, uid, digest),
+            complete,
+        )
+        if snapshot is _RPC_PENDING:
+            return
+        self.store.apply_native_baseline_completion(
+            permit,
+            uid,
+            device_name=self.device_name,
+            permit_snapshot=snapshot,
+        )
+        self._live_starts.discard(uid)
+        self._start_grants.discard(uid)
+        self._baseline_recovery_deadlines.pop(uid, None)
+        self._baseline_release_recovery_deadlines.pop(uid, None)
+        self._query_start_uid = None
+        self._handoff = None
+
+    @staticmethod
     def _permit_snapshot_matches(permit, snapshot):
         expected = dict(permitUid=permit.permit_uid, commandUid=permit.command_uid,
             workUid=permit.work_uid, workType=permit.work_type,
@@ -883,6 +1249,8 @@ class NativeBusinessRuntime:
             device_name=self.device_name, permit_snapshot=snapshot)
         self._live_starts.discard(uid)
         self._start_grants.discard(uid)
+        self._baseline_recovery_deadlines.pop(uid, None)
+        self._baseline_release_recovery_deadlines.pop(uid, None)
         self._control_wait_uid = self._control_wait_since = None
 
     def _latch_control_communication_fault(self, *, reason, mcu_boot_id):
@@ -902,7 +1270,13 @@ class NativeBusinessRuntime:
 
     def _control_failure_poll(self, now, *, link_unavailable):
         """Start one durable exit only after the configured communication deadline."""
-        from native_control_failure import MARKER, COMMUNICATION_REASON, RESTART_REASON
+        from native_control_failure import (
+            MARKER,
+            BASELINE_RESULT_REASON,
+            COMMUNICATION_REASON,
+            MCU_RESTART_REASON,
+            RESTART_REASON,
+        )
         slot = self.store.get_work_slot()
         if slot is None:
             self._control_wait_uid = self._control_wait_since = None
@@ -916,6 +1290,75 @@ class NativeBusinessRuntime:
         command = self.store.get_command(permit.command_uid)
         result = command["result"] if command is not None else None
         if isinstance(result, dict) and MARKER in result:
+            return
+        if permit.work_type == "BASELINE" and (
+            slot["work_state"] == "COMPLETING"
+            or self._baseline_receipt(record) is not None
+        ):
+            # A committed exact result always wins over a later communication
+            # deadline or boot observation. If exact MCU RELEASED custody
+            # cannot be obtained in bounded time, retain the result/slot and
+            # expose the communication fault; never downgrade the command to
+            # failure merely to release occupancy.
+            release = slot["context"].get("nativeBaselineMcuRelease")
+            if release is None:
+                release_deadline = (
+                    self.store.native_baseline_release_deadline_status(
+                        uid,
+                        communication_timeout_ms=self.timeout_ms,
+                    )
+                )
+                observed = (
+                    self._handoff.observation(now)
+                    if self._query_start_uid == uid
+                    and isinstance(self._handoff, McuProcessEventHandoff)
+                    else None
+                )
+                inherited = (
+                    slot["context"].get("start_runtime_instance_uid")
+                    != self._runtime_instance_uid
+                )
+                recovery_deadline = (
+                    self._baseline_release_recovery_deadlines.get(uid)
+                )
+                current_boot = self.boot.current_boot(now)
+                recognized_replacement_boot = (
+                    current_boot is not None
+                    and current_boot != record["mcu_boot_id"]
+                )
+                recovery_pending = (
+                    inherited
+                    and not link_unavailable
+                    and (
+                        recovery_deadline is None
+                        or now < recovery_deadline
+                    )
+                )
+                if (
+                    (link_unavailable or release_deadline["expired"])
+                    and not recovery_pending
+                    and not (
+                        isinstance(observed, dict)
+                        and observed.get("status") == "RELEASED"
+                    )
+                    and not recognized_replacement_boot
+                ):
+                    self._latch_control_communication_fault(
+                        reason=COMMUNICATION_REASON,
+                        mcu_boot_id=record["mcu_boot_id"],
+                    )
+            return
+        if permit.work_type == "BASELINE" and record["decision_outcome"] == "REJECTED":
+            pending = self.store.prepare_native_control_failure(
+                permit,
+                uid,
+                device_name=self.device_name,
+                stage="REJECTED",
+                reason=record["decision_error"],
+            )
+            if pending.get("state") == "PREPARED":
+                self._live_starts.discard(uid)
+                self._start_grants.discard(uid)
             return
         # The live-only dispatch token is deliberately not persisted.  When a
         # new Pi process finds an unclaimed START, SQLite proves that no serial
@@ -935,17 +1378,58 @@ class NativeBusinessRuntime:
             exact_command_timeout = now - self._control_wait_since >= self.timeout_ms
         else:
             self._control_wait_uid = self._control_wait_since = None
-        if not link_unavailable and not exact_command_timeout:
+        baseline_mcu_restarted = (
+            permit.work_type == "BASELINE"
+            and record["write_claimed"]
+            and self.boot.current_boot(now) is not None
+            and self.boot.current_boot(now) != record["mcu_boot_id"]
+        )
+        baseline_result_timeout = False
+        if (
+            permit.work_type == "BASELINE"
+            and record["decision_outcome"] == "ACCEPTED"
+        ):
+            deadline = self.store.native_baseline_result_deadline_status(
+                uid,
+                communication_timeout_ms=self.timeout_ms,
+            )
+            baseline_result_timeout = deadline["expired"]
+            if (
+                baseline_result_timeout
+                and not baseline_mcu_restarted
+                and slot["context"].get("start_runtime_instance_uid")
+                != self._runtime_instance_uid
+            ):
+                recovery_deadline = self._baseline_recovery_deadlines.get(uid)
+                if recovery_deadline is None or now < recovery_deadline:
+                    # _work_poll runs later in this foreground turn and starts
+                    # the exact process query. Only its actual send creates the
+                    # bounded grace deadline above.
+                    return
+        if (
+            not link_unavailable
+            and not exact_command_timeout
+            and not baseline_mcu_restarted
+            and not baseline_result_timeout
+        ):
             return
         stage = "FAILED" if record["write_claimed"] else "PRE_START_FAILED"
+        reason = (
+            MCU_RESTART_REASON
+            if baseline_mcu_restarted
+            else COMMUNICATION_REASON
+            if link_unavailable or exact_command_timeout
+            else BASELINE_RESULT_REASON
+        )
         pending = self.store.prepare_native_control_failure(permit, uid,
-            device_name=self.device_name, stage=stage, reason=COMMUNICATION_REASON)
+            device_name=self.device_name, stage=stage, reason=reason)
         if pending.get("state") != "PREPARED":
             return  # A complete final packet or an earlier terminal policy wins the race.
         self._live_starts.discard(uid)
         self._start_grants.discard(uid)
-        self._latch_control_communication_fault(reason=COMMUNICATION_REASON,
-            mcu_boot_id=record["mcu_boot_id"])
+        if not baseline_mcu_restarted:
+            self._latch_control_communication_fault(reason=COMMUNICATION_REASON,
+                mcu_boot_id=record["mcu_boot_id"])
 
     def _complete_reported_result(self, permit, uid, decision):
         from native_business_completion import NORMAL_FINISH, AVAILABLE
@@ -1137,6 +1621,5 @@ class NativeBusinessRuntime:
 
     quarantine_delivery_recovery = _unsupported
     start_fullness_command = _unsupported
-    start_baseline_command = _unsupported
     end_clean_before_unlock_command = _unsupported
     resume_clean_command = _unsupported

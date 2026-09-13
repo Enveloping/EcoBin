@@ -676,6 +676,22 @@ public class StartCleanOperationService {
             long organizationId,
             long portId) {
         if (!query("""
+                        SELECT source_clean_operation_id
+                        FROM rec_port_clean_restart_interlock
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND port_id = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> rs.getLong(
+                        "source_clean_operation_id"),
+                tenantId,
+                organizationId,
+                portId).isEmpty()) {
+            throw CleanReadinessBlocker
+                    .CLEAN_BAG_RECOVERY_REQUIRED.problem();
+        }
+        if (!query("""
                         SELECT id
                         FROM rec_clean_operation
                         WHERE tenant_id = ?

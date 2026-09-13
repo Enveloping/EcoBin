@@ -12,6 +12,7 @@ const BLOCKER_TEXT: Record<CleanOptionBlocker, string> = {
   DEVICE_BUSY: '设备正在执行其他作业',
   PORT_DISABLED: '当前投口未启用清运',
   CLEAN_OPERATION_ACTIVE: '该投口已有未结束清运',
+  CLEAN_BAG_RECOVERY_REQUIRED: '该投口有中断清运等待确认实际袋',
   PORT_WORK_ACTIVE: '投口正在检测或测量空袋基准',
 }
 

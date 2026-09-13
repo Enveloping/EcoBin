@@ -34,6 +34,11 @@ typedef struct {
     uint8_t fullness_enabled;
     McuResultMeasurement initial;
     McuProcessMeasurementMeta initial_meta;
+    /* Standalone baseline task: it borrows the one scale owner but never enters
+     * delivery/clean work state. Exact scope/result survive until Pi SAVED. */
+    McuResultMeasurement baseline;
+    McuProcessMeasurementMeta baseline_meta;
+    uint8_t baseline_scope[MCU_PROCESS_EVENT_SCOPE_LENGTH];
     uint64_t accepted_at_ms;
     uint8_t start_payload[ECOBIN_UART_START_DELIVERY_SESSION_PAYLOAD_MAX_LENGTH];
     uint8_t scratch[ECOBIN_UART_MAX_PAYLOAD_LENGTH];
@@ -48,6 +53,13 @@ typedef struct {
     uint8_t start_message;
     uint8_t start_length;
     uint8_t recovery_active;
+    uint8_t baseline_active;
+    uint8_t baseline_published;
+    /* Defensive terminal path for an internal invariant violation after the
+     * command decision was durably accepted. Normal policy failures are
+     * rejected before acceptance and never set this flag. */
+    uint8_t baseline_begin_failed;
+    uint32_t baseline_first_attempt_sequence;
 } McuWorkPreparation;
 
 uint8_t McuWorkPreparation_Attach(McuWorkPreparation *owner, McuControlEndpoint *endpoint,

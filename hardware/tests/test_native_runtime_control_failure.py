@@ -6,6 +6,7 @@ import time
 import pytest
 
 from job_safety import JobPermit, JobSafetyError, command_request_digest
+from onenet_wire import canonical_payload_sha256
 from hardware.tests.test_mcu_work_preparation import take_samples
 from hardware.tests.test_mcu_simplified_execution import library, runtime, select, tick
 from hardware.tests.test_native_business_runtime import (
@@ -22,12 +23,31 @@ def matching_observations(case, command_uid):
         and json.loads(row["payload_json"])["commandUid"] == command_uid]
 
 
+def delivery_for_bag(bag_uid):
+    command = start_command()
+    command["payload"]["bagUid"] = bag_uid
+    command["payloadSha256"] = canonical_payload_sha256(command["payload"])
+    return command
+
+
 @contextmanager
-def dropped_start_decision(runtime, tmp_path, *, clean=False):
+def dropped_start_decision(
+    runtime,
+    tmp_path,
+    *,
+    clean=False,
+    no_old_bag=False,
+):
     with completed_first_work(runtime, tmp_path) as (case, owner):
         apply_configuration(case, owner)
         await_start_facts(case, owner)
         business = start_command(clean)
+        if no_old_bag:
+            assert clean
+            business["payload"]["oldBagUid"] = None
+            business["payloadSha256"] = canonical_payload_sha256(
+                business["payload"]
+            )
         assert case.store.receive_command(business["commandUid"], business["commandType"], business) == "ACCEPTED"
         assert case.store.claim_next_command()["command_uid"] == business["commandUid"]
         pending = (
@@ -112,6 +132,14 @@ def test_unanswered_clean_start_latches_bag_confirmation_after_failure(
         assert failed["state"] == "FAILED"
         assert failed["last_error"] == "MCU_COMMUNICATION_UNAVAILABLE"
         assert case.store.clean_restart_interlock_active(1)
+        assert case.store.get_clean_restart_interlock_metadata(1) == {
+            "profile": "native-clean-bag-interlock-v1",
+            "sourceWorkUid": case.business["payload"]["operationUid"],
+            "portNo": 1,
+            "oldBagUid": case.business["payload"]["oldBagUid"],
+            "newBagUid": case.business["payload"]["newBagUid"],
+            "sourceCommandUid": case.business["commandUid"],
+        }
 
         status = owner.communication_fault_status()
         owner.confirm_communication_fault_recovered({
@@ -122,9 +150,161 @@ def test_unanswered_clean_start_latches_bag_confirmation_after_failure(
         assert case.store.get_state("native_blocking_fault") == ""
         assert case.store.clean_restart_interlock_active(1)
 
+        mismatch = delivery_for_bag("77777777-7777-4777-8777-777777777777")
+        assert case.store.receive_command(
+            mismatch["commandUid"],
+            mismatch["commandType"],
+            mismatch,
+        ) == "ACCEPTED"
+        assert case.store.claim_next_command()["command_uid"] == (
+            mismatch["commandUid"]
+        )
         with pytest.raises(JobSafetyError) as blocked:
-            owner.start_delivery_command(start_command())
+            owner.start_delivery_command(mismatch)
         assert blocked.value.code == "CLEAN_BAG_CONFIRMATION_REQUIRED"
+        assert case.store.clean_restart_interlock_active(1)
+
+
+def test_clean_failure_preserves_authoritative_null_when_no_old_bag(
+    runtime,
+    tmp_path,
+):
+    with dropped_start_decision(
+        runtime,
+        tmp_path,
+        clean=True,
+        no_old_bag=True,
+    ) as (case, owner):
+        wait_for_control_failure(case, owner)
+
+        assert case.store.get_clean_restart_interlock_metadata(1) == {
+            "profile": "native-clean-bag-interlock-v1",
+            "sourceWorkUid": case.business["payload"]["operationUid"],
+            "portNo": 1,
+            "oldBagUid": None,
+            "newBagUid": case.business["payload"]["newBagUid"],
+            "sourceCommandUid": case.business["commandUid"],
+        }
+
+
+@pytest.mark.parametrize(
+    ("old_bag_uid", "confirmed_bag_field"),
+    [
+        ("88888888-8888-4888-8888-888888888888", "oldBagUid"),
+        ("88888888-8888-4888-8888-888888888888", "newBagUid"),
+        (None, "newBagUid"),
+    ],
+)
+def test_matching_backend_start_atomically_takes_slot_and_clears_structured_bag_interlock(
+    runtime,
+    tmp_path,
+    old_bag_uid,
+    confirmed_bag_field,
+):
+    with completed_first_work(runtime, tmp_path) as (case, owner):
+        apply_configuration(case, owner)
+        await_start_facts(case, owner)
+        metadata = {
+            "profile": "native-clean-bag-interlock-v1",
+            "sourceWorkUid": "11111111-1111-4111-8111-111111111111",
+            "portNo": 1,
+            "oldBagUid": old_bag_uid,
+            "newBagUid": "99999999-9999-4999-8999-999999999999",
+            "sourceCommandUid": "22222222-2222-4222-8222-222222222222",
+        }
+        with case.store.transaction():
+            case.store._set_clean_restart_interlock_in_tx(
+                case.store._conn,
+                1,
+                True,
+                metadata=metadata,
+            )
+        next_start = delivery_for_bag(metadata[confirmed_bag_field])
+        assert case.store.receive_command(
+            next_start["commandUid"],
+            next_start["commandType"],
+            next_start,
+        ) == "ACCEPTED"
+        assert case.store.claim_next_command()["command_uid"] == (
+            next_start["commandUid"]
+        )
+
+        owner.start_delivery_command(next_start)
+
+        slot = case.store.get_work_slot()
+        assert slot["work_uid"] == next_start["payload"]["sessionUid"]
+        assert slot["context"]["start_bag_uid"] == (
+            metadata[confirmed_bag_field]
+        )
+        assert not case.store.clean_restart_interlock_active(1)
+        assert case.store.get_clean_restart_interlock_metadata(1) is None
+
+
+def test_legacy_boolean_clean_interlock_never_auto_clears_for_new_start(
+    runtime,
+    tmp_path,
+):
+    with completed_first_work(runtime, tmp_path) as (case, owner):
+        apply_configuration(case, owner)
+        await_start_facts(case, owner)
+        with case.store.transaction():
+            case.store._set_clean_restart_interlock_in_tx(
+                case.store._conn,
+                1,
+                True,
+            )
+        command = start_command()
+        assert case.store.receive_command(
+            command["commandUid"],
+            command["commandType"],
+            command,
+        ) == "ACCEPTED"
+        assert case.store.claim_next_command()["command_uid"] == (
+            command["commandUid"]
+        )
+
+        with pytest.raises(JobSafetyError) as blocked:
+            owner.start_delivery_command(command)
+
+        assert blocked.value.code == "CLEAN_BAG_CONFIRMATION_REQUIRED"
+        assert case.store.get_state(
+            case.store._clean_restart_interlock_key(1)
+        ) == "true"
+        assert case.store.get_work_slot() is None
+
+
+def test_structured_interlock_rejects_an_unpersisted_matching_start_and_old_clear_api(
+    runtime,
+    tmp_path,
+):
+    with completed_first_work(runtime, tmp_path) as (case, owner):
+        apply_configuration(case, owner)
+        await_start_facts(case, owner)
+        command = start_command()
+        metadata = {
+            "profile": "native-clean-bag-interlock-v1",
+            "sourceWorkUid": "11111111-1111-4111-8111-111111111111",
+            "portNo": 1,
+            "oldBagUid": command["payload"]["bagUid"],
+            "newBagUid": "99999999-9999-4999-8999-999999999999",
+            "sourceCommandUid": "22222222-2222-4222-8222-222222222222",
+        }
+        with case.store.transaction():
+            case.store._set_clean_restart_interlock_in_tx(
+                case.store._conn,
+                1,
+                True,
+                metadata=metadata,
+            )
+
+        with pytest.raises(JobSafetyError) as blocked:
+            owner.start_delivery_command(command)
+        assert blocked.value.code == "CLEAN_BAG_CONFIRMATION_REQUIRED"
+        assert case.store.get_work_slot() is None
+
+        case.store.clear_clean_restart_interlock(1)
+        assert case.store.clean_restart_interlock_active(1)
+        assert case.store.get_clean_restart_interlock_metadata(1) == metadata
 
 
 def test_clean_failure_does_not_freeze_without_atomic_bag_interlock(

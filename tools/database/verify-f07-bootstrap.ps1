@@ -412,7 +412,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V80 application exited before readiness`n$diagnostic"
+            throw "correct V81 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -450,7 +450,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V80 application did not become ready; " +
+    throw "correct V81 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -1302,8 +1302,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 80) {
-        throw "correct target must contain 80 successful Flyway migrations"
+    if ($historyCount -ne 81) {
+        throw "correct target must contain 81 successful Flyway migrations"
     }
 
     Invoke-MySql -Database "" -Sql @"
@@ -1381,8 +1381,8 @@ SELECT COUNT(*) FROM information_schema.tables
 WHERE table_schema = '$($databaseNames.Correct)'
   AND table_type = 'BASE TABLE';
 "@)
-    if ($tableCount -ne 138) {
-        throw "correct target must contain 137 domain tables plus Flyway history"
+    if ($tableCount -ne 139) {
+        throw "correct target must contain 138 domain tables plus Flyway history"
     }
     $fullnessPolicyShape = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
@@ -1824,8 +1824,8 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 80
-        domainTables = 137
+        targetVersion = 81
+        domainTables = 138
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
         runtimePrincipal = $runtimePrincipal
@@ -1833,7 +1833,7 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV80Ready = $true
+        correctV81Ready = $true
         deviceLifecycleCancellationV72 = $true
         tenantDevicePolicyV71 = $true
         devicePolicyV70UpgradePreserved = $true

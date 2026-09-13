@@ -2,7 +2,7 @@
 
 > 当前设备路线：[精简实施计划](planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)，依据[简化恢复共识](architecture/mcu-edge-simplified-recovery-discussion-2026-09-13.md)。核心共识已收敛，进入新路线本地实施；旧复杂恢复不继续，现状代码与已验证完成范围分开记录。
 
-> 当前增量：[控制通信失败收口](../hardware/docs/review/native-control-communication-failure-s2-2026-09-13.md)。本地检查点`3bdf7a11`之后已接实际原生Runtime：整链路或原START单独超过既有10秒期限时可靠结束原业务，迟到结果不恢复正常结算；未写START在Pi实例更换后明确开始前失败。相关统一151项通过。此前[MCU重启、配置重装和末重失败](../hardware/docs/review/native-reboot-and-weight-failure-s2-2026-09-13.md)保持。人工解除通信阻断、清运中断、S3断网释放及S4现场交付仍未完成，不能部署烧录。下方复杂恢复候选均为历史。
+> 当前增量：[清运中断人工袋确认与独立皮重](../hardware/docs/review/interrupted-clean-bag-recovery-s2-2026-09-14.md)。原清运保持中止且不补建正常记录；原清运员只能扫码确认原旧袋或已预留新袋，新袋须明确为空并独立测皮重。V81/138张领域表/运行权限目录42、真实MySQL、Java设备335项/回收178项、完整契约588项/1720子用例、前端121项、Pi相关185项和完整MCU构建通过。旧逐动作MCU夹具与真实RS485/换袋/断电HIL、部署仍未完成，不能部署烧录。下方复杂恢复候选均为历史。
 
 > 最新候选 [P1BT：已授权未登记发送的恢复关门撤回](../hardware/docs/review/uart2-recovery-close-withdrawal-p1bt-2026-09-13.md)：业务库先封住旧发送，永久层另存撤回事实并保留原授权历史；独立继任仅豁免准确祖先，候选循环已接自动核对，不发新动作、不启动云端、不恢复接单，业务39/永久3不变。
 > 撤回专项53项与运行入口19项分别通过，最终集成/扩大回归见实施记录，完整契约25通过。已登记可能发送的未知效果、跨新启动号新动作、完整准入/云端/正常业务与main切换仍待接，P4/P5未完成。

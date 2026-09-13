@@ -45,9 +45,22 @@
     </view>
 
     <view wx:if="{{recoverableCount > 0}}" class="notice notice--warning">
-      当前设备有 {{recoverableCount}} 笔属于你的待恢复操作。本次不提供恢复按钮，请联系管理员。
+      当前设备有 {{recoverableCount}} 笔中断清运等待核对实际袋。原清运已经中止，以下操作只恢复袋状态。
     </view>
-    <view wx:elif="{{deviceBusy}}" class="notice notice--warning">
+    <view
+      wx:for="{{recoverableOperations}}"
+      wx:key="operationUid"
+      class="recovery-card"
+    >
+      <view class="recovery-card-title">{{item.title}}</view>
+      <view class="recovery-card-code">原操作：{{item.operationUid}}</view>
+      <button
+        class="recovery-action"
+        data-operation-uid="{{item.operationUid}}"
+        bindtap="onOpenRecovery"
+      >{{item.actionLabel}}</button>
+    </view>
+    <view wx:if="{{deviceBusy && recoverableCount === 0}}" class="notice notice--warning">
       设备正在执行其他作业，请等待现场作业结束后重新加载。
     </view>
 
@@ -96,6 +109,93 @@
       <button class="main-button button-row-main" bindtap="onConfirmStart">确认开始清运</button>
     </view>
   </block>
+
+  <view wx:elif="{{stage === 'recovery-loading'}}" class="state-card">
+    <view class="spinner"></view>
+    <view class="state-title">正在读取中断清运</view>
+    <view class="state-copy">系统正在核对原操作、投口以及允许使用的两只袋</view>
+  </view>
+
+  <view wx:elif="{{stage === 'recovery-error' || stage === 'recovery-unavailable'}}" class="state-card">
+    <view class="state-icon state-icon--warning"><t-icon name="info-circle" size="56rpx" color="#c27a1a" /></view>
+    <view class="state-title">暂时不能确认袋状态</view>
+    <view class="state-copy">{{errorMessage}}</view>
+    <view wx:if="{{recoveryOperationUid}}" class="operation-code">原操作：{{recoveryOperationUid}}</view>
+    <view class="primary-action" bindtap="onContinueRecovery">刷新处理状态</view>
+  </view>
+
+  <block wx:elif="{{stage === 'recovery-scan' || stage === 'recovery-retry'}}">
+    <view class="confirm-card">
+      <view class="confirm-title">{{stage === 'recovery-retry' ? '重新确认设备内实际袋' : '确认设备内实际袋'}}</view>
+      <view class="confirm-hint">只能扫描原旧袋或本次清运已预留的新袋。扫描本身不会提交请求，也不会触发设备动作。</view>
+      <view class="fact-row"><text>设备</text><text>{{deviceName || deviceCode}}</text></view>
+      <view class="fact-row"><text>投口</text><text>{{recoveryPortNo}} 号投口</text></view>
+      <view class="fact-row"><text>原操作</text><text class="break-value">{{recoveryOperationUid}}</text></view>
+      <view class="fact-row"><text>原旧袋</text><text>{{recoveryOriginalBagQr || '原操作未绑定旧袋'}}</text></view>
+      <view class="fact-row"><text>预留新袋</text><text>{{recoveryReservedNewBagQr}}</text></view>
+      <view wx:if="{{errorMessage}}" class="inline-error">{{errorMessage}}</view>
+    </view>
+    <button class="main-button" bindtap="onStartRecoveryScan">扫描设备内实际袋</button>
+  </block>
+
+  <block wx:elif="{{stage === 'recovery-empty-confirm'}}">
+    <view class="confirm-card">
+      <view class="confirm-title">再次检查预留新袋</view>
+      <view class="confirm-hint">已扫描到本次预留新袋。请现场查看袋内，明确确认袋内为空后才能测量新皮重。</view>
+      <view class="fact-row"><text>设备</text><text>{{deviceName || deviceCode}}</text></view>
+      <view class="fact-row"><text>投口</text><text>{{recoveryPortNo}} 号投口</text></view>
+      <view class="fact-row"><text>原操作</text><text class="break-value">{{recoveryOperationUid}}</text></view>
+      <view class="fact-row fact-row--important"><text>实际袋</text><text>{{recoveryActualBagQr}}</text></view>
+    </view>
+    <view class="button-row">
+      <button class="secondary-button" bindtap="onRescanRecoveryBag">重新扫描</button>
+      <button class="main-button button-row-main" bindtap="onConfirmEmptyBag">确认袋内为空</button>
+    </view>
+  </block>
+
+  <block wx:elif="{{stage === 'recovery-confirm'}}">
+    <view class="confirm-card">
+      <view class="confirm-title">确认袋状态处理信息</view>
+      <view class="confirm-hint">提交后只处理袋占用与必要的新皮重；原清运仍保持中止，不会补建清运完成记录。</view>
+      <view class="fact-row"><text>设备</text><text>{{deviceName || deviceCode}}</text></view>
+      <view class="fact-row"><text>投口</text><text>{{recoveryPortNo}} 号投口</text></view>
+      <view class="fact-row"><text>原操作</text><text class="break-value">{{recoveryOperationUid}}</text></view>
+      <view class="fact-row"><text>原旧袋</text><text>{{recoveryOriginalBagQr || '原操作未绑定旧袋'}}</text></view>
+      <view class="fact-row"><text>预留新袋</text><text>{{recoveryReservedNewBagQr}}</text></view>
+      <view class="fact-row fact-row--important"><text>设备内实际袋</text><text>{{recoveryActualBagQr}}</text></view>
+      <view wx:if="{{recoveryDecision === 'USE_RESERVED_NEW_BAG'}}" class="fact-row"><text>空袋确认</text><text>{{recoveryEmptyBagConfirmed ? '已现场确认袋内为空' : '尚未确认'}}</text></view>
+      <view wx:if="{{errorMessage}}" class="inline-error">{{errorMessage}}</view>
+    </view>
+    <view class="button-row">
+      <button class="secondary-button" bindtap="onRescanRecoveryBag">重新扫描</button>
+      <button class="main-button button-row-main" bindtap="onConfirmRecovery">确认处理袋状态</button>
+    </view>
+  </block>
+
+  <view
+    wx:elif="{{stage === 'recovery-submitting' || stage === 'recovery-submit-uncertain' || stage === 'recovery-baseline-pending' || stage === 'recovery-poll-paused' || stage === 'recovery-completed'}}"
+    class="status-card"
+  >
+    <view class="status-icon {{stage === 'recovery-completed' ? 'status-icon--success' : (stage === 'recovery-submit-uncertain' || stage === 'recovery-poll-paused' ? 'status-icon--warning' : '')}}">
+      <t-icon
+        name="{{stage === 'recovery-completed' ? 'check-circle' : (stage === 'recovery-submit-uncertain' || stage === 'recovery-poll-paused' ? 'info-circle' : 'time')}}"
+        size="64rpx"
+        color="{{stage === 'recovery-completed' ? '#109d2b' : (stage === 'recovery-submit-uncertain' || stage === 'recovery-poll-paused' ? '#c27a1a' : '#159b32')}}"
+      />
+    </view>
+    <view class="status-title">{{stage === 'recovery-completed' ? '袋状态已确认' : statusTitle}}</view>
+    <view class="status-description">{{statusDescription}}</view>
+    <view class="status-facts">
+      <view class="fact-row"><text>设备</text><text>{{deviceName || deviceCode}}</text></view>
+      <view class="fact-row"><text>投口</text><text>{{recoveryPortNo}} 号投口</text></view>
+      <view class="fact-row"><text>原操作</text><text class="break-value">{{recoveryOperationUid}}</text></view>
+      <view wx:if="{{recoveryActualBagQr}}" class="fact-row"><text>实际袋</text><text>{{recoveryActualBagQr}}</text></view>
+      <view class="fact-row"><text>原清运结果</text><text>已中止</text></view>
+    </view>
+    <view wx:if="{{stage === 'recovery-baseline-pending'}}" class="polling-copy">请保持新袋为空；页面每 5 秒查询一次后端状态。</view>
+    <view wx:if="{{stage === 'recovery-submit-uncertain' || stage === 'recovery-poll-paused'}}" class="primary-action" bindtap="onContinueRecovery">{{stage === 'recovery-submit-uncertain' ? '复用原确认请求' : '继续查询测量状态'}}</view>
+    <view wx:if="{{stage === 'recovery-completed'}}" class="primary-action" bindtap="onBackHome">返回清运首页</view>
+  </view>
 
   <view
     wx:elif="{{stage === 'submitting' || stage === 'submit-uncertain' || stage === 'polling' || stage === 'poll-paused' || stage === 'recovery' || stage === 'completed' || stage === 'ended' || stage === 'aborted'}}"

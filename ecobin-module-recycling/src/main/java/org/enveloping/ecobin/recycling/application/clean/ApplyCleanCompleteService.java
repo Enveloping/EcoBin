@@ -167,6 +167,11 @@ public class ApplyCleanCompleteService
                 throw untrusted(
                         "clean operation is no longer completable");
             }
+            if ("RECOVERY_REQUIRED".equals(operation.status())
+                    && interruptedBagRecoveryActive(operation)) {
+                throw untrusted(
+                        "clean operation has entered terminal bag recovery");
+            }
 
             lockPortRuntime(operation);
             lockDeviceOccupancy(asset.id(), operation);
@@ -457,6 +462,27 @@ public class ApplyCleanCompleteService
             throw untrusted("clean operation is unknown in source scope");
         }
         return rows.getFirst();
+    }
+
+    private boolean interruptedBagRecoveryActive(Operation operation) {
+        List<Long> rows = jdbc.query("""
+                        SELECT source_clean_operation_id
+                        FROM rec_port_clean_restart_interlock
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND port_id = ?
+                          AND source_clean_operation_id = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> rs.getLong(
+                        "source_clean_operation_id"),
+                operation.tenantId(),
+                operation.organizationId(),
+                operation.assetId(),
+                operation.portId(),
+                operation.id());
+        return rows.size() == 1;
     }
 
     private void lockPortRuntime(Operation operation) {

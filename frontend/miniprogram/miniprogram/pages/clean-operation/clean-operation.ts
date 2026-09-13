@@ -2,14 +2,17 @@ import { bindCurrentPhone } from '../../api/auth'
 import {
   cleanOperation,
   cleanOptions,
+  recoverInterruptedCleanBag,
   startCleanOperation,
 } from '../../api/clean'
 import { FEATURES } from '../../config/index'
 import type {
   CleanOperationStatus,
+  CleanOperationView,
   CleanOptionsView,
   CleanPortOption,
   DeviceInstallationProfile,
+  RecoverableCleanOperation,
 } from '../../types/api'
 import { getSession, markPhoneBound } from '../../utils/auth'
 import {
@@ -24,6 +27,19 @@ import {
   sameCleanOperationRequest,
   type PendingCleanOperationIntent,
 } from '../../utils/clean-operation-intent'
+import {
+  acceptCleanBagRecoveryIntent,
+  canDiscardCleanOperationIntentForRecovery,
+  classifyRecoveryBag,
+  cleanBagRecoveryFailureDisposition,
+  cleanBagRecoveryNextStep,
+  forgetCleanBagRecoveryIntent,
+  newPendingCleanBagRecoveryIntent,
+  rememberCleanBagRecoveryIntent,
+  restoreCleanBagRecoveryIntent,
+  type CleanBagRecoveryDecision,
+  type PendingCleanBagRecoveryIntent,
+} from '../../utils/clean-bag-recovery-intent'
 import { businessOperationPollDelay } from '../../utils/business-operation-polling'
 import {
   autoSelectedCleanPortNo,
@@ -45,6 +61,11 @@ interface CleanPortView extends CleanPortOption {
   currentBagText: string
   fullnessText: string
   blockerText: string
+}
+
+interface RecoverableCleanOperationView extends RecoverableCleanOperation {
+  title: string
+  actionLabel: string
 }
 
 const FULLNESS_TEXT: Record<string, string> = {
@@ -77,6 +98,21 @@ function portView(port: CleanPortOption): CleanPortView {
     blockerText: port.blockers
       .map(cleanBlockerText)
       .join('；'),
+  }
+}
+
+function recoverableView(
+  operation: RecoverableCleanOperation,
+): RecoverableCleanOperationView {
+  const actionLabel = operation.status === 'BASELINE_PENDING'
+    ? '查看基准测量'
+    : operation.status === 'BASELINE_REQUIRED'
+      ? '重新扫码并测量'
+      : '确认实际袋'
+  return {
+    ...operation,
+    title: `${operation.portNo} 号投口中断清运`,
+    actionLabel,
   }
 }
 
@@ -131,12 +167,19 @@ function statusCopy(status: CleanOperationStatus): {
 
 Page({
   intent: null as PendingCleanOperationIntent | null,
+  recoveryIntent: null as PendingCleanBagRecoveryIntent | null,
+  recoveryProjection: null as CleanOperationView | null,
   pollTimer: undefined as ReturnType<typeof setTimeout> | undefined,
+  recoveryPollTimer:
+    undefined as ReturnType<typeof setTimeout> | undefined,
   visible: false,
   optionsRequest: undefined as Promise<unknown> | undefined,
   submitRequest: undefined as Promise<unknown> | undefined,
   pollRequest: undefined as Promise<void> | undefined,
+  recoverySubmitRequest: undefined as Promise<unknown> | undefined,
+  recoveryPollRequest: undefined as Promise<void> | undefined,
   submitting: false,
+  recoveryConfirming: false,
   phoneBindingIntentKey: '',
   pendingBagScanAfterPhone: false,
 
@@ -150,6 +193,7 @@ Page({
     address: '',
     deviceBusy: false,
     recoverableCount: 0,
+    recoverableOperations: [] as RecoverableCleanOperationView[],
     ports: [] as CleanPortView[],
     selectedPortNo: 0,
     selectedPortTitle: '',
@@ -159,6 +203,14 @@ Page({
     statusTitle: '',
     statusDescription: '',
     cleanRecordNo: '',
+    recoveryOperationUid: '',
+    recoveryOperationVersion: 0,
+    recoveryPortNo: 0,
+    recoveryOriginalBagQr: '',
+    recoveryReservedNewBagQr: '',
+    recoveryActualBagQr: '',
+    recoveryDecision: '' as CleanBagRecoveryDecision | '',
+    recoveryEmptyBagConfirmed: false,
     showPhoneGrant: false,
     phoneGrantSubmitting: false,
   },
@@ -177,6 +229,24 @@ Page({
         stage: 'error',
         errorMessage: '设备公开码无效，请返回后重新扫描设备二维码。',
       })
+      return
+    }
+
+    const restoredRecovery = restoreCleanBagRecoveryIntent()
+    if (restoredRecovery && restoredRecovery.deviceCode !== deviceCode) {
+      this.recoveryIntent = restoredRecovery
+      this.setData({
+        loading: false,
+        stage: 'blocked',
+        operationUid: restoredRecovery.operationUid,
+        errorMessage:
+          `设备 ${restoredRecovery.deviceCode} 还有一笔袋状态确认结果未确定，`
+          + '当前不能处理另一台设备。',
+      })
+      return
+    }
+    if (restoredRecovery) {
+      this.restoreRecoveryIntent(restoredRecovery)
       return
     }
 
@@ -202,6 +272,10 @@ Page({
 
   onShow() {
     this.visible = true
+    if (this.data.stage === 'recovery-baseline-pending') {
+      this.scheduleRecoveryPoll(0)
+      return
+    }
     if (this.intent?.operationUid && this.shouldPoll()) {
       this.schedulePoll(0)
     }
@@ -210,11 +284,13 @@ Page({
   onHide() {
     this.visible = false
     this.clearPollTimer()
+    this.clearRecoveryPollTimer()
   },
 
   onUnload() {
     this.visible = false
     this.clearPollTimer()
+    this.clearRecoveryPollTimer()
   },
 
   onPullDownRefresh() {
@@ -226,6 +302,15 @@ Page({
     // POST 或选项 GET 已在途时，只等待原请求完成，不重复发起。
     if (this.submitRequest) {
       await this.submitRequest.catch(() => undefined)
+      return
+    }
+    if (this.recoverySubmitRequest) {
+      await this.recoverySubmitRequest.catch(() => undefined)
+      return
+    }
+    if (this.data.recoveryOperationUid) {
+      this.clearRecoveryPollTimer()
+      await this.recoveryPollOnce()
       return
     }
     if (this.optionsRequest) {
@@ -279,11 +364,171 @@ Page({
       return
     }
     if (intent.lastStatus === 'ABORTED') {
-      this.applyStatus('ABORTED')
+      void this.loadRecoveryOperation(intent.operationUid)
       return
     }
     this.applyStatus(intent.lastStatus ?? 'PREPARED')
     if (this.visible) this.schedulePoll(0)
+  },
+
+  restoreRecoveryIntent(intent: PendingCleanBagRecoveryIntent) {
+    this.recoveryIntent = intent
+    this.setData({
+      loading: false,
+      recoveryOperationUid: intent.operationUid,
+      recoveryOperationVersion: intent.body.expectedOperationVersion,
+      recoveryPortNo: intent.portNo,
+      recoveryOriginalBagQr: intent.originalBagQr || '',
+      recoveryReservedNewBagQr: intent.reservedNewBagQr,
+      recoveryActualBagQr: intent.body.actualBagQr,
+      recoveryDecision: intent.decision,
+      recoveryEmptyBagConfirmed: intent.body.emptyBagConfirmed,
+      operationUid: intent.operationUid,
+    })
+    if (intent.lastState === 'BASELINE_PENDING') {
+      this.setData({
+        stage: 'recovery-baseline-pending',
+        statusTitle: '正在测量新袋空袋重量',
+        statusDescription:
+          '袋状态确认请求已受理。页面只查询测量结果，不会再次发送物理动作。',
+      })
+      if (this.visible) this.scheduleRecoveryPoll(0)
+      return
+    }
+    if (intent.lastState === 'BASELINE_REQUIRED') {
+      forgetCleanBagRecoveryIntent()
+      this.recoveryIntent = null
+      void this.loadRecoveryOperation(intent.operationUid, true)
+      return
+    }
+    this.setData({
+      stage: 'recovery-submit-uncertain',
+      statusTitle: '袋状态确认结果尚未确定',
+      statusDescription:
+        '本地已保存完整确认内容和请求标识。继续时会原样重试，不会创建第二次确认。',
+    })
+  },
+
+  onOpenRecovery(event: WechatMiniprogram.TouchEvent) {
+    const operationUid = String(event.currentTarget.dataset.operationUid || '')
+    if (!operationUid) return
+    void this.loadRecoveryOperation(operationUid)
+  },
+
+  async loadRecoveryOperation(
+    operationUid: string,
+    forceRescan = false,
+  ) {
+    this.setData({
+      loading: true,
+      stage: 'recovery-loading',
+      errorMessage: '',
+    })
+    try {
+      const projection = await cleanOperation(operationUid, false)
+      if (
+        projection.deviceCode !== this.data.deviceCode
+        || projection.operationUid !== operationUid
+      ) {
+        throw new Error('中断清运状态与当前设备不一致')
+      }
+      const cleanIntent = restoreCleanOperationIntent() ?? this.intent
+      if (cleanIntent) {
+        if (!canDiscardCleanOperationIntentForRecovery(
+          cleanIntent.operationUid,
+          projection.operationUid,
+          projection.status,
+        )) {
+          this.intent = cleanIntent
+          this.setData({
+            loading: false,
+            stage: 'blocked',
+            operationUid: cleanIntent.operationUid || '',
+            errorMessage:
+              '另有一笔普通清运请求的结果尚未确定，不能删除或越过它来处理本次中断清运。',
+          })
+          return
+        }
+        forgetCleanOperationIntent()
+        this.intent = null
+      }
+      this.applyRecoveryProjection(projection, forceRescan)
+    } catch (error) {
+      this.setData({
+        loading: false,
+        stage: 'recovery-error',
+        recoveryOperationUid: operationUid,
+        errorMessage: error instanceof MiniappApiProblem && error.status === 404
+          ? '该中断清运不存在，或不属于当前清运人员。'
+          : '暂时无法读取中断清运状态，请检查网络后重试。',
+      })
+    }
+  },
+
+  applyRecoveryProjection(
+    projection: CleanOperationView,
+    forceRescan = false,
+  ) {
+    this.recoveryProjection = projection
+    const recoveryWasSubmitted = this.recoveryIntent !== null
+      || this.data.stage === 'recovery-baseline-pending'
+      || this.data.stage === 'recovery-poll-paused'
+    const next = cleanBagRecoveryNextStep(
+      projection.status,
+      projection.nextActions,
+      recoveryWasSubmitted,
+    )
+    this.setData({
+      loading: false,
+      recoveryOperationUid: projection.operationUid,
+      recoveryOperationVersion: projection.version,
+      recoveryPortNo: projection.portNo,
+      recoveryOriginalBagQr: projection.removedBagQr || '',
+      recoveryReservedNewBagQr: projection.installedBagQr,
+      operationUid: projection.operationUid,
+      selectedPortNo: projection.portNo,
+      installedBagQr: projection.installedBagQr,
+      errorMessage: '',
+    })
+    if (next === 'WAIT') {
+      this.setData({
+        stage: 'recovery-baseline-pending',
+        statusTitle: '正在测量新袋空袋重量',
+        statusDescription:
+          '请保持预留新袋为空。页面只查询后端状态，不会重复下发测量。',
+      })
+      this.scheduleRecoveryPoll(businessOperationPollDelay())
+      return
+    }
+    if (next === 'COMPLETED') {
+      this.finishBagRecovery()
+      return
+    }
+    if (next === 'SCAN' || next === 'RETRY') {
+      if (next === 'RETRY') {
+        forgetCleanBagRecoveryIntent()
+        this.recoveryIntent = null
+      }
+      this.setData({
+        stage: next === 'RETRY' ? 'recovery-retry' : 'recovery-scan',
+        recoveryActualBagQr: '',
+        recoveryDecision: '',
+        recoveryEmptyBagConfirmed: false,
+        errorMessage: next === 'RETRY'
+          ? '上次空袋重量没有成功取得，请重新扫描实际袋并生成新的测量请求。'
+          : forceRescan
+            ? '清运状态已经变化，请依据刷新后的信息重新扫描实际袋。'
+            : '',
+      })
+      return
+    }
+    forgetCleanBagRecoveryIntent()
+    this.recoveryIntent = null
+    this.setData({
+      stage: 'recovery-unavailable',
+      errorMessage:
+        '后台没有提供可自动执行的袋状态恢复动作，请刷新；仍无变化时联系管理员人工处理。',
+    })
   },
 
   async loadOptions() {
@@ -323,6 +568,9 @@ Page({
       address: options.address || '暂无设备地址',
       deviceBusy: options.deviceBusy,
       recoverableCount: options.recoverableOperations.length,
+      recoverableOperations: options.recoverableOperations.map(
+        recoverableView,
+      ),
       ports,
       selectedPortNo: autoSelected?.portNo ?? 0,
       selectedPortTitle: autoSelected?.title ?? '',
@@ -351,6 +599,322 @@ Page({
           })
         },
       },
+    })
+  },
+
+  onStartRecoveryScan() {
+    if (!this.recoveryProjection) {
+      const operationUid = this.data.recoveryOperationUid
+      if (operationUid) void this.loadRecoveryOperation(operationUid, true)
+      return
+    }
+    this.scanRecoveryBag()
+  },
+
+  scanRecoveryBag() {
+    const projection = this.recoveryProjection
+    if (!projection) return
+    wx.scanCode({
+      scanType: ['qrCode'],
+      success: ({ result }) => {
+        const bagQr = parseRawBagQr(result)
+        if (!bagQr) {
+          wx.showToast({ title: '请扫描原始回收袋二维码', icon: 'none' })
+          return
+        }
+        const decision = classifyRecoveryBag(
+          projection.removedBagQr,
+          projection.installedBagQr,
+          bagQr,
+        )
+        if (!decision) {
+          wx.showToast({
+            title: '只接受原袋或本次预留新袋',
+            icon: 'none',
+          })
+          return
+        }
+        this.setData({
+          recoveryActualBagQr: bagQr,
+          recoveryDecision: decision,
+          recoveryEmptyBagConfirmed: false,
+          stage: decision === 'USE_RESERVED_NEW_BAG'
+            ? 'recovery-empty-confirm'
+            : 'recovery-confirm',
+          errorMessage: '',
+        })
+      },
+      fail: ({ errMsg }) => {
+        if (!/cancel/i.test(errMsg)) {
+          wx.showToast({ title: '袋码扫描失败，请重试', icon: 'none' })
+        }
+      },
+    })
+  },
+
+  onConfirmEmptyBag() {
+    if (this.data.recoveryDecision !== 'USE_RESERVED_NEW_BAG') return
+    wx.showModal({
+      title: '确认袋内为空',
+      content:
+        '请再次查看设备内的预留新袋。确认袋内没有物品后，系统才会单独测量新的空袋重量。',
+      confirmText: '确认是空袋',
+      cancelText: '返回检查',
+      success: ({ confirm }) => {
+        if (!confirm) return
+        this.setData({
+          recoveryEmptyBagConfirmed: true,
+          stage: 'recovery-confirm',
+        })
+      },
+    })
+  },
+
+  onRescanRecoveryBag() {
+    this.setData({
+      recoveryActualBagQr: '',
+      recoveryDecision: '',
+      recoveryEmptyBagConfirmed: false,
+      stage: 'recovery-scan',
+      errorMessage: '',
+    }, () => this.scanRecoveryBag())
+  },
+
+  async onConfirmRecovery() {
+    if (this.recoveryConfirming) return
+    const projection = this.recoveryProjection
+    const actualBagQr = this.data.recoveryActualBagQr
+    const decision = classifyRecoveryBag(
+      projection?.removedBagQr ?? null,
+      projection?.installedBagQr ?? '',
+      actualBagQr,
+    )
+    if (!projection || !decision) return
+    if (
+      decision === 'USE_RESERVED_NEW_BAG'
+      && !this.data.recoveryEmptyBagConfirmed
+    ) {
+      this.setData({ stage: 'recovery-empty-confirm' })
+      return
+    }
+
+    this.recoveryConfirming = true
+    try {
+      let intent = restoreCleanBagRecoveryIntent()
+      if (
+        intent
+        && (
+          intent.operationUid !== projection.operationUid
+          || intent.body.actualBagQr !== actualBagQr
+          || intent.body.expectedOperationVersion !== projection.version
+        )
+      ) {
+        this.setData({
+          stage: 'blocked',
+          errorMessage:
+            '已有另一份结果未确定的袋状态确认，不能生成新的恢复请求。',
+        })
+        return
+      }
+      if (!intent) {
+        const idempotencyKey = await createIdempotencyKey()
+        intent = newPendingCleanBagRecoveryIntent({
+          deviceCode: projection.deviceCode,
+          portNo: projection.portNo,
+          operationUid: projection.operationUid,
+          expectedOperationVersion: projection.version,
+          originalBagQr: projection.removedBagQr,
+          reservedNewBagQr: projection.installedBagQr,
+          actualBagQr,
+          emptyBagConfirmed: decision === 'USE_RESERVED_NEW_BAG',
+          reason: '现场已核对清运中断后的实际袋',
+          idempotencyKey,
+        })
+        // 网络发送前先保存完整请求体和幂等键；不确定失败只能复用它。
+        rememberCleanBagRecoveryIntent(intent)
+      }
+      this.recoveryIntent = intent
+      await this.submitRecoveryIntent()
+    } finally {
+      this.recoveryConfirming = false
+    }
+  },
+
+  async submitRecoveryIntent() {
+    if (this.recoverySubmitRequest) {
+      await this.recoverySubmitRequest.catch(() => undefined)
+      return
+    }
+    const intent = this.recoveryIntent ?? restoreCleanBagRecoveryIntent()
+    if (!intent) return
+    this.recoveryIntent = intent
+    this.setData({
+      stage: 'recovery-submitting',
+      statusTitle: '正在提交袋状态确认',
+      statusDescription:
+        '本地已保存完整确认内容。原清运仍保持中止，本请求只处理当前袋状态。',
+      errorMessage: '',
+    })
+    const request = recoverInterruptedCleanBag(
+      intent.operationUid,
+      intent.body,
+      intent.idempotencyKey,
+    )
+    this.recoverySubmitRequest = request
+    try {
+      const accepted = await request
+      this.recoveryIntent = acceptCleanBagRecoveryIntent(intent, accepted)
+      if (accepted.state === 'COMPLETED') {
+        this.finishBagRecovery()
+        return
+      }
+      if (accepted.state === 'BASELINE_REQUIRED') {
+        forgetCleanBagRecoveryIntent()
+        this.recoveryIntent = null
+        this.setData({
+          stage: 'recovery-retry',
+          recoveryActualBagQr: '',
+          recoveryDecision: '',
+          recoveryEmptyBagConfirmed: false,
+          errorMessage:
+            '空袋重量没有成功取得，请重新扫描实际袋后再试。',
+        })
+        return
+      }
+      this.setData({
+        stage: 'recovery-baseline-pending',
+        statusTitle: '正在测量新袋空袋重量',
+        statusDescription:
+          '请求已经受理。页面只查询结果，不会重复下发测量。',
+      })
+      this.scheduleRecoveryPoll(0)
+    } catch (error) {
+      const failure = error instanceof MiniappApiProblem
+        ? cleanBagRecoveryFailureDisposition(error.status, error.code)
+        : 'RETAIN'
+      if (failure === 'REFRESH') {
+        forgetCleanBagRecoveryIntent()
+        this.recoveryIntent = null
+        await this.loadRecoveryOperation(intent.operationUid, true)
+      } else if (failure === 'RESCAN') {
+        forgetCleanBagRecoveryIntent()
+        this.recoveryIntent = null
+        this.setData({
+          stage: 'recovery-scan',
+          recoveryActualBagQr: '',
+          recoveryDecision: '',
+          recoveryEmptyBagConfirmed: false,
+          errorMessage: error instanceof Error
+            ? error.message
+            : '当前袋状态确认不被接受，请重新扫描。',
+        })
+      } else if (failure === 'UNAVAILABLE') {
+        forgetCleanBagRecoveryIntent()
+        this.recoveryIntent = null
+        this.setData({
+          stage: 'recovery-error',
+          errorMessage: error instanceof Error
+            ? error.message
+            : '当前账号或操作状态不允许继续处理，请刷新后联系管理员。',
+        })
+      } else {
+        this.setData({
+          stage: 'recovery-submit-uncertain',
+          statusTitle: '袋状态确认结果尚未确定',
+          statusDescription:
+            '网络结果不确定。本地已保留原请求，继续时会复用相同请求标识。',
+        })
+      }
+    } finally {
+      if (this.recoverySubmitRequest === request) {
+        this.recoverySubmitRequest = undefined
+      }
+    }
+  },
+
+  onContinueRecovery() {
+    if (this.data.stage === 'recovery-submit-uncertain') {
+      void this.submitRecoveryIntent()
+      return
+    }
+    if (
+      this.data.stage === 'recovery-baseline-pending'
+      || this.data.stage === 'recovery-poll-paused'
+    ) {
+      void this.recoveryPollOnce()
+      return
+    }
+    const operationUid = this.data.recoveryOperationUid
+    if (operationUid) void this.loadRecoveryOperation(operationUid, true)
+  },
+
+  scheduleRecoveryPoll(delayMs: number) {
+    if (
+      !this.visible
+      || this.data.stage !== 'recovery-baseline-pending'
+      || this.recoveryPollTimer
+    ) return
+    const delay = Number.isFinite(delayMs)
+      ? Math.min(60000, Math.max(0, Math.trunc(delayMs)))
+      : businessOperationPollDelay()
+    this.recoveryPollTimer = setTimeout(() => {
+      this.recoveryPollTimer = undefined
+      void this.recoveryPollOnce()
+    }, delay)
+  },
+
+  clearRecoveryPollTimer() {
+    if (!this.recoveryPollTimer) return
+    clearTimeout(this.recoveryPollTimer)
+    this.recoveryPollTimer = undefined
+  },
+
+  recoveryPollOnce(): Promise<void> {
+    if (this.recoveryPollRequest) return this.recoveryPollRequest
+    const operationUid = this.data.recoveryOperationUid
+    if (!this.visible || !operationUid) return Promise.resolve()
+    const request = this.fetchAndApplyRecoveryOperation(operationUid)
+    this.recoveryPollRequest = request
+    void request.then(
+      () => {
+        if (this.recoveryPollRequest === request) {
+          this.recoveryPollRequest = undefined
+        }
+      },
+      () => {
+        if (this.recoveryPollRequest === request) {
+          this.recoveryPollRequest = undefined
+        }
+      },
+    )
+    return request
+  },
+
+  async fetchAndApplyRecoveryOperation(operationUid: string) {
+    try {
+      const projection = await cleanOperation(operationUid, false)
+      if (this.data.recoveryOperationUid !== operationUid) return
+      this.applyRecoveryProjection(projection)
+    } catch {
+      this.setData({
+        stage: 'recovery-poll-paused',
+        statusTitle: '空袋重量状态查询已暂停',
+        statusDescription:
+          '网络暂时异常。原请求仍被保留，继续查询不会再次下发测量。',
+      })
+    }
+  },
+
+  finishBagRecovery() {
+    forgetCleanBagRecoveryIntent()
+    this.recoveryIntent = null
+    this.clearRecoveryPollTimer()
+    this.setData({
+      stage: 'recovery-completed',
+      statusTitle: '袋状态已确认',
+      statusDescription:
+        '原清运仍保持中止，没有生成清运完成记录。设备已可按当前袋状态接受后续业务。',
+      errorMessage: '',
     })
   },
 
@@ -617,6 +1181,20 @@ Page({
       if (this.intent?.operationUid !== operationUid) return
       this.intent = projectCleanOperationIntent(intent, projection)
       this.setData({ cleanRecordNo: projection.cleanRecordNo || '' })
+      if (
+        projection.status === 'ABORTED'
+        && cleanBagRecoveryNextStep(
+          projection.status,
+          projection.nextActions,
+          false,
+        ) !== 'UNAVAILABLE'
+      ) {
+        forgetCleanOperationIntent()
+        this.intent = null
+        this.clearPollTimer()
+        this.applyRecoveryProjection(projection)
+        return
+      }
       this.applyStatus(
         projection.status,
         projection.offlineOccupancyReleasedAt,
