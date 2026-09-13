@@ -150,7 +150,7 @@ public class TrustedDeliveryCompletionService
         }
         DeliveryCompletePhysicalFact fact =
                 parse(event.normalizedPayload());
-        requireNormalCompletion(fact);
+        requireSupportedCompletion(fact);
         return event.sourceInbox().use(
                 (inboxId, tenantId, organizationId) ->
                         completeWithinScope(
@@ -299,7 +299,8 @@ public class TrustedDeliveryCompletionService
                 businessWriter.write(
                         factsRefFactory.issue(persistenceFacts));
 
-        mergeStartCommandSuccess(command, receivedAt);
+        mergeStartCommandCompletion(command, receivedAt,
+                "TERMINAL_WEIGHT_FAILURE".equals(fact.completionReason()));
         taskProofPort.completeFromTrustedProof(
                 TASK_TYPE,
                 TARGET_TYPE,
@@ -606,10 +607,12 @@ public class TrustedDeliveryCompletionService
         return rows.getFirst();
     }
 
-    private void mergeStartCommandSuccess(
+    private void mergeStartCommandCompletion(
             CommandRow command,
-            LocalDateTime completedAt) {
-        if ("PHYSICAL_SUCCEEDED".equals(command.physicalState())) {
+            LocalDateTime completedAt,
+            boolean terminalWeightFailure) {
+        String outcome = terminalWeightFailure ? "PHYSICAL_FAILED" : "PHYSICAL_SUCCEEDED";
+        if (outcome.equals(command.physicalState())) {
             return;
         }
         if (!Set.of(
@@ -622,7 +625,7 @@ public class TrustedDeliveryCompletionService
         }
         requireSingle(jdbc.update("""
                         UPDATE dev_device_command
-                        SET physical_state = 'PHYSICAL_SUCCEEDED',
+                        SET physical_state = ?,
                             edge_accepted_at =
                                 COALESCE(edge_accepted_at, ?),
                             physical_started_at =
@@ -633,6 +636,7 @@ public class TrustedDeliveryCompletionService
                         WHERE id = ?
                           AND physical_state = ?
                         """,
+                outcome,
                 completedAt,
                 completedAt,
                 completedAt,
@@ -720,9 +724,16 @@ public class TrustedDeliveryCompletionService
         requireMeasurementMatchesFrozenPort(
                 fact.firstPreOpenMeasurement(),
                 port);
-        requireMeasurementMatchesFrozenPort(
-                fact.finalPostCloseMeasurement(),
-                port);
+        if ("TERMINAL_WEIGHT_FAILURE".equals(fact.completionReason())) {
+            if (!isTerminalWeightTimeout(fact.finalPostCloseMeasurement())
+                    || fact.finalPostCloseMeasurement().calibrationVersion() != port.calibrationVersion()
+                    || port.fullnessMeasurementTimeoutMs() != 5_000
+                    || port.weightRequiredSampleCount() != 5) {
+                throw untrusted();
+            }
+        } else {
+            requireMeasurementMatchesFrozenPort(fact.finalPostCloseMeasurement(), port);
+        }
     }
 
     private static void requireMeasurementMatchesFrozenPort(
@@ -1016,7 +1027,7 @@ public class TrustedDeliveryCompletionService
                 nullableText(node, "missingReason"));
     }
 
-    private static void requireNormalCompletion(
+    private static void requireSupportedCompletion(
             DeliveryCompletePhysicalFact fact) {
         DeliveryCompleteMeasurement before =
                 fact.firstPreOpenMeasurement();
@@ -1024,14 +1035,20 @@ public class TrustedDeliveryCompletionService
                 fact.finalPostCloseMeasurement();
         DeliveryCompleteDoorCommand door =
                 fact.finalDoorCommand();
+        boolean timeout = "TERMINAL_WEIGHT_FAILURE".equals(fact.completionReason());
+        boolean supportedResult = timeout
+                ? isTerminalWeightTimeout(after) && fact.deliveryNetWeightGrams() == null
+                : isNormalWeight(after) && fact.deliveryNetWeightGrams() != null
+                && Set.of("USER_ENDED", "SELECTION_WINDOW_EXPIRED").contains(fact.completionReason());
         if (!isNormalWeight(before)
-                || !isNormalWeight(after)
+                || !supportedResult
                 || before.measurementUid().equals(
                         after.measurementUid())
                 || (before.mcuBootId() == after.mcuBootId()
                 && before.mcuEventSequence()
                 == after.mcuEventSequence())
-                || fact.deliveryNetWeightGrams() == null
+                || (timeout && (before.mcuBootId() != after.mcuBootId()
+                || after.mcuEventSequence() <= before.mcuEventSequence()))
                 || door == null
                 || !"CLOSE".equals(door.command())
                 || !Set.of(
@@ -1041,10 +1058,6 @@ public class TrustedDeliveryCompletionService
                 || !"NOT_OBSERVABLE".equals(
                         door.physicalStateBasis())
                 || fact.manualReviewRequired()
-                || !Set.of(
-                        "USER_ENDED",
-                        "SELECTION_WINDOW_EXPIRED")
-                .contains(fact.completionReason())
                 || fact.photos().size() != 4
                 || !fact.photos().stream()
                 .map(DeliveryCompletePhoto::slot)
@@ -1055,8 +1068,23 @@ public class TrustedDeliveryCompletionService
                         "AFTER_INNER",
                         "AFTER_OUTER"))) {
             throw new IllegalArgumentException(
-                    "only delivery completion with usable mean or median weights is supported");
+                    "delivery requires usable weights or an exact terminal weight timeout");
         }
+    }
+
+    private static boolean isTerminalWeightTimeout(DeliveryCompleteMeasurement measurement) {
+        // This is a failed measurement, not a zero-weight sample, reboot or generic cancellation.
+        return measurement != null && measurement.measurementUid() != null
+                && "TIMEOUT".equals(measurement.status())
+                && !measurement.weightValueAvailable() && measurement.reportedWeightGrams() == null
+                && "NONE".equals(measurement.weightValueKind())
+                && "TIMEOUT".equals(measurement.sensorHealth())
+                && "WEIGHT_TIMEOUT".equals(measurement.faultCode())
+                && measurement.measurementElapsedMs() == 5_000
+                && measurement.sampleCount() >= 0 && measurement.sampleCount() < 5
+                && measurement.calibrationVersion() >= 0 && measurement.calibrationVersion() <= 4_294_967_295L
+                && measurement.mcuBootId() >= 1 && measurement.mcuBootId() <= 9_007_199_254_740_991L
+                && measurement.mcuEventSequence() >= 1 && measurement.mcuEventSequence() <= 4_294_967_295L;
     }
 
     private static boolean isNormalWeight(DeliveryCompleteMeasurement measurement) {

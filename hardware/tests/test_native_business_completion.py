@@ -121,7 +121,7 @@ def test_platform_receipt_or_backend_quarantine_is_not_normal_completion(tmp_pat
         assert case.store.get_command(case.permit.command_uid)["result"] is None
 
 
-def test_missing_final_weight_report_does_not_enter_normal_completion(tmp_path):
+def test_terminal_weight_failure_without_backend_confirmation_does_not_complete(tmp_path):
     with original_work(tmp_path) as case:
         value = uart.decode_payload("WORK_RESULT", case.raw)
         value.update(finishReason="FAILED", finalKind="UNAVAILABLE", finalWeightGrams=0,
@@ -130,7 +130,7 @@ def test_missing_final_weight_report_does_not_enter_normal_completion(tmp_path):
         case.store.save_native_mcu_result(uart.encode_payload("WORK_RESULT", value))
         assert case.reporter.prepare(case.permit, case.start["mcuCommandUid"])["state"] == "REPORT_CREATED"
         completer = NativeBusinessCompleter(case.store, case.safety, device_name="device-1")
-        assert completer.complete(case.permit, case.start["mcuCommandUid"])["state"] == "RESULT_NOT_NORMAL"
+        assert completer.complete(case.permit, case.start["mcuCommandUid"])["state"] == "WAITING_FOR_BACKEND_CONFIRMATION"
         assert case.store.get_work_slot()["work_uid"] == case.permit.work_uid
         assert case.safety.get_job_permit(case.permit.permit_uid)["state"] == "ACTIVE"
 

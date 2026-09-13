@@ -1,4 +1,4 @@
-"""Native normal-business owner used by the explicitly selected uart-v2 gateway.
+"""Native business owner used by the explicitly selected uart-v2 gateway.
 
 MCU owns the process. This owner sends one START, queries the original work,
 commits its complete result and consumes the original backend confirmation.
@@ -6,6 +6,7 @@ It never runs the old per-action recovery driver or converts native frames to v1
 Serial creation, polling and commands must all run on the same foreground thread.
 """
 from dataclasses import asdict, fields
+import json
 import os
 from time import monotonic_ns
 import uuid
@@ -18,6 +19,7 @@ from mcu_result_handoff import McuResultHandoff
 from mcu_session import McuBootSession, McuCommandDispatcher
 from mcu_work_query import McuDeviceFactsQuery, McuWorkQuery
 from native_result_report import NativeResultReporter, check_job_permit
+from native_delivery_issue_report import NativeDeliveryIssueReporter
 from native_job_rpc import NativeJobRpc
 from onenet_wire import validate_command_envelope
 from uart2_transport import NativeUartTransport
@@ -28,6 +30,7 @@ IDENTITY_FIELDS = {"mcuCommandUid", "commandDigestSha256", "targetMcuBootId", "c
 PROFILE = "UART_V2_SIMPLIFIED"
 PHOTO_WAIT_MS = int(CAMERA_CAPTURE_GROUP_TIMEOUT_SECONDS * 1000) + 1000
 FACTS_MAXIMUM_AGE_MS = NATIVE_PORT_CONSTANTS["weightMaximumSampleAgeMs"]
+ISSUE_REPORT_BATCH = 10
 _RPC_PENDING = object()
 
 
@@ -63,8 +66,14 @@ class NativeBusinessRuntime:
         self._rpc = None
         self._start_grants = set()
         self._prepared_completions = {}
+        self._prepared_issue_completions = {}
+        self._reported_issues = set()
+        self._issue_reports_pending = set()
+        self._issue_report_cursor = ""
+        self._scale_wait = None
         self._dispatch_authority = None
         self.reporter = NativeResultReporter(store, safety, device_name=device_name, photo_manager=photo_manager)
+        self.issue_reporter = NativeDeliveryIssueReporter(store, device_name=device_name)
 
     @property
     def is_open(self):
@@ -210,6 +219,8 @@ class NativeBusinessRuntime:
             if any(row["payload"].get("mcuConfigurationProfile") == PROFILE
                     for row in self.store.list_pending_configurations()):
                 raise JobSafetyError("MCU_CONFIGURATION_BUSY", "an original configuration is waiting to apply")
+            if self._configuration_reload_pending():
+                raise JobSafetyError("MCU_CONFIGURATION_BUSY", "the applied configuration is reloading after MCU reboot")
             if slot is not None or facts["retainedWorkState"] not in {"NONE", "RESULT_RELEASED"}:
                 raise JobSafetyError("DEVICE_BUSY", "an original business still owns the device")
             if facts["retainedWorkState"] == "RESULT_RELEASED":
@@ -326,6 +337,8 @@ class NativeBusinessRuntime:
                 return  # A duplicate cannot turn an applied command back into waiting.
             if prior["state"] == "FAILED":
                 raise JobSafetyError("MCU_CONFIGURATION_FAILED", "original configuration remains failed")
+        if self._configuration_reload_pending():
+            raise JobSafetyError("MCU_CONFIGURATION_BUSY", "the applied configuration is reloading after MCU reboot")
         part_uids = prior["part_command_uids"] if prior else [str(uuid.uuid4()) for _ in range(candidate.part_count)]
         disposition = self.store.save_configuration_edge(command, part_uids)
         if disposition not in {"ACCEPTED", "DUPLICATE"}:
@@ -417,9 +430,12 @@ class NativeBusinessRuntime:
                     raise JobSafetyError("DEVICE_BUSY", "configuration lost exclusive ownership")
                 app = uart.decode_payload(record["message_name"], record["payload"])["applicationUid"]
                 row = self.store.get_configuration(app)
-                if row is None or record["command_uid"] not in row["part_command_uids"]:
+                if row is None:
                     raise ValueError("configuration command has no original cloud authority")
-                validate_command_envelope(self.store.get_command(row["command_uid"])["payload"])
+                if record["command_uid"] in row["part_command_uids"]:
+                    validate_command_envelope(self.store.get_command(row["command_uid"])["payload"])
+                else:
+                    self._check_configuration_reload_part(row, record)
             check()
             return check
         slot = self.store.get_work_slot()
@@ -435,7 +451,10 @@ class NativeBusinessRuntime:
 
     def _configuration_poll(self, now):
         app = self.store.get_state("native_configuration_application")
-        if not app or self.store.get_work_slot() is not None:
+        if self.store.get_work_slot() is not None:
+            return
+        if not app:
+            self._configuration_reload_poll(now)
             return
         row = self.store.get_configuration(app)
         if row is None:
@@ -479,6 +498,92 @@ class NativeBusinessRuntime:
             raise ValueError("native configuration commit differs from original custody")
         self.store.set_state("native_configuration_application", "")
 
+    def _configuration_reload_pending(self):
+        row = self.store.get_latest_applied_configuration()
+        if row is None or row["payload"].get("mcuConfigurationProfile") != PROFILE:
+            return False
+        original = self.store.get_command(row["command_uid"])
+        if original is None:
+            raise ValueError("applied configuration lost its original cloud command")
+        result = original["result"]
+        if result is None:
+            return False
+        if not isinstance(result, dict):
+            raise ValueError("applied configuration result is malformed")
+        if "nativeConfigurationReload" not in result:
+            return False
+        marker = result["nativeConfigurationReload"]
+        if (not isinstance(marker, dict) or set(marker) != {"state", "evidence", "evidenceSha256"}
+                or marker.get("state") not in {"PREPARED", "APPLIED"}):
+            raise ValueError("applied configuration reload marker is malformed")
+        return marker["state"] == "PREPARED"
+
+    def _check_configuration_reload_part(self, row, record):
+        from native_configuration_reload import read
+        now = self.clock()
+        facts = self._fresh_facts(now)
+        if (self.boot.current_boot(now) != record["mcu_boot_id"] or facts is None
+                or facts["status"] != "AVAILABLE" or facts["updateLatched"]
+                or facts["retainedWorkState"] != "NONE"
+                or facts["lastDeliveryDoorCommand"] != "CLOSE" or facts["cleanLockPowered"]):
+            raise JobSafetyError("MCU_CONTROL_NOT_READY", "fresh rebooted MCU control is required for configuration reload")
+        if self.store.list_pending_configurations():
+            raise JobSafetyError("MCU_CONFIGURATION_BUSY", "a new cloud configuration owns this device")
+        reload = read(self.store, row["application_uid"],
+            target_mcu_boot_id=record["mcu_boot_id"], device_name=self.device_name)
+        if (reload is None or reload["state"] != "PREPARED"
+                or record["command_uid"] not in reload["part_command_uids"]):
+            raise ValueError("configuration write is not an original reboot reload part")
+
+    def _configuration_reload_poll(self, now):
+        row = self.store.get_latest_applied_configuration()
+        if row is None or row["payload"].get("mcuConfigurationProfile") != PROFILE:
+            return
+        facts = self._fresh_facts(now)
+        boot_id = self.boot.current_boot(now)
+        if not boot_id or facts is None or facts["status"] != "AVAILABLE":
+            return
+        original_part = self.store.get_native_command(row["part_command_uids"][0])
+        if original_part is None:
+            raise ValueError("applied native configuration lost its original parts")
+        if boot_id <= original_part["mcu_boot_id"]:
+            return  # A stale pre-COMMIT facts reply in the same boot is not a reboot.
+        identity = row["payload"]["config"]
+        matches = (facts["appliedConfigVersion"] == identity["version"]
+            and facts["appliedContentSha256"] == identity["contentSha256"]
+            and facts["appliedMcuPayloadSha256"] == identity["mcuPayloadSha256"])
+        if matches and not self._configuration_reload_pending():
+            return
+        if (facts["updateLatched"] or facts["retainedWorkState"] != "NONE"
+                or facts["lastDeliveryDoorCommand"] != "CLOSE" or facts["cleanLockPowered"]):
+            return
+        from native_configuration_reload import prepare, complete
+        reload = prepare(self.store, row["application_uid"],
+            target_mcu_boot_id=boot_id, device_name=self.device_name)
+        if reload["state"] == "APPLIED":
+            return
+        candidate = NativeMcuConfiguration.from_cloud_payload(reload["payload"])
+        for index, uid in enumerate(reload["part_command_uids"], 1):
+            record = self.store.get_native_command(uid)
+            if record is None:
+                name, raw = candidate.encode_part(index, application_uid=row["application_uid"],
+                    mcu_command_uid=uid, target_mcu_boot_id=boot_id, command_sequence=1)
+                values = uart.decode_payload(name, raw)
+                record = self.store.prepare_native_command(name, uid, boot_id,
+                    {key: value for key, value in values.items() if key not in IDENTITY_FIELDS})
+            if record["decision_outcome"] == "REJECTED":
+                raise JobSafetyError("MCU_CONFIGURATION_REJECTED", "MCU rejected the applied configuration reload")
+            if record["decision_outcome"] != "ACCEPTED":
+                if not record["write_claimed"]:
+                    proof = self._rpc_call(("CONFIG_RELOAD_MAINTENANCE",) + self._dispatch_identity(record),
+                        self.safety.get_mcu_maintenance_status)
+                    if proof is _RPC_PENDING:
+                        return
+                    self._send_with_authority(record, proof)
+                self.dispatcher.poll(uid, now)
+                return
+        complete(self.store, row["application_uid"], target_mcu_boot_id=boot_id, device_name=self.device_name)
+
     def _work_poll(self, now):
         slot = self.store.get_work_slot()
         if slot is None:
@@ -517,6 +622,18 @@ class NativeBusinessRuntime:
         self._work_query.poll(now)
         decision = self.store.evaluate_native_work_recovery(permit, uid,
             current_boot=lambda: self.boot.current_boot(self.clock()))
+        if decision["status"] == "RECOVERY_INTENT_RECORDED" and permit.work_type == "DELIVERY":
+            # A fresh, saved newer boot is required. The archive transaction
+            # checks again for a complete final packet; process weights alone
+            # are never used to manufacture a successful delivery.
+            decision = self.store.archive_native_delivery_issue(permit, uid, device_name=self.device_name,
+                current_boot=lambda: self.boot.current_boot(self.clock()))
+        if decision["status"] == "DELIVERY_ISSUE_ARCHIVED":
+            self._live_starts.discard(uid)
+            self._start_grants.discard(uid)
+            if self._report_issue(permit.work_uid):
+                self._complete_delivery_issue(permit, uid)
+            return
         if decision["status"] == "COMPLETE_RESULT_AVAILABLE":
             if self.photo is not None and not slot["context"].get("native_close_photos_requested"):
                 self._queue_photos(permit, before=False)
@@ -535,14 +652,16 @@ class NativeBusinessRuntime:
                 confirmation = self.store.get_native_result_confirmation(permit, uid, device_name=self.device_name)
                 if confirmation is None or confirmation["outcome"] != "BUSINESS_APPLIED":
                     return  # Waiting for cloud must not poll the permanent job RPC on every UART tick.
-                self._complete_normal_result(permit, uid, decision)
+                self._complete_reported_result(permit, uid, decision)
 
-    def _complete_normal_result(self, permit, uid, decision):
+    def _complete_reported_result(self, permit, uid, decision):
         from native_business_completion import NORMAL_FINISH, AVAILABLE
+        from native_result_evidence import terminal_weight_failure_candidate
         result = uart.decode_payload("WORK_RESULT", decision["result"]["payload"])
-        if (result["finishReason"] not in NORMAL_FINISH
-                or any(result[key + "Kind"] not in AVAILABLE for key in ("initial", "final"))):
-            return  # S2 failure policy must not call the normal-success completion.
+        normal = (result["finishReason"] in NORMAL_FINISH
+            and all(result[key + "Kind"] in AVAILABLE for key in ("initial", "final")))
+        if not normal and not terminal_weight_failure_candidate(result):
+            return  # Other failure policies cannot borrow this result's completion.
         key = (permit.permit_uid, uid)
         pending = self._prepared_completions.get(key)
         if pending is None:
@@ -558,7 +677,7 @@ class NativeBusinessRuntime:
         digest = pending["evidenceSha256"]
         def complete():
             self.safety.complete_job(permit, completion_uid=permit.command_uid,
-                outcome="SUCCEEDED", completion_digest_sha256=digest)
+                outcome=pending["completionOutcome"], completion_digest_sha256=digest)
             return self.safety.get_job_permit(permit.permit_uid)
         snapshot = self._rpc_call(("COMPLETE_APPLY",) + key + (digest,), complete)
         if snapshot is _RPC_PENDING:
@@ -566,6 +685,106 @@ class NativeBusinessRuntime:
         self.store.apply_native_business_completion(permit, uid,
             device_name=self.device_name, permit_snapshot=snapshot)
         self._prepared_completions.pop(key, None)
+
+    def _report_issue(self, work_uid):
+        if work_uid in self._reported_issues:
+            return True
+        created = self.issue_reporter.prepare(work_uid, limit=ISSUE_REPORT_BATCH)
+        if len(created) == ISSUE_REPORT_BATCH:
+            return False  # Limit new events per call; remaining evidence continues next time.
+        self._reported_issues.add(work_uid)
+        self._issue_reports_pending.discard(work_uid)
+        return True
+
+    def _issue_report_poll(self):
+        # A crash can happen after late bytes commit but before their OneNet
+        # event exists. Scan existing archives once per process, one at a time;
+        # new late packets also enqueue their exact original work in memory.
+        # No active slot is needed, and no historical result is projected onto
+        # the new work/bag. The original event uniqueness provides deduplication.
+        if self._issue_reports_pending:
+            self._report_issue(next(iter(self._issue_reports_pending)))
+        elif self._issue_report_cursor is not None:
+            page = self.store.list_native_delivery_issue_work_uids(
+                after_work_uid=self._issue_report_cursor, limit=1)
+            if not page:
+                self._issue_report_cursor = None
+            elif self._report_issue(page[0]):
+                self._issue_report_cursor = page[0]
+
+    def _complete_delivery_issue(self, permit, uid):
+        confirmation = self.store.get_native_delivery_issue_confirmation(permit.work_uid,
+            device_name=self.device_name)
+        if confirmation is None or confirmation["outcome"] != "BUSINESS_APPLIED":
+            return  # Platform transport ACK / unrelated evidence ACK is not enough.
+        key = (permit.permit_uid, uid)
+        pending = self._prepared_issue_completions.get(key)
+        if pending is None:
+            snapshot = self._rpc_call(("ISSUE_COMPLETE_PREPARE",) + key,
+                lambda: self.safety.get_job_permit(permit.permit_uid))
+            if snapshot is _RPC_PENDING:
+                return
+            pending = self.store.prepare_native_issue_completion(permit, uid,
+                device_name=self.device_name, permit_snapshot=snapshot)
+            if pending["state"] != "PREPARED":
+                return
+            self._prepared_issue_completions[key] = pending
+        digest = pending["evidenceSha256"]
+        def complete():
+            self.safety.complete_job(permit, completion_uid=permit.command_uid,
+                outcome="CANCELLED", completion_digest_sha256=digest)
+            return self.safety.get_job_permit(permit.permit_uid)
+        snapshot = self._rpc_call(("ISSUE_COMPLETE_APPLY",) + key + (digest,), complete)
+        if snapshot is _RPC_PENDING:
+            return
+        self.store.apply_native_issue_completion(permit, uid,
+            device_name=self.device_name, permit_snapshot=snapshot)
+        self._prepared_issue_completions.pop(key, None)
+
+    def _scale_health_poll(self, now):
+        """Report current unreadable scale data; a fresh later read clears only this fault.
+
+        This does not cancel MCU sampling early, change any completed result,
+        release occupancy, or clear manual communication/storage faults. The
+        current business still reaches its own five-second measurement result.
+        """
+        facts = self._fresh_facts(now)
+        if facts is None or facts["status"] != "AVAILABLE" or not facts["appliedConfigVersion"]:
+            return
+        fault = self.store.get_active_edge_fault("WEIGHT_SENSOR", "WEIGHT_SENSOR", 1)
+        if self._fresh_weight(facts, now) is not None:
+            self._scale_wait = None
+            if fault is None:
+                return
+            detail = json.loads(fault["detail_json"] or "{}")
+            if detail.get("profile") != "native-scale-read-v1":
+                return  # Do not clear an unrelated legacy/manual diagnostic.
+            boot = facts["currentMcuBootId"]
+            newer = (boot > detail["mcuBootId"] or (boot == detail["mcuBootId"]
+                and (facts["scaleCapturedUptimeMs"], facts["scaleAttemptSequence"])
+                > (detail["capturedUptimeMs"], detail["attemptSequence"])))
+            if not newer:
+                return
+            disposition = self.store.recover_fault_and_create_event(device_name=self.device_name,
+                fault_uid=fault["fault_uid"], component="WEIGHT_SENSOR", fault_code="WEIGHT_SENSOR", port_no=1,
+                recovery_evidence=f"NATIVE_VALID_SCALE:{boot}:{facts['scaleAttemptSequence']}:{facts['scaleCapturedUptimeMs']}",
+                mcu_boot_id=boot)
+        else:
+            if fault is not None:
+                return
+            if facts["scaleReadStatus"] == "NOT_OBSERVED":
+                identity = (facts["currentMcuBootId"], facts["appliedConfigVersion"])
+                if self._scale_wait is None or self._scale_wait[:2] != identity:
+                    self._scale_wait = (*identity, now)
+                if now - self._scale_wait[2] < 5000:
+                    return  # Still no new admission; allow initial acquisition to report its status.
+            disposition = self.store.observe_fault_and_create_event(device_name=self.device_name,
+                component="WEIGHT_SENSOR", fault_code="WEIGHT_SENSOR", severity="BLOCK_PORT", port_no=1,
+                mcu_boot_id=facts["currentMcuBootId"], detail=dict(profile="native-scale-read-v1",
+                    mcuBootId=facts["currentMcuBootId"], capturedUptimeMs=facts["scaleCapturedUptimeMs"],
+                    attemptSequence=facts["scaleAttemptSequence"], readStatus=facts["scaleReadStatus"]))
+        if disposition not in {"ACCEPTED", "DUPLICATE"}:
+            raise RuntimeError("native scale health could not persist its exact fault transition")
 
     def poll(self):
         if self.transport is None:
@@ -582,12 +801,17 @@ class NativeBusinessRuntime:
                 self._facts = self._facts_requested_at = None
             if self._work_query:
                 accepted = self._work_query.accept_frame(frame, now) or accepted
-            if self._handoff:
-                accepted = self._handoff.accept_frame(frame, now) or accepted
-            elif decoded["messageName"] == "WORK_RESULT":
+            handed_off = self._handoff.accept_frame(frame, now) if self._handoff else False
+            accepted = handed_off or accepted
+            if not handed_off and decoded["messageName"] == "WORK_RESULT":
                 # Preserve late evidence even without a live transfer; do not
                 # acknowledge or project it onto another active business.
                 self.store.save_native_mcu_result(decoded["payload"])
+            if decoded["messageName"] == "WORK_RESULT":
+                work_uid = uart.decode_payload("WORK_RESULT", decoded["payload"])["workUid"]
+                if self.store.get_native_delivery_issue(work_uid) is not None:
+                    self._reported_issues.discard(work_uid)
+                    self._issue_reports_pending.add(work_uid)
             if accepted:
                 self._last_alive = now
         boot_id = self.boot.current_boot(now)
@@ -596,8 +820,10 @@ class NativeBusinessRuntime:
             self.facts_query = McuDeviceFactsQuery(self.store, self.transport.write,
                 target_mcu_boot_id=boot_id, port_no=1, interval_ms=NATIVE_DEVICE_CONSTANTS["weightPollIntervalMs"])
             self._facts = self._facts_requested_at = None
+        self._scale_health_poll(self.clock())
         self._configuration_poll(self.clock())
         self._work_poll(self.clock())
+        self._issue_report_poll()
         if self.facts_query:
             self.facts_query.poll(self.clock())
         self.boot.poll(self.clock())

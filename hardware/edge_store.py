@@ -1104,6 +1104,20 @@ class EdgeStore:
             row = self._conn.execute("SELECT * FROM native_delivery_issue WHERE work_uid=?", (work_uid,)).fetchone()
             return checked_delivery_issue(self, self._conn, row)
 
+    def list_native_delivery_issue_work_uids(self, *, after_work_uid="", limit=50):
+        """Page existing archives for report recovery, independently of the live slot.
+
+        This is an index only. The reporter revalidates original evidence before
+        using it. No new queue, archive decision or current business is created.
+        """
+        if (not isinstance(after_work_uid, str) or type(limit) is not int
+                or not 1 <= limit <= 100):
+            raise ValueError("native issue page requires a string cursor and 1..100 rows")
+        with self._lock:
+            return [row["work_uid"] for row in self._conn.execute(
+                "SELECT work_uid FROM native_delivery_issue WHERE work_uid>? ORDER BY work_uid LIMIT ?",
+                (after_work_uid, limit))]
+
     def list_native_delivery_issue_results(self, issue_uid):
         from work_recovery import checked_delivery_issue, match_issue_result
         with self._lock:

@@ -180,7 +180,8 @@ public class ApplyDeliveryCompleteService
         insertPhotos(facts, orderId);
         photoStatusService.mergeStagedDeliveryFacts(
                 facts, orderId);
-        if (capacityProjectionBlockReason == null) {
+        if (capacityProjectionBlockReason == null
+                && facts.physicalFact().finalPostCloseMeasurement().weightValueAvailable()) {
             projectCapacityObservation(facts, capacity);
         }
 
@@ -421,7 +422,7 @@ public class ApplyDeliveryCompleteService
                             ?,
                             ?,
                             'RELIABLE', ?,
-                            'RELIABLE', ?,
+                            ?, ?,
                             ?,
                             ?,
                             ?,
@@ -464,6 +465,7 @@ public class ApplyDeliveryCompleteService
                 facts.negativeWeightThresholdGrams(),
                 facts.maxReviewAbsWeightGrams(),
                 before.reportedWeightGrams(),
+                after.weightValueAvailable() ? "RELIABLE" : "UNAVAILABLE",
                 after.reportedWeightGrams(),
                 calculation.netWeightGrams(),
                 physical.negativeWeightAnomaly(),
@@ -497,7 +499,15 @@ public class ApplyDeliveryCompleteService
             String capacityProjectionBlockReason) {
         DeliveryCompletePhysicalFact physical =
                 facts.physicalFact();
-        if (!Long.valueOf(calculation.netWeightGrams()).equals(
+        if ("UNAVAILABLE".equals(calculation.status())) {
+            DeliveryCompleteMeasurement failed = physical.finalPostCloseMeasurement();
+            insertAnomaly(facts, orderId, "SYSTEM", "TERMINAL_WEIGHT_FAILURE",
+                    Map.of("measurementUid", failed.measurementUid().toString(),
+                            "faultCode", failed.faultCode(),
+                            "measurementElapsedMs", failed.measurementElapsedMs(),
+                            "sampleCount", failed.sampleCount()));
+        }
+        if (!Objects.equals(calculation.netWeightGrams(),
                 physical.deliveryNetWeightGrams())) {
             insertAnomaly(
                     facts,
@@ -835,6 +845,11 @@ public class ApplyDeliveryCompleteService
 
     private static OrderCalculation calculate(
             DeliveryCompletionPersistenceFacts facts) {
+        // Device participation already verified the exact timeout shape and frozen identity.
+        // Keep the failed physical result immutable; only a later human revision may value it.
+        if ("TERMINAL_WEIGHT_FAILURE".equals(facts.physicalFact().completionReason())) {
+            return new OrderCalculation(null, null, null, "UNAVAILABLE");
+        }
         long before = facts.physicalFact()
                 .firstPreOpenMeasurement()
                 .reportedWeightGrams();
@@ -976,7 +991,7 @@ public class ApplyDeliveryCompleteService
     }
 
     private record OrderCalculation(
-            long netWeightGrams,
+            Long netWeightGrams,
             BigDecimal businessWeightKg,
             Long amountCent,
             String status) {

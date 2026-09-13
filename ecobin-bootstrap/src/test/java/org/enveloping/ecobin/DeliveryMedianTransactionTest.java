@@ -147,6 +147,32 @@ class DeliveryMedianTransactionTest {
                 "SELECT delivery_post_weight_value_kind FROM dev_physical_result", String.class));
     }
 
+    @Test
+    void terminalWeightTimeoutPreservesEvidenceAndFinishesOriginalCommandAsFailed() {
+        ObjectNode payload = (ObjectNode) normalized.path("event").path("payload");
+        payload.put("completionReason", "TERMINAL_WEIGHT_FAILURE").putNull("deliveryNetWeightGrams");
+        measurement("finalPostCloseMeasurement").put("status", "TIMEOUT")
+                .put("weightValueAvailable", false).putNull("reportedWeightGrams")
+                .put("weightValueKind", "NONE").put("measurementElapsedMs", 5000)
+                .put("sampleCount", 0).put("sensorHealth", "TIMEOUT").put("faultCode", "WEIGHT_TIMEOUT");
+        DeliveryCompletionBusinessWriter writer = reference -> reference.useOnce(facts -> {
+            assertEquals(12000L, facts.physicalFact().firstPreOpenMeasurement().reportedWeightGrams());
+            assertNull(facts.physicalFact().finalPostCloseMeasurement().reportedWeightGrams());
+            assertEquals("WEIGHT_TIMEOUT", facts.physicalFact().finalPostCloseMeasurement().faultCode());
+            assertNull(facts.physicalFact().deliveryNetWeightGrams());
+            jdbc.update("INSERT INTO p1as_effect VALUES ('BUSINESS')");
+            return new DeliveryCompletionBusinessResult("DO-P1AS", List.of());
+        });
+        assertEquals(TrustedDeviceEventApplyResult.APPLIED, complete(writer));
+        assertEquals(TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED, complete(writer));
+        assertEquals(1, count("dev_physical_result"));
+        assertEquals(3, count("p1as_effect"));
+        assertEquals(0, count("dev_device_occupancy"));
+        assertEquals("PHYSICAL_FAILED", jdbc.queryForObject(
+                "SELECT physical_state FROM dev_device_command", String.class));
+        assertNull(jdbc.queryForObject("SELECT delivery_post_weight_g FROM dev_physical_result", Long.class));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"firstPreOpenMeasurement", "finalPostCloseMeasurement"})
     void nativeMeasurementIdentityReachesBusinessWithoutBeingReplaced(String slot) {

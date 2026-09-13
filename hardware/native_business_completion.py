@@ -1,4 +1,4 @@
-"""Finish an original normal native business after its exact backend decision.
+"""Finish a normal native business or exact delivery weight timeout after backend approval.
 
 There are only two local steps: freeze one completion receipt in the original
 command, then apply it after the permanent job is completed. No mechanical
@@ -8,6 +8,7 @@ from dataclasses import asdict
 import json
 
 from job_safety import JobPermit, PermanentJobSafety
+from native_result_evidence import terminal_weight_failure_candidate
 from onenet_wire import canonical_payload_sha256
 import uart2_protocol as uart
 
@@ -16,6 +17,12 @@ MARKER = "nativeBusinessCompletion"
 PROFILE = "ecobin-native-business-completion-v1"
 NORMAL_FINISH = {"DELIVERY_END", "DELIVERY_WINDOW_EXPIRED", "CLEAN_CONFIRMED"}
 AVAILABLE = {"STABLE_MEAN", "TIMEOUT_MEDIAN"}
+
+
+def _outcome(evidence):
+    # The historical normal evidence has no outcome field. Preserve its exact
+    # profile, fields and digest; only the newly supported failure adds fields.
+    return evidence.get("completionOutcome", "SUCCEEDED")
 
 
 def _permit_identity(permit, snapshot):
@@ -29,7 +36,7 @@ def _permit_identity(permit, snapshot):
 def _completed_permit(permit, marker, snapshot):
     _permit_identity(permit, snapshot)
     expected = dict(state="COMPLETED", completionUid=permit.command_uid,
-        completionOutcome="SUCCEEDED", completionDigestSha256=marker["evidenceSha256"])
+        completionOutcome=_outcome(marker["evidence"]), completionDigestSha256=marker["evidenceSha256"])
     if any(snapshot.get(key) != value for key, value in expected.items()):
         raise ValueError("native completion lacks its exact completed permanent receipt")
 
@@ -46,7 +53,9 @@ def _source(store, conn, permit, start_uid, device_name):
         return dict(state="LEGACY_RESULT_REQUIRES_ITS_ORIGINAL_HANDLER")
     saved = store.get_native_mcu_result(task["mcu_boot_id"], task["result_sequence"])
     result = uart.decode_payload("WORK_RESULT", saved["payload"])
-    if result["finishReason"] not in NORMAL_FINISH or any(result[key + "Kind"] not in AVAILABLE for key in ("initial", "final")):
+    weight_failure = permit.work_type == "DELIVERY" and terminal_weight_failure_candidate(result)
+    normal = result["finishReason"] in NORMAL_FINISH and all(result[key + "Kind"] in AVAILABLE for key in ("initial", "final"))
+    if not normal and not weight_failure:
         return dict(state="RESULT_NOT_NORMAL")
     confirmation = store.get_native_result_confirmation(permit, start_uid, device_name=device_name)
     if confirmation is None:
@@ -70,6 +79,8 @@ def _source(store, conn, permit, start_uid, device_name):
         eventUid=report["eventUid"], eventPayloadSha256=event["payloadSha256"],
         mcuBootId=result["mcuBootId"], resultSequence=result["resultSequence"], resultDigestSha256=result["resultDigestSha256"],
         portNo=result["portNo"], confirmation=confirmation, baseline=baseline)
+    if weight_failure:
+        evidence.update(completionOutcome="FAILED", failureCode="WEIGHT_TIMEOUT")
     return dict(state="QUALIFIED", evidence=evidence)
 
 
@@ -79,6 +90,14 @@ def _original_slot(store, permit, port_no):
             or slot["port_no"] != port_no):
         raise ValueError("native completion original work slot has changed")
     return slot
+
+
+def _failure_slot_receipt(slot, evidence, digest):
+    if _outcome(evidence) != "FAILED":
+        return
+    expected = dict(eventUid=evidence["eventUid"], startCommandUid=evidence["startCommandUid"], evidenceSha256=digest)
+    if slot["work_state"] != "COMPLETING" or slot["context"].get(MARKER) != expected:
+        raise ValueError("native weight failure original slot receipt has changed")
 
 
 def _baseline_available(store, baseline):
@@ -98,9 +117,11 @@ def _marker(store, permit, evidence):
         raise ValueError("native completion command result is malformed")
     old = result.get(MARKER)
     digest = canonical_payload_sha256(evidence)
-    if old is not None and (not isinstance(old, dict) or set(old) != {"state", "evidence", "evidenceSha256"}
+    expected_state = "FAILED" if _outcome(evidence) == "FAILED" else "COMPLETED"
+    if MARKER in result and (not isinstance(old, dict) or set(old) != {"state", "evidence", "evidenceSha256"}
             or old["state"] not in {"PREPARED", "APPLIED"} or old["evidence"] != evidence
-            or old["evidenceSha256"] != digest or command["state"] != "COMPLETED"):
+            or old["evidenceSha256"] != digest or command["state"] != expected_state
+            or (_outcome(evidence) == "FAILED" and command["last_error"] != evidence["failureCode"])):
         raise ValueError("native completion original receipt is corrupt or conflicts")
     return command, result, old, digest
 
@@ -110,11 +131,12 @@ def _result(marker):
     return dict(state="COMPLETED" if marker["state"] == "APPLIED" else "PREPARED",
         workUid=evidence["permit"]["work_uid"], eventUid=evidence["eventUid"],
         completionUid=evidence["permit"]["command_uid"], evidenceSha256=marker["evidenceSha256"],
+        completionOutcome=_outcome(evidence),
         baselineApplied=marker["state"] == "APPLIED" and evidence["baseline"] is not None)
 
 
 def prepare(store, permit, start_uid, *, device_name, permit_snapshot):
-    """Atomic local intent; a completed cloud command still owns its work slot."""
+    """Atomic local intent; a terminal cloud command still owns its work slot."""
     if not isinstance(permit, JobPermit):
         raise ValueError("native completion requires the original job permit")
     with store._standalone_native_transaction() as conn:
@@ -134,16 +156,20 @@ def prepare(store, permit, start_uid, *, device_name, permit_snapshot):
         slot = _original_slot(store, permit, evidence["portNo"])
         _baseline_available(store, evidence["baseline"])
         if old is not None:
+            _failure_slot_receipt(slot, evidence, digest)
             return _result(old)
+        if _outcome(evidence) == "FAILED" and MARKER in slot["context"]:
+            raise ValueError("native weight failure has an orphan original slot receipt")
         if command["state"] in {"COMPLETED", "FAILED", "REJECTED"}:
             raise ValueError("native completion cannot replace another terminal command result")
         marker = dict(state="PREPARED", evidence=evidence, evidenceSha256=digest)
         result[MARKER] = marker
         context = dict(slot["context"])
         context[MARKER] = dict(eventUid=evidence["eventUid"], startCommandUid=start_uid, evidenceSha256=digest)
-        conn.execute("""UPDATE command_inbox SET state='COMPLETED', processed_at=?, processing_started_at=NULL,
-            result_json=?, last_error=NULL WHERE command_uid=?""",
-            (store._now(), json.dumps(result, ensure_ascii=False, sort_keys=True), permit.command_uid))
+        conn.execute("""UPDATE command_inbox SET state=?, processed_at=?, processing_started_at=NULL,
+            result_json=?, last_error=? WHERE command_uid=?""",
+            ("FAILED" if _outcome(evidence) == "FAILED" else "COMPLETED", store._now(),
+             json.dumps(result, ensure_ascii=False, sort_keys=True), evidence.get("failureCode"), permit.command_uid))
         conn.execute("""UPDATE work_slot SET work_state='COMPLETING', context_json=?, updated_at=?
             WHERE slot_id=1 AND work_uid=? AND work_type=? AND port_no=?""",
             (json.dumps(context, ensure_ascii=False, sort_keys=True), store._now(), permit.work_uid,
@@ -166,7 +192,8 @@ def apply(store, permit, start_uid, *, device_name, permit_snapshot):
         _completed_permit(permit, marker, permit_snapshot)
         if marker["state"] == "APPLIED":
             return _result(marker)
-        _original_slot(store, permit, evidence["portNo"])
+        slot = _original_slot(store, permit, evidence["portNo"])
+        _failure_slot_receipt(slot, evidence, marker["evidenceSha256"])
         baseline = evidence["baseline"]
         _baseline_available(store, baseline)
         if baseline is not None and store.get_bag_baseline(baseline["bag_uid"]) is None:
@@ -204,7 +231,7 @@ class NativeBusinessCompleter:
         # timeout/crash after the RPC applied. Repeating it cannot complete a
         # different job; no local slot is freed before its exact confirmation.
         self.safety.complete_job(permit, completion_uid=permit.command_uid,
-            outcome="SUCCEEDED", completion_digest_sha256=pending["evidenceSha256"])
+            outcome=pending["completionOutcome"], completion_digest_sha256=pending["evidenceSha256"])
         snapshot = self.safety.get_job_permit(permit.permit_uid)
         return self.store.apply_native_business_completion(permit, start_command_uid,
             device_name=self.device_name, permit_snapshot=snapshot)
