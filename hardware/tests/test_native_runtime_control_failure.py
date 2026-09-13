@@ -23,22 +23,35 @@ def matching_observations(case, command_uid):
 
 
 @contextmanager
-def dropped_start_decision(runtime, tmp_path):
+def dropped_start_decision(runtime, tmp_path, *, clean=False):
     with completed_first_work(runtime, tmp_path) as (case, owner):
         apply_configuration(case, owner)
         await_start_facts(case, owner)
-        business = start_command()
+        business = start_command(clean)
         assert case.store.receive_command(business["commandUid"], business["commandType"], business) == "ACCEPTED"
         assert case.store.claim_next_command()["command_uid"] == business["commandUid"]
-        pending = owner.start_delivery_command(business)
+        pending = (
+            owner.start_clean_command(business)
+            if clean
+            else owner.start_delivery_command(business)
+        )
         uid = pending["mcu_command_uid"]
         case.serial.drop = lambda decoded: (decoded["messageName"] in {"COMMAND_DECISION", "COMMAND_QUERY_RESULT"}
             and uart.decode_payload(decoded["messageName"], decoded["payload"])["mcuCommandUid"] == uid)
         poll_until(owner, case.clock, lambda: case.store.get_native_command(uid)["write_claimed"])
         case.business, case.uid = business, uid
-        case.start = uart.decode_payload("START_DELIVERY_SESSION", case.store.get_native_command(uid)["payload"])
-        case.permit = JobPermit(business["commandUid"], business["payload"]["sessionUid"],
-            business["commandUid"], "DELIVERY", command_request_digest(business))
+        case.start = uart.decode_payload(
+            business["commandType"],
+            case.store.get_native_command(uid)["payload"],
+        )
+        work_key = "operationUid" if clean else "sessionUid"
+        case.permit = JobPermit(
+            business["commandUid"],
+            business["payload"][work_key],
+            business["commandUid"],
+            "CLEAN" if clean else "DELIVERY",
+            command_request_digest(business),
+        )
         yield case, owner
 
 
@@ -83,6 +96,77 @@ def test_unanswered_start_times_out_despite_healthy_facts_and_blocks_new_busines
         with pytest.raises(JobSafetyError) as blocked:
             owner.start_delivery_command(start_command())
         assert blocked.value.code == "MCU_COMMUNICATION_UNAVAILABLE"
+
+
+def test_unanswered_clean_start_latches_bag_confirmation_after_failure(
+    runtime,
+    tmp_path,
+):
+    with dropped_start_decision(runtime, tmp_path, clean=True) as (
+        case,
+        owner,
+    ):
+        wait_for_control_failure(case, owner)
+
+        failed = case.store.get_command(case.business["commandUid"])
+        assert failed["state"] == "FAILED"
+        assert failed["last_error"] == "MCU_COMMUNICATION_UNAVAILABLE"
+        assert case.store.clean_restart_interlock_active(1)
+
+        status = owner.communication_fault_status()
+        owner.confirm_communication_fault_recovered({
+            "expectedFaultUid": status["faultUid"],
+            "reason": "已修复通信，但尚未确认清运后的实际袋和皮重",
+            "causeFixedConfirmed": True,
+        })
+        assert case.store.get_state("native_blocking_fault") == ""
+        assert case.store.clean_restart_interlock_active(1)
+
+        with pytest.raises(JobSafetyError) as blocked:
+            owner.start_delivery_command(start_command())
+        assert blocked.value.code == "CLEAN_BAG_CONFIRMATION_REQUIRED"
+
+
+def test_clean_failure_does_not_freeze_without_atomic_bag_interlock(
+    runtime,
+    tmp_path,
+    monkeypatch,
+):
+    with dropped_start_decision(runtime, tmp_path, clean=True) as (
+        case,
+        owner,
+    ):
+        original = case.store._set_clean_restart_interlock_in_tx
+
+        def fail_interlock(*_args, **_kwargs):
+            raise RuntimeError("injected clean bag interlock failure")
+
+        monkeypatch.setattr(
+            case.store,
+            "_set_clean_restart_interlock_in_tx",
+            fail_interlock,
+        )
+        with pytest.raises(RuntimeError, match="bag interlock failure"):
+            for _ in range(150):
+                case.clock.now += 100
+                owner.poll()
+                time.sleep(0.001)
+
+        command = case.store.get_command(case.business["commandUid"])
+        assert command["state"] == "PROCESSING"
+        assert case.store.get_work_slot()["work_uid"] == (
+            case.permit.work_uid
+        )
+        assert not case.store.clean_restart_interlock_active(1)
+        assert matching_observations(
+            case,
+            case.business["commandUid"],
+        ) == []
+        monkeypatch.setattr(
+            case.store,
+            "_set_clean_restart_interlock_in_tx",
+            original,
+        )
 
 
 def test_operator_clears_exact_communication_fault_only_after_fresh_reply(

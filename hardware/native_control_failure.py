@@ -17,7 +17,8 @@ MARKER = "nativeControlFailure"
 PROFILE = "ecobin-native-control-failure-v1"
 COMMUNICATION_REASON = "MCU_COMMUNICATION_UNAVAILABLE"
 RESTART_REASON = "EDGE_RESTARTED_BEFORE_START"
-REASONS = {COMMUNICATION_REASON, RESTART_REASON}
+MCU_RESTART_REASON = "MCU_RESTART_FINAL_RESULT_UNAVAILABLE"
+REASONS = {COMMUNICATION_REASON, RESTART_REASON, MCU_RESTART_REASON}
 STAGES = {"PRE_START_FAILED", "FAILED"}
 
 
@@ -98,7 +99,8 @@ def _checked_marker(store, permit, record, start, command, device_name):
     if (evidence != expected or marker.get("evidenceSha256") != canonical_payload_sha256(expected)
             or command["state"] != "FAILED" or command["last_error"] != reason
             or bool(record["write_claimed"]) != (stage == "FAILED")
-            or (reason == RESTART_REASON and stage != "PRE_START_FAILED")):
+            or (reason == RESTART_REASON and stage != "PRE_START_FAILED")
+            or (reason == MCU_RESTART_REASON and stage != "FAILED")):
         raise ValueError("native control failure receipt conflicts with its original work")
     return result, marker
 
@@ -139,7 +141,11 @@ def prepare(store, permit, start_uid, *, device_name, stage, reason):
         if completed is not None:
             return completed
         expected_stage = "FAILED" if record["write_claimed"] else "PRE_START_FAILED"
-        if stage != expected_stage or (reason == RESTART_REASON and record["write_claimed"]):
+        if (stage != expected_stage
+                or (reason == RESTART_REASON and record["write_claimed"])
+                or (reason == MCU_RESTART_REASON
+                    and (permit.work_type != "CLEAN"
+                         or not record["write_claimed"]))):
             raise ValueError("native control failure stage does not match the durable write fence")
         if command["state"] in {"COMPLETED", "FAILED", "REJECTED"}:
             raise ValueError("native control failure cannot replace another terminal command result")
@@ -168,6 +174,18 @@ def prepare(store, permit, start_uid, *, device_name, stage, reason):
              permit.work_uid, permit.work_type, start["portNo"]))
         if updated.rowcount != 1:
             raise ValueError("native control failure original slot changed")
+        if permit.work_type == "CLEAN" and stage == "FAILED":
+            # A clean START may already have changed the physical bag.  The
+            # original work can be closed, but admitting another business
+            # before a human confirms bag/tare would project the old bag onto
+            # an unknown physical state.  Keep this in the same transaction as
+            # the frozen failure receipt so a crash cannot release an unlocked
+            # clean interruption.
+            store._set_clean_restart_interlock_in_tx(
+                conn,
+                start["portNo"],
+                True,
+            )
         return _result(marker)
 
 

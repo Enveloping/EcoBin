@@ -47,6 +47,12 @@ class CleanCommandObservationDecisionTest {
                 .isEqualTo(Action.NONE);
         assertThat(decide("EDGE_SAVED", false, "FAILED", "UART_TIMEOUT"))
                 .isEqualTo(Action.REQUIRE_RECOVERY);
+        assertThat(decide(
+                "IN_PROGRESS",
+                true,
+                "FAILED",
+                "MCU_RESTART_FINAL_RESULT_UNAVAILABLE"))
+                .isEqualTo(Action.REQUIRE_RECOVERY);
     }
 
     @Test

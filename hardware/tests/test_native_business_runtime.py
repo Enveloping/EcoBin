@@ -554,6 +554,83 @@ def test_new_real_mcu_boot_invalidates_even_a_younger_than_750ms_cached_read(run
         assert case.store.get_work_slot() is None
 
 
+def test_confirmed_mcu_restart_ends_clean_and_latches_bag_confirmation(
+    runtime,
+    tmp_path,
+):
+    with real_work(runtime, tmp_path, True) as case:
+        case.clean = True
+        retained_context(case)
+        case.clock = SimpleNamespace(now=0)
+        owner = open_owner(case, case.clock)
+        try:
+            poll_until(owner, case.clock, lambda: owner.uart_state == "READY")
+            old_boot = owner.boot.current_boot(case.clock.now)
+            assert old_boot == case.boot
+
+            lib, endpoint, preparation, replies, _, sink, guard = runtime
+            lib.TestFacts_InitHardware()
+            lib.McuControlEndpoint_Init(endpoint, 1, sink, None)
+            assert lib.McuWorkPreparation_Attach(
+                preparation,
+                endpoint,
+                2,
+                guard,
+                None,
+            )
+            assert lib.ActuatorRuntime_SetDoorTarget(1)
+            case.wire.now = 0
+            replies.clear()
+            case.serial.rx.clear()
+
+            poll_until(
+                owner,
+                case.clock,
+                lambda: owner.boot.current_boot(case.clock.now)
+                not in {None, old_boot},
+            )
+            poll_until(
+                owner,
+                case.clock,
+                lambda: case.store.get_work_slot() is None,
+            )
+
+            command = case.store.get_command(case.permit.command_uid)
+            marker = command["result"]["nativeControlFailure"]
+            assert command["state"] == "FAILED"
+            assert command["last_error"] == (
+                "MCU_RESTART_FINAL_RESULT_UNAVAILABLE"
+            )
+            assert marker["state"] == "APPLIED"
+            assert marker["evidence"]["reason"] == (
+                "MCU_RESTART_FINAL_RESULT_UNAVAILABLE"
+            )
+            assert marker["evidence"]["businessValue"] == "NONE"
+            assert case.store.clean_restart_interlock_active(1)
+            permanent = case.safety.get_job_permit(
+                case.permit.permit_uid
+            )
+            assert permanent["state"] == "COMPLETED"
+            assert permanent["completionOutcome"] == "FAILED"
+            observations = [
+                json.loads(row["payload_json"])
+                for row in case.store.list_pending_events()
+                if row["event_type"] == "DEVICE_COMMAND_OBSERVED"
+            ]
+            assert len(observations) == 1
+            assert observations[0]["payload"]["errorCode"] == (
+                "MCU_RESTART_FINAL_RESULT_UNAVAILABLE"
+            )
+
+            with pytest.raises(JobSafetyError) as blocked:
+                owner.start_delivery_command(start_command())
+            assert blocked.value.code == (
+                "CLEAN_BAG_CONFIRMATION_REQUIRED"
+            )
+        finally:
+            owner.close()
+
+
 @pytest.mark.parametrize("clean", [False, True])
 def test_before_photo_deadline_records_missing_and_allows_one_real_start_without_blocking_uart(runtime, tmp_path, monkeypatch, clean):
     with completed_first_work(runtime, tmp_path) as (case, previous_owner):

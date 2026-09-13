@@ -346,6 +346,11 @@ class NativeBusinessRuntime:
         if self.boot is None or self.boot.current_boot(self.clock()) is None:
             raise JobSafetyError("MCU_COMMUNICATION_UNAVAILABLE", "fresh MCU communication required")
         payload = command["payload"]
+        if self.store.clean_restart_interlock_active(payload["portNo"]):
+            raise JobSafetyError(
+                "CLEAN_BAG_CONFIRMATION_REQUIRED",
+                "an interrupted clean requires current bag and tare confirmation",
+            )
         configuration, facts = self._check_configuration(payload["config"])
         port = next((row for row in configuration["payload"]["ports"] if row["portNo"] == payload["portNo"]), None)
         if port is None or not port["enabled"] or payload["portNo"] != 1:
@@ -774,12 +779,29 @@ class NativeBusinessRuntime:
         self._work_query.poll(now)
         decision = self.store.evaluate_native_work_recovery(permit, uid,
             current_boot=lambda: self.boot.current_boot(self.clock()))
-        if decision["status"] == "RECOVERY_INTENT_RECORDED" and permit.work_type == "DELIVERY":
-            # A fresh, saved newer boot is required. The archive transaction
-            # checks again for a complete final packet; process weights alone
-            # are never used to manufacture a successful delivery.
-            decision = self.store.archive_native_delivery_issue(permit, uid, device_name=self.device_name,
-                current_boot=lambda: self.boot.current_boot(self.clock()))
+        if decision["status"] == "RECOVERY_INTENT_RECORDED":
+            if permit.work_type == "DELIVERY":
+                # A fresh, saved newer boot is required. The archive transaction
+                # checks again for a complete final packet; process weights alone
+                # are never used to manufacture a successful delivery.
+                decision = self.store.archive_native_delivery_issue(permit, uid, device_name=self.device_name,
+                    current_boot=lambda: self.boot.current_boot(self.clock()))
+            else:
+                # The rebooted MCU has abandoned its volatile clean execution.
+                # Reuse the exact failed-permit convergence, but retain a local
+                # bag/tare interlock for the separate human reconciliation.
+                from native_control_failure import MCU_RESTART_REASON
+                pending = self.store.prepare_native_control_failure(
+                    permit,
+                    uid,
+                    device_name=self.device_name,
+                    stage="FAILED",
+                    reason=MCU_RESTART_REASON,
+                )
+                if pending.get("state") == "PREPARED":
+                    self._live_starts.discard(uid)
+                    self._start_grants.discard(uid)
+                return
         if decision["status"] == "DELIVERY_ISSUE_ARCHIVED":
             self._live_starts.discard(uid)
             self._start_grants.discard(uid)
