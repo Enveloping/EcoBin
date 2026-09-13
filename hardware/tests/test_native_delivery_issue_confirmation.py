@@ -13,8 +13,8 @@ from device_identity import DeviceIdentity
 from native_delivery_issue_report import NativeDeliveryIssueReporter
 from onenet_wire import canonical_payload_sha256, decode_service_command
 from work_recovery import NativeWorkRecovery
-from hardware.tests.test_mcu_work_preparation import library, runtime
-from hardware.tests.test_mcu_delivery_execution import executed_action_case
+from hardware.tests.test_mcu_simplified_execution import library, runtime
+from hardware.tests.native_autonomous_recovery_fixture import autonomous_active_case as executed_action_case
 from hardware.tests.test_native_result_report import original_command
 from hardware.tests.test_native_work_recovery import RecoveryWire
 from hardware.tests.test_native_result_confirmation import confirmation_wire

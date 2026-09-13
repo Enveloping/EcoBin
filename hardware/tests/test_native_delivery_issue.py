@@ -10,8 +10,9 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 import uart2_protocol as uart
-from hardware.tests.test_mcu_work_preparation import library, runtime
-from hardware.tests.test_mcu_delivery_execution import executed_action_case
+from hardware.tests.test_mcu_simplified_execution import library, runtime
+from hardware.tests.test_mcu_delivery_execution import executed_action_case as pre_measurement_case
+from hardware.tests.native_autonomous_recovery_fixture import autonomous_active_case as executed_action_case
 from hardware.tests.test_native_work_recovery import RecoveryWire
 from hardware.tests.test_native_result_report import original_command
 
@@ -43,7 +44,11 @@ def test_complete_process_records_without_final_packet_are_archived_not_reconstr
         final = next(f for f in facts if f["message_name"] == "WORK_POSTCLOSE_WEIGHT_READY")
         assert uart.decode_payload(first["message_name"], first["payload"])["reportedWeightGrams"] == 500
         assert uart.decode_payload(final["message_name"], final["payload"])["reportedWeightGrams"] == 700
-        assert any(f["message_name"] == "DELIVERY_SELECTION" for f in facts)
+        # rc.23 final result is authoritative; the Pi does not require or
+        # archive the screen button as a separate business prerequisite.
+        assert not any(f["message_name"] == "DELIVERY_SELECTION" for f in facts)
+        assert not any(row["message_name"] in {"AUTHORIZE_DELIVERY_FIRST_OPEN", "UNLOCK_CLEAN_DOOR"}
+            for row in case.store.list_native_commands())
         assert case.store.list_native_result_report_tasks() == []
         assert case.store.list_pending_events() == []  # issue cloud path is not a normal business result
         assert case.store.get_work_slot() == case.occupancy
@@ -309,8 +314,12 @@ os._exit(77)
 
 def test_restart_before_any_measurement_archives_no_fabricated_weight(runtime, tmp_path):
     from work_recovery import NativeWorkRecovery
-    with executed_action_case(runtime, tmp_path, clean_work=False, cloud_command_factory=original_command,
+    with pre_measurement_case(runtime, tmp_path, clean_work=False, cloud_command_factory=original_command,
             stop_before_measurement=True) as case:
+        context = case.store.get_work_slot()["context"] | {
+            "job_safety": asdict(case.permit) | {"begin_uid": case.permit.work_uid}}
+        assert case.store.update_work_context(case.permit.work_uid, context)
+        case.occupancy = case.store.get_work_slot()
         wire = RecoveryWire(case, runtime)
         owner = NativeWorkRecovery(case.store, wire.reset_mcu(), clock=lambda: wire.now)
         result = owner.archive_delivery(case.permit, case.start["mcuCommandUid"], device_name="device-1")
@@ -393,7 +402,7 @@ def test_schema32_upgrade_is_atomic_and_never_reclassifies_existing_intents(runt
                 assert conn.execute("SELECT count(*) FROM sqlite_master WHERE name LIKE 'native_delivery_issue%'").fetchone()[0] == 0
             case.store = EdgeStore(str(tmp_path / "edge.db"))
         case.store.initialize()
-        assert CURRENT_SCHEMA_VERSION == 39
+        assert CURRENT_SCHEMA_VERSION == 40
         assert case.store.get_native_work_recovery_intent(intent["recovery_uid"]) == intent
         assert case.store.get_native_delivery_issue(case.permit.work_uid) is None
         assert case.store.get_work_slot() == case.occupancy

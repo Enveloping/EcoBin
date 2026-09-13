@@ -57,8 +57,20 @@ def original_work(store, permit, start_uid):
             != (permit.work_uid, permit.work_type, start["portNo"]) or start[key] != permit.work_uid):
         raise ValueError("native recovery does not own the original work occupancy")
     binding = store.get_native_action_by_key(permit.work_uid, "clean:first-unlock" if clean else "delivery:first-open")
-    if binding is not None and binding["permit"] != permit:
-        raise ValueError("native recovery permit differs from the original action")
+    if binding is not None:
+        if binding["permit"] != permit:
+            raise ValueError("native recovery permit differs from the original action")
+    else:
+        # rc.23 has no per-action binding. The work slot was committed before
+        # START became dispatchable and is the durable owner of the original
+        # permanent permit; a caller cannot substitute another permit merely
+        # because it names the same work UUID.
+        saved = occupied["context"].get("job_safety")
+        expected = asdict(permit)
+        if (not isinstance(saved, dict)
+                or any(saved.get(field) != value for field, value in expected.items())
+                or saved.get("begin_uid") != permit.work_uid):
+            raise ValueError("native recovery permit differs from the original work slot")
     return record, start
 
 
@@ -275,6 +287,14 @@ def checked_intent(store, conn, row):
             or (binding is not None and (asdict(binding["permit"]) != evidence["permit"]
                 or asdict(binding["action"]) != evidence["firstAction"]))):
         raise ValueError("native recovery original permit/action binding is missing or corrupt")
+    if binding is None:
+        slot = store.get_work_slot()
+        if (slot is not None and slot["work_uid"] == row["work_uid"]):
+            saved = slot["context"].get("job_safety")
+            if (not isinstance(saved, dict)
+                    or any(saved.get(field) != value for field, value in evidence["permit"].items())
+                    or saved.get("begin_uid") != row["work_uid"]):
+                raise ValueError("native recovery original permit differs from the work slot")
     witness = store.get_native_boot_observation(row["target_mcu_boot_id"])
     if witness is None or evidence["bootObservation"] != dict(messageName=witness["message_name"], payloadHex=witness["payload"].hex()):
         raise ValueError("native recovery boot witness is missing or corrupt")

@@ -492,7 +492,7 @@ def test_external_prerequisite_refusal_is_cached_and_not_retried_as_a_new_action
 
 
 @pytest.mark.parametrize("name", ["AUTHORIZE_DELIVERY_FIRST_OPEN", "UNLOCK_CLEAN_DOOR"])
-def test_unimplemented_mechanical_command_is_not_acknowledged_or_executed(runtime, name):
+def test_retired_mechanical_command_is_explicitly_rejected_without_execution(runtime, name):
     lib, _, _, *_ = runtime
     configured(runtime, applied=True)
     start = start_values()
@@ -501,11 +501,15 @@ def test_unimplemented_mechanical_command_is_not_acknowledged_or_executed(runtim
     values.update(targetMcuBootId=42, commandSequence=7, mcuCommandUid="77777777-7777-4777-8777-777777777777")
     values["commandDigestSha256"] = uart.compute_command_digest(name, values)
     writes = lib.TestFacts_Writes()
-    assert exchange(runtime, name, values) == []
+    decision = exchange(runtime, name, values)[0][1]
+    assert decision["outcome"] == "REJECTED"
+    assert decision["errorCode"] == "UNSUPPORTED_MESSAGE"
     query = {"queryId": 1, **{key: values[key] for key in
         ("mcuCommandUid", "commandDigestSha256", "targetMcuBootId", "commandSequence")}}
     reply = exchange(runtime, "QUERY_COMMAND", query)[0][1]
-    assert reply["outcome"] == "NOT_SEEN" and reply["highestCommandSequence"] == 6
+    assert reply["outcome"] == "REJECTED"
+    assert reply["errorCode"] == "UNSUPPORTED_MESSAGE"
+    assert reply["highestCommandSequence"] == 7
     assert lib.TestFacts_Writes() == writes
 
 

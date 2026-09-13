@@ -7,6 +7,7 @@ the deployed Pi main loop or the physical RS485 wiring has been verified.
 """
 from contextlib import contextmanager
 import ctypes as c
+from dataclasses import asdict
 import json
 import sqlite3
 from types import SimpleNamespace
@@ -110,8 +111,11 @@ def real_work(runtime, tmp_path, clean):
         assert store.receive_command(cloud["commandUid"], name, cloud) == "ACCEPTED"
         assert store.claim_next_command()
         permit = safety.request_job(cloud, work_type="CLEAN" if clean else "DELIVERY", work_uid=start[key])
-        safety.begin_job(permit, begin_uid=str(uuid.uuid4()), digest=permit.request_digest_sha256)
-        assert store.acquire_work_slot(permit.work_type, permit.work_uid, 1, {"phase": "NATIVE_RUNNING"})
+        safety.begin_job(permit, begin_uid=permit.work_uid, digest=permit.request_digest_sha256)
+        assert store.acquire_work_slot(permit.work_type, permit.work_uid, 1, {
+            "phase": "NATIVE_RUNNING",
+            "job_safety": asdict(permit) | {"begin_uid": permit.work_uid},
+        })
         record = store.prepare_native_command(name, start["mcuCommandUid"], boot,
             {key: value for key, value in start.items() if key not in IDENTITY})
         assert store.claim_native_command_write(record["command_uid"])

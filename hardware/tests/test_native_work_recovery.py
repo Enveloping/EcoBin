@@ -16,8 +16,9 @@ from mcu_process_handoff import McuProcessEventHandoff
 from mcu_result_handoff import McuResultHandoff
 from mcu_session import McuBootSession
 from mcu_work_query import McuWorkQuery
-from hardware.tests.test_mcu_delivery_execution import executed_action_case
-from hardware.tests.test_mcu_work_preparation import library, runtime, original_scope, take_samples
+from hardware.tests.native_autonomous_recovery_fixture import autonomous_active_case as executed_action_case
+from hardware.tests.test_mcu_simplified_execution import library, runtime
+from hardware.tests.test_mcu_work_preparation import original_scope, take_samples
 from hardware.tests.test_native_clean_action_reconciliation import CleanWire
 from hardware.tests.test_native_command_session import CSession, boot_response, command_response, mcu
 
@@ -76,12 +77,10 @@ class RecoveryWire(CleanWire):
         self.intent(0, "CLEAN_FINISH_REQUESTED")
         self.advance(0)
         self.now = take_samples(self.runtime, [100] * 5, start=self.now, measurement=2)
-        final = self.custody("CLEAN_FINAL_WEIGHT_READY", 1)
-        last = uart.decode_payload(final["message_name"], final["payload"])
-        lib, endpoint, *_ = self.runtime
-        assert lib.McuCleanExecution_Confirm(self.case.execution, endpoint, uuid.UUID(self.case.permit.work_uid).bytes,
-            1, uuid.UUID(last["measurementUid"]).bytes, self.now)
-        self.custody("CLEAN_COMPLETION_CONFIRMED", 1)
+        self.custody("CLEAN_FINAL_WEIGHT_READY", 1)
+        # rc.23 turns the local FINISH request plus terminal weight into the
+        # authoritative result. No second Pi-side/historical confirmation is
+        # required to make the result exist.
         self.advance(0)
         return self.handoff_result()
 
@@ -100,6 +99,15 @@ class RecoveryWire(CleanWire):
         self.pump(handoff)
         saved = self.case.store.get_native_mcu_result(1, identity["resultSequence"])
         return saved
+
+
+def assert_start_only(case):
+    """rc.23 recovery owns no Pi-side per-action authorization."""
+    names = {row["message_name"] for row in case.store.list_native_commands()}
+    assert ("START_CLEAN_OPERATION" if case.clean else "START_DELIVERY_SESSION") in names
+    assert names.isdisjoint({"AUTHORIZE_DELIVERY_FIRST_OPEN", "UNLOCK_CLEAN_DOOR"})
+    key = "clean:first-unlock" if case.clean else "delivery:first-open"
+    assert case.store.get_native_action_by_key(case.permit.work_uid, key) is None
 
 
 @pytest.fixture(params=[False, True], ids=["delivery", "clean"])
@@ -123,7 +131,7 @@ def test_saved_actual_complete_result_wins_after_confirmed_mcu_restart(runtime, 
         assert decision["result"]["payload"] == result["payload"]
         assert len(case.store.list_native_result_report_tasks()) == 1
         assert case.store.get_work_slot() == case.occupancy
-        assert case.safety.get_physical_action(case.action.action_uid)["state"] == "ARMED"
+        assert_start_only(case)
         assert len(wire.sent) == before  # no action, probe, receipt or cloud report from the evaluator
 
 
@@ -148,7 +156,8 @@ def test_confirmed_restart_without_complete_result_freezes_known_facts_once(runt
         assert uart.decode_payload(initial["message_name"], initial["payload"])["reportedWeightGrams"] == 500
         assert not any(row["message_name"] == "WORK_POSTCLOSE_WEIGHT_READY" for row in facts)
         assert case.store.get_work_slot() == case.occupancy
-        assert case.safety.get_physical_action(case.action.action_uid)["state"] == "ARMED"
+        assert evidence["firstAction"] is None
+        assert_start_only(case)
         assert case.store.list_native_result_report_tasks() == []
         assert case.store.list_pending_events() == []
         assert len(wire.sent) == before
@@ -191,7 +200,7 @@ def test_pi_restart_timeout_or_zero_does_not_create_data_loss_intent(active, obs
     assert len(wire.sent) == before
 
 
-def test_clean_restart_retains_original_permit_and_known_unlock_without_human_confirmation(active):
+def test_restart_retains_original_permit_without_requiring_optional_action_events(active):
     from work_recovery import NativeWorkRecovery
     case, wire = active, active.wire
     boot = wire.reset_mcu()
@@ -199,9 +208,13 @@ def test_clean_restart_retains_original_permit_and_known_unlock_without_human_co
     intent = result["intent"]
     assert intent["evidence"]["permit"]["permit_uid"] == case.permit.permit_uid
     facts = case.store.list_native_work_recovery_facts(intent["recovery_uid"])
-    expected = "CLEAN_LOCK_POWER_CHANGED" if case.clean else "DELIVERY_DOOR_COMMAND_RESULT"
-    assert len([row for row in facts if row["message_name"] == expected]) == 2
+    assert any(row["message_name"] in {"WORK_PREUNLOCK_WEIGHT_READY", "WORK_PREOPEN_WEIGHT_READY"}
+        for row in facts)
+    assert not any(row["message_name"] in {"CLEAN_LOCK_POWER_CHANGED", "DELIVERY_DOOR_COMMAND_RESULT"}
+        for row in facts)
     assert not any(row["message_name"] == "CLEAN_COMPLETION_CONFIRMED" for row in facts)
+    assert intent["evidence"]["firstAction"] is None
+    assert_start_only(case)
     assert case.store.get_work_slot() == case.occupancy
     assert case.safety.get_job_permit(case.permit.permit_uid)["state"] == "ACTIVE"
 
@@ -241,7 +254,7 @@ def test_late_complete_result_after_intent_but_before_archive_takes_priority(run
         assert case.store.list_pending_events() == []
 
 
-@pytest.mark.parametrize("change", ["permit", "port", "forget_action", "kind", "dispatch"])
+@pytest.mark.parametrize("change", ["permit", "port", "kind", "dispatch"])
 def test_rehashed_intent_cannot_replace_the_original_permanent_permit(active, change):
     from work_recovery import NativeWorkRecovery, canonical
     case, wire = active, active.wire
@@ -252,9 +265,6 @@ def test_rehashed_intent_cannot_replace_the_original_permanent_permit(active, ch
         changed["permit"]["permit_uid"] = str(uuid.uuid4())
     elif change == "port":
         changed["portNo"] = 2
-    elif change == "forget_action":
-        changed["permit"]["permit_uid"] = str(uuid.uuid4())
-        changed["firstAction"] = None
     elif change == "kind":
         changed["permit"]["work_type"] = "DELIVERY" if case.clean else "CLEAN"
     else:
@@ -293,7 +303,7 @@ def test_other_work_or_permit_cannot_claim_original_occupancy(active, change):
     elif change == "kind":
         permit = replace(permit, work_type="DELIVERY" if case.clean else "CLEAN")
     else:
-        uid = case.action.action_uid
+        uid = str(uuid.uuid4())
     with pytest.raises(ValueError):
         NativeWorkRecovery(case.store, boot, clock=lambda: wire.now).evaluate(permit, uid)
     assert case.store.list_native_work_recovery_intents(case.permit.work_uid) == []
@@ -329,7 +339,7 @@ def test_sqlite_failure_does_not_leave_half_intent_or_release_occupancy(active, 
         case.store._conn.set_authorizer(None)
     assert case.store.list_native_work_recovery_intents(case.permit.work_uid) == []
     assert case.store.get_work_slot() == case.occupancy
-    assert case.safety.get_physical_action(case.action.action_uid)["state"] == "ARMED"
+    assert_start_only(case)
 
 
 @pytest.mark.parametrize("point", ["before_intent", "before_facts", "after_commit"])
@@ -450,7 +460,8 @@ def test_start_dispatch_knowledge_is_preserved_without_inventing_user_activity(t
         work = command["payload"]["sessionUid"]
         permit = safety.request_job(command, work_type="DELIVERY", work_uid=work)
         safety.begin_job(permit, begin_uid=str(uuid.uuid4()), digest=permit.request_digest_sha256)
-        store.acquire_work_slot("DELIVERY", work, 1, {"phase": "NATIVE_PREPARING"})
+        store.acquire_work_slot("DELIVERY", work, 1, {"phase": "NATIVE_PREPARING",
+            "job_safety": asdict(permit) | {"begin_uid": permit.work_uid}})
         values = start_values(targetMcuBootId=1, sessionUid=work)
         identity = {"mcuCommandUid", "targetMcuBootId", "commandSequence", "commandDigestSha256"}
         record = store.prepare_native_command("START_DELIVERY_SESSION", values["mcuCommandUid"], 1,
@@ -564,36 +575,27 @@ def test_frozen_fact_pagination_returns_all_original_bytes_without_repeating_row
             case.store.list_native_work_recovery_facts(intent["recovery_uid"], limit=limit)
 
 
-def test_known_physical_action_stays_confirmed_when_only_later_result_is_missing(active):
-    from mcu_action_evidence import NativeActionReconciler
+def test_start_only_recovery_retains_context_when_later_result_is_missing(active):
     from work_recovery import NativeWorkRecovery
     case, wire = active, active.wire
-    NativeActionReconciler(case.store, case.safety).reconcile(case.action.action_uid)
-    ledger = case.safety.get_physical_action(case.action.action_uid)
-    assert ledger["state"] == "CONFIRMED"
+    assert_start_only(case)
     context = case.store.get_work_slot()["context"] | {"operatorUid": str(uuid.uuid4()), "reservedBagUid": str(uuid.uuid4())}
     assert case.store.update_work_context(case.permit.work_uid, context)
     occupied = case.store.get_work_slot()
     boot = wire.reset_mcu()
     intent = NativeWorkRecovery(case.store, boot, clock=lambda: wire.now).evaluate(case.permit, case.start["mcuCommandUid"])["intent"]
-    assert intent["evidence"]["firstAction"]["action_uid"] == case.action.action_uid
-    assert case.safety.get_physical_action(case.action.action_uid) == ledger
+    assert intent["evidence"]["firstAction"] is None
+    assert_start_only(case)
     assert case.store.get_work_slot() == occupied  # original people/bag context is retained, not reconstructed
     assert case.store.list_pending_events() == []
 
 
-@pytest.mark.parametrize("kind", ["measurement", "actuator"])
-def test_corrupt_process_custody_is_not_rehashed_into_recovery_evidence(active, kind):
+def test_corrupt_measurement_custody_is_not_rehashed_into_recovery_evidence(active):
     from work_recovery import NativeWorkRecovery
     case, wire = active, active.wire
-    if kind == "measurement":
-        table, sequence = "native_measurement_event", 1
-        row = case.store.get_native_measurement_event(1, sequence)
-        field = "reportedWeightGrams"
-    else:
-        table, sequence = "native_actuator_event", 2
-        row = case.store.get_native_actuator_event(1, sequence)
-        field = "uptimeMs"
+    table, sequence = "native_measurement_event", 1
+    row = case.store.get_native_measurement_event(1, sequence)
+    field = "reportedWeightGrams"
     value = uart.decode_payload(row["message_name"], row["payload"])
     value[field] += 1
     changed = uart.encode_payload(row["message_name"], value)

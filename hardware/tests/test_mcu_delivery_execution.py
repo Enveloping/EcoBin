@@ -1,11 +1,21 @@
-"""Native first-open wire command -> actual C timer -> immutable action custody."""
+"""START-owned delivery behavior plus temporary legacy-fixture compatibility."""
 import ctypes as c
 
 import pytest
 import uart2_protocol as uart
 from edge_store import EdgeStore
 from hardware.tests.test_mcu_opening_gate import prepared, grant
-from hardware.tests.test_mcu_work_preparation import library, runtime, exchange, original_scope
+from hardware.tests.test_mcu_work_preparation import exchange, original_scope, take_samples
+from hardware.tests.test_mcu_simplified_execution import (
+    final as autonomous_final,
+    library,
+    runtime,
+    select as autonomous_select,
+    setup as autonomous_setup,
+    state as autonomous_state,
+    tick as autonomous_tick,
+)
+from hardware.tests.test_native_configuration import inputs
 from hardware.tests.test_mcu_actuator_event_journal import Reservation
 
 
@@ -21,166 +31,86 @@ def events(runtime, now):
         afterMcuEventSequence=0), now=now)
 
 
-def test_first_open_is_accepted_once_then_auto_closes_without_waiting_for_evidence_save(runtime, tmp_path):
-    execution = enable(runtime)
-    lib, endpoint, preparation, *_ = runtime
-    start, initial, now = prepared(runtime, tmp_path)
-    name, command = grant(start, initial)
-    assert exchange(runtime, name, command, now=now)[0][1]["outcome"] == "ACCEPTED"
-    assert exchange(runtime, name, command, now=now)[0][1]["outcome"] == "ACCEPTED"
-    assert events(runtime, now)[0][1]["status"] == "NOT_FOUND"
-    lib.RuntimeClock_Advance(100)
-    lib.ActuatorRuntime_Tick()
-    now += 100
-    assert lib.McuWorkPreparation_Poll(preparation, endpoint, now)
-    opened = events(runtime, now)[1][1]
-    assert opened["command"] == "OPEN" and opened["outputStatus"] == "COMMAND_DISPATCHED"
-    assert opened["mcuCommandUid"] == command["mcuCommandUid"]
-    assert opened["sessionUid"] == start["sessionUid"] and opened["uptimeMs"] == now
-    # No save or foreground polling until after the timer has closed the cycle.
-    lib.RuntimeClock_Advance(start["deliveryAutoCloseMs"])
-    lib.ActuatorRuntime_Tick()
-    lib.RuntimeClock_Advance(100)
-    lib.ActuatorRuntime_Tick()
-    now += start["deliveryAutoCloseMs"] + 100
-    assert lib.McuWorkPreparation_Poll(preparation, endpoint, now)
-    assert events(runtime, now)[1][1] == opened
-    store = EdgeStore(str(tmp_path / "actions.db"))
-    store.initialize()
-    try:
-        receipt = store.save_native_actuator_event("DELIVERY_DOOR_COMMAND_RESULT",
-            uart.encode_payload("DELIVERY_DOOR_COMMAND_RESULT", opened))
-        assert exchange(runtime, "ACTUATOR_EVENT_SAVED", payload=receipt, now=now)[0][1]["status"] == "RELEASED"
-        closed = events(runtime, now)[1][1]
-        assert closed["command"] == "CLOSE" and closed["outputStatus"] == "COMMAND_DISPATCHED"
-        assert closed["mcuCommandUid"] == command["mcuCommandUid"]
-        assert closed["mcuEventSequence"] == opened["mcuEventSequence"] + 1
-        assert closed["uptimeMs"] == now
-        assert store.get_native_actuator_event(42, opened["mcuEventSequence"])["payload"]
-        assert exchange(runtime, name, command, now=now)[0][1]["outcome"] == "ACCEPTED"
-        assert events(runtime, now)[1][1] == closed
-        assert exchange(runtime, "QUERY_WORK", original_scope(start), now=now)[0][1]["status"] == "RUNNING"
-        assert store.list_native_result_report_tasks() == []
-    finally:
-        store.close()
-    assert execution  # Own C application storage through the entire exchange.
+def test_start_autonomously_opens_closes_measures_and_builds_one_final_result(runtime):
+    execution, _, start, now = autonomous_setup(runtime)
+
+    now = autonomous_tick(runtime, now, 100)
+    opened = facts(runtime, now)
+    assert opened["pb6Output"] and not opened["pb7Output"]
+    assert opened["lastDeliveryDoorCommand"] == "OPEN"
+
+    now = autonomous_tick(runtime, now, start["deliveryAutoCloseMs"])
+    reversing = facts(runtime, now)
+    assert not reversing["pb6Output"] and not reversing["pb7Output"]
+    assert reversing["lastDeliveryDoorCommand"] == "OPEN"
+
+    now = autonomous_tick(runtime, now, 100)
+    closing = facts(runtime, now)
+    assert not closing["pb6Output"] and closing["pb7Output"]
+    assert closing["lastDeliveryDoorCommand"] == "CLOSE"
+    assert autonomous_state(runtime, start, now)["phase"] == "DELIVERY_CLOSE_TRAVEL_WAIT"
+
+    now = autonomous_tick(runtime, now, inputs()["device"]["deliveryDoorTravelWaitMs"])
+    now = take_samples(runtime, [1200] * 5, start=now, measurement=2)
+    assert autonomous_select(runtime, execution, now)
+    result = autonomous_final(runtime, start, now)
+    assert result["initialWeightGrams"] == 500
+    assert result["finalWeightGrams"] == 1200
+    assert result["deliveryRoundCount"] == 1
+    assert result["finishReason"] == "DELIVERY_END"
 
 
 def facts(runtime, now):
     return exchange(runtime, "QUERY_DEVICE_FACTS", dict(queryId=101, targetMcuBootId=42, portNo=1), now=now)[0][1]
 
 
-@pytest.mark.parametrize("saved,remaining,guard_error,reserved,expected", [
-    (False, 10000, 0, 0, "BUSY"),
-    (True, 100, 0, 0, "EXPIRED"),
-    (True, 10000, 5, 0, "INVALID_FIELD"),
-    (True, 10000, 0, 7, "BUSY"),
-    (True, 10000, 0, 6, "BUSY"),  # OPEN/CLOSE fit, but no interruption promise.
-])
-def test_rejected_first_open_consumes_decision_but_never_starts_or_leaks_partial_reservation(
-        runtime, tmp_path, saved, remaining, guard_error, reserved, expected):
-    execution = enable(runtime)
-    lib, endpoint, preparation, _, prerequisites, *_ = runtime
-    start, initial, now = prepared(runtime, tmp_path, saved=saved)
-    token = Reservation()
-    if reserved:
-        assert lib.McuControlEndpoint_ReserveActuatorEvents(endpoint, reserved, c.byref(token))
-    prerequisites["error"] = guard_error
-    name, command = grant(start, initial, remainingStartAuthorizationMs=remaining)
-    response = exchange(runtime, name, command, now=now)[0][1]
-    assert response["outcome"] == "REJECTED" and response["errorCode"] == expected
-    prerequisites["error"] = 0
-    if reserved:
-        assert lib.McuControlEndpoint_CancelActuatorEvents(endpoint, c.byref(token))
-    assert lib.McuControlEndpoint_ReserveActuatorEvents(endpoint, 8, c.byref(token))
-    assert lib.McuControlEndpoint_CancelActuatorEvents(endpoint, c.byref(token))
-    lib.RuntimeClock_Advance(200)
-    lib.ActuatorRuntime_Tick()
-    now += 200
-    assert exchange(runtime, name, command, now=now)[0][1] == response
-    assert not facts(runtime, now)["pb6Output"]
-    assert events(runtime, now)[0][1]["status"] == "NOT_FOUND"
-    assert execution and preparation
-
-
-def test_authorization_expiring_before_delayed_timer_dispatch_retains_rejection_without_fake_close(runtime, tmp_path):
-    execution = enable(runtime)
-    lib, endpoint, preparation, *_ = runtime
-    start, initial, now = prepared(runtime, tmp_path)
-    name, command = grant(start, initial, remainingStartAuthorizationMs=101)
-    assert exchange(runtime, name, command, now=now)[0][1]["outcome"] == "ACCEPTED"
-    lib.RuntimeClock_Advance(101)
-    lib.ActuatorRuntime_Tick()
-    now += 101
-    assert lib.McuWorkPreparation_Poll(preparation, endpoint, now)
-    rejected = events(runtime, now)[1][1]
-    assert rejected["command"] == "OPEN" and rejected["outputStatus"] == "OUTPUT_REJECTED"
-    assert not facts(runtime, now)["pb6Output"] and not facts(runtime, now)["pb7Output"]
-    reservation = Reservation()
-    # Rejected OPEN and its explicit abort each retain one evidence slot.
-    assert not lib.McuControlEndpoint_ReserveActuatorEvents(endpoint, 7, c.byref(reservation))
-    assert lib.McuControlEndpoint_ReserveActuatorEvents(endpoint, 6, c.byref(reservation))
-    assert exchange(runtime, name, command, now=now)[0][1]["outcome"] == "ACCEPTED"
-    assert events(runtime, now)[1][1] == rejected
-    assert execution
-
-
-def test_pinch_only_pauses_close_and_release_resumes_without_new_command(runtime, tmp_path):
-    execution = enable(runtime)
-    lib, endpoint, preparation, *_ = runtime
-    start, initial, now = prepared(runtime, tmp_path)
+def test_pinch_only_pauses_autonomous_close_and_release_resumes_without_a_new_edge_command(runtime):
+    execution, _, start, now = autonomous_setup(runtime)
+    lib = runtime[0]
     lib.TestFacts_Pinch(1)
-    name, command = grant(start, initial)
-    assert exchange(runtime, name, command, now=now)[0][1]["outcome"] == "ACCEPTED"
-    lib.RuntimeClock_Advance(100)
-    lib.ActuatorRuntime_Tick()
-    now += 100
+
+    now = autonomous_tick(runtime, now, 100)
     opened = facts(runtime, now)
     assert opened["pb6Output"] and opened["pb5Active"] and not opened["pinchPaused"]
-    lib.RuntimeClock_Advance(start["deliveryAutoCloseMs"])
-    lib.ActuatorRuntime_Tick()
-    now += start["deliveryAutoCloseMs"]
-    waiting = facts(runtime, now)
-    assert not waiting["pb6Output"] and not waiting["pb7Output"]
-    assert not waiting["doorActionActive"] and waiting["lastDeliveryDoorCommand"] == "OPEN"
-    lib.RuntimeClock_Advance(100)
-    lib.ActuatorRuntime_Tick()
-    now += 100
+
+    now = autonomous_tick(runtime, now, start["deliveryAutoCloseMs"])
+    reversing = facts(runtime, now)
+    assert not reversing["pb6Output"] and not reversing["pb7Output"]
+    assert reversing["lastDeliveryDoorCommand"] == "OPEN"
+
+    now = autonomous_tick(runtime, now, 100)
     paused = facts(runtime, now)
     assert paused["lastDeliveryDoorCommand"] == "CLOSE" and paused["pinchPaused"]
     assert not paused["pb6Output"] and not paused["pb7Output"]
-    assert lib.McuWorkPreparation_Poll(preparation, endpoint, now)
+
     lib.TestFacts_Pinch(0)
     lib.ActuatorRuntime_Tick()
     assert facts(runtime, now)["pb7Output"]
-    assert execution
+
+    now = autonomous_tick(runtime, now, inputs()["device"]["deliveryDoorTravelWaitMs"])
+    now = take_samples(runtime, [700] * 5, start=now, measurement=2)
+    assert autonomous_select(runtime, execution, now)
+    assert autonomous_final(runtime, start, now)["finishReason"] == "DELIVERY_END"
 
 
 @pytest.mark.parametrize("opened", [False, True])
-def test_update_cancels_pending_cycle_and_pinch_release_cannot_revive_it(runtime, tmp_path, opened):
-    execution = enable(runtime)
-    lib, endpoint, preparation, *_ = runtime
-    start, initial, now = prepared(runtime, tmp_path)
-    name, command = grant(start, initial)
-    assert exchange(runtime, name, command, now=now)[0][1]["outcome"] == "ACCEPTED"
+def test_update_cancels_autonomous_delivery_and_pinch_release_cannot_revive_it(runtime, opened):
+    _, _, start, now = autonomous_setup(runtime)
+    lib = runtime[0]
     if opened:
-        lib.RuntimeClock_Advance(100)
-        lib.ActuatorRuntime_Tick()
-        now += 100
+        now = autonomous_tick(runtime, now, 100)
+        assert facts(runtime, now)["pb6Output"]
+
     lib.ActuatorRuntime_StopForUpdate()
     lib.TestFacts_Pinch(0)
-    lib.RuntimeClock_Advance(start["deliveryAutoCloseMs"] + 200)
-    lib.ActuatorRuntime_Tick()
-    now += start["deliveryAutoCloseMs"] + 200
-    assert lib.McuWorkPreparation_Poll(preparation, endpoint, now)
-    state = facts(runtime, now)
-    assert state["updateLatched"] and not state["doorActionActive"]
-    assert not state["pb6Output"] and not state["pb7Output"]
-    event = events(runtime, now)[1][1]
-    assert event["command"] == "OPEN"
-    assert event["outputStatus"] == ("COMMAND_DISPATCHED" if opened else "OUTPUT_REJECTED")
-    assert state["retainedWorkPhase"] == "SAFETY_LOCKED"
-    assert execution
+    now = autonomous_tick(runtime, now, start["deliveryAutoCloseMs"] + 200)
+    observed = facts(runtime, now)
+    assert observed["updateLatched"] and not observed["doorActionActive"]
+    assert not observed["pb6Output"] and not observed["pb7Output"]
+    assert observed["retainedWorkPhase"] == "DELIVERY_FINALIZING"
+    result = autonomous_final(runtime, start, now)
+    assert result["finishReason"] == "CANCELLED"
+    assert result["finalKind"] == "NOT_TAKEN"
 
 
 from contextlib import contextmanager
@@ -358,22 +288,3 @@ def executed_action_case(runtime, tmp_path, *, clean_work, lose_decision_and_res
     finally:
         (case.store if case else store).close()
         (case.updater if case else updater).close()
-
-
-@pytest.mark.parametrize("lose_decision_and_restart_pi", [False, True])
-@pytest.mark.parametrize("clean_work", [False, True])
-def test_real_pi_dispatch_ledger_c_timer_and_sqlite_custody_keep_the_same_original_command(
-        runtime, tmp_path, lose_decision_and_restart_pi, clean_work):
-    from mcu_action_evidence import NativeActionReconciler
-    with executed_action_case(runtime, tmp_path, clean_work=clean_work,
-            lose_decision_and_restart_pi=lose_decision_and_restart_pi) as case:
-        confirmation = NativeActionReconciler(case.store, case.safety).reconcile(case.action.action_uid)
-        assert confirmation["state"] == "CONFIRMED"
-        ledger = case.safety.get_physical_action(case.action.action_uid)
-        assert ledger["confirmedOutcome"] == "EXECUTED"
-        assert ledger["receiptUid"] == case.action.receipt_uid
-        assert ledger["evidenceDigestSha256"] == confirmation["evidence_sha256"]
-        assert case.safety.get_job_permit(case.permit.permit_uid)["state"] == "ACTIVE"
-        assert case.store.get_work_slot() == case.occupancy
-        assert case.store.list_native_result_report_tasks() == []
-        assert case.sent.count(case.action_name) == 1
