@@ -71,6 +71,9 @@ class NativeBusinessRuntime:
         self._issue_reports_pending = set()
         self._issue_report_cursor = ""
         self._scale_wait = None
+        self._control_wait_uid = None
+        self._control_wait_since = None
+        self._runtime_instance_uid = str(uuid.uuid4())
         self._dispatch_authority = None
         self.reporter = NativeResultReporter(store, safety, device_name=device_name, photo_manager=photo_manager)
         self.issue_reporter = NativeDeliveryIssueReporter(store, device_name=device_name)
@@ -255,7 +258,8 @@ class NativeBusinessRuntime:
         permit = JobPermit(command["commandUid"], payload[key], command["commandUid"], work_type,
             command_request_digest(command))
         context = dict(native_protocol=2, phase="NATIVE_RUNNING", start_command_uid=command["commandUid"],
-            start_mcu_command_uid=uid, job_safety=asdict(permit) | {"begin_uid": permit.work_uid})
+            start_mcu_command_uid=uid, start_runtime_instance_uid=self._runtime_instance_uid,
+            job_safety=asdict(permit) | {"begin_uid": permit.work_uid})
         if not self.store.acquire_work_slot(work_type, permit.work_uid, payload["portNo"], context):
             raise JobSafetyError("DEVICE_BUSY", "device slot was acquired by another owner")
         if self.photo is not None:
@@ -588,12 +592,19 @@ class NativeBusinessRuntime:
         slot = self.store.get_work_slot()
         if slot is None:
             self._work_query = self._handoff = self._query_start_uid = None
+            self._control_wait_uid = self._control_wait_since = None
             return
         permit = self._permit(slot)
         uid = slot["context"]["start_mcu_command_uid"]
         record = self.store.get_native_command(uid)
         if record is None:
             raise ValueError("native business lost its original START")
+        from native_control_failure import MARKER as CONTROL_FAILURE_MARKER
+        command = self.store.get_command(permit.command_uid)
+        result = command["result"] if command is not None else None
+        if isinstance(result, dict) and CONTROL_FAILURE_MARKER in result:
+            self._complete_control_failure(permit, uid, result[CONTROL_FAILURE_MARKER])
+            return
         start = uart.decode_payload(record["message_name"], record["payload"])
         if self._query_start_uid != uid:
             identity = {key: start[key] for key in IDENTITY_FIELDS}
@@ -653,6 +664,125 @@ class NativeBusinessRuntime:
                 if confirmation is None or confirmation["outcome"] != "BUSINESS_APPLIED":
                     return  # Waiting for cloud must not poll the permanent job RPC on every UART tick.
                 self._complete_reported_result(permit, uid, decision)
+
+    @staticmethod
+    def _permit_snapshot_matches(permit, snapshot):
+        expected = dict(permitUid=permit.permit_uid, commandUid=permit.command_uid,
+            workUid=permit.work_uid, workType=permit.work_type,
+            requestDigestSha256=permit.request_digest_sha256)
+        return isinstance(snapshot, dict) and all(snapshot.get(key) == value for key, value in expected.items())
+
+    def _read_permit_or_missing(self, permit):
+        try:
+            return self.safety.get_job_permit(permit.permit_uid)
+        except JobSafetyError as error:
+            if error.code == "JOB_PERMIT_NOT_FOUND":
+                return {"state": "NOT_FOUND", "permitUid": permit.permit_uid}
+            raise
+
+    def _complete_control_failure(self, permit, uid, marker):
+        """Converge the original permanent permit, then release one exact local slot."""
+        if (not isinstance(marker, dict) or marker.get("state") not in {"PREPARED", "APPLIED"}
+                or not isinstance(marker.get("evidence"), dict)):
+            raise ValueError("native control failure marker is malformed")
+        if marker["state"] == "APPLIED":
+            raise ValueError("an applied native control failure still owns a work slot")
+        digest = marker.get("evidenceSha256")
+        key = (permit.permit_uid, uid, digest)
+        snapshot = self._rpc_call(("CONTROL_FAILURE_READ",) + key,
+            lambda: self._read_permit_or_missing(permit))
+        if snapshot is _RPC_PENDING:
+            return
+        if snapshot.get("state") != "NOT_FOUND" and not self._permit_snapshot_matches(permit, snapshot):
+            raise ValueError("native control failure permanent permit identity conflicts")
+        state = snapshot.get("state")
+        if state == "GRANTED":
+            if marker["evidence"].get("writeClaimed") is not False:
+                raise ValueError("a write-claimed START cannot retain a granted permit")
+            def abandon():
+                self.safety.abandon_job(permit, disposition_uid=permit.command_uid,
+                    evidence_sha256=digest)
+                return self.safety.get_job_permit(permit.permit_uid)
+            snapshot = self._rpc_call(("CONTROL_FAILURE_ABANDON",) + key, abandon)
+            if snapshot is _RPC_PENDING:
+                return
+        elif state == "ACTIVE":
+            def complete():
+                self.safety.complete_job(permit, completion_uid=permit.command_uid,
+                    outcome="FAILED", completion_digest_sha256=digest)
+                return self.safety.get_job_permit(permit.permit_uid)
+            snapshot = self._rpc_call(("CONTROL_FAILURE_COMPLETE",) + key, complete)
+            if snapshot is _RPC_PENDING:
+                return
+        elif state not in {"NOT_FOUND", "ABANDONED", "COMPLETED"}:
+            raise ValueError("native control failure permanent permit has an unsupported state")
+        self.store.apply_native_control_failure(permit, uid,
+            device_name=self.device_name, permit_snapshot=snapshot)
+        self._live_starts.discard(uid)
+        self._start_grants.discard(uid)
+        self._control_wait_uid = self._control_wait_since = None
+
+    def _latch_control_communication_fault(self, *, reason, mcu_boot_id):
+        current = self.store.get_state("native_blocking_fault")
+        if not current:
+            self.store.set_state("native_blocking_fault", reason)
+        # A different already-blocking fault must not be erased.  The UART
+        # journal is independent and still makes this new failure visible.
+        if self.store.get_active_edge_fault("UART", "UART_PROTOCOL") is None:
+            disposition = self.store.observe_fault_and_create_event(device_name=self.device_name,
+                component="UART", fault_code="UART_PROTOCOL", severity="BLOCK_DEVICE",
+                mcu_boot_id=mcu_boot_id or None,
+                detail=dict(profile="native-control-communication-v1", reasonCode=reason,
+                    automaticRecovery=False))
+            if disposition not in {"ACCEPTED", "DUPLICATE"}:
+                raise RuntimeError("native communication fault could not be persisted")
+
+    def _control_failure_poll(self, now, *, link_unavailable):
+        """Start one durable exit only after the configured communication deadline."""
+        from native_control_failure import MARKER, COMMUNICATION_REASON, RESTART_REASON
+        slot = self.store.get_work_slot()
+        if slot is None:
+            self._control_wait_uid = self._control_wait_since = None
+            if link_unavailable:
+                self._latch_control_communication_fault(reason=COMMUNICATION_REASON,
+                    mcu_boot_id=self._mcu_boot_id)
+            return
+        permit = self._permit(slot)
+        uid = slot["context"]["start_mcu_command_uid"]
+        record = self.store.get_native_command(uid)
+        command = self.store.get_command(permit.command_uid)
+        result = command["result"] if command is not None else None
+        if isinstance(result, dict) and MARKER in result:
+            return
+        # The live-only dispatch token is deliberately not persisted.  When a
+        # new Pi process finds an unclaimed START, SQLite proves that no serial
+        # bytes were ever eligible to leave; close it explicitly instead of
+        # replaying it or retaining the device forever.
+        if (not record["write_claimed"]
+                and slot["context"].get("start_runtime_instance_uid") != self._runtime_instance_uid):
+            pending = self.store.prepare_native_control_failure(permit, uid,
+                device_name=self.device_name, stage="PRE_START_FAILED", reason=RESTART_REASON)
+            if pending.get("state") == "PREPARED":
+                self._start_grants.discard(uid)
+            return
+        exact_command_timeout = False
+        if record["write_claimed"] and record["decision_outcome"] is None:
+            if self._control_wait_uid != uid:
+                self._control_wait_uid, self._control_wait_since = uid, now
+            exact_command_timeout = now - self._control_wait_since >= self.timeout_ms
+        else:
+            self._control_wait_uid = self._control_wait_since = None
+        if not link_unavailable and not exact_command_timeout:
+            return
+        stage = "FAILED" if record["write_claimed"] else "PRE_START_FAILED"
+        pending = self.store.prepare_native_control_failure(permit, uid,
+            device_name=self.device_name, stage=stage, reason=COMMUNICATION_REASON)
+        if pending.get("state") != "PREPARED":
+            return  # A complete final packet or an earlier terminal policy wins the race.
+        self._live_starts.discard(uid)
+        self._start_grants.discard(uid)
+        self._latch_control_communication_fault(reason=COMMUNICATION_REASON,
+            mcu_boot_id=record["mcu_boot_id"])
 
     def _complete_reported_result(self, permit, uid, decision):
         from native_business_completion import NORMAL_FINISH, AVAILABLE
@@ -820,6 +950,9 @@ class NativeBusinessRuntime:
             self.facts_query = McuDeviceFactsQuery(self.store, self.transport.write,
                 target_mcu_boot_id=boot_id, port_no=1, interval_ms=NATIVE_DEVICE_CONSTANTS["weightPollIntervalMs"])
             self._facts = self._facts_requested_at = None
+        now = self.clock()
+        link_unavailable = now - (self._last_alive if self._last_alive is not None else self._opened_at) >= self.timeout_ms
+        self._control_failure_poll(now, link_unavailable=link_unavailable)
         self._scale_health_poll(self.clock())
         self._configuration_poll(self.clock())
         self._work_poll(self.clock())
@@ -827,9 +960,6 @@ class NativeBusinessRuntime:
         if self.facts_query:
             self.facts_query.poll(self.clock())
         self.boot.poll(self.clock())
-        now = self.clock()
-        if now - (self._last_alive if self._last_alive is not None else self._opened_at) >= self.timeout_ms:
-            self.store.set_state("native_blocking_fault", "MCU_COMMUNICATION_UNAVAILABLE")
         return dict(uartState=self.uart_state, mcuBootId=self._mcu_boot_id,
             activeWorkUid=(self.store.get_work_slot() or {}).get("work_uid"))
 

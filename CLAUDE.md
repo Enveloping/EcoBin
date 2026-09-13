@@ -1,6 +1,6 @@
 # EcoBin 协作与实施上下文
 
-> 当前推进：[MCU与香橙派精简实施计划](docs/planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)。本地检查点`7c9570b1`之后的[MCU重启收口、配置重装和末重失败](hardware/docs/review/native-reboot-and-weight-failure-s2-2026-09-13.md)已接实际原生Runtime：重启缺最终包只归档、迟到结果只补证，已应用配置在新启动重装；投递末重5秒超时生成无金额的系统异常订单，新有效读数只恢复新业务。Python统一235项、Java定向及两条真实MySQL事务9项通过。控制通信失败收尾、S3断网释放、热点/固件管理和现场验证未完，不是可部署版本。OneNet2.3.0/UART rc.23，完整MCU ROM54600/RAM11824。下方旧候选为历史。
+> 当前推进：[MCU与香橙派精简实施计划](docs/planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)。本地检查点`3bdf7a11`后的[控制通信失败收口](hardware/docs/review/native-control-communication-failure-s2-2026-09-13.md)已接实际原生Runtime：整链路或原START单独超过既有10秒期限时，原业务与永久许可可靠失败，迟到结果不恢复结算，并建立人工处理阻断；未写START在Pi实例更换后明确开始前失败。相关统一151项通过。此前[MCU重启、配置重装和末重失败](hardware/docs/review/native-reboot-and-weight-failure-s2-2026-09-13.md)保持。人工解除通信阻断、清运中断、S3断网释放、热点/固件管理和现场验证未完，不是可部署版本。OneNet2.3.0/UART rc.23，完整MCU ROM54600/RAM11824。下方旧候选为历史。
 
 > 2026-09-13 D12-D15新增：称重始终不可读上报本次失败，新读数恢复前提示人工；已确认恢复只接受新业务，原已报失败业务保持失败。仅断网且MCU/存储正常时原业务完成保存待补报，断网超过10分钟释放用户/设备占用但保留结果归属、仍不离线接单。存储损坏停接单交人工，不做复杂重建；清运中断人工确认袋，必要时重新换袋称重。用户要求检查剩余分歧后进入精简计划，不授权Git回退或现场部署。
 

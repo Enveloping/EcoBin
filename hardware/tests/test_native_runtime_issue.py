@@ -146,7 +146,8 @@ def retain_later_work_without_dispatch(case, owner):
     record = case.store.prepare_native_command("START_DELIVERY_SESSION", str(uuid.uuid4()),
         owner.boot.current_boot(case.clock.now), values)
     context = dict(native_protocol=2, phase="NATIVE_RUNNING", start_command_uid=permit.command_uid,
-        start_mcu_command_uid=record["command_uid"], job_safety=asdict(permit) | {"begin_uid": permit.work_uid})
+        start_mcu_command_uid=record["command_uid"], start_runtime_instance_uid=owner._runtime_instance_uid,
+        job_safety=asdict(permit) | {"begin_uid": permit.work_uid})
     assert case.store.acquire_work_slot("DELIVERY", permit.work_uid, 1, context)
     baseline = put_baseline(case.store, command["payload"]["bagUid"], source_work_uid=permit.work_uid, grams=83)
     return case.store.get_work_slot(), baseline
@@ -234,7 +235,14 @@ def test_communication_timeout_without_new_boot_never_fabricates_a_reboot_issue(
         assert case.store.get_native_delivery_issue(case.permit.work_uid) is None
         assert case.store.list_native_delivery_issue_reports(case.permit.work_uid) == []
         assert case.store.get_state("native_blocking_fault") == "MCU_COMMUNICATION_UNAVAILABLE"
-        assert case.client.calls["COMPLETE_JOB"] == 0
+        poll_until(case, owner, lambda: case.store.get_work_slot() is None)
+        command = case.store.get_command(case.permit.command_uid)
+        marker = command["result"]["nativeControlFailure"]
+        assert command["state"] == "FAILED" and marker["state"] == "APPLIED"
+        assert marker["evidence"]["reason"] == "MCU_COMMUNICATION_UNAVAILABLE"
+        assert case.client.calls["COMPLETE_JOB"] == 1
+        permanent = case.safety.get_job_permit(case.permit.permit_uid)
+        assert permanent["state"] == "COMPLETED" and permanent["completionOutcome"] == "FAILED"
 
 
 def test_pi_only_restart_retains_original_running_work_without_issue_or_start_replay(runtime, tmp_path):

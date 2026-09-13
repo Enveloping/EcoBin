@@ -1314,6 +1314,14 @@ class EdgeStore:
         from native_issue_completion import apply
         return apply(self, permit, start_command_uid, device_name=device_name, permit_snapshot=permit_snapshot)
 
+    def prepare_native_control_failure(self, permit, start_command_uid, *, device_name, stage, reason):
+        from native_control_failure import prepare
+        return prepare(self, permit, start_command_uid, device_name=device_name, stage=stage, reason=reason)
+
+    def apply_native_control_failure(self, permit, start_command_uid, *, device_name, permit_snapshot):
+        from native_control_failure import apply
+        return apply(self, permit, start_command_uid, device_name=device_name, permit_snapshot=permit_snapshot)
+
     def _migrate_v31(self) -> None:
         """Consume native result custody into the existing reliable event outbox."""
         conn = self._conn

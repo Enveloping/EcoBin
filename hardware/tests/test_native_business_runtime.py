@@ -307,7 +307,7 @@ def test_new_business_returns_only_pending_until_real_c_accepts_and_finishes(run
         assert [frame["messageName"] for frame in case.wire.sent[before:]].count(command["commandType"]) == 1
 
 
-def test_pi_restart_does_not_dispatch_a_start_that_was_only_prepared(runtime, tmp_path):
+def test_pi_restart_explicitly_fails_and_releases_a_start_that_was_only_prepared(runtime, tmp_path):
     with completed_first_work(runtime, tmp_path) as (case, owner):
         apply_configuration(case, owner)
         await_start_facts(case, owner)
@@ -317,24 +317,32 @@ def test_pi_restart_does_not_dispatch_a_start_that_was_only_prepared(runtime, tm
         before = len(case.wire.sent)
         pending = owner.start_delivery_command(command)
         uid = pending["mcu_command_uid"]
-        slot = case.store.get_work_slot()
         assert not case.store.get_native_command(uid)["write_claimed"]
         owner.close()
         case.store.close()
         case.store.initialize()
         restarted = open_owner(case, case.clock)
         try:
-            # A finite early observation of the no-replay guarantee, not a claim
-            # that indefinitely retaining this slot is the final S2 fault policy.
-            for _ in range(120):
-                restarted.poll()
-                case.clock.now += 10
-            assert case.store.get_work_slot() == slot
+            poll_until(restarted, case.clock, lambda: case.store.get_work_slot() is None)
             assert not case.store.get_native_command(uid)["write_claimed"]
             assert case.store.get_native_command(uid)["decision_outcome"] is None
             assert case.store.list_native_command_observations(uid) == []
             assert "START_DELIVERY_SESSION" not in [frame["messageName"] for frame in case.wire.sent[before:]]
             assert len(case.store.list_native_result_report_tasks()) == 1  # Only the completed first work.
+            failed = case.store.get_command(command["commandUid"])
+            assert failed["state"] == "FAILED" and failed["last_error"] == "EDGE_RESTARTED_BEFORE_START"
+            marker = failed["result"]["nativeControlFailure"]
+            assert marker["state"] == "APPLIED" and marker["evidence"]["writeClaimed"] is False
+            events = [json.loads(row["payload_json"]) for row in case.store.list_pending_events()
+                if row["event_type"] == "DEVICE_COMMAND_OBSERVED"
+                and json.loads(row["payload_json"])["commandUid"] == command["commandUid"]]
+            assert len(events) == 1
+            assert events[0]["payload"]["stage"] == "PRE_START_FAILED"
+            assert events[0]["payload"]["errorCode"] == "EDGE_RESTARTED_BEFORE_START"
+            with pytest.raises(JobSafetyError) as missing:
+                case.safety.get_job_permit(command["commandUid"])
+            assert missing.value.code == "JOB_PERMIT_NOT_FOUND"
+            assert case.store.get_state("native_blocking_fault") in {None, ""}
         finally:
             restarted.close()
 
