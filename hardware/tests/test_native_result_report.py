@@ -3,11 +3,12 @@ import json
 from pathlib import Path
 import sqlite3
 import uuid
+from dataclasses import asdict, replace
 import pytest
 
 import uart2_protocol as uart
-from hardware.tests.test_mcu_work_preparation import library, runtime
-from hardware.tests.test_mcu_delivery_execution import executed_action_case
+from hardware.tests.test_mcu_simplified_execution import library, runtime
+from hardware.tests.native_autonomous_recovery_fixture import autonomous_active_case as executed_action_case
 from hardware.tests.test_native_work_recovery import RecoveryWire
 from onenet_wire import canonical_payload_sha256, encode_event_post
 from contractlib import JsonSchemaSubsetValidator
@@ -16,42 +17,51 @@ from validate_contracts import _validate_event_semantics
 
 def finish_with_samples(case, runtime, samples, *, window_expired=False):
     from hardware.tests.test_native_configuration import inputs
+    from hardware.tests.test_mcu_simplified_execution import request, select
     from hardware.tests.test_mcu_work_preparation import take_samples
-    wire = case.wire = RecoveryWire(case, runtime)
-    lib, endpoint, *_ = runtime
+    wire = case.wire
     if case.clean:
-        wire.intent(0, "CLEAN_FINISH_REQUESTED")
-        wire.advance(0)
+        assert request(runtime, case.cleanup, case.start, wire.now, "CLEAN_FINISH_REQUESTED")
     else:
         wire.advance(inputs()["device"]["deliveryDoorTravelWaitMs"])
     began = wire.now
     wire.now = take_samples(runtime, samples, start=began, measurement=2)
     if len(samples) != 5:
         wire.advance(began + 5000 - wire.now)
-    name = "CLEAN_FINAL_WEIGHT_READY" if case.clean else "WORK_POSTCLOSE_WEIGHT_READY"
-    row = wire.custody(name, 1)
-    final = uart.decode_payload(name, row["payload"])
-    wire.advance(0)
-    if case.clean:
-        assert lib.McuCleanExecution_Confirm(case.execution, endpoint, uuid.UUID(case.permit.work_uid).bytes,
-            1, uuid.UUID(final["measurementUid"]).bytes, wire.now)
-        wire.custody("CLEAN_COMPLETION_CONFIRMED", 1)
-    elif samples:
+    # rc.23 clean freezes after FINISH + final measurement. Delivery still
+    # needs the local END/window choice owned by the MCU state machine.
+    if not case.clean and samples:
         if window_expired:
             wire.advance(case.start["continueDeliveryWaitMs"])
         else:
-            assert lib.McuDeliveryExecution_Select(case.execution, endpoint, uuid.UUID(final["measurementUid"]).bytes, 2, wire.now)
-        wire.custody("DELIVERY_SELECTION", 1)
+            assert select(runtime, case.delivery, wire.now, "END")
     wire.advance(0)
     return wire.handoff_result()
 
 
 @pytest.mark.parametrize("clean", [False, True])
 def test_multiple_rounds_report_the_original_first_and_current_final_not_intermediate_weight(runtime, tmp_path, clean):
-    from hardware.tests.test_native_result_execution import next_cycle
+    from hardware.tests.test_mcu_simplified_execution import request, select, tick
+    from hardware.tests.test_mcu_work_preparation import take_samples
+    from hardware.tests.test_native_configuration import inputs
+    from hardware.tests.test_simplified_mcu_pi_business import finish_delivery_round
     from native_result_report import NativeResultReporter
     with executed_action_case(runtime, tmp_path, clean_work=clean, cloud_command_factory=original_command) as case:
-        next_cycle(case, runtime)
+        if clean:
+            now = case.wire.now
+            assert request(runtime, case.cleanup, case.start, now, "CLEAN_UNLOCK_REQUESTED")
+            now = tick(runtime, now, inputs()["device"]["cleanSolenoidPulseMs"])
+            assert request(runtime, case.cleanup, case.start, now, "CLEAN_FINISH_REQUESTED")
+            case.wire.now = take_samples(runtime, [900] * 5, start=now, measurement=2)
+            case.wire.handoff_result()
+        else:
+            now = tick(runtime, case.wire.now, inputs()["device"]["deliveryDoorTravelWaitMs"])
+            now = take_samples(runtime, [700] * 5, start=now, measurement=2)
+            assert select(runtime, case.delivery, now, "CONTINUE")
+            now = finish_delivery_round(runtime, case, now, 3, 900)
+            assert select(runtime, case.delivery, now, "END")
+            case.wire.now = now
+            case.wire.handoff_result()
         report = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(case.permit, case.start["mcuCommandUid"])
         event = json.loads(case.store.get_event(report["eventUid"])["payload_json"])
         validate_event(event)
@@ -59,7 +69,7 @@ def test_multiple_rounds_report_the_original_first_and_current_final_not_interme
         if clean:
             assert payload["removedNetWeightGrams"] == -400
             assert payload["newBaselineWeightGrams"] == 900
-            assert payload["cleanActionSequence"] == 3
+            assert payload["cleanActionSequence"] == 2
         else:
             assert payload["deliveryNetWeightGrams"] == 400
             assert payload["finalPostCloseMeasurement"]["reportedWeightGrams"] == 900
@@ -86,24 +96,16 @@ def test_actual_five_second_median_preserves_original_identity_and_quality_in_re
         assert payload["removedNetWeightGrams" if clean else "deliveryNetWeightGrams"] == (-350 if clean else 350)
 
 
-def test_clean_confirmed_after_real_final_timeout_reports_missing_weight_not_old_baseline(runtime, tmp_path):
+def test_clean_final_timeout_stays_local_as_failed_result_without_normal_completion(runtime, tmp_path):
     from native_result_report import NativeResultReporter
     with executed_action_case(runtime, tmp_path, clean_work=True, cloud_command_factory=original_command) as case:
         saved = finish_with_samples(case, runtime, [])
         result = uart.decode_payload("WORK_RESULT", saved["payload"])
         assert result["physicalCloseConfirmed"] and result["finalKind"] == "UNAVAILABLE"
         report = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(case.permit, case.start["mcuCommandUid"])
-        assert report["state"] == "REPORT_CREATED"
-        event = json.loads(case.store.get_event(report["eventUid"])["payload_json"])
-        validate_event(event)
-        payload = event["payload"]
-        final = payload["cleanerConfirmedFinalMeasurement"]
-        assert final["status"] == "TIMEOUT" and final["faultCode"] == "WEIGHT_TIMEOUT"
-        assert final["weightValueAvailable"] is False and final["reportedWeightGrams"] is None
-        assert final["sampleCount"] == 0 and final["measurementElapsedMs"] == 5000
-        assert final["measurementUid"] == result["finalMeasurementUid"]
-        assert payload["removedNetWeightGrams"] is None and payload["newBaselineWeightGrams"] is None
-        assert payload["cleanerCompletionConfirmed"] is True
+        assert report["state"] != "REPORT_CREATED"
+        assert case.store.list_pending_events() == []
+        assert case.store.list_native_result_report_tasks()[0]["state"] == "PENDING_CLASSIFICATION"
         assert case.store.get_work_slot() == case.occupancy
 
 
@@ -127,22 +129,18 @@ def test_closed_delivery_with_real_final_timeout_reports_terminal_weight_failure
         assert case.store.get_work_slot() == case.occupancy
 
 
-def test_timeout_result_does_not_substitute_for_missing_close_output(runtime, tmp_path):
+def test_timeout_result_itself_proves_last_close_control_without_old_action_evidence(runtime, tmp_path):
     from native_result_report import NativeResultReporter
     with executed_action_case(runtime, tmp_path, clean_work=False, cloud_command_factory=original_command) as case:
         finish_with_samples(case, runtime, [])
-        events = case.store.list_native_work_actuator_events(case.permit.work_uid)
-        close = next(row for row in events if uart.decode_payload(row["message_name"], row["payload"])["command"] == "CLOSE")
-        case.store._conn.execute("PRAGMA foreign_keys=OFF")
-        with case.store.transaction() as conn:
-            conn.execute("DELETE FROM native_actuator_event WHERE mcu_boot_id=? AND event_sequence=?",
-                (close["mcu_boot_id"], close["event_sequence"]))
-        case.store._conn.execute("PRAGMA foreign_keys=ON")
+        assert case.store.list_native_work_actuator_events(case.permit.work_uid) == []
         report = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(case.permit, case.start["mcuCommandUid"])
-        assert report["state"] != "REPORT_CREATED"
-        assert any(item["role"] == "actuatorOutput" for item in report["missing"])
-        assert case.store.list_pending_events() == []
-        assert case.safety.get_physical_action(case.action.action_uid)["state"] == "ARMED"
+        assert report["state"] == "REPORT_CREATED"
+        event = json.loads(case.store.get_event(report["eventUid"])["payload_json"])
+        assert event["payload"]["finalDoorCommand"] == dict(command="CLOSE",
+            outputStatus="COMMAND_DISPATCHED", physicalStateBasis="NOT_OBSERVABLE")
+        names = {row["message_name"] for row in case.store.list_native_commands()}
+        assert names.isdisjoint({"AUTHORIZE_DELIVERY_FIRST_OPEN", "UNLOCK_CLEAN_DOOR"})
 
 
 def test_selection_window_expiry_reports_the_original_final_measurement(runtime, tmp_path):
@@ -244,23 +242,39 @@ def test_actual_delivery_result_creates_one_reliable_report_from_original_author
         assert len(wire.sent) == before
 
 
-@pytest.mark.parametrize("missing", ["cloud", "process", "no_result"])
-def test_missing_original_authority_or_evidence_stays_local_without_confirming_actions(runtime, tmp_path, missing):
+@pytest.mark.parametrize("missing", ["cloud", "no_result"])
+def test_missing_original_authority_or_result_stays_local_without_business_event(runtime, tmp_path, missing):
     from native_result_report import NativeResultReporter
     with executed_action_case(runtime, tmp_path, clean_work=False,
             cloud_command_factory=None if missing == "cloud" else original_command) as case:
         if missing != "no_result":
             RecoveryWire(case, runtime).finish_delivery()
-        if missing == "process":
+        if missing == "cloud":
             case.store._conn.execute("PRAGMA foreign_keys=OFF")
             with case.store.transaction() as conn:
-                conn.execute("DELETE FROM native_process_receipt")
+                conn.execute("DELETE FROM command_inbox WHERE command_uid=?", (case.permit.command_uid,))
             case.store._conn.execute("PRAGMA foreign_keys=ON")
         state = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(case.permit, case.start["mcuCommandUid"])
         assert state["state"] != "REPORT_CREATED"
         assert case.store.list_pending_events() == []
-        assert case.safety.get_physical_action(case.action.action_uid)["state"] == "ARMED"
+        names = {row["message_name"] for row in case.store.list_native_commands()}
+        assert names.isdisjoint({"AUTHORIZE_DELIVERY_FIRST_OPEN", "UNLOCK_CLEAN_DOOR"})
         assert case.store.get_work_slot() == case.occupancy
+
+
+def test_missing_optional_process_rows_do_not_block_current_normal_report(runtime, tmp_path):
+    from native_result_report import NativeResultReporter
+    with executed_action_case(runtime, tmp_path, clean_work=False, cloud_command_factory=original_command) as case:
+        RecoveryWire(case, runtime).finish_delivery()
+        case.store._conn.execute("PRAGMA foreign_keys=OFF")
+        with case.store.transaction() as conn:
+            conn.execute("DELETE FROM native_process_receipt")
+            conn.execute("DELETE FROM native_measurement_event")
+        case.store._conn.execute("PRAGMA foreign_keys=ON")
+        report = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(
+            case.permit, case.start["mcuCommandUid"])
+        assert report["state"] == "REPORT_CREATED"
+        assert len(case.store.list_pending_events()) == 1
 
 
 def test_reopened_database_validates_report_and_current_device_before_duplicate_return(runtime, tmp_path):
@@ -295,7 +309,7 @@ def test_v30_result_custody_migrates_without_changing_task_or_claiming_a_report(
         case.store.close()
         case.store = EdgeStore(str(tmp_path / "edge.db"))
         case.store.initialize()
-        assert CURRENT_SCHEMA_VERSION == 39
+        assert CURRENT_SCHEMA_VERSION == 40
         assert case.store.list_native_result_report_tasks() == [task]
         assert case.store.get_native_mcu_result(saved["mcu_boot_id"], saved["result_sequence"]) == saved
         assert case.store.list_pending_events() == []
@@ -363,15 +377,36 @@ def test_saved_report_never_hides_corrupted_original_custody(runtime, tmp_path, 
             reporter.prepare(permit, case.start["mcuCommandUid"])
 
 
+def replace_original_cloud_payload(case, update):
+    """Rewrite a complete original authority set before report classification."""
+    from job_safety import command_request_digest
+
+    row = case.store.get_command(case.permit.command_uid)
+    command = json.loads(json.dumps(row["payload"]))
+    update(command["payload"])
+    command["payloadSha256"] = canonical_payload_sha256(command["payload"])
+    digest = command_request_digest(command)
+    raw = json.dumps(command, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    with case.store.transaction() as conn:
+        conn.execute("UPDATE command_inbox SET payload_json=?,canonical_sha256=? WHERE command_uid=?",
+            (raw, canonical_payload_sha256(command), case.permit.command_uid))
+    permanent = case.safety._client.store._connection
+    permanent.execute("UPDATE job_permit SET request_digest_sha256=?,permit_digest_sha256=? WHERE permit_uid=?",
+        (digest, digest, case.permit.permit_uid))
+    permanent.commit()
+    case.permit = replace(case.permit, request_digest_sha256=digest)
+    context = case.store.get_work_slot()["context"] | {
+        "job_safety": asdict(case.permit) | {"begin_uid": case.permit.work_uid}}
+    assert case.store.update_work_context(case.permit.work_uid, context)
+    case.occupancy = case.store.get_work_slot()
+
+
 @pytest.mark.parametrize("price", [0, -1, True, 4294967296])
 def test_invalid_original_price_never_creates_a_business_report(runtime, tmp_path, price):
-    def invalid(command, start, config):
-        command = original_command(command, start, config)
-        command["payload"]["unitPriceTenThousandths"] = price
-        command["payloadSha256"] = canonical_payload_sha256(command["payload"])
-        return command
-    with executed_action_case(runtime, tmp_path, clean_work=False, cloud_command_factory=invalid) as case:
+    with executed_action_case(runtime, tmp_path, clean_work=False, cloud_command_factory=original_command) as case:
         RecoveryWire(case, runtime).finish_delivery()
+        replace_original_cloud_payload(case,
+            lambda payload: payload.update(unitPriceTenThousandths=price))
         from native_result_report import NativeResultReporter
         with pytest.raises(ValueError):
             NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(
@@ -382,14 +417,11 @@ def test_invalid_original_price_never_creates_a_business_report(runtime, tmp_pat
 
 @pytest.mark.parametrize("old_baseline", [80, None, 5000])
 def test_actual_clean_result_reports_before_minus_after_and_new_baseline(runtime, tmp_path, old_baseline):
-    def original(command, start, config):
-        command = original_command(command, start, config)
-        command["payload"]["oldBaselineWeightGrams"] = old_baseline
-        command["payloadSha256"] = canonical_payload_sha256(command["payload"])
-        return command
-    with executed_action_case(runtime, tmp_path, clean_work=True, cloud_command_factory=original) as case:
+    with executed_action_case(runtime, tmp_path, clean_work=True, cloud_command_factory=original_command) as case:
         wire = case.wire = RecoveryWire(case, runtime)
         wire.finish_clean()
+        replace_original_cloud_payload(case,
+            lambda payload: payload.update(oldBaselineWeightGrams=old_baseline))
         from native_result_report import NativeResultReporter
         before = len(wire.sent)
         created = NativeResultReporter(case.store, case.safety, device_name="device-1").prepare(

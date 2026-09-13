@@ -4,7 +4,7 @@ Wire inputs here are simulated; the MCU execution suite covers their producer.
 No serial device, cloud service or physical actuator is opened.
 """
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import asdict, replace
 import json
 from types import SimpleNamespace
 import uuid
@@ -61,8 +61,11 @@ def original_work(tmp_path, *, clean=False):
         assert store.receive_command(command["commandUid"], name, command) == "ACCEPTED"
         assert store.claim_next_command()
         permit = safety.request_job(command, work_type="CLEAN" if clean else "DELIVERY", work_uid=start[key])
-        safety.begin_job(permit, begin_uid=str(uuid.uuid4()), digest=permit.request_digest_sha256)
-        assert store.acquire_work_slot(permit.work_type, permit.work_uid, 1, {"phase": "NATIVE_RUNNING"})
+        safety.begin_job(permit, begin_uid=permit.work_uid, digest=permit.request_digest_sha256)
+        assert store.acquire_work_slot(permit.work_type, permit.work_uid, 1, {
+            "phase": "NATIVE_RUNNING",
+            "job_safety": asdict(permit) | {"begin_uid": permit.work_uid},
+        })
         record = store.prepare_native_command(name, start["mcuCommandUid"], boot,
             {key: value for key, value in start.items() if key not in IDENTITY})
         assert store.claim_native_command_write(record["command_uid"])
