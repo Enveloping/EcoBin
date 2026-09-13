@@ -1,0 +1,38 @@
+{
+  "identifier": "deviceEntryUrlApplicationResult",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "107",
+    "params": {
+      "deviceEntryUrlApplicationResult": {
+        "value": {
+          "applicationUid": "8a000000-0000-4000-8000-00000000000d",
+          "clockQuality": 1,
+          "commandUid": "8a000000-0000-4000-8000-000000000005",
+          "deliveryClass": 1,
+          "deviceEntryUrlSha256": "1b08b21c2249d10e2bf707e9880a020322ed83036a9df47624ca3e31f79444cd",
+          "displayBasis": 1,
+          "edgeEventSequence": 1060,
+          "eventType": 1,
+          "eventUid": "8a000000-0000-4000-8000-00000000000c",
+          "faultCode": "",
+          "faultCodePresent": false,
+          "mcuBootId": 101,
+          "mcuCommandUid": "8a000000-0000-4000-8000-00000000000e",
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "1ee8bf68b025f937fcd9a7cf601d68f94ce6f7048f1b7d567878d17c60ab90da",
+          "schemaVersion": 1,
+          "status": 1,
+          "target": {
+            "type": 1,
+            "uid": "SN-CONTRACT-0001"
+          }
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

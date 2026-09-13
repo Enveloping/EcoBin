@@ -1,6 +1,6 @@
 # EcoBin 协作与实施上下文
 
-> 当前推进：[MCU与香橙派精简实施计划](docs/planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)。[S4发布清单与隔离包保管](hardware/docs/review/simplified-release-custody-s4-2026-09-14.md)已将业务包对齐为62文件/schema40/摘要f45f4370…，完整运行包73文件；后台验证器同步，24项隔离重开和发布相关92项通过。旧共享逐动作MCU测试夹具、真实RS485/换袋/断电HIL、Linux/ARM64安装、热点/固件管理和部署仍未完，仍不是可部署版本。清运中断人工袋确认候选保持V81/138张领域表/运行权限目录42；OneNet2.3.0/UART rc.23，完整MCU ROM56436/RAM12008。下方旧候选为历史。
+> 当前推进：[MCU与香橙派精简实施计划](docs/planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)。[S4发布清单与隔离包保管](hardware/docs/review/simplified-release-custody-s4-2026-09-14.md)、旧夹具及恢复关门历史兼容迁移已收口；[二维码URL可靠应用](hardware/docs/review/uart2-device-entry-url-plan-2026-09-14.md)已形成UART rc.24、OneNet2.4.0、数据库V82的本地跨端候选。项目以完整串口屏指令原子写入UART3软件发送队列作为已显示事实，不要求HMI回执；后续显示指令不能撤销已入队内容。硬件全量回归4185通过/123环境跳过/5子测试通过。真实串口屏/RS485/换袋/断电HIL、Linux/ARM64安装、热点/固件管理和部署仍未完，仍不是可部署版本。完整MCU Flash59676/RAM12688；下方旧候选为历史。
 
 > 2026-09-13 D12-D15新增：称重始终不可读上报本次失败，新读数恢复前提示人工；已确认恢复只接受新业务，原已报失败业务保持失败。仅断网且MCU/存储正常时原业务完成保存待补报，断网超过10分钟释放用户/设备占用但保留结果归属、仍不离线接单。存储损坏停接单交人工，不做复杂重建；清运中断人工确认袋，必要时重新换袋称重。用户要求检查剩余分歧后进入精简计划，不授权Git回退或现场部署。
 

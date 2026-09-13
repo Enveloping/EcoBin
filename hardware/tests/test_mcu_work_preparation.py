@@ -16,6 +16,7 @@ from hardware.tests.test_mcu_actuator_event_journal import Reservation
 ROOT = Path(__file__).resolve().parents[2]
 SINK = c.CFUNCTYPE(None, c.c_void_p, c.c_size_t, c.c_void_p)
 GUARD = c.CFUNCTYPE(c.c_uint16, c.c_uint8, c.c_void_p, c.c_size_t, c.c_uint64, c.c_void_p)
+URL_WRITER = c.CFUNCTYPE(c.c_uint8, c.c_void_p, c.c_uint16, c.c_void_p)
 
 
 @pytest.fixture(scope="module")
@@ -34,6 +35,8 @@ def library(tmp_path_factory):
             c.c_uint8, c.c_uint8, c.c_void_p, c.c_size_t]),
         "TestPreparation_SetEventSequence": (None, [c.c_void_p, c.c_uint32]),
         "McuWorkPreparation_Attach": (c.c_uint8, [c.c_void_p, c.c_void_p, c.c_uint8, GUARD, c.c_void_p]),
+        "McuWorkPreparation_AttachDeviceEntryUrl": (c.c_uint8,
+            [c.c_void_p, c.c_void_p, c.c_void_p, URL_WRITER, c.c_void_p]),
         "McuDeliveryExecution_Attach": (c.c_uint8, [c.c_void_p, c.c_void_p, c.c_void_p]),
         "McuCleanExecution_Attach": (c.c_uint8, [c.c_void_p, c.c_void_p, c.c_void_p]),
         "McuSafeCloseExecution_Attach": (c.c_uint8, [c.c_void_p, c.c_void_p, c.c_void_p]),
@@ -71,7 +74,7 @@ def library(tmp_path_factory):
         "ActuatorRuntime_Unlock": (c.c_uint8, [c.c_uint32]),
         "RuntimeClock_Advance": (None, [c.c_uint32]),
     }
-    sources = ("mcu_control_endpoint", "mcu_actuator_event_journal", "mcu_work_preparation", "mcu_opening_gate", "mcu_delivery_execution", "mcu_clean_execution", "mcu_safe_close_execution", "mcu_configuration", "mcu_config_collection",
+    sources = ("mcu_control_endpoint", "mcu_actuator_event_journal", "mcu_work_preparation", "mcu_device_entry_url", "mcu_opening_gate", "mcu_delivery_execution", "mcu_clean_execution", "mcu_safe_close_execution", "mcu_configuration", "mcu_config_collection",
         "mcu_session", "mcu_work_state", "mcu_result_slot", "mcu_result_builder", "mcu_process_measurement",
         "mcu_process_event_slot", "mcu_device_facts", "mcu_weight_run", "weight_measurement", "scale_reader",
         "actuator_runtime", "door_control", "clean_lock", "runtime_clock", "mcu_fullness_run", "ultrasonic_reader", "mcu_environment_ultrasonic")

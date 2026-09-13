@@ -100,7 +100,8 @@ class RuntimeSafetyConfigurationTest {
             "V78__native_business_measurement_identity.sql",
             "V79__native_delivery_issue.sql",
             "V80__offline_occupancy_release.sql",
-            "V81__interrupted_clean_bag_recovery.sql"
+            "V81__interrupted_clean_bag_recovery.sql",
+            "V82__device_entry_url_mcu_application_evidence.sql"
     };
 
     @Test

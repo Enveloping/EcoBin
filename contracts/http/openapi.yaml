@@ -16680,7 +16680,28 @@
               { "$ref": "#/components/schemas/Sha256Hex" },
               { "type": "null" }
             ],
-            "description": "香橙派重新读取本地 URL 后计算的摘要；不代表 MCU 或屏幕状态。"
+            "description": "香橙派重新读取本地 URL 后计算的摘要；只证明本机持久化，不代表 MCU 或串口屏状态。"
+          },
+          "deviceEntryUrlMcuApplied": {
+            "type": ["boolean", "null"],
+            "description": "验收证据 v5 中，MCU 是否已把完整二维码显示指令原子写入串口屏发送队列；历史证据为空。"
+          },
+          "deviceEntryUrlAppliedSha256": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/Sha256Hex" },
+              { "type": "null" }
+            ],
+            "description": "MCU 已应用的入口 URL 摘要；仅在 deviceEntryUrlMcuApplied=true 时存在。"
+          },
+          "deviceEntryUrlAppliedMcuBootId": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "执行原子写队列的 MCU 本次启动编号；历史证据或未应用时为空。"
+          },
+          "deviceEntryUrlDisplayBasis": {
+            "type": ["string", "null"],
+            "enum": ["UART3_COMMAND_ATOMICALLY_QUEUED", "NOT_APPLIED", null],
+            "description": "显示判定依据。按已确认的信任边界，完整指令原子入队即视为串口屏已显示，不继续等待发送完成或屏幕回执。"
           },
           "mcuSimulated": {
             "type": "boolean"

@@ -103,6 +103,45 @@ class OneNetEventDispatcherAcceptanceTest {
     }
 
     @Test
+    void deviceEntryUrlApplicationUsesPlatformScopeAndPreservesDisplayBasis()
+            throws Exception {
+        JsonNode wireExample = objectMapper.readTree(Files.readString(
+                contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "device-entry-url-application-result.event-wire.json")));
+        ObjectNode wire = (ObjectNode) wireExample.path("oneJsonPayload")
+                .path("params")
+                .path("deviceEntryUrlApplicationResult")
+                .path("value")
+                .deepCopy();
+
+        dispatcher.handle(
+                decrypted("deviceEntryUrlApplicationResult", wire),
+                "mq-device-entry-url-application",
+                RAW_TRANSPORT);
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort).receive(captor.capture());
+        verify(sourceScopePort).resolverForPlatformAsset(HARDWARE_SN);
+        TrustedInboxMessage message = captor.getValue();
+        assertEquals(
+                "DEVICE_ENTRY_URL_APPLICATION_RESULT",
+                message.messageKind());
+        JsonNode normalized = objectMapper.readTree(
+                        message.normalizedPayload())
+                .path("event");
+        JsonNode expected = objectMapper.readTree(Files.readString(
+                contractPath(
+                        "contracts/examples/onenet/"
+                                + "device-entry-url-application-result.event.json")));
+        assertEquals(canonicalHash(expected), canonicalHash(normalized));
+        assertEquals(
+                "UART3_COMMAND_ATOMICALLY_QUEUED",
+                normalized.path("payload").path("displayBasis").asText());
+    }
+
+    @Test
     void legacyV3AcceptanceWithoutNewWireMembersRemainsAccepted()
             throws Exception {
         dispatcher.handle(
@@ -208,6 +247,14 @@ class OneNetEventDispatcherAcceptanceTest {
         wire.put("evidenceSchemaVersion", 1);
         wire.remove("mcuRemoteUpdateCapablePresent");
         wire.remove("mcuRemoteUpdateCapable");
+        wire.remove("deviceEntryUrlMcuAppliedPresent");
+        wire.remove("deviceEntryUrlMcuApplied");
+        wire.remove("deviceEntryUrlAppliedSha2Present");
+        wire.remove("deviceEntryUrlAppliedSha2");
+        wire.remove("deviceEntryUrlAppliedMcuBPresent");
+        wire.remove("deviceEntryUrlAppliedMcuB");
+        wire.remove("deviceEntryUrlDisplayBasiPresent");
+        wire.remove("deviceEntryUrlDisplayBasi");
 
         ObjectNode payload = (ObjectNode) objectMapper.readTree(
                         Files.readString(contractPath(
@@ -217,6 +264,10 @@ class OneNetEventDispatcherAcceptanceTest {
                 .deepCopy();
         payload.put("evidenceSchemaVersion", 3);
         payload.remove("mcuRemoteUpdateCapable");
+        payload.remove("deviceEntryUrlMcuApplied");
+        payload.remove("deviceEntryUrlAppliedSha256");
+        payload.remove("deviceEntryUrlAppliedMcuBootId");
+        payload.remove("deviceEntryUrlDisplayBasis");
         wire.put("payloadSha256", canonicalHash(payload));
         return wire;
     }

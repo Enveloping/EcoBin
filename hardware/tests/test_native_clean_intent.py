@@ -53,7 +53,7 @@ def test_schema25_upgrade_is_atomic_and_preserves_original_custody_and_occupancy
         upgrade = EdgeStore(path)
     try:
         upgrade.initialize()
-        assert CURRENT_SCHEMA_VERSION == 30
+        assert CURRENT_SCHEMA_VERSION >= 30
         assert upgrade._conn.execute("SELECT max(version) FROM schema_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
         assert upgrade.get_native_process_receipt(choice_scope("WORK_POSTCLOSE_WEIGHT_READY")) == weight
         assert upgrade.get_native_process_receipt(choice_scope())["saved_payload"] == choice

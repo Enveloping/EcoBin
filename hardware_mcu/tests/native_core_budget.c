@@ -22,6 +22,7 @@
 #include "ultrasonic_reader.h"
 #include "ultrasonic_stm32.h"
 #include "mcu_fullness_run.h"
+#include "mcu_device_entry_url.h"
 
 /* Link-only ADC boundary, NOT a production driver or health simulation. */
 unsigned char ADC1_TryRead(unsigned short *value) { *value = 0u; return 0u; }
@@ -30,12 +31,14 @@ typedef void (*Entry)(void);
 #define ROOT(function) ((Entry)(function))
 static Entry const entries[] = {
     ROOT(McuControlEndpoint_Init), ROOT(McuControlEndpoint_Feed),
-    ROOT(McuControlEndpoint_AttachCommands), ROOT(McuControlEndpoint_ReserveEventSequence),
+    ROOT(McuControlEndpoint_AttachCommands), ROOT(McuControlEndpoint_AttachCommandResults), ROOT(McuControlEndpoint_ReserveEventSequence),
     ROOT(McuControlEndpoint_ReserveActuatorEvents), ROOT(McuControlEndpoint_CancelActuatorEvents),
     ROOT(McuControlEndpoint_PublishActuatorEvent), ROOT(McuControlEndpoint_CopyNextActuatorEvent),
     ROOT(McuControlEndpoint_ConfirmActuatorEventSaved),
     ROOT(McuWorkPreparation_Attach), ROOT(McuWorkPreparation_Poll), ROOT(McuWorkPreparation_CopyStart),
-    ROOT(McuWorkPreparation_AttachFullness),
+    ROOT(McuWorkPreparation_AttachFullness), ROOT(McuWorkPreparation_AttachDeviceEntryUrl),
+    ROOT(McuDeviceEntryUrl_Init), ROOT(McuDeviceEntryUrl_Bind), ROOT(McuDeviceEntryUrl_Receive),
+    ROOT(McuDeviceEntryUrl_CopyResult), ROOT(McuDeviceEntryUrl_IsStaging),
     ROOT(McuOpeningGate_Evaluate),
     ROOT(McuDeliveryExecution_Attach), ROOT(McuDeliveryExecution_Select), ROOT(McuWorkPreparation_AttachActions), ROOT(McuWorkPreparation_PollMeasurement),
     ROOT(McuCleanExecution_Attach), ROOT(McuCleanExecution_Request), ROOT(McuCleanExecution_Confirm),
@@ -86,11 +89,12 @@ static McuWorkPreparation preparation;
 static McuDeliveryExecution delivery_execution;
 static McuCleanExecution clean_execution;
 static McuSafeCloseExecution safe_close_execution;
+static McuDeviceEntryUrl device_entry_url;
 static McuResultMeasurement result_measurements[2];
 static McuResultSummary result_summary;
 static uint8_t result_scratch[ECOBIN_UART_WORK_RESULT_PAYLOAD_MAX_LENGTH];
 /* The endpoint now contains the one shared actuator journal; no second owner. */
-static const void *const owners[] = {&endpoint, &preparation, &delivery_execution, &clean_execution, &safe_close_execution,
+static const void *const owners[] = {&endpoint, &preparation, &delivery_execution, &clean_execution, &safe_close_execution, &device_entry_url,
     result_measurements, &result_summary, result_scratch};
 static Entry volatile retained_function;
 static const void *volatile retained_owner;

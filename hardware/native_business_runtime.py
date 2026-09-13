@@ -22,6 +22,15 @@ from mcu_session import McuBootSession, McuCommandDispatcher
 from mcu_work_query import McuDeviceFactsQuery, McuWorkQuery
 from native_result_report import NativeResultReporter, check_job_permit
 from native_delivery_issue_report import NativeDeliveryIssueReporter
+from native_device_entry_url import (
+    JOURNAL_KEY as DEVICE_ENTRY_URL_JOURNAL_KEY,
+    encode_command as encode_device_entry_url_command,
+    new_journal as new_device_entry_url_journal,
+    new_reload_journal as new_device_entry_url_reload_journal,
+    rebase_journal as rebase_device_entry_url_journal,
+    terminal_journal as terminal_device_entry_url_journal,
+    validate_journal as validate_device_entry_url_journal,
+)
 from native_job_rpc import NativeJobRpc
 from onenet_wire import validate_command_envelope
 from uart2_transport import NativeUartTransport
@@ -40,6 +49,7 @@ class NativeBusinessRuntime:
     native_protocol = 2
     compatibility_mode = False
     is_simulated = False
+    port_count = 1
     verified_firmware_identity = None  # Not inferred from a successful UART probe.
     _mcu_firmware_version = ""
     _mcu_capability = 0
@@ -79,6 +89,7 @@ class NativeBusinessRuntime:
         self._baseline_release_recovery_deadlines = {}
         self._runtime_instance_uid = str(uuid.uuid4())
         self._dispatch_authority = None
+        self._device_entry_url_link_refresh_pending = True
         self.reporter = NativeResultReporter(store, safety, device_name=device_name, photo_manager=photo_manager)
         self.issue_reporter = NativeDeliveryIssueReporter(store, device_name=device_name)
 
@@ -87,12 +98,29 @@ class NativeBusinessRuntime:
         return self._port is not None and self._port.is_open
 
     @property
+    def current_mcu_boot_id(self):
+        """Return only the MCU boot identity proven by the current probe window."""
+        if not self.is_open or self.boot is None:
+            return 0
+        return self.boot.current_boot(self.clock()) or 0
+
+    @property
+    def mcu_session_ready(self):
+        return self.current_mcu_boot_id != 0
+
+    def current_device_facts(self):
+        """Expose one fresh read-only DEVICE_FACTS observation for acceptance."""
+        if self.boot is None:
+            return None
+        return self._fresh_facts(self.clock())
+
+    @property
     def uart_state(self):
         if not self.is_open:
             return "DISCONNECTED"
         if self.store.get_state("native_blocking_fault"):
             return "FAULT"
-        return "READY" if self._mcu_boot_id else "STARTING"
+        return "READY" if self.mcu_session_ready else "STARTING"
 
     def communication_fault_status(self):
         """Return read-only facts for one explicit operator recovery action."""
@@ -250,6 +278,7 @@ class NativeBusinessRuntime:
         self.dispatcher = McuCommandDispatcher(self.store, self.boot, self.transport.write,
             arm=self._arm, clock=self.clock)
         self._opened_at = self.clock()
+        self.store.recover_native_device_entry_url_commands()
         self._restore_configuration()
         self._rpc = NativeJobRpc()
 
@@ -691,6 +720,116 @@ class NativeBusinessRuntime:
         self._restore_configuration()
         self.store.mark_command_waiting_mcu(command["commandUid"], part_uids[-1], {"native_pending": True})
 
+    def send_device_entry_url(self, url, *, command=None, stored_record=None):
+        """Persist an asynchronous UART-v2 URL application continuation.
+
+        This method owns no HMI success assumption.  Only the MCU's later
+        DEVICE_ENTRY_URL_APPLY_RESULT can complete SYNC or resume acceptance.
+        """
+        if command is None or stored_record is None:
+            raise ValueError("native device entry URL requires its cloud authority")
+        if url != stored_record.get("deviceEntryUrl"):
+            raise ValueError("native device entry URL differs from durable source")
+        if command.get("targetDeviceName") != self.device_name:
+            raise ValueError("device entry URL belongs to another device")
+        existing = self.store.get_command(command["commandUid"])
+        result = existing.get("result") if existing else None
+        journal = None
+        waiting_for_reload = False
+        if isinstance(result, dict) and DEVICE_ENTRY_URL_JOURNAL_KEY in result:
+            journal = validate_device_entry_url_journal(
+                result[DEVICE_ENTRY_URL_JOURNAL_KEY]
+            )
+            if (
+                journal["sourceCommandUid"] != command["commandUid"]
+                or journal["deviceEntryUrl"] != url
+                or journal["deviceEntryUrlSha256"]
+                != stored_record["deviceEntryUrlSha256"]
+            ):
+                raise ValueError("native device entry URL replay conflicts")
+            current_boot = self.boot.current_boot(self.clock()) if self.boot else None
+            if journal["state"] == "FAILED":
+                raise JobSafetyError(
+                    "MCU_DEVICE_ENTRY_URL_" + journal["appliedEvidence"]["faultCode"],
+                    "the original MCU URL application failed",
+                )
+            if journal["state"] == "APPLIED":
+                evidence = self.store.get_native_device_entry_url_applied_evidence()
+                if (
+                    current_boot
+                    and not self._device_entry_url_link_refresh_pending
+                    and evidence is not None
+                    and evidence["deviceEntryUrlSha256"]
+                    == journal["deviceEntryUrlSha256"]
+                    and evidence["mcuBootId"] == current_boot
+                ):
+                    return {
+                        "native_pending": False,
+                        "applied": True,
+                        "mcu_command_uid": evidence["mcuCommandUid"],
+                        "evidence": evidence,
+                    }
+                # The command-specific APPLIED fact belongs to an earlier
+                # UART connection/boot observation.  Keep the acceptance
+                # continuation parked until the foreground owner completes
+                # the current LOCAL_RELOAD (or another current application).
+                # Never run acceptance with a missing global current-link
+                # proof and thereby manufacture a terminal NOT_APPLIED report.
+                if current_boot is None:
+                    waiting_for_reload = True
+                else:
+                    reload = self.store.get_native_device_entry_url_reload()
+                    reload_matches = bool(
+                        reload is not None
+                        and reload["deviceEntryUrlSha256"]
+                        == journal["deviceEntryUrlSha256"]
+                        and reload["attempt"]["targetMcuBootId"]
+                        == current_boot
+                    )
+                    pending_application = any(
+                        item["journal"]["deviceEntryUrlSha256"]
+                        == journal["deviceEntryUrlSha256"]
+                        for item in self.store.list_native_device_entry_url_applications()
+                    )
+                    if (
+                        self._device_entry_url_link_refresh_pending
+                        or pending_application
+                        or (reload_matches and reload["state"] == "WAITING")
+                    ):
+                        waiting_for_reload = True
+                    elif reload_matches and reload["state"] == "FAILED":
+                        raise JobSafetyError(
+                            "MCU_DEVICE_ENTRY_URL_"
+                            + reload["appliedEvidence"]["faultCode"],
+                            "the current-link MCU URL reload failed",
+                        )
+                    else:
+                        raise JobSafetyError(
+                            "MCU_DEVICE_ENTRY_URL_PROOF_UNAVAILABLE",
+                            "the current UART link lacks applied URL proof",
+                        )
+        if journal is None:
+            current_boot = self.boot.current_boot(self.clock()) if self.boot else None
+            journal = new_device_entry_url_journal(
+                command,
+                stored_record,
+                target_mcu_boot_id=current_boot,
+            )
+            journal = self.store.begin_native_device_entry_url_application(
+                command,
+                journal,
+            )
+        attempt = journal["attempt"]
+        return {
+            "native_pending": True,
+            "waiting_for_reload": waiting_for_reload,
+            "mcu_command_uid": (
+                attempt["commandUids"][-1]
+                if attempt["commandUids"]
+                else None
+            ),
+        }
+
     def _restore_configuration(self):
         """Recover the sole native configuration from durable authority, not its pointer.
 
@@ -762,10 +901,270 @@ class NativeBusinessRuntime:
             self.store.set_state("native_configuration_application", row["application_uid"])
         return row
 
+    def _device_entry_url_application_for_record(self, record):
+        for pending in self.store.list_native_device_entry_url_applications():
+            journal = pending["journal"]
+            if record["command_uid"] in journal["attempt"]["commandUids"]:
+                return pending
+        reload = self.store.get_native_device_entry_url_reload()
+        if (
+            reload is not None
+            and reload["state"] == "WAITING"
+            and record["command_uid"] in reload["attempt"]["commandUids"]
+        ):
+            return {"command": None, "journal": reload}
+        return None
+
+    def _device_entry_url_poll(self, now):
+        applications = self.store.list_native_device_entry_url_applications()
+        # URL display is nonmechanical, but changing the visible page during a
+        # delivery/clean operation is intentionally deferred until idle.
+        if (
+            self.store.get_work_slot() is not None
+            or self.store.get_maintenance_lock() is not None
+            or self.store.get_state("native_configuration_application")
+        ):
+            return
+        current_boot = self.boot.current_boot(now)
+        if not current_boot:
+            return
+        if applications:
+            pending = applications[0]
+        else:
+            active = self.store.get_device_entry_url()
+            if active is None:
+                return
+            evidence = self.store.get_native_device_entry_url_applied_evidence()
+            source_command_uid = (
+                self.store.get_native_device_entry_url_source_command_uid(
+                    active["deviceEntryUrl"],
+                    active["deviceEntryUrlSha256"],
+                )
+            )
+            # A locally stored URL which never reached APPLIED is not a reload
+            # authority. Its original cloud command already carries the
+            # terminal failure and must not be silently retried here.
+            if source_command_uid is None:
+                return
+            reload = self.store.get_native_device_entry_url_reload()
+            evidence_matches_url = bool(
+                evidence is not None
+                and evidence["deviceEntryUrlSha256"]
+                == active["deviceEntryUrlSha256"]
+            )
+            if (
+                evidence_matches_url
+                and evidence["mcuBootId"] == current_boot
+                and not self._device_entry_url_link_refresh_pending
+            ):
+                return
+            boot_changed = bool(
+                (evidence_matches_url and evidence["mcuBootId"] != current_boot)
+                or (
+                    reload is not None
+                    and reload["deviceEntryUrlSha256"]
+                    == active["deviceEntryUrlSha256"]
+                    and reload["attempt"]["targetMcuBootId"] != current_boot
+                )
+            )
+            if (
+                not self._device_entry_url_link_refresh_pending
+                and not boot_changed
+                and not (
+                    reload is not None
+                    and reload["deviceEntryUrlSha256"]
+                    == active["deviceEntryUrlSha256"]
+                    and reload["state"] == "WAITING"
+                    and reload["attempt"]["targetMcuBootId"] == current_boot
+                )
+            ):
+                # A terminal failure is retained for this connection.  A new
+                # explicit reconnect or MCU boot may create a fresh attempt;
+                # an ordinary poll must not silently loop on a failed write.
+                return
+            if (
+                reload is None
+                or reload["deviceEntryUrlSha256"]
+                != active["deviceEntryUrlSha256"]
+            ):
+                reload = new_device_entry_url_reload_journal(
+                    active,
+                    source_command_uid=source_command_uid,
+                    target_mcu_boot_id=current_boot,
+                )
+                self.store.save_native_device_entry_url_reload(reload)
+                # This connection generation now owns one durable attempt.
+                # Keep polling that identity instead of rebasing it on every
+                # foreground loop while the result is still outstanding.
+                self._device_entry_url_link_refresh_pending = False
+            elif (
+                reload["attempt"]["targetMcuBootId"] != current_boot
+                or self._device_entry_url_link_refresh_pending
+            ):
+                rebased = rebase_device_entry_url_journal(
+                    reload,
+                    current_boot,
+                )
+                if not self.store.save_native_device_entry_url_reload(
+                    rebased,
+                    expected_application_uid=reload["attempt"]["applicationUid"],
+                ):
+                    return
+                reload = rebased
+                self._device_entry_url_link_refresh_pending = False
+            elif reload["state"] != "WAITING":
+                # FAILED stays explicit until a new boot or a newer URL. An
+                # APPLIED record should normally also have current evidence;
+                # corrupt/missing evidence fails closed instead of rewriting.
+                return
+            pending = {"command": None, "journal": reload}
+        command = pending["command"]
+        journal = pending["journal"]
+        attempt = journal["attempt"]
+        if attempt["targetMcuBootId"] != current_boot:
+            rebased = rebase_device_entry_url_journal(journal, current_boot)
+            if not self.store.replace_native_device_entry_url_journal(
+                command["command_uid"],
+                attempt["applicationUid"],
+                rebased,
+            ):
+                return
+            journal = rebased
+            attempt = journal["attempt"]
+        for index, uid in enumerate(attempt["commandUids"]):
+            record = self.store.get_native_command(uid)
+            if record is None:
+                name, prototype = encode_device_entry_url_command(
+                    journal,
+                    index,
+                    command_sequence=1,
+                )
+                values = uart.decode_payload(name, prototype)
+                try:
+                    record = self.store.prepare_native_command(
+                        name,
+                        uid,
+                        current_boot,
+                        {
+                            key: value
+                            for key, value in values.items()
+                            if key not in IDENTITY_FIELDS
+                        },
+                    )
+                except RuntimeError as error:
+                    if "native command unresolved" in str(error):
+                        return
+                    raise
+            else:
+                name, expected = encode_device_entry_url_command(
+                    journal,
+                    index,
+                    command_sequence=record["command_sequence"],
+                )
+                if record["message_name"] != name or record["payload"] != expected:
+                    raise ValueError("stored device entry URL command bytes differ")
+            if record["mcu_boot_id"] != current_boot or record["conflict"]:
+                raise ValueError("device entry URL command identity conflicts")
+            if record["decision_outcome"] == "REJECTED":
+                raise JobSafetyError(
+                    "MCU_DEVICE_ENTRY_URL_COMMAND_REJECTED",
+                    "MCU rejected a validated URL application command",
+                )
+            if record["decision_outcome"] != "ACCEPTED":
+                if not record["write_claimed"]:
+                    self._send_with_authority(record, None)
+                self.dispatcher.poll(uid, now)
+                return
+        # COMMIT acceptance does not mean the HMI command was queued. Querying
+        # the exact COMMIT is the only recovery action; the MCU re-emits its
+        # held APPLY_RESULT without writing the HMI a second time.
+        self.dispatcher.poll(attempt["commandUids"][-1], now)
+
+    def _accept_device_entry_url_result(self, payload):
+        values = uart.decode_payload("DEVICE_ENTRY_URL_APPLY_RESULT", payload)
+        found = self.store.find_native_device_entry_url_application(
+            values["applicationUid"],
+            values["mcuCommandUid"],
+        )
+        if found is None:
+            outcome = self.store.save_unmatched_native_device_entry_url_apply_result(
+                payload
+            )
+            if outcome == "CONFLICT":
+                raise ValueError("device entry URL result identity conflict")
+            return True
+        journal = found["journal"]
+        fresh_terminal = journal["state"] == "WAITING"
+        terminal = (
+            journal
+            if not fresh_terminal
+            else terminal_device_entry_url_journal(journal, payload, values)
+        )
+        outcome = self.store.save_native_device_entry_url_apply_result(
+            payload,
+            terminal,
+        )
+        if fresh_terminal and outcome in {"APPLIED", "FAILED"}:
+            self._device_entry_url_link_refresh_pending = False
+            self.store.requeue_native_acceptance_after_device_entry_url_reload(
+                values["urlSha256"],
+            )
+        return outcome in {"APPLIED", "FAILED", "DUPLICATE"}
+
     def _arm(self, record):
         authority = self._dispatch_authority
         if authority is None or authority[0] != self._dispatch_identity(record):
             raise JobSafetyError("NATIVE_AUTHORITY_UNAVAILABLE", "this exact write has no completed authority request")
+        if record["message_name"].startswith("DEVICE_ENTRY_URL_"):
+            def check():
+                self._require_maintenance_free()
+                if authority[1] is not None:
+                    raise JobSafetyError(
+                        "MCU_MAINTENANCE_ACTIVE",
+                        "MCU belongs to maintenance",
+                    )
+                if self.store.get_work_slot() is not None:
+                    raise JobSafetyError(
+                        "DEVICE_BUSY",
+                        "device entry URL waits until the business is idle",
+                    )
+                pending = self._device_entry_url_application_for_record(record)
+                if pending is None:
+                    raise ValueError("device entry URL write lost its journal")
+                if pending["command"] is None:
+                    active = self.store.get_device_entry_url()
+                    if (
+                        active is None
+                        or active["deviceEntryUrl"]
+                        != pending["journal"]["deviceEntryUrl"]
+                        or active["deviceEntryUrlSha256"]
+                        != pending["journal"]["deviceEntryUrlSha256"]
+                    ):
+                        raise ValueError("device entry URL reload source changed")
+                else:
+                    command = pending["command"]["payload"]
+                    if command["commandType"] == "SYNC_DEVICE_ENTRY_URL":
+                        from onenet_wire import _validate_command_envelope
+                        _validate_command_envelope(
+                            command,
+                            trusted_environment=None,
+                            trusted_business_release_download_base_url=None,
+                            expiry_reference_time=None,
+                        )
+                    else:
+                        # Acceptance STS credentials are intentionally absent
+                        # from SQLite. The command was fully validated before
+                        # this journal was created; re-check its immutable
+                        # non-secret digest instead of inventing a COS grant.
+                        from onenet_wire import canonical_payload_sha256
+                        stable = dict(command)
+                        stable.pop("cosGrant", None)
+                        if canonical_payload_sha256(stable) != pending["command"]["canonical_sha256"]:
+                            raise ValueError("device acceptance authority changed")
+                    if command["targetDeviceName"] != self.device_name:
+                        raise ValueError("device entry URL belongs to another device")
+            check()
+            return check
         if record["message_name"].startswith("CONFIG_"):
             def check():
                 self._require_maintenance_free()
@@ -1570,6 +1969,11 @@ class NativeBusinessRuntime:
         for frame in self.transport.poll(now):
             decoded = uart.decode_frame(frame, sender_role="MCU")
             accepted = self.boot.accept_frame(frame, now) or self.dispatcher.accept_frame(frame, now)
+            if decoded["messageName"] == "DEVICE_ENTRY_URL_APPLY_RESULT":
+                accepted = (
+                    self._accept_device_entry_url_result(decoded["payload"])
+                    or accepted
+                )
             if self.facts_query and self.facts_query.accept_frame(frame, now):
                 self._facts = self.facts_query.observation(now)
                 self._facts_requested_at = self.facts_query.request_started_ms
@@ -1602,6 +2006,7 @@ class NativeBusinessRuntime:
         self._control_failure_poll(now, link_unavailable=link_unavailable)
         self._scale_health_poll(self.clock())
         self._configuration_poll(self.clock())
+        self._device_entry_url_poll(self.clock())
         self._work_poll(self.clock())
         self._issue_report_poll()
         if self.facts_query:

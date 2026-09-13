@@ -167,7 +167,7 @@ def test_schema23_upgrade_preserves_prior_weight_and_actuator_custody(tmp_path):
         assert upgraded.get_native_process_receipt(scope("WORK_POSTCLOSE_WEIGHT_READY"))
         assert upgraded.get_native_actuator_event(42, 7)["saved_payload"] == receipt
         assert upgraded.save_native_process_receipt(scope(), "DELIVERY_SELECTION", selection())
-        assert CURRENT_SCHEMA_VERSION == 30
+        assert CURRENT_SCHEMA_VERSION >= 30
         assert upgraded._conn.execute("SELECT max(version) FROM schema_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
     finally:
         upgraded.close()

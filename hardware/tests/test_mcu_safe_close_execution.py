@@ -197,7 +197,8 @@ def test_saved_close_can_coalesce_new_close_without_switching_outputs_off(runtim
 
 def test_unattached_endpoint_and_new_boot_never_execute_old_close(runtime):
     lib, endpoint, preparation, replies, _, sink, guard = runtime
-    assert exchange(runtime, "SAFE_CLOSE", command()) == []
+    rejected = exchange(runtime, "SAFE_CLOSE", command())
+    assert rejected[0][1]["outcome"] == "BOOT_MISMATCH"
     owner = enable(runtime)
     assert exchange(runtime, "SAFE_CLOSE", command())[0][1]["outcome"] == "ACCEPTED"
     advance(runtime, 0, 100)

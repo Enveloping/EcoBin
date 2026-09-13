@@ -64,9 +64,10 @@ public final class DeviceEntryUrlFactory {
         }
         for (byte current : encoded) {
             int unsigned = Byte.toUnsignedInt(current);
-            if (unsigned < 0x21 || unsigned > 0x7e) {
+            if (unsigned < 0x21 || unsigned > 0x7e
+                    || unsigned == '"' || unsigned == '\\') {
                 throw new IllegalArgumentException(
-                        "complete device entry URL must contain printable ASCII only");
+                    "complete device entry URL must contain safe printable ASCII only");
             }
         }
         return encoded;

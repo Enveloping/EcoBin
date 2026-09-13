@@ -8,7 +8,7 @@
 - 实施阶段：`SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED`；候选不可运行，旧运行制品摘要冻结，不自动覆盖。
 - 单帧预算见 `contracts/uart/generated/message-budget.json`；不代表完整结果/RAM 预算已完成。
 - UART 物理链路：`115200 baud / 8N1 / no flow control`
-- OneNet Mapping：`2.3.0` / `IMPLEMENTATION_CANDIDATE`
+- OneNet Mapping：`2.4.0` / `IMPLEMENTATION_CANDIDATE`
 
 ## UART 消息
 
@@ -117,6 +117,7 @@
 | `deliveryIssueArchived` | `DELIVERY_ISSUE_ARCHIVED` | `RELIABLE_FACT` | `DELIVERY_SESSION` |
 | `deviceCommandObserved` | `DEVICE_COMMAND_OBSERVED` | `RELIABLE_FACT` | `DEVICE_COMMAND` |
 | `configurationProgress` | `CONFIGURATION_PROGRESS` | `RELIABLE_FACT` | `CONFIGURATION_APPLICATION` |
+| `deviceEntryUrlApplicationResult` | `DEVICE_ENTRY_URL_APPLICATION_RESULT` | `RELIABLE_FACT` | `DEVICE_ASSET` |
 | `deliveryComplete` | `DELIVERY_COMPLETE` | `RELIABLE_FACT` | `DELIVERY_SESSION` |
 | `deliveryRecoveryQuarantined` | `DELIVERY_RECOVERY_QUARANTINED` | `RELIABLE_FACT` | `DELIVERY_SESSION` |
 | `cleanComplete` | `CLEAN_COMPLETE` | `RELIABLE_FACT` | `CLEAN_OPERATION` |

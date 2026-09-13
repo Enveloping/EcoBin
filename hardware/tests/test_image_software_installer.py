@@ -20,6 +20,7 @@ from first_boot.management_layer import (
     image_managed_layer_complete,
 )
 from install.runtime_release import RUNTIME_APP_FILES as SIGNED_RUNTIME_APP_FILES
+from install.runtime_payload_manifest import BUSINESS_APP_FILES
 from system import image_software_installer as image_installer
 from system.image_software_installer import (
     COMMUNICATION_AGENT_FILES,
@@ -133,6 +134,8 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
     assert "native_recovery_close_isolation.py" in RUNTIME_APP_FILES
     assert "native_recovery_entry.py" in RUNTIME_APP_FILES
     assert "native_recovery_runtime.py" in RUNTIME_APP_FILES
+    assert "native_device_entry_url.py" in RUNTIME_APP_FILES
+    assert "native_device_entry_url.py" in BUSINESS_APP_FILES
     assert "local_control.py" in RUNTIME_APP_FILES
     assert "communication_agent.py" not in RUNTIME_APP_FILES
     assert "communication_store.py" not in RUNTIME_APP_FILES

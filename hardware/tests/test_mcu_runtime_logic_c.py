@@ -13,7 +13,8 @@ MCU_USER_ROOT = REPOSITORY_ROOT / "hardware_mcu" / "USER"
 MCU_TEST_SOURCE = (
     REPOSITORY_ROOT / "hardware_mcu" / "tests" / "test_mcu_runtime_logic.c"
 )
-MCU_MAIN_SOURCE = MCU_USER_ROOT / "main.c"
+MCU_NATIVE_MAIN_SOURCE = MCU_USER_ROOT / "main.c"
+MCU_LEGACY_MAIN_SOURCE = MCU_USER_ROOT / "main_legacy.c"
 MCU_USART_SOURCE = MCU_USER_ROOT / "usart1.c"
 
 
@@ -58,14 +59,19 @@ def test_mcu_runtime_logic_with_clang(tmp_path: Path) -> None:
     assert run_result.returncode == 0, run_result.stderr
 
 
-def test_runtime_source_connects_validity_and_removes_debug_uart_frames() -> None:
-    main_source = MCU_MAIN_SOURCE.read_text(encoding="utf-8")
+def test_frozen_fixed_frame_source_connects_validity_and_removes_debug_uart_frames() -> None:
+    main_source = MCU_LEGACY_MAIN_SOURCE.read_text(encoding="utf-8")
+    native_source = MCU_NATIVE_MAIN_SOURCE.read_text(encoding="utf-8")
     usart_source = MCU_USART_SOURCE.read_text(
         encoding="utf-8", errors="replace"
     )
     compact_main = re.sub(r"\s+", "", main_source)
 
     assert '#include"actuator_runtime.h"' in compact_main
+    assert '#include"mcu_delivery_execution.h"' in re.sub(
+        r"\s+", "", native_source
+    )
+    assert "case 0xAA:" not in native_source
     assert "g_weight_valid" in main_source
     assert "ActuatorRuntime_SetDoorTarget" in main_source
     assert "McuRuntime_DirectionAfterLimits" not in main_source
@@ -98,7 +104,7 @@ def test_runtime_source_connects_validity_and_removes_debug_uart_frames() -> Non
 
 
 def test_screen_repeat_unlock_requires_active_clean_operation() -> None:
-    main_source = MCU_MAIN_SOURCE.read_text(encoding="utf-8")
+    main_source = MCU_LEGACY_MAIN_SOURCE.read_text(encoding="utf-8")
     repeat_unlock_start = main_source.index("case 0x07:")
     repeat_unlock_end = main_source.index(
         "}  /* end switch */", repeat_unlock_start
@@ -115,7 +121,7 @@ def test_screen_repeat_unlock_requires_active_clean_operation() -> None:
 
 
 def test_clean_screen_returns_home_only_after_result_is_accepted() -> None:
-    main_source = MCU_MAIN_SOURCE.read_text(encoding="utf-8")
+    main_source = MCU_LEGACY_MAIN_SOURCE.read_text(encoding="utf-8")
     clean_finish_start = main_source.index("case 0x05:")
     clean_finish_end = main_source.index(
         "}  /* end switch */", clean_finish_start
@@ -137,7 +143,7 @@ def test_clean_screen_returns_home_only_after_result_is_accepted() -> None:
 
 
 def test_clean_start_selects_dedicated_clean_screen() -> None:
-    main_source = MCU_MAIN_SOURCE.read_text(encoding="utf-8")
+    main_source = MCU_LEGACY_MAIN_SOURCE.read_text(encoding="utf-8")
     clean_start = main_source.index("case 0xEE:")
     clean_end = main_source.index("case 0xF0:", clean_start)
     clean_block = re.sub(r"\s+", "", main_source[clean_start:clean_end])

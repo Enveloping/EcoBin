@@ -1,5 +1,5 @@
 {
-  "mappingVersion": "2.3.0",
+  "mappingVersion": "2.4.0",
   "status": "IMPLEMENTATION_CANDIDATE",
   "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "transport": {
@@ -283,6 +283,13 @@
       "targetType": "CONFIGURATION_APPLICATION",
       "schemaRef": "events/events.schema.json#/$defs/configurationProgressEvent"
     },
+    "deviceEntryUrlApplicationResult": {
+      "description": "设备报告二维码URL是否已由MCU完整原子写入串口屏发送队列；后台据此区分OneNet送达、香橙派保存和屏幕显示认定。",
+      "eventType": "DEVICE_ENTRY_URL_APPLICATION_RESULT",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "DEVICE_ASSET",
+      "schemaRef": "events/events.schema.json#/$defs/deviceEntryUrlApplicationResultEvent"
+    },
     "deliveryComplete": {
       "description": "设备在一次投递结束后上报首末重量、净重、异常标记和四张照片状态，后台据此创建订单。",
       "eventType": "DELIVERY_COMPLETE",
@@ -442,9 +449,10 @@
     "cosGrant is excluded from payloadSha256 and never persisted or logged as stable content",
     "APPLY_CONFIGURATION ports and runtime snapshot ports are unique, ordered and contiguous from 1",
     "configuration stages, command observation stages and receipt outcomes enforce their error/mcu identity relationships",
+    "DEVICE_ENTRY_URL_APPLICATION_RESULT is bound to the original platform command, URL digest, MCU boot and COMMIT command; APPLIED means the complete page0.qr0.txt instruction was atomically queued to UART3, with no USART-TC or HMI read-back requirement",
     "available photo URL and COS grant bucket/region/baseUrl exactly match trusted runtime configuration, and key/path exactly bind work, slot and photo identity",
     "OneNet nullable presence flags and integer enums are decoded before JSON Schema and payload digest validation",
-    "REQUEST_DEVICE_ACCEPTANCE target uid and targetDeviceName both equal the authenticated immutable device name; challengeUid binds its COS prefix and evidence; factory bag revision and digest must be echoed by DEVICE_ACCEPTANCE_EVIDENCE and still match the current asset",
+    "REQUEST_DEVICE_ACCEPTANCE target uid and targetDeviceName both equal the authenticated immutable device name; challengeUid binds its COS prefix and evidence; factory bag revision and digest must be echoed by DEVICE_ACCEPTANCE_EVIDENCE and still match the current asset; evidence v5 additionally requires the matching URL digest and MCU boot under UART3_COMMAND_ATOMICALLY_QUEUED",
     "AUTHORIZE_FACTORY_SEAL target and payload hardwareSn equal the authenticated immutable device name; the current PASSED acceptance generation, evidence identity and digest, factory bag revision and ordered-set digest must match again immediately before every dispatch; expiresAt is the device's first reliable-acceptance deadline, and an exact command durably accepted before it may finish after it from the persisted receipt fact; duplicate commandUid is idempotent",
     "FACTORY_SEAL_COMPLETED target and payload hardwareSn equal the authenticated immutable device name; commandUid equals authorizationCommandUid; acceptance generation, evidence, challenge and factory-bag snapshot equal the issued authorization; authorizationBindingSha256 is the RFC8785 SHA-256 of exactly commandUid, hardwareSn, acceptanceGeneration, acceptanceEvidenceUid, acceptanceChallengeUid, acceptanceEvidenceSha256, factoryBagRevision, factoryBagSetSha256, imageReleaseId, imageReleaseSha256 and factoryReportSha256; completionClockQuality equals the envelope clockQuality; SYNCED requires occurredAt equal to cleanupCompletedAt and cleanupCompletedAt not before sealedAt, while ESTIMATED or UNAVAILABLE requires all three timestamps to be null",
     "remote support commands target the session UID; OPEN payload expiry exactly equals envelope expiry and is at most 30 minutes; status target is the authenticated device asset and carries the originating command UID",
@@ -472,6 +480,8 @@
     "MCU_RESTART_FINAL_RESULT_UNAVAILABLE": "MCU_RESTART_NO_FINAL",
     "DEVICE_COMMAND_OBSERVED": "DEV_CMD_OBSERVED",
     "CONFIGURATION_PROGRESS": "CONFIG_PROGRESS",
+    "DEVICE_ENTRY_URL_APPLICATION_RESULT": "DEV_URL_APPLY_RESULT",
+    "UART3_COMMAND_ATOMICALLY_QUEUED": "UART3_ATOMIC_QUEUED",
     "FULLNESS_SAMPLE_COMPLETE": "FULLNESS_SAMPLE_DONE",
     "FULLNESS_STATE_CHANGED": "FULLNESS_STATE_CHG",
     "BASELINE_MEASUREMENT_COMPLETE": "BASELINE_MEAS_DONE",

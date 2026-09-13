@@ -2,7 +2,7 @@
   "identifier": "deviceFaultRecovered",
   "kind": "EVENT",
   "oneJsonPayload": {
-    "id": "109",
+    "id": "110",
     "params": {
       "deviceFaultRecovered": {
         "value": {

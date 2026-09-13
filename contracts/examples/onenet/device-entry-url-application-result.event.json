@@ -1,0 +1,24 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "8a000000-0000-4000-8000-000000000005",
+  "deliveryClass": "RELIABLE_FACT",
+  "edgeEventSequence": 1060,
+  "eventType": "DEVICE_ENTRY_URL_APPLICATION_RESULT",
+  "eventUid": "8a000000-0000-4000-8000-00000000000c",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "applicationUid": "8a000000-0000-4000-8000-00000000000d",
+    "deviceEntryUrlSha256": "1b08b21c2249d10e2bf707e9880a020322ed83036a9df47624ca3e31f79444cd",
+    "displayBasis": "UART3_COMMAND_ATOMICALLY_QUEUED",
+    "faultCode": null,
+    "mcuBootId": 101,
+    "mcuCommandUid": "8a000000-0000-4000-8000-00000000000e",
+    "status": "APPLIED"
+  },
+  "payloadSha256": "1ee8bf68b025f937fcd9a7cf601d68f94ce6f7048f1b7d567878d17c60ab90da",
+  "schemaVersion": 2,
+  "target": {
+    "type": "DEVICE_ASSET",
+    "uid": "SN-CONTRACT-0001"
+  }
+}

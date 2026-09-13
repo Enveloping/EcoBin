@@ -314,7 +314,7 @@
             <Optim>3</Optim>
             <oTime>0</oTime>
             <SplitLS>1</SplitLS>
-            <OneElfS>0</OneElfS>
+            <OneElfS>1</OneElfS>
             <Strict>0</Strict>
             <EnumInt>0</EnumInt>
             <PlainCh>0</PlainCh>
@@ -383,6 +383,7 @@
             <File><FileName>native_serial_buffer.c</FileName><FileType>1</FileType><FilePath>.\native_serial_buffer.c</FilePath></File>
             <File><FileName>mcu_control_endpoint.c</FileName><FileType>1</FileType><FilePath>.\mcu_control_endpoint.c</FilePath></File>
             <File><FileName>mcu_work_preparation.c</FileName><FileType>1</FileType><FilePath>.\mcu_work_preparation.c</FilePath></File>
+            <File><FileName>mcu_device_entry_url.c</FileName><FileType>1</FileType><FilePath>.\mcu_device_entry_url.c</FilePath></File>
             <File><FileName>mcu_opening_gate.c</FileName><FileType>1</FileType><FilePath>.\mcu_opening_gate.c</FilePath></File>
             <File><FileName>mcu_delivery_execution.c</FileName><FileType>1</FileType><FilePath>.\mcu_delivery_execution.c</FilePath></File>
             <File><FileName>mcu_clean_execution.c</FileName><FileType>1</FileType><FilePath>.\mcu_clean_execution.c</FilePath></File>

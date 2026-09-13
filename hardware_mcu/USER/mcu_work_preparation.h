@@ -4,6 +4,7 @@
 #include "mcu_configuration.h"
 #include "mcu_weight_run.h"
 #include "mcu_process_measurement.h"
+#include "mcu_device_entry_url.h"
 
 /* Configuration/START/measurement owner: mechanical execution is attached
  * explicitly at boot; no legacy fallback or automatic cloud work release.
@@ -48,6 +49,7 @@ typedef struct {
     void *configuration_context;
     McuPreparedActions actions[2]; /* Fixed DELIVERY/CLEAN slots, not a dynamic registry. */
     McuPreparedActions recovery; /* Explicit standalone recovery close owner. */
+    McuDeviceEntryUrl *device_entry_url; /* Optional boot-local HMI URL owner. */
     uint8_t port_count;
     uint8_t initial_ready;
     uint8_t start_message;
@@ -72,6 +74,9 @@ uint8_t McuWorkPreparation_SetConfigurationApply(McuWorkPreparation *owner, McuC
  * No separate cloud detection, movement, current-bag decision or business release.
  * Without attachment/available source, the event explicitly says NOT_SAMPLED. */
 uint8_t McuWorkPreparation_AttachFullness(McuWorkPreparation *owner, McuControlEndpoint *endpoint);
+uint8_t McuWorkPreparation_AttachDeviceEntryUrl(McuWorkPreparation *owner,
+    McuControlEndpoint *endpoint, McuDeviceEntryUrl *state,
+    McuDeviceEntryUrlWriter writer, void *context);
 /* Optional native executors, ONCE per DELIVERY/CLEAN type before binding.
  * Preparation remains the sole endpoint owner. Each handler must return zero
  * for messages it does not own and verify the original work before mutation.

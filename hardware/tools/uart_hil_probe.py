@@ -23,7 +23,7 @@ from uart_link import (  # noqa: E402
     REQUIRED_MCU_CAPABILITY_BITMAP,
     UartError,
     UartLink,
-    compute_mcu_payload_sha256,
+    compute_native_mcu_payload_sha256,
 )
 
 logger = logging.getLogger("uart-hil-probe")
@@ -111,6 +111,7 @@ def _sample_configuration(
     )
     payload = {
         "applicationUid": str(uuid.uuid4()),
+        "mcuConfigurationProfile": "UART_V2_SIMPLIFIED",
         "config": {
             "version": version,
             "contentSha256": hashlib.sha256(
@@ -122,7 +123,7 @@ def _sample_configuration(
             "continueDeliveryWaitMs": 30000,
             "negativeWeightThresholdGrams": 500,
             "deliveryAutoCloseMs": 120000,
-            "weightMeasurementTimeoutMs": 6000,
+            "weightMeasurementTimeoutMs": 5000,
             "deliveryDoorTravelWaitMs": door_travel_wait_ms,
             "cleanSolenoidPulseMs": 1000,
             "smokeMonitoringEnabled": True,
@@ -130,27 +131,28 @@ def _sample_configuration(
         "ports": [
             {
                 "portNo": 1,
+                "displayName": "投口1",
                 "enabled": True,
                 "unitPriceTenThousandths": 4500,
-                "fullnessMode": 3,
+                "fullnessMode": "SENSOR_OR_WEIGHT",
                 "configuredFullWeightGrams": 50000,
                 "fullnessSettleWaitMs": 5000,
-                "fullnessSensorKind": 1,
+                "fullnessSensorKind": "ULTRASONIC",
                 "fullnessDistanceThresholdMm": 600,
                 "fullnessSampleCount": 5,
                 "fullnessMinimumValidSampleCount": 3,
                 "fullnessEchoTimeoutUs": 30000,
                 "weightStableWindowMs": 1500,
-                "weightMaximumFluctuationGrams": 20,
-                "weightRequiredSampleCount": 10,
-                "weightMeasurementTimeoutMs": 6000,
+                "weightMaximumFluctuationGrams": 100,
+                "weightRequiredSampleCount": 5,
+                "weightMeasurementTimeoutMs": 5000,
                 "weightMinimumGrams": -5000,
                 "weightMaximumGrams": 100000,
                 "calibrationVersion": 4,
             }
         ],
     }
-    payload["config"]["mcuPayloadSha256"] = compute_mcu_payload_sha256(
+    payload["config"]["mcuPayloadSha256"] = compute_native_mcu_payload_sha256(
         payload
     )
     return {"payload": payload}

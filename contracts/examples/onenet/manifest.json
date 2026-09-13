@@ -109,6 +109,10 @@
       "schema": "../../onenet/events/events.schema.json"
     },
     {
+      "file": "device-entry-url-application-result.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
       "file": "baseline-measurement-complete.event.json",
       "schema": "../../onenet/events/events.schema.json"
     },

@@ -10,6 +10,7 @@ import org.enveloping.ecobin.device.application.remote.RemoteSupportSessionServi
 import org.enveloping.ecobin.device.application.software.DeviceSoftwareCompatibilityService;
 import org.enveloping.ecobin.device.application.software.BusinessReleaseControlPlaneService;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
+import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -37,6 +38,7 @@ public class TrustedPlatformDeviceAssetFactService
             "DEVICE_FAULT_RECOVERED",
             "SAFETY_SENSOR_STATE_CHANGED",
             "DEVICE_COMMAND_OBSERVED",
+            "DEVICE_ENTRY_URL_APPLICATION_RESULT",
             "FACTORY_SEAL_COMPLETED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
             DeliveryRecoveryQuarantineService.EVENT_TYPE,
@@ -62,6 +64,7 @@ public class TrustedPlatformDeviceAssetFactService
     private final DeliveryRecoveryQuarantineService
             deliveryRecoveryQuarantines;
     private final NativeDeliveryIssueService nativeDeliveryIssues;
+    private final ReliableDeviceTaskProofPort taskProofPort;
 
     public TrustedPlatformDeviceAssetFactService(
             JdbcTemplate jdbc,
@@ -117,7 +120,32 @@ public class TrustedPlatformDeviceAssetFactService
                     deliveryRecoveryQuarantines) {
         this(jdbc, objectMapper, confirmationService, remoteSupportSessions,
                 firmwareRollouts, factorySealAuthorizations, softwareCompatibility,
-                businessReleases, deliveryRecoveryQuarantines, null);
+                businessReleases, deliveryRecoveryQuarantines, null, null);
+    }
+
+    public TrustedPlatformDeviceAssetFactService(
+            JdbcTemplate jdbc,
+            ObjectMapper objectMapper,
+            ReliablePlatformEdgeConfirmationService confirmationService,
+            RemoteSupportSessionService remoteSupportSessions,
+            McuFirmwareRolloutService firmwareRollouts,
+            FactorySealAuthorizationService factorySealAuthorizations,
+            DeviceSoftwareCompatibilityService softwareCompatibility,
+            BusinessReleaseControlPlaneService businessReleases,
+            DeliveryRecoveryQuarantineService deliveryRecoveryQuarantines,
+            NativeDeliveryIssueService nativeDeliveryIssues) {
+        this(
+                jdbc,
+                objectMapper,
+                confirmationService,
+                remoteSupportSessions,
+                firmwareRollouts,
+                factorySealAuthorizations,
+                softwareCompatibility,
+                businessReleases,
+                deliveryRecoveryQuarantines,
+                nativeDeliveryIssues,
+                null);
     }
 
     @Autowired
@@ -128,7 +156,8 @@ public class TrustedPlatformDeviceAssetFactService
             DeviceSoftwareCompatibilityService softwareCompatibility,
             BusinessReleaseControlPlaneService businessReleases,
             DeliveryRecoveryQuarantineService deliveryRecoveryQuarantines,
-            NativeDeliveryIssueService nativeDeliveryIssues) {
+            NativeDeliveryIssueService nativeDeliveryIssues,
+            ReliableDeviceTaskProofPort taskProofPort) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.confirmationService = confirmationService;
@@ -140,6 +169,7 @@ public class TrustedPlatformDeviceAssetFactService
         this.deliveryRecoveryQuarantines =
                 deliveryRecoveryQuarantines;
         this.nativeDeliveryIssues = nativeDeliveryIssues;
+        this.taskProofPort = taskProofPort;
     }
 
     @Override
@@ -288,6 +318,61 @@ public class TrustedPlatformDeviceAssetFactService
                 return applied.changed()
                         ? TrustedDeviceEventApplyResult.APPLIED
                         : TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
+            }
+            if ("DEVICE_ENTRY_URL_APPLICATION_RESULT".equals(
+                    inboxEvent.messageKind())) {
+                if (taskProofPort == null) {
+                    throw new IllegalStateException(
+                            "device entry URL task proof handler is unavailable");
+                }
+                JsonNode payload = requiredObject(event, "payload");
+                String commandUid = requiredPattern(
+                        event, "commandUid", UUID_V4);
+                requiredPattern(payload, "applicationUid", UUID_V4);
+                String urlSha256 = requiredPattern(
+                        payload, "deviceEntryUrlSha256", SHA256);
+                requiredPattern(payload, "mcuCommandUid", UUID_V4);
+                JsonNode boot = payload.get("mcuBootId");
+                if (boot == null || !boot.isIntegralNumber()
+                        || !boot.canConvertToLong()
+                        || boot.longValue() < 1
+                        || boot.longValue() > 9_007_199_254_740_991L) {
+                    throw new IllegalArgumentException(
+                            "mcuBootId must be a positive safe integer");
+                }
+                String status = requiredText(payload, "status", 16);
+                String basis = requiredText(
+                        payload, "displayBasis", 64);
+                JsonNode fault = payload.get("faultCode");
+                String faultCode = fault == null || fault.isNull()
+                        ? null : requiredPattern(
+                                payload,
+                                "faultCode",
+                                "^[A-Z][A-Z0-9_]{0,63}$");
+                boolean valid = "APPLIED".equals(status)
+                        ? "UART3_COMMAND_ATOMICALLY_QUEUED".equals(basis)
+                                && faultCode == null
+                        : "FAILED".equals(status)
+                                && "NOT_APPLIED".equals(basis)
+                                && faultCode != null;
+                if (!valid) {
+                    throw new IllegalArgumentException(
+                            "device entry URL application result is invalid");
+                }
+                taskProofPort.applyDeviceEntryUrlApplicationResult(
+                        java.util.UUID.fromString(commandUid),
+                        hardwareSn,
+                        urlSha256,
+                        status,
+                        faultCode);
+                confirmationService.ensureApplied(
+                        assetIds.getFirst(),
+                        hardwareSn,
+                        eventUid,
+                        payloadSha256,
+                        "UPDATED",
+                        now);
+                return TrustedDeviceEventApplyResult.APPLIED;
             }
             boolean remoteSupportChanged = false;
             if ("REMOTE_SUPPORT_TUNNEL_STATUS".equals(

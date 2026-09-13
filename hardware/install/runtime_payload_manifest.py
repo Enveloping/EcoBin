@@ -45,6 +45,7 @@ RUNTIME_APP_FILES = (
     "native_result_evidence.py",
     "native_result_report.py",
     "native_delivery_issue_report.py",
+    "native_device_entry_url.py",
     "native_delivery_recovery_close.py",
     "native_recovery_close_isolation.py",
     "native_recovery_entry.py",

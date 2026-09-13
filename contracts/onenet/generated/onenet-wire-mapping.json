@@ -2153,6 +2153,34 @@
         },
         {
           "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceEntryUrlMcuApplied",
+          "nullable": false,
+          "optional": true,
+          "wireIdentifier": "deviceEntryUrlMcuApplied"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceEntryUrlAppliedSha256",
+          "nullable": true,
+          "optional": true,
+          "wireIdentifier": "deviceEntryUrlAppliedSha2"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceEntryUrlAppliedMcuBootId",
+          "nullable": true,
+          "optional": true,
+          "wireIdentifier": "deviceEntryUrlAppliedMcuB"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceEntryUrlDisplayBasis",
+          "nullable": false,
+          "optional": true,
+          "wireIdentifier": "deviceEntryUrlDisplayBasi"
+        },
+        {
+          "encoding": "FLAT_TYPED",
           "jsonPath": "$.payload.mcuSimulated",
           "nullable": false,
           "wireIdentifier": "mcuSimulated"
@@ -2287,6 +2315,116 @@
         }
       ],
       "schemaRef": "events/events.schema.json#/$defs/deviceCommandObservedEvent"
+    },
+    "deviceEntryUrlApplicationResult": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "DEVICE_ENTRY_URL_APPLICATION_RESULT",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.applicationUid",
+          "nullable": false,
+          "wireIdentifier": "applicationUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.status",
+          "nullable": false,
+          "wireIdentifier": "status"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceEntryUrlSha256",
+          "nullable": false,
+          "wireIdentifier": "deviceEntryUrlSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuCommandUid",
+          "nullable": false,
+          "wireIdentifier": "mcuCommandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuBootId",
+          "nullable": false,
+          "wireIdentifier": "mcuBootId"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.displayBasis",
+          "nullable": false,
+          "wireIdentifier": "displayBasis"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.faultCode",
+          "nullable": true,
+          "wireIdentifier": "faultCode"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/deviceEntryUrlApplicationResultEvent"
     },
     "deviceFaultObserved": {
       "deliveryClass": "RELIABLE_FACT",
@@ -5971,7 +6109,7 @@
     }
   },
   "generated": true,
-  "mappingVersion": "2.3.0",
+  "mappingVersion": "2.4.0",
   "projection": {
     "dataProtocol": "OneJSON",
     "enumEncoding": "JSON string enums are encoded as OneNet integer enums; generated wire mapping is authoritative for integer-to-symbol conversion.",

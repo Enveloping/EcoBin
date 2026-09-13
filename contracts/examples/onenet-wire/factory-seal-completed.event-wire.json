@@ -2,15 +2,15 @@
   "identifier": "factorySealCompleted",
   "kind": "EVENT",
   "oneJsonPayload": {
-    "id": "115",
+    "id": "116",
     "params": {
       "factorySealCompleted": {
         "value": {
           "acceptanceChallengeUid": "8a000000-0000-4000-8000-000000000003",
-          "acceptanceEvidenceSha256": "c3b2ee98dbd0a630d73c65ac04ce1fccc5354bc692cec945c87426ba5e773fd5",
+          "acceptanceEvidenceSha256": "65fc7f61f68f9487a09f8873999af45bfa1b4e216ee2c47da7c0cd9b07f90816",
           "acceptanceEvidenceUid": "8a000000-0000-4000-8000-000000000001",
           "acceptanceGeneration": 1,
-          "authorizationBindingSha256": "4b724e15418e0a7d4f31e1209ea13662a8f2f132bbd3a8c2a0599868c88c7712",
+          "authorizationBindingSha256": "15218c7f6d4b9b1d8c68ae8a59281628666a18c8253f4333c339c2f36dda0a04",
           "authorizationCommandUid": "8a000000-0000-4000-8000-000000000007",
           "cleanupCompletedAt": "2026-07-24T01:00:30.000Z",
           "cleanupCompletedAtPresent": true,
@@ -31,7 +31,7 @@
           "occurredAt": "2026-07-24T01:00:30.000Z",
           "occurredAtPresent": true,
           "operatorConfirmationUid": "8a000000-0000-4000-8000-00000000000b",
-          "payloadSha256": "031d005375d7e2e720031016548b2196b8448f207fde2352116e8a37702c1b9a",
+          "payloadSha256": "ecde6af9876871f030cc4e1c30ad1863d808a8d5d8f8c4acc2f2a1e1492a5747",
           "schemaVersion": 1,
           "sealCompletionSchemaVersion": 2,
           "sealedAt": "2026-07-24T01:00:20.000Z",

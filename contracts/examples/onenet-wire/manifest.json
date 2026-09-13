@@ -18,6 +18,7 @@
     "delivery-recovery-quarantined.event-wire.json",
     "device-acceptance-evidence.event-wire.json",
     "device-command-observed.event-wire.json",
+    "device-entry-url-application-result.event-wire.json",
     "device-fault-observed.event-wire.json",
     "device-fault-recovered.event-wire.json",
     "device-runtime-snapshot.event-wire.json",

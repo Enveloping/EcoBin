@@ -22,6 +22,7 @@ static McuControlEndpoint control;
 static McuWorkPreparation preparation;
 static McuDeliveryExecution delivery;
 static McuCleanExecution clean;
+static McuDeviceEntryUrl device_entry_url;
 static uint8_t smoke_enabled = 1u, control_tx_failed, initialization_failed;
 static uint8_t display_phase = 0xffu, display_status = 0xffu;
 static uint8_t displayed_measurement[16];
@@ -78,6 +79,10 @@ static void send_control(const uint8_t *bytes, size_t length, void *context) {
     (void)context;
     if (!NativeUsart_SendControl(bytes, length)) control_tx_failed = 1u;
 }
+static uint8_t send_device_entry_url(const uint8_t *url, uint16_t length, void *context) {
+    (void)context;
+    return UART3_TrySendQRCode(url, length);
+}
 static uint16_t guard(uint8_t message, const uint8_t *payload, size_t length, uint64_t now, void *context) {
     (void)payload; (void)length; (void)now; (void)context;
     if (initialization_failed || control_tx_failed || ActuatorRuntime_Snapshot().update_latched)
@@ -87,6 +92,9 @@ static uint16_t guard(uint8_t message, const uint8_t *payload, size_t length, ui
     case ECOBIN_UART_MESSAGE_CONFIG_DEVICE_BLOCK:
     case ECOBIN_UART_MESSAGE_CONFIG_PORT_BLOCK:
     case ECOBIN_UART_MESSAGE_CONFIG_COMMIT:
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_BEGIN:
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_PART:
+    case ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_COMMIT:
     case ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION:
     case ECOBIN_UART_MESSAGE_START_CLEAN_OPERATION:
     case ECOBIN_UART_MESSAGE_MEASURE_BASELINE:
@@ -302,6 +310,8 @@ int main(void) {
     (void)ADC1_TryInit(); SmokeMonitor_Init();
     McuControlEndpoint_Init(&control, 1u, send_control, 0);
     initialization_failed = (uint8_t)(!McuWorkPreparation_Attach(&preparation, &control, 1u, guard, 0)
+        || !McuWorkPreparation_AttachDeviceEntryUrl(&preparation, &control,
+            &device_entry_url, send_device_entry_url, 0)
         || !McuDeliveryExecution_Attach(&delivery, &preparation, &control)
         || !McuCleanExecution_Attach(&clean, &preparation, &control)
         || !McuWorkPreparation_SetConfigurationApply(&preparation, &control, apply_configuration, 0));

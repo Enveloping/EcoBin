@@ -5021,7 +5021,7 @@ def build_onenet_examples(digest_vectors: list[dict[str, Any]] | None = None) ->
         "DEVICE_ASSET",
         "SN-CONTRACT-0001",
         {
-            "evidenceSchemaVersion": 4,
+            "evidenceSchemaVersion": 5,
             "challengeUid": acceptance_challenge_uid,
             "factoryBagRevision": factory_bag_revision,
             "factoryBagSetSha256": factory_bag_set_sha256,
@@ -5041,6 +5041,12 @@ def build_onenet_examples(digest_vectors: list[dict[str, Any]] | None = None) ->
             "cameraUploadHealthy": True,
             "deviceEntryUrlStored": True,
             "deviceEntryUrlSha256": device_entry_url_sha256,
+            "deviceEntryUrlMcuApplied": True,
+            "deviceEntryUrlAppliedSha256": device_entry_url_sha256,
+            "deviceEntryUrlAppliedMcuBootId": 101,
+            "deviceEntryUrlDisplayBasis": (
+                "UART3_COMMAND_ATOMICALLY_QUEUED"
+            ),
             "mcuSimulated": False,
             "camerasSimulated": False,
             "verifiedPortCount": 2,
@@ -5132,6 +5138,24 @@ def build_onenet_examples(digest_vectors: list[dict[str, Any]] | None = None) ->
             "deviceEntryUrl": device_entry_url,
             "deviceEntryUrlSha256": device_entry_url_sha256,
         },
+    )
+    device_entry_url_application_result_event = _event(
+        "8a000000-0000-4000-8000-00000000000c",
+        1060,
+        "DEVICE_ENTRY_URL_APPLICATION_RESULT",
+        "RELIABLE_FACT",
+        "DEVICE_ASSET",
+        "SN-CONTRACT-0001",
+        {
+            "applicationUid": "8a000000-0000-4000-8000-00000000000d",
+            "status": "APPLIED",
+            "deviceEntryUrlSha256": device_entry_url_sha256,
+            "mcuCommandUid": "8a000000-0000-4000-8000-00000000000e",
+            "mcuBootId": 101,
+            "displayBasis": "UART3_COMMAND_ATOMICALLY_QUEUED",
+            "faultCode": None,
+        },
+        command_uid=sync_device_entry_url_command["commandUid"],
     )
     firmware_release_uid = "8c000000-0000-4000-8000-000000000001"
     firmware_deployment_uid = "8c000000-0000-4000-8000-000000000002"
@@ -5514,6 +5538,10 @@ def build_onenet_examples(digest_vectors: list[dict[str, Any]] | None = None) ->
         ),
         "configuration-progress.event.json": (
             configuration_progress_event,
+            "../../onenet/events/events.schema.json",
+        ),
+        "device-entry-url-application-result.event.json": (
+            device_entry_url_application_result_event,
             "../../onenet/events/events.schema.json",
         ),
         "baseline-measurement-complete.event.json": (

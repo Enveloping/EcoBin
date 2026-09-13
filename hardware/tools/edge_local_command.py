@@ -25,7 +25,7 @@ if str(HARDWARE_DIR) not in sys.path:
 from config import DEVICE_NAME, EDGE_STORE_PATH  # noqa: E402
 from edge_store import EdgeStore  # noqa: E402
 from onenet_wire import canonical_payload_sha256, validate_command_envelope  # noqa: E402
-from uart_link import compute_mcu_payload_sha256  # noqa: E402
+from uart_link import compute_native_mcu_payload_sha256  # noqa: E402
 
 DEFAULT_COMMAND_TTL_SECONDS = 30
 DEFAULT_WAIT_SECONDS = 3.0
@@ -160,6 +160,7 @@ def build_sample_configuration_command(
     application_uid = application_uid or _new_uid()
     payload = {
         "applicationUid": application_uid,
+        "mcuConfigurationProfile": "UART_V2_SIMPLIFIED",
         "config": {
             "version": config_version,
             "contentSha256": hashlib.sha256(
@@ -171,7 +172,7 @@ def build_sample_configuration_command(
             "continueDeliveryWaitMs": 30000,
             "negativeWeightThresholdGrams": 500,
             "deliveryAutoCloseMs": 120000,
-            "weightMeasurementTimeoutMs": 6000,
+            "weightMeasurementTimeoutMs": 5000,
             "deliveryDoorTravelWaitMs": door_travel_wait_ms,
             "cleanSolenoidPulseMs": 1000,
             "smokeMonitoringEnabled": True,
@@ -179,27 +180,28 @@ def build_sample_configuration_command(
         "ports": [
             {
                 "portNo": 1,
+                "displayName": "投口1",
                 "enabled": True,
                 "unitPriceTenThousandths": 4500,
-                "fullnessMode": 3,
+                "fullnessMode": "SENSOR_OR_WEIGHT",
                 "configuredFullWeightGrams": 50000,
                 "fullnessSettleWaitMs": 5000,
-                "fullnessSensorKind": 1,
+                "fullnessSensorKind": "ULTRASONIC",
                 "fullnessDistanceThresholdMm": 600,
                 "fullnessSampleCount": 5,
                 "fullnessMinimumValidSampleCount": 3,
                 "fullnessEchoTimeoutUs": 30000,
                 "weightStableWindowMs": 1500,
-                "weightMaximumFluctuationGrams": 20,
-                "weightRequiredSampleCount": 10,
-                "weightMeasurementTimeoutMs": 6000,
+                "weightMaximumFluctuationGrams": 100,
+                "weightRequiredSampleCount": 5,
+                "weightMeasurementTimeoutMs": 5000,
                 "weightMinimumGrams": -5000,
                 "weightMaximumGrams": 100000,
                 "calibrationVersion": 4,
             }
         ],
     }
-    payload["config"]["mcuPayloadSha256"] = compute_mcu_payload_sha256(
+    payload["config"]["mcuPayloadSha256"] = compute_native_mcu_payload_sha256(
         payload
     )
     command_uid = command_uid or _new_uid()

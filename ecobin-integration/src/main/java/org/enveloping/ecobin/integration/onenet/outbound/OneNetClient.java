@@ -1001,6 +1001,10 @@ public class OneNetClient
             projectedPorts.add(projected);
         }
         params.put("ports", projectedPorts);
+        // OneNet 的固定物模型结构仍要求携带可空字段的存在标记及
+        // 一个类型合法的占位枚举；false 明确表示领域命令没有该字段。
+        params.put("mcuConfigurationProfilePresent", false);
+        params.put("mcuConfigurationProfile", 1);
         params.put("cosGrantPresent", false);
         return params;
     }
@@ -2305,9 +2309,10 @@ public class OneNetClient
         }
         for (byte current : url.getBytes(StandardCharsets.US_ASCII)) {
             int unsigned = Byte.toUnsignedInt(current);
-            if (unsigned < 0x21 || unsigned > 0x7e) {
+            if (unsigned < 0x21 || unsigned > 0x7e
+                    || unsigned == '"' || unsigned == '\\') {
                 throw new IllegalArgumentException(
-                        "deviceEntryUrl must contain printable ASCII only");
+                        "deviceEntryUrl must contain safe printable ASCII only");
             }
         }
         String digest = requiredMatchingText(

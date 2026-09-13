@@ -23,7 +23,8 @@ def test_main_uses_one_native_parser_and_real_drivers():
     source = (ROOT / 'hardware_mcu/USER/main.c').read_text(encoding='utf-8')
     for symbol in ('McuControlEndpoint_Feed', 'McuWorkPreparation_Poll', 'McuDeliveryExecution_Attach',
                    'McuCleanExecution_Attach', 'NativeUsart_SendScaleQuery', 'McuWeightRun_FinishOwnedAttempt',
-                   'McuWeightRun_FinishIdleAttempt', 'McuDeliveryExecution_CloseCurrent'):
+                   'McuWeightRun_FinishIdleAttempt', 'McuDeliveryExecution_CloseCurrent',
+                   'McuWorkPreparation_AttachDeviceEntryUrl', 'UART3_TrySendQRCode'):
         assert symbol in source
     assert 'Vision_Process(' not in source
     assert 'McuSafeCloseExecution_Attach' not in source
@@ -33,14 +34,36 @@ def test_main_uses_one_native_parser_and_real_drivers():
     assert 'scale_poll();\n        hmi_poll();' in source
 
 
+def test_hmi_url_writer_has_one_bounded_atomic_queue_operation():
+    source = (ROOT / 'hardware_mcu/USER/usart3.c').read_text(encoding='utf-8')
+    assert 'static const uint8_t prefix[] = "page0.qr0.txt=\\\"";' in source
+    assert "static const uint8_t suffix[] = {'\\\"', 0xffu, 0xffu, 0xffu};" in source
+    helper = source[source.index('static uint8_t hmi_try_write'):
+                    source.index('/* UART3 接收缓冲区 */')]
+    assert 'NativeRx_WriteAtomic(&NativeHmiTx, spans, count)' in helper
+    assert helper.index('__disable_irq();') < helper.index('NativeRx_WriteAtomic') < helper.index('__set_PRIMASK(previous);')
+    block = source[source.index('uint8_t UART3_TrySendQRCode'):]
+    assert 'return hmi_try_write(spans, 3u);' in block
+    assert 'UART3_SendByte' not in block
+    # A later display update may be rejected, but cannot erase an already
+    # accepted QR command from the TX ring.
+    assert 'NativeRx_DiscardOverflow(&NativeHmiTx)' not in source
+    assert 'NativeRx_PushIrq(&NativeHmiTx' not in source
+    assert source.count('hmi_try_write(') == 7
+
+
 def test_native_keil_links_generated_protocol_once_and_uses_real_memory_limits():
     import xml.etree.ElementTree as ET
     target = ET.parse(ROOT / 'hardware_mcu/USER/STM32-DEMO.uvprojx').getroot().find('Targets/Target')
+    c_options = target.find('TargetOption/TargetArmAds/Cads')
+    assert c_options.findtext('uC99') == '1'
+    assert c_options.findtext('OneElfS') == '1'  # lets the linker remove unused generated-code sections
     names = [item.text for item in target.findall('Groups/Group/Files/File/FileName')]
     assert names.count('main.c') == 1 and 'main_legacy.c' not in names
     assert names.count('ecobin_uart_protocol.c') == 1
     assert 'mcu_safe_close_execution.c' not in names
     assert 'native_serial_buffer.c' in names and 'ultrasonic_stm32.c' in names
+    assert names.count('mcu_device_entry_url.c') == 1
     linker = (ROOT / 'hardware_mcu/native_firmware.sct').read_text(encoding='utf-8')
     assert '0x08000000 0x10000' in linker and '0x20000000 0x5000' in linker
     assert 'startup_stm32f10x_md.o (RESET, +First)' in linker

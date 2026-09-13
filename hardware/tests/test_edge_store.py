@@ -1335,12 +1335,12 @@ class TestAtomicReceiveCommand:
 
 
 class TestFactorySealAuthorization:
-    def test_only_latest_v4_local_acceptance_evidence_can_authorize(self):
+    def test_only_latest_supported_local_acceptance_evidence_can_authorize(self):
         store = make_store()
         device_name = "SN-FACTORY-0001"
         bag_digest = "a" * 64
 
-        def record_evidence() -> dict:
+        def record_evidence(schema_version=4) -> dict:
             command_uid = str(uuid.uuid4())
             challenge_uid = str(uuid.uuid4())
             command = {
@@ -1357,7 +1357,7 @@ class TestFactorySealAuthorization:
             return store.complete_device_acceptance(
                 command,
                 {
-                    "evidenceSchemaVersion": 4,
+                    "evidenceSchemaVersion": schema_version,
                     "challengeUid": challenge_uid,
                     "factoryBagRevision": 2,
                     "factoryBagSetSha256": bag_digest,
@@ -1365,7 +1365,7 @@ class TestFactorySealAuthorization:
             )
 
         evidence_a = record_evidence()
-        evidence_b = record_evidence()
+        evidence_b = record_evidence(schema_version=5)
 
         def seal_command(evidence: dict) -> dict:
             evidence_payload = evidence["payload"]

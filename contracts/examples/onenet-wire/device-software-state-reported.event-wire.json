@@ -2,7 +2,7 @@
   "identifier": "deviceSoftwareStateReported",
   "kind": "EVENT",
   "oneJsonPayload": {
-    "id": "120",
+    "id": "121",
     "params": {
       "deviceSoftwareStateReported": {
         "value": {

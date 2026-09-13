@@ -59,6 +59,16 @@ static void bound(McuControlEndpoint *endpoint, void *context) {
     owner->baseline_published = 0u;
     owner->baseline_begin_failed = 0u;
     owner->baseline_first_attempt_sequence = 0u;
+    if (owner->device_entry_url != NULL)
+        McuDeviceEntryUrl_Bind(owner->device_entry_url, endpoint->session.boot_id);
+}
+
+static size_t command_result(const McuSessionCommand *command, uint8_t *message,
+    uint8_t *output, size_t capacity, void *context) {
+    McuWorkPreparation *owner = (McuWorkPreparation *)context;
+    if (owner->device_entry_url == NULL) return 0u;
+    return McuDeviceEntryUrl_CopyResult(owner->device_entry_url, command,
+        message, output, capacity);
 }
 
 static uint8_t baseline_command_received(McuWorkPreparation *owner, McuControlEndpoint *endpoint,
@@ -141,13 +151,41 @@ static uint8_t command_received(McuControlEndpoint *endpoint, uint8_t message,
     uint8_t phase, action, handled;
     uint16_t error;
     uint32_t measurement_sequence;
+    if (message >= ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_BEGIN
+        && message <= ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_COMMIT) {
+        if (owner->device_entry_url == NULL) {
+            command.target_boot_id = ecobin_uart_read_u64_be(payload + START(TARGET_MCU_BOOT_ID));
+            command.sequence = ecobin_uart_read_u32_be(payload + START(COMMAND_SEQUENCE));
+            memcpy(command.uid, payload + START(MCU_COMMAND_UID), sizeof(command.uid));
+            memcpy(command.digest, payload + START(COMMAND_DIGEST_SHA256), sizeof(command.digest));
+            return McuSession_ReceiveCommand(&endpoint->session, &command,
+                ECOBIN_UART_NACK_ERROR_UNSUPPORTED_MESSAGE, decision);
+        }
+        error = owner->guard(message, payload, length, now, owner->guard_context);
+        if (error > ECOBIN_UART_NACK_ERROR_INTERNAL_FAULT)
+            error = ECOBIN_UART_NACK_ERROR_INTERNAL_FAULT;
+        if (error == ECOBIN_UART_NACK_ERROR_NONE
+            && (owner->recovery_active || owner->baseline_active
+                || (owner->weight.present && !owner->weight.retired)
+                || owner->weight.in_flight || McuConfiguration_IsStaging(&owner->configuration)))
+            error = ECOBIN_UART_NACK_ERROR_BUSY;
+        return McuDeviceEntryUrl_Receive(owner->device_entry_url, endpoint,
+            error, message, payload, length, now, decision);
+    }
     if (message == ECOBIN_UART_MESSAGE_MEASURE_BASELINE)
         return baseline_command_received(owner, endpoint, payload, length, now, decision);
     if (message != ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION && message != ECOBIN_UART_MESSAGE_START_CLEAN_OPERATION
         && (message < ECOBIN_UART_MESSAGE_CONFIG_BEGIN || message > ECOBIN_UART_MESSAGE_CONFIG_COMMIT)) {
-        if (message == ECOBIN_UART_MESSAGE_SAFE_CLOSE)
-            return owner->recovery.handler != NULL && owner->recovery.handler(endpoint,
+        if (message == ECOBIN_UART_MESSAGE_SAFE_CLOSE) {
+            if (owner->recovery.handler != NULL) return owner->recovery.handler(endpoint,
                 message, payload, length, now, owner->recovery.context, decision);
+            command.target_boot_id = ecobin_uart_read_u64_be(payload + START(TARGET_MCU_BOOT_ID));
+            command.sequence = ecobin_uart_read_u32_be(payload + START(COMMAND_SEQUENCE));
+            memcpy(command.uid, payload + START(MCU_COMMAND_UID), sizeof(command.uid));
+            memcpy(command.digest, payload + START(COMMAND_DIGEST_SHA256), sizeof(command.digest));
+            return McuSession_ReceiveCommand(&endpoint->session, &command,
+                ECOBIN_UART_NACK_ERROR_UNSUPPORTED_MESSAGE, decision);
+        }
         for (action = 0u; action < 2u; ++action)
             if (owner->actions[action].handler != NULL && owner->actions[action].handler(endpoint,
                 message, payload, length, now, owner->actions[action].context, decision)) return 1u;
@@ -315,13 +353,25 @@ static uint8_t poll_baseline(McuWorkPreparation *owner, McuControlEndpoint *endp
 uint8_t McuWorkPreparation_Attach(McuWorkPreparation *owner, McuControlEndpoint *endpoint,
     uint8_t port_count, McuPreparationGuard guard, void *context) {
     if (owner == NULL || guard == NULL || port_count == 0u || port_count > 6u
-        || !McuControlEndpoint_AttachCommands(endpoint, command_received, bound, owner)) return 0u;
+        || !McuControlEndpoint_AttachCommands(endpoint, command_received, bound, owner)
+        || !McuControlEndpoint_AttachCommandResults(endpoint, command_result)) return 0u;
     memset(owner, 0, sizeof(*owner));
     owner->guard = guard;
     owner->guard_context = context;
     owner->port_count = port_count;
     McuConfiguration_Init(&owner->configuration, 0u, port_count);
     McuWeightRun_Init(&owner->weight);
+    return 1u;
+}
+
+uint8_t McuWorkPreparation_AttachDeviceEntryUrl(McuWorkPreparation *owner,
+    McuControlEndpoint *endpoint, McuDeviceEntryUrl *state,
+    McuDeviceEntryUrlWriter writer, void *context) {
+    if (owner == NULL || endpoint == NULL || state == NULL || writer == NULL
+        || endpoint->session.boot_id != 0u || endpoint->feeding
+        || endpoint->application_context != owner || owner->device_entry_url != NULL) return 0u;
+    McuDeviceEntryUrl_Init(state, writer, context);
+    owner->device_entry_url = state;
     return 1u;
 }
 

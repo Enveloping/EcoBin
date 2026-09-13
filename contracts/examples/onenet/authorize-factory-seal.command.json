@@ -6,7 +6,7 @@
   "issuedAt": "2026-07-24T01:00:00.000Z",
   "payload": {
     "acceptanceChallengeUid": "8a000000-0000-4000-8000-000000000003",
-    "acceptanceEvidenceSha256": "c3b2ee98dbd0a630d73c65ac04ce1fccc5354bc692cec945c87426ba5e773fd5",
+    "acceptanceEvidenceSha256": "65fc7f61f68f9487a09f8873999af45bfa1b4e216ee2c47da7c0cd9b07f90816",
     "acceptanceEvidenceUid": "8a000000-0000-4000-8000-000000000001",
     "acceptanceGeneration": 1,
     "factoryBagRevision": 2,
@@ -15,7 +15,7 @@
     "sealAuthorizationSchemaVersion": 1
   },
   "payloadSchemaVersion": 2,
-  "payloadSha256": "4fba4c89ac4ccc4ff973f18c0d580e738aed2639c27dd6e4b6f10c913bf6e351",
+  "payloadSha256": "8a2634e1798d59a5cc3f1fcd6e12d8fa229fd64cf674329106fef81847691b99",
   "schemaVersion": 2,
   "target": {
     "type": "DEVICE_ASSET",

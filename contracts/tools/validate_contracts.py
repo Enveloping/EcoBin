@@ -675,6 +675,7 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
     command_bound_events = {
         "DEVICE_COMMAND_OBSERVED",
         "CONFIGURATION_PROGRESS",
+        "DEVICE_ENTRY_URL_APPLICATION_RESULT",
         "DELIVERY_COMPLETE",
         "DELIVERY_ISSUE_ARCHIVED",
         "DELIVERY_ISSUE_EVIDENCE_APPENDED",
@@ -719,6 +720,10 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         and instance["target"]["uid"] != instance["commandUid"]
     ):
         raise ContractError("DEVICE_COMMAND_OBSERVED target must be the commandUid")
+
+    if event_type == "DEVICE_ENTRY_URL_APPLICATION_RESULT":
+        if instance["target"]["uid"] == "" or payload["deviceEntryUrlSha256"] == "0" * 64:
+            raise ContractError("device entry URL application result has no authoritative target or digest")
 
     if event_type == "MCU_FIRMWARE_UPDATE_PROGRESS":
         if payload["source"] == "CLOUD" and instance["commandUid"] is None:
@@ -1094,6 +1099,17 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
             raise ContractError(
                 "stored device entry URL requires a non-zero digest"
             )
+        if payload["evidenceSchemaVersion"] == 5:
+            if (
+                not payload["deviceEntryUrlMcuApplied"]
+                or payload["deviceEntryUrlAppliedSha256"]
+                != payload["deviceEntryUrlSha256"]
+                or payload["deviceEntryUrlDisplayBasis"]
+                != "UART3_COMMAND_ATOMICALLY_QUEUED"
+            ):
+                raise ContractError(
+                    "acceptance v5 requires matching MCU/HMI URL application evidence"
+                )
 
 
 def _validate_command_semantics(

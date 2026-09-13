@@ -407,17 +407,37 @@ class CommandProcessor:
             raise RuntimeError("device acceptance runner is required")
         self._acceptance.report_progress("REQUEST_RECEIVED")
         try:
-            self._persist_and_dispatch_device_entry_url(command)
+            record = self._persist_and_dispatch_device_entry_url(command)
         except Exception:
             self._acceptance.report_progress(
                 "FAILED",
                 "P8_DEVICE_ENTRY_URL_FAILED",
             )
             raise
+        if record.get("native_pending") is True:
+            if record.get("waiting_for_reload") is True:
+                if not self._store.park_claimed_acceptance_for_device_entry_url_reload(
+                    command["commandUid"],
+                    record["deviceEntryUrlSha256"],
+                ):
+                    raise RuntimeError(
+                        "device entry URL reload wait could not be parked"
+                    )
+            grant = command.get("cosGrant")
+            if isinstance(grant, dict):
+                # Keep execution-only COS credentials only in this process.
+                # After APPLY_RESULT the durable continuation is requeued and
+                # claims this grant once; a Pi restart deliberately loses it
+                # and requires a fresh backend grant.
+                with self._grant_lock:
+                    self._volatile_cos_grants[command["commandUid"]] = grant
+            return
         self._acceptance.run(command)
 
     def _sync_device_entry_url(self, command: dict) -> None:
         record = self._persist_and_dispatch_device_entry_url(command)
+        if record.get("native_pending") is True:
+            return
         self._store.complete_command(
             command["commandUid"],
             {
@@ -542,18 +562,22 @@ class CommandProcessor:
         if active is None:
             raise RuntimeError("device entry URL was not persisted")
         sender = getattr(self._uart, "send_device_entry_url", None)
-        if callable(sender):
-            try:
-                sender(active["deviceEntryUrl"])
-            except Exception as error:
-                logger.warning(
-                    "device entry URL saved but MCU dispatch failed: %s",
-                    error,
-                )
-        else:
-            logger.warning(
-                "device entry URL saved; current UART adapter cannot dispatch it"
+        if not callable(sender):
+            raise RuntimeError(
+                "current UART adapter cannot dispatch the device entry URL"
             )
+        if getattr(self._uart, "native_protocol", None) == 2:
+            dispatched = sender(
+                active["deviceEntryUrl"],
+                command=command,
+                stored_record=active,
+            )
+            return {
+                **active,
+                "disposition": record["disposition"],
+                **(dispatched or {}),
+            }
+        sender(active["deviceEntryUrl"])
         return {**active, "disposition": record["disposition"]}
 
     def _start_delivery_session(self, command: dict) -> None:

@@ -340,20 +340,9 @@ class EcoBinEdge:
         if self._native_mode:
             self.work.photo = self.photo
             self.work.reporter.photo = self.photo
-        self.acceptance = None
-        if not cloud_proxy_enabled and not self._native_mode:
-            from device_acceptance import DeviceAcceptanceRunner
-
-            self.acceptance = DeviceAcceptanceRunner(
-                self.store,
-                self.uart,
-                self.photo,
-                self.cos_uploader,
-                device_name=DEVICE_NAME,
-                mcu_remote_update_capable=MCU_REMOTE_UPDATE_CAPABLE,
-                edge_software_version=EDGE_SOFTWARE_VERSION,
-                progress_callback=self._report_p8_progress,
-            )
+        self.acceptance = self._make_device_acceptance_runner(
+            cloud_proxy_enabled
+        )
         self.remote_support = RemoteSupportControlClient(
             REMOTE_SUPPORT_CONTROL_SOCKET,
         )
@@ -482,6 +471,23 @@ class EcoBinEdge:
         # -- Signal handlers --
         signal.signal(signal.SIGINT, self._on_signal)
         signal.signal(signal.SIGTERM, self._on_signal)
+
+    def _make_device_acceptance_runner(self, cloud_proxy_enabled):
+        """Build the local acceptance owner for every direct-cloud UART mode."""
+        if cloud_proxy_enabled:
+            return None
+        from device_acceptance import DeviceAcceptanceRunner
+
+        return DeviceAcceptanceRunner(
+            self.store,
+            self.uart,
+            self.photo,
+            self.cos_uploader,
+            device_name=DEVICE_NAME,
+            mcu_remote_update_capable=MCU_REMOTE_UPDATE_CAPABLE,
+            edge_software_version=EDGE_SOFTWARE_VERSION,
+            progress_callback=self._report_p8_progress,
+        )
 
     def _on_signal(self, signum, frame):
         logger.info("signal %d, shutting down...", signum)

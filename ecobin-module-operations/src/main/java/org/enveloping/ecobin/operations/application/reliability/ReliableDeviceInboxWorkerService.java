@@ -35,6 +35,7 @@ public class ReliableDeviceInboxWorkerService
             "DEVICE_FAULT_RECOVERED",
             "SAFETY_SENSOR_STATE_CHANGED",
             "DEVICE_COMMAND_OBSERVED",
+            "DEVICE_ENTRY_URL_APPLICATION_RESULT",
             "FACTORY_SEAL_COMPLETED",
             "DELIVERY_RECOVERY_QUARANTINED",
             "DELIVERY_ISSUE_ARCHIVED",

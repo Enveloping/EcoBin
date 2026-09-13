@@ -22,6 +22,70 @@ import static org.mockito.Mockito.when;
 class ReliableDeviceCommandCompletionServiceTest {
 
     @Test
+    void acceptedDeviceEntryUrlWaitsForMcuDisplayEvidence() {
+        ReliableOperationsJdbcRepository repository =
+                mock(ReliableOperationsJdbcRepository.class);
+        LocalDateTime now = LocalDateTime.of(2026, 9, 14, 3, 30);
+        UUID taskUid = UUID.randomUUID();
+        UUID commandUid = UUID.randomUUID();
+        UUID attemptUid = UUID.randomUUID();
+        UUID leaseToken = UUID.randomUUID();
+        ClaimedDeviceCommandTask claim = new ClaimedDeviceCommandTask(
+                taskUid,
+                commandUid,
+                attemptUid,
+                1L,
+                leaseToken,
+                0,
+                "SYNC_DEVICE_ENTRY_URL",
+                "SN-URL-EVIDENCE",
+                "{}",
+                new byte[32],
+                now,
+                now.plusMinutes(1));
+        when(repository.lockDeviceTaskExecution(
+                taskUid, commandUid, attemptUid))
+                .thenReturn(new DeviceTaskExecution(
+                        73L,
+                        "PENDING",
+                        leaseToken,
+                        now.plusMinutes(1),
+                        0,
+                        0,
+                        0,
+                        2,
+                        1,
+                        83L,
+                        leaseToken,
+                        0,
+                        null));
+        when(repository.databaseNow()).thenReturn(now);
+        ReliableDeviceCommandCompletionService service =
+                new ReliableDeviceCommandCompletionService(
+                        repository,
+                        new ReliableTaskProperties(),
+                        new ObjectMapper(),
+                        List.of(),
+                        List.of());
+
+        service.complete(
+                claim,
+                new DeviceCommandSubmissionResult(
+                        DeviceCommandSubmissionResult.Outcome
+                                .PLATFORM_ACCEPTED,
+                        null,
+                        null,
+                        200,
+                        null,
+                        "url-external-request",
+                        null),
+                12);
+
+        verify(repository).scheduleAwaitingDeviceEvidence(
+                73L, now.plusMinutes(35), now);
+    }
+
+    @Test
     void acceptedBusinessUpdateWaitsForItsFrozenMaintenanceWindows() {
         ReliableOperationsJdbcRepository repository =
                 mock(ReliableOperationsJdbcRepository.class);

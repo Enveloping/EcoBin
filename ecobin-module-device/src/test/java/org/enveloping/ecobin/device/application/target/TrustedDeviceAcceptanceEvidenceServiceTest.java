@@ -18,6 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
@@ -324,6 +325,26 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
     }
 
     @Test
+    void unappliedV5UrlReportsOneAccurateAcceptanceFailure() {
+        TrustedDeviceAcceptanceEvidenceService service = service();
+        var asset = new TrustedDeviceAcceptanceEvidenceService.AssetState(
+                1L, DEVICE_PUBLIC_CODE, 1, 1L, new byte[32],
+                "PENDING", 0L, true, true);
+
+        assertThat(service.failures(
+                asset,
+                withEntryApplication(
+                        healthyEvidence(false, false),
+                        false,
+                        null,
+                        null,
+                        "NOT_APPLIED"),
+                null,
+                LocalDateTime.of(2026, 9, 14, 3, 30)))
+                .containsExactly("DEVICE_ENTRY_URL_NOT_APPLIED_TO_MCU");
+    }
+
+    @Test
     void lateEvidenceCannotCrossFactoryBagGeneration() {
         var current = new TrustedDeviceAcceptanceEvidenceService.AssetState(
                 1L, DEVICE_PUBLIC_CODE, 1, 7L, new byte[32],
@@ -479,7 +500,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
         verify(fixture.acceptanceJdbc()).update(
                 contains("INSERT INTO dev_device_acceptance_evidence"),
                 insertArgs.capture());
-        assertThat(insertArgs.getValue()).hasSize(32);
+        assertThat(insertArgs.getValue()).hasSize(36);
         assertThat(insertArgs.getValue()[6]).isEqualTo(4);
         assertThat(insertArgs.getValue()[17]).isEqualTo(false);
 
@@ -489,6 +510,33 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 contains("SET mcu_remote_update_capable = ?"),
                 assetArgs.capture());
         assertThat(assetArgs.getValue()[0]).isEqualTo(false);
+    }
+
+    @Test
+    void v5RequiresAndPersistsMcuAtomicQueueDisplayProof() {
+        AcceptanceApplyFixture fixture = acceptanceApplyFixture();
+        String expectedDigest = DEVICE_ENTRY_URL_FACTORY.create(
+                DEVICE_PUBLIC_CODE).sha256Hex();
+
+        DeviceAcceptanceEvidenceApplyResult result = fixture.service().apply(
+                acceptanceEvent(7L, "0".repeat(64), 5, true));
+
+        assertThat(result).isEqualTo(
+                new DeviceAcceptanceEvidenceApplyResult(
+                        13L, "PASSED", true));
+        ArgumentCaptor<Object[]> insertArgs =
+                ArgumentCaptor.forClass(Object[].class);
+        verify(fixture.acceptanceJdbc()).update(
+                contains("INSERT INTO dev_device_acceptance_evidence"),
+                insertArgs.capture());
+        assertThat(insertArgs.getValue()).hasSize(36);
+        assertThat(insertArgs.getValue()[6]).isEqualTo(5);
+        assertThat(insertArgs.getValue()[23]).isEqualTo(true);
+        assertThat((byte[]) insertArgs.getValue()[24])
+                .containsExactly(HexFormat.of().parseHex(expectedDigest));
+        assertThat(insertArgs.getValue()[25]).isEqualTo(101L);
+        assertThat(insertArgs.getValue()[26]).isEqualTo(
+                "UART3_COMMAND_ATOMICALLY_QUEUED");
     }
 
     @Test
@@ -668,6 +716,23 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                             + "                      "
                             + "\"mcuRemoteUpdateCapable\": "
                             + mcuRemoteUpdateCapable + ",");
+        }
+        if (evidenceSchemaVersion >= 5) {
+            String entryDigest = DEVICE_ENTRY_URL_FACTORY.create(
+                    DEVICE_PUBLIC_CODE).sha256Hex();
+            payload = payload.replace(
+                    "\"mcuSimulated\": false,",
+                    "\"deviceEntryUrlMcuApplied\": true,\n"
+                            + "                      "
+                            + "\"deviceEntryUrlAppliedSha256\": \""
+                            + entryDigest + "\",\n"
+                            + "                      "
+                            + "\"deviceEntryUrlAppliedMcuBootId\": 101,\n"
+                            + "                      "
+                            + "\"deviceEntryUrlDisplayBasis\": "
+                            + "\"UART3_COMMAND_ATOMICALLY_QUEUED\",\n"
+                            + "                      "
+                            + "\"mcuSimulated\": false,");
         }
         return payload;
     }
@@ -858,6 +923,44 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 evidence.cameraUploadHealthy(),
                 evidence.deviceEntryUrlStored(),
                 evidence.deviceEntryUrlSha256(),
+                evidence.mcuSimulated(),
+                evidence.camerasSimulated(),
+                evidence.verifiedPortCount(),
+                evidence.verifiedCameraCount(),
+                evidence.sensorSampleSha256(),
+                evidence.cameraCaptureSha256(),
+                evidence.cameraUploadSha256());
+    }
+
+    private static TrustedDeviceAcceptanceEvidenceService.Evidence
+            withEntryApplication(
+                    TrustedDeviceAcceptanceEvidenceService.Evidence evidence,
+                    Boolean applied,
+                    String sha256,
+                    Long mcuBootId,
+                    String displayBasis) {
+        return new TrustedDeviceAcceptanceEvidenceService.Evidence(
+                evidence.challengeUid(),
+                evidence.factoryBagRevision(),
+                evidence.factoryBagSetSha256(),
+                evidence.edgeSoftwareVersion(),
+                evidence.edgeProtocolVersion(),
+                evidence.edgeStoreInstanceUid(),
+                evidence.mcuFirmwareVersion(),
+                evidence.persistentStoreHealthy(),
+                evidence.trustedTimeHealthy(),
+                evidence.configurationPersistenceHealthy(),
+                evidence.mcuCommunicationHealthy(),
+                evidence.mcuRemoteUpdateCapable(),
+                evidence.sensorsHealthy(),
+                evidence.camerasCaptureHealthy(),
+                evidence.cameraUploadHealthy(),
+                evidence.deviceEntryUrlStored(),
+                evidence.deviceEntryUrlSha256(),
+                applied,
+                sha256,
+                mcuBootId,
+                displayBasis,
                 evidence.mcuSimulated(),
                 evidence.camerasSimulated(),
                 evidence.verifiedPortCount(),

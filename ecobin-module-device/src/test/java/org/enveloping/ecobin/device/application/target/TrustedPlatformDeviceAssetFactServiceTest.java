@@ -7,6 +7,7 @@ import org.enveloping.ecobin.device.application.delivery.DeliveryRecoveryQuarant
 import org.enveloping.ecobin.device.application.remote.RemoteSupportSessionService;
 import org.enveloping.ecobin.device.application.software.DeviceSoftwareCompatibilityService;
 import org.enveloping.ecobin.framework.reliability.TrustedPlatformInboxRef;
+import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -15,6 +16,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -26,6 +28,68 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.never;
 
 class TrustedPlatformDeviceAssetFactServiceTest {
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void deviceEntryUrlApplicationCompletesOnlyItsExactPlatformTask() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.query(
+                contains("FROM dev_device_asset"),
+                any(RowMapper.class),
+                any(Object[].class)))
+                .thenReturn(List.of(41L));
+        LocalDateTime now = LocalDateTime.of(2026, 9, 14, 3, 45);
+        when(jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class))
+                .thenReturn(now);
+        TrustedPlatformInboxRef sourceInbox =
+                mock(TrustedPlatformInboxRef.class);
+        when(sourceInbox.use(any())).thenAnswer(invocation -> {
+            TrustedPlatformInboxRef.PlatformInboxFunction<Object> function =
+                    invocation.getArgument(0);
+            return function.apply(27L);
+        });
+        ReliablePlatformEdgeConfirmationService confirmations =
+                mock(ReliablePlatformEdgeConfirmationService.class);
+        ReliableDeviceTaskProofPort proof =
+                mock(ReliableDeviceTaskProofPort.class);
+        TrustedPlatformDeviceAssetFactService service =
+                new TrustedPlatformDeviceAssetFactService(
+                        jdbc,
+                        JsonMapper.builder().build(),
+                        confirmations,
+                        mock(RemoteSupportSessionService.class),
+                        mock(McuFirmwareRolloutService.class),
+                        mock(FactorySealAuthorizationService.class),
+                        mock(DeviceSoftwareCompatibilityService.class),
+                        null,
+                        null,
+                        null,
+                        proof);
+
+        TrustedDeviceEventApplyResult result = service.apply(
+                new TrustedPlatformDeviceAssetFactEvent(
+                        sourceInbox,
+                        "DEVICE_ENTRY_URL_APPLICATION_RESULT",
+                        2,
+                        deviceEntryUrlApplicationPayload()));
+
+        assertEquals(TrustedDeviceEventApplyResult.APPLIED, result);
+        verify(proof).applyDeviceEntryUrlApplicationResult(
+                UUID.fromString(
+                        "8a000000-0000-4000-8000-000000000005"),
+                "test-device-4",
+                "1".repeat(64),
+                "APPLIED",
+                null);
+        verify(confirmations).ensureApplied(
+                41L,
+                "test-device-4",
+                "8a000000-0000-4000-8000-00000000000c",
+                "a".repeat(64),
+                "UPDATED",
+                now);
+    }
 
     @Test
     @SuppressWarnings("unchecked")
@@ -470,6 +534,45 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                   }
                 }
                 """.formatted("b".repeat(64), "a".repeat(64));
+    }
+
+    private static String deviceEntryUrlApplicationPayload() {
+        return """
+                {
+                  "trustedSource": {
+                    "productId": "product",
+                    "deviceName": "test-device-4"
+                  },
+                  "eventCanonicalSha256": "%s",
+                  "event": {
+                    "schemaVersion": 2,
+                    "eventUid": "8a000000-0000-4000-8000-00000000000c",
+                    "edgeEventSequence": 1060,
+                    "eventType": "DEVICE_ENTRY_URL_APPLICATION_RESULT",
+                    "deliveryClass": "RELIABLE_FACT",
+                    "target": {
+                      "type": "DEVICE_ASSET",
+                      "uid": "test-device-4"
+                    },
+                    "commandUid": "8a000000-0000-4000-8000-000000000005",
+                    "occurredAt": "2026-09-14T03:44:00Z",
+                    "clockQuality": "SYNCED",
+                    "payloadSha256": "%s",
+                    "payload": {
+                      "applicationUid": "8a000000-0000-4000-8000-00000000000d",
+                      "status": "APPLIED",
+                      "deviceEntryUrlSha256": "%s",
+                      "mcuCommandUid": "8a000000-0000-4000-8000-00000000000e",
+                      "mcuBootId": 101,
+                      "displayBasis": "UART3_COMMAND_ATOMICALLY_QUEUED",
+                      "faultCode": null
+                    }
+                  }
+                }
+                """.formatted(
+                "b".repeat(64),
+                "a".repeat(64),
+                "1".repeat(64));
     }
 
     private static String remoteSupportPayload() {

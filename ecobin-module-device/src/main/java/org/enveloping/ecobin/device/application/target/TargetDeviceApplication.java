@@ -898,6 +898,11 @@ public class TargetDeviceApplication {
                                device_entry_url_stored,
                                LOWER(HEX(device_entry_url_sha256))
                                    device_entry_url_sha256,
+                               device_entry_url_mcu_applied,
+                               LOWER(HEX(device_entry_url_applied_sha256))
+                                   device_entry_url_applied_sha256,
+                               device_entry_url_applied_mcu_boot_id,
+                               device_entry_url_display_basis,
                                mcu_simulated,
                                cameras_simulated, evaluation_status,
                                failure_reasons_json,
@@ -4387,6 +4392,12 @@ public class TargetDeviceApplication {
                 rs.getBoolean("camera_upload_healthy"),
                 rs.getObject("device_entry_url_stored", Boolean.class),
                 rs.getString("device_entry_url_sha256"),
+                rs.getObject(
+                        "device_entry_url_mcu_applied", Boolean.class),
+                rs.getString("device_entry_url_applied_sha256"),
+                rs.getObject(
+                        "device_entry_url_applied_mcu_boot_id", Long.class),
+                rs.getString("device_entry_url_display_basis"),
                 rs.getBoolean("mcu_simulated"),
                 rs.getBoolean("cameras_simulated"),
                 rs.getString("evaluation_status"),

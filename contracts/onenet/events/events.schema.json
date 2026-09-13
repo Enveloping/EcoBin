@@ -5,6 +5,7 @@
   "oneOf": [
     { "$ref": "#/$defs/deviceCommandObservedEvent" },
     { "$ref": "#/$defs/configurationProgressEvent" },
+    { "$ref": "#/$defs/deviceEntryUrlApplicationResultEvent" },
     { "$ref": "#/$defs/deliveryCompleteEvent" },
     { "$ref": "#/$defs/deliveryIssueArchivedEvent" },
     { "$ref": "#/$defs/deliveryIssueEvidenceAppendedEvent" },
@@ -437,6 +438,67 @@
           "properties": {
             "stage": { "const": "FAILED" },
             "errorCode": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+              "maxLength": 64
+            }
+          }
+        }
+      ]
+    },
+    "deviceEntryUrlApplicationResultPayload": {
+      "type": "object",
+      "required": [
+        "applicationUid",
+        "status",
+        "deviceEntryUrlSha256",
+        "mcuCommandUid",
+        "mcuBootId",
+        "displayBasis",
+        "faultCode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "applicationUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "status": {
+          "enum": ["APPLIED", "FAILED"]
+        },
+        "deviceEntryUrlSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "mcuCommandUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "mcuBootId": {
+          "$ref": "../common.schema.json#/$defs/positiveSequence"
+        },
+        "displayBasis": {
+          "enum": [
+            "UART3_COMMAND_ATOMICALLY_QUEUED",
+            "NOT_APPLIED"
+          ]
+        },
+        "faultCode": {
+          "$ref": "../common.schema.json#/$defs/errorCode"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "status": { "const": "APPLIED" },
+            "displayBasis": {
+              "const": "UART3_COMMAND_ATOMICALLY_QUEUED"
+            },
+            "faultCode": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "status": { "const": "FAILED" },
+            "displayBasis": { "const": "NOT_APPLIED" },
+            "faultCode": {
               "type": "string",
               "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
               "maxLength": 64
@@ -1157,7 +1219,7 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "evidenceSchemaVersion": { "enum": [3, 4] },
+        "evidenceSchemaVersion": { "enum": [3, 4, 5] },
         "challengeUid": {
           "$ref": "../common.schema.json#/$defs/uuid"
         },
@@ -1194,6 +1256,25 @@
         "deviceEntryUrlSha256": {
           "$ref": "../common.schema.json#/$defs/sha256"
         },
+        "deviceEntryUrlMcuApplied": { "type": "boolean" },
+        "deviceEntryUrlAppliedSha256": {
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/sha256" },
+            { "type": "null" }
+          ]
+        },
+        "deviceEntryUrlAppliedMcuBootId": {
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/positiveSequence" },
+            { "type": "null" }
+          ]
+        },
+        "deviceEntryUrlDisplayBasis": {
+          "enum": [
+            "UART3_COMMAND_ATOMICALLY_QUEUED",
+            "NOT_APPLIED"
+          ]
+        },
         "mcuSimulated": { "type": "boolean" },
         "camerasSimulated": { "type": "boolean" },
         "verifiedPortCount": {
@@ -1229,6 +1310,60 @@
           },
           "else": {
             "required": ["mcuRemoteUpdateCapable"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "evidenceSchemaVersion": { "const": 5 }
+            },
+            "required": ["evidenceSchemaVersion"]
+          },
+          "then": {
+            "required": [
+              "deviceEntryUrlMcuApplied",
+              "deviceEntryUrlAppliedSha256",
+              "deviceEntryUrlAppliedMcuBootId",
+              "deviceEntryUrlDisplayBasis"
+            ]
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                { "required": ["deviceEntryUrlMcuApplied"] },
+                { "required": ["deviceEntryUrlAppliedSha256"] },
+                { "required": ["deviceEntryUrlAppliedMcuBootId"] },
+                { "required": ["deviceEntryUrlDisplayBasis"] }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "deviceEntryUrlMcuApplied": { "const": true }
+            },
+            "required": ["deviceEntryUrlMcuApplied"]
+          },
+          "then": {
+            "properties": {
+              "deviceEntryUrlAppliedSha256": {
+                "$ref": "../common.schema.json#/$defs/sha256"
+              },
+              "deviceEntryUrlAppliedMcuBootId": {
+                "$ref": "../common.schema.json#/$defs/positiveSequence"
+              },
+              "deviceEntryUrlDisplayBasis": {
+                "const": "UART3_COMMAND_ATOMICALLY_QUEUED"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "deviceEntryUrlAppliedSha256": { "type": "null" },
+              "deviceEntryUrlAppliedMcuBootId": { "type": "null" },
+              "deviceEntryUrlDisplayBasis": { "const": "NOT_APPLIED" }
+            }
           }
         }
       ]
@@ -2603,6 +2738,35 @@
             },
             "payload": {
               "$ref": "#/$defs/configurationProgressPayload"
+            }
+          }
+        }
+      ]
+    },
+    "deviceEntryUrlApplicationResultEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": {
+              "const": "DEVICE_ENTRY_URL_APPLICATION_RESULT"
+            },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DEVICE_ASSET" }
+                  }
+                }
+              ]
+            },
+            "commandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "payload": {
+              "$ref": "#/$defs/deviceEntryUrlApplicationResultPayload"
             }
           }
         }

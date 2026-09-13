@@ -2,7 +2,7 @@
   "identifier": "mcuFirmwareUpdateProgress",
   "kind": "EVENT",
   "oneJsonPayload": {
-    "id": "117",
+    "id": "118",
     "params": {
       "mcuFirmwareUpdateProgress": {
         "value": {

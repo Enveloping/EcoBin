@@ -91,7 +91,7 @@ FACTORY_SEAL_TERMINAL_ERROR_CODES = frozenset({
     "FACTORY_SEAL_GENERATION_CONFLICT",
     "FACTORY_SEAL_OBSERVATION_CONFLICT",
 })
-FACTORY_SEAL_ACCEPTANCE_EVIDENCE_SCHEMA_VERSIONS = frozenset({3, 4})
+FACTORY_SEAL_ACCEPTANCE_EVIDENCE_SCHEMA_VERSIONS = frozenset({3, 4, 5})
 MCU_UPDATE_ACTIVE_STATES = frozenset({
     "QUEUED",
     "PACKAGE_FETCH_FAILED",
@@ -177,7 +177,12 @@ def _validate_device_entry_url(url: str, sha256: str) -> None:
         not isinstance(url, str)
         or not 1 <= len(url) <= 192
         or not url.startswith("https://")
-        or any(ord(character) < 0x20 or ord(character) > 0x7E for character in url)
+        or any(
+            ord(character) < 0x21
+            or ord(character) > 0x7E
+            or character in {'"', "\\"}
+            for character in url
+        )
     ):
         raise ValueError(
             "device entry URL must be printable ASCII HTTPS within 192 bytes"
@@ -5960,7 +5965,7 @@ class EdgeStore:
         command_uid = command["commandUid"]
         with self.transaction():
             row = self._conn.execute(
-                """SELECT state, command_type FROM command_inbox
+                """SELECT state, command_type, result_json FROM command_inbox
                    WHERE command_uid=?""",
                 (command_uid,),
             ).fetchone()
@@ -6001,6 +6006,31 @@ class EdgeStore:
                 event,
                 "DEVICE_ACCEPTANCE_EVIDENCE",
             )
+            completion_result = {
+                "challengeUid": evidence_payload["challengeUid"],
+                "evidenceEventUid": event_uid,
+                "disposition": "EVIDENCE_RECORDED",
+            }
+            # UART-v2 acceptance first parks behind a durable URL application
+            # continuation. Keep that raw proof after the acceptance event is
+            # committed; replacing result_json here would sever the evidence
+            # from its original cloud command.
+            if row["result_json"]:
+                from native_device_entry_url import JOURNAL_KEY, validate_journal
+
+                prior_result = _json.loads(row["result_json"])
+                if isinstance(prior_result, dict) and JOURNAL_KEY in prior_result:
+                    journal = validate_journal(prior_result[JOURNAL_KEY])
+                    if (
+                        journal["continuation"]
+                        != "REQUEST_DEVICE_ACCEPTANCE"
+                        or journal["sourceCommandUid"] != command_uid
+                        or journal["state"] != "APPLIED"
+                    ):
+                        raise ValueError(
+                            "acceptance URL application proof is not applied"
+                        )
+                    completion_result[JOURNAL_KEY] = journal
             updated = self._conn.execute(
                 """UPDATE command_inbox
                    SET state='COMPLETED', processed_at=?,
@@ -6009,16 +6039,7 @@ class EdgeStore:
                    WHERE command_uid=? AND state='PROCESSING'""",
                 (
                     self._now(),
-                    _json.dumps(
-                        {
-                            "challengeUid": evidence_payload[
-                                "challengeUid"
-                            ],
-                            "evidenceEventUid": event_uid,
-                            "disposition": "EVIDENCE_RECORDED",
-                        },
-                        ensure_ascii=False,
-                    ),
+                    _json.dumps(completion_result, ensure_ascii=False),
                     command_uid,
                 ),
             )
@@ -8711,6 +8732,846 @@ class EdgeStore:
         except (KeyError, TypeError, ValueError, _json.JSONDecodeError) as error:
             raise RuntimeError("stored device entry URL is corrupt") from error
         return record
+
+    def begin_native_device_entry_url_application(
+        self,
+        command: dict,
+        journal: dict,
+    ) -> dict:
+        """Atomically park one cloud command behind its durable URL journal."""
+        from native_device_entry_url import JOURNAL_KEY, validate_journal
+
+        validate_journal(journal)
+        command_uid = command.get("commandUid")
+        if (
+            journal["sourceCommandUid"] != command_uid
+            or journal["continuation"] != command.get("commandType")
+        ):
+            raise ValueError("device entry URL journal authority differs")
+        with self.transaction():
+            row = self._conn.execute(
+                "SELECT * FROM command_inbox WHERE command_uid=?",
+                (command_uid,),
+            ).fetchone()
+            if row is None or row["command_type"] not in {
+                "SYNC_DEVICE_ENTRY_URL",
+                "REQUEST_DEVICE_ACCEPTANCE",
+            }:
+                raise ValueError("device entry URL command is missing")
+            stored_command = _json.loads(row["payload_json"])
+            candidate_command = dict(command)
+            if "cosGrant" in stored_command:
+                candidate_command["cosGrant"] = None
+            else:
+                candidate_command.pop("cosGrant", None)
+            if stored_command != candidate_command:
+                raise ValueError("device entry URL command authority changed")
+            if row["result_json"]:
+                prior = _json.loads(row["result_json"])
+                if not isinstance(prior, dict) or JOURNAL_KEY not in prior:
+                    raise ValueError("device entry URL command result is corrupt")
+                validate_journal(prior[JOURNAL_KEY])
+                if (
+                    prior[JOURNAL_KEY]["sourceCommandUid"] != command_uid
+                    or prior[JOURNAL_KEY]["deviceEntryUrlSha256"]
+                    != journal["deviceEntryUrlSha256"]
+                ):
+                    raise ValueError("device entry URL command journal conflicts")
+                return prior[JOURNAL_KEY]
+            if row["state"] != "PROCESSING":
+                raise ValueError("device entry URL command is not processing")
+            attempt = journal["attempt"]
+            commit_uid = (
+                attempt["commandUids"][-1]
+                if attempt["commandUids"]
+                else None
+            )
+            result = {
+                "native_pending": True,
+                "mcu_command_uid": commit_uid,
+                JOURNAL_KEY: journal,
+            }
+            updated = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='WAITING_MCU_RESULT', mcu_command_uid=?,
+                       result_json=?, processing_started_at=NULL
+                   WHERE command_uid=? AND state='PROCESSING'""",
+                (
+                    commit_uid,
+                    _json.dumps(
+                        result,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    command_uid,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("device entry URL command state changed")
+            # A new required application supersedes any earlier proof, even
+            # when the URL and MCU boot happen to be unchanged.  The new
+            # command must earn its own terminal APPLIED result.
+            self._conn.execute(
+                "DELETE FROM device_state WHERE state_key=?",
+                ("native_device_entry_url_applied_evidence",),
+            )
+            return journal
+
+    def list_native_device_entry_url_applications(self) -> list[dict]:
+        """Return validated nonterminal URL journals in command arrival order."""
+        from native_device_entry_url import JOURNAL_KEY, validate_journal
+
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT * FROM command_inbox
+                   WHERE command_type IN (
+                       'SYNC_DEVICE_ENTRY_URL',
+                       'REQUEST_DEVICE_ACCEPTANCE'
+                   )
+                     AND state='WAITING_MCU_RESULT'
+                     AND COALESCE(last_error, '') !=
+                         'WAITING_DEVICE_ENTRY_URL_RELOAD'
+                   ORDER BY rowid"""
+            ).fetchall()
+        applications = []
+        for row in rows:
+            decoded = self._decode_command_row(row)
+            result = decoded["result"]
+            if not isinstance(result, dict) or JOURNAL_KEY not in result:
+                raise ValueError("pending device entry URL journal is missing")
+            journal = validate_journal(result[JOURNAL_KEY])
+            if journal["state"] != "WAITING":
+                raise ValueError("terminal device entry URL command remained waiting")
+            applications.append({"command": decoded, "journal": journal})
+        return applications
+
+    def park_claimed_acceptance_for_device_entry_url_reload(
+        self,
+        command_uid: str,
+        device_entry_url_sha256: str,
+    ) -> bool:
+        """Park an APPLIED acceptance until this UART link rewrites the HMI.
+
+        The execution-only COS grant remains in the current CommandProcessor
+        process.  A process restart deliberately fails this wait so the
+        backend must provide fresh credentials; a current-link terminal URL
+        result requeues the exact command below.
+        """
+        from native_device_entry_url import JOURNAL_KEY, validate_journal
+
+        if (
+            not isinstance(device_entry_url_sha256, str)
+            or len(device_entry_url_sha256) != 64
+        ):
+            raise ValueError("device entry URL reload digest is invalid")
+        with self.transaction():
+            row = self._conn.execute(
+                """SELECT command_type, state, result_json
+                   FROM command_inbox WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+            if (
+                row is None
+                or row["command_type"] != "REQUEST_DEVICE_ACCEPTANCE"
+                or row["state"] != "PROCESSING"
+                or not row["result_json"]
+            ):
+                return False
+            result = _json.loads(row["result_json"])
+            if not isinstance(result, dict) or JOURNAL_KEY not in result:
+                raise ValueError("acceptance URL application journal is missing")
+            journal = validate_journal(result[JOURNAL_KEY])
+            if (
+                journal["state"] != "APPLIED"
+                or journal["deviceEntryUrlSha256"]
+                != device_entry_url_sha256
+            ):
+                raise ValueError("acceptance URL application is not applied")
+            updated = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='WAITING_MCU_RESULT',
+                       processing_started_at=NULL,
+                       last_error='WAITING_DEVICE_ENTRY_URL_RELOAD'
+                   WHERE command_uid=? AND state='PROCESSING'""",
+                (command_uid,),
+            )
+            return updated.rowcount == 1
+
+    def requeue_native_acceptance_after_device_entry_url_reload(
+        self,
+        device_entry_url_sha256: str,
+    ) -> int:
+        """Resume only acceptance continuations parked for this URL digest."""
+        from native_device_entry_url import JOURNAL_KEY, validate_journal
+
+        if (
+            not isinstance(device_entry_url_sha256, str)
+            or len(device_entry_url_sha256) != 64
+        ):
+            raise ValueError("device entry URL reload digest is invalid")
+        resumed = 0
+        with self.transaction():
+            rows = self._conn.execute(
+                """SELECT command_uid, result_json FROM command_inbox
+                   WHERE command_type='REQUEST_DEVICE_ACCEPTANCE'
+                     AND state='WAITING_MCU_RESULT'
+                     AND last_error='WAITING_DEVICE_ENTRY_URL_RELOAD'
+                   ORDER BY rowid"""
+            ).fetchall()
+            for row in rows:
+                result = _json.loads(row["result_json"])
+                if not isinstance(result, dict) or JOURNAL_KEY not in result:
+                    raise ValueError(
+                        "parked acceptance URL application journal is missing"
+                    )
+                journal = validate_journal(result[JOURNAL_KEY])
+                if (
+                    journal["state"] != "APPLIED"
+                    or journal["deviceEntryUrlSha256"]
+                    != device_entry_url_sha256
+                ):
+                    continue
+                updated = self._conn.execute(
+                    """UPDATE command_inbox
+                       SET state='PENDING', processing_started_at=NULL,
+                           last_error=NULL
+                       WHERE command_uid=?
+                         AND state='WAITING_MCU_RESULT'
+                         AND last_error=
+                             'WAITING_DEVICE_ENTRY_URL_RELOAD'""",
+                    (row["command_uid"],),
+                )
+                resumed += updated.rowcount
+        return resumed
+
+    def find_native_device_entry_url_application(
+        self,
+        application_uid: str,
+        commit_command_uid: str,
+    ) -> Optional[dict]:
+        """Find one current or terminal journal by both MCU identities."""
+        from native_device_entry_url import JOURNAL_KEY, validate_journal
+
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT * FROM command_inbox
+                   WHERE command_type IN (
+                       'SYNC_DEVICE_ENTRY_URL',
+                       'REQUEST_DEVICE_ACCEPTANCE'
+                   ) AND result_json IS NOT NULL
+                   ORDER BY rowid DESC"""
+            ).fetchall()
+        for row in rows:
+            decoded = self._decode_command_row(row)
+            result = decoded["result"]
+            if not isinstance(result, dict) or JOURNAL_KEY not in result:
+                continue
+            journal = validate_journal(result[JOURNAL_KEY])
+            attempt = journal["attempt"]
+            if (
+                attempt["applicationUid"] == application_uid
+                and attempt["commandUids"]
+                and attempt["commandUids"][-1] == commit_command_uid
+            ):
+                return {"command": decoded, "journal": journal}
+        reload = self.get_native_device_entry_url_reload()
+        if reload is not None:
+            attempt = reload["attempt"]
+            if (
+                attempt["applicationUid"] == application_uid
+                and attempt["commandUids"]
+                and attempt["commandUids"][-1] == commit_command_uid
+            ):
+                return {"command": None, "journal": reload}
+        return None
+
+    def get_native_device_entry_url_reload(self) -> Optional[dict]:
+        from native_device_entry_url import validate_journal
+
+        raw = self.get_state("native_device_entry_url_reload")
+        if not raw:
+            return None
+        try:
+            return validate_journal(_json.loads(raw))
+        except (TypeError, ValueError) as error:
+            raise RuntimeError("stored device entry URL reload is corrupt") from error
+
+    def get_native_device_entry_url_source_command_uid(
+        self,
+        device_entry_url: str,
+        device_entry_url_sha256: str,
+    ) -> Optional[str]:
+        """Return the newest applied cloud authority for a local reload."""
+        from native_device_entry_url import JOURNAL_KEY, validate_journal
+
+        _validate_device_entry_url(device_entry_url, device_entry_url_sha256)
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT command_uid, result_json FROM command_inbox
+                   WHERE command_type IN (
+                       'SYNC_DEVICE_ENTRY_URL',
+                       'REQUEST_DEVICE_ACCEPTANCE'
+                   ) AND result_json IS NOT NULL
+                   ORDER BY rowid DESC"""
+            ).fetchall()
+        for row in rows:
+            result = _json.loads(row["result_json"])
+            if not isinstance(result, dict) or JOURNAL_KEY not in result:
+                continue
+            journal = validate_journal(result[JOURNAL_KEY])
+            if (
+                journal["state"] == "APPLIED"
+                and journal["deviceEntryUrl"] == device_entry_url
+                and journal["deviceEntryUrlSha256"]
+                == device_entry_url_sha256
+            ):
+                return row["command_uid"]
+        return None
+
+    def save_native_device_entry_url_reload(
+        self,
+        journal: dict,
+        *,
+        expected_application_uid: Optional[str] = None,
+    ) -> bool:
+        from native_device_entry_url import validate_journal
+
+        validate_journal(journal)
+        if journal["continuation"] != "LOCAL_RELOAD":
+            raise ValueError("device entry URL reload continuation is invalid")
+        with self.transaction():
+            row = self._conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='native_device_entry_url_reload'"""
+            ).fetchone()
+            if expected_application_uid is not None:
+                if row is None:
+                    return False
+                current = validate_journal(_json.loads(row["state_value"]))
+                if (
+                    current["attempt"]["applicationUid"]
+                    != expected_application_uid
+                ):
+                    return False
+            self._upsert_state(
+                self._conn,
+                "native_device_entry_url_reload",
+                _json.dumps(
+                    journal,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                self._now(),
+            )
+            if journal["state"] == "WAITING":
+                # Reconnecting the UART requires a fresh atomic HMI write.
+                # Do not let the previous connection's APPLIED fact satisfy
+                # acceptance while this replacement attempt is outstanding.
+                self._conn.execute(
+                    "DELETE FROM device_state WHERE state_key=?",
+                    ("native_device_entry_url_applied_evidence",),
+                )
+            return True
+
+    def replace_native_device_entry_url_journal(
+        self,
+        command_uid: str,
+        expected_application_uid: str,
+        journal: dict,
+    ) -> bool:
+        """Persist one boot rebase before any new UART-v2 command is created."""
+        from native_device_entry_url import JOURNAL_KEY, validate_journal
+
+        validate_journal(journal)
+        if journal["sourceCommandUid"] != command_uid:
+            raise ValueError("rebased device entry URL authority differs")
+        with self.transaction():
+            row = self._conn.execute(
+                """SELECT state, result_json FROM command_inbox
+                   WHERE command_uid=? AND state IN (
+                       'PROCESSING', 'WAITING_MCU_RESULT'
+                   )""",
+                (command_uid,),
+            ).fetchone()
+            if row is None or not row["result_json"]:
+                return False
+            result = _json.loads(row["result_json"])
+            current = validate_journal(result.get(JOURNAL_KEY))
+            if current["attempt"]["applicationUid"] != expected_application_uid:
+                return False
+            result[JOURNAL_KEY] = journal
+            result["mcu_command_uid"] = journal["attempt"]["commandUids"][-1]
+            updated = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='WAITING_MCU_RESULT', result_json=?,
+                       mcu_command_uid=?, processing_started_at=NULL
+                   WHERE command_uid=? AND state=?""",
+                (
+                    _json.dumps(
+                        result,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    result["mcu_command_uid"],
+                    command_uid,
+                    row["state"],
+                ),
+            )
+            return updated.rowcount == 1
+
+    def save_native_device_entry_url_apply_result(
+        self,
+        payload: bytes,
+        terminal: dict,
+    ) -> str:
+        """Persist raw MCU proof, URL evidence and command outcome atomically."""
+        import uart2_protocol as uart2
+        from native_device_entry_url import (
+            JOURNAL_KEY,
+            encode_command,
+            validate_journal,
+        )
+
+        if not isinstance(payload, bytes):
+            raise ValueError("device entry URL apply result must be immutable")
+        values = uart2.decode_payload("DEVICE_ENTRY_URL_APPLY_RESULT", payload)
+        validate_journal(terminal)
+        raw_key = (
+            "native_device_entry_url_result:"
+            f"{values['mcuBootId']}:{values['mcuEventSequence']}"
+        )
+        raw_value = _json.dumps(
+            {
+                "messageName": "DEVICE_ENTRY_URL_APPLY_RESULT",
+                "payloadHex": payload.hex(),
+            },
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        with self.transaction():
+            raw = self._conn.execute(
+                "SELECT state_value FROM device_state WHERE state_key=?",
+                (raw_key,),
+            ).fetchone()
+            if raw is not None and raw["state_value"] != raw_value:
+                raise ValueError("device entry URL result identity conflict")
+            if raw is None:
+                self._upsert_state(self._conn, raw_key, raw_value, self._now())
+
+            def require_complete_accepted_attempt(journal):
+                attempt = journal["attempt"]
+                for index, command_uid in enumerate(attempt["commandUids"]):
+                    command_row = self._checked_native_command(
+                        self._conn.execute(
+                            """SELECT * FROM native_mcu_command
+                               WHERE command_uid=?""",
+                            (command_uid,),
+                        ).fetchone()
+                    )
+                    if command_row is None:
+                        raise ValueError(
+                            "device entry URL result precedes its complete command set"
+                        )
+                    expected_name, expected_payload = encode_command(
+                        journal,
+                        index,
+                        command_sequence=command_row["command_sequence"],
+                    )
+                    if (
+                        command_row["message_name"] != expected_name
+                        or command_row["payload"] != expected_payload
+                        or command_row["mcu_boot_id"]
+                        != attempt["targetMcuBootId"]
+                        or command_row["decision_outcome"] != "ACCEPTED"
+                        or command_row["decision_error"] != "NONE"
+                        or command_row["conflict"]
+                    ):
+                        raise ValueError(
+                            "device entry URL result lacks accepted original commands"
+                        )
+
+            rows = self._conn.execute(
+                """SELECT * FROM command_inbox
+                   WHERE command_type IN (
+                       'SYNC_DEVICE_ENTRY_URL',
+                       'REQUEST_DEVICE_ACCEPTANCE'
+                   ) AND result_json IS NOT NULL
+                   ORDER BY rowid DESC"""
+            ).fetchall()
+            matched = None
+            existing_terminal = None
+            for row in rows:
+                result = _json.loads(row["result_json"])
+                if not isinstance(result, dict) or JOURNAL_KEY not in result:
+                    continue
+                journal = validate_journal(result[JOURNAL_KEY])
+                attempt = journal["attempt"]
+                if (
+                    attempt["applicationUid"] == values["applicationUid"]
+                    and attempt["commandUids"]
+                    and attempt["commandUids"][-1] == values["mcuCommandUid"]
+                ):
+                    matched = (row, result, journal)
+                    if journal["state"] != "WAITING":
+                        existing_terminal = journal
+                    break
+            if matched is None:
+                reload_row = self._conn.execute(
+                    """SELECT state_value FROM device_state
+                       WHERE state_key='native_device_entry_url_reload'"""
+                ).fetchone()
+                if reload_row is None:
+                    return "STALE"
+                reload = validate_journal(_json.loads(reload_row["state_value"]))
+                attempt = reload["attempt"]
+                if not (
+                    attempt["applicationUid"] == values["applicationUid"]
+                    and attempt["commandUids"]
+                    and attempt["commandUids"][-1] == values["mcuCommandUid"]
+                ):
+                    return "STALE"
+                if reload["state"] != "WAITING":
+                    return (
+                        "DUPLICATE"
+                        if reload["applyResultPayloadHex"] == payload.hex()
+                        else "CONFLICT"
+                    )
+                if terminal["attempt"] != reload["attempt"]:
+                    return "STALE"
+                require_complete_accepted_attempt(reload)
+                self._upsert_state(
+                    self._conn,
+                    "native_device_entry_url_reload",
+                    _json.dumps(
+                        terminal,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    self._now(),
+                )
+                evidence = terminal["appliedEvidence"]
+                if terminal["state"] == "APPLIED":
+                    active = self._conn.execute(
+                        """SELECT state_value FROM device_state
+                           WHERE state_key='device_entry_url'"""
+                    ).fetchone()
+                    if (
+                        active is not None
+                        and _json.loads(active["state_value"]).get(
+                            "deviceEntryUrlSha256"
+                        ) == terminal["deviceEntryUrlSha256"]
+                    ):
+                        self._upsert_state(
+                            self._conn,
+                            "native_device_entry_url_applied_evidence",
+                            _json.dumps(
+                                evidence,
+                                ensure_ascii=True,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ),
+                            self._now(),
+                        )
+                return terminal["state"]
+            row, result, current = matched
+            if existing_terminal is not None:
+                if row["command_type"] == "SYNC_DEVICE_ENTRY_URL":
+                    event = self._conn.execute(
+                        """SELECT event_uid FROM event_outbox
+                           WHERE event_type=
+                               'DEVICE_ENTRY_URL_APPLICATION_RESULT'
+                             AND json_extract(
+                                 payload_json, '$.commandUid'
+                             )=?""",
+                        (row["command_uid"],),
+                    ).fetchone()
+                    if event is None:
+                        raise ValueError(
+                            "terminal URL sync lacks its reliable result event"
+                        )
+                return (
+                    "DUPLICATE"
+                    if existing_terminal["applyResultPayloadHex"] == payload.hex()
+                    else "CONFLICT"
+                )
+            if terminal["attempt"] != current["attempt"]:
+                return "STALE"
+            require_complete_accepted_attempt(current)
+            result[JOURNAL_KEY] = terminal
+            evidence = terminal["appliedEvidence"]
+            if terminal["state"] == "APPLIED":
+                result.update({
+                    "deviceEntryUrlSha256": terminal["deviceEntryUrlSha256"],
+                    "disposition": "APPLIED",
+                    "applicationUid": evidence["applicationUid"],
+                    "mcuCommandUid": evidence["mcuCommandUid"],
+                    "mcuBootId": evidence["mcuBootId"],
+                    "basis": evidence["basis"],
+                })
+                state = (
+                    "PENDING"
+                    if row["command_type"] == "REQUEST_DEVICE_ACCEPTANCE"
+                    else "COMPLETED"
+                )
+                processed_at = None if state == "PENDING" else self._now()
+                last_error = None
+                active = self._conn.execute(
+                    """SELECT state_value FROM device_state
+                       WHERE state_key='device_entry_url'"""
+                ).fetchone()
+                if active is not None:
+                    active_url = _json.loads(active["state_value"])
+                    if (
+                        active_url.get("deviceEntryUrlSha256")
+                        == terminal["deviceEntryUrlSha256"]
+                    ):
+                        self._upsert_state(
+                            self._conn,
+                            "native_device_entry_url_applied_evidence",
+                            _json.dumps(
+                                evidence,
+                                ensure_ascii=True,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ),
+                            self._now(),
+                        )
+            else:
+                state = "FAILED"
+                processed_at = self._now()
+                last_error = "MCU_DEVICE_ENTRY_URL_" + evidence["faultCode"]
+            if row["command_type"] == "SYNC_DEVICE_ENTRY_URL":
+                cloud_command = _json.loads(row["payload_json"])
+                device_name = cloud_command.get("targetDeviceName")
+                if not isinstance(device_name, str) or not device_name:
+                    raise ValueError("device entry URL sync lost its device")
+                prior_event = self._conn.execute(
+                    """SELECT event_uid, payload_json FROM event_outbox
+                       WHERE event_type='DEVICE_ENTRY_URL_APPLICATION_RESULT'
+                         AND json_extract(payload_json, '$.commandUid')=?""",
+                    (row["command_uid"],),
+                ).fetchone()
+                event_payload = {
+                    "applicationUid": evidence["applicationUid"],
+                    "status": evidence["status"],
+                    "deviceEntryUrlSha256": terminal["deviceEntryUrlSha256"],
+                    "mcuCommandUid": evidence["mcuCommandUid"],
+                    "mcuBootId": evidence["mcuBootId"],
+                    "displayBasis": evidence["basis"],
+                    "faultCode": evidence["faultCode"],
+                }
+                if prior_event is None:
+                    event_uid = self._new_uid()
+                    event = build_event_envelope(
+                        event_uid=event_uid,
+                        device_name=device_name,
+                        edge_event_sequence=self._next_seq(self._conn),
+                        event_type="DEVICE_ENTRY_URL_APPLICATION_RESULT",
+                        target_type="DEVICE_ASSET",
+                        target_uid=device_name,
+                        command_uid=row["command_uid"],
+                        payload=event_payload,
+                    )
+                    self._insert_event(
+                        self._conn,
+                        event,
+                        "DEVICE_ENTRY_URL_APPLICATION_RESULT",
+                    )
+                else:
+                    event_uid = prior_event["event_uid"]
+                    prior = _json.loads(prior_event["payload_json"])
+                    if (
+                        prior.get("commandUid") != row["command_uid"]
+                        or prior.get("payload") != event_payload
+                    ):
+                        raise ValueError(
+                            "device entry URL result event conflicts"
+                        )
+                result["deviceEntryUrlApplicationEventUid"] = event_uid
+            updated = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state=?, processed_at=?, processing_started_at=NULL,
+                       result_json=?, last_error=?
+                   WHERE command_uid=? AND state='WAITING_MCU_RESULT'""",
+                (
+                    state,
+                    processed_at,
+                    _json.dumps(
+                        result,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    last_error,
+                    row["command_uid"],
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("device entry URL command state changed")
+            return terminal["state"]
+
+    def save_unmatched_native_device_entry_url_apply_result(
+        self,
+        payload: bytes,
+    ) -> str:
+        """Retain a late valid result without attaching it to current work."""
+        import uart2_protocol as uart2
+
+        if not isinstance(payload, bytes):
+            raise ValueError("device entry URL apply result must be immutable")
+        values = uart2.decode_payload("DEVICE_ENTRY_URL_APPLY_RESULT", payload)
+        key = (
+            "native_device_entry_url_result:"
+            f"{values['mcuBootId']}:{values['mcuEventSequence']}"
+        )
+        value = _json.dumps(
+            {
+                "messageName": "DEVICE_ENTRY_URL_APPLY_RESULT",
+                "payloadHex": payload.hex(),
+            },
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        with self.transaction():
+            row = self._conn.execute(
+                "SELECT state_value FROM device_state WHERE state_key=?",
+                (key,),
+            ).fetchone()
+            if row is not None:
+                return "DUPLICATE" if row["state_value"] == value else "CONFLICT"
+            self._upsert_state(self._conn, key, value, self._now())
+            return "STALE"
+
+    def get_native_device_entry_url_applied_evidence(self) -> Optional[dict]:
+        """Return the latest proof that the MCU atomically queued the HMI write."""
+        raw = self.get_state("native_device_entry_url_applied_evidence")
+        if not raw:
+            return None
+        try:
+            evidence = _json.loads(raw)
+        except (TypeError, ValueError) as error:
+            raise RuntimeError("stored device entry URL apply evidence is corrupt") from error
+        required = {
+            "deviceEntryUrlSha256",
+            "applicationUid",
+            "mcuCommandUid",
+            "mcuBootId",
+            "mcuEventSequence",
+            "status",
+            "faultCode",
+            "basis",
+        }
+        if (
+            not isinstance(evidence, dict)
+            or set(evidence) != required
+            or not isinstance(evidence["deviceEntryUrlSha256"], str)
+            or len(evidence["deviceEntryUrlSha256"]) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in evidence["deviceEntryUrlSha256"]
+            )
+            or not isinstance(evidence["applicationUid"], str)
+            or not isinstance(evidence["mcuCommandUid"], str)
+            or type(evidence["mcuBootId"]) is not int
+            or not 1 <= evidence["mcuBootId"] <= 9007199254740991
+            or type(evidence["mcuEventSequence"]) is not int
+            or not 1 <= evidence["mcuEventSequence"] <= 4294967295
+            or evidence["status"] != "APPLIED"
+            or evidence["faultCode"] is not None
+            or evidence["basis"] != "UART3_COMMAND_ATOMICALLY_QUEUED"
+        ):
+            raise RuntimeError("stored device entry URL apply evidence is corrupt")
+        try:
+            if (
+                str(_uuid.UUID(evidence["applicationUid"]))
+                != evidence["applicationUid"]
+                or not _uuid.UUID(evidence["applicationUid"]).int
+                or str(_uuid.UUID(evidence["mcuCommandUid"]))
+                != evidence["mcuCommandUid"]
+                or not _uuid.UUID(evidence["mcuCommandUid"]).int
+            ):
+                raise ValueError
+        except (AttributeError, TypeError, ValueError) as error:
+            raise RuntimeError(
+                "stored device entry URL apply evidence is corrupt"
+            ) from error
+        return evidence
+
+    def get_native_device_entry_url_application_result(
+        self,
+        command_uid: str,
+    ) -> Optional[dict]:
+        """Expose one terminal raw MCU fact with both cloud/MCU identities."""
+        from native_device_entry_url import JOURNAL_KEY, validate_journal
+
+        command = self.get_command(command_uid)
+        if command is None or command["command_type"] not in {
+            "SYNC_DEVICE_ENTRY_URL",
+            "REQUEST_DEVICE_ACCEPTANCE",
+        }:
+            return None
+        result = command["result"]
+        if not isinstance(result, dict) or JOURNAL_KEY not in result:
+            return None
+        journal = validate_journal(result[JOURNAL_KEY])
+        if journal["state"] == "WAITING":
+            return None
+        return {
+            "commandUid": command_uid,
+            "mcuCommandUid": journal["attempt"]["commandUids"][-1],
+            "applicationUid": journal["attempt"]["applicationUid"],
+            "status": journal["appliedEvidence"]["status"],
+            "displayBasis": journal["appliedEvidence"]["basis"],
+            "faultCode": journal["appliedEvidence"]["faultCode"],
+            "deviceEntryUrlSha256": journal["deviceEntryUrlSha256"],
+            "mcuBootId": journal["appliedEvidence"]["mcuBootId"],
+            "mcuEventSequence": journal["appliedEvidence"]["mcuEventSequence"],
+            "rawPayloadHex": journal["applyResultPayloadHex"],
+        }
+
+    def recover_native_device_entry_url_commands(self) -> dict[str, int]:
+        """Recover only nonphysical URL continuations after a Pi restart.
+
+        SYNC can be reclaimed from its durable URL source.  Acceptance COS
+        credentials are deliberately memory-only, so a processing acceptance
+        must wait for the backend to supply a fresh grant.  A command already
+        waiting on the MCU keeps waiting and is resumed by the foreground UART
+        owner.
+        """
+        with self.transaction():
+            sync = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='PENDING', processing_started_at=NULL,
+                       last_error='PROCESS_RESTARTED'
+                   WHERE command_type='SYNC_DEVICE_ENTRY_URL'
+                     AND state='PROCESSING'"""
+            ).rowcount
+            acceptance = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='FAILED', processed_at=?,
+                       processing_started_at=NULL,
+                       last_error='ACCEPTANCE_GRANT_NOT_AVAILABLE'
+                   WHERE command_type='REQUEST_DEVICE_ACCEPTANCE'
+                     AND (
+                         state='PROCESSING'
+                         OR (
+                             state='WAITING_MCU_RESULT'
+                             AND last_error=
+                                 'WAITING_DEVICE_ENTRY_URL_RELOAD'
+                         )
+                     )""",
+                (self._now(),),
+            ).rowcount
+            return {
+                "sync_requeued": sync,
+                "acceptance_grant_lost": acceptance,
+            }
 
     def save_fixed_frame_self_test(self, result: dict) -> bool:
         """Retain F0/F1 and report whether its smoke projection changed."""

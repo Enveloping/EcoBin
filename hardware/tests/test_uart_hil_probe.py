@@ -9,7 +9,7 @@ from tools.uart_hil_probe import (
     _run_safe_close_only,
     _sample_configuration,
 )
-from uart_link import compute_mcu_payload_sha256
+from uart_link import compute_native_mcu_payload_sha256
 
 
 class FakeUartLink:
@@ -220,7 +220,7 @@ def test_sample_configuration_has_valid_frozen_mcu_digest():
     assert "deliveryDoorOpenCommandSignalMs" not in payload["deviceConfig"]
     assert "deliveryDoorCloseCommandSignalMs" not in payload["deviceConfig"]
     assert payload["config"]["mcuPayloadSha256"] == (
-        compute_mcu_payload_sha256(payload)
+        compute_native_mcu_payload_sha256(payload)
     )
 
 
@@ -233,7 +233,7 @@ def test_sample_configuration_exposes_door_travel_wait():
     device = command["payload"]["deviceConfig"]
     assert device["deliveryDoorTravelWaitMs"] == 35000
     assert command["payload"]["config"]["mcuPayloadSha256"] == (
-        compute_mcu_payload_sha256(command["payload"])
+        compute_native_mcu_payload_sha256(command["payload"])
     )
 
 

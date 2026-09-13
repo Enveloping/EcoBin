@@ -8,6 +8,7 @@ import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
 import org.enveloping.ecobin.framework.observability.DiagnosticLoggingProperties;
 import org.enveloping.ecobin.framework.observability.DiagnosticPayloadSanitizer;
 import org.enveloping.ecobin.integration.onenet.OneNetDiagnosticLogger;
+import org.enveloping.ecobin.integration.onenet.inbound.OneNetCanonicalJson;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -23,6 +24,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.Map;
+import java.util.HexFormat;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -1200,6 +1202,46 @@ class OneNetClientReliableSubmissionTest {
                 false,
                 actual.path("params").path("cosGrantPresent")
                         .asBoolean());
+    }
+
+    @Test
+    void rejectsDeviceEntryUrlThatCanBreakTheQuotedHmiInstruction()
+            throws Exception {
+        ObjectNode envelope = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "sync-device-entry-url.command.json")));
+        ObjectNode payload = (ObjectNode) envelope.path("payload");
+        String unsafeUrl = "https://entry.invalid/a\"b";
+        payload.put("deviceEntryUrl", unsafeUrl);
+        payload.put(
+                "deviceEntryUrlSha256",
+                HexFormat.of().formatHex(
+                        MessageDigest.getInstance("SHA-256").digest(
+                                unsafeUrl.getBytes(
+                                        java.nio.charset.StandardCharsets.US_ASCII))));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> semanticPayload = objectMapper.convertValue(
+                payload, Map.class);
+        envelope.put(
+                "payloadSha256",
+                OneNetCanonicalJson.payloadSha256(semanticPayload));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(
+                        objectMapper.writeValueAsString(envelope),
+                        UUID.fromString(
+                                "8a000000-0000-4000-8000-000000000005"),
+                        "SYNC_DEVICE_ENTRY_URL"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PERMANENT_FAILURE,
+                result.outcome());
+        assertEquals(
+                "COMMAND_PROJECTION_INVALID",
+                result.externalErrorCode());
+        verify(restTemplate, never()).postForEntity(
+                anyString(), any(HttpEntity.class), eq(String.class));
     }
 
     private DeviceCommandSubmission submission(

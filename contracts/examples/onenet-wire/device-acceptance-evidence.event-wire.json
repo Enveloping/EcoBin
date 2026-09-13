@@ -2,7 +2,7 @@
   "identifier": "deviceAcceptanceEvidence",
   "kind": "EVENT",
   "oneJsonPayload": {
-    "id": "114",
+    "id": "115",
     "params": {
       "deviceAcceptanceEvidence": {
         "value": {
@@ -16,6 +16,14 @@
           "commandUid": "8a000000-0000-4000-8000-000000000004",
           "configurationPersistenceHealthy": true,
           "deliveryClass": 1,
+          "deviceEntryUrlAppliedMcuB": 101,
+          "deviceEntryUrlAppliedMcuBPresent": true,
+          "deviceEntryUrlAppliedSha2": "1b08b21c2249d10e2bf707e9880a020322ed83036a9df47624ca3e31f79444cd",
+          "deviceEntryUrlAppliedSha2Present": true,
+          "deviceEntryUrlDisplayBasi": 1,
+          "deviceEntryUrlDisplayBasiPresent": true,
+          "deviceEntryUrlMcuApplied": true,
+          "deviceEntryUrlMcuAppliedPresent": true,
           "deviceEntryUrlSha256": "1b08b21c2249d10e2bf707e9880a020322ed83036a9df47624ca3e31f79444cd",
           "deviceEntryUrlStored": true,
           "edgeEventSequence": 1055,
@@ -24,7 +32,7 @@
           "edgeStoreInstanceUid": "8a000000-0000-4000-8000-000000000002",
           "eventType": 1,
           "eventUid": "8a000000-0000-4000-8000-000000000001",
-          "evidenceSchemaVersion": 2,
+          "evidenceSchemaVersion": 3,
           "factoryBagRevision": 2,
           "factoryBagSetSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "mcuCommunicationHealthy": true,
@@ -34,7 +42,7 @@
           "mcuSimulated": false,
           "occurredAt": "2026-07-24T01:00:30.000Z",
           "occurredAtPresent": true,
-          "payloadSha256": "c3b2ee98dbd0a630d73c65ac04ce1fccc5354bc692cec945c87426ba5e773fd5",
+          "payloadSha256": "65fc7f61f68f9487a09f8873999af45bfa1b4e216ee2c47da7c0cd9b07f90816",
           "persistentStoreHealthy": true,
           "schemaVersion": 1,
           "sensorSampleSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",

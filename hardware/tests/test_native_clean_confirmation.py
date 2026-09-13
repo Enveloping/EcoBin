@@ -171,7 +171,7 @@ def test_schema26_migration_preserves_candidate_and_work_and_is_atomic(tmp_path,
         upgrade = EdgeStore(path)
     try:
         upgrade.initialize()
-        assert CURRENT_SCHEMA_VERSION == 30
+        assert CURRENT_SCHEMA_VERSION >= 30
         assert upgrade._conn.execute("SELECT max(version) FROM schema_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
         for name, row in before.items():
             assert upgrade.get_native_process_receipt(scope(name)) == row

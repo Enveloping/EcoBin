@@ -35,6 +35,19 @@ static void emit(McuControlEndpoint *endpoint, uint8_t message, uint16_t length)
         endpoint->sink(endpoint->transmit, encoded, endpoint->sink_context);
 }
 
+static void emit_command_result(McuControlEndpoint *endpoint,
+    const McuSessionCommand *command) {
+    uint8_t message = 0u;
+    size_t length;
+    /* A held application result has its own exact command identity.  Replay it
+     * even after the one-entry session decision cache has advanced and the
+     * generic query outcome is OLD_DETAILS_UNAVAILABLE. */
+    if (endpoint->command_result_handler == NULL) return;
+    length = endpoint->command_result_handler(command, &message, endpoint->payload,
+        sizeof(endpoint->payload), endpoint->application_context);
+    if (length != 0u) emit(endpoint, message, (uint16_t)length);
+}
+
 static void receive(const uint8_t *frame, size_t length, const ecobin_uart_frame_view_t *view, void *context) {
     McuControlEndpoint *endpoint = (McuControlEndpoint *)context;
     const uint8_t *input = view->payload;
@@ -79,6 +92,7 @@ static void receive(const uint8_t *frame, size_t length, const ecobin_uart_frame
         ecobin_uart_write_u16_be(endpoint->payload + ECOBIN_UART_COMMAND_QUERY_RESULT_ERROR_CODE_OFFSET, decision.error_code);
         ecobin_uart_write_u32_be(endpoint->payload + ECOBIN_UART_COMMAND_QUERY_RESULT_HIGHEST_COMMAND_SEQUENCE_OFFSET, decision.highest_sequence);
         emit(endpoint, ECOBIN_UART_MESSAGE_COMMAND_QUERY_RESULT, ECOBIN_UART_COMMAND_QUERY_RESULT_PAYLOAD_MAX_LENGTH);
+        emit_command_result(endpoint, &command);
         break;
     case ECOBIN_UART_MESSAGE_QUERY_PROCESS_EVENT:
         reply_length = McuProcessEventSlot_Query(&endpoint->process_event, input,
@@ -158,6 +172,8 @@ static void receive(const uint8_t *frame, size_t length, const ecobin_uart_frame
         if (endpoint->command_handler != NULL
             && (view->message_type == ECOBIN_UART_MESSAGE_SAFE_CLOSE
                 || (view->message_type >= ECOBIN_UART_MESSAGE_CONFIG_BEGIN && view->message_type <= ECOBIN_UART_MESSAGE_CONFIG_COMMIT)
+                || (view->message_type >= ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_BEGIN
+                    && view->message_type <= ECOBIN_UART_MESSAGE_DEVICE_ENTRY_URL_COMMIT)
                 || (view->message_type >= ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION && view->message_type <= ECOBIN_UART_MESSAGE_CONFIRM_NO_ACTIVE_WORK))
             && endpoint->command_handler(endpoint, view->message_type, input, view->payload_length,
                 endpoint->last_input_ms, endpoint->application_context, &decision)) {
@@ -166,12 +182,22 @@ static void receive(const uint8_t *frame, size_t length, const ecobin_uart_frame
             endpoint->payload[ECOBIN_UART_COMMAND_DECISION_OUTCOME_OFFSET] = decision.outcome;
             ecobin_uart_write_u16_be(endpoint->payload + ECOBIN_UART_COMMAND_DECISION_ERROR_CODE_OFFSET, decision.error_code);
             emit(endpoint, ECOBIN_UART_MESSAGE_COMMAND_DECISION, ECOBIN_UART_COMMAND_DECISION_PAYLOAD_MAX_LENGTH);
+            emit_command_result(endpoint, &decision.command);
             break;
         }
         /* No application handler accepted this message: no invented decision. */
         endpoint->parser.diagnostics |= ECOBIN_UART_DIAG_SEMANTIC_REJECTED;
         break;
     }
+}
+
+uint8_t McuControlEndpoint_AttachCommandResults(McuControlEndpoint *endpoint,
+    McuControlCommandResultHandler results) {
+    if (endpoint == NULL || results == NULL || endpoint->feeding
+        || endpoint->session.boot_id != 0u || endpoint->command_handler == NULL
+        || endpoint->command_result_handler != NULL) return 0u;
+    endpoint->command_result_handler = results;
+    return 1u;
 }
 
 uint8_t McuControlEndpoint_AttachCommands(McuControlEndpoint *endpoint,

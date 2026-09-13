@@ -25,6 +25,7 @@
     "DEVICE_ACCEPTANCE_EVIDENCE": "DEV_ACCEPT_EVIDENCE",
     "DEVICE_ASSET": "DEVICE_ASSET",
     "DEVICE_COMMAND_OBSERVED": "DEV_CMD_OBSERVED",
+    "DEVICE_ENTRY_URL_APPLICATION_RESULT": "DEV_URL_APPLY_RESULT",
     "DEVICE_FAULT_OBSERVED": "DEV_FAULT_OBSERVED",
     "DEVICE_FAULT_RECOVERED": "DEV_FAULT_RECOVERED",
     "DEVICE_RUNTIME_SNAPSHOT": "DEV_RUNTIME_SNAP",
@@ -62,6 +63,7 @@
     "START_MCU_FIRMWARE_UPDATE": "START_MCU_FW_UPDATE",
     "SYNC_DEVICE_ENTRY_URL": "SYNC_DEVICE_URL",
     "TERMINAL_WEIGHT_FAILURE": "TERM_WEIGHT_FAIL",
+    "UART3_COMMAND_ATOMICALLY_QUEUED": "UART3_ATOMIC_QUEUED",
     "UNKNOWN_EFFECT_QUARANTINED": "UNKNOWN_QUARANTINED"
   },
   "events": {
@@ -6486,7 +6488,8 @@
           "dataType": {
             "specs": {
               "1": "3",
-              "2": "4"
+              "2": "4",
+              "3": "5"
             },
             "type": "enum"
           },
@@ -6685,6 +6688,95 @@
           },
           "identifier": "deviceEntryUrlSha256",
           "name": "deviceEntryUrlSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "deviceEntryUrlMcuAppliedPresent",
+          "name": "deviceEntryUrlMcuAppliedPresen"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "false",
+              "true": "true"
+            },
+            "type": "bool"
+          },
+          "identifier": "deviceEntryUrlMcuApplied",
+          "name": "deviceEntryUrlMcuApplied"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "deviceEntryUrlAppliedSha2Present",
+          "name": "deviceEntryUrlAppliedSha2Prese"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "deviceEntryUrlAppliedSha2",
+          "name": "deviceEntryUrlAppliedSha2"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "deviceEntryUrlAppliedMcuBPresent",
+          "name": "deviceEntryUrlAppliedMcuBPrese"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "9007199254740991",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "deviceEntryUrlAppliedMcuB",
+          "name": "deviceEntryUrlAppliedMcuB"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "deviceEntryUrlDisplayBasiPresent",
+          "name": "deviceEntryUrlDisplayBasiPrese"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "UART3_ATOMIC_QUEUED",
+              "2": "NOT_APPLIED"
+            },
+            "type": "enum"
+          },
+          "identifier": "deviceEntryUrlDisplayBasi",
+          "name": "deviceEntryUrlDisplayBasi"
         },
         {
           "dataType": {
@@ -6934,6 +7026,34 @@
           "jsonPath": "$.payload.deviceEntryUrlSha256",
           "nullable": false,
           "wireIdentifier": "deviceEntryUrlSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceEntryUrlMcuApplied",
+          "nullable": false,
+          "optional": true,
+          "wireIdentifier": "deviceEntryUrlMcuApplied"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceEntryUrlAppliedSha256",
+          "nullable": true,
+          "optional": true,
+          "wireIdentifier": "deviceEntryUrlAppliedSha2"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceEntryUrlAppliedMcuBootId",
+          "nullable": true,
+          "optional": true,
+          "wireIdentifier": "deviceEntryUrlAppliedMcuB"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceEntryUrlDisplayBasis",
+          "nullable": false,
+          "optional": true,
+          "wireIdentifier": "deviceEntryUrlDisplayBasi"
         },
         {
           "encoding": "FLAT_TYPED",
@@ -7275,6 +7395,336 @@
           "jsonPath": "$.payload.errorCode",
           "nullable": true,
           "wireIdentifier": "errorCode"
+        }
+      ]
+    },
+    "deviceEntryUrlApplicationResult": {
+      "eventType": "DEVICE_ENTRY_URL_APPLICATION_RESULT",
+      "outputData": [
+        {
+          "dataType": {
+            "specs": {
+              "1": "2"
+            },
+            "type": "enum"
+          },
+          "identifier": "schemaVersion",
+          "name": "schemaVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "eventUid",
+          "name": "eventUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "9007199254740991",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "edgeEventSequence",
+          "name": "edgeEventSequence"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "DEV_URL_APPLY_RESULT"
+            },
+            "type": "enum"
+          },
+          "identifier": "eventType",
+          "name": "eventType"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "RELIABLE_FACT"
+            },
+            "type": "enum"
+          },
+          "identifier": "deliveryClass",
+          "name": "deliveryClass"
+        },
+        {
+          "dataType": {
+            "specs": [
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "DEVICE_ASSET"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "type",
+                "name": "type"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 64
+                  },
+                  "type": "string"
+                },
+                "identifier": "uid",
+                "name": "uid"
+              }
+            ],
+            "type": "struct"
+          },
+          "identifier": "target",
+          "name": "target"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "commandUid",
+          "name": "commandUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "occurredAtPresent",
+          "name": "occurredAtPresent"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 30
+            },
+            "type": "string"
+          },
+          "identifier": "occurredAt",
+          "name": "occurredAt"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "SYNCED",
+              "2": "ESTIMATED",
+              "3": "UNAVAILABLE"
+            },
+            "type": "enum"
+          },
+          "identifier": "clockQuality",
+          "name": "clockQuality"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "payloadSha256",
+          "name": "payloadSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "applicationUid",
+          "name": "applicationUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "APPLIED",
+              "2": "FAILED"
+            },
+            "type": "enum"
+          },
+          "identifier": "status",
+          "name": "status"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "deviceEntryUrlSha256",
+          "name": "deviceEntryUrlSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "mcuCommandUid",
+          "name": "mcuCommandUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "9007199254740991",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "mcuBootId",
+          "name": "mcuBootId"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "UART3_ATOMIC_QUEUED",
+              "2": "NOT_APPLIED"
+            },
+            "type": "enum"
+          },
+          "identifier": "displayBasis",
+          "name": "displayBasis"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "faultCodePresent",
+          "name": "faultCodePresent"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "faultCode",
+          "name": "faultCode"
+        }
+      ],
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.applicationUid",
+          "nullable": false,
+          "wireIdentifier": "applicationUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.status",
+          "nullable": false,
+          "wireIdentifier": "status"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceEntryUrlSha256",
+          "nullable": false,
+          "wireIdentifier": "deviceEntryUrlSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuCommandUid",
+          "nullable": false,
+          "wireIdentifier": "mcuCommandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuBootId",
+          "nullable": false,
+          "wireIdentifier": "mcuBootId"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.displayBasis",
+          "nullable": false,
+          "wireIdentifier": "displayBasis"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.faultCode",
+          "nullable": true,
+          "wireIdentifier": "faultCode"
         }
       ]
     },
@@ -13919,5 +14369,5 @@
     }
   },
   "generated": true,
-  "mappingVersion": "2.3.0"
+  "mappingVersion": "2.4.0"
 }

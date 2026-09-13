@@ -23,10 +23,15 @@ def test_waiting_for_backend_confirmation_does_not_requery_permanent_job(runtime
             def no_rpc(*args, **kwargs):
                 pytest.fail("backend wait entered synchronous permanent job RPC")
             monkeypatch.setattr(case.safety, "get_job_permit", no_rpc)
+            snapshot = None
             for _ in range(120):
-                owner.poll()
+                snapshot = owner.poll()
                 clock.now += 100
-            assert owner.uart_state == "READY"
+            # Assert the state returned by the last completed owner poll.  The
+            # synthetic clock is advanced afterwards, exactly onto the next
+            # boot-probe boundary, so reading the live property here would
+            # describe the not-yet-polled instant instead.
+            assert snapshot["uartState"] == "READY"
             assert case.store.get_work_slot() == slot
             assert len(case.store.list_native_result_report_tasks()) == 1
         finally:

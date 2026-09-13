@@ -2,7 +2,7 @@
   "identifier": "deviceFaultObserved",
   "kind": "EVENT",
   "oneJsonPayload": {
-    "id": "108",
+    "id": "109",
     "params": {
       "deviceFaultObserved": {
         "value": {

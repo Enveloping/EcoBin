@@ -19,6 +19,8 @@ typedef struct McuControlEndpoint McuControlEndpoint;
 typedef uint8_t (*McuControlCommandHandler)(McuControlEndpoint *endpoint, uint8_t message,
     const uint8_t *payload, size_t length, uint64_t now_ms, void *context, McuSessionDecision *decision);
 typedef void (*McuControlBoundHandler)(McuControlEndpoint *endpoint, void *context);
+typedef size_t (*McuControlCommandResultHandler)(const McuSessionCommand *command,
+    uint8_t *message, uint8_t *output, size_t capacity, void *context);
 struct McuControlEndpoint {
     McuSession session;
     McuWorkState work;
@@ -36,6 +38,7 @@ struct McuControlEndpoint {
     McuControlSink sink;
     void *sink_context;
     McuControlCommandHandler command_handler;
+    McuControlCommandResultHandler command_result_handler;
     McuControlBoundHandler bound_handler;
     void *application_context;
     uint8_t feeding;
@@ -47,6 +50,10 @@ void McuControlEndpoint_Init(McuControlEndpoint *endpoint, uint8_t port_no,
  * attachment is rejected. Default endpoint remains read-only control handling. */
 uint8_t McuControlEndpoint_AttachCommands(McuControlEndpoint *endpoint,
     McuControlCommandHandler commands, McuControlBoundHandler bound, void *context);
+/* Optional boot-only RAM result replay. Called after the normal decision/query
+ * reply and may only copy a result; it must not execute or requeue hardware. */
+uint8_t McuControlEndpoint_AttachCommandResults(McuControlEndpoint *endpoint,
+    McuControlCommandResultHandler results);
 /* Shared boot-local critical event allocator for attached producers. Not the
  * transport sequence or measurement counter. 0 on unbound/exhausted; no wrap.
  * Cannot consume numbers promised to reserved actuator evidence. */

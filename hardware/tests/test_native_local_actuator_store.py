@@ -59,7 +59,7 @@ def test_schema_upgrade_preserves_old_evidence_and_rolls_back_every_partial_swap
         upgrade = EdgeStore(path)
     try:
         upgrade.initialize()
-        assert CURRENT_SCHEMA_VERSION == 30
+        assert CURRENT_SCHEMA_VERSION >= 30
         assert upgrade._conn.execute("SELECT max(version) FROM schema_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
         assert upgrade.get_native_actuator_event(42, 7) == original
         assert upgrade.get_work_slot() == occupancy

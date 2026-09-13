@@ -125,10 +125,17 @@ class DeviceAcceptanceRunner:
             getattr(self._uart, "_mcu_firmware_version", "")
             or "UNKNOWN"
         )[:64]
+        native_url_application = getattr(self._uart, "native_protocol", None) == 2
         session_communication_healthy = bool(
             getattr(self._uart, "is_open", False)
             and getattr(self._uart, "mcu_session_ready", False)
-            and mcu_firmware_version != "UNKNOWN"
+            # The simplified native boot probe is itself the current
+            # communication proof. It does not fabricate a firmware version;
+            # retain UNKNOWN until that separate diagnostic is implemented.
+            and (
+                native_url_application
+                or mcu_firmware_version != "UNKNOWN"
+            )
         )
 
         sensor_result = self._sensor_evidence(expected_port_count)
@@ -149,8 +156,24 @@ class DeviceAcceptanceRunner:
             if device_entry_url is not None
             else "0" * 64
         )
+        applied_url = (
+            self._store.get_native_device_entry_url_applied_evidence()
+            if native_url_application
+            else None
+        )
+        current_mcu_boot_id = getattr(
+            self._uart,
+            "current_mcu_boot_id",
+            getattr(self._uart, "_mcu_boot_id", 0),
+        )
+        device_entry_url_mcu_applied = bool(
+            applied_url is not None
+            and applied_url["deviceEntryUrlSha256"]
+            == device_entry_url_sha256
+            and applied_url["mcuBootId"] == current_mcu_boot_id
+        )
         evidence = {
-            "evidenceSchemaVersion": 4,
+            "evidenceSchemaVersion": 5 if native_url_application else 4,
             "challengeUid": challenge_uid,
             "factoryBagRevision": factory_bag_revision,
             "factoryBagSetSha256": factory_bag_set_sha256,
@@ -184,6 +207,25 @@ class DeviceAcceptanceRunner:
             "deviceEntryUrlStored": device_entry_url_stored,
             "deviceEntryUrlSha256": device_entry_url_sha256,
         }
+        if native_url_application:
+            evidence.update({
+                "deviceEntryUrlMcuApplied": device_entry_url_mcu_applied,
+                "deviceEntryUrlAppliedSha256": (
+                    applied_url["deviceEntryUrlSha256"]
+                    if device_entry_url_mcu_applied
+                    else None
+                ),
+                "deviceEntryUrlAppliedMcuBootId": (
+                    applied_url["mcuBootId"]
+                    if device_entry_url_mcu_applied
+                    else None
+                ),
+                "deviceEntryUrlDisplayBasis": (
+                    "UART3_COMMAND_ATOMICALLY_QUEUED"
+                    if device_entry_url_mcu_applied
+                    else "NOT_APPLIED"
+                ),
+            })
         self.report_progress("EVIDENCE_PERSISTENCE")
         event = self._store.complete_device_acceptance(
             command,
@@ -269,6 +311,8 @@ class DeviceAcceptanceRunner:
             facts = self._fixed_frame_sensor_facts(
                 expected_port_count
             )
+        elif getattr(self._uart, "native_protocol", None) == 2:
+            facts = self._uart_v2_sensor_facts(expected_port_count)
         else:
             facts = self._uart_v1_sensor_facts(expected_port_count)
         return {
@@ -279,6 +323,69 @@ class DeviceAcceptanceRunner:
             ),
             "verifiedPortCount": facts["verifiedPortCount"],
             "sha256": canonical_payload_sha256(facts),
+        }
+
+    def _uart_v2_sensor_facts(
+        self,
+        expected_port_count: int,
+    ) -> dict[str, Any]:
+        provider = getattr(self._uart, "current_device_facts", None)
+        observation = provider() if callable(provider) else None
+        fresh = isinstance(observation, dict)
+        configured_port_count = getattr(self._uart, "port_count", 1)
+        if (
+            isinstance(configured_port_count, bool)
+            or not isinstance(configured_port_count, int)
+            or not 1 <= configured_port_count <= 6
+        ):
+            configured_port_count = 1
+        maximum_age_ms = self._maximum_sensor_age_seconds * 1000
+
+        def recent(field: str) -> bool:
+            if not fresh:
+                return False
+            captured = observation.get("capturedUptimeMs")
+            observed = observation.get(field)
+            return bool(
+                type(captured) is int
+                and type(observed) is int
+                and 0 <= observed <= captured
+                and captured - observed <= maximum_age_ms
+            )
+
+        weight = observation.get("scaleWeightGrams") if fresh else None
+        sample_healthy = bool(
+            fresh
+            and observation.get("status") == "AVAILABLE"
+            and observation.get("portNo") == 1
+            and observation.get("currentMcuBootId")
+                == getattr(self._uart, "current_mcu_boot_id", 0)
+            and observation.get("appliedConfigVersion", 0) > 0
+            and observation.get("configStaging") is False
+            and observation.get("scaleReadStatus") == "VALID"
+            and type(weight) is int
+            and 0 <= weight <= MAXIMUM_WEIGHT_GRAMS
+            and recent("scaleCapturedUptimeMs")
+            and observation.get("smokeObservationState") == "NORMAL"
+            and recent("smokeObservedUptimeMs")
+            and observation.get("fullnessObservationKind")
+                in {"ULTRASONIC", "DIGITAL_INFRARED"}
+            and observation.get("fullnessReadStatus") == "VALID"
+            and recent("fullnessCapturedUptimeMs")
+        )
+        return {
+            "mode": "UART_V2_SIMPLIFIED",
+            "expectedPortCount": expected_port_count,
+            "verifiedPortCount": configured_port_count,
+            "fresh": fresh,
+            "communicationHealthy": bool(
+                getattr(self._uart, "mcu_session_ready", False)
+            ),
+            "observation": observation,
+            "healthy": bool(
+                expected_port_count == configured_port_count
+                and sample_healthy
+            ),
         }
 
     def _fixed_frame_sensor_facts(

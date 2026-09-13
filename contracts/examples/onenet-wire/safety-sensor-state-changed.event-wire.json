@@ -2,7 +2,7 @@
   "identifier": "safetySensorStateChanged",
   "kind": "EVENT",
   "oneJsonPayload": {
-    "id": "110",
+    "id": "111",
     "params": {
       "safetySensorStateChanged": {
         "value": {

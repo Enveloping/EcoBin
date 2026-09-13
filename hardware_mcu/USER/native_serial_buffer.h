@@ -11,10 +11,19 @@ typedef struct {
     volatile uint16_t head, tail;
     volatile uint8_t overflow;
 } NativeRxBuffer;
+typedef struct {
+    const uint8_t *bytes;
+    size_t length;
+} NativeSerialSpan;
 void NativeRx_Init(NativeRxBuffer *buffer);
 void NativeRx_PushIrq(NativeRxBuffer *buffer, uint8_t byte);
 size_t NativeRx_Read(NativeRxBuffer *buffer, uint8_t *output, size_t capacity);
 uint8_t NativeRx_DiscardOverflow(NativeRxBuffer *buffer);
+/* Caller excludes the consumer while this runs. All span bytes become visible
+ * with one final head update, or zero bytes become visible. Never sets or
+ * clears overflow. Capacity keeps one ring slot empty. */
+uint8_t NativeRx_WriteAtomic(NativeRxBuffer *buffer,
+    const NativeSerialSpan *spans, size_t count);
 
 typedef struct {
     uint8_t bytes[9];

@@ -11,13 +11,23 @@
 **********************************************************************************/
 
 #include "usart3.h"
+#include <string.h>
 
 NativeRxBuffer NativeHmiRx;
 NativeRxBuffer NativeHmiTx;
-static uint8_t hmi_drop_frame, hmi_end_count;
 void NativeHmi_InitBuffer(void) {
     NativeRx_Init(&NativeHmiRx); NativeRx_Init(&NativeHmiTx);
-    hmi_drop_frame = hmi_end_count = 0u;
+}
+
+static uint8_t hmi_try_write(const NativeSerialSpan *spans, size_t count)
+{
+    uint32_t previous = __get_PRIMASK();
+    uint8_t queued;
+    __disable_irq();
+    queued = NativeRx_WriteAtomic(&NativeHmiTx, spans, count);
+    if (queued) USART_ITConfig(USART3, USART_IT_TXE, ENABLE);
+    __set_PRIMASK(previous);
+    return queued;
 }
 
 /* UART3 接收缓冲区 */
@@ -69,28 +79,10 @@ void USART3_Init(void)
  */
 void UART3_SendByte(unsigned char SendData)
 {
-    uint32_t previous = __get_PRIMASK();
-    __disable_irq();
-    if (hmi_drop_frame) {
-        hmi_end_count = SendData == 0xffu ? (uint8_t)(hmi_end_count + 1u) : 0u;
-        if (hmi_end_count == 3u) {
-            /* End any partially transmitted display instruction before the
-             * next full one. No blocking wait or mechanical side effect. */
-            NativeRx_PushIrq(&NativeHmiTx, 0xffu);
-            NativeRx_PushIrq(&NativeHmiTx, 0xffu);
-            NativeRx_PushIrq(&NativeHmiTx, 0xffu);
-            hmi_drop_frame = hmi_end_count = 0u;
-        }
-    } else {
-        NativeRx_PushIrq(&NativeHmiTx, SendData);
-        if (NativeHmiTx.overflow) {
-            (void)NativeRx_DiscardOverflow(&NativeHmiTx);
-            hmi_drop_frame = 1u;
-            hmi_end_count = SendData == 0xffu ? 1u : 0u;
-        }
-    }
-    USART_ITConfig(USART3, USART_IT_TXE, ENABLE);
-    __set_PRIMASK(previous);
+    NativeSerialSpan span;
+    span.bytes = &SendData;
+    span.length = 1u;
+    (void)hmi_try_write(&span, 1u);
 }
 
 /*
@@ -98,18 +90,28 @@ void UART3_SendByte(unsigned char SendData)
  */
 void UART3_SendString(char *str)
 {
-    while(*str)
-    {
-        UART3_SendByte((unsigned char)*str++);
-    }
+    NativeSerialSpan span;
+    if (str == 0) return;
+    span.bytes = (const uint8_t *)str;
+    span.length = strlen(str);
+    (void)hmi_try_write(&span, 1u);
 }
 
 /* Trusted current-page component names only, e.g. n1 / n3. */
 void UART3_SendVisible(char *component, unsigned char visible)
 {
-    UART3_SendString("vis "); UART3_SendString(component);
-    UART3_SendByte(','); UART3_SendByte(visible ? '1' : '0');
-    UART3_SendByte(0xff); UART3_SendByte(0xff); UART3_SendByte(0xff);
+    static const uint8_t prefix[] = "vis ";
+    static const uint8_t comma[] = {','};
+    static const uint8_t suffix[] = {0xffu, 0xffu, 0xffu};
+    uint8_t state = visible ? '1' : '0';
+    NativeSerialSpan spans[5];
+    if (component == 0) return;
+    spans[0].bytes = prefix; spans[0].length = sizeof(prefix) - 1u;
+    spans[1].bytes = (const uint8_t *)component; spans[1].length = strlen(component);
+    spans[2].bytes = comma; spans[2].length = sizeof(comma);
+    spans[3].bytes = &state; spans[3].length = 1u;
+    spans[4].bytes = suffix; spans[4].length = sizeof(suffix);
+    (void)hmi_try_write(spans, 5u);
 }
 
 /*
@@ -121,39 +123,20 @@ void UART3_SendVisible(char *component, unsigned char visible)
  */
 void UART3_SendScreenVal(char *prefix, int value)
 {
-    unsigned char i, len;
-
-    /* 发送前缀字符串 (不发送\0, 用\0仅做指针终止判断) */
-    while(*prefix)
-    {
-        UART3_SendByte((unsigned char)*prefix++);
-    }
-
-    /* 发送数值 (不依赖\0, 手动拆解十进制位) */
-    if(value == 0)
-    {
-        UART3_SendByte('0');
-    }
-    else
-    {
-        unsigned char digits[10];
-        int temp = value;
-        len = 0;
-        while(temp > 0)
-        {
-            digits[len++] = '0' + (temp % 10);
-            temp /= 10;
-        }
-        for(i = len; i > 0; i--)
-        {
-            UART3_SendByte(digits[i - 1]);
-        }
-    }
-
-    /* 发送结尾标识 FF FF FF */
-    UART3_SendByte(0xFF);
-    UART3_SendByte(0xFF);
-    UART3_SendByte(0xFF);
+    static const uint8_t suffix[] = {0xffu, 0xffu, 0xffu};
+    uint8_t digits[10];
+    uint8_t first = sizeof(digits);
+    unsigned int number = value > 0 ? (unsigned int)value : 0u;
+    NativeSerialSpan spans[3];
+    if (prefix == 0) return;
+    do {
+        digits[--first] = (uint8_t)('0' + number % 10u);
+        number /= 10u;
+    } while (number != 0u && first != 0u);
+    spans[0].bytes = (const uint8_t *)prefix; spans[0].length = strlen(prefix);
+    spans[1].bytes = digits + first; spans[1].length = sizeof(digits) - first;
+    spans[2].bytes = suffix; spans[2].length = sizeof(suffix);
+    (void)hmi_try_write(spans, 3u);
 }
 
 /*
@@ -163,11 +146,14 @@ void UART3_SendScreenVal(char *prefix, int value)
  */
 void UART3_SendPage(char *page)
 {
-    UART3_SendString("page ");
-    UART3_SendString(page);
-    UART3_SendByte(0xFF);
-    UART3_SendByte(0xFF);
-    UART3_SendByte(0xFF);
+    static const uint8_t prefix[] = "page ";
+    static const uint8_t suffix[] = {0xffu, 0xffu, 0xffu};
+    NativeSerialSpan spans[3];
+    if (page == 0) return;
+    spans[0].bytes = prefix; spans[0].length = sizeof(prefix) - 1u;
+    spans[1].bytes = (const uint8_t *)page; spans[1].length = strlen(page);
+    spans[2].bytes = suffix; spans[2].length = sizeof(suffix);
+    (void)hmi_try_write(spans, 3u);
 }
 
 /*
@@ -178,10 +164,23 @@ void UART3_SendPage(char *page)
  */
 void UART3_SendQRCode(char *url)
 {
-    UART3_SendString("page0.qr0.txt=\"");
-    UART3_SendString(url);
-    UART3_SendByte('"');
-    UART3_SendByte(0xFF);
-    UART3_SendByte(0xFF);
-    UART3_SendByte(0xFF);
+    if (url != 0)
+        (void)UART3_TrySendQRCode((const uint8_t *)url, (uint16_t)strlen(url));
+}
+
+uint8_t UART3_TrySendQRCode(const uint8_t *url, uint16_t length)
+{
+    static const uint8_t prefix[] = "page0.qr0.txt=\"";
+    static const uint8_t suffix[] = {'\"', 0xffu, 0xffu, 0xffu};
+    NativeSerialSpan spans[3];
+    uint16_t index;
+    if (url == 0 || length == 0u || length > 192u || length < 8u
+        || memcmp(url, "https://", 8u) != 0) return 0u;
+    for (index = 0u; index < length; ++index)
+        if (url[index] < 0x21u || url[index] > 0x7eu
+            || url[index] == 0x22u || url[index] == 0x5cu) return 0u;
+    spans[0].bytes = prefix; spans[0].length = sizeof(prefix) - 1u;
+    spans[1].bytes = url; spans[1].length = length;
+    spans[2].bytes = suffix; spans[2].length = sizeof(suffix);
+    return hmi_try_write(spans, 3u);
 }

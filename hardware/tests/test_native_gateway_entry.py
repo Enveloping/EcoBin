@@ -141,3 +141,31 @@ def test_native_protocol_never_silently_constructs_v1_link(monkeypatch):
     monkeypatch.setattr(main, "MCU_PROTOCOL_MODE", "uart-v2")
     with pytest.raises(ValueError, match="foreground business owner"):
         main._make_uart_link("never-open", 1, 115200, 1, None)
+
+
+def test_native_direct_cloud_entry_constructs_acceptance_runner(monkeypatch):
+    edge = main.EcoBinEdge.__new__(main.EcoBinEdge)
+    edge._native_mode = True
+    edge.store = object()
+    edge.uart = object()
+    edge.photo = object()
+    edge.cos_uploader = object()
+    captured = {}
+
+    class Runner:
+        def __init__(self, store, uart, photo, uploader, **options):
+            captured.update(
+                store=store,
+                uart=uart,
+                photo=photo,
+                uploader=uploader,
+                options=options,
+            )
+
+    monkeypatch.setattr("device_acceptance.DeviceAcceptanceRunner", Runner)
+    runner = edge._make_device_acceptance_runner(False)
+    assert isinstance(runner, Runner)
+    assert captured["store"] is edge.store
+    assert captured["uart"] is edge.uart
+    assert captured["options"]["device_name"] == main.DEVICE_NAME
+    assert edge._make_device_acceptance_runner(True) is None

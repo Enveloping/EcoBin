@@ -1,355 +1,322 @@
-"""Actual C detects post-CLOSE interruption, preserves facts, and hands off failure."""
+"""Autonomous delivery interruption after CLOSE preserves authoritative facts.
+
+The MCU owns motion, weighing and the one immutable WORK_RESULT.  The Pi only
+queries and durably confirms that complete result; there is no process-event or
+per-action acknowledgement gate in these scenarios.
+"""
 import pytest
 import uart2_protocol as uart
+
 from edge_store import EdgeStore
-from hardware.tests.test_mcu_work_preparation import library, runtime, exchange, original_scope, take_samples
-from hardware.tests.test_mcu_delivery_postclose import closed_cycle, advance
-from hardware.tests.test_mcu_delivery_finalization import held_result, save_process, measured_round, select
-from hardware.tests.test_native_configuration import inputs
+from mcu_result_handoff import McuResultHandoff
 from hardware.tests.test_mcu_delivery_execution import facts
-from hardware.tests.test_mcu_delivery_abort import save_action
+from hardware.tests.test_mcu_simplified_execution import (
+    closed_measurement,
+    final,
+    library,
+    runtime,
+    select,
+    setup,
+    state,
+    tick,
+)
+from hardware.tests.test_mcu_work_preparation import exchange, take_samples
+from hardware.tests.test_native_configuration import inputs
 
 
-def action_records(runtime, now):
-    result, after = [], 0
-    while True:
-        response = exchange(runtime, "QUERY_ACTUATOR_EVENT", dict(queryId=100 + after,
-            targetMcuBootId=42, afterMcuEventSequence=after), now=now)
-        if response[0][1]["status"] == "NOT_FOUND":
-            return result
-        result.append(response[1])
-        after = response[1][1]["mcuEventSequence"]
+def close_wait(runtime):
+    delivery, _, start, now = setup(runtime)
+    now = tick(runtime, now, 100)
+    now = tick(runtime, now, start["deliveryAutoCloseMs"])
+    now = tick(runtime, now, 100)
+    assert state(runtime, start, now)["phase"] == "DELIVERY_CLOSE_TRAVEL_WAIT"
+    observed = facts(runtime, now)
+    assert observed["lastDeliveryDoorCommand"] == "CLOSE"
+    assert observed["pb7Output"] and not observed["pb6Output"]
+    return delivery, start, now
 
 
-def test_stop_during_close_wait_retains_real_close_and_separate_failure_before_final(runtime, tmp_path):
-    execution, start, initial, scope, now = closed_cycle(runtime, tmp_path)
-    lib, *_ = runtime
-    lib.ActuatorRuntime_StopForUpdate()
-    now = advance(runtime, now, 1000)
+def interrupted_result(runtime, stage):
+    delivery, start, now = close_wait(runtime)
+    if stage == "measuring":
+        now = tick(runtime, now, inputs()["device"]["deliveryDoorTravelWaitMs"])
+        assert state(runtime, start, now)["phase"] == "DELIVERY_POSTCLOSE_MEASURING"
+        now = take_samples(runtime, [900], start=now, measurement=2, publish=False)
+    runtime[0].ActuatorRuntime_StopForUpdate()
+    now = tick(runtime, now, 100)
+    return delivery, start, now
+
+
+def result_identity(runtime, start, now):
+    observed = state(runtime, start, now)
+    assert observed["status"] == "RESULT_HELD"
+    return {
+        "mcuBootId": 42,
+        "resultSequence": observed["resultSequence"],
+        "workUid": start["sessionUid"],
+        "resultDigestSha256": observed["resultDigestSha256"],
+    }
+
+
+def pump(client, replies, now):
+    while replies:
+        client.accept_frame(replies.pop(0), now)
+
+
+def test_stop_during_close_wait_keeps_real_close_and_finishes_once(runtime):
+    delivery, start, now = close_wait(runtime)
+    runtime[0].ActuatorRuntime_StopForUpdate()
+    now = tick(runtime, now, 1000)
     detected = now
-    records = action_records(runtime, now)
-    assert [name for name, _ in records] == ["DELIVERY_DOOR_COMMAND_RESULT"] * 2 + ["DELIVERY_POSTCLOSE_INTERRUPTED"]
-    assert [item["command"] for _, item in records[:2]] == ["OPEN", "CLOSE"]
-    interrupted = records[2][1]
-    assert interrupted["interruptionReason"] == "UPDATE_STOPPED"
-    assert interrupted["interruptedPhase"] == "DELIVERY_CLOSE_TRAVEL_WAIT"
-    assert interrupted["postCloseMeasurementEventSequence"] == 0
-    assert interrupted["uptimeMs"] == detected
-    assert interrupted["mcuCommandUid"] == records[0][1]["mcuCommandUid"]
-    assert interrupted["sessionUid"] == start["sessionUid"] and interrupted["roundIndex"] == 1
-    assert facts(runtime, now)["retainedWorkPhase"] == "SAFETY_LOCKED"
+
+    result = final(runtime, start, now)
+    assert result["finishReason"] == "CANCELLED"
+    assert result["completedUptimeMs"] == detected
+    assert result["deliveryRoundCount"] == 1
+    assert result["initialWeightGrams"] == 500
+    assert result["finalKind"] == "NOT_TAKEN"
+    assert result["finalWeightGrams"] == 0
+    assert not result["physicalCloseConfirmed"]
     assert facts(runtime, now)["measurementSequence"] == 1
-    assert exchange(runtime, "QUERY_PROCESS_EVENT", scope, now=now)[0][1]["status"] == "NOT_FOUND"
-    store = EdgeStore(str(tmp_path / "postclose-stop.db"))
-    store.initialize()
-    try:
-        save_action(runtime, store, *records[2], now)
-        save_action(runtime, store, *records[0], now)
-        now = advance(runtime, now, 60000)
-        assert exchange(runtime, "QUERY_WORK", original_scope(start), now=now)[0][1]["status"] == "RUNNING"
-        save_action(runtime, store, *records[1], now)
-        now = advance(runtime, now, 0)
-        result = held_result(runtime, start, now)
-        assert result["finishReason"] == "FAILED" and result["completedUptimeMs"] == detected
-        assert result["deliveryRoundCount"] == 1 and result["finalKind"] == "NOT_TAKEN"
-        assert result["initialMeasurementUid"] == initial["measurementUid"]
-        assert not result["physicalCloseConfirmed"]
-        now = advance(runtime, now, 60000)
-        assert held_result(runtime, start, now) == result
-        assert not facts(runtime, now)["pb6Output"] and not facts(runtime, now)["pb7Output"] and execution
-        assert store.list_native_result_report_tasks() == []
-    finally:
-        store.close()
+    assert not facts(runtime, now)["pb6Output"] and not facts(runtime, now)["pb7Output"]
+
+    now = tick(runtime, now, 60000)
+    assert final(runtime, start, now) == result
+    assert delivery
 
 
-@pytest.mark.parametrize("stage,loss", [(stage, loss) for stage in ("wait", "measuring")
-    for loss in ("interrupt_write", "interrupt_reply", "process_write", "process_reply", "result_write", "result_reply")
-    if stage == "measuring" or not loss.startswith("process")])
-def test_postclose_failure_handoff_survives_pi_restart_without_motion_or_early_release(runtime, tmp_path, stage, loss):
-    from mcu_actuator_handoff import McuActuatorEventHandoff
-    from mcu_process_handoff import McuProcessEventHandoff
-    from mcu_result_handoff import McuResultHandoff
-    execution, start, _, scope, now = closed_cycle(runtime, tmp_path)
-    lib, endpoint, _, replies, *_ = runtime
-    if stage == "measuring":
-        now = advance(runtime, now, inputs()["device"]["deliveryDoorTravelWaitMs"])
-        now = take_samples(runtime, [900], start=now, measurement=2)
-    lib.ActuatorRuntime_StopForUpdate()
-    now = advance(runtime, now, 100)
-    detected = now
-    interrupted = action_records(runtime, now)[-1][1]
-    interrupt_raw = uart.encode_payload("DELIVERY_POSTCLOSE_INTERRUPTED", interrupted)
-    process_raw = None
-    saved_scope = uart.encode_payload("QUERY_PROCESS_EVENT", scope)[8:]
-    if stage == "measuring":
-        post = exchange(runtime, "QUERY_PROCESS_EVENT", scope, now=now)[1][1]
-        process_raw = uart.encode_payload("WORK_POSTCLOSE_WEIGHT_READY", post)
+@pytest.mark.parametrize("stage,loss", [
+    (stage, loss)
+    for stage in ("wait", "measuring")
+    for loss in (
+        "before_query_restart",
+        "query_write",
+        "query_reply",
+        "confirm_write",
+        "confirm_reply",
+    )
+])
+def test_result_handoff_survives_pi_restart_without_motion_or_early_release(
+    runtime, tmp_path, stage, loss
+):
+    delivery, start, now = interrupted_result(runtime, stage)
+    identity = result_identity(runtime, start, now)
     path = str(tmp_path / "pi-postclose.db")
     store = EdgeStore(path)
     store.initialize()
-    assert store.acquire_work_slot("DELIVERY", start["sessionUid"], 1, {"phase": "NATIVE_DELIVERY"})
+    assert store.acquire_work_slot(
+        "DELIVERY", start["sessionUid"], 1, {"phase": "NATIVE_DELIVERY"}
+    )
     occupancy = store.get_work_slot()
-    broken, sent, final_raw = True, [], None
+    lib, endpoint, _, replies, *_ = runtime
+    sent = []
+    broken = True
 
     def write(frame):
         decoded = uart.decode_frame(frame, sender_role="EDGE")
         message = decoded["messageName"]
         sent.append(message)
-        target = None
-        if message in ("ACTUATOR_EVENT_SAVED", "PROCESS_EVENT_SAVED", "RESULT_SAVED"):
-            receipt = uart.decode_payload(message, decoded["payload"])
+        if broken and loss == "query_write" and message == "QUERY_RESULT":
+            raise OSError("synthetic result query write loss")
+        if message == "RESULT_SAVED":
             reader = EdgeStore(path)
             reader.initialize()
             try:
+                saved = reader.get_native_mcu_result(42, identity["resultSequence"])
+                assert saved is not None
                 assert reader.get_work_slot() == occupancy
-                if message == "ACTUATOR_EVENT_SAVED":
-                    row = reader.get_native_actuator_event(42, receipt["mcuEventSequence"])
-                    assert row["saved_payload"] == decoded["payload"]
-                    if receipt["eventMessageType"] == "DELIVERY_POSTCLOSE_INTERRUPTED":
-                        assert row["payload"] == interrupt_raw
-                        target = "interrupt"
-                elif message == "PROCESS_EVENT_SAVED":
-                    assert reader.get_native_process_receipt(saved_scope)["payload"] == process_raw
-                    target = "process"
-                else:
-                    assert reader.get_native_mcu_result(42, 1)["payload"] == final_raw
-                    assert len(reader.list_native_result_report_tasks()) == 1
-                    target = "result"
             finally:
                 reader.close()
-            if broken and loss == str(target) + "_write":
-                raise OSError("synthetic postclose custody loss")
+            if broken and loss == "confirm_write":
+                raise OSError("synthetic result confirmation write loss")
         assert lib.McuControlEndpoint_Feed(endpoint, frame, len(frame), now) == 1
-        if broken and loss == str(target) + "_reply":
+        if broken and (
+            (loss == "query_reply" and message == "QUERY_RESULT")
+            or (loss == "confirm_reply" and message == "RESULT_SAVED")
+        ):
             replies.clear()
         return len(frame)
 
-    def pump(client):
-        while replies:
-            client.accept_frame(replies.pop(0), now)
-
     try:
-        replies.clear()
-        client = McuActuatorEventHandoff(store, write, 42)
-        for _ in range(3):
-            client.poll(now)
-            pump(client)
-            now = advance(runtime, now, 1000)
+        if loss != "before_query_restart":
+            replies.clear()
+            first = McuResultHandoff(store, write, identity)
+            first.poll(now)
+            pump(first, replies, now)
+            saved = store.get_native_mcu_result(42, identity["resultSequence"])
+            if loss in {"query_write", "query_reply"}:
+                assert saved is None
+            else:
+                assert saved is not None
+            assert store.get_work_slot() == occupancy
+
         store.close()
         store = EdgeStore(path)
         store.initialize()
         broken = False
-        client = McuActuatorEventHandoff(store, write, 42)
+        restarted = McuResultHandoff(store, write, identity)
         for _ in range(3):
-            client.poll(now)
-            pump(client)
-            now = advance(runtime, now, 1000)
+            now = tick(runtime, now, 1000)
+            restarted.poll(now)
+            pump(restarted, replies, now)
+
+        observation = restarted.query_observation(now)
+        assert observation["status"] == "RELEASED"
+        saved = store.get_native_mcu_result(42, identity["resultSequence"])
+        result = uart.decode_payload("WORK_RESULT", saved["payload"])
+        assert result["finishReason"] == "CANCELLED"
+        assert result["completedUptimeMs"] < now
+        assert result["deliveryRoundCount"] == 1
+        assert result["finalKind"] == (
+            "NOT_TAKEN" if stage == "wait" else "INTERRUPTED"
+        )
         if stage == "measuring":
-            process_identity = {key: value for key, value in scope.items() if key != "queryId"}
-            broken = True
-            client = McuProcessEventHandoff(store, write, process_identity)
-            first_query = client.poll(now)
-            pump(client)
-            store.close()
-            store = EdgeStore(path)
-            store.initialize()
-            broken = False
-            client = McuProcessEventHandoff(store, write, process_identity)
-            now = advance(runtime, now, 1000)
-            assert client.poll(now) > first_query
-            pump(client)
-            now = advance(runtime, now, 1000)
-            client.poll(now)
-            pump(client)
-            now = advance(runtime, now, 0)
-            assert client.observation(now)["status"] == "RELEASED"
-        result = held_result(runtime, start, now)
-        assert result["finishReason"] == "FAILED" and result["completedUptimeMs"] == detected
-        final_raw = uart.encode_payload("WORK_RESULT", result)
-        identity = uart.decode_payload("RESULT_SAVED", final_raw[:60])
-        replies.clear()
-        broken = True
-        client = McuResultHandoff(store, write, identity)
-        first_query = client.poll(now)
-        pump(client)
-        store.close()
-        store = EdgeStore(path)
-        store.initialize()
-        broken = False
-        client = McuResultHandoff(store, write, identity)
-        now = advance(runtime, now, 1000)
-        assert client.poll(now) > first_query
-        pump(client)
-        now = advance(runtime, now, 1000)
-        client.poll(now)
-        pump(client)
-        assert client.query_observation(now)["status"] == "RELEASED"
-        assert store.get_native_actuator_event(42, interrupted["mcuEventSequence"])["payload"] == interrupt_raw
-        assert store.get_native_mcu_result(42, 1)["payload"] == final_raw
-        assert store.get_work_slot() == occupancy
+            assert result["finalSampleCount"] == 1
+            assert result["finalElapsedMs"] == 120
+            assert result["finalFaultCode"] == "MEASUREMENT_INTERRUPTED"
+        assert saved["payload"][:60] == uart.encode_payload("RESULT_SAVED", identity)
         assert len(store.list_native_result_report_tasks()) == 1
         assert store.list_native_result_report_tasks()[0]["state"] == "PENDING_CLASSIFICATION"
-        assert set(sent) <= {"QUERY_ACTUATOR_EVENT", "ACTUATOR_EVENT_SAVED", "QUERY_PROCESS_EVENT",
-            "PROCESS_EVENT_SAVED", "QUERY_RESULT", "RESULT_SAVED"}
-        assert facts(runtime, now)["measurementSequence"] == (1 if stage == "wait" else 2)
-        assert not facts(runtime, now)["pb6Output"] and not facts(runtime, now)["pb7Output"] and execution
+        assert store.get_work_slot() == occupancy
+        assert set(sent) <= {"QUERY_RESULT", "RESULT_SAVED"}
+        assert facts(runtime, now)["measurementSequence"] == (
+            1 if stage == "wait" else 2
+        )
+        assert not facts(runtime, now)["pb6Output"]
+        assert not facts(runtime, now)["pb7Output"]
+        assert delivery
     finally:
         store.close()
 
 
-@pytest.mark.parametrize("choice_mode", ["none", "end_held", "continue_held", "end_saved", "result_held"])
-def test_postweight_stop_preserves_existing_choice_or_final_result_without_continuing(runtime, tmp_path, choice_mode):
-    execution, start, _, scope, post, now = measured_round(runtime, tmp_path)
-    lib, *_ = runtime
-    store = EdgeStore(str(tmp_path / "selection-stop.db"))
-    store.initialize()
-    try:
-        save_process(runtime, store, scope, post, now)
-        now = advance(runtime, now, 0)
-        choice_scope = scope | {"eventMessageType": "DELIVERY_SELECTION"}
-        if choice_mode != "none":
-            assert select(runtime, execution, post["measurementUid"], 1 if choice_mode == "continue_held" else 2, now)
-            choice = exchange(runtime, "QUERY_PROCESS_EVENT", choice_scope, now=now)[1][1]
-            if choice_mode in ("end_saved", "result_held"):
-                save_process(runtime, store, choice_scope, choice, now)
-            if choice_mode == "result_held":
-                now = advance(runtime, now, 0)
-                completed = held_result(runtime, start, now)
-        lib.ActuatorRuntime_StopForUpdate()
-        now = advance(runtime, now, 100)
-        detected = now
-        records = action_records(runtime, now)
-        if choice_mode == "result_held":
-            assert held_result(runtime, start, now) == completed
-            assert len(records) == 2  # Completed result wins; no new failure record.
-            import ctypes as c
-            from hardware.tests.test_mcu_actuator_event_journal import Reservation
-            token = Reservation()
-            assert lib.McuControlEndpoint_ReserveActuatorEvents(runtime[1], 6, c.byref(token))
-            assert lib.McuControlEndpoint_CancelActuatorEvents(runtime[1], c.byref(token))
-            return
-        assert records[-1][0] == "DELIVERY_POSTCLOSE_INTERRUPTED"
-        assert records[-1][1]["interruptedPhase"] == "DELIVERY_WAIT_SELECTION"
-        assert records[-1][1]["postCloseMeasurementEventSequence"] == post["mcuEventSequence"]
-        assert not select(runtime, execution, post["measurementUid"], 1, now)
-        for name, item in records:
-            save_action(runtime, store, name, item, now)
-        now = advance(runtime, now, 60000)
-        if choice_mode in ("end_held", "continue_held"):
-            assert exchange(runtime, "QUERY_WORK", original_scope(start), now=now)[0][1]["status"] == "RUNNING"
-            assert exchange(runtime, "QUERY_PROCESS_EVENT", choice_scope, now=now)[1][1] == choice
-            save_process(runtime, store, choice_scope, choice, now)
-            now = advance(runtime, now, 0)
-        result = held_result(runtime, start, now)
-        assert result["finishReason"] == "FAILED" and result["completedUptimeMs"] == detected
-        assert result["finalMeasurementUid"] == post["measurementUid"]
-        assert result["finalKind"] == post["measurementKind"]
-        assert result["deliveryRoundCount"] == 1 and facts(runtime, now)["measurementSequence"] == 2
-    finally:
-        store.close()
+@pytest.mark.parametrize(
+    "choice_mode",
+    ["none", "continue_selected", "end_selected", "result_queried", "result_released"],
+)
+def test_postweight_stop_preserves_current_choice_or_immutable_result(runtime, choice_mode):
+    delivery, _, start, now = setup(runtime)
+    now = closed_measurement(runtime, start, now)
+    now = take_samples(runtime, [1700] * 5, start=now, measurement=2)
+    completed = None
+
+    if choice_mode == "continue_selected":
+        assert select(runtime, delivery, now, "CONTINUE")
+    elif choice_mode != "none":
+        assert select(runtime, delivery, now, "END")
+        completed = final(runtime, start, now)
+        if choice_mode == "result_queried":
+            assert final(runtime, start, now) == completed
+        elif choice_mode == "result_released":
+            raw = uart.encode_payload("WORK_RESULT", completed)
+            assert exchange(runtime, "RESULT_SAVED", payload=raw[:60], now=now)[0][1]["status"] == "RELEASED"
+
+    runtime[0].ActuatorRuntime_StopForUpdate()
+    now = tick(runtime, now, 100)
+
+    if completed is not None:
+        if choice_mode == "result_released":
+            assert state(runtime, start, now)["status"] == "RESULT_RELEASED"
+            raw = uart.encode_payload("WORK_RESULT", completed)
+            assert exchange(runtime, "RESULT_SAVED", payload=raw[:60], now=now)[0][1]["status"] == "ALREADY_RELEASED"
+        else:
+            assert final(runtime, start, now) == completed
+        assert completed["finishReason"] == "DELIVERY_END"
+        assert completed["finalKind"] == "STABLE_MEAN"
+        assert completed["finalWeightGrams"] == 1700
+    else:
+        result = final(runtime, start, now)
+        assert result["finishReason"] == "CANCELLED"
+        assert result["deliveryRoundCount"] == 1
+        if choice_mode == "none":
+            assert result["finalKind"] == "STABLE_MEAN"
+            assert result["finalWeightGrams"] == 1700
+        else:
+            assert result["finalKind"] == "NOT_TAKEN"
+            assert result["finalWeightGrams"] == 0
+    assert not facts(runtime, now)["pb6Output"] and not facts(runtime, now)["pb7Output"]
 
 
 @pytest.mark.parametrize("stage", ["wait", "failed_measurement"])
-def test_lost_close_control_context_is_distinct_from_update_and_keeps_existing_failure(runtime, tmp_path, stage):
+def test_lost_close_control_context_keeps_any_existing_terminal_failure(runtime, stage):
     if stage == "wait":
-        execution, start, _, scope, now = closed_cycle(runtime, tmp_path)
+        delivery, start, now = close_wait(runtime)
+        completed = None
     else:
-        execution, start, _, scope, post, now = measured_round(runtime, tmp_path, samples=[])
-    lib, *_ = runtime
-    assert not lib.ActuatorRuntime_SetDoorTarget(2)  # native work excludes legacy OPEN bypass
-    lib.TestFacts_ReinitializeActuator()  # synthetic component loss, NOT a whole-MCU restart
-    now = advance(runtime, now, 100)
-    records = action_records(runtime, now)
-    interrupted = records[-1][1]
-    assert records[-1][0] == "DELIVERY_POSTCLOSE_INTERRUPTED"
-    assert interrupted["interruptionReason"] == "CLOSE_CONTEXT_LOST"
-    assert interrupted["interruptedPhase"] == ("DELIVERY_CLOSE_TRAVEL_WAIT" if stage == "wait" else "DELIVERY_FINALIZING")
-    state = facts(runtime, now)
-    assert not state["updateLatched"] and state["lastDeliveryDoorCommand"] == "NONE"
-    store = EdgeStore(str(tmp_path / "close-context.db"))
-    store.initialize()
-    try:
-        for name, item in records:
-            save_action(runtime, store, name, item, now)
-        if stage != "wait":
-            save_process(runtime, store, scope, post, now)
-        now = advance(runtime, now, 0)
-        result = held_result(runtime, start, now)
-        assert result["finishReason"] == "FAILED"
-        assert result["finalKind"] == ("NOT_TAKEN" if stage == "wait" else "UNAVAILABLE")
-        if stage != "wait":
-            assert result["finalFaultCode"] == "WEIGHT_TIMEOUT" and result["finalElapsedMs"] == 5000
-        assert facts(runtime, now)["lastDeliveryDoorCommand"] == "NONE" and execution  # no implicit recovery command
-    finally:
-        store.close()
+        delivery, _, start, now = setup(runtime)
+        now = closed_measurement(runtime, start, now)
+        now = tick(runtime, now, 5000)
+        completed = final(runtime, start, now)
+        assert completed["finishReason"] == "FAILED"
+        assert completed["finalKind"] == "UNAVAILABLE"
+
+    assert not runtime[0].ActuatorRuntime_SetDoorTarget(2)
+    runtime[0].TestFacts_ReinitializeActuator()
+    now = tick(runtime, now, 100)
+    observed = facts(runtime, now)
+    assert not observed["updateLatched"]
+    assert observed["lastDeliveryDoorCommand"] == "NONE"
+
+    result = final(runtime, start, now)
+    if completed is None:
+        assert result["finishReason"] == "CANCELLED"
+        assert result["finalKind"] == "NOT_TAKEN"
+    else:
+        assert result == completed
+        assert result["finalFaultCode"] == "WEIGHT_TIMEOUT"
+        assert result["finalElapsedMs"] == 5000
+    assert delivery
 
 
-def test_second_round_postclose_interruption_reuses_promise_and_preserves_prior_anomaly(runtime, tmp_path):
-    from hardware.tests.test_mcu_delivery_continue import choose
-    execution, start, initial, scope, post, now = measured_round(runtime, tmp_path, samples=[0] * 5)
-    lib, *_ = runtime
-    store = EdgeStore(str(tmp_path / "local-postclose.db"))
-    store.initialize()
-    try:
-        choice_scope, choice = choose(runtime, store, execution, scope, post, now)
-        save_process(runtime, store, choice_scope, choice, now)
-        for delta in (0, 100, start["deliveryAutoCloseMs"], 100):
-            now = advance(runtime, now, delta)
-        lib.ActuatorRuntime_StopForUpdate()
-        now = advance(runtime, now, 0)
-        detected = now
-        records = action_records(runtime, now)
-        assert [name for name, _ in records] == ["DELIVERY_DOOR_COMMAND_RESULT"] * 2 + ["DELIVERY_LOCAL_DOOR_RESULT"] * 2 + ["DELIVERY_POSTCLOSE_INTERRUPTED"]
-        interrupted = records[-1][1]
-        assert interrupted["roundIndex"] == 2 and interrupted["postCloseMeasurementEventSequence"] == 0
-        assert interrupted["mcuCommandUid"] == records[-2][1]["mcuCommandUid"] != start["mcuCommandUid"]
-        for name, item in records:
-            save_action(runtime, store, name, item, now)
-        now = advance(runtime, now, 60000)
-        result = held_result(runtime, start, now)
-        assert result["finishReason"] == "FAILED" and result["deliveryRoundCount"] == 2
-        assert result["negativeWeightAnomaly"] and result["finalKind"] == "NOT_TAKEN"
-        assert result["initialMeasurementUid"] == initial["measurementUid"]
-        assert result["finalMeasurementUid"] != post["measurementUid"] and result["completedUptimeMs"] == detected
-        assert facts(runtime, now)["measurementSequence"] == 2
-    finally:
-        store.close()
+def test_second_round_postclose_interruption_preserves_prior_anomaly(runtime):
+    delivery, _, start, now = setup(runtime)
+    now = closed_measurement(runtime, start, now)
+    now = take_samples(runtime, [0] * 5, start=now, measurement=2)
+    assert select(runtime, delivery, now, "CONTINUE")
+
+    now = tick(runtime, now, 100)
+    now = tick(runtime, now, start["deliveryAutoCloseMs"])
+    now = tick(runtime, now, 100)
+    runtime[0].ActuatorRuntime_StopForUpdate()
+    now = tick(runtime, now, 0)
+
+    result = final(runtime, start, now)
+    assert result["finishReason"] == "CANCELLED"
+    assert result["deliveryRoundCount"] == 2
+    assert result["negativeWeightAnomaly"]
+    assert result["initialWeightGrams"] == 500
+    assert result["finalKind"] == "NOT_TAKEN"
+    assert result["completedUptimeMs"] == now
+    observed = facts(runtime, now)
+    assert observed["measurementSequence"] == 2
+    assert not observed["pb6Output"] and not observed["pb7Output"]
 
 
-@pytest.mark.parametrize("samples,kind", [([800], "INTERRUPTED"), ([1800] * 5, "STABLE_MEAN")])
-def test_stop_during_postclose_measurement_preserves_partial_or_already_complete_data(runtime, tmp_path, samples, kind):
-    execution, start, initial, scope, now = closed_cycle(runtime, tmp_path)
-    lib, *_ = runtime
-    now = advance(runtime, now, inputs()["device"]["deliveryDoorTravelWaitMs"])
+@pytest.mark.parametrize(
+    "samples,kind", [([800], "INTERRUPTED"), ([1800] * 5, "STABLE_MEAN")]
+)
+def test_stop_during_postclose_measurement_preserves_partial_or_complete_data(
+    runtime, samples, kind
+):
+    delivery, _, start, now = setup(runtime)
+    now = closed_measurement(runtime, start, now)
     began = now
     now = take_samples(runtime, samples, start=now, measurement=2, publish=False)
-    lib.ActuatorRuntime_StopForUpdate()
-    now = advance(runtime, now, 100)
+    runtime[0].ActuatorRuntime_StopForUpdate()
+    now = tick(runtime, now, 100)
     detected = now
-    records = action_records(runtime, now)
-    assert records[-1][0] == "DELIVERY_POSTCLOSE_INTERRUPTED"
-    interrupted = records[-1][1]
-    post = exchange(runtime, "QUERY_PROCESS_EVENT", scope, now=now)[1][1]
-    assert interrupted["interruptedPhase"] == "DELIVERY_POSTCLOSE_MEASURING"
-    assert interrupted["postCloseMeasurementEventSequence"] == post["mcuEventSequence"]
-    assert post["measurementKind"] == kind and post["sampleCount"] == len(samples)
-    assert post["measurementElapsedMs"] == (120 if kind == "INTERRUPTED" else 1020)
-    assert post["uptimeMs"] == began + post["measurementElapsedMs"]
-    assert post["faultCode"] == ("MEASUREMENT_INTERRUPTED" if kind == "INTERRUPTED" else "NONE")
-    assert post["reportedWeightGrams"] == (0 if kind == "INTERRUPTED" else 1800)
-    store = EdgeStore(str(tmp_path / "measurement-stop.db"))
-    store.initialize()
-    try:
-        for name, item in records:
-            save_action(runtime, store, name, item, now)
-        now = advance(runtime, now, 60000)
-        assert exchange(runtime, "QUERY_WORK", original_scope(start), now=now)[0][1]["status"] == "RUNNING"
-        save_process(runtime, store, scope, post, now)
-        now = advance(runtime, now, 0)
-        result = held_result(runtime, start, now)
-        assert result["finishReason"] == "FAILED" and result["completedUptimeMs"] == detected
-        assert result["initialMeasurementUid"] == initial["measurementUid"]
-        assert result["finalMeasurementUid"] == post["measurementUid"] and result["finalKind"] == kind
-        assert facts(runtime, now)["measurementSequence"] == 2 and execution
-    finally:
-        store.close()
+
+    result = final(runtime, start, now)
+    assert result["finishReason"] == "CANCELLED"
+    assert result["completedUptimeMs"] == detected
+    assert result["initialWeightGrams"] == 500
+    assert result["finalKind"] == kind
+    assert result["finalSampleCount"] == len(samples)
+    assert result["finalElapsedMs"] == (120 if kind == "INTERRUPTED" else 1020)
+    assert result["finalFaultCode"] == (
+        "MEASUREMENT_INTERRUPTED" if kind == "INTERRUPTED" else "NONE"
+    )
+    assert result["finalWeightGrams"] == (0 if kind == "INTERRUPTED" else 1800)
+    assert result["finalMeasurementUid"] != result["initialMeasurementUid"]
+    assert facts(runtime, now)["measurementSequence"] == 2
+    assert not facts(runtime, now)["pb6Output"] and not facts(runtime, now)["pb7Output"]
+    assert began < detected and delivery

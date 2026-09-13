@@ -102,7 +102,7 @@ public class TrustedDeviceAcceptanceEvidenceService
             requireTextEquals(target, "type", "DEVICE_ASSET");
             requireTextEquals(target, "uid", hardwareSn);
             int evidenceSchemaVersion = requiredInteger(
-                    payload, "evidenceSchemaVersion", 3, 4);
+                    payload, "evidenceSchemaVersion", 3, 5);
             UUID commandUid = UUID.fromString(
                     requiredPattern(event, "commandUid", UUID_V4));
             UUID challengeUid = UUID.fromString(
@@ -218,6 +218,10 @@ public class TrustedDeviceAcceptanceEvidenceService
                                 camera_upload_healthy,
                                 device_entry_url_stored,
                                 device_entry_url_sha256,
+                                device_entry_url_mcu_applied,
+                                device_entry_url_applied_sha256,
+                                device_entry_url_applied_mcu_boot_id,
+                                device_entry_url_display_basis,
                                 mcu_simulated, cameras_simulated,
                                 evaluation_status,
                                 failure_reasons_json, evidence_json,
@@ -225,7 +229,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                                 observed_at, received_at, created_at
                             ) VALUES (
                                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                                ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?
+                                ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?
                             )
                             """,
                     eventUid,
@@ -253,6 +257,10 @@ public class TrustedDeviceAcceptanceEvidenceService
                     facts.deviceEntryUrlStored(),
                     HexFormat.of().parseHex(
                             facts.deviceEntryUrlSha256()),
+                    facts.deviceEntryUrlMcuApplied(),
+                    nullableDigest(facts.deviceEntryUrlAppliedSha256()),
+                    facts.deviceEntryUrlAppliedMcuBootId(),
+                    facts.deviceEntryUrlDisplayBasis(),
                     facts.mcuSimulated(),
                     facts.camerasSimulated(),
                     evaluationStatus,
@@ -430,6 +438,9 @@ public class TrustedDeviceAcceptanceEvidenceService
     }
 
     private Evidence evidence(JsonNode payload, int evidenceSchemaVersion) {
+        DeviceEntryUrlApplicationProof entryUrlProof =
+                deviceEntryUrlApplicationProof(
+                        payload, evidenceSchemaVersion);
         return new Evidence(
                 requiredPattern(payload, "challengeUid", UUID_V4),
                 requiredLong(payload, "factoryBagRevision", 0),
@@ -448,6 +459,10 @@ public class TrustedDeviceAcceptanceEvidenceService
                 requiredBoolean(payload, "cameraUploadHealthy"),
                 requiredBoolean(payload, "deviceEntryUrlStored"),
                 requiredPattern(payload, "deviceEntryUrlSha256", SHA256),
+                entryUrlProof.applied(),
+                entryUrlProof.sha256(),
+                entryUrlProof.mcuBootId(),
+                entryUrlProof.displayBasis(),
                 requiredBoolean(payload, "mcuSimulated"),
                 requiredBoolean(payload, "camerasSimulated"),
                 requiredInteger(payload, "verifiedPortCount", 1, 6),
@@ -505,6 +520,24 @@ public class TrustedDeviceAcceptanceEvidenceService
                 expectedEntryUrl.sha256Hex().equals(
                         evidence.deviceEntryUrlSha256()),
                 "DEVICE_ENTRY_URL_SHA256_MISMATCH");
+        if (evidence.deviceEntryUrlMcuApplied() != null) {
+            addUnless(result, evidence.deviceEntryUrlMcuApplied(),
+                    "DEVICE_ENTRY_URL_NOT_APPLIED_TO_MCU");
+            if (evidence.deviceEntryUrlMcuApplied()) {
+                addUnless(result,
+                        expectedEntryUrl.sha256Hex().equals(
+                                evidence.deviceEntryUrlAppliedSha256()),
+                        "DEVICE_ENTRY_URL_APPLIED_SHA256_MISMATCH");
+                addUnless(result,
+                        evidence.deviceEntryUrlAppliedMcuBootId() != null
+                                && evidence.deviceEntryUrlAppliedMcuBootId() > 0,
+                        "DEVICE_ENTRY_URL_APPLIED_MCU_BOOT_ID_MISSING");
+                addUnless(result,
+                        "UART3_COMMAND_ATOMICALLY_QUEUED".equals(
+                                evidence.deviceEntryUrlDisplayBasis()),
+                        "DEVICE_ENTRY_URL_DISPLAY_BASIS_INVALID");
+            }
+        }
         addUnless(result,
                 evidence.verifiedPortCount() == asset.expectedPortCount(),
                 "PORT_COUNT_MISMATCH");
@@ -602,9 +635,61 @@ public class TrustedDeviceAcceptanceEvidenceService
         }
         if (value == null || !value.isBoolean()) {
             throw new IllegalArgumentException(
-                    "mcuRemoteUpdateCapable must be boolean for evidence v4");
+                    "mcuRemoteUpdateCapable must be boolean for evidence v4+");
         }
         return value.booleanValue();
+    }
+
+    private static DeviceEntryUrlApplicationProof
+            deviceEntryUrlApplicationProof(
+                    JsonNode payload,
+                    int evidenceSchemaVersion) {
+        JsonNode applied = payload == null
+                ? null : payload.get("deviceEntryUrlMcuApplied");
+        JsonNode sha256 = payload == null
+                ? null : payload.get("deviceEntryUrlAppliedSha256");
+        JsonNode mcuBootId = payload == null
+                ? null : payload.get("deviceEntryUrlAppliedMcuBootId");
+        JsonNode displayBasis = payload == null
+                ? null : payload.get("deviceEntryUrlDisplayBasis");
+        if (evidenceSchemaVersion < 5) {
+            if (applied != null || sha256 != null
+                    || mcuBootId != null || displayBasis != null) {
+                throw new IllegalArgumentException(
+                        "device entry URL application proof requires "
+                                + "evidence v5");
+            }
+            return new DeviceEntryUrlApplicationProof(
+                    null, null, null, null);
+        }
+        boolean appliedValue = requiredBoolean(
+                payload, "deviceEntryUrlMcuApplied");
+        String basisValue = requiredText(
+                payload, "deviceEntryUrlDisplayBasis", 48);
+        if (appliedValue) {
+            String digest = requiredPattern(
+                    payload, "deviceEntryUrlAppliedSha256", SHA256);
+            long bootId = requiredLong(
+                    payload, "deviceEntryUrlAppliedMcuBootId", 1);
+            if (!"UART3_COMMAND_ATOMICALLY_QUEUED".equals(basisValue)) {
+                throw new IllegalArgumentException(
+                        "applied device entry URL must use atomic queue basis");
+            }
+            return new DeviceEntryUrlApplicationProof(
+                    true, digest, bootId, basisValue);
+        }
+        if (!"NOT_APPLIED".equals(basisValue)
+                || (sha256 != null && !sha256.isNull())
+                || (mcuBootId != null && !mcuBootId.isNull())) {
+            throw new IllegalArgumentException(
+                    "unapplied device entry URL carries contradictory proof");
+        }
+        return new DeviceEntryUrlApplicationProof(
+                false, null, null, basisValue);
+    }
+
+    private static byte[] nullableDigest(String value) {
+        return value == null ? null : HexFormat.of().parseHex(value);
     }
 
     private static int requiredInteger(
@@ -704,6 +789,10 @@ public class TrustedDeviceAcceptanceEvidenceService
             boolean cameraUploadHealthy,
             boolean deviceEntryUrlStored,
             String deviceEntryUrlSha256,
+            Boolean deviceEntryUrlMcuApplied,
+            String deviceEntryUrlAppliedSha256,
+            Long deviceEntryUrlAppliedMcuBootId,
+            String deviceEntryUrlDisplayBasis,
             boolean mcuSimulated,
             boolean camerasSimulated,
             int verifiedPortCount,
@@ -711,5 +800,68 @@ public class TrustedDeviceAcceptanceEvidenceService
             String sensorSampleSha256,
             String cameraCaptureSha256,
             String cameraUploadSha256) {
+
+        Evidence(
+                String challengeUid,
+                long factoryBagRevision,
+                String factoryBagSetSha256,
+                String edgeSoftwareVersion,
+                String edgeProtocolVersion,
+                String edgeStoreInstanceUid,
+                String mcuFirmwareVersion,
+                boolean persistentStoreHealthy,
+                boolean trustedTimeHealthy,
+                boolean configurationPersistenceHealthy,
+                boolean mcuCommunicationHealthy,
+                Boolean mcuRemoteUpdateCapable,
+                boolean sensorsHealthy,
+                boolean camerasCaptureHealthy,
+                boolean cameraUploadHealthy,
+                boolean deviceEntryUrlStored,
+                String deviceEntryUrlSha256,
+                boolean mcuSimulated,
+                boolean camerasSimulated,
+                int verifiedPortCount,
+                int verifiedCameraCount,
+                String sensorSampleSha256,
+                String cameraCaptureSha256,
+                String cameraUploadSha256) {
+            this(
+                    challengeUid,
+                    factoryBagRevision,
+                    factoryBagSetSha256,
+                    edgeSoftwareVersion,
+                    edgeProtocolVersion,
+                    edgeStoreInstanceUid,
+                    mcuFirmwareVersion,
+                    persistentStoreHealthy,
+                    trustedTimeHealthy,
+                    configurationPersistenceHealthy,
+                    mcuCommunicationHealthy,
+                    mcuRemoteUpdateCapable,
+                    sensorsHealthy,
+                    camerasCaptureHealthy,
+                    cameraUploadHealthy,
+                    deviceEntryUrlStored,
+                    deviceEntryUrlSha256,
+                    null,
+                    null,
+                    null,
+                    null,
+                    mcuSimulated,
+                    camerasSimulated,
+                    verifiedPortCount,
+                    verifiedCameraCount,
+                    sensorSampleSha256,
+                    cameraCaptureSha256,
+                    cameraUploadSha256);
+        }
+    }
+
+    private record DeviceEntryUrlApplicationProof(
+            Boolean applied,
+            String sha256,
+            Long mcuBootId,
+            String displayBasis) {
     }
 }

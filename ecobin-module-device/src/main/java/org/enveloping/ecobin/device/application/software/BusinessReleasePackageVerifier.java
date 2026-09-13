@@ -50,7 +50,7 @@ public class BusinessReleasePackageVerifier {
     private static final Pattern GIT_COMMIT = Pattern.compile("^[0-9a-f]{40}$");
     private static final Pattern BITMAP = Pattern.compile("^[0-9a-f]{16}$");
     private static final String APP_ALLOWLIST_SHA256 =
-            "f45f43700d82ad785b302616885bc6e2c7b0d055193e16860df6fd2a9f568d2c";
+            "a376d6605629faf8a20de0459d1094296ef65cb7574de174bbbae054f6e2804d";
     private static final Set<String> TOP_LEVEL = Set.of(
             "app", "wheelhouse", "migrations", "manifest.env", "release.env",
             "requirements-runtime.txt", "requirements-offline.txt", "SHA256SUMS");
@@ -64,6 +64,7 @@ public class BusinessReleasePackageVerifier {
             "native_result_evidence.py",
             "native_result_report.py",
             "native_delivery_issue_report.py",
+            "native_device_entry_url.py",
             "native_delivery_recovery_close.py",
             "native_recovery_close_isolation.py",
             "native_recovery_entry.py",

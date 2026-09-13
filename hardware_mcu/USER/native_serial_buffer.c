@@ -23,6 +23,28 @@ uint8_t NativeRx_DiscardOverflow(NativeRxBuffer *buffer) {
     return 1u;
 }
 
+uint8_t NativeRx_WriteAtomic(NativeRxBuffer *buffer,
+    const NativeSerialSpan *spans, size_t count) {
+    size_t index, offset, total = 0u;
+    uint16_t cursor, free;
+    if (buffer == NULL || (spans == NULL && count != 0u) || buffer->overflow) return 0u;
+    for (index = 0u; index < count; ++index) {
+        if ((spans[index].bytes == NULL && spans[index].length != 0u)
+            || spans[index].length > (size_t)(NATIVE_RX_CAPACITY - 1u) - total) return 0u;
+        total += spans[index].length;
+    }
+    free = (uint16_t)((buffer->tail - buffer->head - 1u) & (NATIVE_RX_CAPACITY - 1u));
+    if (total > free) return 0u;
+    cursor = buffer->head;
+    for (index = 0u; index < count; ++index)
+        for (offset = 0u; offset < spans[index].length; ++offset) {
+            buffer->bytes[cursor] = spans[index].bytes[offset];
+            cursor = (uint16_t)((cursor + 1u) & (NATIVE_RX_CAPACITY - 1u));
+        }
+    buffer->head = cursor;
+    return 1u;
+}
+
 void NativeScale_Init(NativeScaleTransport *transport) { memset(transport, 0, sizeof(*transport)); }
 uint8_t NativeScale_CanBegin(const NativeScaleTransport *transport, uint64_t now) {
     return (uint8_t)(!transport->active && !transport->complete && now >= transport->reuse_after_ms

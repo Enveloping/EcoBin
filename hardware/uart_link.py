@@ -933,12 +933,31 @@ def _uuid_str_to_bytes(u: str) -> str:
 
 
 def compute_mcu_payload_sha256(configuration_payload: dict) -> str:
-    """Compute the Registry mcuPayloadSha256 over the exact MCU subset."""
+    """Compute the frozen UART-v1 MCU subset digest without profile inference."""
+    return _compute_mcu_payload_sha256(configuration_payload, native=False)
+
+
+def compute_native_mcu_payload_sha256(configuration_payload: dict) -> str:
+    """Compute the explicit UART_V2_SIMPLIFIED MCU subset digest."""
+    if configuration_payload.get("mcuConfigurationProfile") != "UART_V2_SIMPLIFIED":
+        raise ValueError("explicit UART_V2_SIMPLIFIED profile required")
+    return _compute_mcu_payload_sha256(configuration_payload, native=True)
+
+
+def _compute_mcu_payload_sha256(
+    configuration_payload: dict,
+    *,
+    native: bool,
+) -> str:
     config = configuration_payload["config"]
     device = configuration_payload["deviceConfig"]
     ports = configuration_payload["ports"]
     preimage = bytearray(
-        bytes.fromhex("45434f42494e3a554152543a4d43552d434f4e4649473a763100")
+        bytes.fromhex(
+            "45434f42494e3a554152543a4d43552d434f4e4649473a763200"
+            if native
+            else "45434f42494e3a554152543a4d43552d434f4e4649473a763100"
+        )
     )
     preimage.extend(int(config["version"]).to_bytes(8, "big"))
     preimage.extend(bytes.fromhex(config["contentSha256"]))
@@ -950,6 +969,11 @@ def compute_mcu_payload_sha256(configuration_payload: dict) -> str:
     preimage.extend(int(device["deliveryDoorTravelWaitMs"]).to_bytes(4, "big"))
     preimage.extend(int(device["cleanSolenoidPulseMs"]).to_bytes(4, "big"))
     preimage.extend((1 if device["smokeMonitoringEnabled"] else 0).to_bytes(1, "big"))
+    if native:
+        # These values are the immutable meaning of UART_V2_SIMPLIFIED, not
+        # defaults inferred for a legacy payload.
+        preimage.extend((250).to_bytes(4, "big"))
+        preimage.extend((200).to_bytes(4, "big"))
     fullness_modes = {
         "SENSOR_ONLY": 1,
         "WEIGHT_ONLY": 2,
@@ -988,6 +1012,9 @@ def compute_mcu_payload_sha256(configuration_payload: dict) -> str:
         preimage.extend(int(port["weightMinimumGrams"]).to_bytes(4, "big", signed=True))
         preimage.extend(int(port["weightMaximumGrams"]).to_bytes(4, "big", signed=True))
         preimage.extend(int(port["calibrationVersion"]).to_bytes(4, "big"))
+        if native:
+            preimage.extend((750).to_bytes(4, "big"))
+            preimage.extend((5).to_bytes(1, "big"))
     return hashlib.sha256(preimage).hexdigest()
 
 

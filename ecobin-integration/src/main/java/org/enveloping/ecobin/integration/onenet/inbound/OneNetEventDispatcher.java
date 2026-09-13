@@ -68,6 +68,11 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "CONFIGURATION_PROGRESS",
                     "RELIABLE_FACT",
                     "CONFIGURATION_APPLICATION")),
+            Map.entry("deviceEntryUrlApplicationResult",
+            new EventContract(
+                    "DEVICE_ENTRY_URL_APPLICATION_RESULT",
+                    "RELIABLE_FACT",
+                    "DEVICE_ASSET")),
             Map.entry("deviceCommandObserved",
             new EventContract(
                     "DEVICE_COMMAND_OBSERVED",
@@ -607,6 +612,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         }
         if ("DEVICE_ACCEPTANCE_EVIDENCE".equals(
                 contract.messageKind())
+                || "DEVICE_ENTRY_URL_APPLICATION_RESULT".equals(
+                        contract.messageKind())
                 || "DELIVERY_ISSUE_ARCHIVED".equals(contract.messageKind())
                 || "DELIVERY_ISSUE_EVIDENCE_APPENDED".equals(contract.messageKind())
                 || "DELIVERY_RECOVERY_QUARANTINED".equals(
@@ -667,6 +674,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                             : "onenet.device-event";
             case "REMOTE_SUPPORT_TUNNEL_STATUS" ->
                     "onenet.remote-support-status";
+            case "DEVICE_ENTRY_URL_APPLICATION_RESULT" ->
+                    "onenet.device-entry-url-application";
             case "DELIVERY_RECOVERY_QUARANTINED" ->
                     "onenet.delivery-recovery-quarantine";
             case "MCU_FIRMWARE_UPDATE_PROGRESS" ->
@@ -813,6 +822,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     private static String commandUid(
             String messageKind, JsonNode wire) {
         if ("CONFIGURATION_PROGRESS".equals(messageKind)
+                || "DEVICE_ENTRY_URL_APPLICATION_RESULT".equals(
+                messageKind)
                 || "DEVICE_COMMAND_OBSERVED".equals(messageKind)
                 || "BUSINESS_CONFIRMATION_RECEIPT".equals(
                 messageKind)
@@ -853,6 +864,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     deliveryIssuePayload(messageKind, wire);
             case "CONFIGURATION_PROGRESS" ->
                     configurationPayload(wire);
+            case "DEVICE_ENTRY_URL_APPLICATION_RESULT" ->
+                    deviceEntryUrlApplicationResultPayload(wire);
             case "DEVICE_COMMAND_OBSERVED" ->
                     commandObservedPayload(wire);
             case "DELIVERY_COMPLETE" ->
@@ -1013,6 +1026,50 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         payload.put("stage", stage);
         payload.put("mcuCommandUid", mcuCommandUid);
         payload.put("errorCode", errorCode);
+        return payload;
+    }
+
+    private static Map<String, Object>
+            deviceEntryUrlApplicationResultPayload(JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(
+                "applicationUid",
+                pattern(wire, "applicationUid", UUID_V4));
+        String status = enumText(
+                integer(wire, "status"),
+                Map.of(1L, "APPLIED", 2L, "FAILED"),
+                "status");
+        payload.put("status", status);
+        payload.put(
+                "deviceEntryUrlSha256",
+                pattern(wire, "deviceEntryUrlSha256", SHA256));
+        payload.put(
+                "mcuCommandUid",
+                pattern(wire, "mcuCommandUid", UUID_V4));
+        payload.put("mcuBootId", positiveSafeInteger(wire, "mcuBootId"));
+        String displayBasis = enumText(
+                integer(wire, "displayBasis"),
+                Map.of(
+                        1L, "UART3_COMMAND_ATOMICALLY_QUEUED",
+                        2L, "NOT_APPLIED"),
+                "displayBasis");
+        String faultCode = nullablePresenceText(
+                wire,
+                "faultCodePresent",
+                "faultCode",
+                "^[A-Z][A-Z0-9_]{0,63}$",
+                64);
+        boolean valid = "APPLIED".equals(status)
+                ? "UART3_COMMAND_ATOMICALLY_QUEUED".equals(displayBasis)
+                        && faultCode == null
+                : "NOT_APPLIED".equals(displayBasis)
+                        && faultCode != null;
+        if (!valid) {
+            throw permanent(
+                    "device entry URL application result fields differ");
+        }
+        payload.put("displayBasis", displayBasis);
+        payload.put("faultCode", faultCode);
         return payload;
     }
 
@@ -2858,6 +2915,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             evidenceSchemaVersion = 3L;
         } else if (wireEvidenceSchemaVersion == 2L) {
             evidenceSchemaVersion = 4L;
+        } else if (wireEvidenceSchemaVersion == 3L) {
+            evidenceSchemaVersion = 5L;
         } else {
             throw permanent(
                     "evidenceSchemaVersion has an unsupported enum value");
@@ -2946,6 +3005,122 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         payload.put(
                 "deviceEntryUrlSha256",
                 pattern(wire, "deviceEntryUrlSha256", SHA256));
+        JsonNode urlAppliedPresence = wire.get(
+                "deviceEntryUrlMcuAppliedPresent");
+        JsonNode urlAppliedValue = wire.get(
+                "deviceEntryUrlMcuApplied");
+        JsonNode urlAppliedShaPresence = wire.get(
+                "deviceEntryUrlAppliedSha2Present");
+        JsonNode urlAppliedShaValue = wire.get(
+                "deviceEntryUrlAppliedSha2");
+        JsonNode urlAppliedBootPresence = wire.get(
+                "deviceEntryUrlAppliedMcuBPresent");
+        JsonNode urlAppliedBootValue = wire.get(
+                "deviceEntryUrlAppliedMcuB");
+        JsonNode urlDisplayBasisPresence = wire.get(
+                "deviceEntryUrlDisplayBasiPresent");
+        JsonNode urlDisplayBasisValue = wire.get(
+                "deviceEntryUrlDisplayBasi");
+        if (evidenceSchemaVersion < 5L) {
+            boolean appliedPresent = urlAppliedPresence != null
+                    && nullablePresenceBoolean(
+                            wire,
+                            "deviceEntryUrlMcuAppliedPresent",
+                            "deviceEntryUrlMcuApplied") != null;
+            boolean shaPresent = urlAppliedShaPresence != null
+                    && nullablePresenceText(
+                            wire,
+                            "deviceEntryUrlAppliedSha2Present",
+                            "deviceEntryUrlAppliedSha2",
+                            SHA256,
+                            64) != null;
+            boolean bootPresent = urlAppliedBootPresence != null
+                    && nullablePresenceIntegerInRange(
+                            wire,
+                            "deviceEntryUrlAppliedMcuBPresent",
+                            "deviceEntryUrlAppliedMcuB",
+                            1L,
+                            SAFE_INTEGER_MAX) != null;
+            boolean basisPresent = urlDisplayBasisPresence != null
+                    && nullablePresenceEnum(
+                            wire,
+                            "deviceEntryUrlDisplayBasiPresent",
+                            "deviceEntryUrlDisplayBasi",
+                            Map.of(
+                                    1L,
+                                    "UART3_COMMAND_ATOMICALLY_QUEUED",
+                                    2L,
+                                    "NOT_APPLIED")) != null;
+            boolean valueWithoutPresence =
+                    (urlAppliedPresence == null && urlAppliedValue != null)
+                    || (urlAppliedShaPresence == null
+                            && urlAppliedShaValue != null)
+                    || (urlAppliedBootPresence == null
+                            && urlAppliedBootValue != null)
+                    || (urlDisplayBasisPresence == null
+                            && urlDisplayBasisValue != null);
+            if (appliedPresent || shaPresent || bootPresent
+                    || basisPresent || valueWithoutPresence) {
+                throw permanent(
+                        "v3/v4 acceptance evidence carries v5 URL proof");
+            }
+        } else {
+            if (urlAppliedPresence == null
+                    || urlAppliedShaPresence == null
+                    || urlAppliedBootPresence == null
+                    || urlDisplayBasisPresence == null) {
+                throw permanent(
+                        "v5 URL application proof presence is missing");
+            }
+            Boolean urlApplied = nullablePresenceBoolean(
+                    wire,
+                    "deviceEntryUrlMcuAppliedPresent",
+                    "deviceEntryUrlMcuApplied");
+            String appliedSha256 = nullablePresenceText(
+                    wire,
+                    "deviceEntryUrlAppliedSha2Present",
+                    "deviceEntryUrlAppliedSha2",
+                    SHA256,
+                    64);
+            Long appliedMcuBootId = nullablePresenceIntegerInRange(
+                    wire,
+                    "deviceEntryUrlAppliedMcuBPresent",
+                    "deviceEntryUrlAppliedMcuB",
+                    1L,
+                    SAFE_INTEGER_MAX);
+            String displayBasis = nullablePresenceEnum(
+                    wire,
+                    "deviceEntryUrlDisplayBasiPresent",
+                    "deviceEntryUrlDisplayBasi",
+                    Map.of(
+                            1L, "UART3_COMMAND_ATOMICALLY_QUEUED",
+                            2L, "NOT_APPLIED"));
+            if (urlApplied == null || displayBasis == null) {
+                throw permanent(
+                        "v5 URL application proof is missing");
+            }
+            if (urlApplied
+                    && (appliedSha256 == null
+                    || appliedMcuBootId == null
+                    || !"UART3_COMMAND_ATOMICALLY_QUEUED".equals(
+                            displayBasis))) {
+                throw permanent(
+                        "applied URL lacks matching atomic-queue proof");
+            }
+            if (!urlApplied
+                    && (appliedSha256 != null
+                    || appliedMcuBootId != null
+                    || !"NOT_APPLIED".equals(displayBasis))) {
+                throw permanent(
+                        "unapplied URL carries contradictory proof");
+            }
+            payload.put("deviceEntryUrlMcuApplied", urlApplied);
+            payload.put(
+                    "deviceEntryUrlAppliedSha256", appliedSha256);
+            payload.put(
+                    "deviceEntryUrlAppliedMcuBootId", appliedMcuBootId);
+            payload.put("deviceEntryUrlDisplayBasis", displayBasis);
+        }
         payload.put("mcuSimulated", bool(wire, "mcuSimulated"));
         payload.put(
                 "camerasSimulated",
@@ -3822,6 +3997,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 && !payload.get("applicationUid").equals(targetUid)) {
             throw permanent(
                     "configuration application target differs from payload");
+        }
+        if ("DEVICE_ENTRY_URL_APPLICATION_RESULT".equals(
+                contract.messageKind())
+                && event.get("commandUid") == null) {
+            throw permanent(
+                    "device entry URL application result lacks its command");
         }
         if ("DEVICE_COMMAND_OBSERVED".equals(
                 contract.messageKind())

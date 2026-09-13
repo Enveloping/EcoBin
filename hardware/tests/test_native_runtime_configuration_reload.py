@@ -63,7 +63,7 @@ def library(tmp_path_factory):
         "McuWeightRun_CopyObservation": (c.c_uint8, [c.c_void_p, c.c_void_p]),
         "McuDeviceFacts_PublishScaleObservation": (c.c_uint8, [c.c_void_p, c.c_void_p]),
     }
-    sources = ("mcu_control_endpoint", "mcu_actuator_event_journal", "mcu_work_preparation", "mcu_opening_gate",
+    sources = ("mcu_control_endpoint", "mcu_actuator_event_journal", "mcu_work_preparation", "mcu_device_entry_url", "mcu_opening_gate",
         "mcu_delivery_execution", "mcu_clean_execution", "mcu_configuration", "mcu_config_collection",
         "mcu_session", "mcu_work_state", "mcu_result_slot", "mcu_result_builder", "mcu_process_measurement",
         "mcu_process_event_slot", "mcu_device_facts", "mcu_weight_run", "weight_measurement", "scale_reader",

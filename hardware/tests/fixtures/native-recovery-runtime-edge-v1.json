@@ -1,0 +1,1665 @@
+{
+  "common": {
+    "activation": {
+      "evidenceDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "operationUid": "00000000-0000-4000-8000-000000000384"
+    },
+    "begin": {
+      "beginUid": "00000000-0000-4000-8000-000000000004",
+      "permitDigestSha256": "7033d38eac307ce0673c2dee9ec599c8f43bd3f6a5803dce67c18e2226ab15b6",
+      "permitUid": "9676db52-791f-4e90-b6f6-c50172459b8c"
+    },
+    "output": {
+      "confirmation": {
+        "actionUid": "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46",
+        "confirmationBasis": "MCU_IDENTITY_BOUND_FACT",
+        "evidenceDigestSha256": "c8edb5705b9ef6daa84cd2798bc66022769dc62891f66761e4826c226723153c",
+        "outcome": "EXECUTED",
+        "receiptUid": "00000000-0000-4000-8000-00000000005a"
+      },
+      "messageName": "SAFE_CLOSE_RESULT",
+      "payloadHex": "00000000000000020000000100000000000000643b552f86af004b6abd36cd3d1f7d5e4602010201010000",
+      "payloadSha256": "c8edb5705b9ef6daa84cd2798bc66022769dc62891f66761e4826c226723153c"
+    },
+    "permit": {
+      "commandUid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+      "permitUid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+      "requestDigestSha256": "7033d38eac307ce0673c2dee9ec599c8f43bd3f6a5803dce67c18e2226ab15b6",
+      "workType": "DELIVERY",
+      "workUid": "22222222-2222-4222-8222-222222222222"
+    },
+    "recovery": {
+      "actionDigestSha256": "6b6c114cb0dab230778ea960006052644d9a4106d78af174afcf3d9bf4d51819",
+      "actionKey": "native:recovery-close:4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+      "actionKind": "SAFE_CLOSE",
+      "actionUid": "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46",
+      "closeCommandPayloadHex": "3b552f86af004b6abd36cd3d1f7d5e463bb92ebda56efce62930c4c294fec31e90f9633bccdf35906b0e8cf1ec1a04df000000000000000200000001020100001388",
+      "commandUid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+      "dispatchAttemptToken": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "expectedSourceLedgerSequence": 1,
+      "permitUid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+      "portNo": 1,
+      "reason": "MCU_RESTART_DATA_LOSS",
+      "recoveryEvidenceSha256": "14e75401c90dc592d23ffe4417e33fa710a0925215d8eb790e1eb800eecaad44",
+      "recoveryUid": "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+      "sourceActionDigestSha256": "ea5e409d3b8cf81930974340b27dda22f71b5afd5608acf80bead811d1b882c4",
+      "sourceActionUid": "77777777-7777-4777-8777-777777777777",
+      "sourceCommandPayloadHex": "77777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007222222222222422282222222222222220145424d310000000000000001000000010000000000000000000000000000000100002710",
+      "sourceMcuBootId": 1,
+      "targetMcuBootId": 2,
+      "workUid": "22222222-2222-4222-8222-222222222222"
+    },
+    "retirement": {
+      "actionDigestSha256": "6b6c114cb0dab230778ea960006052644d9a4106d78af174afcf3d9bf4d51819",
+      "actionKey": "native:recovery-close:4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+      "actionKind": "SAFE_CLOSE",
+      "actionUid": "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46",
+      "closeCommandPayloadHex": "3b552f86af004b6abd36cd3d1f7d5e463bb92ebda56efce62930c4c294fec31e90f9633bccdf35906b0e8cf1ec1a04df000000000000000200000001020100001388",
+      "commandUid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+      "expectedSourceLedgerSequence": 1,
+      "permitUid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+      "portNo": 1,
+      "reason": "MCU_RESTART_DATA_LOSS",
+      "receiptUid": "0594a0d2-83e7-401b-ac5a-8cbca65ea3fc",
+      "recoveryEvidenceSha256": "14e75401c90dc592d23ffe4417e33fa710a0925215d8eb790e1eb800eecaad44",
+      "recoveryUid": "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+      "retirementEvidenceSha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "sourceActionDigestSha256": "ea5e409d3b8cf81930974340b27dda22f71b5afd5608acf80bead811d1b882c4",
+      "sourceActionUid": "77777777-7777-4777-8777-777777777777",
+      "sourceCommandPayloadHex": "77777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007222222222222422282222222222222220145424d310000000000000001000000010000000000000000000000000000000100002710",
+      "sourceMcuBootId": 1,
+      "targetMcuBootId": 2,
+      "workUid": "22222222-2222-4222-8222-222222222222"
+    },
+    "sourceAction": {
+      "actionDigestSha256": "ea5e409d3b8cf81930974340b27dda22f71b5afd5608acf80bead811d1b882c4",
+      "actionKey": "delivery:first-open",
+      "actionKind": "AUTHORIZE_DELIVERY_FIRST_OPEN",
+      "actionUid": "77777777-7777-4777-8777-777777777777",
+      "commandUid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+      "dispatchAttemptToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "permitUid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+      "sourceCommandPayloadHex": "77777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007222222222222422282222222222222220145424d310000000000000001000000010000000000000000000000000000000100002710",
+      "workUid": "22222222-2222-4222-8222-222222222222"
+    },
+    "sourceArm": {
+      "actionUid": "77777777-7777-4777-8777-777777777777",
+      "dispatchAttemptToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "successor": {
+      "actionDigestSha256": "6b6c114cb0dab230778ea960006052644d9a4106d78af174afcf3d9bf4d51819",
+      "actionKey": "native:recovery-close:4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+      "actionKind": "SAFE_CLOSE",
+      "actionUid": "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46",
+      "closeCommandPayloadHex": "3b552f86af004b6abd36cd3d1f7d5e463bb92ebda56efce62930c4c294fec31e90f9633bccdf35906b0e8cf1ec1a04df000000000000000200000001020100001388",
+      "commandUid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+      "dispatchAttemptToken": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "expectedSourceLedgerSequence": 1,
+      "permitUid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+      "portNo": 1,
+      "reason": "MCU_RESTART_DATA_LOSS",
+      "recoveryEvidenceSha256": "14e75401c90dc592d23ffe4417e33fa710a0925215d8eb790e1eb800eecaad44",
+      "recoveryUid": "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+      "sourceActionDigestSha256": "ea5e409d3b8cf81930974340b27dda22f71b5afd5608acf80bead811d1b882c4",
+      "sourceActionUid": "77777777-7777-4777-8777-777777777777",
+      "sourceCommandPayloadHex": "77777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007222222222222422282222222222222220145424d310000000000000001000000010000000000000000000000000000000100002710",
+      "sourceMcuBootId": 1,
+      "targetMcuBootId": 2,
+      "workUid": "22222222-2222-4222-8222-222222222222"
+    }
+  },
+  "description": "Frozen runtime inputs captured from the historical accepted recovery-close path.",
+  "edgeBaseTables": {
+    "command_inbox": {
+      "columns": [
+        "rowid",
+        "command_uid",
+        "command_type",
+        "payload_json",
+        "state",
+        "received_at",
+        "processed_at",
+        "canonical_sha256",
+        "attempt_count",
+        "processing_started_at",
+        "last_error",
+        "result_json",
+        "mcu_command_uid",
+        "received_clock_quality"
+      ],
+      "rows": [
+        [
+          1,
+          "9676db52-791f-4e90-b6f6-c50172459b8c",
+          "START_DELIVERY_SESSION",
+          "{\"commandUid\": \"9676db52-791f-4e90-b6f6-c50172459b8c\", \"commandType\": \"START_DELIVERY_SESSION\", \"targetDeviceName\": \"device-1\", \"issuedAt\": \"2030-01-01T00:00:00.000Z\", \"expiresAt\": \"2030-01-01T00:01:00.000Z\", \"payloadSha256\": \"09df4dfe0db26635cb7b0426799dcd294abe96fe561f93fbbe564a743167f71e\", \"payload\": {\"sessionUid\": \"22222222-2222-4222-8222-222222222222\", \"portNo\": 1, \"config\": {\"version\": 8, \"contentSha256\": \"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\", \"mcuPayloadSha256\": \"ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1\"}, \"bagUid\": \"88888888-8888-4888-8888-888888888888\", \"unitPriceTenThousandths\": 1500, \"continueDeliveryWaitMs\": 30000, \"negativeWeightThresholdGrams\": 500, \"deliveryAutoCloseMs\": 120000}, \"schemaVersion\": 2, \"payloadSchemaVersion\": 2, \"target\": {\"type\": \"DELIVERY_SESSION\", \"uid\": \"22222222-2222-4222-8222-222222222222\"}}",
+          "PROCESSING",
+          "2026-09-13T19:34:55.342Z",
+          null,
+          "7033d38eac307ce0673c2dee9ec599c8f43bd3f6a5803dce67c18e2226ab15b6",
+          1,
+          "2026-09-13T19:34:55",
+          null,
+          null,
+          null,
+          "SYNCED"
+        ]
+      ]
+    },
+    "device_state": {
+      "columns": [
+        "state_key",
+        "state_value",
+        "updated_at"
+      ],
+      "rows": [
+        [
+          "edge_boot_id",
+          "",
+          "2026-09-13 19:34:55"
+        ],
+        [
+          "edge_event_sequence",
+          "0",
+          "2026-09-13 19:34:55"
+        ],
+        [
+          "mqtt_session_present",
+          "false",
+          "2026-09-13 19:34:55"
+        ],
+        [
+          "mqtt_last_rc",
+          "0",
+          "2026-09-13 19:34:55"
+        ],
+        [
+          "mcu_receive_generation",
+          "0",
+          "2026-09-13 19:34:55"
+        ],
+        [
+          "active_mcu_boot_id",
+          "",
+          "2026-09-13 19:34:55"
+        ],
+        [
+          "native_query_sequence",
+          "19",
+          "2026-09-13T19:34:55"
+        ],
+        [
+          "native_boot_sequence",
+          "2",
+          "2026-09-13T19:34:55"
+        ],
+        [
+          "native_current_boot",
+          "2",
+          "2026-09-13T19:34:55"
+        ],
+        [
+          "native_command_sequence:1",
+          "7",
+          "2026-09-13T19:34:55"
+        ],
+        [
+          "native_command_sequence:2",
+          "1",
+          "2026-09-13T19:34:55"
+        ]
+      ]
+    },
+    "mcu_firmware_state": {
+      "columns": [
+        "singleton_id",
+        "current_package_path",
+        "current_package_sha256",
+        "current_manifest_json",
+        "current_installed_at",
+        "previous_package_path",
+        "previous_package_sha256",
+        "previous_manifest_json",
+        "previous_installed_at",
+        "updated_at"
+      ],
+      "rows": [
+        [
+          1,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          "2026-09-13T19:34:55"
+        ]
+      ]
+    },
+    "native_action_binding": {
+      "columns": [
+        "action_uid",
+        "receipt_uid",
+        "work_uid",
+        "platform_command_uid",
+        "action_key",
+        "permit_json",
+        "action_json",
+        "command_payload"
+      ],
+      "rows": [
+        [
+          "77777777-7777-4777-8777-777777777777",
+          "66666666-6666-4666-8666-666666666666",
+          "22222222-2222-4222-8222-222222222222",
+          "9676db52-791f-4e90-b6f6-c50172459b8c",
+          "delivery:first-open",
+          "{\"command_uid\":\"9676db52-791f-4e90-b6f6-c50172459b8c\",\"permit_uid\":\"9676db52-791f-4e90-b6f6-c50172459b8c\",\"request_digest_sha256\":\"7033d38eac307ce0673c2dee9ec599c8f43bd3f6a5803dce67c18e2226ab15b6\",\"work_type\":\"DELIVERY\",\"work_uid\":\"22222222-2222-4222-8222-222222222222\"}",
+          "{\"action_digest_sha256\":\"ea5e409d3b8cf81930974340b27dda22f71b5afd5608acf80bead811d1b882c4\",\"action_key\":\"delivery:first-open\",\"action_kind\":\"AUTHORIZE_DELIVERY_FIRST_OPEN\",\"action_uid\":\"77777777-7777-4777-8777-777777777777\",\"receipt_uid\":\"66666666-6666-4666-8666-666666666666\"}",
+          {
+            "hex": "77777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007222222222222422282222222222222220145424d310000000000000001000000010000000000000000000000000000000100002710"
+          }
+        ]
+      ]
+    },
+    "native_actuator_event": {
+      "columns": [
+        "mcu_boot_id",
+        "event_sequence",
+        "message_name",
+        "reported_command_uid",
+        "reported_work_uid",
+        "port_no",
+        "payload",
+        "saved_payload",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          2,
+          "DELIVERY_DOOR_COMMAND_RESULT",
+          "77777777-7777-4777-8777-777777777777",
+          "22222222-2222-4222-8222-222222222222",
+          1,
+          {
+            "hex": "000000000000000100000002000000000000046077777777777747778777777777777777222222222222422282222222222222220100010101010000"
+          },
+          {
+            "hex": "0000000000000001000000023105d1991d5d21af6bac39c9dfd8c22c9872b8d0195b5ff5b8a243a158b40c058c"
+          },
+          "2026-09-13 19:34:55"
+        ],
+        [
+          1,
+          3,
+          "DELIVERY_DOOR_COMMAND_RESULT",
+          "77777777-7777-4777-8777-777777777777",
+          "22222222-2222-4222-8222-222222222222",
+          1,
+          {
+            "hex": "000000000000000100000003000000000001d98477777777777747778777777777777777222222222222422282222222222222220100010201010000"
+          },
+          {
+            "hex": "00000000000000010000000331b9c2c4ab062a4818c2774e59e534112e2a69401cd210e7e689c4a235b08d5cb5"
+          },
+          "2026-09-13 19:34:55"
+        ]
+      ]
+    },
+    "native_delivery_issue": {
+      "columns": [
+        "issue_uid",
+        "work_uid",
+        "recovery_uid",
+        "evidence_json",
+        "evidence_sha256",
+        "created_at"
+      ],
+      "rows": [
+        [
+          "63ed0c05-c9a3-468c-8258-765f6de83a65",
+          "22222222-2222-4222-8222-222222222222",
+          "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+          "{\"deviceName\":\"device-1\",\"finalResultAtArchive\":\"ABSENT\",\"issueUid\":\"63ed0c05-c9a3-468c-8258-765f6de83a65\",\"knownFactCount\":9,\"knownFactsSha256\":\"cf07ff11f8b466c40ff381ad4bae16eec01998aed4aac7be122e1f4a9b44256c\",\"originalWorkContext\":{\"phase\":\"NATIVE_PREPARING\"},\"permit\":{\"command_uid\":\"9676db52-791f-4e90-b6f6-c50172459b8c\",\"permit_uid\":\"9676db52-791f-4e90-b6f6-c50172459b8c\",\"request_digest_sha256\":\"7033d38eac307ce0673c2dee9ec599c8f43bd3f6a5803dce67c18e2226ab15b6\",\"work_type\":\"DELIVERY\",\"work_uid\":\"22222222-2222-4222-8222-222222222222\"},\"profile\":\"ecobin-native-delivery-issue-v1\",\"reason\":\"MCU_RESTART_FINAL_RESULT_UNAVAILABLE\",\"reasonText\":\"\\u5355\\u7247\\u673a\\u91cd\\u542f\\uff0c\\u672a\\u53d6\\u5f97\\u6700\\u7ec8\\u7ed3\\u679c\\u5305\",\"recoveryUid\":\"4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b\",\"settlementAllowed\":false,\"sourceMcuBootId\":1,\"startCommandUid\":\"00000000-0000-0000-0000-000000000001\",\"targetMcuBootId\":2,\"workUid\":\"22222222-2222-4222-8222-222222222222\"}",
+          "ad5a5c5a7fa6dcbefdb15b235041c37f5efc3c55f4358344161b8acde87d90f0",
+          "2026-09-13 19:34:55"
+        ]
+      ]
+    },
+    "native_delivery_issue_fact": {
+      "columns": [
+        "issue_uid",
+        "fact_sequence",
+        "source_kind",
+        "source_key",
+        "message_name",
+        "payload",
+        "metadata_json"
+      ],
+      "rows": [
+        [
+          "63ed0c05-c9a3-468c-8258-765f6de83a65",
+          1,
+          "COMMAND",
+          "00000000-0000-0000-0000-000000000001",
+          "START_DELIVERY_SESSION",
+          {
+            "hex": "0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec200000000000000010000000622222222222242228222222222222222010000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10000119500007530000001f4000075300001d4c0"
+          },
+          "{\"decisionOutcome\":\"ACCEPTED\",\"identityConflict\":false,\"writeClaimed\":true}"
+        ],
+        [
+          "63ed0c05-c9a3-468c-8258-765f6de83a65",
+          2,
+          "COMMAND_OBSERVATION",
+          "1bd57f45085786cd77f28beb86ae764555327a1e363b1599a8ef3af3c1dfa8f7",
+          "COMMAND_DECISION",
+          {
+            "hex": "0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec20000000000000001000000060000000000000001010000"
+          },
+          "{}"
+        ],
+        [
+          "63ed0c05-c9a3-468c-8258-765f6de83a65",
+          3,
+          "COMMAND",
+          "77777777-7777-4777-8777-777777777777",
+          "AUTHORIZE_DELIVERY_FIRST_OPEN",
+          {
+            "hex": "77777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007222222222222422282222222222222220145424d310000000000000001000000010000000000000000000000000000000100002710"
+          },
+          "{\"decisionOutcome\":\"ACCEPTED\",\"identityConflict\":false,\"writeClaimed\":true}"
+        ],
+        [
+          "63ed0c05-c9a3-468c-8258-765f6de83a65",
+          4,
+          "COMMAND_OBSERVATION",
+          "7e84cfe691701a65eba4a14aaaceefb1ca8a42dbe74013099f27bcd13672f8a7",
+          "COMMAND_QUERY_RESULT",
+          {
+            "hex": "000000000000000677777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007000000000000000101000000000007"
+          },
+          "{}"
+        ],
+        [
+          "63ed0c05-c9a3-468c-8258-765f6de83a65",
+          5,
+          "MEASUREMENT",
+          "1",
+          "WORK_PREOPEN_WEIGHT_READY",
+          {
+            "hex": "00000000000000010000000100000000000003fc000000000000000000000000000000012222222222224222822222222222222201000145424d3100000000000000010000000102000001f403fc05000000000000000400000000000000000008"
+          },
+          "{\"savedPayloadHex\":\"000000000000000100000001300882d23c80cdbe5027f24ec298a27a934092123192c4c97a5b44e33014e1ce15\",\"scopeHex\":\"0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec20000000000000001000000062222222222224222822222222222222202013000010000000000000008\"}"
+        ],
+        [
+          "63ed0c05-c9a3-468c-8258-765f6de83a65",
+          6,
+          "MEASUREMENT",
+          "4",
+          "WORK_POSTCLOSE_WEIGHT_READY",
+          {
+            "hex": "0000000000000001000000040000000000025e68000000000000000000000000000000012222222222224222822222222222222201000145424d3100000000000000010000000402000002bc03fc050000000000000004000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "{\"savedPayloadHex\":\"000000000000000100000004328dc27b63823cfd3450b0801f204c3c654dac6c9af94f480fd1778003bc9b36d1\",\"scopeHex\":\"0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec20000000000000001000000062222222222224222822222222222222202013200010000000000000008\"}"
+        ],
+        [
+          "63ed0c05-c9a3-468c-8258-765f6de83a65",
+          7,
+          "ACTUATOR",
+          "2",
+          "DELIVERY_DOOR_COMMAND_RESULT",
+          {
+            "hex": "000000000000000100000002000000000000046077777777777747778777777777777777222222222222422282222222222222220100010101010000"
+          },
+          "{\"savedPayloadHex\":\"0000000000000001000000023105d1991d5d21af6bac39c9dfd8c22c9872b8d0195b5ff5b8a243a158b40c058c\"}"
+        ],
+        [
+          "63ed0c05-c9a3-468c-8258-765f6de83a65",
+          8,
+          "ACTUATOR",
+          "3",
+          "DELIVERY_DOOR_COMMAND_RESULT",
+          {
+            "hex": "000000000000000100000003000000000001d98477777777777747778777777777777777222222222222422282222222222222220100010201010000"
+          },
+          "{\"savedPayloadHex\":\"00000000000000010000000331b9c2c4ab062a4818c2774e59e534112e2a69401cd210e7e689c4a235b08d5cb5\"}"
+        ],
+        [
+          "63ed0c05-c9a3-468c-8258-765f6de83a65",
+          9,
+          "DELIVERY_SELECTION",
+          "5",
+          "DELIVERY_SELECTION",
+          {
+            "hex": "0000000000000001000000050000000000025e68000000000000000000000000000000012222222222224222822222222222222201000145424d31000000000000000100000004000000000000000802"
+          },
+          "{\"savedPayloadHex\":\"000000000000000100000005330b548bfd4792c7044c0695e1b4fe6e7d49bf62e5283933f8d02b3f917c44be24\",\"scopeHex\":\"0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec20000000000000001000000062222222222224222822222222222222202013300010000000000000008\"}"
+        ]
+      ]
+    },
+    "native_delivery_recovery_close": {
+      "columns": [
+        "action_uid",
+        "issue_uid",
+        "binding_json",
+        "binding_sha256",
+        "predecessor_action_uid"
+      ],
+      "rows": [
+        [
+          "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46",
+          "63ed0c05-c9a3-468c-8258-765f6de83a65",
+          "{\"action\":{\"action_digest_sha256\":\"6b6c114cb0dab230778ea960006052644d9a4106d78af174afcf3d9bf4d51819\",\"action_key\":\"native:recovery-close:4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b\",\"action_kind\":\"SAFE_CLOSE\",\"action_uid\":\"3b552f86-af00-4b6a-bd36-cd3d1f7d5e46\",\"receipt_uid\":\"0594a0d2-83e7-401b-ac5a-8cbca65ea3fc\"},\"evidence\":{\"closeCommandPayloadHex\":\"3b552f86af004b6abd36cd3d1f7d5e463bb92ebda56efce62930c4c294fec31e90f9633bccdf35906b0e8cf1ec1a04df000000000000000200000001020100001388\",\"expectedSourceLedgerSequence\":1,\"portNo\":1,\"reason\":\"MCU_RESTART_DATA_LOSS\",\"recoveryEvidenceSha256\":\"14e75401c90dc592d23ffe4417e33fa710a0925215d8eb790e1eb800eecaad44\",\"recoveryUid\":\"4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b\",\"sourceActionDigestSha256\":\"ea5e409d3b8cf81930974340b27dda22f71b5afd5608acf80bead811d1b882c4\",\"sourceActionUid\":\"77777777-7777-4777-8777-777777777777\",\"sourceCommandPayloadHex\":\"77777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007222222222222422282222222222222220145424d310000000000000001000000010000000000000000000000000000000100002710\",\"sourceMcuBootId\":1,\"targetMcuBootId\":2},\"permit\":{\"command_uid\":\"9676db52-791f-4e90-b6f6-c50172459b8c\",\"permit_uid\":\"9676db52-791f-4e90-b6f6-c50172459b8c\",\"request_digest_sha256\":\"7033d38eac307ce0673c2dee9ec599c8f43bd3f6a5803dce67c18e2226ab15b6\",\"work_type\":\"DELIVERY\",\"work_uid\":\"22222222-2222-4222-8222-222222222222\"}}",
+          "fb3a26421527f8b818704c94ac31801813c150f23fdc8ce138eab3c5f6ec9e2c",
+          "77777777-7777-4777-8777-777777777777"
+        ]
+      ]
+    },
+    "native_delivery_selection": {
+      "columns": [
+        "mcu_boot_id",
+        "event_sequence",
+        "scope",
+        "work_uid",
+        "round_index",
+        "postclose_event_sequence",
+        "payload",
+        "saved_payload",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          5,
+          {
+            "hex": "0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec20000000000000001000000062222222222224222822222222222222202013300010000000000000008"
+          },
+          "22222222-2222-4222-8222-222222222222",
+          1,
+          4,
+          {
+            "hex": "0000000000000001000000050000000000025e68000000000000000000000000000000012222222222224222822222222222222201000145424d31000000000000000100000004000000000000000802"
+          },
+          {
+            "hex": "000000000000000100000005330b548bfd4792c7044c0695e1b4fe6e7d49bf62e5283933f8d02b3f917c44be24"
+          },
+          "2026-09-13 19:34:55"
+        ]
+      ]
+    },
+    "native_mcu_boot": {
+      "columns": [
+        "boot_id",
+        "probe_id",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          1,
+          "2026-09-13 19:34:55"
+        ],
+        [
+          2,
+          19,
+          "2026-09-13 19:34:55"
+        ]
+      ]
+    },
+    "native_mcu_boot_observation": {
+      "columns": [
+        "boot_id",
+        "probe_id",
+        "message_name",
+        "payload",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          1,
+          "BIND_BOOT_REPLY",
+          {
+            "hex": "00000000000000010000000000000001000000000000000101"
+          },
+          "2026-09-13 19:34:55"
+        ],
+        [
+          2,
+          19,
+          "BIND_BOOT_REPLY",
+          {
+            "hex": "00000000000000130000000000000002000000000000000201"
+          },
+          "2026-09-13 19:34:55"
+        ]
+      ]
+    },
+    "native_mcu_command": {
+      "columns": [
+        "command_uid",
+        "mcu_boot_id",
+        "command_sequence",
+        "message_name",
+        "payload",
+        "write_claimed",
+        "decision_outcome",
+        "decision_error",
+        "conflict",
+        "created_at",
+        "boot_retired",
+        "dispatch_retired"
+      ],
+      "rows": [
+        [
+          "00000000-0000-4000-8000-000000000001",
+          1,
+          1,
+          "CONFIG_BEGIN",
+          {
+            "hex": "000000000000400080000000000000015c179fafb8a994635d974685b45bb66f48664641005f17e39d8493502176c603000000000000000100000001111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1010502"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 19:34:55",
+          1,
+          0
+        ],
+        [
+          "00000000-0000-4000-8000-000000000002",
+          1,
+          2,
+          "CONFIG_DEVICE_BLOCK",
+          {
+            "hex": "00000000000040008000000000000002f7c0b7c6f9818cd802ee688d89d00204e4e36d632bb8251d70180d4b45af2c39000000000000000100000002111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1020500007530000001f40001d4c00000138800007530000003e801000000fa000000c8"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 19:34:55",
+          1,
+          0
+        ],
+        [
+          "00000000-0000-4000-8000-000000000003",
+          1,
+          3,
+          "CONFIG_PORT_BLOCK",
+          {
+            "hex": "000000000000400080000000000000031e8eea815e64e100def58deb2ed5cc724e794a078c0bb81c2bfded2258bd36cc000000000000000100000003111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba10305010100001195030000c350000013880100000258050300007530000005dc00000064000500001388ffffec78000186a000000004000002ee05"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 19:34:55",
+          1,
+          0
+        ],
+        [
+          "00000000-0000-4000-8000-000000000004",
+          1,
+          4,
+          "CONFIG_PORT_BLOCK",
+          {
+            "hex": "000000000000400080000000000000042618ddbec96d9698a4c5c9b98471307e30c3f3d23a4a82350b3314feb8cceeb5000000000000000100000004111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba10405020100001196030000c350000013880100000258050300007530000005dc00000064000500001388ffffec78000186a000000004000002ee05"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 19:34:55",
+          1,
+          0
+        ],
+        [
+          "00000000-0000-4000-8000-000000000005",
+          1,
+          5,
+          "CONFIG_COMMIT",
+          {
+            "hex": "00000000000040008000000000000005f959a43a466c6ab982247cf0781c87aba09e6ad44aae3594faa8dee9fbfef438000000000000000100000005111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba10505"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 19:34:55",
+          1,
+          0
+        ],
+        [
+          "00000000-0000-0000-0000-000000000001",
+          1,
+          6,
+          "START_DELIVERY_SESSION",
+          {
+            "hex": "0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec200000000000000010000000622222222222242228222222222222222010000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10000119500007530000001f4000075300001d4c0"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 19:34:55",
+          1,
+          0
+        ],
+        [
+          "77777777-7777-4777-8777-777777777777",
+          1,
+          7,
+          "AUTHORIZE_DELIVERY_FIRST_OPEN",
+          {
+            "hex": "77777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007222222222222422282222222222222220145424d310000000000000001000000010000000000000000000000000000000100002710"
+          },
+          1,
+          "ACCEPTED",
+          "NONE",
+          0,
+          "2026-09-13 19:34:55",
+          1,
+          0
+        ],
+        [
+          "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46",
+          2,
+          1,
+          "SAFE_CLOSE",
+          {
+            "hex": "3b552f86af004b6abd36cd3d1f7d5e463bb92ebda56efce62930c4c294fec31e90f9633bccdf35906b0e8cf1ec1a04df000000000000000200000001020100001388"
+          },
+          0,
+          null,
+          null,
+          0,
+          "2026-09-13 19:34:55",
+          0,
+          0
+        ]
+      ]
+    },
+    "native_mcu_command_observation": {
+      "columns": [
+        "command_uid",
+        "outcome",
+        "current_boot_id",
+        "error_code",
+        "highest_sequence",
+        "message_name",
+        "payload",
+        "created_at"
+      ],
+      "rows": [
+        [
+          "00000000-0000-4000-8000-000000000001",
+          "ACCEPTED",
+          1,
+          "NONE",
+          -1,
+          "COMMAND_DECISION",
+          {
+            "hex": "000000000000400080000000000000015c179fafb8a994635d974685b45bb66f48664641005f17e39d8493502176c6030000000000000001000000010000000000000001010000"
+          },
+          "2026-09-13 19:34:55"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000002",
+          "ACCEPTED",
+          1,
+          "NONE",
+          -1,
+          "COMMAND_DECISION",
+          {
+            "hex": "00000000000040008000000000000002f7c0b7c6f9818cd802ee688d89d00204e4e36d632bb8251d70180d4b45af2c390000000000000001000000020000000000000001010000"
+          },
+          "2026-09-13 19:34:55"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000003",
+          "ACCEPTED",
+          1,
+          "NONE",
+          -1,
+          "COMMAND_DECISION",
+          {
+            "hex": "000000000000400080000000000000031e8eea815e64e100def58deb2ed5cc724e794a078c0bb81c2bfded2258bd36cc0000000000000001000000030000000000000001010000"
+          },
+          "2026-09-13 19:34:55"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000004",
+          "ACCEPTED",
+          1,
+          "NONE",
+          -1,
+          "COMMAND_DECISION",
+          {
+            "hex": "000000000000400080000000000000042618ddbec96d9698a4c5c9b98471307e30c3f3d23a4a82350b3314feb8cceeb50000000000000001000000040000000000000001010000"
+          },
+          "2026-09-13 19:34:55"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000005",
+          "ACCEPTED",
+          1,
+          "NONE",
+          -1,
+          "COMMAND_DECISION",
+          {
+            "hex": "00000000000040008000000000000005f959a43a466c6ab982247cf0781c87aba09e6ad44aae3594faa8dee9fbfef4380000000000000001000000050000000000000001010000"
+          },
+          "2026-09-13 19:34:55"
+        ],
+        [
+          "00000000-0000-0000-0000-000000000001",
+          "ACCEPTED",
+          1,
+          "NONE",
+          -1,
+          "COMMAND_DECISION",
+          {
+            "hex": "0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec20000000000000001000000060000000000000001010000"
+          },
+          "2026-09-13 19:34:55"
+        ],
+        [
+          "77777777-7777-4777-8777-777777777777",
+          "ACCEPTED",
+          1,
+          "NONE",
+          7,
+          "COMMAND_QUERY_RESULT",
+          {
+            "hex": "000000000000000677777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007000000000000000101000000000007"
+          },
+          "2026-09-13 19:34:55"
+        ]
+      ]
+    },
+    "native_measurement_event": {
+      "columns": [
+        "mcu_boot_id",
+        "event_sequence",
+        "message_name",
+        "measurement_uid",
+        "payload",
+        "payload_sha256",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          1,
+          "WORK_PREOPEN_WEIGHT_READY",
+          "45424d31-0000-0000-0000-000100000001",
+          {
+            "hex": "00000000000000010000000100000000000003fc000000000000000000000000000000012222222222224222822222222222222201000145424d3100000000000000010000000102000001f403fc05000000000000000400000000000000000008"
+          },
+          "3b82044a2e6fff4fff0944b6dbe7c1d4cc4273479e1eae91ff84310c391e73d2",
+          "2026-09-13 19:34:55"
+        ],
+        [
+          1,
+          4,
+          "WORK_POSTCLOSE_WEIGHT_READY",
+          "45424d31-0000-0000-0000-000100000004",
+          {
+            "hex": "0000000000000001000000040000000000025e68000000000000000000000000000000012222222222224222822222222222222201000145424d3100000000000000010000000402000002bc03fc050000000000000004000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "fc1ed62bbce6ac1d7b41ddc3b8210f64d38b2b7ee7116c83183e62a3911a04bf",
+          "2026-09-13 19:34:55"
+        ]
+      ]
+    },
+    "native_process_receipt": {
+      "columns": [
+        "mcu_boot_id",
+        "event_sequence",
+        "scope",
+        "saved_payload",
+        "created_at"
+      ],
+      "rows": [
+        [
+          1,
+          1,
+          {
+            "hex": "0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec20000000000000001000000062222222222224222822222222222222202013000010000000000000008"
+          },
+          {
+            "hex": "000000000000000100000001300882d23c80cdbe5027f24ec298a27a934092123192c4c97a5b44e33014e1ce15"
+          },
+          "2026-09-13 19:34:55"
+        ],
+        [
+          1,
+          4,
+          {
+            "hex": "0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec20000000000000001000000062222222222224222822222222222222202013200010000000000000008"
+          },
+          {
+            "hex": "000000000000000100000004328dc27b63823cfd3450b0801f204c3c654dac6c9af94f480fd1778003bc9b36d1"
+          },
+          "2026-09-13 19:34:55"
+        ]
+      ]
+    },
+    "native_work_recovery_fact": {
+      "columns": [
+        "recovery_uid",
+        "fact_sequence",
+        "source_kind",
+        "source_key",
+        "message_name",
+        "payload",
+        "metadata_json"
+      ],
+      "rows": [
+        [
+          "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+          1,
+          "COMMAND",
+          "00000000-0000-0000-0000-000000000001",
+          "START_DELIVERY_SESSION",
+          {
+            "hex": "0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec200000000000000010000000622222222222242228222222222222222010000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10000119500007530000001f4000075300001d4c0"
+          },
+          "{\"decisionOutcome\":\"ACCEPTED\",\"identityConflict\":false,\"writeClaimed\":true}"
+        ],
+        [
+          "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+          2,
+          "COMMAND_OBSERVATION",
+          "1bd57f45085786cd77f28beb86ae764555327a1e363b1599a8ef3af3c1dfa8f7",
+          "COMMAND_DECISION",
+          {
+            "hex": "0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec20000000000000001000000060000000000000001010000"
+          },
+          "{}"
+        ],
+        [
+          "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+          3,
+          "COMMAND",
+          "77777777-7777-4777-8777-777777777777",
+          "AUTHORIZE_DELIVERY_FIRST_OPEN",
+          {
+            "hex": "77777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007222222222222422282222222222222220145424d310000000000000001000000010000000000000000000000000000000100002710"
+          },
+          "{\"decisionOutcome\":\"ACCEPTED\",\"identityConflict\":false,\"writeClaimed\":true}"
+        ],
+        [
+          "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+          4,
+          "COMMAND_OBSERVATION",
+          "7e84cfe691701a65eba4a14aaaceefb1ca8a42dbe74013099f27bcd13672f8a7",
+          "COMMAND_QUERY_RESULT",
+          {
+            "hex": "000000000000000677777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007000000000000000101000000000007"
+          },
+          "{}"
+        ],
+        [
+          "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+          5,
+          "MEASUREMENT",
+          "1",
+          "WORK_PREOPEN_WEIGHT_READY",
+          {
+            "hex": "00000000000000010000000100000000000003fc000000000000000000000000000000012222222222224222822222222222222201000145424d3100000000000000010000000102000001f403fc05000000000000000400000000000000000008"
+          },
+          "{\"savedPayloadHex\":\"000000000000000100000001300882d23c80cdbe5027f24ec298a27a934092123192c4c97a5b44e33014e1ce15\",\"scopeHex\":\"0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec20000000000000001000000062222222222224222822222222222222202013000010000000000000008\"}"
+        ],
+        [
+          "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+          6,
+          "MEASUREMENT",
+          "4",
+          "WORK_POSTCLOSE_WEIGHT_READY",
+          {
+            "hex": "0000000000000001000000040000000000025e68000000000000000000000000000000012222222222224222822222222222222201000145424d3100000000000000010000000402000002bc03fc050000000000000004000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "{\"savedPayloadHex\":\"000000000000000100000004328dc27b63823cfd3450b0801f204c3c654dac6c9af94f480fd1778003bc9b36d1\",\"scopeHex\":\"0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec20000000000000001000000062222222222224222822222222222222202013200010000000000000008\"}"
+        ],
+        [
+          "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+          7,
+          "ACTUATOR",
+          "2",
+          "DELIVERY_DOOR_COMMAND_RESULT",
+          {
+            "hex": "000000000000000100000002000000000000046077777777777747778777777777777777222222222222422282222222222222220100010101010000"
+          },
+          "{\"savedPayloadHex\":\"0000000000000001000000023105d1991d5d21af6bac39c9dfd8c22c9872b8d0195b5ff5b8a243a158b40c058c\"}"
+        ],
+        [
+          "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+          8,
+          "ACTUATOR",
+          "3",
+          "DELIVERY_DOOR_COMMAND_RESULT",
+          {
+            "hex": "000000000000000100000003000000000001d98477777777777747778777777777777777222222222222422282222222222222220100010201010000"
+          },
+          "{\"savedPayloadHex\":\"00000000000000010000000331b9c2c4ab062a4818c2774e59e534112e2a69401cd210e7e689c4a235b08d5cb5\"}"
+        ],
+        [
+          "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+          9,
+          "DELIVERY_SELECTION",
+          "5",
+          "DELIVERY_SELECTION",
+          {
+            "hex": "0000000000000001000000050000000000025e68000000000000000000000000000000012222222222224222822222222222222201000145424d31000000000000000100000004000000000000000802"
+          },
+          "{\"savedPayloadHex\":\"000000000000000100000005330b548bfd4792c7044c0695e1b4fe6e7d49bf62e5283933f8d02b3f917c44be24\",\"scopeHex\":\"0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec20000000000000001000000062222222222224222822222222222222202013300010000000000000008\"}"
+        ]
+      ]
+    },
+    "native_work_recovery_intent": {
+      "columns": [
+        "recovery_uid",
+        "work_uid",
+        "start_command_uid",
+        "target_mcu_boot_id",
+        "evidence_json",
+        "evidence_sha256",
+        "created_at"
+      ],
+      "rows": [
+        [
+          "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+          "22222222-2222-4222-8222-222222222222",
+          "00000000-0000-0000-0000-000000000001",
+          2,
+          "{\"bootObservation\":{\"messageName\":\"BIND_BOOT_REPLY\",\"payloadHex\":\"00000000000000130000000000000002000000000000000201\"},\"completeResultAtEvaluation\":\"ABSENT\",\"dataLossClassified\":false,\"firstAction\":{\"action_digest_sha256\":\"ea5e409d3b8cf81930974340b27dda22f71b5afd5608acf80bead811d1b882c4\",\"action_key\":\"delivery:first-open\",\"action_kind\":\"AUTHORIZE_DELIVERY_FIRST_OPEN\",\"action_uid\":\"77777777-7777-4777-8777-777777777777\",\"receipt_uid\":\"66666666-6666-4666-8666-666666666666\"},\"knownFactCount\":9,\"knownFactsSha256\":\"cf07ff11f8b466c40ff381ad4bae16eec01998aed4aac7be122e1f4a9b44256c\",\"originalStart\":{\"decisionOutcome\":\"ACCEPTED\",\"messageName\":\"START_DELIVERY_SESSION\",\"payloadHex\":\"0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec200000000000000010000000622222222222242228222222222222222010000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10000119500007530000001f4000075300001d4c0\",\"writeClaimed\":true},\"permit\":{\"command_uid\":\"9676db52-791f-4e90-b6f6-c50172459b8c\",\"permit_uid\":\"9676db52-791f-4e90-b6f6-c50172459b8c\",\"request_digest_sha256\":\"7033d38eac307ce0673c2dee9ec599c8f43bd3f6a5803dce67c18e2226ab15b6\",\"work_type\":\"DELIVERY\",\"work_uid\":\"22222222-2222-4222-8222-222222222222\"},\"portNo\":1,\"profile\":\"ecobin-native-work-recovery-intent-v1\",\"reason\":\"MCU_RESTART_RESULT_UNAVAILABLE\",\"recoveryUid\":\"4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b\",\"sourceMcuBootId\":1,\"targetMcuBootId\":2}",
+          "14e75401c90dc592d23ffe4417e33fa710a0925215d8eb790e1eb800eecaad44",
+          "2026-09-13 19:34:55"
+        ]
+      ]
+    },
+    "work_slot": {
+      "columns": [
+        "slot_id",
+        "work_type",
+        "work_uid",
+        "work_state",
+        "port_no",
+        "context_json",
+        "created_at",
+        "updated_at"
+      ],
+      "rows": [
+        [
+          1,
+          "DELIVERY",
+          "22222222-2222-4222-8222-222222222222",
+          "ACTIVE",
+          1,
+          "{\"phase\": \"NATIVE_PREPARING\"}",
+          "2026-09-13 19:34:55",
+          "2026-09-13T19:34:55"
+        ]
+      ]
+    }
+  },
+  "edgeExpected": {
+    "issue": {
+      "deviceName": "device-1",
+      "finalResultAtArchive": "ABSENT",
+      "issueUid": "63ed0c05-c9a3-468c-8258-765f6de83a65",
+      "knownFactCount": 9,
+      "knownFactsSha256": "cf07ff11f8b466c40ff381ad4bae16eec01998aed4aac7be122e1f4a9b44256c",
+      "originalWorkContext": {
+        "phase": "NATIVE_PREPARING"
+      },
+      "permit": {
+        "command_uid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+        "permit_uid": "9676db52-791f-4e90-b6f6-c50172459b8c",
+        "request_digest_sha256": "7033d38eac307ce0673c2dee9ec599c8f43bd3f6a5803dce67c18e2226ab15b6",
+        "work_type": "DELIVERY",
+        "work_uid": "22222222-2222-4222-8222-222222222222"
+      },
+      "profile": "ecobin-native-delivery-issue-v1",
+      "reason": "MCU_RESTART_FINAL_RESULT_UNAVAILABLE",
+      "reasonText": "单片机重启，未取得最终结果包",
+      "recoveryUid": "4d2c08e5-587f-4a61-81dd-8c3da3e3ac5b",
+      "settlementAllowed": false,
+      "sourceMcuBootId": 1,
+      "startCommandUid": "00000000-0000-0000-0000-000000000001",
+      "targetMcuBootId": 2,
+      "workUid": "22222222-2222-4222-8222-222222222222"
+    },
+    "lateResultPayloadHex": "0000000000000001000000012222222222224222822222222222222259258839b1e00a0ac74ddd1d3cdab7877c47c11dfbb6cc6c5ed2c22777b9588a0201000000000000000800000000000000000000000000000001000000060000000000025e680001000000000100000245424d31000000000000000100000001000000000000000100000001000001f403fc05000000000000000400000245424d31000000000000000100000004000000000000000100000004000002bc03fc0500000000000000040000",
+    "occupancy": {
+      "context": {
+        "phase": "NATIVE_PREPARING"
+      },
+      "context_json": "{\"phase\": \"NATIVE_PREPARING\"}",
+      "created_at": "2026-09-13 19:34:55",
+      "port_no": 1,
+      "slot_id": 1,
+      "updated_at": "2026-09-13T19:34:55",
+      "work_state": "ACTIVE",
+      "work_type": "DELIVERY",
+      "work_uid": "22222222-2222-4222-8222-222222222222"
+    }
+  },
+  "edgeTableOverrides": {
+    "armed-unclaimed": {},
+    "claimed-unknown": {
+      "native_mcu_command": {
+        "columns": [
+          "command_uid",
+          "mcu_boot_id",
+          "command_sequence",
+          "message_name",
+          "payload",
+          "write_claimed",
+          "decision_outcome",
+          "decision_error",
+          "conflict",
+          "created_at",
+          "boot_retired",
+          "dispatch_retired"
+        ],
+        "rows": [
+          [
+            "00000000-0000-4000-8000-000000000001",
+            1,
+            1,
+            "CONFIG_BEGIN",
+            {
+              "hex": "000000000000400080000000000000015c179fafb8a994635d974685b45bb66f48664641005f17e39d8493502176c603000000000000000100000001111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1010502"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "00000000-0000-4000-8000-000000000002",
+            1,
+            2,
+            "CONFIG_DEVICE_BLOCK",
+            {
+              "hex": "00000000000040008000000000000002f7c0b7c6f9818cd802ee688d89d00204e4e36d632bb8251d70180d4b45af2c39000000000000000100000002111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1020500007530000001f40001d4c00000138800007530000003e801000000fa000000c8"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "00000000-0000-4000-8000-000000000003",
+            1,
+            3,
+            "CONFIG_PORT_BLOCK",
+            {
+              "hex": "000000000000400080000000000000031e8eea815e64e100def58deb2ed5cc724e794a078c0bb81c2bfded2258bd36cc000000000000000100000003111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba10305010100001195030000c350000013880100000258050300007530000005dc00000064000500001388ffffec78000186a000000004000002ee05"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "00000000-0000-4000-8000-000000000004",
+            1,
+            4,
+            "CONFIG_PORT_BLOCK",
+            {
+              "hex": "000000000000400080000000000000042618ddbec96d9698a4c5c9b98471307e30c3f3d23a4a82350b3314feb8cceeb5000000000000000100000004111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba10405020100001196030000c350000013880100000258050300007530000005dc00000064000500001388ffffec78000186a000000004000002ee05"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "00000000-0000-4000-8000-000000000005",
+            1,
+            5,
+            "CONFIG_COMMIT",
+            {
+              "hex": "00000000000040008000000000000005f959a43a466c6ab982247cf0781c87aba09e6ad44aae3594faa8dee9fbfef438000000000000000100000005111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba10505"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "00000000-0000-0000-0000-000000000001",
+            1,
+            6,
+            "START_DELIVERY_SESSION",
+            {
+              "hex": "0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec200000000000000010000000622222222222242228222222222222222010000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10000119500007530000001f4000075300001d4c0"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "77777777-7777-4777-8777-777777777777",
+            1,
+            7,
+            "AUTHORIZE_DELIVERY_FIRST_OPEN",
+            {
+              "hex": "77777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007222222222222422282222222222222220145424d310000000000000001000000010000000000000000000000000000000100002710"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46",
+            2,
+            1,
+            "SAFE_CLOSE",
+            {
+              "hex": "3b552f86af004b6abd36cd3d1f7d5e463bb92ebda56efce62930c4c294fec31e90f9633bccdf35906b0e8cf1ec1a04df000000000000000200000001020100001388"
+            },
+            1,
+            null,
+            null,
+            0,
+            "2026-09-13 19:34:55",
+            0,
+            0
+          ]
+        ]
+      }
+    },
+    "claimed-with-output": {
+      "device_state": {
+        "columns": [
+          "state_key",
+          "state_value",
+          "updated_at"
+        ],
+        "rows": [
+          [
+            "edge_boot_id",
+            "",
+            "2026-09-13 19:34:55"
+          ],
+          [
+            "edge_event_sequence",
+            "0",
+            "2026-09-13 19:34:55"
+          ],
+          [
+            "mqtt_session_present",
+            "false",
+            "2026-09-13 19:34:55"
+          ],
+          [
+            "mqtt_last_rc",
+            "0",
+            "2026-09-13 19:34:55"
+          ],
+          [
+            "mcu_receive_generation",
+            "0",
+            "2026-09-13 19:34:55"
+          ],
+          [
+            "active_mcu_boot_id",
+            "",
+            "2026-09-13 19:34:55"
+          ],
+          [
+            "native_query_sequence",
+            "21",
+            "2026-09-13T19:34:55"
+          ],
+          [
+            "native_boot_sequence",
+            "2",
+            "2026-09-13T19:34:55"
+          ],
+          [
+            "native_current_boot",
+            "2",
+            "2026-09-13T19:34:55"
+          ],
+          [
+            "native_command_sequence:1",
+            "7",
+            "2026-09-13T19:34:55"
+          ],
+          [
+            "native_command_sequence:2",
+            "1",
+            "2026-09-13T19:34:55"
+          ]
+        ]
+      },
+      "native_actuator_event": {
+        "columns": [
+          "mcu_boot_id",
+          "event_sequence",
+          "message_name",
+          "reported_command_uid",
+          "reported_work_uid",
+          "port_no",
+          "payload",
+          "saved_payload",
+          "created_at"
+        ],
+        "rows": [
+          [
+            1,
+            2,
+            "DELIVERY_DOOR_COMMAND_RESULT",
+            "77777777-7777-4777-8777-777777777777",
+            "22222222-2222-4222-8222-222222222222",
+            1,
+            {
+              "hex": "000000000000000100000002000000000000046077777777777747778777777777777777222222222222422282222222222222220100010101010000"
+            },
+            {
+              "hex": "0000000000000001000000023105d1991d5d21af6bac39c9dfd8c22c9872b8d0195b5ff5b8a243a158b40c058c"
+            },
+            "2026-09-13 19:34:55"
+          ],
+          [
+            1,
+            3,
+            "DELIVERY_DOOR_COMMAND_RESULT",
+            "77777777-7777-4777-8777-777777777777",
+            "22222222-2222-4222-8222-222222222222",
+            1,
+            {
+              "hex": "000000000000000100000003000000000001d98477777777777747778777777777777777222222222222422282222222222222220100010201010000"
+            },
+            {
+              "hex": "00000000000000010000000331b9c2c4ab062a4818c2774e59e534112e2a69401cd210e7e689c4a235b08d5cb5"
+            },
+            "2026-09-13 19:34:55"
+          ],
+          [
+            2,
+            1,
+            "SAFE_CLOSE_RESULT",
+            "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46",
+            null,
+            1,
+            {
+              "hex": "00000000000000020000000100000000000000643b552f86af004b6abd36cd3d1f7d5e4602010201010000"
+            },
+            {
+              "hex": "0000000000000002000000013d167fa3884b23b5b73906e05e77fae2a500ebda810caf355d97a1d578b7a8a72f"
+            },
+            "2026-09-13 19:34:55"
+          ]
+        ]
+      },
+      "native_mcu_command": {
+        "columns": [
+          "command_uid",
+          "mcu_boot_id",
+          "command_sequence",
+          "message_name",
+          "payload",
+          "write_claimed",
+          "decision_outcome",
+          "decision_error",
+          "conflict",
+          "created_at",
+          "boot_retired",
+          "dispatch_retired"
+        ],
+        "rows": [
+          [
+            "00000000-0000-4000-8000-000000000001",
+            1,
+            1,
+            "CONFIG_BEGIN",
+            {
+              "hex": "000000000000400080000000000000015c179fafb8a994635d974685b45bb66f48664641005f17e39d8493502176c603000000000000000100000001111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1010502"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "00000000-0000-4000-8000-000000000002",
+            1,
+            2,
+            "CONFIG_DEVICE_BLOCK",
+            {
+              "hex": "00000000000040008000000000000002f7c0b7c6f9818cd802ee688d89d00204e4e36d632bb8251d70180d4b45af2c39000000000000000100000002111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1020500007530000001f40001d4c00000138800007530000003e801000000fa000000c8"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "00000000-0000-4000-8000-000000000003",
+            1,
+            3,
+            "CONFIG_PORT_BLOCK",
+            {
+              "hex": "000000000000400080000000000000031e8eea815e64e100def58deb2ed5cc724e794a078c0bb81c2bfded2258bd36cc000000000000000100000003111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba10305010100001195030000c350000013880100000258050300007530000005dc00000064000500001388ffffec78000186a000000004000002ee05"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "00000000-0000-4000-8000-000000000004",
+            1,
+            4,
+            "CONFIG_PORT_BLOCK",
+            {
+              "hex": "000000000000400080000000000000042618ddbec96d9698a4c5c9b98471307e30c3f3d23a4a82350b3314feb8cceeb5000000000000000100000004111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba10405020100001196030000c350000013880100000258050300007530000005dc00000064000500001388ffffec78000186a000000004000002ee05"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "00000000-0000-4000-8000-000000000005",
+            1,
+            5,
+            "CONFIG_COMMIT",
+            {
+              "hex": "00000000000040008000000000000005f959a43a466c6ab982247cf0781c87aba09e6ad44aae3594faa8dee9fbfef438000000000000000100000005111111111111411181111111111111110000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba10505"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "00000000-0000-0000-0000-000000000001",
+            1,
+            6,
+            "START_DELIVERY_SESSION",
+            {
+              "hex": "0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec200000000000000010000000622222222222242228222222222222222010000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10000119500007530000001f4000075300001d4c0"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "77777777-7777-4777-8777-777777777777",
+            1,
+            7,
+            "AUTHORIZE_DELIVERY_FIRST_OPEN",
+            {
+              "hex": "77777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007222222222222422282222222222222220145424d310000000000000001000000010000000000000000000000000000000100002710"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            1,
+            0
+          ],
+          [
+            "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46",
+            2,
+            1,
+            "SAFE_CLOSE",
+            {
+              "hex": "3b552f86af004b6abd36cd3d1f7d5e463bb92ebda56efce62930c4c294fec31e90f9633bccdf35906b0e8cf1ec1a04df000000000000000200000001020100001388"
+            },
+            1,
+            "ACCEPTED",
+            "NONE",
+            0,
+            "2026-09-13 19:34:55",
+            0,
+            0
+          ]
+        ]
+      },
+      "native_mcu_command_observation": {
+        "columns": [
+          "command_uid",
+          "outcome",
+          "current_boot_id",
+          "error_code",
+          "highest_sequence",
+          "message_name",
+          "payload",
+          "created_at"
+        ],
+        "rows": [
+          [
+            "00000000-0000-4000-8000-000000000001",
+            "ACCEPTED",
+            1,
+            "NONE",
+            -1,
+            "COMMAND_DECISION",
+            {
+              "hex": "000000000000400080000000000000015c179fafb8a994635d974685b45bb66f48664641005f17e39d8493502176c6030000000000000001000000010000000000000001010000"
+            },
+            "2026-09-13 19:34:55"
+          ],
+          [
+            "00000000-0000-4000-8000-000000000002",
+            "ACCEPTED",
+            1,
+            "NONE",
+            -1,
+            "COMMAND_DECISION",
+            {
+              "hex": "00000000000040008000000000000002f7c0b7c6f9818cd802ee688d89d00204e4e36d632bb8251d70180d4b45af2c390000000000000001000000020000000000000001010000"
+            },
+            "2026-09-13 19:34:55"
+          ],
+          [
+            "00000000-0000-4000-8000-000000000003",
+            "ACCEPTED",
+            1,
+            "NONE",
+            -1,
+            "COMMAND_DECISION",
+            {
+              "hex": "000000000000400080000000000000031e8eea815e64e100def58deb2ed5cc724e794a078c0bb81c2bfded2258bd36cc0000000000000001000000030000000000000001010000"
+            },
+            "2026-09-13 19:34:55"
+          ],
+          [
+            "00000000-0000-4000-8000-000000000004",
+            "ACCEPTED",
+            1,
+            "NONE",
+            -1,
+            "COMMAND_DECISION",
+            {
+              "hex": "000000000000400080000000000000042618ddbec96d9698a4c5c9b98471307e30c3f3d23a4a82350b3314feb8cceeb50000000000000001000000040000000000000001010000"
+            },
+            "2026-09-13 19:34:55"
+          ],
+          [
+            "00000000-0000-4000-8000-000000000005",
+            "ACCEPTED",
+            1,
+            "NONE",
+            -1,
+            "COMMAND_DECISION",
+            {
+              "hex": "00000000000040008000000000000005f959a43a466c6ab982247cf0781c87aba09e6ad44aae3594faa8dee9fbfef4380000000000000001000000050000000000000001010000"
+            },
+            "2026-09-13 19:34:55"
+          ],
+          [
+            "00000000-0000-0000-0000-000000000001",
+            "ACCEPTED",
+            1,
+            "NONE",
+            -1,
+            "COMMAND_DECISION",
+            {
+              "hex": "0000000000000000000000000000000142e37d4aedc3494f3a1df2716b838ded3b73840d50a10464b26150cb4c4abec20000000000000001000000060000000000000001010000"
+            },
+            "2026-09-13 19:34:55"
+          ],
+          [
+            "77777777-7777-4777-8777-777777777777",
+            "ACCEPTED",
+            1,
+            "NONE",
+            7,
+            "COMMAND_QUERY_RESULT",
+            {
+              "hex": "000000000000000677777777777747778777777777777777b5ce9b982891b4466af522326981eb4badbf4c93371f2eb4a12a8d01704dfece000000000000000100000007000000000000000101000000000007"
+            },
+            "2026-09-13 19:34:55"
+          ],
+          [
+            "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46",
+            "ACCEPTED",
+            2,
+            "NONE",
+            -1,
+            "COMMAND_DECISION",
+            {
+              "hex": "3b552f86af004b6abd36cd3d1f7d5e463bb92ebda56efce62930c4c294fec31e90f9633bccdf35906b0e8cf1ec1a04df0000000000000002000000010000000000000002010000"
+            },
+            "2026-09-13 19:34:55"
+          ]
+        ]
+      }
+    },
+    "prepared-unclaimed": {}
+  },
+  "fixtureSha256": "93cdfea1d5b19cd9396909c6131d3d40e4f9ec478ae9bde60d6ea729a213bcf4",
+  "knownGap": {
+    "reason": "Test checkpoint capture, not a field-device database export.",
+    "variant": "production-export"
+  },
+  "provenance": "Generated once at the exact source commit; Edge rows are frozen after cold-open-relevant boundaries.",
+  "schema": {
+    "name": "ecobin-native-recovery-close-history",
+    "releaseVersion": "native-recovery-history-v1",
+    "store": "UpdaterStore",
+    "version": 1
+  },
+  "sourceCommit": "3178a99455ecbaf936d4468ede81e395afe94fcf",
+  "variantNames": [
+    "prepared-unclaimed",
+    "armed-unclaimed",
+    "claimed-unknown",
+    "claimed-with-output"
+  ],
+  "variants": {
+    "armed-unclaimed": {
+      "edgeSnapshot": "armed-unclaimed",
+      "expected": {
+        "confirmedOutcome": null,
+        "dispatchMode": "TWO_PHASE_V3",
+        "dispositionState": null,
+        "state": "ARMED"
+      },
+      "operations": [
+        "prepare",
+        "arm"
+      ],
+      "targetActionUid": "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46"
+    },
+    "claimed-unknown": {
+      "edgeSnapshot": "claimed-unknown",
+      "expected": {
+        "confirmedOutcome": null,
+        "dispatchMode": "TWO_PHASE_V3",
+        "dispositionState": null,
+        "state": "ARMED"
+      },
+      "operations": [
+        "prepare",
+        "arm"
+      ],
+      "targetActionUid": "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46"
+    },
+    "claimed-with-output": {
+      "edgeSnapshot": "claimed-with-output",
+      "expected": {
+        "confirmedOutcome": null,
+        "dispatchMode": "TWO_PHASE_V3",
+        "dispositionState": null,
+        "state": "ARMED"
+      },
+      "operations": [
+        "prepare",
+        "arm"
+      ],
+      "targetActionUid": "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46"
+    },
+    "prepared-unclaimed": {
+      "edgeSnapshot": "prepared-unclaimed",
+      "expected": {
+        "confirmedOutcome": null,
+        "dispatchMode": "PREPARED_ONLY",
+        "dispositionState": null,
+        "state": "PREPARED"
+      },
+      "operations": [
+        "prepare"
+      ],
+      "targetActionUid": "3b552f86-af00-4b6a-bd36-cd3d1f7d5e46"
+    }
+  }
+}

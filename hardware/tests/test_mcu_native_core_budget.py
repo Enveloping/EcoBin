@@ -17,7 +17,7 @@ def test_all_native_cores_link_within_target_capacity(tmp_path):
     if not compiler.is_file():
         pytest.skip("ARMCC5 and armlink required")
     user = ROOT / "hardware_mcu/USER"
-    sources = [user / (name + ".c") for name in ("mcu_control_endpoint", "mcu_work_preparation", "mcu_opening_gate", "mcu_delivery_execution", "mcu_clean_execution", "mcu_safe_close_execution", "mcu_configuration", "mcu_config_collection",
+    sources = [user / (name + ".c") for name in ("mcu_control_endpoint", "mcu_work_preparation", "mcu_device_entry_url", "mcu_opening_gate", "mcu_delivery_execution", "mcu_clean_execution", "mcu_safe_close_execution", "mcu_configuration", "mcu_config_collection",
         "mcu_session", "mcu_work_state", "mcu_result_slot", "mcu_result_builder", "mcu_process_measurement", "mcu_process_event_slot", "mcu_actuator_event_journal", "mcu_device_facts",
         "mcu_weight_run", "weight_measurement", "scale_reader", "actuator_runtime", "door_control", "clean_lock", "runtime_clock",
         "mcu_environment_monitor", "smoke_monitor", "ultrasonic_reader", "ultrasonic_stm32", "mcu_environment_ultrasonic", "mcu_fullness_run")]
@@ -57,6 +57,7 @@ def test_all_native_cores_link_within_target_capacity(tmp_path):
                    "McuConfiguration_ReadFullnessPolicy", "McuConfigCollection_ReadFullnessPolicy",
                    "McuWeightRun_CopyObservation", "McuDeviceFacts_PublishScaleObservation",
                    "McuControlEndpoint_Feed", "McuWorkPreparation_Attach", "McuWorkPreparation_Poll",
+                   "McuWorkPreparation_AttachDeviceEntryUrl", "McuDeviceEntryUrl_Receive", "McuDeviceEntryUrl_CopyResult",
                    "McuControlEndpoint_ReserveActuatorEvents", "McuControlEndpoint_PublishActuatorEvent",
                    "McuControlEndpoint_CancelActuatorEvents", "McuControlEndpoint_ConfirmActuatorEventSaved",
                    "McuActuatorEventJournal_Query", "McuActuatorEventJournal_Saved",
