@@ -12,93 +12,20 @@ from dataclasses import asdict, replace
 import pytest
 
 import uart2_protocol as uart
-from mcu_process_handoff import McuProcessEventHandoff
-from mcu_result_handoff import McuResultHandoff
 from mcu_session import McuBootSession
-from mcu_work_query import McuWorkQuery
-from hardware.tests.native_autonomous_recovery_fixture import autonomous_active_case as executed_action_case
+from hardware.tests.native_autonomous_recovery_fixture import (
+    AutonomousRecoveryWire,
+    autonomous_active_case as executed_action_case,
+)
 from hardware.tests.test_mcu_simplified_execution import library, runtime
-from hardware.tests.test_mcu_work_preparation import original_scope, take_samples
-from hardware.tests.test_native_clean_action_reconciliation import CleanWire
 from hardware.tests.test_native_command_session import CSession, boot_response, command_response, mcu
 
 
-class RecoveryWire(CleanWire):
-    def custody(self, message, step):
-        scope = original_scope(self.case.start, clean=self.case.clean) | dict(eventMessageType=message,
-            stepSequence=step, configVersion=self.case.start["configVersion"])
-        del scope["queryId"]
-        client = McuProcessEventHandoff(self.case.store, self.write, scope)
-        client.poll(self.now)
-        self.pump(client)
-        return self.case.store.get_native_process_receipt(uart.encode_payload("QUERY_PROCESS_EVENT", scope | {"queryId": 1})[8:])
+RecoveryWire = AutonomousRecoveryWire
 
-    def handshake(self):
-        boot = McuBootSession(self.case.store, self.write)
-        boot.poll(self.now)
-        self.pump(boot)
-        return boot
 
-    def reset_mcu(self):
-        lib, endpoint, preparation, replies, _, sink, guard = self.runtime
-        replies.clear()
-        lib.TestFacts_InitHardware()
-        lib.McuControlEndpoint_Init(endpoint, 1, sink, None)
-        assert lib.McuWorkPreparation_Attach(preparation, endpoint, 2, guard, None)
-        self.now += 1  # Pi's monotonic clock does not reset with the MCU
-        return self.handshake()
-
-    def finish_delivery(self, *, unavailable=False):
-        from hardware.tests.test_native_configuration import inputs
-        self.advance(inputs()["device"]["deliveryDoorTravelWaitMs"])
-        if unavailable:
-            self.advance(5000)
-        else:
-            self.now = take_samples(self.runtime, [700] * 5, start=self.now, measurement=2)
-        row = self.custody("WORK_POSTCLOSE_WEIGHT_READY", 1)
-        value = uart.decode_payload(row["message_name"], row["payload"])
-        self.advance(0)
-        if not unavailable:
-            lib, endpoint, *_ = self.runtime
-            assert lib.McuDeliveryExecution_Select(self.case.execution, endpoint,
-                uuid.UUID(value["measurementUid"]).bytes, 2, self.now)
-            self.custody("DELIVERY_SELECTION", 1)
-            self.advance(0)
-        saved = self.handoff_result()
-        result = uart.decode_payload("WORK_RESULT", saved["payload"])
-        assert result["initialWeightGrams"] == 500
-        if unavailable:
-            assert result["finishReason"] == "FAILED" and result["finalKind"] == "UNAVAILABLE"
-        else:
-            assert result["finalWeightGrams"] == 700
-        return saved
-
-    def finish_clean(self):
-        self.intent(0, "CLEAN_FINISH_REQUESTED")
-        self.advance(0)
-        self.now = take_samples(self.runtime, [100] * 5, start=self.now, measurement=2)
-        self.custody("CLEAN_FINAL_WEIGHT_READY", 1)
-        # rc.23 turns the local FINISH request plus terminal weight into the
-        # authoritative result. No second Pi-side/historical confirmation is
-        # required to make the result exist.
-        self.advance(0)
-        return self.handoff_result()
-
-    def handoff_result(self):
-        original = original_scope(self.case.start, clean=self.case.clean)
-        del original["queryId"]
-        query = McuWorkQuery(self.case.store, self.write, original)
-        query.poll(self.now)
-        self.pump(query)
-        observed = query.observation(self.now)
-        assert observed["status"] == "RESULT_HELD"
-        identity = dict(mcuBootId=1, workUid=self.case.permit.work_uid,
-            resultSequence=observed["resultSequence"], resultDigestSha256=observed["resultDigestSha256"])
-        handoff = McuResultHandoff(self.case.store, self.write, identity)
-        handoff.poll(self.now)
-        self.pump(handoff)
-        saved = self.case.store.get_native_mcu_result(1, identity["resultSequence"])
-        return saved
+def test_recovery_wire_is_defined_by_neutral_autonomous_fixture():
+    assert RecoveryWire.__module__ == "hardware.tests.native_autonomous_recovery_fixture"
 
 
 def assert_start_only(case):
