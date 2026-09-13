@@ -1,0 +1,200 @@
+{
+  "common": {
+    "activation": {
+      "evidenceDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "operationUid": "00000000-0000-4000-8000-000000000384"
+    },
+    "begin": {
+      "beginUid": "00000000-0000-4000-8000-000000000004",
+      "permitDigestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "permitUid": "00000000-0000-4000-8000-000000000001"
+    },
+    "isolation": {
+      "actionDigestSha256": "8e6f0146a419baad557fcafffe63c840efbe82a03dc8d573883e52036cfd7eca",
+      "actionKey": "native:recovery-close:00000000-0000-4000-8000-00000000003d",
+      "actionKind": "SAFE_CLOSE",
+      "actionUid": "00000000-0000-4000-8000-00000000003c",
+      "bootObservationMessageName": "BOOT_PROBE_REPLY",
+      "bootObservationPayloadHex": "00000000000000510000000000000003",
+      "closeCommandPayloadHex": "0000000000004000800000000000003c3bb92ebda56efce62930c4c294fec31e90f9633bccdf35906b0e8cf1ec1a04df000000000000000200000001020100001388",
+      "commandUid": "00000000-0000-4000-8000-000000000003",
+      "expectedSourceLedgerSequence": 1,
+      "isolationEvidenceSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "observedMcuBootId": 3,
+      "permitUid": "00000000-0000-4000-8000-000000000001",
+      "portNo": 1,
+      "reason": "MCU_RESTART_DATA_LOSS",
+      "receiptUid": "00000000-0000-4000-8000-00000000003f",
+      "recoveryEvidenceSha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "recoveryUid": "00000000-0000-4000-8000-00000000003d",
+      "sourceActionDigestSha256": "9be591f4781c741fe1758d0ec8b4dd31f4055a509549aad20cd7d92ea4f53541",
+      "sourceActionUid": "00000000-0000-4000-8000-000000000005",
+      "sourceCommandPayloadHex": "00000000000040008000000000000005896f061599380fd21d5ca9a4dc843619c76f36ab28bb9d5c48f22e6949f5766a0000000000000001000000010000000000004000800000000000000201333333333333433383333333333333334444444444444444844444444444444400001388",
+      "sourceMcuBootId": 1,
+      "targetMcuBootId": 2,
+      "workUid": "00000000-0000-4000-8000-000000000002"
+    },
+    "output": {
+      "confirmation": {
+        "actionUid": "00000000-0000-4000-8000-00000000003c",
+        "confirmationBasis": "MCU_IDENTITY_BOUND_FACT",
+        "evidenceDigestSha256": "99d2cf37d6facd7d38649e31619b9ab0af86d3072e898e04676ae29de6a97a50",
+        "outcome": "EXECUTED",
+        "receiptUid": "00000000-0000-4000-8000-00000000005a"
+      },
+      "messageName": "SAFE_CLOSE_RESULT",
+      "payloadHex": "00000000000000020000000900000000000007d00000000000004000800000000000003c02010201010000",
+      "payloadSha256": "99d2cf37d6facd7d38649e31619b9ab0af86d3072e898e04676ae29de6a97a50"
+    },
+    "permit": {
+      "commandUid": "00000000-0000-4000-8000-000000000003",
+      "permitUid": "00000000-0000-4000-8000-000000000001",
+      "requestDigestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "workType": "DELIVERY",
+      "workUid": "00000000-0000-4000-8000-000000000002"
+    },
+    "recovery": {
+      "actionDigestSha256": "8e6f0146a419baad557fcafffe63c840efbe82a03dc8d573883e52036cfd7eca",
+      "actionKey": "native:recovery-close:00000000-0000-4000-8000-00000000003d",
+      "actionKind": "SAFE_CLOSE",
+      "actionUid": "00000000-0000-4000-8000-00000000003c",
+      "closeCommandPayloadHex": "0000000000004000800000000000003c3bb92ebda56efce62930c4c294fec31e90f9633bccdf35906b0e8cf1ec1a04df000000000000000200000001020100001388",
+      "commandUid": "00000000-0000-4000-8000-000000000003",
+      "dispatchAttemptToken": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "expectedSourceLedgerSequence": 1,
+      "permitUid": "00000000-0000-4000-8000-000000000001",
+      "portNo": 1,
+      "reason": "MCU_RESTART_DATA_LOSS",
+      "recoveryEvidenceSha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "recoveryUid": "00000000-0000-4000-8000-00000000003d",
+      "sourceActionDigestSha256": "9be591f4781c741fe1758d0ec8b4dd31f4055a509549aad20cd7d92ea4f53541",
+      "sourceActionUid": "00000000-0000-4000-8000-000000000005",
+      "sourceCommandPayloadHex": "00000000000040008000000000000005896f061599380fd21d5ca9a4dc843619c76f36ab28bb9d5c48f22e6949f5766a0000000000000001000000010000000000004000800000000000000201333333333333433383333333333333334444444444444444844444444444444400001388",
+      "sourceMcuBootId": 1,
+      "targetMcuBootId": 2,
+      "workUid": "00000000-0000-4000-8000-000000000002"
+    },
+    "retirement": {
+      "actionDigestSha256": "8e6f0146a419baad557fcafffe63c840efbe82a03dc8d573883e52036cfd7eca",
+      "actionKey": "native:recovery-close:00000000-0000-4000-8000-00000000003d",
+      "actionKind": "SAFE_CLOSE",
+      "actionUid": "00000000-0000-4000-8000-00000000003c",
+      "closeCommandPayloadHex": "0000000000004000800000000000003c3bb92ebda56efce62930c4c294fec31e90f9633bccdf35906b0e8cf1ec1a04df000000000000000200000001020100001388",
+      "commandUid": "00000000-0000-4000-8000-000000000003",
+      "expectedSourceLedgerSequence": 1,
+      "permitUid": "00000000-0000-4000-8000-000000000001",
+      "portNo": 1,
+      "reason": "MCU_RESTART_DATA_LOSS",
+      "receiptUid": "00000000-0000-4000-8000-00000000003f",
+      "recoveryEvidenceSha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "recoveryUid": "00000000-0000-4000-8000-00000000003d",
+      "retirementEvidenceSha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "sourceActionDigestSha256": "9be591f4781c741fe1758d0ec8b4dd31f4055a509549aad20cd7d92ea4f53541",
+      "sourceActionUid": "00000000-0000-4000-8000-000000000005",
+      "sourceCommandPayloadHex": "00000000000040008000000000000005896f061599380fd21d5ca9a4dc843619c76f36ab28bb9d5c48f22e6949f5766a0000000000000001000000010000000000004000800000000000000201333333333333433383333333333333334444444444444444844444444444444400001388",
+      "sourceMcuBootId": 1,
+      "targetMcuBootId": 2,
+      "workUid": "00000000-0000-4000-8000-000000000002"
+    },
+    "sourceAction": {
+      "actionDigestSha256": "9be591f4781c741fe1758d0ec8b4dd31f4055a509549aad20cd7d92ea4f53541",
+      "actionKey": "delivery.door.unlock.1",
+      "actionKind": "AUTHORIZE_DELIVERY_FIRST_OPEN",
+      "actionUid": "00000000-0000-4000-8000-000000000005",
+      "commandUid": "00000000-0000-4000-8000-000000000003",
+      "dispatchAttemptToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "permitUid": "00000000-0000-4000-8000-000000000001",
+      "sourceCommandPayloadHex": "00000000000040008000000000000005896f061599380fd21d5ca9a4dc843619c76f36ab28bb9d5c48f22e6949f5766a0000000000000001000000010000000000004000800000000000000201333333333333433383333333333333334444444444444444844444444444444400001388",
+      "workUid": "00000000-0000-4000-8000-000000000002"
+    },
+    "sourceArm": {
+      "actionUid": "00000000-0000-4000-8000-000000000005",
+      "dispatchAttemptToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "successor": {
+      "actionDigestSha256": "f0570495479e49b3efaea0159c014764bf1ffed1ed01484f142c760c1b73fd93",
+      "actionKey": "native:recovery-close:00000000-0000-4000-8000-00000000006b",
+      "actionKind": "SAFE_CLOSE",
+      "actionUid": "00000000-0000-4000-8000-00000000006a",
+      "closeCommandPayloadHex": "0000000000004000800000000000006adb4708c4ce05ccbaf77abe1012551dfc39f998ff96724431c572e292202f521b000000000000000200000002020100001388",
+      "commandUid": "00000000-0000-4000-8000-000000000003",
+      "dispatchAttemptToken": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+      "expectedPredecessorLedgerSequence": 2,
+      "expectedSourceLedgerSequence": 1,
+      "permitUid": "00000000-0000-4000-8000-000000000001",
+      "portNo": 1,
+      "predecessorActionUid": "00000000-0000-4000-8000-00000000003c",
+      "predecessorReceiptUid": "00000000-0000-4000-8000-00000000003f",
+      "predecessorRetirementEvidenceSha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "reason": "MCU_RESTART_DATA_LOSS",
+      "recoveryEvidenceSha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "recoveryUid": "00000000-0000-4000-8000-00000000006b",
+      "sourceActionDigestSha256": "9be591f4781c741fe1758d0ec8b4dd31f4055a509549aad20cd7d92ea4f53541",
+      "sourceActionUid": "00000000-0000-4000-8000-000000000005",
+      "sourceCommandPayloadHex": "00000000000040008000000000000005896f061599380fd21d5ca9a4dc843619c76f36ab28bb9d5c48f22e6949f5766a0000000000000001000000010000000000004000800000000000000201333333333333433383333333333333334444444444444444844444444444444400001388",
+      "sourceMcuBootId": 1,
+      "targetMcuBootId": 2,
+      "workUid": "00000000-0000-4000-8000-000000000002"
+    }
+  },
+  "description": "Deterministic, non-device recovery-close inputs normalized from the historical contract. This is not a byte-for-byte database export. Current tests replay only UpdaterStore API calls; no UART writer or MCU is instantiated.",
+  "fixtureSha256": "edb2b2f0794c8932a7d8515a3175f190c60ad97f58534a93ca6e0242a44a384e",
+  "knownGap": {
+    "reason": "UpdaterStore has no durable Edge write-claim fact. Its ARMED state cannot distinguish claimed from unclaimed. The obsolete Edge fixture requires a command removed from the current MCU, so neither claim state is fabricated.",
+    "variant": "edge-write-claim-state"
+  },
+  "provenance": "The source commit identifies the historical protocol and recovery contract used to normalize these deterministic API inputs; it does not claim that this JSON is an exported SQLite image.",
+  "schema": {
+    "name": "ecobin-native-recovery-close-history",
+    "releaseVersion": "native-recovery-history-v1",
+    "store": "UpdaterStore",
+    "version": 1
+  },
+  "sourceCommit": "3178a99455ecbaf936d4468ede81e395afe94fcf",
+  "variantNames": [
+    "prepared-unclaimed",
+    "armed-claim-unknown",
+    "confirmed-with-output",
+    "retired",
+    "withdrawn",
+    "isolated",
+    "successor"
+  ],
+  "variants": {
+    "armed-claim-unknown": {
+      "operations": ["prepare", "arm"],
+      "targetActionUid": "00000000-0000-4000-8000-00000000003c",
+      "expected": {"state": "ARMED", "dispatchMode": "TWO_PHASE_V3", "confirmedOutcome": null, "dispositionState": null}
+    },
+    "confirmed-with-output": {
+      "operations": ["prepare", "arm", "confirm-output"],
+      "targetActionUid": "00000000-0000-4000-8000-00000000003c",
+      "expected": {"state": "CONFIRMED", "dispatchMode": "TWO_PHASE_V3", "confirmedOutcome": "EXECUTED", "dispositionState": null}
+    },
+    "isolated": {
+      "operations": ["prepare", "arm", "isolate"],
+      "targetActionUid": "00000000-0000-4000-8000-00000000003c",
+      "expected": {"state": "ARMED", "dispatchMode": "TWO_PHASE_V3", "confirmedOutcome": null, "dispositionState": "ISOLATED_BY_REBOOT"}
+    },
+    "prepared-unclaimed": {
+      "operations": ["prepare"],
+      "targetActionUid": "00000000-0000-4000-8000-00000000003c",
+      "expected": {"state": "PREPARED", "dispatchMode": "PREPARED_ONLY", "confirmedOutcome": null, "dispositionState": null}
+    },
+    "retired": {
+      "operations": ["retire"],
+      "targetActionUid": "00000000-0000-4000-8000-00000000003c",
+      "expected": {"state": "CONFIRMED", "dispatchMode": "PREPARED_ONLY", "confirmedOutcome": "NOT_EXECUTED", "dispositionState": null}
+    },
+    "successor": {
+      "operations": ["retire", "prepare-successor"],
+      "targetActionUid": "00000000-0000-4000-8000-00000000006a",
+      "expected": {"state": "PREPARED", "dispatchMode": "PREPARED_ONLY", "confirmedOutcome": null, "dispositionState": null, "predecessorState": "CONFIRMED"}
+    },
+    "withdrawn": {
+      "operations": ["prepare", "arm", "withdraw"],
+      "targetActionUid": "00000000-0000-4000-8000-00000000003c",
+      "expected": {"state": "ARMED", "dispatchMode": "TWO_PHASE_V3", "confirmedOutcome": null, "dispositionState": "DISPATCH_WITHDRAWN"}
+    }
+  }
+}
