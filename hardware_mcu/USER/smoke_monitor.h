@@ -10,8 +10,10 @@
 #define SMOKE_WARMUP_MS  60000
 
 void SmokeMonitor_Init(void);
-void SmokeMonitor_SetTickMs(unsigned short ms);  /* call from TIM ISR every 1ms */
 void SmokeMonitor_Update(void);                   /* call every 50ms in main loop */
+/* Same real sampling/debounce, returns 1 only if one ADC attempt completed.
+ * A repeated poll or preheat wait is not a new observation. */
+unsigned char SmokeMonitor_UpdateSample(void);
 unsigned char SmokeMonitor_GetState(void);        /* current stable state */
 unsigned char SmokeMonitor_PollChanged(void);     /* 1=state changed since last poll */
 

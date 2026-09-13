@@ -118,6 +118,7 @@ const deploymentColors: Record<string, string> = {
   REJECTED: 'error',
   FAILED_LOCKED: 'error',
   DOWNLOAD_AUTHORIZATION_REQUIRED: 'warning',
+  LOCAL_CANCELLED: 'default',
   CANCELLED: 'success',
 };
 
@@ -635,23 +636,16 @@ export default function BusinessReleasesPage() {
 
   return (
     <PageContainer
-      header={pageHeader(
-        '香橙派业务程序发布',
-        '上传离线签名的业务程序包，按设备实际状态验证一台设备，再决定是否进入后续分批更新。',
-      )}
+      {...pageHeader('香橙派业务程序发布')}
     >
-      <Alert
-        showIcon
-        type={readiness?.remoteDispatchEnabled ? 'warning' : 'info'}
-        style={{ marginBottom: 12 }}
-        message={readiness?.remoteDispatchEnabled
-          ? '单设备验证下发已开放，创建计划本身仍不会更新设备'
-          : '设备下发当前保持关闭，创建计划不会影响现场设备'}
-        description={readiness?.remoteDispatchEnabled
-          ? '只有平台管理员进入计划详情，再次确认“开始验证设备更新”后，后台才会向选定的一台设备发送命令；后续批次仍不会自动开始。'
-          : '可以继续准备发布包并建立计划；开启远程下发前，页面不会提供实际更新按钮。'}
-      />
-      {readiness && (
+      <Space wrap style={{ marginBottom: 16 }}>
+        <Tag color={readiness?.remoteDispatchEnabled ? 'green' : 'default'}>
+          {!readiness ? '正在读取发布状态' : readiness.remoteDispatchEnabled ? '设备下发已开放' : '设备下发已关闭'}
+        </Tag>
+        {readiness?.artifactStorageAvailable && <Tag>发布包存储就绪</Tag>}
+        {readiness?.signingKeysAvailable && <Tag>签名校验就绪</Tag>}
+      </Space>
+      {readiness && (!readiness.artifactStorageAvailable || !readiness.signingKeysAvailable) && (
         <Alert
           showIcon
           type={readiness.artifactStorageAvailable && readiness.signingKeysAvailable ? 'info' : 'error'}
@@ -730,13 +724,6 @@ export default function BusinessReleasesPage() {
         onOk={() => void submitDraft()}
         onCancel={() => setDraftOpen(false)}
       >
-        <Alert
-          showIcon
-          type="info"
-          message="发布编号和私有存储路径由后台自动生成"
-          description="这里只填写发布包中声明的业务版本名称。创建后再上传发布包和离线签名文件。"
-          style={{ marginBottom: 16 }}
-        />
         <Form form={draftForm} layout="vertical">
           <Form.Item
             name="versionName"

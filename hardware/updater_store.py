@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import re
 import sqlite3
@@ -164,6 +165,7 @@ class UpdaterStore:
                 self._verify_job_gate_control_extension(connection)
                 self._ensure_unknown_effect_resolution_extension(connection)
                 self._verify_unknown_effect_resolution_extension(connection)
+                self._verify_native_recovery_close_extension(connection)
                 self._apply_runtime_candidate_posture(connection)
                 self._verify_v3_invariants(connection)
                 self._verify_job_gate_control_invariants(connection)
@@ -2385,6 +2387,9 @@ class UpdaterStore:
             self._require_candidate(connection)
             existing = self._action_row(connection, action_uid)
             if existing is not None:
+                self._native_recovery_close_row(connection, action_uid)
+                if self._native_close_disposition_row(connection, action_uid) is not None:
+                    return self._action_result(existing, disposition="DENIED")
                 actual = tuple(
                     existing[key]
                     for key in (
@@ -2472,6 +2477,604 @@ class UpdaterStore:
                 disposition="ACCEPTED",
             )
 
+    @staticmethod
+    def _native_recovery_close_schema() -> str:
+        return """CREATE TABLE native_recovery_close (
+            recovery_uid TEXT PRIMARY KEY,
+            action_uid TEXT NOT NULL UNIQUE REFERENCES physical_action_ledger(action_uid),
+            source_action_uid TEXT NOT NULL UNIQUE REFERENCES physical_action_ledger(action_uid),
+            payload_json TEXT NOT NULL CHECK (length(payload_json) BETWEEN 1 AND 4096),
+            created_at TEXT NOT NULL
+        )"""
+
+    @staticmethod
+    def _native_recovery_close_successor_schema() -> str:
+        return """CREATE TABLE native_recovery_close (
+            recovery_uid TEXT PRIMARY KEY,
+            action_uid TEXT NOT NULL UNIQUE REFERENCES physical_action_ledger(action_uid),
+            source_action_uid TEXT NOT NULL REFERENCES physical_action_ledger(action_uid),
+            payload_json TEXT NOT NULL CHECK (length(payload_json) BETWEEN 1 AND 4096),
+            created_at TEXT NOT NULL,
+            predecessor_action_uid TEXT NOT NULL UNIQUE REFERENCES physical_action_ledger(action_uid)
+        )"""
+
+    @staticmethod
+    def _native_recovery_close_schema_kind(connection):
+        table = connection.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='native_recovery_close'").fetchone()
+        if table is None:
+            return None
+        if connection.execute("""SELECT 1 FROM sqlite_master WHERE tbl_name='native_recovery_close'
+                AND type IN ('index', 'trigger') AND sql IS NOT NULL LIMIT 1""").fetchone():
+            raise RuntimeError("native recovery close schema has an unrecognized index or trigger")
+        actual = _normalize_schema_sql(table[0])
+        for kind, schema in (("root", UpdaterStore._native_recovery_close_schema()),
+                ("successor", UpdaterStore._native_recovery_close_successor_schema())):
+            if actual == _normalize_schema_sql(schema):
+                return kind
+        raise RuntimeError("native recovery close schema is incompatible")
+
+    @staticmethod
+    def _native_recovery_close_identity(payload: dict[str, Any]) -> dict[str, Any]:
+        """Caller owns MCU/data-loss evidence; updater restricts ledger authority."""
+        from job_safety import NATIVE_RECOVERY_CLOSE_REQUEST_FIELDS, NATIVE_RECOVERY_CLOSE_SUCCESSOR_REQUEST_FIELDS
+        if not isinstance(payload, dict) or set(payload) not in (
+                NATIVE_RECOVERY_CLOSE_REQUEST_FIELDS, NATIVE_RECOVERY_CLOSE_REQUEST_FIELDS - {"dispatchAttemptToken"},
+                NATIVE_RECOVERY_CLOSE_SUCCESSOR_REQUEST_FIELDS, NATIVE_RECOVERY_CLOSE_SUCCESSOR_REQUEST_FIELDS - {"dispatchAttemptToken"}):
+            raise UpdaterStoreError("REQUEST_INVALID", "native recovery requires exact fields")
+        fields = {}
+        for key in ("recoveryUid", "actionUid", "sourceActionUid", "permitUid", "workUid", "commandUid"):
+            fields[key] = _require_uuid4(payload.get(key), key)
+        for key in ("actionDigestSha256", "sourceActionDigestSha256", "recoveryEvidenceSha256"):
+            fields[key] = _require_sha256(payload.get(key), key)
+        for key in ("expectedSourceLedgerSequence", "sourceMcuBootId", "targetMcuBootId", "portNo"):
+            fields[key] = _require_positive_int(payload.get(key), key)
+        if "predecessorActionUid" in payload:
+            for key in ("predecessorActionUid", "predecessorReceiptUid"):
+                fields[key] = _require_uuid4(payload[key], key)
+            fields["expectedPredecessorLedgerSequence"] = _require_positive_int(
+                payload["expectedPredecessorLedgerSequence"], "expectedPredecessorLedgerSequence")
+            fields["predecessorRetirementEvidenceSha256"] = _require_sha256(
+                payload["predecessorRetirementEvidenceSha256"], "predecessorRetirementEvidenceSha256")
+        fields["actionKey"] = _require_action_key(payload.get("actionKey"))
+        fields["actionKind"] = _require_token(payload.get("actionKind"), "actionKind")
+        fields["reason"] = _require_token(payload.get("reason"), "reason")
+        if (fields["actionKind"] != "SAFE_CLOSE" or fields["reason"] != "MCU_RESTART_DATA_LOSS"
+                or fields["actionKey"] != f"native:recovery-close:{fields['recoveryUid']}"
+                or not fields["sourceMcuBootId"] < fields["targetMcuBootId"] <= 9007199254740991
+                or fields["portNo"] > 6 or fields["sourceActionUid"] == fields["actionUid"]):
+            raise UpdaterStoreError("NATIVE_RECOVERY_SCOPE_INVALID", "native recovery permits only a new port-scoped close after data loss")
+        import uart2_protocol as uart
+        from job_safety import action_digest
+        decoded = {}
+        try:
+            for key, name in (("sourceCommandPayloadHex", "AUTHORIZE_DELIVERY_FIRST_OPEN"), ("closeCommandPayloadHex", "SAFE_CLOSE")):
+                raw = payload.get(key)
+                if not isinstance(raw, str) or len(raw) > uart.MAXIMUM_PAYLOAD_LENGTH * 2 or bytes.fromhex(raw).hex() != raw:
+                    raise ValueError("noncanonical native payload")
+                decoded[key] = uart.decode_payload(name, bytes.fromhex(raw))
+                fields[key] = raw
+        except (ValueError, TypeError) as error:
+            raise UpdaterStoreError("NATIVE_RECOVERY_WIRE_INVALID", "native recovery wire payload is invalid") from error
+        source, close = decoded["sourceCommandPayloadHex"], decoded["closeCommandPayloadHex"]
+        expected_digest = action_digest(work_uid=fields["workUid"], command_uid=fields["commandUid"],
+            action_key=fields["actionKey"], action_kind="SAFE_CLOSE", payload={"nativeUartPayloadHex": fields["closeCommandPayloadHex"]})
+        if (source["mcuCommandUid"] != fields["sourceActionUid"] or source["sessionUid"] != fields["workUid"]
+                or source["targetMcuBootId"] != fields["sourceMcuBootId"] or source["portNo"] != fields["portNo"]
+                or close["mcuCommandUid"] != fields["actionUid"] or close["targetMcuBootId"] != fields["targetMcuBootId"]
+                or close["scope"] != "SINGLE_DELIVERY_DOOR" or close["portNo"] != fields["portNo"]
+                or expected_digest != fields["actionDigestSha256"]):
+            raise UpdaterStoreError("NATIVE_RECOVERY_WIRE_INVALID", "native recovery wire scope or action digest conflicts")
+        return fields
+
+    @staticmethod
+    def _native_recovery_close_single_row(connection, action_uid):
+        ledger = UpdaterStore._action_row(connection, action_uid)
+        required = ledger is not None and ledger["action_key"].startswith("native:recovery-close:")
+        kind = UpdaterStore._native_recovery_close_schema_kind(connection)
+        if kind is None:
+            if required:
+                raise RuntimeError("native recovery close custody is missing")
+            return None
+        row = connection.execute("SELECT * FROM native_recovery_close WHERE action_uid=?", (action_uid,)).fetchone()
+        if row is None:
+            if required:
+                raise RuntimeError("native recovery close custody is missing")
+            return None
+        try:
+            fields = UpdaterStore._native_recovery_close_identity(json.loads(row["payload_json"]))
+        except (ValueError, TypeError, UpdaterStoreError) as error:
+            raise RuntimeError("native recovery close evidence is corrupt") from error
+        if (json.dumps(fields, sort_keys=True, separators=(",", ":")) != row["payload_json"]
+                or (kind == "root" and "predecessorActionUid" in fields)
+                or (kind == "successor" and row["predecessor_action_uid"] != fields.get("predecessorActionUid", fields["sourceActionUid"]))
+                or any(row[column] != fields[key] for column, key in
+                    (("recovery_uid", "recoveryUid"), ("action_uid", "actionUid"), ("source_action_uid", "sourceActionUid")))):
+            raise RuntimeError("native recovery close evidence is corrupt")
+        action = UpdaterStore._action_row(connection, action_uid)
+        source = UpdaterStore._action_row(connection, fields["sourceActionUid"])
+        permit = UpdaterStore._permit_row(connection, fields["permitUid"])
+        identity = (("permit_uid", "permitUid"), ("work_uid", "workUid"), ("command_uid", "commandUid"))
+        if (action is None or source is None or permit is None or permit["work_type"] != "DELIVERY"
+                or any(action[column] != fields[key] or source[column] != fields[key] or permit[column] != fields[key]
+                    for column, key in identity)
+                or any(action[column] != fields[key] for column, key in
+                    (("action_key", "actionKey"), ("action_kind", "actionKind"), ("action_digest_sha256", "actionDigestSha256")))
+                or source["action_kind"] != "AUTHORIZE_DELIVERY_FIRST_OPEN"
+                or source["ledger_sequence"] != fields["expectedSourceLedgerSequence"]
+                or source["action_digest_sha256"] != fields["sourceActionDigestSha256"]
+                or source["ledger_sequence"] >= action["ledger_sequence"]):
+            raise RuntimeError("native recovery close ledger identity is corrupt")
+        from job_safety import action_digest
+        if action_digest(work_uid=source["work_uid"], command_uid=source["command_uid"],
+                action_key=source["action_key"], action_kind=source["action_kind"],
+                payload={"nativeUartPayloadHex": fields["sourceCommandPayloadHex"]}) != source["action_digest_sha256"]:
+            raise RuntimeError("native recovery close source wire is corrupt")
+        return fields
+
+    @staticmethod
+    def _native_recovery_close_row(connection, action_uid):
+        """Validate the complete immutable ancestry without a recursion limit."""
+        result = current = UpdaterStore._native_recovery_close_single_row(connection, action_uid)
+        seen = set()
+        while current is not None and "predecessorActionUid" in current:
+            uid = current["actionUid"]
+            if uid in seen:
+                raise RuntimeError("native recovery close ancestry is cyclic")
+            seen.add(uid)
+            parent = UpdaterStore._native_recovery_close_single_row(connection, current["predecessorActionUid"])
+            try:
+                UpdaterStore._require_native_recovery_close_predecessor(connection, current, parent=parent)
+            except UpdaterStoreError as error:
+                raise RuntimeError("native recovery close ancestry is corrupt") from error
+            current = parent
+        return result
+
+    @staticmethod
+    def _require_native_recovery_close_predecessor(connection, fields, *, parent=None):
+        if "predecessorActionUid" not in fields:
+            return
+        if parent is None:
+            parent = UpdaterStore._native_recovery_close_row(connection, fields["predecessorActionUid"])
+        previous = UpdaterStore._action_row(connection, fields["predecessorActionUid"])
+        current = UpdaterStore._action_row(connection, fields["actionUid"])
+        shared = ("sourceActionUid", "sourceActionDigestSha256", "expectedSourceLedgerSequence",
+            "sourceMcuBootId", "portNo", "reason", "recoveryEvidenceSha256",
+            "sourceCommandPayloadHex", "permitUid", "workUid", "commandUid")
+        withdrawn = UpdaterStore._native_close_disposition_row(connection, fields["predecessorActionUid"])
+        retired = (previous is not None and previous["state"] == "CONFIRMED"
+            and previous["dispatch_mode"] == "PREPARED_ONLY" and previous["confirmed_outcome"] == "NOT_EXECUTED"
+            and previous["confirmation_basis"] == "PREPARED_NOT_ARMED"
+            and previous["receipt_uid"] == fields["predecessorReceiptUid"]
+            and previous["evidence_digest_sha256"] == fields["predecessorRetirementEvidenceSha256"])
+        withdrawn_matches = (withdrawn is not None and withdrawn["receiptUid"] == fields["predecessorReceiptUid"]
+            and withdrawn["evidenceDigestSha256"] == fields["predecessorRetirementEvidenceSha256"])
+        target = (withdrawn["observedMcuBootId"] if withdrawn is not None
+            and withdrawn["state"] == "ISOLATED_BY_REBOOT" else (parent or {}).get("targetMcuBootId"))
+        if (parent is None or previous is None or any(fields[key] != parent[key] for key in shared)
+                or fields["targetMcuBootId"] != target
+                or fields["actionUid"] in {parent["actionUid"], fields["sourceActionUid"]}
+                or fields["recoveryUid"] == parent["recoveryUid"]
+                or previous["ledger_sequence"] != fields["expectedPredecessorLedgerSequence"]
+                or (current is not None and previous["ledger_sequence"] >= current["ledger_sequence"])
+                or not (retired or withdrawn_matches)):
+            raise UpdaterStoreError("NATIVE_RECOVERY_PREDECESSOR_CONFLICT", "native recovery predecessor is not the exact retired original close")
+        import uart2_protocol as uart
+        old = uart.decode_payload("SAFE_CLOSE", bytes.fromhex(parent["closeCommandPayloadHex"]))
+        new = uart.decode_payload("SAFE_CLOSE", bytes.fromhex(fields["closeCommandPayloadHex"]))
+        if new["targetMcuBootId"] == old["targetMcuBootId"] and new["commandSequence"] <= old["commandSequence"]:
+            raise UpdaterStoreError("NATIVE_RECOVERY_PREDECESSOR_CONFLICT", "native recovery successor requires a new increasing command sequence")
+
+    @staticmethod
+    def _upgrade_native_recovery_close_successor(connection):
+        kind = UpdaterStore._native_recovery_close_schema_kind(connection)
+        if kind == "successor":
+            return
+        UpdaterStore._verify_native_recovery_close_extension(connection)
+        schema = UpdaterStore._native_recovery_close_successor_schema()
+        if kind is None:
+            connection.execute(schema)
+            return
+        connection.execute("ALTER TABLE native_recovery_close RENAME TO native_recovery_close_previous")
+        connection.execute(schema)
+        connection.execute("""INSERT INTO native_recovery_close
+            SELECT recovery_uid, action_uid, source_action_uid, payload_json, created_at, source_action_uid
+            FROM native_recovery_close_previous""")
+        connection.execute("DROP TABLE native_recovery_close_previous")
+
+    @staticmethod
+    def _verify_native_recovery_close_extension(connection):
+        # Lazily created in the first successful prepare transaction. No schema
+        # mutation on ordinary/default-off startup; legacy history is unchanged.
+        UpdaterStore._native_recovery_close_row(connection, "")  # Validate even an empty table's schema.
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='native_recovery_close'").fetchone():
+            for row in connection.execute("SELECT action_uid FROM native_recovery_close"):
+                UpdaterStore._native_recovery_close_row(connection, row[0])
+        for row in connection.execute("SELECT action_uid FROM physical_action_ledger WHERE action_key LIKE 'native:recovery-close:%'"):
+            UpdaterStore._native_recovery_close_row(connection, row[0])
+        UpdaterStore._native_close_disposition_row(connection, "")
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='native_recovery_close_disposition'").fetchone():
+            for row in connection.execute("SELECT action_uid FROM native_recovery_close_disposition"):
+                UpdaterStore._native_recovery_close_row(connection, row[0])
+                UpdaterStore._native_close_disposition_row(connection, row[0])
+
+    @staticmethod
+    def _require_native_recovery_close_gate(connection, fields):
+        state = UpdaterStore._management_row(connection)
+        maintenance = connection.execute("SELECT phase FROM maintenance_lock LIMIT 1").fetchone()
+        # Preserve operator stop and maintenance ownership; only the original
+        # action is an exception, never the entire closed gate.
+        if (state["job_gate_state"] != "LOCKED" or state["block_reason_code"] not in _ACTIVE_JOB_LOCK_REASONS
+                or connection.execute("SELECT 1 FROM operator_job_gate_lock LIMIT 1").fetchone()
+                or (maintenance is not None and maintenance["phase"] != "DRAINING")):
+            raise UpdaterStoreError("JOB_GATE_CLOSED", "job gate does not allow recovery close")
+        UpdaterStore._require_native_recovery_close_source(connection, fields)
+        source = UpdaterStore._action_row(connection, fields["sourceActionUid"])
+        source_eligible = source["state"] == "ARMED" or (
+            source["state"] == "CONFIRMED" and source["confirmed_outcome"] == "EXECUTED"
+            and source["confirmation_basis"] == "MCU_IDENTITY_BOUND_FACT")
+        if (not source_eligible or connection.execute(
+                "SELECT 1 FROM physical_action_unknown_effect_resolution WHERE permit_uid=? LIMIT 1",
+                (fields["permitUid"],)).fetchone()):
+            raise UpdaterStoreError("NATIVE_RECOVERY_SOURCE_CONFLICT", "native recovery source cannot authorize a new close")
+        allowed = {fields["sourceActionUid"], fields["actionUid"]}
+        current = fields
+        while "predecessorActionUid" in current:
+            parent_uid = current["predecessorActionUid"]
+            if parent_uid in allowed:
+                raise RuntimeError("native recovery close ancestry is cyclic")
+            # Full predecessor validation above binds every exemption to this
+            # exact original work and chain, never all withdrawn actions.
+            parent = UpdaterStore._native_recovery_close_row(connection, parent_uid)
+            if UpdaterStore._native_close_disposition_row(connection, parent_uid) is not None:
+                allowed.add(parent_uid)
+            current = parent
+        for unresolved in connection.execute("SELECT action_uid FROM physical_action_ledger WHERE state<>'CONFIRMED'"):
+            if unresolved[0] not in allowed:
+                raise UpdaterStoreError("PHYSICAL_ACTION_RECONCILIATION_REQUIRED", "another physical action is unresolved")
+
+    @staticmethod
+    def _require_native_recovery_close_source(connection, fields):
+        """Original identity only; not permission to energize an output."""
+        source = UpdaterStore._action_row(connection, fields["sourceActionUid"])
+        permit = UpdaterStore._permit_row(connection, fields["permitUid"])
+        if (source is None or permit is None or source["dispatch_mode"] != "TWO_PHASE_V3"
+                or source["action_kind"] != "AUTHORIZE_DELIVERY_FIRST_OPEN"
+                or source["ledger_sequence"] != fields["expectedSourceLedgerSequence"]
+                or source["action_digest_sha256"] != fields["sourceActionDigestSha256"]
+                or permit["state"] != "ACTIVE" or permit["work_type"] != "DELIVERY"
+                or any(source[column] != fields[key] or permit[column] != fields[key]
+                    for column, key in (("permit_uid", "permitUid"), ("work_uid", "workUid"), ("command_uid", "commandUid")))):
+            raise UpdaterStoreError("NATIVE_RECOVERY_SOURCE_CONFLICT", "native recovery source is not the original active native delivery action")
+        from job_safety import action_digest
+        expected = action_digest(work_uid=source["work_uid"], command_uid=source["command_uid"],
+            action_key=source["action_key"], action_kind=source["action_kind"],
+            payload={"nativeUartPayloadHex": fields["sourceCommandPayloadHex"]})
+        if expected != source["action_digest_sha256"]:
+            raise UpdaterStoreError("NATIVE_RECOVERY_WIRE_INVALID", "native recovery source wire differs from its permanent action")
+        UpdaterStore._require_native_recovery_close_predecessor(connection, fields)
+
+    @staticmethod
+    def _insert_native_recovery_close(connection, fields, token_digest, now):
+        """Shared custody insert, always inside the caller's atomic transaction."""
+        if "predecessorActionUid" in fields:
+            UpdaterStore._upgrade_native_recovery_close_successor(connection)
+        elif not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='native_recovery_close'").fetchone():
+            connection.execute(UpdaterStore._native_recovery_close_schema())
+        try:
+            connection.execute("""INSERT INTO physical_action_ledger (action_uid, permit_uid, work_uid, command_uid,
+                action_key, action_kind, action_digest_sha256, state, dispatch_mode, dispatch_attempt_token_sha256,
+                created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'PREPARED', 'PREPARED_ONLY', ?, ?, ?)""",
+                tuple(fields[key] for key in ("actionUid", "permitUid", "workUid", "commandUid", "actionKey", "actionKind", "actionDigestSha256"))
+                + (token_digest, now, now))
+            values = (fields["recoveryUid"], fields["actionUid"], fields["sourceActionUid"],
+                json.dumps(fields, sort_keys=True, separators=(",", ":")), now)
+            if UpdaterStore._native_recovery_close_schema_kind(connection) == "successor":
+                connection.execute("""INSERT INTO native_recovery_close (recovery_uid, action_uid, source_action_uid,
+                    payload_json, created_at, predecessor_action_uid) VALUES (?, ?, ?, ?, ?, ?)""",
+                    values + (fields.get("predecessorActionUid", fields["sourceActionUid"]),))
+            else:
+                connection.execute("""INSERT INTO native_recovery_close (recovery_uid, action_uid, source_action_uid, payload_json, created_at)
+                    VALUES (?, ?, ?, ?, ?)""", values)
+        except sqlite3.IntegrityError as error:
+            raise _conflict("NATIVE_RECOVERY_IDENTITY_CONFLICT", "native recovery close already has an identity") from error
+
+    def prepare_native_recovery_close(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from job_safety import NATIVE_RECOVERY_CLOSE_REQUEST_FIELDS
+        return self._prepare_native_recovery_close(payload, NATIVE_RECOVERY_CLOSE_REQUEST_FIELDS)
+
+    def prepare_native_recovery_close_successor(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from job_safety import NATIVE_RECOVERY_CLOSE_SUCCESSOR_REQUEST_FIELDS
+        return self._prepare_native_recovery_close(payload, NATIVE_RECOVERY_CLOSE_SUCCESSOR_REQUEST_FIELDS)
+
+    def _prepare_native_recovery_close(self, payload, expected_fields):
+        """Register data-loss evidence and ONE restricted close atomically.
+
+        This is not manual quarantine, proof of a reboot or a door position.
+        The business owner must persist/check its actual MCU evidence before
+        requesting, and enforce the native command deadline before one write.
+        Original history is unchanged, including already confirmed native output.
+        This authority alone never completes the original job.
+        """
+        if not isinstance(payload, dict) or set(payload) != expected_fields:
+            raise UpdaterStoreError("REQUEST_INVALID", "native recovery requires exact fields")
+        fields = self._native_recovery_close_identity(payload)
+        token = _dispatch_token_digest(_require_dispatch_attempt_token(payload.get("dispatchAttemptToken")))
+        with self._transaction() as connection:
+            self._require_candidate(connection)
+            self._native_recovery_close_row(connection, "")
+            existing = self._action_row(connection, fields["actionUid"])
+            if existing is not None:
+                saved = self._native_recovery_close_row(connection, fields["actionUid"])
+                if saved != fields:
+                    raise _conflict("NATIVE_RECOVERY_IDENTITY_CONFLICT", "native recovery identity or evidence conflicts")
+                if self._native_close_disposition_row(connection, fields["actionUid"]) is not None:
+                    return self._action_result(existing, disposition="DENIED")
+                same = hmac.compare_digest(existing["dispatch_attempt_token_sha256"], token)
+                return self._action_result(existing, disposition="DUPLICATE" if same else "DENIED")
+            self._require_native_recovery_close_gate(connection, fields)
+            now = _format_utc(self._utc_now())
+            self._insert_native_recovery_close(connection, fields, token, now)
+            return self._action_result(self._require_action(connection, fields["actionUid"]), disposition="ACCEPTED")
+
+    def retire_native_recovery_close(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from job_safety import NATIVE_RECOVERY_CLOSE_RETIRE_FIELDS
+        return self._retire_native_recovery_close(payload, NATIVE_RECOVERY_CLOSE_RETIRE_FIELDS)
+
+    def retire_native_recovery_close_successor(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from job_safety import NATIVE_RECOVERY_CLOSE_SUCCESSOR_RETIRE_FIELDS
+        return self._retire_native_recovery_close(payload, NATIVE_RECOVERY_CLOSE_SUCCESSOR_RETIRE_FIELDS)
+
+    def _retire_native_recovery_close(self, payload, expected_fields):
+        """Fence only this original, never-armed close; retain the active job."""
+        if not isinstance(payload, dict) or set(payload) != expected_fields:
+            raise UpdaterStoreError("REQUEST_INVALID", "native retirement requires exact fields")
+        fields = self._native_recovery_close_identity({key: value for key, value in payload.items()
+            if key not in {"receiptUid", "retirementEvidenceSha256"}})
+        receipt = _require_uuid4(payload.get("receiptUid"), "receiptUid")
+        evidence = _require_sha256(payload.get("retirementEvidenceSha256"), "retirementEvidenceSha256")
+        with self._transaction() as connection:
+            self._require_candidate(connection)
+            saved = self._native_recovery_close_row(connection, fields["actionUid"])
+            if saved is None and self._action_row(connection, fields["actionUid"]) is None:
+                self._require_native_recovery_close_source(connection, fields)
+                now = _format_utc(self._utc_now())
+                # This digest has no caller-owned execution token. Both rows
+                # and their NOT_EXECUTED confirmation commit as one fence.
+                token_digest = hashlib.sha256(os.urandom(32)).hexdigest()
+                self._insert_native_recovery_close(connection, fields, token_digest, now)
+                saved = self._native_recovery_close_row(connection, fields["actionUid"])
+            if saved != fields:
+                raise _conflict("NATIVE_RECOVERY_IDENTITY_CONFLICT", "native retirement identity or evidence conflicts")
+            row = self._require_action(connection, fields["actionUid"])
+            if row["dispatch_mode"] != "PREPARED_ONLY":
+                raise UpdaterStoreError("PHYSICAL_ACTION_ALREADY_ARMED", "an armed close cannot be retired as unexecuted")
+            if row["state"] == "CONFIRMED":
+                if self._confirmation_matches(row, receipt_uid=receipt, outcome="NOT_EXECUTED",
+                        confirmation_basis="PREPARED_NOT_ARMED", evidence=evidence):
+                    return self._action_result(row, disposition="DUPLICATE")
+                raise _conflict("PHYSICAL_ACTION_RECEIPT_CONFLICT", "native retirement receipt conflicts")
+            if row["state"] != "PREPARED":
+                raise UpdaterStoreError("PHYSICAL_ACTION_ALREADY_ARMED", "only a prepared close can be retired")
+            self._require_native_recovery_close_source(connection, fields)
+            self._confirm_action_row(connection, action_uid=fields["actionUid"], receipt_uid=receipt,
+                outcome="NOT_EXECUTED", confirmation_basis="PREPARED_NOT_ARMED", evidence=evidence,
+                now=_format_utc(self._utc_now()))
+            return self._action_result(self._require_action(connection, fields["actionUid"]), disposition="ACCEPTED")
+
+    def get_native_recovery_close(self, payload: dict[str, Any]) -> dict[str, Any]:
+        action_uid = _require_uuid4(payload.get("actionUid"), "actionUid")
+        with self._lock:
+            connection = self._require_connection()
+            self._require_candidate(connection)
+            fields = self._native_recovery_close_row(connection, action_uid)
+            if fields is None:
+                raise UpdaterStoreError("NATIVE_RECOVERY_NOT_FOUND", "native recovery close does not exist")
+            return fields | {"disposition": "FOUND"}
+
+    @staticmethod
+    def _native_close_disposition_schema():
+        return """CREATE TABLE native_recovery_close_disposition (
+            action_uid TEXT PRIMARY KEY REFERENCES physical_action_ledger(action_uid),
+            receipt_uid TEXT NOT NULL UNIQUE,
+            payload_json TEXT NOT NULL CHECK(length(payload_json) BETWEEN 1 AND 8192),
+            payload_sha256 TEXT NOT NULL CHECK(length(payload_sha256)=64),
+            ledger_sha256 TEXT NOT NULL CHECK(length(ledger_sha256)=64),
+            created_at TEXT NOT NULL
+        )"""
+
+    @staticmethod
+    def _native_close_isolation_observation(payload, target_boot):
+        from job_safety import NATIVE_RECOVERY_CLOSE_BOOT_OBSERVATION_FIELDS
+        import uart2_protocol as uart
+        observed = _require_positive_int(payload.get("observedMcuBootId"), "observedMcuBootId")
+        name, raw = payload.get("bootObservationMessageName"), payload.get("bootObservationPayloadHex")
+        try:
+            if (name not in {"BOOT_PROBE_REPLY", "BIND_BOOT_REPLY"} or not isinstance(raw, str)
+                    or len(raw) > 50 or bytes.fromhex(raw).hex() != raw):
+                raise ValueError("invalid positive boot wire")
+            values = uart.decode_payload(name, bytes.fromhex(raw))
+            if not target_boot < observed <= 9007199254740991 or values["mcuBootId"] != observed:
+                raise ValueError("boot does not isolate original target")
+        except (ValueError, TypeError) as error:
+            raise UpdaterStoreError("NATIVE_RECOVERY_BOOT_ISOLATION_INVALID", "isolation requires a newer positive MCU boot reply") from error
+        return {key: payload[key] for key in NATIVE_RECOVERY_CLOSE_BOOT_OBSERVATION_FIELDS}
+
+    @staticmethod
+    def _native_close_disposition_row(connection, action_uid):
+        schema = connection.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='native_recovery_close_disposition'").fetchone()
+        if schema is None:
+            return None
+        if ("".join(schema[0].split()).lower() != "".join(UpdaterStore._native_close_disposition_schema().split()).lower()
+                or connection.execute("""SELECT 1 FROM sqlite_master WHERE tbl_name='native_recovery_close_disposition'
+                    AND (type='trigger' OR (type='index' AND sql IS NOT NULL)) LIMIT 1""").fetchone()):
+            raise RuntimeError("native recovery close disposition schema is incompatible")
+        row = connection.execute("SELECT * FROM native_recovery_close_disposition WHERE action_uid=?", (action_uid,)).fetchone()
+        if row is None:
+            return None
+        binding = UpdaterStore._native_recovery_close_single_row(connection, action_uid)
+        ledger = UpdaterStore._action_row(connection, action_uid)
+        try:
+            result = json.loads(row["payload_json"])
+            receipt = _require_uuid4(result.get("receiptUid"), "receiptUid")
+            evidence = _require_sha256(result.get("evidenceDigestSha256"), "evidenceDigestSha256")
+            sequence = _require_positive_int(result.get("ledgerSequence"), "ledgerSequence")
+            expected = dict(binding or {}, receiptUid=receipt, evidenceDigestSha256=evidence,
+                ledgerSequence=sequence, state="DISPATCH_WITHDRAWN",
+                dispositionBasis="AUTHORIZED_DISPATCH_WITHDRAWN_BEFORE_WRITE_CLAIM", mayExecute=False)
+            if result.get("state") == "ISOLATED_BY_REBOOT":
+                expected.update(UpdaterStore._native_close_isolation_observation(result, (binding or {})["targetMcuBootId"]),
+                    state="ISOLATED_BY_REBOOT", dispositionBasis="NEWER_MCU_BOOT_COMMAND_TARGET_ISOLATED", pastEffect="UNKNOWN")
+            if (binding is None or ledger is None or result != expected
+                    or any(type(result[key]) is not type(value) for key, value in expected.items())
+                    or json.dumps(result, sort_keys=True, separators=(",", ":")) != row["payload_json"]
+                    or hashlib.sha256(row["payload_json"].encode("ascii")).hexdigest() != row["payload_sha256"]
+                    or row["receipt_uid"] != receipt or sequence != ledger["ledger_sequence"]
+                    or ledger["state"] != "ARMED" or ledger["dispatch_mode"] != "TWO_PHASE_V3"
+                    or ledger["receipt_uid"] is not None
+                    or hashlib.sha256(json.dumps(dict(ledger), sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest() != row["ledger_sha256"]
+                    or connection.execute("SELECT 1 FROM physical_action_ledger WHERE receipt_uid=?", (receipt,)).fetchone()
+                    or connection.execute("SELECT 1 FROM physical_action_unknown_effect_resolution WHERE resolution_uid=?", (receipt,)).fetchone()
+                    or connection.execute("SELECT 1 FROM physical_action_unknown_effect_resolution WHERE action_uid=?", (action_uid,)).fetchone()):
+                raise ValueError("disposition identity or history differs")
+        except (ValueError, TypeError, KeyError, AttributeError, UpdaterStoreError) as error:
+            raise RuntimeError("native recovery close disposition is corrupt") from error
+        return result
+
+    def withdraw_native_recovery_close_dispatch(self, payload):
+        from job_safety import NATIVE_RECOVERY_CLOSE_RETIRE_FIELDS
+        return self._withdraw_native_recovery_close_dispatch(payload, NATIVE_RECOVERY_CLOSE_RETIRE_FIELDS)
+
+    @staticmethod
+    def _require_receipt_not_withdrawn(connection, receipt_uid):
+        UpdaterStore._native_close_disposition_row(connection, "")
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='native_recovery_close_disposition'").fetchone():
+            # Do not trust a damaged receipt index to hide a committed owner.
+            for row in connection.execute("SELECT action_uid FROM native_recovery_close_disposition"):
+                saved = UpdaterStore._native_close_disposition_row(connection, row[0])
+                if saved["receiptUid"] == receipt_uid:
+                    raise _conflict("PHYSICAL_ACTION_RECEIPT_CONFLICT", "native withdrawal already owns this receipt")
+
+    def withdraw_native_recovery_close_successor_dispatch(self, payload):
+        from job_safety import NATIVE_RECOVERY_CLOSE_SUCCESSOR_RETIRE_FIELDS
+        return self._withdraw_native_recovery_close_dispatch(payload, NATIVE_RECOVERY_CLOSE_SUCCESSOR_RETIRE_FIELDS)
+
+    def _withdraw_native_recovery_close_dispatch(self, payload, expected_fields):
+        """Append caller's durable claim-withdrawal fact, never rewrite ARM history.
+
+        The business owner must commit its claim fence before this request.
+        This is not the live dispatch-token abort, a never-authorized action,
+        or a physical/current-door observation. It cannot complete a job.
+        """
+        if not isinstance(payload, dict) or set(payload) != expected_fields:
+            raise UpdaterStoreError("REQUEST_INVALID", "native withdrawal requires exact fields")
+        fields = self._native_recovery_close_identity({key: value for key, value in payload.items()
+            if key not in {"receiptUid", "retirementEvidenceSha256"}})
+        receipt = _require_uuid4(payload["receiptUid"], "receiptUid")
+        evidence = _require_sha256(payload["retirementEvidenceSha256"], "retirementEvidenceSha256")
+        with self._transaction() as connection:
+            self._require_candidate(connection)
+            saved = self._native_recovery_close_row(connection, fields["actionUid"])
+            if saved != fields:
+                raise _conflict("NATIVE_RECOVERY_IDENTITY_CONFLICT", "native withdrawal requires exact existing close custody")
+            ledger = self._require_action(connection, fields["actionUid"])
+            expected = fields | dict(receiptUid=receipt, evidenceDigestSha256=evidence,
+                ledgerSequence=ledger["ledger_sequence"], state="DISPATCH_WITHDRAWN",
+                dispositionBasis="AUTHORIZED_DISPATCH_WITHDRAWN_BEFORE_WRITE_CLAIM", mayExecute=False)
+            existing = self._native_close_disposition_row(connection, fields["actionUid"])
+            if existing is not None:
+                if existing != expected:
+                    raise _conflict("NATIVE_RECOVERY_DISPOSITION_CONFLICT", "native withdrawal receipt or evidence conflicts")
+                return existing | {"disposition": "DUPLICATE"}
+            self._require_native_recovery_close_source(connection, fields)
+            if (ledger["state"] != "ARMED" or ledger["dispatch_mode"] != "TWO_PHASE_V3"
+                    or ledger["receipt_uid"] is not None
+                    or connection.execute("SELECT 1 FROM physical_action_unknown_effect_resolution WHERE permit_uid=?", (fields["permitUid"],)).fetchone()):
+                raise UpdaterStoreError("NATIVE_RECOVERY_WITHDRAWAL_DENIED", "withdrawal requires an authorized unresolved native close")
+            if (connection.execute("SELECT 1 FROM physical_action_ledger WHERE receipt_uid=?", (receipt,)).fetchone()
+                    or connection.execute("SELECT 1 FROM physical_action_unknown_effect_resolution WHERE resolution_uid=?", (receipt,)).fetchone()):
+                raise _conflict("PHYSICAL_ACTION_RECEIPT_CONFLICT", "withdrawal receipt is already used")
+            self._require_receipt_not_withdrawn(connection, receipt)
+            if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='native_recovery_close_disposition'").fetchone():
+                connection.execute(self._native_close_disposition_schema())
+            raw = json.dumps(expected, sort_keys=True, separators=(",", ":"))
+            try:
+                connection.execute("INSERT INTO native_recovery_close_disposition VALUES (?, ?, ?, ?, ?, ?)",
+                    (fields["actionUid"], receipt, raw, hashlib.sha256(raw.encode("ascii")).hexdigest(),
+                        hashlib.sha256(json.dumps(dict(ledger), sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest(),
+                        _format_utc(self._utc_now())))
+            except sqlite3.IntegrityError as error:
+                raise _conflict("NATIVE_RECOVERY_DISPOSITION_CONFLICT", "native withdrawal receipt is already used") from error
+            return expected | {"disposition": "ACCEPTED"}
+
+    def get_native_recovery_close_disposition(self, payload):
+        if not isinstance(payload, dict) or set(payload) != {"actionUid"}:
+            raise UpdaterStoreError("REQUEST_INVALID", "native disposition query requires exact actionUid")
+        action_uid = _require_uuid4(payload["actionUid"], "actionUid")
+        with self._lock:
+            connection = self._require_connection()
+            self._require_candidate(connection)
+            self._native_recovery_close_row(connection, action_uid)
+            result = self._native_close_disposition_row(connection, action_uid)
+            if result is None:
+                raise UpdaterStoreError("NATIVE_RECOVERY_DISPOSITION_NOT_FOUND", "native recovery close disposition does not exist")
+            return result | {"disposition": "FOUND"}
+
+    def isolate_native_recovery_close_after_reboot(self, payload):
+        from job_safety import NATIVE_RECOVERY_CLOSE_ISOLATE_FIELDS
+        return self._isolate_native_recovery_close_after_reboot(payload, NATIVE_RECOVERY_CLOSE_ISOLATE_FIELDS)
+
+    def isolate_native_recovery_close_successor_after_reboot(self, payload):
+        from job_safety import NATIVE_RECOVERY_CLOSE_SUCCESSOR_ISOLATE_FIELDS
+        return self._isolate_native_recovery_close_after_reboot(payload, NATIVE_RECOVERY_CLOSE_SUCCESSOR_ISOLATE_FIELDS)
+
+    def _isolate_native_recovery_close_after_reboot(self, payload, expected_fields):
+        """Caller owns durable fresh-handshake/dispatch evidence; past effect stays unknown.
+
+        A later positive MCU boot prevents this target from executing again. It
+        does not show what happened before reset, close a job, or grant admission.
+        """
+        from job_safety import NATIVE_RECOVERY_CLOSE_BOOT_OBSERVATION_FIELDS
+        if not isinstance(payload, dict) or set(payload) != expected_fields:
+            raise UpdaterStoreError("REQUEST_INVALID", "native reboot isolation requires exact fields")
+        fields = self._native_recovery_close_identity({key: value for key, value in payload.items()
+            if key not in NATIVE_RECOVERY_CLOSE_BOOT_OBSERVATION_FIELDS | {"receiptUid", "isolationEvidenceSha256"}})
+        observation = self._native_close_isolation_observation(payload, fields["targetMcuBootId"])
+        receipt = _require_uuid4(payload["receiptUid"], "receiptUid")
+        evidence = _require_sha256(payload["isolationEvidenceSha256"], "isolationEvidenceSha256")
+        with self._transaction() as connection:
+            self._require_candidate(connection)
+            if self._native_recovery_close_row(connection, fields["actionUid"]) != fields:
+                raise _conflict("NATIVE_RECOVERY_IDENTITY_CONFLICT", "native isolation requires exact existing close custody")
+            ledger = self._require_action(connection, fields["actionUid"])
+            expected = fields | observation | dict(receiptUid=receipt, evidenceDigestSha256=evidence,
+                ledgerSequence=ledger["ledger_sequence"], state="ISOLATED_BY_REBOOT",
+                dispositionBasis="NEWER_MCU_BOOT_COMMAND_TARGET_ISOLATED", pastEffect="UNKNOWN", mayExecute=False)
+            existing = self._native_close_disposition_row(connection, fields["actionUid"])
+            if existing is not None:
+                if existing != expected:
+                    raise _conflict("NATIVE_RECOVERY_DISPOSITION_CONFLICT", "native isolation receipt or evidence conflicts")
+                return existing | {"disposition": "DUPLICATE"}
+            self._require_native_recovery_close_source(connection, fields)
+            if (ledger["state"] != "ARMED" or ledger["dispatch_mode"] != "TWO_PHASE_V3"
+                    or ledger["receipt_uid"] is not None
+                    or connection.execute("SELECT 1 FROM physical_action_unknown_effect_resolution WHERE permit_uid=?", (fields["permitUid"],)).fetchone()):
+                raise UpdaterStoreError("NATIVE_RECOVERY_ISOLATION_DENIED", "isolation requires an authorized unresolved native close")
+            if (connection.execute("SELECT 1 FROM physical_action_ledger WHERE receipt_uid=?", (receipt,)).fetchone()
+                    or connection.execute("SELECT 1 FROM physical_action_unknown_effect_resolution WHERE resolution_uid=?", (receipt,)).fetchone()):
+                raise _conflict("PHYSICAL_ACTION_RECEIPT_CONFLICT", "isolation receipt is already used")
+            self._require_receipt_not_withdrawn(connection, receipt)
+            if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='native_recovery_close_disposition'").fetchone():
+                connection.execute(self._native_close_disposition_schema())
+            raw = json.dumps(expected, sort_keys=True, separators=(",", ":"))
+            try:
+                connection.execute("INSERT INTO native_recovery_close_disposition VALUES (?, ?, ?, ?, ?, ?)",
+                    (fields["actionUid"], receipt, raw, hashlib.sha256(raw.encode("ascii")).hexdigest(),
+                        hashlib.sha256(json.dumps(dict(ledger), sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest(),
+                        _format_utc(self._utc_now())))
+            except sqlite3.IntegrityError as error:
+                raise _conflict("NATIVE_RECOVERY_DISPOSITION_CONFLICT", "native isolation receipt is already used") from error
+            return expected | {"disposition": "ACCEPTED"}
+
     def arm_physical_action(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Bind the last-moment hardware permission to one live call token."""
 
@@ -2484,7 +3087,12 @@ class UpdaterStore:
         with self._transaction() as connection:
             self._require_candidate(connection)
             row = self._require_action(connection, action_uid)
+            recovery = self._native_recovery_close_row(connection, action_uid)
+            if self._native_close_disposition_row(connection, action_uid) is not None:
+                return self._action_result(row, disposition="DENIED", may_execute=False)
             if row["state"] == "ARMED":
+                if recovery is not None:
+                    self._require_native_recovery_close_gate(connection, recovery)
                 same_live_attempt = (
                     row["dispatch_mode"] == "TWO_PHASE_V3"
                     and row["arm_runtime_instance_uid"]
@@ -2882,6 +3490,9 @@ class UpdaterStore:
         with self._transaction() as connection:
             self._require_candidate(connection)
             action = self._require_action(connection, action_uid)
+            if self._native_close_disposition_row(connection, action_uid) is not None:
+                raise UpdaterStoreError("NATIVE_RECOVERY_DISPATCH_WITHDRAWN", "native close dispatch was withdrawn or isolated by reboot")
+            self._require_receipt_not_withdrawn(connection, resolution_uid)
             actual_identity = (
                 action["permit_uid"],
                 action["work_uid"],
@@ -2989,6 +3600,9 @@ class UpdaterStore:
         evidence: str,
         now: str,
     ) -> None:
+        if UpdaterStore._native_close_disposition_row(connection, action_uid) is not None:
+            raise UpdaterStoreError("NATIVE_RECOVERY_DISPATCH_WITHDRAWN", "native close dispatch was withdrawn or isolated by reboot")
+        UpdaterStore._require_receipt_not_withdrawn(connection, receipt_uid)
         try:
             connection.execute(
                 """UPDATE physical_action_ledger
@@ -3544,6 +4158,10 @@ class UpdaterStore:
         connection: sqlite3.Connection,
         action_uid: str,
     ) -> None:
+        recovery = UpdaterStore._native_recovery_close_row(connection, action_uid)
+        if recovery is not None:
+            UpdaterStore._require_native_recovery_close_gate(connection, recovery)
+            return
         state = UpdaterStore._management_row(connection)
         gate = state["job_gate_state"]
         allowed = gate in {"OPEN", "DRAINING"} or (
@@ -3638,6 +4256,8 @@ class UpdaterStore:
         row = self._action_row(connection, action_uid)
         if row is None:
             raise UpdaterStoreError("PHYSICAL_ACTION_NOT_FOUND", "physical action does not exist")
+        self._native_recovery_close_row(connection, action_uid)
+        self._native_close_disposition_row(connection, action_uid)
         return row
 
     @staticmethod

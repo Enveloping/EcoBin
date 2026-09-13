@@ -1,6 +1,29 @@
 {
-  "registryVersion": "1.0.0-rc.3",
+  "registryVersion": "2.0.0-rc.22",
   "status": "MCU_REVIEW_REQUIRED",
+  "implementationStage": "WORK_FULLNESS_CUSTODY_NOT_RUNNABLE",
+  "sessionPolicy": {
+    "processEventMessages": ["WORK_PREOPEN_WEIGHT_READY", "WORK_POSTCLOSE_WEIGHT_READY", "WORK_PREUNLOCK_WEIGHT_READY", "CLEAN_FINAL_WEIGHT_READY", "FULLNESS_SAMPLE_RESULT", "BASELINE_MEASUREMENT_RESULT", "DELIVERY_SELECTION", "CLEAN_UNLOCK_REQUESTED", "CLEAN_FINISH_REQUESTED", "CLEAN_COMPLETION_CONFIRMED"],
+    "actuatorEventMessages": ["DELIVERY_DOOR_COMMAND_RESULT", "CLEAN_LOCK_POWER_CHANGED", "SAFE_CLOSE_RESULT", "DELIVERY_LOCAL_DOOR_RESULT", "DELIVERY_CYCLE_ABORTED", "DELIVERY_POSTCLOSE_INTERRUPTED", "CLEAN_OPERATION_INTERRUPTED"],
+    "commandPayloadValidation": "ALL_FENCED_EDGE_MESSAGES",
+    "processMeasurementMessages": ["WORK_PREOPEN_WEIGHT_READY", "WORK_POSTCLOSE_WEIGHT_READY", "WORK_PREUNLOCK_WEIGHT_READY", "CLEAN_FINAL_WEIGHT_READY", "FULLNESS_SAMPLE_RESULT", "BASELINE_MEASUREMENT_RESULT"],
+    "bootstrapMessages": ["BOOT_PROBE", "BOOT_PROBE_REPLY", "BIND_BOOT", "BIND_BOOT_REPLY"],
+    "sessionControlMessages": ["COMMAND_DECISION", "QUERY_COMMAND", "COMMAND_QUERY_RESULT", "RESULT_SAVED", "RESULT_SAVED_REPLY", "WORK_RESULT", "QUERY_RESULT", "RESULT_QUERY_REPLY", "QUERY_WORK", "WORK_QUERY_REPLY", "QUERY_DEVICE_FACTS", "DEVICE_FACTS_REPLY", "QUERY_PROCESS_EVENT", "PROCESS_EVENT_QUERY_REPLY", "PROCESS_EVENT_SAVED", "PROCESS_EVENT_SAVED_REPLY", "QUERY_ACTUATOR_EVENT", "ACTUATOR_EVENT_QUERY_REPLY", "ACTUATOR_EVENT_SAVED", "ACTUATOR_EVENT_SAVED_REPLY"],
+    "readOnlyMessages": ["QUERY_COMMAND", "QUERY_RESULT", "QUERY_WORK", "QUERY_DEVICE_FACTS", "QUERY_PROCESS_EVENT", "QUERY_ACTUATOR_EVENT"],
+    "savedResultMessages": ["RESULT_SAVED", "RESULT_SAVED_REPLY", "PROCESS_EVENT_SAVED", "PROCESS_EVENT_SAVED_REPLY", "ACTUATOR_EVENT_SAVED", "ACTUATOR_EVENT_SAVED_REPLY"],
+    "bootstrapMaximumSends": 1,
+    "commandMaximumSends": 1,
+    "commandSequencePolicy": "DURABLE_MONOTONIC_PER_MCU_BOOT_NO_WRAP",
+    "commandTimeout": "QUERY_ORIGINAL_NOT_MECHANICAL_RETRY",
+    "unassignedMcuBootId": 0,
+    "allocator": "EDGE_DURABLE_BEFORE_SEND",
+    "probeReuse": "NEVER",
+    "bindCondition": "UNASSIGNED_AND_MATCHING_PENDING_PROBE",
+    "bindTimeout": "FRESH_PROBE_NOT_BIND_RETRY",
+    "channelPremise": "REQUESTS_MAY_BE_LOST_DELAYED_REORDERED_BUT_NOT_COPIED",
+    "businessGate": "NONZERO_EXACT_TARGET_BOOT",
+    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU 只在 RAM 保存启动编号及待绑定询问，接受绑定后消费待绑定询问，已有非零编号绝不重绑。绑定回复只关联本次请求，不证明 MCU 此后未重启；每条命令仍须核对目标启动。真实串口单次写入及旧帧边界尚未接入，禁止启用候选。"
+  },
   "physicalLink": {
     "baudRate": 115200,
     "dataBits": 8,
@@ -11,7 +34,7 @@
   },
   "protocol": {
     "magicHex": "ec42",
-    "major": 1,
+    "major": 2,
     "minor": 0,
     "byteOrder": "big-endian",
     "maximumFrameLength": 256,
@@ -36,6 +59,7 @@
   "streamParser": {
     "algorithm": "BOUNDED_MAGIC_SCAN_CRC_FIRST",
     "inputBufferLimit": 512,
+    "inputDrainPolicy": "APPEND_AVAILABLE_CAPACITY_THEN_DRAIN",
     "frameAssemblyDeadlineMs": 100,
     "crcBeforeSemanticValidation": true,
     "invalidLengthDisposition": "DISCARD_FIRST_MAGIC_BYTE_AND_RESCAN",
@@ -106,6 +130,22 @@
     }
   },
   "enums": {
+    "DeviceFactsStatus": {"wireType":"u8","values":{"AVAILABLE":1,"BOOT_MISMATCH":2,"PORT_UNSUPPORTED":3}},
+    "ScaleReadStatus": {"wireType":"u8","values":{"NOT_OBSERVED":0,"VALID":1,"TIMEOUT":2,"CRC_ERROR":3,"RANGE_ERROR":4,"PROTOCOL_ERROR":5}},
+    "MeasurementObservationState": {"wireType":"u8","values":{"NONE":0,"RUNNING":1,"STABLE_MEAN":2,"TIMEOUT_MEDIAN":3,"UNAVAILABLE":4,"CONFIG_ERROR":5,"BUFFER_FULL":6,"INTERRUPTED":7}},
+    "RetainedWorkState": {"wireType":"u8","values":{"NONE":0,"RUNNING":1,"RESULT_HELD":2,"RESULT_RELEASED":3}},
+    "ResultSavedStatus": {
+      "wireType": "u8",
+      "values": { "RELEASED": 1, "ALREADY_RELEASED": 2, "NOT_FOUND": 3, "IDENTITY_CONFLICT": 4, "BOOT_MISMATCH": 5 }
+    },
+    "CommandOutcome": {
+      "wireType": "u8",
+      "values": { "ACCEPTED": 1, "REJECTED": 2, "BOOT_MISMATCH": 3, "IDENTITY_CONFLICT": 4, "OLD_DETAILS_UNAVAILABLE": 5, "NOT_SEEN": 6 }
+    },
+    "BootBindStatus": {
+      "wireType": "u8",
+      "values": { "BOUND": 1, "PROBE_MISMATCH": 2, "ALREADY_BOUND": 3 }
+    },
     "SenderRole": {
       "wireType": "u8",
       "values": {
@@ -194,6 +234,17 @@
         "FAILED": 2
       }
     },
+    "WorkQueryStatus": {
+      "wireType": "u8",
+      "values": {
+        "RUNNING": 1,
+        "RESULT_HELD": 2,
+        "RESULT_RELEASED": 3,
+        "NOT_FOUND": 4,
+        "IDENTITY_CONFLICT": 5,
+        "BOOT_MISMATCH": 6
+      }
+    },
     "FullnessMode": {
       "wireType": "u8",
       "values": {
@@ -276,6 +327,44 @@
         "OVERLOAD": 8
       }
     },
+    "ResultMeasurementKind": {
+      "wireType": "u8",
+      "values": {
+        "NOT_TAKEN": 0, "MCU_RESET_LOST": 1, "STABLE_MEAN": 2,
+        "TIMEOUT_MEDIAN": 3, "UNAVAILABLE": 4, "SENSOR_FAULT": 5,
+        "OVERLOAD": 6, "PROTOCOL_ERROR": 7, "CONFIG_ERROR": 8, "DISCONNECTED": 9, "INTERRUPTED": 10
+      }
+    },
+    "WorkResultFinishReason": {
+      "wireType": "u8",
+      "values": { "DELIVERY_END": 1, "DELIVERY_WINDOW_EXPIRED": 2, "CLEAN_CONFIRMED": 3, "FAILED": 4, "CANCELLED": 5 }
+    },
+    "ActuatorEventReferenceType": {
+      "wireType": "u8", "values": {"NONE": 0, "DELIVERY_DOOR_COMMAND_RESULT": 49, "CLEAN_LOCK_POWER_CHANGED": 53, "SAFE_CLOSE_RESULT": 61, "DELIVERY_LOCAL_DOOR_RESULT": 98, "DELIVERY_CYCLE_ABORTED": 99, "DELIVERY_POSTCLOSE_INTERRUPTED": 100, "CLEAN_OPERATION_INTERRUPTED": 101}
+    },
+    "ActuatorEventMessageType": {
+      "wireType": "u8", "values": {"DELIVERY_DOOR_COMMAND_RESULT": 49, "CLEAN_LOCK_POWER_CHANGED": 53, "SAFE_CLOSE_RESULT": 61, "DELIVERY_LOCAL_DOOR_RESULT": 98, "DELIVERY_CYCLE_ABORTED": 99, "DELIVERY_POSTCLOSE_INTERRUPTED": 100, "CLEAN_OPERATION_INTERRUPTED": 101}
+    },
+    "CleanInterruptionReason": {
+      "wireType": "u8", "values": {"UPDATE_STOPPED": 1, "CONTROL_CONTEXT_LOST": 2, "OPERATION_EXPIRED": 3, "UNLOCK_DISPATCH_REJECTED": 4}
+    },
+    "PostcloseInterruptionReason": {
+      "wireType": "u8", "values": {"UPDATE_STOPPED": 1, "CLOSE_CONTEXT_LOST": 2}
+    },
+    "DeliveryCycleAbortReason": {
+      "wireType": "u8", "values": {"CYCLE_START_REJECTED": 1, "OPEN_DEADLINE_EXPIRED": 2, "UPDATE_STOPPED": 3}
+    },
+    "ActuatorEventQueryStatus": {
+      "wireType": "u8", "values": {"HELD": 1, "NOT_FOUND": 3, "BOOT_MISMATCH": 5}
+    },
+    "ProcessEventMessageType": {
+      "wireType": "u8",
+      "values": {"WORK_PREOPEN_WEIGHT_READY": 48, "WORK_POSTCLOSE_WEIGHT_READY": 50, "WORK_PREUNLOCK_WEIGHT_READY": 52, "CLEAN_FINAL_WEIGHT_READY": 56, "FULLNESS_SAMPLE_RESULT": 57, "BASELINE_MEASUREMENT_RESULT": 58, "DELIVERY_SELECTION": 51, "CLEAN_UNLOCK_REQUESTED": 54, "CLEAN_FINISH_REQUESTED": 55, "CLEAN_COMPLETION_CONFIRMED": 62}
+    },
+    "ResultQueryStatus": {
+      "wireType": "u8",
+      "values": { "HELD": 1, "RELEASED": 2, "NOT_FOUND": 3, "IDENTITY_CONFLICT": 4, "BOOT_MISMATCH": 5 }
+    },
     "WeightValueKind": {
       "wireType": "u8",
       "values": {
@@ -285,6 +374,34 @@
         "AVAILABLE_SAMPLES_MEAN": 3,
         "LAST_OBSERVED": 4
       }
+    },
+    "SmokeObservationState": {
+      "wireType": "u8",
+      "values": {"NOT_OBSERVED": 0, "NORMAL": 1, "ALARM": 2, "UNAVAILABLE": 3}
+    },
+    "FullnessObservationKind": {
+      "wireType": "u8",
+      "values": {"NONE": 0, "ULTRASONIC": 1, "DIGITAL_INFRARED": 2}
+    },
+    "FullnessReadStatus": {
+      "wireType": "u8",
+      "values": {"NOT_OBSERVED": 0, "VALID": 1, "UNAVAILABLE": 2}
+    },
+    "WorkFullnessStatus": {
+      "wireType": "u8",
+      "values": {"NOT_SAMPLED": 0, "COMPLETE": 1, "INTERRUPTED": 2}
+    },
+    "WorkFullnessValue": {
+      "wireType": "u8",
+      "values": {"NOT_OBSERVED": 0, "CLEAR": 1, "BLOCKED": 2}
+    },
+    "WorkFullnessBasis": {
+      "wireType": "u8",
+      "values": {"NONE": 0, "MEASURED_MEDIAN": 1, "NO_ECHO_CLEAR_FALLBACK": 2, "INSUFFICIENT_VALID_SAMPLES_CLEAR_FALLBACK": 3}
+    },
+    "FullnessStopReason": {
+      "wireType": "u8",
+      "values": {"NONE": 0, "CALLER_CANCELLED": 1, "CONFIGURATION_CHANGED": 2}
     },
     "FullnessSensorKind": {
       "wireType": "u8",
@@ -405,6 +522,7 @@
         "WEIGHT_PROTOCOL": 1028,
         "WEIGHT_CONFIG": 1029,
         "WEIGHT_DISCONNECTED": 1030,
+        "MEASUREMENT_INTERRUPTED": 1031,
         "FULLNESS_SENSOR_DIAGNOSTIC": 1280,
         "SMOKE_SENSOR": 1536,
         "MCU_STORAGE": 1792,
@@ -504,15 +622,35 @@
     }
   },
   "digestProfiles": {
+    "actuatorEventDigestSha256": {
+      "algorithm": "SHA-256", "domainHex": "45434f42494e3a554152543a4143545541544f522d4556454e543a763200", "layoutVersion": 2,
+      "preimage": ["domain bytes", "original actuator messageType:u8", "full payload length:u16_be", "all original actuator payload bytes"],
+      "ordering": ["Registry field order including boot/sequence, original command UID, work/port and output facts"],
+      "excludes": ["frame headers/flags/txSequence/CRC"]
+    },
+    "eventDigestSha256": {
+      "algorithm": "SHA-256", "domainHex": "45434f42494e3a554152543a50524f434553532d4556454e543a763200", "layoutVersion": 2,
+      "preimage": ["domain bytes", "original process messageType:u8", "full payload length:u16_be", "all original process payload bytes"],
+      "ordering": ["Registry field order, including event/work/measurement identity and values"],
+      "excludes": ["frame headers/flags/txSequence/CRC"]
+    },
+    "resultDigestSha256": {
+      "algorithm": "SHA-256",
+      "domainHex": "45434f42494e3a554152543a574f524b2d524553554c543a763200",
+      "layoutVersion": 2,
+      "preimage": ["domain bytes", "WORK_RESULT messageType:u8", "payload length:u16_be (199)", "payload bytes 0..27", "payload bytes 60..198"],
+      "ordering": ["Registry field order, including boot/result/work identity and both measurement slots"],
+      "excludes": ["frame headers/flags/txSequence/CRC", "payload bytes 28..59 resultDigestSha256"]
+    },
     "commandDigestSha256": {
       "algorithm": "SHA-256",
-      "domainHex": "45434f42494e3a554152543a434f4d4d414e443a763100",
-      "layoutVersion": 1,
+      "domainHex": "45434f42494e3a554152543a434f4d4d414e443a763200",
+      "layoutVersion": 2,
       "preimage": [
         "domain bytes",
         "messageType as u8",
         "semantic payload length as u16_be",
-        "payload bytes from offset 48 through payload end"
+        "payload bytes from offset 48 through payload end, INCLUDING targetMcuBootId and commandSequence"
       ],
       "ordering": [
         "messageType precedes length",
@@ -526,8 +664,8 @@
     },
     "mcuPayloadSha256": {
       "algorithm": "SHA-256",
-      "domainHex": "45434f42494e3a554152543a4d43552d434f4e4649473a763100",
-      "layoutVersion": 1,
+      "domainHex": "45434f42494e3a554152543a4d43552d434f4e4649473a763200",
+      "layoutVersion": 2,
       "preimage": [
         "domain bytes",
         "configVersion:u64_be",
@@ -540,7 +678,9 @@
         "deliveryDoorTravelWaitMs:u32_be",
         "cleanSolenoidPulseMs:u32_be",
         "smokeMonitoringEnabled:bool",
-        "for each port: portNo:u8, enabled:bool, unitPriceTenThousandths:u32_be, fullnessMode:u8, configuredFullWeightGrams:u32_be, fullnessSettleWaitMs:u32_be, fullnessSensorKind:u8, fullnessDistanceThresholdMm:u32_be, fullnessSampleCount:u8, fullnessMinimumValidSampleCount:u8, fullnessEchoTimeoutUs:u32_be, weightStableWindowMs:u32_be, weightMaximumFluctuationGrams:u32_be, weightRequiredSampleCount:u16_be, weightMeasurementTimeoutMs:u32_be, weightMinimumGrams:i32_be, weightMaximumGrams:i32_be, calibrationVersion:u32_be"
+        "weightPollIntervalMs:u32_be",
+        "weightResponseTimeoutMs:u32_be",
+        "for each port: portNo:u8, enabled:bool, unitPriceTenThousandths:u32_be, fullnessMode:u8, configuredFullWeightGrams:u32_be, fullnessSettleWaitMs:u32_be, fullnessSensorKind:u8, fullnessDistanceThresholdMm:u32_be, fullnessSampleCount:u8, fullnessMinimumValidSampleCount:u8, fullnessEchoTimeoutUs:u32_be, weightStableWindowMs:u32_be, weightMaximumFluctuationGrams:u32_be, weightRequiredSampleCount:u16_be, weightMeasurementTimeoutMs:u32_be, weightMinimumGrams:i32_be, weightMaximumGrams:i32_be, calibrationVersion:u32_be, weightMaximumSampleAgeMs:u32_be, weightMinimumMedianSampleCount:u8"
       ],
       "ordering": [
         "exactly expectedPortCount port blocks",
@@ -550,6 +690,8 @@
         "applicationUid",
         "mcuCommandUid",
         "commandDigestSha256",
+        "targetMcuBootId",
+        "commandSequence",
         "CONFIG partIndex/partCount",
         "mcuPayloadSha256 itself"
       ]
@@ -577,6 +719,65 @@
     }
   },
   "fieldGroups": {
+    "actuatorEventIdentity": [
+      {"name": "mcuBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991},
+      {"name": "mcuEventSequence", "type": "u32", "minimum": 1},
+      {"name": "eventMessageType", "type": "u8", "enum": "ActuatorEventMessageType"},
+      {"name": "eventDigestSha256", "type": "sha256"}
+    ],
+    "actuatorEventQuery": [
+      {"name": "queryId", "type": "u64", "minimum": 1, "maximum": 9007199254740991},
+      {"name": "targetMcuBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991},
+      {"name": "afterMcuEventSequence", "type": "u32"}
+    ],
+    "processEventIdentity": [
+      { "name": "mcuBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+      { "name": "mcuEventSequence", "type": "u32", "minimum": 1 },
+      { "name": "eventMessageType", "type": "u8", "enum": "ProcessEventMessageType" },
+      { "name": "eventDigestSha256", "type": "sha256" }
+    ],
+    "processEventScope": [
+      { "group": "workQueryIdentity" },
+      { "name": "eventMessageType", "type": "u8", "enum": "ProcessEventMessageType" },
+      { "name": "stepSequence", "type": "u16" },
+      { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 }
+    ],
+    "workQueryIdentity": [
+      { "group": "commandIdentity" },
+      { "name": "workUid", "type": "uuid" },
+      { "name": "workType", "type": "u8", "enum": "WorkType" },
+      { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 }
+    ],
+    "initialResultMeasurement": [
+      {"name":"initialKind","type":"u8","enum":"ResultMeasurementKind"},
+      {"name":"initialMeasurementUid","type":"uuid","zeroAllowed":true},
+      {"name":"initialSourceMcuBootId","type":"u64","maximum":9007199254740991},
+      {"name":"initialMcuEventSequence","type":"u32"},
+      {"name":"initialWeightGrams","type":"i32","unit":"g"},
+      {"name":"initialElapsedMs","type":"u16","maximum":5000,"unit":"ms"},
+      {"name":"initialSampleCount","type":"u8","maximum":32},
+      {"name":"initialSpanGrams","type":"u32","unit":"g"},
+      {"name":"initialCalibrationVersion","type":"u32"},
+      {"name":"initialFaultCode","type":"u16","enum":"FaultCode"}
+    ],
+    "finalResultMeasurement": [
+      {"name":"finalKind","type":"u8","enum":"ResultMeasurementKind"},
+      {"name":"finalMeasurementUid","type":"uuid","zeroAllowed":true},
+      {"name":"finalSourceMcuBootId","type":"u64","maximum":9007199254740991},
+      {"name":"finalMcuEventSequence","type":"u32"},
+      {"name":"finalWeightGrams","type":"i32","unit":"g"},
+      {"name":"finalElapsedMs","type":"u16","maximum":5000,"unit":"ms"},
+      {"name":"finalSampleCount","type":"u8","maximum":32},
+      {"name":"finalSpanGrams","type":"u32","unit":"g"},
+      {"name":"finalCalibrationVersion","type":"u32"},
+      {"name":"finalFaultCode","type":"u16","enum":"FaultCode"}
+    ],
+    "resultIdentity": [
+      { "name": "mcuBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+      { "name": "resultSequence", "type": "u32", "minimum": 1 },
+      { "name": "workUid", "type": "uuid" },
+      { "name": "resultDigestSha256", "type": "sha256" }
+    ],
     "commandIdentity": [
       {
         "name": "mcuCommandUid",
@@ -585,6 +786,19 @@
       {
         "name": "commandDigestSha256",
         "type": "sha256"
+      },
+      {
+        "name": "targetMcuBootId",
+        "type": "u64",
+        "minimum": 1,
+        "maximum": 9007199254740991,
+        "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。"
+      },
+      {
+        "name": "commandSequence",
+        "type": "u32",
+        "minimum": 1,
+        "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。"
       }
     ],
     "criticalEventIdentity": [
@@ -628,6 +842,36 @@
         "name": "mcuPayloadSha256",
         "type": "sha256"
       }
+    ],
+    "nativeProcessMeasurement": [
+      { "name": "measurementKind", "type": "u8", "enum": "ResultMeasurementKind", "minimum": 2 },
+      { "name": "reportedWeightGrams", "type": "i32", "unit": "g" },
+      { "name": "measurementElapsedMs", "type": "u16", "maximum": 5000, "unit": "ms" },
+      { "name": "sampleCount", "type": "u8", "maximum": 32 },
+      { "name": "sampleSpanGrams", "type": "u32", "unit": "g" },
+      { "name": "calibrationVersion", "type": "u32" },
+      { "name": "faultCode", "type": "u16", "enum": "FaultCode" },
+      { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 }
+    ],
+    "workFullnessEvidence": [
+      {"name": "workFullnessStatus", "type": "u8", "enum": "WorkFullnessStatus"},
+      {"name": "fullnessGroupSequence", "type": "u32"},
+      {"name": "fullnessConfigContentSha256", "type": "sha256"},
+      {"name": "fullnessMcuPayloadSha256", "type": "sha256"},
+      {"name": "fullnessStartedUptimeMs", "type": "u64", "maximum": 9007199254740991},
+      {"name": "fullnessCompletedUptimeMs", "type": "u64", "maximum": 9007199254740991},
+      {"name": "fullnessLastCapturedUptimeMs", "type": "u64", "maximum": 9007199254740991},
+      {"name": "workFullnessSensorKind", "type": "u8", "enum": "FullnessObservationKind"},
+      {"name": "workFullnessSensorValue", "type": "u8", "enum": "WorkFullnessValue"},
+      {"name": "workFullnessBasis", "type": "u8", "enum": "WorkFullnessBasis"},
+      {"name": "fullnessDistancePresent", "type": "bool"},
+      {"name": "fullnessDistanceMm", "type": "u32", "unit": "mm", "invalidWhen": "fullnessDistancePresent=false", "invalidEncoding": "all-zero bytes"},
+      {"name": "fullnessRequestedSampleCount", "type": "u8", "maximum": 9},
+      {"name": "fullnessCompletedSampleCount", "type": "u8", "maximum": 9},
+      {"name": "fullnessValidSampleCount", "type": "u8", "maximum": 9},
+      {"name": "fullnessMinimumValidSampleCount", "type": "u8", "maximum": 9},
+      {"name": "fullnessDistanceThresholdMm", "type": "u32", "maximum": 4000, "unit": "mm"},
+      {"name": "fullnessStopReason", "type": "u8", "enum": "FullnessStopReason"}
     ],
     "measurementResult": [
       {
@@ -680,15 +924,409 @@
   },
   "messages": [
     {
+      "name": "QUERY_DEVICE_FACTS",
+      "id": 69,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "notes": "只读取得一个投口及公共状态的单帧事实快照；queryId先持久分配，每次只写一次。不消耗动作号、不驱动或测量。不能将不同查询/投口的回复拼为整机原子快照。旧QUERY_STATE多段集合未启用，不与本消息双解析。",
+      "payload": [
+        {
+          "name": "queryId",
+          "type": "u64",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        {
+          "name": "targetMcuBootId",
+          "type": "u64",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        {
+          "name": "portNo",
+          "type": "u8",
+          "minimum": 1,
+          "maximum": 6
+        }
+      ]
+    },
+    {
+      "name": "DEVICE_FACTS_REPLY",
+      "id": 70,
+      "direction": "MCU_TO_EDGE",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "notes": "冻结同一前台观察点已掌握的事实，传感器有各自采集时间；门控输入/输出/目标来自同一次控制更新。输出表示已写GPIO命令，不是物理门位或独立电气回读。包含最近测量记录及最近业务摘要，不是完整结果或接单许可。非AVAILABLE时capturedUptimeMs及后续事实槽全部为零。",
+      "payload": [
+        {
+          "name": "queryId",
+          "type": "u64",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        {
+          "name": "targetMcuBootId",
+          "type": "u64",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        {
+          "name": "portNo",
+          "type": "u8",
+          "minimum": 1,
+          "maximum": 6
+        },
+        {
+          "name": "currentMcuBootId",
+          "type": "u64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "name": "status",
+          "type": "u8",
+          "enum": "DeviceFactsStatus"
+        },
+        {
+          "name": "capturedUptimeMs",
+          "type": "u64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "name": "appliedConfigVersion",
+          "type": "u64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "name": "appliedContentSha256",
+          "type": "sha256"
+        },
+        {
+          "name": "appliedMcuPayloadSha256",
+          "type": "sha256"
+        },
+        {
+          "name": "configStaging",
+          "type": "bool"
+        },
+        {
+          "name": "controlUptimeMs",
+          "type": "u64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "name": "lastDeliveryDoorCommand",
+          "type": "u8",
+          "enum": "DeliveryDoorCommand"
+        },
+        {
+          "name": "doorActionActive",
+          "type": "bool"
+        },
+        {
+          "name": "pb6Output",
+          "type": "bool"
+        },
+        {
+          "name": "pb7Output",
+          "type": "bool"
+        },
+        {
+          "name": "pb5Active",
+          "type": "bool"
+        },
+        {
+          "name": "pinchPaused",
+          "type": "bool"
+        },
+        {
+          "name": "cleanLockPowered",
+          "type": "bool"
+        },
+        {
+          "name": "updateLatched",
+          "type": "bool"
+        },
+        {
+          "name": "scaleReadStatus",
+          "type": "u8",
+          "enum": "ScaleReadStatus"
+        },
+        {
+          "name": "scaleAttemptSequence",
+          "type": "u32"
+        },
+        {
+          "name": "scaleCapturedUptimeMs",
+          "type": "u64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "name": "scaleWeightGrams",
+          "type": "i32"
+        },
+        {
+          "name": "scaleCalibrationVersion",
+          "type": "u32"
+        },
+        {
+          "name": "measurementSequence",
+          "type": "u32"
+        },
+        {
+          "name": "measurementState",
+          "type": "u8",
+          "enum": "MeasurementObservationState"
+        },
+        {
+          "name": "measurementConfigVersion",
+          "type": "u64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "name": "measurementObservedUptimeMs",
+          "type": "u64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "name": "measurementElapsedMs",
+          "type": "u16",
+          "maximum": 5000
+        },
+        {
+          "name": "measurementSampleCount",
+          "type": "u8",
+          "maximum": 32
+        },
+        {
+          "name": "measurementWeightGrams",
+          "type": "i32"
+        },
+        {
+          "name": "measurementSpanGrams",
+          "type": "u32"
+        },
+        {"name":"smokeObservationState","type":"u8","enum":"SmokeObservationState"},
+        {"name":"smokeObservedUptimeMs","type":"u64","maximum":9007199254740991},
+        {"name":"fullnessObservationKind","type":"u8","enum":"FullnessObservationKind"},
+        {"name":"fullnessReadStatus","type":"u8","enum":"FullnessReadStatus"},
+        {"name":"fullnessCapturedUptimeMs","type":"u64","maximum":9007199254740991},
+        {"name":"fullnessInfraredBlocked","type":"bool"},
+        {"name":"fullnessDistanceMm","type":"u16"},
+        {
+          "name": "retainedWorkState",
+          "type": "u8",
+          "enum": "RetainedWorkState"
+        },
+        {
+          "name": "retainedWorkUid",
+          "type": "uuid",
+          "zeroAllowed": true
+        },
+        {
+          "name": "retainedWorkType",
+          "type": "u8",
+          "enum": "WorkType"
+        },
+        {
+          "name": "retainedPortNo",
+          "type": "u8",
+          "maximum": 6
+        },
+        {
+          "name": "retainedWorkPhase",
+          "type": "u8",
+          "enum": "McuWorkPhase"
+        },
+        {
+          "name": "retainedOriginCommandSequence",
+          "type": "u32"
+        },
+        {
+          "name": "retainedResultSequence",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "ACTUATOR_EVENT_SAVED", "id": 96, "direction": "EDGE_TO_MCU", "category": "CONTROL", "ackRequired": false,
+      "notes": "Pi完整原文及其报告的命令/业务关系同一COMMIT持久保存后，按启动/事件号/类型/完整正文摘要确认。仅释放对应动作数据，不取消预留、不释放业务、不允许动作，不复用测量回执。",
+      "payload": [{"group": "actuatorEventIdentity"}]
+    },
+    {
+      "name": "ACTUATOR_EVENT_SAVED_REPLY", "id": 97, "direction": "MCU_TO_EDGE", "category": "CONTROL", "ackRequired": false,
+      "notes": "回显精确数据保存身份。无queryId，不能充当新鲜状态或业务完成证明；丢回执后继续查询未交接原文，不重放动作。",
+      "payload": [{"group": "actuatorEventIdentity"},
+        {"name": "currentMcuBootId", "type": "u64", "maximum": 9007199254740991},
+        {"name": "status", "type": "u8", "enum": "ResultSavedStatus"}]
+    },
+    {
+      "name": "QUERY_ACTUATOR_EVENT", "id": 94, "direction": "EDGE_TO_MCU", "category": "CONTROL", "ackRequired": false,
+      "notes": "仅取指定启动中大于游标的最早未保存动作记录；Pi恢复交接固定从0查询，避免跳过未确认记录。新queryId持久分配且单次发送。NOT_FOUND不代表未执行、无预留、门位或业务结束。",
+      "payload": [{"group": "actuatorEventQuery"}]
+    },
+    {
+      "name": "ACTUATOR_EVENT_QUERY_REPLY", "id": 95, "direction": "MCU_TO_EDGE", "category": "CONTROL", "ackRequired": false,
+      "notes": "完整回显查询；HELD后发送对应原事件帧。没有记录或启动不符时清零引用。此枚举不提供业务或机械结论。",
+      "payload": [{"group": "actuatorEventQuery"},
+        {"name": "currentMcuBootId", "type": "u64", "maximum": 9007199254740991},
+        {"name": "status", "type": "u8", "enum": "ActuatorEventQueryStatus"},
+        {"name": "mcuEventSequence", "type": "u32"},
+        {"name": "eventMessageType", "type": "u8", "enum": "ActuatorEventReferenceType"},
+        {"name": "eventDigestSha256", "type": "sha256"}]
+    },
+    {
+      "name": "PROCESS_EVENT_SAVED", "id": 92, "direction": "EDGE_TO_MCU", "category": "CONTROL", "ackRequired": false,
+      "notes": "Pi完整校验并把原字节及原业务/步骤关系同一COMMIT持久保存后才确认。MCU只释放精确匹配的过程槽；普通ACK不释放，确认不授权动作、不结束业务。",
+      "payload": [{ "group": "processEventIdentity" }]
+    },
+    {
+      "name": "PROCESS_EVENT_SAVED_REPLY", "id": 93, "direction": "MCU_TO_EDGE", "category": "CONTROL", "ackRequired": false,
+      "notes": "只回显精确保存身份；没有queryId，不作为新鲜状态。Pi须另发新查询观察释放。",
+      "payload": [{ "group": "processEventIdentity" },
+        { "name": "currentMcuBootId", "type": "u64", "maximum": 9007199254740991 },
+        { "name": "status", "type": "u8", "enum": "ResultSavedStatus" }]
+    },
+    {
+      "name": "QUERY_PROCESS_EVENT", "id": 90, "direction": "EDGE_TO_MCU", "category": "CONTROL", "ackRequired": false,
+      "notes": "只读查询原命令及原业务的精确测量步骤和配置，不消耗动作序号。queryId须Pi持久分配且单次发送。NOT_FOUND不证明未称重或整机空闲。",
+      "payload": [{ "name": "queryId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 }, { "group": "processEventScope" }]
+    },
+    {
+      "name": "PROCESS_EVENT_QUERY_REPLY", "id": 91, "direction": "MCU_TO_EDGE", "category": "CONTROL", "ackRequired": false,
+      "notes": "完整回显请求；HELD后另发保留的原事件帧，不重新称重。RELEASED仅表示该过程数据已交接，不是机械授权、业务完成或云端成功。",
+      "payload": [
+        { "name": "queryId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 }, { "group": "processEventScope" },
+        { "name": "currentMcuBootId", "type": "u64", "maximum": 9007199254740991 },
+        { "name": "status", "type": "u8", "enum": "ResultQueryStatus" },
+        { "name": "mcuEventSequence", "type": "u32" }, { "name": "eventDigestSha256", "type": "sha256" }
+      ]
+    },
+    {
+      "name": "QUERY_WORK", "id": 67, "direction": "EDGE_TO_MCU", "category": "CONTROL", "ackRequired": false,
+      "notes": "按原START/RESUME的完整命令身份及业务身份只读查询，不消耗动作序号。queryId由Pi先持久分配，每次查询只写一次，新尝试换新queryId；不能重算成查询命令摘要。仅投递/清运，不是允许重放动作的证明。",
+      "payload": [
+        { "name": "queryId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "group": "workQueryIdentity" }
+      ]
+    },
+    {
+      "name": "WORK_QUERY_REPLY", "id": 68, "direction": "MCU_TO_EDGE", "category": "CONTROL", "ackRequired": false,
+      "notes": "一次读取同时返回被查询业务的身份/阶段/结果引用，不拼接多个时刻的状态。无回复是未知，不是NOT_FOUND。phase仅描述被查询业务，IDLE空槽不代表整机空闲；RESULT_RELEASED不代表云端处理完。结果身份只能用于取回/核对，不能当作结果正文或保存确认。",
+      "payload": [
+        { "name": "queryId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "group": "workQueryIdentity" },
+        { "name": "currentMcuBootId", "type": "u64", "maximum": 9007199254740991 },
+        { "name": "status", "type": "u8", "enum": "WorkQueryStatus" },
+        { "name": "phase", "type": "u8", "enum": "McuWorkPhase" },
+        { "name": "resultSequence", "type": "u32" },
+        { "name": "resultDigestSha256", "type": "sha256" }
+      ]
+    },
+{
+  "name": "WORK_RESULT",
+  "id": 64,
+  "direction": "MCU_TO_EDGE",
+  "category": "CONTROL",
+  "ackRequired": false,
+  "notes": "单条自包含投递/清运终结事实，固定199字节正文（含身份摘要），总帧213字节，不分片。前后称重记录为本启动测量或显式缺失；缺失槽全部清零，不解释为0克。MCU持有原字节直到RESULT_SAVED；普通ACK不释放。完成事实不等于云端业务成功、资金结算或允许接单。",
+  "payload": [
+    {
+      "group": "resultIdentity"
+    },
+    {
+      "name": "workType",
+      "type": "u8",
+      "enum": "WorkType"
+    },
+    {
+      "name": "portNo",
+      "type": "u8",
+      "minimum": 1,
+      "maximum": 6
+    },
+    {
+      "name": "configVersion",
+      "type": "u64",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    {
+      "name": "originCommandUid",
+      "type": "uuid"
+    },
+    {
+      "name": "originCommandSequence",
+      "type": "u32",
+      "minimum": 1
+    },
+    {
+      "name": "completedUptimeMs",
+      "type": "u64",
+      "maximum": 9007199254740991
+    },
+    {
+      "name": "deliveryRoundCount",
+      "type": "u16"
+    },
+    {
+      "name": "cleanActionSequence",
+      "type": "u32"
+    },
+    {
+      "name": "finishReason",
+      "type": "u8",
+      "enum": "WorkResultFinishReason"
+    },
+    {
+      "name": "physicalCloseConfirmed",
+      "type": "bool"
+    },
+    {
+      "name": "negativeWeightAnomaly",
+      "type": "bool"
+    },
+    {
+      "group": "initialResultMeasurement"
+    },
+    {
+      "group": "finalResultMeasurement"
+    }
+  ]
+}
+    ,
+    {
+      "name": "QUERY_RESULT", "id": 65, "direction": "EDGE_TO_MCU", "category": "CONTROL", "ackRequired": false,
+      "notes": "只读查询精确结果身份；HELD回复后重发完全相同的WORK_RESULT，不执行动作。尚不知道结果身份时使用后续QUERY_WORK，不猜测摘要。",
+      "payload": [{ "name": "queryId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 }, { "group": "resultIdentity" }]
+    },
+    {
+      "name": "RESULT_QUERY_REPLY", "id": 66, "direction": "MCU_TO_EDGE", "category": "CONTROL", "ackRequired": false,
+      "payload": [
+        { "name": "queryId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "group": "resultIdentity" },
+        { "name": "currentMcuBootId", "type": "u64", "maximum": 9007199254740991 },
+        { "name": "status", "type": "u8", "enum": "ResultQueryStatus" }
+      ]
+    },
+    {
       "name": "HELLO",
       "id": 1,
       "direction": "BIDIRECTIONAL",
       "category": "CONTROL",
       "ackRequired": false,
+      "notes": "仅在启动编号分配后协商能力，不承担零编号探测或绑定；收到 HELLO 不单独证明允许机械动作。",
       "payload": [
         { "name": "senderRole", "type": "u8", "enum": "SenderRole" },
         { "name": "senderBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
-        { "name": "supportedMajor", "type": "u8", "const": 1 },
+        { "name": "supportedMajor", "type": "u8", "const": 2 },
         { "name": "minimumMinor", "type": "u8", "const": 0 },
         { "name": "maximumMinor", "type": "u8", "const": 0 },
         { "name": "portCount", "type": "u8", "minimum": 1, "maximum": 6 },
@@ -708,7 +1346,7 @@
       "payload": [
         { "name": "responderBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
         { "name": "referencedSenderBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
-        { "name": "selectedMajor", "type": "u8", "const": 1 },
+        { "name": "selectedMajor", "type": "u8", "const": 2 },
         { "name": "selectedMinor", "type": "u8", "const": 0 },
         { "name": "status", "type": "u8", "enum": "HelloStatus" },
         { "name": "portCount", "type": "u8", "minimum": 1, "maximum": 6 },
@@ -771,6 +1409,113 @@
       ]
     },
     {
+      "name": "BOOT_PROBE",
+      "id": 7,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "notes": "无机械动作。全新持久询问编号，仅发送一次。未绑定 MCU 在 RAM 记录该询问；已绑定 MCU 只回复当前编号，不改变绑定。",
+      "payload": [
+        { "name": "probeId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 }
+      ]
+    },
+    {
+      "name": "BOOT_PROBE_REPLY",
+      "id": 8,
+      "direction": "MCU_TO_EDGE",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "notes": "只在香橙派仍等待同一 probeId 时处理；零仅表示发送本回复时 MCU 未绑定，不证明未来状态。",
+      "payload": [
+        { "name": "probeId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "mcuBootId", "type": "u64", "minimum": 0, "maximum": 9007199254740991 }
+      ]
+    },
+    {
+      "name": "BIND_BOOT",
+      "id": 9,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "notes": "仅发送一次。MCU 必须未绑定且 probeId 等于本启动 RAM 中待绑定询问。香橙派已持久分配 proposedMcuBootId；不使用传输 ACK 自动重试。",
+      "payload": [
+        { "name": "probeId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "proposedMcuBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 }
+      ]
+    },
+    {
+      "name": "BIND_BOOT_REPLY",
+      "id": 10,
+      "direction": "MCU_TO_EDGE",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "notes": "回显原询问和拟分配编号，同时报告当前编号。BOUND 时当前编号必须等于拟分配编号；PROBE_MISMATCH 时仍为零；ALREADY_BOUND 时已有非零编号且未重新绑定。",
+      "payload": [
+        { "name": "probeId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "proposedMcuBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "mcuBootId", "type": "u64", "minimum": 0, "maximum": 9007199254740991 },
+        { "name": "status", "type": "u8", "enum": "BootBindStatus" }
+      ]
+    },
+    {
+      "name": "COMMAND_DECISION",
+      "id": 11,
+      "direction": "MCU_TO_EDGE",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "notes": "原命令的真实受理/拒绝，完整回显命令身份，不是传输 ACK。ACCEPTED 不表示动作或业务完成；超时由 Pi 查询原命令。重复原命令可回原决定，不再次动作。",
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "currentMcuBootId", "type": "u64", "minimum": 0, "maximum": 9007199254740991 },
+        { "name": "outcome", "type": "u8", "enum": "CommandOutcome" },
+        { "name": "errorCode", "type": "u16", "enum": "NackError" }
+      ]
+    },
+    {
+      "name": "QUERY_COMMAND",
+      "id": 12,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "notes": "只读查询原命令；queryId 是独立持久询问编号，commandIdentity 是原命令而非新的动作。原摘要不按 QUERY_COMMAND 重算；查询不推进动作序号、不释放占用、不驱动机械。丢回复可用新 queryId 再查询。",
+      "payload": [
+        { "name": "queryId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "group": "commandIdentity" }
+      ]
+    },
+    {
+      "name": "COMMAND_QUERY_RESULT",
+      "id": 13,
+      "direction": "MCU_TO_EDGE",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "notes": "回显本次查询和原命令全部身份。最新同身份回原决定；较旧命令只回 OLD_DETAILS_UNAVAILABLE，不能说从未执行；超过水位才可报 NOT_SEEN。该事实不能单独解除 Pi 可能已下发的动作占用。",
+      "payload": [
+        { "name": "queryId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "group": "commandIdentity" },
+        { "name": "currentMcuBootId", "type": "u64", "minimum": 0, "maximum": 9007199254740991 },
+        { "name": "outcome", "type": "u8", "enum": "CommandOutcome" },
+        { "name": "errorCode", "type": "u16", "enum": "NackError" },
+        { "name": "highestCommandSequence", "type": "u32" }
+      ]
+    },
+    {
+      "name": "RESULT_SAVED",
+      "id": 14, "direction": "EDGE_TO_MCU", "category": "CONTROL", "ackRequired": false,
+      "notes": "仅香橙派完整校验并在同一 SQLite 事务保存原始完整结果和待上报项，提交成功后才发送。MCU 精确匹配启动、结果序号、作业和总摘要后才释放该结果；不是普通帧 ACK，也不释放 Pi/云端业务占用。允许同身份重复确认，旧确认不能清理下一份结果。",
+      "payload": [{ "group": "resultIdentity" }]
+    },
+    {
+      "name": "RESULT_SAVED_REPLY",
+      "id": 15, "direction": "MCU_TO_EDGE", "category": "CONTROL", "ackRequired": false,
+      "notes": "回显保存确认的精确身份及当前启动；RELEASED/ALREADY_RELEASED 只说明该份 MCU 结果已交接，不代表云端应用完成或允许下一业务。缺失/身份冲突不释放任何当前结果。",
+      "payload": [
+        { "group": "resultIdentity" },
+        { "name": "currentMcuBootId", "type": "u64", "minimum": 0, "maximum": 9007199254740991 },
+        { "name": "status", "type": "u8", "enum": "ResultSavedStatus" }
+      ]
+    },
+    {
       "name": "CONFIG_BEGIN",
       "id": 16,
       "direction": "EDGE_TO_MCU",
@@ -796,10 +1541,12 @@
         { "name": "continueDeliveryWaitMs", "type": "u32", "minimum": 1000, "unit": "ms" },
         { "name": "negativeWeightThresholdGrams", "type": "u32", "minimum": 1, "unit": "g" },
         { "name": "deliveryAutoCloseMs", "type": "u32", "minimum": 1000, "maximum": 600000, "unit": "ms", "notes": "V1 默认 120000；触摸屏可无限次重置该倒计时" },
-        { "name": "weightMeasurementTimeoutMs", "type": "u32", "minimum": 1000, "maximum": 6000, "unit": "ms", "notes": "V1 默认 6000" },
+        { "name": "weightMeasurementTimeoutMs", "type": "u32", "const": 5000, "unit": "ms", "notes": "原生首版固定5秒，与每个投口相同；不得沿用旧6秒配置" },
         { "name": "deliveryDoorTravelWaitMs", "type": "u32", "minimum": 30000, "maximum": 45000, "unit": "ms", "notes": "V1 默认和硬下限 30000；OPEN/CLOSE 方向电平持续锁存直到相反命令或复位，本字段仅是固定机械行程等待，不控制 GPIO 释放，也不是门位故障超时" },
         { "name": "cleanSolenoidPulseMs", "type": "u32", "minimum": 1, "maximum": 5000, "unit": "ms", "notes": "候选默认 1000；须经实机验证后调优，不得超过固件硬上限 5000" },
-        { "name": "smokeMonitoringEnabled", "type": "bool" }
+        { "name": "smokeMonitoringEnabled", "type": "bool" },
+        { "name": "weightPollIntervalMs", "type": "u32", "const": 250, "unit": "ms", "notes": "已确认的单请求目标周期；实际响应速度待真机验证，不自动退回600毫秒" },
+        { "name": "weightResponseTimeoutMs", "type": "u32", "const": 200, "unit": "ms", "notes": "首版工程候选响应期限，须实测验证；显式进入v2配置摘要" }
       ]
     },
     {
@@ -823,13 +1570,15 @@
         { "name": "fullnessSampleCount", "type": "u8", "minimum": 3, "maximum": 9, "notes": "V1 默认 5" },
         { "name": "fullnessMinimumValidSampleCount", "type": "u8", "minimum": 1, "maximum": 9, "notes": "V1 默认 3，且不得大于 fullnessSampleCount" },
         { "name": "fullnessEchoTimeoutUs", "type": "u32", "minimum": 100, "maximum": 100000, "unit": "us" },
-        { "name": "weightStableWindowMs", "type": "u32", "minimum": 1, "maximum": 6000, "unit": "ms", "notes": "V1 默认 1500" },
-        { "name": "weightMaximumFluctuationGrams", "type": "u32", "unit": "g" },
-        { "name": "weightRequiredSampleCount", "type": "u16", "minimum": 1 },
-        { "name": "weightMeasurementTimeoutMs", "type": "u32", "minimum": 1000, "maximum": 6000, "unit": "ms", "notes": "V1 默认 6000" },
+        { "name": "weightStableWindowMs", "type": "u32", "const": 1500, "unit": "ms", "notes": "首版工程候选：最近5个新点的最大时间跨度，不要求等满窗口" },
+        { "name": "weightMaximumFluctuationGrams", "type": "u32", "const": 100, "unit": "g", "notes": "最近5点最大值减最小值不超过100克，不是正负各100克" },
+        { "name": "weightRequiredSampleCount", "type": "u16", "const": 5 },
+        { "name": "weightMeasurementTimeoutMs", "type": "u32", "const": 5000, "unit": "ms", "notes": "与全机相同，纯波动超时取本阶段合法读数中位数；缺失不得补0" },
         { "name": "weightMinimumGrams", "type": "i32", "unit": "g" },
         { "name": "weightMaximumGrams", "type": "i32", "minimum": 1, "unit": "g" },
-        { "name": "calibrationVersion", "type": "u32" }
+        { "name": "calibrationVersion", "type": "u32" },
+        { "name": "weightMaximumSampleAgeMs", "type": "u32", "const": 750, "unit": "ms", "notes": "首版工程候选：最后合法读数到判定的最大年龄" },
+        { "name": "weightMinimumMedianSampleCount", "type": "u8", "const": 5, "notes": "首版工程候选：超时取中位数至少需要5个本阶段合法新点" }
       ]
     },
     {
@@ -964,7 +1713,7 @@
         { "name": "configContentSha256", "type": "sha256" },
         { "name": "startExecutionWindowMs", "type": "u32", "minimum": 1, "unit": "ms" },
         { "name": "settleWaitMs", "type": "u32", "unit": "ms" },
-        { "name": "measurementTimeoutMs", "type": "u32", "minimum": 1000, "maximum": 6000, "unit": "ms" }
+        { "name": "measurementTimeoutMs", "type": "u32", "const": 5000, "unit": "ms", "notes": "原生称重策略统一5秒，与全机及投口配置一致" }
       ]
     },
     {
@@ -980,7 +1729,7 @@
         { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
         { "name": "configContentSha256", "type": "sha256" },
         { "name": "startExecutionWindowMs", "type": "u32", "minimum": 1, "unit": "ms" },
-        { "name": "measurementTimeoutMs", "type": "u32", "minimum": 1000, "maximum": 6000, "unit": "ms" }
+        { "name": "measurementTimeoutMs", "type": "u32", "const": 5000, "unit": "ms", "notes": "原生空袋基准测量统一5秒，不沿用旧6秒" }
       ]
     },
     {
@@ -1019,7 +1768,7 @@
       "category": "EVENT",
       "ackRequired": true,
       "criticalEvent": true,
-      "notes": "表达投递门开/关命令输出结果；MCU 不具备门位反馈，不能把本事件解释为物理 OPEN/CLOSED",
+      "notes": "本轮开门前独立测量的终态证据，不表示门输出或门位。STABLE_MEAN/TIMEOUT_MEDIAN均可用，纯波动中位数不转失败；真正无数据不冒充0克。首次前置数据须由Pi完整校验并可靠保存，另按授权条件决定是否发送首次开门命令；收到本事件不自动开门。",
       "payload": [
         { "group": "criticalEventIdentity" },
         { "name": "mcuCommandUid", "type": "uuid" },
@@ -1027,7 +1776,7 @@
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
         { "name": "roundIndex", "type": "u16", "minimum": 1 },
         { "name": "measurementUid", "type": "uuid" },
-        { "group": "measurementResult" }
+        { "group": "nativeProcessMeasurement" }
       ]
     },
     {
@@ -1037,6 +1786,7 @@
       "category": "EVENT",
       "ackRequired": true,
       "criticalEvent": true,
+      "notes": "完整校验事件/原命令/原会话身份、投口、轮次及输出矩阵；只表达命令输出，不证明机械到位。原生动作执行与事件保留/精确保存确认尚未接通。COALESCED_WITH_EXISTING_CLOSE只允许command=CLOSE，不能用于开门。",
       "payload": [
         { "group": "criticalEventIdentity" },
         { "name": "mcuCommandUid", "type": "uuid" },
@@ -1047,6 +1797,72 @@
         { "name": "outputStatus", "type": "u8", "enum": "DoorCommandOutputStatus" },
         { "name": "physicalDoorStateBasis", "type": "u8", "enum": "DoorPhysicalStateBasis" },
         { "name": "faultCode", "type": "u16", "enum": "FaultCode" }
+      ]
+    },
+    {
+      "name": "DELIVERY_LOCAL_DOOR_RESULT",
+      "id": 98,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "notes": "MCU本地CONTINUE引起的开门及其自动关门，消息类型明确来源，不是Pi新命令。mcuCommandUid保留本会话首次开门授权的命令身份，仅表示授权根；selectionEventSequence是已精确保存的上一轮CONTINUE选择编号，也作为本轮本地动作身份，两条输出事件共享它但有各自全局事件号。roundIndex等于所引用选择轮次+1，选择编号非零且小于本事件号；这些跨记录关系由实际状态机保证，Pi保存原文不等于账本已匹配。沿用原START配置，不重新扫码、云端授权或受普通满溢拦截；仍须本地阶段/配置/停止状态、双输出记录和编号容量核对。SAVED只确认数据保存，不单独构成动作许可或释放业务。",
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
+        { "name": "sessionUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "roundIndex", "type": "u16", "minimum": 2 },
+        { "name": "command", "type": "u8", "enum": "DeliveryDoorCommand" },
+        { "name": "outputStatus", "type": "u8", "enum": "DoorCommandOutputStatus" },
+        { "name": "physicalDoorStateBasis", "type": "u8", "enum": "DoorPhysicalStateBasis" },
+        { "name": "faultCode", "type": "u16", "enum": "FaultCode" },
+        { "name": "selectionEventSequence", "type": "u32", "minimum": 1 }
+      ]
+    },
+    {
+      "name": "CLEAN_OPERATION_INTERRUPTED",
+      "id": 101, "direction": "MCU_TO_EDGE", "category": "EVENT", "ackRequired": true, "criticalEvent": true,
+      "notes": "清运原操作中断的独立事实，不是锁通断或人工关门确认。mcuCommandUid为本操作最近已受理的解锁命令，须由Pi原命令/父START/配置账本另行核对，不凭原文保存认定账本效果。记录首次观察到的原阶段、原因和当前cleanActionSequence；第一次解锁尚无按钮步骤时为0。UNLOCK_DISPATCH_REJECTED仅允许首次等待解锁(步骤0)或再次开锁的CLEAN_ACTIVE(步骤非0)，表示对应命令已受理但未开始通电，不能补造ON/OFF。其他原因只允许解锁脉冲、清运进行中、末重测量或等待人工确认；人工确认已冻结后的CLEAN_FINALIZING不再改写为中断。后两阶段必须先保留本次末重，再引用早于此事件的finalMeasurementEventSequence；前两阶段引用为0，不复用已作废的末重。PB5本身不是中断原因。原输出/已有过程记录各自保留、独立精确保存；断电或本事件SAVED都不能推定门关闭、清业务占用或完成新袋/皮重应用。",
+      "payload": [
+        {"group": "criticalEventIdentity"},
+        {"name": "mcuCommandUid", "type": "uuid"},
+        {"name": "operationUid", "type": "uuid"},
+        {"name": "portNo", "type": "u8", "minimum": 1, "maximum": 6},
+        {"name": "cleanActionSequence", "type": "u16"},
+        {"name": "interruptedPhase", "type": "u8", "enum": "McuWorkPhase"},
+        {"name": "interruptionReason", "type": "u8", "enum": "CleanInterruptionReason"},
+        {"name": "finalMeasurementEventSequence", "type": "u32"}
+      ]
+    },
+    {
+      "name": "DELIVERY_POSTCLOSE_INTERRUPTED",
+      "id": 100, "direction": "MCU_TO_EDGE", "category": "EVENT", "ackRequired": true, "criticalEvent": true,
+      "notes": "已经发出CLOSE后，前台发现更新停止或原关门控制上下文丢失，独立保存原授权/会话/轮次和观察时间，不覆盖真实CLOSE或声称物理关门。只允许关门行程等待、末重测量、等待选择、最终收尾四阶段；行程等待时末重事件号为0，其余阶段引用已保留本轮末重事件且早于本事件。测量中断先保留实际部分采样终态，已有正常测量/选择/最终结果不改写。PB5防夹本身不是此事件原因。需要原OPEN/CLOSE、中断以及已有末重/选择各自精确保存，不清Pi占用或产生资金。",
+      "payload": [
+        {"group": "criticalEventIdentity"},
+        {"name": "mcuCommandUid", "type": "uuid"},
+        {"name": "sessionUid", "type": "uuid"},
+        {"name": "portNo", "type": "u8", "minimum": 1, "maximum": 6},
+        {"name": "roundIndex", "type": "u16", "minimum": 1},
+        {"name": "interruptedPhase", "type": "u8", "enum": "McuWorkPhase"},
+        {"name": "interruptionReason", "type": "u8", "enum": "PostcloseInterruptionReason"},
+        {"name": "postCloseMeasurementEventSequence", "type": "u32"}
+      ]
+    },
+    {
+      "name": "DELIVERY_CYCLE_ABORTED",
+      "id": 99, "direction": "MCU_TO_EDGE", "category": "EVENT", "ackRequired": true, "criticalEvent": true,
+      "notes": "本轮尚未发出CLOSE时中止，单独保留中止原因和真实OPEN是否已发出；不是关门结果、物理安全证明或新动作授权。mcuCommandUid为原首次开门授权根；首轮selectionEventSequence=0，后续轮次为已保存的CONTINUE编号且小于本事件号。CYCLE_START_REJECTED和OPEN_DEADLINE_EXPIRED只能openDispatched=false，UPDATE_STOPPED可发生在OPEN前后。使用预留的CLOSE位置保存中止事实，正常CLOSE与中止互斥，不取消已发布OPEN证据。原动作和中止记录精确保存后才能组装失败结果，Pi占用和恢复检查独立。",
+      "payload": [
+        {"group": "criticalEventIdentity"},
+        {"name": "mcuCommandUid", "type": "uuid"},
+        {"name": "sessionUid", "type": "uuid"},
+        {"name": "portNo", "type": "u8", "minimum": 1, "maximum": 6},
+        {"name": "roundIndex", "type": "u16", "minimum": 1},
+        {"name": "abortReason", "type": "u8", "enum": "DeliveryCycleAbortReason"},
+        {"name": "openDispatched", "type": "bool"},
+        {"name": "selectionEventSequence", "type": "u32"}
       ]
     },
     {
@@ -1063,7 +1879,8 @@
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
         { "name": "roundIndex", "type": "u16", "minimum": 1 },
         { "name": "measurementUid", "type": "uuid" },
-        { "group": "measurementResult" }
+        { "group": "nativeProcessMeasurement" },
+        { "group": "workFullnessEvidence" }
       ]
     },
     {
@@ -1073,13 +1890,15 @@
       "category": "EVENT",
       "ackRequired": true,
       "criticalEvent": true,
-      "notes": "必须在同 roundIndex 的 WORK_POSTCLOSE_WEIGHT_READY 获得持久 ACK 后发送；END/WINDOW_EXPIRED 使所绑定测量成为整场最终重量，CONTINUE 获 ACK 后才可再次开门",
+      "notes": "只在同roundIndex的WORK_POSTCLOSE_WEIGHT_READY获得PROCESS_EVENT_SAVED精确确认后生成。保留原START命令/配置/业务及对应测量身份，复用过程槽查询和精确保存；选择不是新测量。Pi须在同一事务核对已保存的同轮可用重量、原START/配置和时间顺序，再返回确认。END/WINDOW_EXPIRED使所绑定测量成为整场最终重量；CONTINUE须选择原文精确保存及本地动作前置复核后才可再次开门，普通ACK不构成许可。",
       "payload": [
         { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
         { "name": "sessionUid", "type": "uuid" },
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
         { "name": "roundIndex", "type": "u16", "minimum": 1 },
         { "name": "postCloseMeasurementUid", "type": "uuid" },
+        { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
         { "name": "selection", "type": "u8", "enum": "DeliverySelection" }
       ]
     },
@@ -1096,7 +1915,7 @@
         { "name": "operationUid", "type": "uuid" },
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
         { "name": "measurementUid", "type": "uuid" },
-        { "group": "measurementResult" }
+        { "group": "nativeProcessMeasurement" }
       ]
     },
     {
@@ -1106,7 +1925,7 @@
       "category": "EVENT",
       "ackRequired": true,
       "criticalEvent": true,
-      "notes": "只表达电磁阀输出，不是清运门门磁事实",
+      "notes": "完整校验事件/原命令/原清运身份、投口、通电状态及驱动健康枚举。通电和断电是不同事件，后者不得覆盖尚未交接的前者；不得因等待交接而延长配置通电期限。UNKNOWN按未知保留，不推定健康或门位。原生事件保留/精确保存确认尚未接通。",
       "payload": [
         { "group": "criticalEventIdentity" },
         { "name": "mcuCommandUid", "type": "uuid" },
@@ -1123,12 +1942,14 @@
       "category": "EVENT",
       "ackRequired": true,
       "criticalEvent": true,
-      "notes": "cleanActionSequence 在同一 operationUid 的再次解锁与完成请求间共享、严格递增且不得回绕",
+      "notes": "原START命令和配置下的按钮意图，精确保存不是开锁许可。cleanActionSequence 在同一 operationUid 的再次解锁与完成请求间共享、严格递增且不得回绕",
       "payload": [
         { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
         { "name": "operationUid", "type": "uuid" },
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
-        { "name": "cleanActionSequence", "type": "u16", "minimum": 1 }
+        { "name": "cleanActionSequence", "type": "u16", "minimum": 1 },
+        { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 }
       ]
     },
     {
@@ -1141,9 +1962,11 @@
       "notes": "清运员第一次按完成只请求最终称重并进入结果展示；它不是人工关门完成确认。cleanActionSequence 与再次解锁请求共享并严格递增",
       "payload": [
         { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
         { "name": "operationUid", "type": "uuid" },
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
-        { "name": "cleanActionSequence", "type": "u16", "minimum": 1 }
+        { "name": "cleanActionSequence", "type": "u16", "minimum": 1 },
+        { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 }
       ]
     },
     {
@@ -1160,7 +1983,8 @@
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
         { "name": "cleanActionSequence", "type": "u16", "minimum": 1 },
         { "name": "measurementUid", "type": "uuid" },
-        { "group": "measurementResult" }
+        { "group": "nativeProcessMeasurement" },
+        { "group": "workFullnessEvidence" }
       ]
     },
     {
@@ -1184,7 +2008,7 @@
         { "name": "requestedSampleCount", "type": "u8", "minimum": 1 },
         { "name": "validSampleCount", "type": "u8" },
         { "name": "measurementUid", "type": "uuid" },
-        { "group": "measurementResult" }
+        { "group": "nativeProcessMeasurement" }
       ]
     },
     {
@@ -1200,7 +2024,7 @@
         { "name": "measurementUid", "type": "uuid" },
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
         { "name": "weightMeasurementUid", "type": "uuid" },
-        { "group": "measurementResult" }
+        { "group": "nativeProcessMeasurement" }
       ]
     },
     {
@@ -1265,9 +2089,10 @@
       "category": "EVENT",
       "ackRequired": true,
       "criticalEvent": true,
-      "notes": "只在同代 CLEAN_FINAL_WEIGHT_READY 已获 ACK、屏幕展示结果且清运员再次明确确认安装与人工关门完成后产生；最终称重可以失败。锁断电不等于门已关闭，人工确认是唯一完成依据",
+      "notes": "只在同代 CLEAN_FINAL_WEIGHT_READY 已获 PROCESS_EVENT_SAVED 精确确认、屏幕展示结果且清运员再次明确确认安装与人工关门完成后产生；最终称重可以失败。锁断电不等于门已关闭，人工确认是唯一完成依据",
       "payload": [
         { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
         { "name": "operationUid", "type": "uuid" },
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
         { "name": "cleanActionSequence", "type": "u16", "minimum": 1 },
@@ -1275,7 +2100,8 @@
         { "name": "lockPowerState", "type": "u8", "enum": "CleanLockPowerState" },
         { "name": "solenoidHealth", "type": "u8", "enum": "SolenoidHealth" },
         { "name": "cleanDoorStateBasis", "type": "u8", "enum": "CleanDoorStateBasis" },
-        { "name": "cleanerPhysicalCloseConfirmed", "type": "bool", "const": true }
+        { "name": "cleanerPhysicalCloseConfirmed", "type": "bool", "const": true },
+        { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 }
       ]
     },
     {
@@ -1310,7 +2136,7 @@
         { "group": "criticalEventIdentity" },
         { "name": "snapshotUid", "type": "uuid" },
         { "name": "queryCommandUid", "type": "uuid" },
-        { "name": "protocolMajor", "type": "u8", "const": 1 },
+        { "name": "protocolMajor", "type": "u8", "const": 2 },
         { "name": "protocolMinor", "type": "u8", "const": 0 },
         { "name": "firmwareVersionCode", "type": "u32" },
         { "name": "activeWorkType", "type": "u8", "enum": "WorkType" },
@@ -1389,18 +2215,72 @@
   ],
   "semanticRules": [
     {
-      "id": "MEASUREMENT_STATUS_VALIDITY",
+      "id": "PROCESS_EVENT_CUSTODY", "kind": "RESULT_HANDOFF",
+      "messages": ["QUERY_PROCESS_EVENT", "PROCESS_EVENT_QUERY_REPLY", "PROCESS_EVENT_SAVED", "PROCESS_EVENT_SAVED_REPLY"],
+      "notes": "只读查询绑定已受理原命令及业务/投口/测量类型/步骤/配置，不消费机械命令序号。MCU前台有界保留原字节，HELD返回原事件，不重新测量；同业务同类型同一步骤而原身份冲突返回IDENTITY_CONFLICT。Pi原文和原业务关系同一SQLite事务提交后才可发送精确保存确认。普通ACK不释放过程记录；保存身份匹配启动/事件序号/消息类型/全原文摘要才释放，仅数据槽释放，不改业务阶段、最终结果或准入。保存回复无queryId，不证明新鲜状态；需新查询观察。已释放引用可能被后一步骤替换，NOT_FOUND不是未执行或空闲证明。跨阶段顺序与全局事件编号由业务所有者负责，尚未接完整业务执行器。"
+    },
+    {
+      "id": "NATIVE_PROCESS_MEASUREMENT", "kind": "MEASUREMENT_VALIDITY",
+      "messages": ["WORK_PREOPEN_WEIGHT_READY", "WORK_POSTCLOSE_WEIGHT_READY", "WORK_PREUNLOCK_WEIGHT_READY", "CLEAN_FINAL_WEIGHT_READY", "FULLNESS_SAMPLE_RESULT", "BASELINE_MEASUREMENT_RESULT"],
+      "notes": "过程消息与WORK_RESULT使用同一ResultMeasurementKind。消息描述本启动下实际发生的一次终态测量，测量UUID、启动号、事件序号及所用配置版本非零，elapsed<=uptime且最多5000ms、最多32点。STABLE_MEAN/TIMEOUT_MEDIAN为可用值，至少5点且fault=NONE；均值跨度<=100g，中位数恰在5000ms形成，不转旧UNSTABLE或末四点均值。失败种类4..10必须将重量槽清零，kind而非数字0表示无可用重量；样本数/跨度保留实际诊断，不凭空补造。INTERRUPTED与MEASUREMENT_INTERRUPTED原因码必须成对出现，保留实际测量身份/已采样数/中断时耗时，不能冒充称重超时或未采集；携带中断测量的WORK_RESULT只允许FAILED/CANCELLED。业务中断原因不是称重硬件故障，不扩大FAULT_OBSERVED硬件故障范围。NOT_TAKEN/MCU_RESET_LOST仅可用于最终结果缺失槽，不能冒充本次MCU实际测量事件。其他失败的故障细码是附加诊断，没有具体诊断时可为NONE，不覆盖失败kind。configVersion是测量采用的版本，不是收包时新版本。前四种measurementUid及BASELINE的weightMeasurementUid标识实际测量；BASELINE的measurementUid仍标识原测量任务。称重只是满溢消息的一个分量，不证明距离传感器或完整业务准入。Pi须完整保存原字节并检查原业务/代次/冲突再确认，校验成功或收到ACK不等于新机械授权、清占用、上云或产生资金。过程保留/精确确认已有独立候选与实际控制入口；完整业务接线仍待实现。"
+    },
+    {
+      "id": "DEVICE_FACTS_SCOPE_AND_CAPTURE", "kind": "WORK_SCOPE", "messages": ["QUERY_DEVICE_FACTS", "DEVICE_FACTS_REPLY"],
+      "notes": "单投口只读查询，完整回显queryId/targetMcuBootId/portNo。BOOT_MISMATCH当且仅当当前启动不同于目标启动；非AVAILABLE正文事实全部清零，不能解释为门关闭或重量为零。AVAILABLE表示抓取时该MCU已知的事实集合，不表示所有传感器同一瞬间采样。controlUptimeMs不晚于capturedUptimeMs；门目标、输出、防夹输入必须来自同一次控制刷新。输出指最近施加给GPIO的命令，不是独立电气回读或物理门位。烟感与满溢原始观察各带采集时间，缺来源保持NOT_OBSERVED，查询不能刷新旧读数。查询不能驱动、清占用、确认结果或决定接单，不能代替完整健康/业务核对及尚未迁移的多投口快照。"
+    },
+    {
+      "id": "DEVICE_FACTS_DOOR_OUTPUTS", "kind": "WORK_SCOPE", "messages": ["DEVICE_FACTS_REPLY"],
+      "notes": "门目标NONE/OPEN/CLOSE与动作激活分离，停止输出保留最后有效目标。激活必有目标；PB6仅在激活OPEN时为1，PB7仅在激活CLOSE且PB5未触发时为1；pinchPaused当且仅当激活CLOSE且PB5触发。OPEN忽略PB5；更新锁存时动作及清运锁必须停止，但不清目标。PB5不是到位/故障证据，清运锁输出不能推导清运门关闭。"
+    },
+    {
+      "id": "DEVICE_FACTS_WEIGHT_OBSERVATIONS", "kind": "MEASUREMENT_VALIDITY", "messages": ["DEVICE_FACTS_REPLY"],
+      "notes": "原始读取与最后一轮测量独立。原始NOT_OBSERVED时编号/时间/重量/校准版本清零；其余读取编号非零，采集时间不晚于快照，只有VALID携重量，其余清零不代表0克；VALID可是真实0克或负数，也可能过期。读取失败覆盖旧有效状态但不刷新旧样本时间。测量NONE所有槽清零；其余编号和所用配置版本非零，elapsed<=observed<=captured。均值/中位数至少5点，均值跨度<=100g，中位数elapsed=5000ms；非成功状态重量/跨度为零，RUNNING的elapsed=0仅表示尚无最终耗时。测量观察时间不是原始采样时间；终态重复发布不刷新时间或内容，其配置版本可与当前应用版本不同。Pi按MCU快照内样本年龄加本地自查询发起以来的时间保守判新鲜度，不直接相减两端时钟，不用旧读数冒充当前重量，不自动校准。"
+    },
+    {
+      "id": "DEVICE_FACTS_CONFIG_AND_WORK", "kind": "WORK_SCOPE", "messages": ["DEVICE_FACTS_REPLY"],
+      "notes": "配置版本为0时两种SHA清零，非零版本两种SHA均非零；只发布实际应用后的元数据，不因此宣称配置事务已接入。保留业务NONE时全部业务槽清零；否则workUid/原命令序号非零、类型为投递或清运、投口1..6。RUNNING阶段限本类型或SAFETY_LOCKED且结果序号为0；HELD/RELEASED为对应FINALIZING且结果序号非零。摘要仅提示MCU最近保留哪笔业务，不含完整命令/结果摘要，不能替代精确QUERY_WORK、完整WORK_RESULT或RESULT_SAVED，更不产生资金。"
+    },
+    {
+      "id": "WORK_QUERY_IDENTITY_AND_STATE", "kind": "WORK_SCOPE", "messages": ["QUERY_WORK", "WORK_QUERY_REPLY"],
+      "notes": "仅DELIVERY_SESSION/CLEAN_OPERATION。所有回复完整回显queryId+原命令身份+workUid/type/port，不反推受理或动作结果。BOOT_MISMATCH当且仅当currentBoot不同于targetBoot；RUNNING只用本业务类型阶段或SAFETY_LOCKED，结果号/摘要槽为零。RESULT_HELD/RESULT_RELEASED阶段固定为对应FINALIZING，结果号非零，摘要引用原冻结结果。NOT_FOUND/IDENTITY_CONFLICT/BOOT_MISMATCH的phase为IDLE空编码且结果号/摘要全零，不提供当前全机空闲证明。当前未保留详情并不等于从未执行；查询、超时、NOT_FOUND、结果释放都不释放Pi业务占用，也不授权重发机械命令。只保留最近一笔业务身份，新的业务覆盖旧查询详情必须在旧结果已交接后；MCU重启清RAM但Pi保留原业务。"
+    },
+    {
+      "id": "WORK_RESULT_SELF_CONTAINED", "kind": "RESULT_HANDOFF", "messages": ["WORK_RESULT", "RESULT_SAVED", "QUERY_RESULT", "RESULT_QUERY_REPLY"],
+      "notes": "WORK_RESULT固定199字节/213字节总帧，完整摘要覆盖身份与全部正文；只有全部校验及真实SQLite提交成功才可RESULT_SAVED，半帧/CRC/摘要/语义失败不得确认。完整结果与PENDING_CLASSIFICATION待上报任务同事务提交；该任务须经Pi结合照片、上下文和异常记录裁定后才能生成OneNet事件，不直接进入余额/提现链。相同启动+结果号正文冲突保留原结果及冲突证据，不覆盖、不确认冲突正文。查询精确身份只读，HELD时重发原字节；BOOT_MISMATCH当且仅当当前启动不等于结果启动；保存/释放不改变Pi或云端业务占用。仅投递/清运适用；originCommand是本启动的START或RESUME，不伪造重启前命令。照片、袋子身份/代次、价格和用户归属仍由Pi持久上下文提供。"
+    },
+    {
+      "id": "WORK_RESULT_WEIGHT_SLOTS", "kind": "MEASUREMENT_VALIDITY", "messages": ["WORK_RESULT"],
+      "notes": "ResultMeasurementKind组合表达原生完成结果的测量状态与取值方式，不改旧WeightValueKind/OneNet。NOT_TAKEN/MCU_RESET_LOST时对应槽除Kind外全部为零，语义是缺值而非0克；有测量则UUID非零、sourceBoot必须等于结果boot、事件序号非零，前后UUID不同且事件序号严格递增。STABLE_MEAN至少5点且跨度<=100g，TIMEOUT_MEDIAN至少5点且elapsed=5000ms，二者faultCode=NONE；其余实际失败有测量身份、weight槽为零且不产生可用重量。采样最多32点、elapsed最多5000ms；span表示参与取值样本跨度。两个成功类型可包含真实0克或负值，不代替硬件校准；TIMEOUT_MEDIAN不冒充稳定或旧末四点均值。旧重量在Pi有完整副本时保留原证据，MCU无需回填重启前值。"
+    },
+    {
+      "id": "WORK_RESULT_FINISH_SCOPE", "kind": "WORK_SCOPE", "messages": ["WORK_RESULT"],
+      "notes": "仅DELIVERY_SESSION/CLEAN_OPERATION。投递不携带cleanActionSequence或清运员关门确认，不使用CLEAN_CONFIRMED；正常投递结束/窗口到期roundCount非零。清运roundCount=0且negativeWeightAnomaly=false，不使用投递结束原因；CLEAN_CONFIRMED要求physicalCloseConfirmed=true与非零cleanActionSequence。该确认是清运员事实，不是电气测得清运门关闭。FAILED/CANCELLED只描述MCU结束原因，正常/异常订单/重启问题记录和迟到冲突须由后续Pi分类器结合持久事实裁定。"
+    },
+    {
+      "id": "RESULT_SAVED_CURRENT_BOOT", "kind": "RESULT_HANDOFF", "messages": ["RESULT_SAVED_REPLY"],
+      "notes": "仅 BOOT_MISMATCH 允许 currentMcuBootId 与原 mcuBootId 不同（当前可为0）；其他状态必须在原非零启动下。保存确认仅释放精确身份的结果，不清下一份结果，不改变 Pi 接单条件。"
+    },
+    {
+      "id": "COMMAND_DECISION_IDENTITY", "kind": "COMMAND_OUTCOME", "messages": ["COMMAND_DECISION", "COMMAND_QUERY_RESULT"],
+      "notes": "只有 BOOT_MISMATCH 允许 currentMcuBootId 与 targetMcuBootId 不同（当前可为0）；其余必须精确同启动。仅 REJECTED 携非 NONE errorCode；其他必须 NONE。主动决定不得用仅查询可返回的 NOT_SEEN。ACCEPTED 是已固定受理决定，不是机械完成或业务成功。"
+    },
+    {
+      "id": "COMMAND_QUERY_HIGH_WATER", "kind": "COMMAND_OUTCOME", "messages": ["COMMAND_QUERY_RESULT"],
+      "notes": "当前编号为0时水位为0。同启动下，NOT_SEEN 要求原命令序号严格大于已处理最高序号；OLD_DETAILS_UNAVAILABLE 要求不高于水位；ACCEPTED/REJECTED/IDENTITY_CONFLICT 仅来自最新缓存，原序号必须等于水位。查询不改变水位；旧详情不可取不等于未执行，不能据此释放原工作。"
+    },
+    {
+      "id": "BOOT_BIND_REPLY_IDENTITY",
+      "kind": "BOOT_BINDING",
+      "messages": ["BIND_BOOT_REPLY"],
+      "notes": "BOUND => mcuBootId=proposedMcuBootId>0；PROBE_MISMATCH => mcuBootId=0；ALREADY_BOUND => mcuBootId>0。未知状态拒绝。该形状校验不替代运行时 pending probe 和目标启动校验。"
+    },
+    {
+      "id": "LEGACY_SNAPSHOT_MEASUREMENT_VALIDITY",
       "kind": "MEASUREMENT_VALIDITY",
       "messages": [
-        "WORK_PREOPEN_WEIGHT_READY",
-        "WORK_POSTCLOSE_WEIGHT_READY",
-        "WORK_PREUNLOCK_WEIGHT_READY",
-        "CLEAN_FINAL_WEIGHT_READY",
-        "FULLNESS_SAMPLE_RESULT",
-        "BASELINE_MEASUREMENT_RESULT",
         "STATE_SNAPSHOT_PORT"
       ],
-      "notes": "weightValuePresent 与可信度分离：STABLE 必须携带 STABLE_WINDOW_MEAN；UNSTABLE 仍必须携带 LAST_FOUR_MEAN 或 AVAILABLE_SAMPLES_MEAN。其他故障状态只要取得过数据也必须携带，不得用状态替代数值；没有数据时 reportedWeightGrams 固定槽清零且 weightValueKind=NONE。health/fault 必须与状态匹配。"
+      "notes": "仅保留给尚未启用的旧多段STATE_SNAPSHOT_PORT及其v1摘要，不用于新的原生过程/最终称重或当前DEVICE_FACTS_REPLY。旧weightValuePresent与可信度分离：STABLE携带STABLE_WINDOW_MEAN；UNSTABLE携带LAST_FOUR_MEAN或AVAILABLE_SAMPLES_MEAN；无数据时重量槽为零且kind=NONE，health/fault须匹配。禁止为了兼容此旧结构将新中位数改名，旧快照不是候选接线入口。"
     },
     {
       "id": "CLEAN_MANUAL_CLOSE_CONFIRMATION",
@@ -1447,7 +2327,7 @@
         "DELIVERY_DOOR_COMMAND_RESULT",
         "SAFE_CLOSE_RESULT"
       ],
-      "notes": "physicalDoorStateBasis 恒为 NOT_OBSERVABLE。COMMAND_DISPATCHED 表示经过 100 ms 的 0/0 换向死区后，目标 OPEN/CLOSE 方向已经锁存并将保持到相反命令或复位；它不证明机械动作完成。COMMAND_SUPERSEDED_BEFORE_DISPATCH 表示尚在死区中的命令被更高优先级 CLOSE 取代；COMMAND_DISPATCHED、COMMAND_SUPERSEDED_BEFORE_DISPATCH 与 COALESCED_WITH_EXISTING_CLOSE 使用 faultCode=NONE。OUTPUT_REJECTED 对应 DELIVERY_DOOR_OUTPUT_REJECTED 或 DELIVERY_DOOR_HIL_NOT_QUALIFIED。"
+      "notes": "physicalDoorStateBasis 恒为 NOT_OBSERVABLE。COMMAND_DISPATCHED 表示经过 100 ms 的 0/0 换向死区后，目标 OPEN/CLOSE 方向已经锁存并将保持到相反命令或复位；它不证明机械动作完成。COMMAND_SUPERSEDED_BEFORE_DISPATCH 表示尚在死区中的命令被更高优先级 CLOSE 取代；COMMAND_DISPATCHED、COMMAND_SUPERSEDED_BEFORE_DISPATCH 与 COALESCED_WITH_EXISTING_CLOSE 使用 faultCode=NONE。COALESCED_WITH_EXISTING_CLOSE 只允许 command=CLOSE；SAFE_CLOSE_RESULT 也只允许 command=CLOSE。command=NONE 与 outputStatus=NOT_DISPATCHED 仅供快照，不允许作为结果。OUTPUT_REJECTED 对应 DELIVERY_DOOR_OUTPUT_REJECTED 或 DELIVERY_DOOR_HIL_NOT_QUALIFIED。"
     },
     {
       "id": "UART_FAULT_COMPONENT_CODE",
@@ -1456,6 +2336,11 @@
         "FAULT_OBSERVED"
       ],
       "notes": "faultCode 禁止 NONE，且必须属于 component：UART→UART_PROTOCOL/UART_STORAGE；DELIVERY_DOOR→OUTPUT_INTERRUPTED/OUTPUT_REJECTED/HIL_NOT_QUALIFIED；CLEAN_SOLENOID→CLEAN_SOLENOID_DRIVER；WEIGHT_SENSOR→UNSTABLE/TIMEOUT/SENSOR/OVERLOAD/PROTOCOL/CONFIG/DISCONNECTED；FULLNESS_SENSOR 仅允许真正的驱动诊断，不得把无回波或样本不足上升为故障；SMOKE_SENSOR→SMOKE_SENSOR；MCU_STORAGE→MCU_STORAGE；MCU_INTERNAL→MCU_INTERNAL。"
+    },
+    {
+      "id": "WORK_FULLNESS_EVIDENCE", "kind": "MEASUREMENT_VALIDITY",
+      "messages": ["WORK_POSTCLOSE_WEIGHT_READY", "CLEAN_FINAL_WEIGHT_READY"],
+      "notes": "满溢整组观察随原作业/轮次/清运动作的末重记录精确交接，不创建后端检测任务。uptimeMs仍是重量解析终态时刻，满溢有独立开始/最后采集/冻结时间，允许晚于重量时刻，不刷新重量。NOT_SAMPLED整组槽全零，不冒充CLEAR。实际组仅支持本板超声波，保留原配置全摘要和MCU摘要、原阈值/数量；COMPLETE要求采够，足够有效取中位数并严格小于阈值才BLOCKED，0有效与不足有效分别明确CLEAR回退。INTERRUPTED保留部分数量/原配置/取消原因，无判断/距离/回退。该记录不修改袋状态、资金或接单；Pi须另核对原配置和业务，并沿V25在对应业务被后端确认后计算当前袋状态。"
     },
     {
       "id": "FULLNESS_CLEAR_FALLBACK",
@@ -1475,7 +2360,7 @@
         "CONFIG_PORT_BLOCK",
         "CONFIG_COMMIT"
       ],
-      "notes": "同一 application/version/content/mcuPayload 摘要组成 BEGIN、DEVICE、按 portNo 连续有序的 PORT、COMMIT；partCount=expectedPortCount+3，partIndex 与端口严格对应。"
+      "notes": "同一 application/version/content/mcuPayload 摘要组成 BEGIN、DEVICE、按 portNo 连续有序的 PORT、COMMIT；partCount=expectedPortCount+3，partIndex 与端口严格对应。PORT 的 partIndex=portNo+2 且严格小于 partCount，不占用最后 COMMIT 的序号；COMMIT 的 partIndex 等于 partCount。集合按投口号计算总摘要，未收齐或总摘要不符不改变现用配置。实际会话先缓存本次命令接受/拒绝，只有 execute_once 才改变配置；重复/旧命令不重复切换。进行中的业务、待保存结果及所有者其他占用/安全/升级条件阻止配置，配置暂存也阻止新业务。明确接受不同应用编号的新 BEGIN 可替换仅暂存的候选，不清业务、结果或现用配置；拒绝版本回退、同版本不同摘要和同应用编号改用另一版本。相同版本/摘要的新应用可重新完整提交。配置只在 MCU RAM 保留，Pi 重连不清理，MCU 重启不自动重放。RAM 整套切换与整机应用须区分，所有实际消费者未接通前不得发送 APPLIED 或伪造设备已应用事实。"
     },
     {
       "id": "SNAPSHOT_SEGMENT_SET",
@@ -1514,7 +2399,7 @@
         "WORK_POSTCLOSE_WEIGHT_READY",
         "DELIVERY_SELECTION"
       ],
-      "notes": "选择事件必须精确绑定已持久 ACK 的 postCloseMeasurementUid；END/WINDOW_EXPIRED 固化最终重量，CONTINUE 获 ACK 后才允许再次开门。"
+      "notes": "选择事件必须精确绑定已用PROCESS_EVENT_SAVED精确确认的同轮postCloseMeasurementUid；原START/业务/投口/配置必须一致，所绑定重量可用且事件号/时间先于选择。END/WINDOW_EXPIRED固化该轮最终重量；CONTINUE选择原文再经PROCESS_EVENT_SAVED确认并通过本地动作前置检查后才允许再次开门。普通ACK不释放记录或允许动作。"
     },
     {
       "id": "BOOT_RECONCILIATION_DECISION",
@@ -1529,6 +2414,380 @@
     }
   ],
   "goldenVectors": [
+    {"name": "clean_unlock_intent_original_work", "expected": "VALID", "message": "CLEAN_UNLOCK_REQUESTED", "flags": ["ACK_REQUIRED"], "txSequence": 29,
+      "payload": {"mcuBootId": 42, "mcuEventSequence": 4, "uptimeMs": 11000,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111", "operationUid": "22222222-2222-4222-8222-222222222222",
+        "portNo": 1, "cleanActionSequence": 1, "configVersion": 7}},
+    {"name": "clean_finish_intent_original_work", "expected": "VALID", "message": "CLEAN_FINISH_REQUESTED", "flags": ["ACK_REQUIRED"], "txSequence": 30,
+      "payload": {"mcuBootId": 42, "mcuEventSequence": 5, "uptimeMs": 12000,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111", "operationUid": "22222222-2222-4222-8222-222222222222",
+        "portNo": 1, "cleanActionSequence": 2, "configVersion": 7}},
+    {"name": "clean_operation_update_interrupted", "expected": "VALID", "message": "CLEAN_OPERATION_INTERRUPTED", "flags": ["ACK_REQUIRED"], "txSequence": 31,
+      "payload": {"mcuBootId": 42, "mcuEventSequence": 10, "uptimeMs": 12000,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111", "operationUid": "22222222-2222-4222-8222-222222222222",
+        "portNo": 1, "cleanActionSequence": 0, "interruptedPhase": "CLEAN_ACTIVE",
+        "interruptionReason": "UPDATE_STOPPED", "finalMeasurementEventSequence": 0}},
+    {"name": "delivery_postclose_update_interrupted", "expected": "VALID", "message": "DELIVERY_POSTCLOSE_INTERRUPTED", "flags": ["ACK_REQUIRED"], "txSequence": 28,
+      "payload": {"mcuBootId": 42, "mcuEventSequence": 10, "uptimeMs": 12000,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111", "sessionUid": "22222222-2222-4222-8222-222222222222",
+        "portNo": 1, "roundIndex": 1, "interruptedPhase": "DELIVERY_CLOSE_TRAVEL_WAIT",
+        "interruptionReason": "UPDATE_STOPPED", "postCloseMeasurementEventSequence": 0}},
+    {"name": "delivery_cycle_update_aborted", "expected": "VALID", "message": "DELIVERY_CYCLE_ABORTED", "flags": ["ACK_REQUIRED"], "txSequence": 27,
+      "payload": {"mcuBootId": 42, "mcuEventSequence": 10, "uptimeMs": 12000,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111", "sessionUid": "22222222-2222-4222-8222-222222222222",
+        "portNo": 1, "roundIndex": 2, "abortReason": "UPDATE_STOPPED", "openDispatched": true, "selectionEventSequence": 8}},
+    {"name": "delivery_local_continue_open", "expected": "VALID", "message": "DELIVERY_LOCAL_DOOR_RESULT", "flags": ["ACK_REQUIRED"], "txSequence": 26,
+      "payload": {"mcuBootId": 42, "mcuEventSequence": 9, "uptimeMs": 12000,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111", "sessionUid": "22222222-2222-4222-8222-222222222222",
+        "portNo": 1, "roundIndex": 2, "command": "OPEN", "outputStatus": "COMMAND_DISPATCHED",
+        "physicalDoorStateBasis": "NOT_OBSERVABLE", "faultCode": "NONE", "selectionEventSequence": 8}},
+    {"name": "delivery_selection_saved_round", "expected": "VALID", "message": "DELIVERY_SELECTION", "flags": ["ACK_REQUIRED"], "txSequence": 25,
+      "payload": {"mcuBootId": 42, "mcuEventSequence": 8, "uptimeMs": 11000,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111", "sessionUid": "22222222-2222-4222-8222-222222222222",
+        "portNo": 1, "roundIndex": 1, "postCloseMeasurementUid": "33333333-3333-4333-8333-333333333333",
+        "configVersion": 7, "selection": "END"}},
+    {"name": "query_actuator_oldest", "expected": "VALID", "message": "QUERY_ACTUATOR_EVENT", "flags": [], "txSequence": 24,
+      "payload": {"queryId": 24, "targetMcuBootId": 42, "afterMcuEventSequence": 0}},
+    {"name": "actuator_query_held", "expected": "VALID", "message": "ACTUATOR_EVENT_QUERY_REPLY", "flags": [], "txSequence": 24,
+      "payload": {"queryId": 24, "targetMcuBootId": 42, "afterMcuEventSequence": 0, "currentMcuBootId": 42, "status": "HELD",
+        "mcuEventSequence": 7, "eventMessageType": "CLEAN_LOCK_POWER_CHANGED", "eventDigestSha256": "2222222222222222222222222222222222222222222222222222222222222222"}},
+    {"name": "actuator_saved_exact", "expected": "VALID", "message": "ACTUATOR_EVENT_SAVED", "flags": [], "txSequence": 25,
+      "payload": {"mcuBootId": 42, "mcuEventSequence": 7, "eventMessageType": "CLEAN_LOCK_POWER_CHANGED", "eventDigestSha256": "2222222222222222222222222222222222222222222222222222222222222222"}},
+    {"name": "actuator_saved_released", "expected": "VALID", "message": "ACTUATOR_EVENT_SAVED_REPLY", "flags": [], "txSequence": 25,
+      "payload": {"mcuBootId": 42, "mcuEventSequence": 7, "eventMessageType": "CLEAN_LOCK_POWER_CHANGED", "eventDigestSha256": "2222222222222222222222222222222222222222222222222222222222222222", "currentMcuBootId": 42, "status": "RELEASED"}},
+    {
+      "name": "safe_close_output_fact", "expected": "VALID",
+      "message": "SAFE_CLOSE_RESULT", "flags": ["ACK_REQUIRED"], "txSequence": 33,
+      "payload": {
+        "mcuBootId": 42, "mcuEventSequence": 9, "uptimeMs": 2000,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+        "scope": "SINGLE_DELIVERY_DOOR", "portNo": 1,
+        "command": "CLOSE", "outputStatus": "COMMAND_DISPATCHED",
+        "physicalDoorStateBasis": "NOT_OBSERVABLE", "faultCode": "NONE"
+      }
+    },
+    {
+      "name": "delivery_open_output_fact", "expected": "VALID",
+      "message": "DELIVERY_DOOR_COMMAND_RESULT", "flags": ["ACK_REQUIRED"], "txSequence": 31,
+      "payload": {
+        "mcuBootId": 42, "mcuEventSequence": 7, "uptimeMs": 1000,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+        "sessionUid": "22222222-2222-4222-8222-222222222222",
+        "portNo": 1, "roundIndex": 1, "command": "OPEN", "outputStatus": "COMMAND_DISPATCHED",
+        "physicalDoorStateBasis": "NOT_OBSERVABLE", "faultCode": "NONE"
+      }
+    },
+    {
+      "name": "clean_lock_energized_fact", "expected": "VALID",
+      "message": "CLEAN_LOCK_POWER_CHANGED", "flags": ["ACK_REQUIRED"], "txSequence": 32,
+      "payload": {
+        "mcuBootId": 42, "mcuEventSequence": 7, "uptimeMs": 1000,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+        "operationUid": "33333333-3333-4333-8333-333333333333",
+        "portNo": 1, "lockPowerState": "ENERGIZED", "solenoidHealth": "OK"
+      }
+    },
+    {
+      "name": "query_original_process",
+      "expected": "VALID",
+      "message": "QUERY_PROCESS_EVENT",
+      "flags": [],
+      "txSequence": 23,
+      "payload": {
+        "queryId": 23,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+        "commandDigestSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "targetMcuBootId": 42,
+        "commandSequence": 1,
+        "workUid": "22222222-2222-4222-8222-222222222222",
+        "workType": "DELIVERY_SESSION",
+        "portNo": 1,
+        "eventMessageType": "WORK_PREOPEN_WEIGHT_READY",
+        "stepSequence": 1,
+        "configVersion": 7
+      }
+    },
+    {
+      "name": "process_query_held",
+      "expected": "VALID",
+      "message": "PROCESS_EVENT_QUERY_REPLY",
+      "flags": [],
+      "txSequence": 23,
+      "payload": {
+        "queryId": 23,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+        "commandDigestSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "targetMcuBootId": 42,
+        "commandSequence": 1,
+        "workUid": "22222222-2222-4222-8222-222222222222",
+        "workType": "DELIVERY_SESSION",
+        "portNo": 1,
+        "eventMessageType": "WORK_PREOPEN_WEIGHT_READY",
+        "stepSequence": 1,
+        "configVersion": 7,
+        "currentMcuBootId": 42,
+        "status": "HELD",
+        "mcuEventSequence": 3,
+        "eventDigestSha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    },
+    {
+      "name": "process_saved_exact",
+      "expected": "VALID",
+      "message": "PROCESS_EVENT_SAVED",
+      "flags": [],
+      "txSequence": 23,
+      "payload": {
+        "mcuBootId": 42,
+        "mcuEventSequence": 3,
+        "eventMessageType": "WORK_PREOPEN_WEIGHT_READY",
+        "eventDigestSha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    },
+    {
+      "name": "process_saved_released",
+      "expected": "VALID",
+      "message": "PROCESS_EVENT_SAVED_REPLY",
+      "flags": [],
+      "txSequence": 23,
+      "payload": {
+        "mcuBootId": 42,
+        "mcuEventSequence": 3,
+        "eventMessageType": "WORK_PREOPEN_WEIGHT_READY",
+        "eventDigestSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "currentMcuBootId": 42,
+        "status": "RELEASED"
+      }
+    },
+    {
+      "name": "query_device_facts",
+      "message": "QUERY_DEVICE_FACTS",
+      "flags": [],
+      "txSequence": 30,
+      "payload": {
+        "queryId": 1,
+        "targetMcuBootId": 42,
+        "portNo": 1
+      },
+      "expected": "VALID"
+    },
+    {
+      "name": "device_facts_available",
+      "message": "DEVICE_FACTS_REPLY",
+      "flags": [],
+      "txSequence": 31,
+      "payload": {
+        "capturedUptimeMs": 1200,
+        "appliedConfigVersion": 0,
+        "appliedContentSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "appliedMcuPayloadSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "configStaging": false,
+        "controlUptimeMs": 1190,
+        "lastDeliveryDoorCommand": "CLOSE",
+        "doorActionActive": true,
+        "pb6Output": false,
+        "pb7Output": false,
+        "pb5Active": true,
+        "pinchPaused": true,
+        "cleanLockPowered": false,
+        "updateLatched": false,
+        "scaleReadStatus": "VALID",
+        "scaleAttemptSequence": 5,
+        "scaleCapturedUptimeMs": 1000,
+        "scaleWeightGrams": 0,
+        "scaleCalibrationVersion": 0,
+        "measurementSequence": 0,
+        "measurementState": 0,
+        "measurementConfigVersion": 0,
+        "measurementObservedUptimeMs": 0,
+        "measurementElapsedMs": 0,
+        "measurementSampleCount": 0,
+        "measurementWeightGrams": 0,
+        "measurementSpanGrams": 0,
+        "smokeObservationState": "NOT_OBSERVED",
+        "smokeObservedUptimeMs": 0,
+        "fullnessObservationKind": "NONE",
+        "fullnessReadStatus": "NOT_OBSERVED",
+        "fullnessCapturedUptimeMs": 0,
+        "fullnessInfraredBlocked": false,
+        "fullnessDistanceMm": 0,
+        "retainedWorkState": 0,
+        "retainedWorkUid": "00000000-0000-0000-0000-000000000000",
+        "retainedWorkType": 0,
+        "retainedPortNo": 0,
+        "retainedWorkPhase": 0,
+        "retainedOriginCommandSequence": 0,
+        "retainedResultSequence": 0,
+        "queryId": 1,
+        "targetMcuBootId": 42,
+        "portNo": 1,
+        "currentMcuBootId": 42,
+        "status": "AVAILABLE"
+      },
+      "expected": "VALID"
+    },
+    {
+      "name": "query_work", "message": "QUERY_WORK", "flags": [], "txSequence": 28,
+      "payload": {
+        "queryId": 101, "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+        "commandDigestSha256": "abababababababababababababababababababababababababababababababab",
+        "targetMcuBootId": 42, "commandSequence": 2,
+        "workUid": "22222222-2222-4222-8222-222222222222", "workType": "DELIVERY_SESSION", "portNo": 1
+      }, "expected": "VALID"
+    },
+    {
+      "name": "query_work_running", "message": "WORK_QUERY_REPLY", "flags": [], "txSequence": 29,
+      "payload": {
+        "queryId": 101, "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+        "commandDigestSha256": "abababababababababababababababababababababababababababababababab",
+        "targetMcuBootId": 42, "commandSequence": 2,
+        "workUid": "22222222-2222-4222-8222-222222222222", "workType": "DELIVERY_SESSION", "portNo": 1,
+        "currentMcuBootId": 42, "status": "RUNNING", "phase": "DELIVERY_OPEN_COUNTDOWN",
+        "resultSequence": 0, "resultDigestSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }, "expected": "VALID"
+    },
+{
+  "name": "query_result",
+  "message": "QUERY_RESULT",
+  "flags": [],
+  "txSequence": 30,
+  "payload": {
+    "queryId": 99,
+    "mcuBootId": 42,
+    "resultSequence": 3,
+    "workUid": "22222222-2222-4222-8222-222222222222",
+    "resultDigestSha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "expected": "VALID"
+},
+{
+  "name": "query_result_held",
+  "message": "RESULT_QUERY_REPLY",
+  "flags": [],
+  "txSequence": 31,
+  "payload": {
+    "queryId": 99,
+    "mcuBootId": 42,
+    "resultSequence": 3,
+    "workUid": "22222222-2222-4222-8222-222222222222",
+    "resultDigestSha256": "abababababababababababababababababababababababababababababababab",
+    "currentMcuBootId": 42,
+    "status": "HELD"
+  },
+  "expected": "VALID"
+}
+    ,
+{
+  "name": "work_result_delivery",
+  "expected": "VALID",
+  "message": "WORK_RESULT",
+  "flags": [],
+  "txSequence": 29,
+  "payload": {
+    "mcuBootId": 42,
+    "resultSequence": 3,
+    "workUid": "22222222-2222-4222-8222-222222222222",
+    "resultDigestSha256": "AUTO",
+    "workType": "DELIVERY_SESSION",
+    "portNo": 1,
+    "configVersion": 7,
+    "originCommandUid": "11111111-1111-4111-8111-111111111111",
+    "originCommandSequence": 2,
+    "completedUptimeMs": 10000,
+    "deliveryRoundCount": 1,
+    "cleanActionSequence": 0,
+    "finishReason": "DELIVERY_END",
+    "physicalCloseConfirmed": false,
+    "negativeWeightAnomaly": false,
+    "initialKind": "STABLE_MEAN",
+    "initialMeasurementUid": "33333333-3333-4333-8333-000000000001",
+    "initialSourceMcuBootId": 42,
+    "initialMcuEventSequence": 1,
+    "initialWeightGrams": 400,
+    "initialElapsedMs": 1250,
+    "initialSampleCount": 5,
+    "initialSpanGrams": 20,
+    "initialCalibrationVersion": 1,
+    "initialFaultCode": "NONE",
+    "finalKind": "STABLE_MEAN",
+    "finalMeasurementUid": "33333333-3333-4333-8333-000000000002",
+    "finalSourceMcuBootId": 42,
+    "finalMcuEventSequence": 2,
+    "finalWeightGrams": 1000,
+    "finalElapsedMs": 1250,
+    "finalSampleCount": 5,
+    "finalSpanGrams": 20,
+    "finalCalibrationVersion": 1,
+    "finalFaultCode": "NONE"
+  }
+}
+    ,
+    {
+      "name": "result_saved", "message": "RESULT_SAVED", "flags": [], "txSequence": 27,
+      "payload": {"mcuBootId": 42, "resultSequence": 3, "workUid": "22222222-2222-4222-8222-222222222222", "resultDigestSha256": "abababababababababababababababababababababababababababababababab"},
+      "expected": "VALID"
+    },
+    {
+      "name": "result_saved_released", "message": "RESULT_SAVED_REPLY", "flags": [], "txSequence": 28,
+      "payload": {"mcuBootId": 42, "resultSequence": 3, "workUid": "22222222-2222-4222-8222-222222222222", "resultDigestSha256": "abababababababababababababababababababababababababababababababab", "currentMcuBootId": 42, "status": "RELEASED"},
+      "expected": "VALID"
+    },
+    {
+      "name": "command_decision_accepted", "message": "COMMAND_DECISION", "flags": [], "txSequence": 24,
+      "payload": {
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+        "commandDigestSha256": "55ab6fefc30cc030369d90e474ff68374d8fc23561129a1c722d5ad9386c9b78",
+        "targetMcuBootId": 42, "commandSequence": 7, "currentMcuBootId": 42, "outcome": "ACCEPTED", "errorCode": "NONE"
+      }, "expected": "VALID"
+    },
+    {
+      "name": "query_command", "message": "QUERY_COMMAND", "flags": [], "txSequence": 25,
+      "payload": {
+        "queryId": 99, "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+        "commandDigestSha256": "55ab6fefc30cc030369d90e474ff68374d8fc23561129a1c722d5ad9386c9b78",
+        "targetMcuBootId": 42, "commandSequence": 7
+      }, "expected": "VALID"
+    },
+    {
+      "name": "command_query_accepted", "message": "COMMAND_QUERY_RESULT", "flags": [], "txSequence": 26,
+      "payload": {
+        "queryId": 99, "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+        "commandDigestSha256": "55ab6fefc30cc030369d90e474ff68374d8fc23561129a1c722d5ad9386c9b78",
+        "targetMcuBootId": 42, "commandSequence": 7, "currentMcuBootId": 42, "outcome": "ACCEPTED", "errorCode": "NONE", "highestCommandSequence": 7
+      }, "expected": "VALID"
+    },
+    {
+      "name": "boot_probe", "message": "BOOT_PROBE", "flags": [], "txSequence": 16,
+      "payload": { "probeId": 41 }, "expected": "VALID"
+    },
+    {
+      "name": "boot_probe_unassigned", "message": "BOOT_PROBE_REPLY", "flags": [], "txSequence": 17,
+      "payload": { "probeId": 41, "mcuBootId": 0 }, "expected": "VALID"
+    },
+    {
+      "name": "bind_boot", "message": "BIND_BOOT", "flags": [], "txSequence": 18,
+      "payload": { "probeId": 41, "proposedMcuBootId": 42 }, "expected": "VALID"
+    },
+    {
+      "name": "bind_boot_bound", "message": "BIND_BOOT_REPLY", "flags": [], "txSequence": 19,
+      "payload": { "probeId": 41, "proposedMcuBootId": 42, "mcuBootId": 42, "status": "BOUND" }, "expected": "VALID"
+    },
+    {
+      "name": "boot_probe_assigned", "message": "BOOT_PROBE_REPLY", "flags": [], "txSequence": 20,
+      "payload": { "probeId": 43, "mcuBootId": 42 }, "expected": "VALID"
+    },
+    {
+      "name": "bind_boot_probe_mismatch", "message": "BIND_BOOT_REPLY", "flags": [], "txSequence": 21,
+      "payload": { "probeId": 41, "proposedMcuBootId": 42, "mcuBootId": 0, "status": "PROBE_MISMATCH" }, "expected": "VALID"
+    },
+    {
+      "name": "bind_boot_already_bound", "message": "BIND_BOOT_REPLY", "flags": [], "txSequence": 22,
+      "payload": { "probeId": 41, "proposedMcuBootId": 42, "mcuBootId": 43, "status": "ALREADY_BOUND" }, "expected": "VALID"
+    },
+    {
+      "name": "bind_boot_safe_integer_maximum", "message": "BIND_BOOT_REPLY", "flags": [], "txSequence": 23,
+      "payload": { "probeId": 9007199254740991, "proposedMcuBootId": 9007199254740991, "mcuBootId": 9007199254740991, "status": "BOUND" }, "expected": "VALID"
+    },
     {
       "name": "hello_edge",
       "message": "HELLO",
@@ -1537,7 +2796,7 @@
       "payload": {
         "senderRole": "EDGE",
         "senderBootId": 9007199254740991,
-        "supportedMajor": 1,
+        "supportedMajor": 2,
         "minimumMinor": 0,
         "maximumMinor": 0,
         "portCount": 6,
@@ -1571,6 +2830,8 @@
       "payload": {
         "mcuCommandUid": "70707070-7070-4070-8070-707070707070",
         "commandDigestSha256": "AUTO",
+        "targetMcuBootId": 101,
+        "commandSequence": 1,
         "sessionUid": "71717171-7171-4171-8171-717171717171",
         "portNo": 2,
         "firstPreOpenMeasurementUid": "72727272-7272-4272-8272-727272727272",
@@ -1593,15 +2854,21 @@
         "portNo": 2,
         "roundIndex": 3,
         "measurementUid": "33333333-3333-4333-8333-333333333333",
-        "measurementStatus": "STABLE",
-        "weightValuePresent": true,
+        "measurementKind": "STABLE_MEAN",
         "reportedWeightGrams": -500,
-        "weightValueKind": "STABLE_WINDOW_MEAN",
         "measurementElapsedMs": 1250,
-        "sampleCount": 12,
+        "sampleCount": 5,
+        "sampleSpanGrams": 20,
         "calibrationVersion": 4,
-        "weightSensorHealth": "OK",
-        "faultCode": "NONE"
+        "configVersion": 8,
+        "faultCode": "NONE",
+        "workFullnessStatus": "NOT_SAMPLED", "fullnessGroupSequence": 0,
+        "fullnessConfigContentSha256": "0000000000000000000000000000000000000000000000000000000000000000", "fullnessMcuPayloadSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "fullnessStartedUptimeMs": 0, "fullnessCompletedUptimeMs": 0, "fullnessLastCapturedUptimeMs": 0,
+        "workFullnessSensorKind": "NONE", "workFullnessSensorValue": "NOT_OBSERVED", "workFullnessBasis": "NONE",
+        "fullnessDistancePresent": false, "fullnessDistanceMm": 0,
+        "fullnessRequestedSampleCount": 0, "fullnessCompletedSampleCount": 0, "fullnessValidSampleCount": 0,
+        "fullnessMinimumValidSampleCount": 0, "fullnessDistanceThresholdMm": 0, "fullnessStopReason": "NONE"
       },
       "expected": "VALID"
     },
@@ -1613,6 +2880,8 @@
       "payload": {
         "mcuCommandUid": "44444444-4444-4444-8444-444444444444",
         "commandDigestSha256": "AUTO",
+        "targetMcuBootId": 101,
+        "commandSequence": 2,
         "applicationUid": "55555555-5555-4555-8555-555555555555",
         "configVersion": 8,
         "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -1623,7 +2892,7 @@
       "expected": "VALID"
     },
     {
-      "name": "unstable_weight_keeps_fallback_value",
+      "name": "timeout_weight_keeps_median_value",
       "message": "WORK_POSTCLOSE_WEIGHT_READY",
       "flags": ["ACK_REQUIRED"],
       "txSequence": 15,
@@ -1636,15 +2905,45 @@
         "portNo": 2,
         "roundIndex": 3,
         "measurementUid": "34343434-3434-4434-8434-343434343434",
-        "measurementStatus": "UNSTABLE",
-        "weightValuePresent": true,
+        "measurementKind": "TIMEOUT_MEDIAN",
         "reportedWeightGrams": -480,
-        "weightValueKind": "LAST_FOUR_MEAN",
-        "measurementElapsedMs": 6000,
-        "sampleCount": 60,
+        "measurementElapsedMs": 5000,
+        "sampleCount": 20,
+        "sampleSpanGrams": 1000,
         "calibrationVersion": 4,
-        "weightSensorHealth": "OK",
-        "faultCode": "WEIGHT_UNSTABLE"
+        "configVersion": 8,
+        "faultCode": "NONE",
+        "workFullnessStatus": "NOT_SAMPLED", "fullnessGroupSequence": 0,
+        "fullnessConfigContentSha256": "0000000000000000000000000000000000000000000000000000000000000000", "fullnessMcuPayloadSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "fullnessStartedUptimeMs": 0, "fullnessCompletedUptimeMs": 0, "fullnessLastCapturedUptimeMs": 0,
+        "workFullnessSensorKind": "NONE", "workFullnessSensorValue": "NOT_OBSERVED", "workFullnessBasis": "NONE",
+        "fullnessDistancePresent": false, "fullnessDistanceMm": 0,
+        "fullnessRequestedSampleCount": 0, "fullnessCompletedSampleCount": 0, "fullnessValidSampleCount": 0,
+        "fullnessMinimumValidSampleCount": 0, "fullnessDistanceThresholdMm": 0, "fullnessStopReason": "NONE"
+      },
+      "expected": "VALID"
+    },
+    {
+      "name": "interrupted_weight_retains_attempt_not_sensor_timeout",
+      "message": "WORK_POSTCLOSE_WEIGHT_READY",
+      "flags": ["ACK_REQUIRED"],
+      "txSequence": 16,
+      "payload": {
+        "mcuBootId": 101, "mcuEventSequence": 205, "uptimeMs": 310300,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+        "sessionUid": "22222222-2222-4222-8222-222222222222",
+        "portNo": 2, "roundIndex": 3,
+        "measurementUid": "35353535-3535-4535-8535-353535353535",
+        "measurementKind": "INTERRUPTED", "faultCode": "MEASUREMENT_INTERRUPTED",
+        "reportedWeightGrams": 0, "measurementElapsedMs": 300,
+        "sampleCount": 1, "sampleSpanGrams": 0, "calibrationVersion": 4, "configVersion": 8,
+        "workFullnessStatus": "NOT_SAMPLED", "fullnessGroupSequence": 0,
+        "fullnessConfigContentSha256": "0000000000000000000000000000000000000000000000000000000000000000", "fullnessMcuPayloadSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "fullnessStartedUptimeMs": 0, "fullnessCompletedUptimeMs": 0, "fullnessLastCapturedUptimeMs": 0,
+        "workFullnessSensorKind": "NONE", "workFullnessSensorValue": "NOT_OBSERVED", "workFullnessBasis": "NONE",
+        "fullnessDistancePresent": false, "fullnessDistanceMm": 0,
+        "fullnessRequestedSampleCount": 0, "fullnessCompletedSampleCount": 0, "fullnessValidSampleCount": 0,
+        "fullnessMinimumValidSampleCount": 0, "fullnessDistanceThresholdMm": 0, "fullnessStopReason": "NONE"
       },
       "expected": "VALID"
     },
@@ -1657,6 +2956,7 @@
         "mcuBootId": 101,
         "mcuEventSequence": 203,
         "uptimeMs": 304000,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
         "operationUid": "61616161-6161-4161-8161-616161616161",
         "portNo": 2,
         "cleanActionSequence": 7,
@@ -1664,7 +2964,8 @@
         "lockPowerState": "DEENERGIZED",
         "solenoidHealth": "OK",
         "cleanDoorStateBasis": "CLEANER_CONFIRMATION",
-        "cleanerPhysicalCloseConfirmed": true
+        "cleanerPhysicalCloseConfirmed": true,
+        "configVersion": 8
       },
       "expected": "VALID"
     },
@@ -1707,14 +3008,16 @@
     }
   ],
   "recoveryPolicy": [
-    "首版不要求 MCU 对命令去重、关键事件、配置、作业状态或 mcuBootId 做掉电持久化；对应持久化能力位是可选后续能力，未实现时不得宣称支持。",
-    "MCU 每次重启先令 PB6/PB7/PB8 回到安全输出，进入 BOOT_RECOVERY；投递门物理状态始终 NOT_OBSERVABLE。",
-    "香橙派必须在 HELLO、QUERY_STATE 和配置重同步后显式发送 CONFIRM_NO_ACTIVE_WORK 或 RESUME_CLEAN_OPERATION；结果事件获 ACK 后 MCU 才离开 BOOT_RECOVERY。",
-    "重启打断的投递不恢复，香橙派将进行中订单标记为硬件异常并交由人工审核；本 Registry 不定义前后端修复流程。",
-    "重启打断的清运只能用原 operationUid、递增 recoveryGeneration 和 nextCleanActionSequence 续接；恢复不得重启操作窗口。",
-    "当前上电周期内关键 MCU 事件在香橙派 SQLite ACK 前保留相同 mcuBootId、mcuEventSequence 和内容；掉电后允许丢失。",
-    "START_DELIVERY_SESSION 与首次开门授权保持分离；AUTHORIZE_DELIVERY_FIRST_OPEN 只允许调度开门信号，不证明物理门位。",
-    "清运锁断电不推导清运门关闭；清运完成只认清运员在屏幕上的明确人工确认。",
-    "targetMcuBootId、跨重启 exactly-once 和持久事件队列属于后续升级，不在首版契约内。"
+    "本版完成 P1 身份、最终结果交接、原业务查询、单投口设备事实与过程测量精确交接局部候选；多投口/完整安全快照、实际采集及业务恢复接线仍待完成，不得直接发布或接单。必须区分帧 ACK、命令受理、过程记录保存确认和最终结果保存确认。",
+    "MCU 每次启动先停止 PB6/PB7/PB8 输出，mcuBootId=0，只保存在 RAM；不自动继续旧动作。启动绑定遵循 sessionPolicy，未绑定不处理业务命令。",
+    "香橙派独自重启时不重新分配已绑定 MCU 的启动编号，恢复本地业务及持久命令序号；无回复只代表是否执行未知，继续查询原命令，不盲目重发机械命令。",
+    "命令先校验非零目标启动编号；相同启动/序号/UUID/摘要只返回原决定，身份冲突拒绝。已淘汰详情的旧序号不能重新执行；高水位在结果释放后仍保留。序号可因已预留未发送而有空洞，但不能据空洞清除未知动作占用。",
+    "完整结果及精确保存确认已定义并有独立模块：MCU 保留同一不可变结果直到香橙派完整校验并 SQLite 提交后明确确认。通用帧 ACK 不释放业务结果；MCU 空闲也不等于香橙派可接单。业务分类及实际串口接线仍待完成。",
+    "QUERY_WORK 每次先持久分配新 queryId，再单次写入；回复必须完整匹配原查询身份。只读查询不改业务/结果，不重发动作。无回复、过期回复或同查询异文冲突均为未知；NOT_FOUND 只是详情未保留，不能当作未执行。结果引用不替代完整结果保存。",
+    "MCU 重启导致投递必要数据真正丢失时只留问题记录、不结算、不增加余额或提现；已保存完整结果不作废。香橙派发新的关门动作并核对恢复条件后自动接单，不普遍要求人工解锁。",
+    "MCU 重启导致清运旧重量丢失时保留原 operationUid 和原清运员；换袋、人工关门确认、新袋核对及新皮重完成后上报，缺失旧重量不得补零或以新皮重代填；后端原子应用新袋基准。相关结果形状尚待后续契约迁移。",
+    "门业务状态依据最近有效推杆方向 01=关、10=开，不是实测门位；施加的输出另报。PB5 仅暂停关门并在释放后继续，开门忽略；PB4 未接，PB5 不单独证明到位或故障。DEVICE_FACTS_REPLY已有同一次控制刷新事实候选，旧多包快照/真实UART接线未完成。",
+    "称重向 250ms 目标采样、最近5点全跨度不超过100g取均值、最多5s纯波动取中位数迁移；旧均值字段暂存等待跨端同步，不得把旧字段当作新策略。非重启的真正最终称重失败保留系统异常审核。",
+    "START 与首次开门授权保持分离；清运锁断电不推导清运门关闭，清运完成需原清运员明确确认。MCU 暂不新增 Flash 结果存储，不宣称跨重启 exactly-once。"
   ]
 }

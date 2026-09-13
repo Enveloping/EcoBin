@@ -4496,6 +4496,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/device-configuration-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read unified device configuration for the signed-in tenant
+         * @description Requires tenant principal or tenant-scoped device.configuration.manage. Organization grants cannot authorize tenant-wide changes.
+         */
+        get: operations["getTenantDeviceDevicePolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/device-configuration-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read platform defaults and application progress for inheriting tenants */
+        get: operations["getPlatformDeviceDevicePolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/device-runtime-snapshot-policy": {
         parameters: {
             query?: never;
@@ -4507,6 +4544,43 @@ export interface paths {
         get: operations["getPlatformDeviceRuntimeSnapshotPolicy"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/device-configuration-policy/releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish tenant device configuration or restore platform defaults
+         * @description Requires tenant principal or tenant-scoped device.configuration.manage. Organization grants cannot authorize tenant-wide changes.
+         */
+        post: operations["releaseTenantDeviceDevicePolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/device-configuration-policy/releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish platform default device configuration */
+        post: operations["releasePlatformDeviceDevicePolicy"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5435,7 +5509,10 @@ export interface paths {
     };
     "/api/v1/web/organizations/{organizationCode}/devices": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 默认隐藏已报废设备；ALL 查看全部。 */
+                lifecycleStatus?: "NORMAL" | "DISABLED" | "RETIRED" | "ALL";
+            };
             header?: never;
             path: {
                 organizationCode: components["parameters"]["OrganizationCode"];
@@ -6000,7 +6077,7 @@ export interface components {
         HardwareSn: string;
         Sha256Hex: string;
         /** @enum {string} */
-        DeviceConfigurationApplicationStatus: "PENDING" | "EDGE_SAVED" | "APPLIED" | "FAILED";
+        DeviceConfigurationApplicationStatus: "PENDING" | "EDGE_SAVED" | "APPLIED" | "FAILED" | "CANCELLED";
         /** @enum {string} */
         ReliableDeviceDispatchState: "PENDING" | "RUNNING" | "DONE" | "BLOCKED" | "CANCELLED";
         DeviceConfigurationReleaseRequest: {
@@ -6814,6 +6891,8 @@ export interface components {
             expiresAt: components["schemas"]["UtcTimestamp"];
             version: components["schemas"]["ExpectedVersion"];
             authVersion: components["schemas"]["ExpectedVersion"];
+            /** @description 仅租户级授权；机构级权限不包含在此数组。租户主体账号天然拥有租户管理权限。 */
+            tenantCapabilities?: string[];
         };
         WebSessionEnvelope: {
             /** @constant */
@@ -8881,6 +8960,30 @@ export interface components {
             data: components["schemas"]["DeviceInstallationProfile"];
             requestId: string;
         };
+        DeviceListPort: {
+            portNo: number;
+            displayName: string;
+            /** Format: int64 */
+            reportedWeightGrams: number | null;
+            weightValueAvailable: boolean | null;
+            weightSensorHealth: string | null;
+            weightMeasurementStatus: string | null;
+            /** Format: date-time */
+            observedAt: string | null;
+            /** @description 当前在用袋最近已应用上报中的重量满溢判断；无有效上报为 null。 */
+            weightFull: boolean | null;
+            /** Format: date-time */
+            fullnessObservedAt: string | null;
+            infraredValue: string | null;
+            infraredSensorHealth: string | null;
+            faults: string[];
+        };
+        DeviceListStatus: {
+            faults: string[];
+            /** Format: date-time */
+            observedAt: string | null;
+            ports: components["schemas"]["DeviceListPort"][];
+        };
         DeviceAsset: {
             /** Format: uuid */
             assetUid: string;
@@ -8918,6 +9021,8 @@ export interface components {
             installationProfile: components["schemas"]["DeviceInstallationProfile"];
             connectivity: components["schemas"]["DeviceConnectivity"];
             deviceManagement: components["schemas"]["DeviceManagementSummary"];
+            /** @description 列表按当前授权分页批量返回；详情响应可为空。 */
+            listStatus: components["schemas"]["DeviceListStatus"] | null;
             oneNetMapping: components["schemas"]["ComputedOneNetMapping"];
         };
         DeviceAssetPage: {
@@ -9244,7 +9349,7 @@ export interface components {
             kindLabel: string;
             waveNo: number;
             /** @enum {string} */
-            status: "PLANNED" | "QUEUED" | "RECEIVED" | "DOWNLOADING" | "VERIFYING_PACKAGE" | "PACKAGE_READY" | "WAITING_FOR_IDLE" | "MIGRATING_DATA" | "ACTIVATING" | "VERIFYING_TARGET" | "OBSERVING" | "ROLLING_BACK" | "VERIFYING_ROLLBACK" | "SUCCEEDED" | "ROLLED_BACK" | "DEFERRED" | "REJECTED" | "FAILED_LOCKED" | "DOWNLOAD_AUTHORIZATION_REQUIRED" | "CANCELLED";
+            status: "PLANNED" | "QUEUED" | "RECEIVED" | "DOWNLOADING" | "VERIFYING_PACKAGE" | "PACKAGE_READY" | "WAITING_FOR_IDLE" | "MIGRATING_DATA" | "ACTIVATING" | "VERIFYING_TARGET" | "OBSERVING" | "ROLLING_BACK" | "VERIFYING_ROLLBACK" | "SUCCEEDED" | "ROLLED_BACK" | "DEFERRED" | "REJECTED" | "FAILED_LOCKED" | "DOWNLOAD_AUTHORIZATION_REQUIRED" | "CANCELLED" | "LOCAL_CANCELLED";
             statusLabel: string;
             /** @enum {string} */
             cancellationStatus: "NONE" | "QUEUED" | "CANCELLED" | "TOO_LATE";
@@ -9406,7 +9511,7 @@ export interface components {
             kind: "VALIDATION" | "WAVE";
             waveNo: number;
             /** @enum {string} */
-            status: "PENDING" | "QUEUED" | "PACKAGE_FETCH_FAILED" | "PREFLIGHT" | "PREPARED" | "FLASHING_TARGET" | "VERIFYING_TARGET" | "ROLLING_BACK" | "VERIFYING_ROLLBACK" | "SUCCEEDED" | "ROLLED_BACK" | "FAILED_LOCKED" | "REJECTED";
+            status: "PENDING" | "QUEUED" | "PACKAGE_FETCH_FAILED" | "PREFLIGHT" | "PREPARED" | "FLASHING_TARGET" | "VERIFYING_TARGET" | "ROLLING_BACK" | "VERIFYING_ROLLBACK" | "SUCCEEDED" | "ROLLED_BACK" | "FAILED_LOCKED" | "REJECTED" | "LOCAL_CANCELLED";
             commandUid: components["schemas"]["UuidV4"] | null;
             reliableTaskUid: components["schemas"]["UuidV4"] | null;
             edgeUpdateUid: components["schemas"]["UuidV4"] | null;
@@ -9489,11 +9594,80 @@ export interface components {
             data: components["schemas"]["McuFirmwareRolloutPage"];
             requestId: string;
         };
+        /** @description 平台只能发布 DEFAULT；租户可发布 CUSTOM 或恢复 INHERIT。CUSTOM/DEFAULT 必须提交单价、满溢方式、重量和重量减少异常阈值；INHERIT 的值由后端读取当前平台默认。范围取自登录会话，不接受租户或机构参数。 */
+        DevicePolicyReleaseRequest: {
+            /** Format: int64 */
+            expectedVersion: number;
+            reason: string;
+            /** @enum {string} */
+            fullnessMode?: "INFRARED_ONLY" | "WEIGHT_ONLY" | "INFRARED_OR_WEIGHT";
+            /** @description 满溢净重（千克），0.001～4294967.295；仅红外时保留此值，供切回重量判断使用。 */
+            fullnessWeightKg?: string;
+            /** Format: int64 */
+            expectedDefaultVersion: number;
+            /** @enum {string} */
+            configurationMode: "DEFAULT" | "INHERIT" | "CUSTOM";
+            /** @description 单价（元/千克），0.0001～429496.7295，最多四位小数。 */
+            unitPriceYuanPerKg?: string;
+            /** Format: int64 */
+            negativeWeightThresholdGram?: number;
+        };
         RuntimeSnapshotPolicyReleaseRequest: {
             /** Format: int64 */
             expectedVersion: number;
             fallbackIntervalMinutes: number;
             reason: string;
+        };
+        DevicePolicyValues: {
+            /** @description 单价（元/千克），0.0001～429496.7295，最多四位小数。 */
+            unitPriceYuanPerKg: string;
+            /** @enum {string} */
+            fullnessMode: "INFRARED_ONLY" | "WEIGHT_ONLY" | "INFRARED_OR_WEIGHT";
+            /** @description 满溢净重（千克），0.001～4294967.295；仅红外时保留此值，供切回重量判断使用。 */
+            fullnessWeightKg: string;
+            /** Format: int64 */
+            negativeWeightThresholdGram: number;
+        };
+        DevicePolicy: {
+            /** Format: int64 */
+            version: number;
+            /** @enum {string} */
+            publicationSource: "SYSTEM" | "PLATFORM_ADMIN" | "STAFF";
+            updatedBy: string;
+            changeReason: string;
+            updatedAt: components["schemas"]["UtcTimestamp"];
+            rolloutUid: components["schemas"]["UuidV4"];
+            /** @enum {string} */
+            rolloutStatus: "PENDING" | "RUNNING" | "DONE";
+            /** Format: int64 */
+            targetDeviceCount: number;
+            /** Format: int64 */
+            processedDeviceCount: number;
+            /** Format: int64 */
+            publishedDeviceCount: number;
+            /** Format: int64 */
+            pendingDeviceCount: number;
+            /** Format: int64 */
+            edgeSavedDeviceCount: number;
+            /** Format: int64 */
+            appliedDeviceCount: number;
+            /** Format: int64 */
+            failedDeviceCount: number;
+            /** Format: int64 */
+            blockedDeviceCount: number;
+            /** @enum {string} */
+            fullnessMode: "INFRARED_ONLY" | "WEIGHT_ONLY" | "INFRARED_OR_WEIGHT";
+            /** @description 满溢净重（千克），0.001～4294967.295；仅红外时保留此值，供切回重量判断使用。 */
+            fullnessWeightKg: string;
+            /** Format: int64 */
+            defaultVersion: number;
+            /** @enum {string} */
+            configurationMode: "DEFAULT" | "INHERIT" | "CUSTOM";
+            /** @description 单价（元/千克），0.0001～429496.7295，最多四位小数。 */
+            unitPriceYuanPerKg: string;
+            /** Format: int64 */
+            negativeWeightThresholdGram: number;
+            platformDefaults: components["schemas"]["DevicePolicyValues"];
         };
         RuntimeSnapshotPolicy: {
             /** Format: int64 */
@@ -9630,6 +9804,12 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["BaselineMeasurementAccepted"];
+            requestId: string;
+        };
+        DevicePolicyEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DevicePolicy"];
             requestId: string;
         };
         RuntimeSnapshotPolicyEnvelope: {
@@ -10401,6 +10581,17 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["DeviceConfigurationApplicationEnvelope"];
+            };
+        };
+        /** @description The global fullness policy and its automatic rollout projection */
+        DevicePolicyOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DevicePolicyEnvelope"];
             };
         };
         /** @description The global runtime-snapshot policy and its automatic rollout projection */
@@ -16781,6 +16972,34 @@ export interface operations {
             404: components["responses"]["NotFoundProblem"];
         };
     };
+    getTenantDeviceDevicePolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DevicePolicyOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    getPlatformDeviceDevicePolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DevicePolicyOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
     getPlatformDeviceRuntimeSnapshotPolicy: {
         parameters: {
             query?: never;
@@ -16793,6 +17012,54 @@ export interface operations {
             200: components["responses"]["RuntimeSnapshotPolicyOk"];
             401: components["responses"]["UnauthorizedProblem"];
             403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    releaseTenantDeviceDevicePolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevicePolicyReleaseRequest"];
+            };
+        };
+        responses: {
+            202: components["responses"]["DevicePolicyOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    releasePlatformDeviceDevicePolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevicePolicyReleaseRequest"];
+            };
+        };
+        responses: {
+            202: components["responses"]["DevicePolicyOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
         };
     };
     releasePlatformDeviceRuntimeSnapshotPolicy: {
@@ -17624,7 +17891,8 @@ export interface operations {
                 page?: components["parameters"]["Page"];
                 pageSize?: components["parameters"]["PageSize"];
                 hardwareSn?: components["schemas"]["HardwareSn"];
-                lifecycleStatus?: components["schemas"]["DeviceAssetLifecycleStatus"];
+                /** @description 默认隐藏已报废设备；ALL 查看全部。 */
+                lifecycleStatus?: "NORMAL" | "DISABLED" | "RETIRED" | "ALL";
                 acceptanceStatus?: components["schemas"]["DeviceAcceptanceStatus"];
             };
             header?: never;
@@ -18104,6 +18372,8 @@ export interface operations {
     listTenantPermanentDeviceAssets: {
         parameters: {
             query?: {
+                /** @description 默认隐藏已报废设备；ALL 查看全部。 */
+                lifecycleStatus?: "NORMAL" | "DISABLED" | "RETIRED" | "ALL";
                 page?: components["parameters"]["Page"];
                 pageSize?: components["parameters"]["PageSize"];
                 hardwareSn?: components["schemas"]["HardwareSn"];
@@ -18186,6 +18456,8 @@ export interface operations {
     listOrganizationPermanentDevices: {
         parameters: {
             query?: {
+                /** @description 默认隐藏已报废设备；ALL 查看全部。 */
+                lifecycleStatus?: "NORMAL" | "DISABLED" | "RETIRED" | "ALL";
                 page?: components["parameters"]["Page"];
                 pageSize?: components["parameters"]["PageSize"];
                 hardwareSn?: components["schemas"]["HardwareSn"];

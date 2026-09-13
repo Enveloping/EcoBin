@@ -22,6 +22,7 @@ import {
 import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { formatShanghaiTime } from '@/utils/decimal';
+import HelpTip from '@/components/HelpTip';
 
 interface KeyForm {
   label: string;
@@ -50,6 +51,7 @@ export default function MaintenanceAccessPanel() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [revoking, setRevoking] = useState<MaintenanceSshKey>();
+  const [registering, setRegistering] = useState(false);
 
   const reload = async () => {
     setLoading(true);
@@ -79,7 +81,8 @@ export default function MaintenanceAccessPanel() {
         (intent) => createMaintenanceSshKey(payload, intent),
       );
       keyForm.resetFields();
-      message.success('维护公钥已登记；以后所有设备共用这一次登记');
+      message.success('维护公钥已登记');
+      setRegistering(false);
       await reload();
     } catch (error) {
       message.error(errorText(error));
@@ -121,12 +124,12 @@ export default function MaintenanceAccessPanel() {
   };
 
   return (
-    <Card title='SSH 维护公钥'>
+    <Card title='远程维护公钥' extra={<Button icon={<KeyOutlined />} onClick={() => setRegistering(true)}>登记公钥</Button>}>
+      <Modal title='登记维护公钥' open={registering} footer={null} onCancel={() => !submitting && setRegistering(false)}>
       <Alert
         type='warning'
         showIcon
         message='只提交公钥，不要上传私钥'
-        description='可在本机执行 ssh-keygen -t ed25519 生成密钥。这里登记一次公钥，后续连接任意香橙派时由后端签发最长 30 分钟的临时证书，不需要逐台设备配置个人公钥。'
         style={{ marginBottom: 18 }}
       />
       <Form form={keyForm} layout='vertical'>
@@ -139,7 +142,7 @@ export default function MaintenanceAccessPanel() {
         </Form.Item>
         <Form.Item
           name='publicKey'
-          label='Ed25519 公钥'
+          label={<>Ed25519 公钥<HelpTip label='生成维护公钥'>在本机执行 <Typography.Text code copyable>ssh-keygen -t ed25519</Typography.Text>，复制生成的 .pub 文件内容。公钥只需登记一次。</HelpTip></>}
           rules={[
             { required: true, whitespace: true },
             {
@@ -163,6 +166,7 @@ export default function MaintenanceAccessPanel() {
           登记公钥
         </Button>
       </Form>
+      </Modal>
 
       <List
         style={{ marginTop: 20 }}

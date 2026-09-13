@@ -26,10 +26,8 @@
 #include "usart1.h"
 #include "usart3.h"
 #include "smoke_monitor.h"
-
-/* 定时器全局变量 (main.c 定义) */
-extern volatile unsigned char  g_weight_tick;
-extern volatile unsigned short g_tick_count;
+#include "runtime_clock.h"
+#include "actuator_runtime.h"
 
 /** @addtogroup Template_Project
   * @{
@@ -190,8 +188,7 @@ void USART3_IRQHandler(void)
 }
 
 /*
- * TIM3 定时器中断: 100ms 周期
- * 设置重量采集触发标志 + 滴答计数自增
+ * TIM3: continuous 10ms clock and bounded actuator service, never UART/ADC waits.
  */
 void TIM3_IRQHandler(void)
 {
@@ -199,14 +196,8 @@ void TIM3_IRQHandler(void)
   {
     TIM_ClearITPendingBit(TIM3, TIM_IT_Update);
 
-    SmokeMonitor_SetTickMs(100);  /* 100ms per TIM3 tick */
-    g_tick_count++;
-		if(g_tick_count>5)
-		{
-		g_weight_tick = 1;
-			g_tick_count=0;
-		}
-			 
+    RuntimeClock_Advance(RUNTIME_CLOCK_TICK_MS);
+    ActuatorRuntime_Tick();
   }
 }
 

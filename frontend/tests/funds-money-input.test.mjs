@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { rechargePreview } from '../web/src/pages/funds/rechargePreview.ts';
+
+test('recharge estimate rounds fees up to cents without changing server amounts', () => {
+  assert.deepEqual(rechargePreview('1.00'), { feeYuan: '0.01', netAmountYuan: '0.99' });
+  assert.deepEqual(rechargePreview('50.00'), { feeYuan: '0.30', netAmountYuan: '49.70' });
+  assert.deepEqual(rechargePreview('50.01'), { feeYuan: '0.31', netAmountYuan: '49.70' });
+  assert.deepEqual(rechargePreview('200000.00'), { feeYuan: '1200.00', netAmountYuan: '198800.00' });
+  assert.equal(rechargePreview('-1.00'), null);
+  assert.equal(rechargePreview('1.001'), null);
+});
 
 import {
   compareMoneyCny as compareMiniMoney,

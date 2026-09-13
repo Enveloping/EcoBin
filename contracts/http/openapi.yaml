@@ -4372,6 +4372,57 @@
       }
     }
 ,
+    "/api/v1/web/device-configuration-policy": {
+      "get": {
+        "operationId": "getTenantDeviceDevicePolicy",
+        "tags": [
+          "Device management"
+        ],
+        "summary": "Read unified device configuration for the signed-in tenant",
+        "security": [
+          {
+            "webSessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DevicePolicyOk"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedProblem"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenProblem"
+          }
+        },
+        "description": "Requires tenant principal or tenant-scoped device.configuration.manage. Organization grants cannot authorize tenant-wide changes."
+      }
+    },
+    "/api/v1/web/platform/device-configuration-policy": {
+      "get": {
+        "operationId": "getPlatformDeviceDevicePolicy",
+        "tags": [
+          "Device management"
+        ],
+        "summary": "Read platform defaults and application progress for inheriting tenants",
+        "security": [
+          {
+            "webSessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DevicePolicyOk"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedProblem"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenProblem"
+          }
+        }
+      }
+    },
     "/api/v1/web/platform/device-runtime-snapshot-policy": {
       "get": {
         "operationId": "getPlatformDeviceRuntimeSnapshotPolicy",
@@ -4382,6 +4433,107 @@
           "200": {"$ref": "#/components/responses/RuntimeSnapshotPolicyOk"},
           "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
           "403": {"$ref": "#/components/responses/ForbiddenProblem"}
+        }
+      }
+    },
+    "/api/v1/web/device-configuration-policy/releases": {
+      "post": {
+        "operationId": "releaseTenantDeviceDevicePolicy",
+        "tags": [
+          "Device management"
+        ],
+        "summary": "Publish tenant device configuration or restore platform defaults",
+        "security": [
+          {
+            "webSessionCookie": [],
+            "webCsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevicePolicyReleaseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/DevicePolicyOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedProblem"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenProblem"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictProblem"
+          },
+          "422": {
+            "$ref": "#/components/responses/BusinessRuleProblem"
+          }
+        },
+        "description": "Requires tenant principal or tenant-scoped device.configuration.manage. Organization grants cannot authorize tenant-wide changes."
+      }
+    },
+    "/api/v1/web/platform/device-configuration-policy/releases": {
+      "post": {
+        "operationId": "releasePlatformDeviceDevicePolicy",
+        "tags": [
+          "Device management"
+        ],
+        "summary": "Publish platform default device configuration",
+        "security": [
+          {
+            "webSessionCookie": [],
+            "webCsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevicePolicyReleaseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/DevicePolicyOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedProblem"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenProblem"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictProblem"
+          },
+          "422": {
+            "$ref": "#/components/responses/BusinessRuleProblem"
+          }
         }
       }
     },
@@ -4943,9 +5095,8 @@
             "name": "lifecycleStatus",
             "in": "query",
             "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/DeviceAssetLifecycleStatus"
-            }
+            "description": "默认隐藏已报废设备；ALL 查看全部。",
+            "schema": {"type": "string", "enum": ["NORMAL", "DISABLED", "RETIRED", "ALL"]}
           },
           {
             "name": "acceptanceStatus",
@@ -5724,6 +5875,7 @@
           }
         ],
         "parameters": [
+          {"name": "lifecycleStatus", "in": "query", "required": false, "description": "默认隐藏已报废设备；ALL 查看全部。", "schema": {"type": "string", "enum": ["NORMAL", "DISABLED", "RETIRED", "ALL"]}},
           {
             "$ref": "#/components/parameters/Page"
           },
@@ -5873,6 +6025,7 @@
 ,
     "/api/v1/web/organizations/{organizationCode}/devices": {
       "parameters": [
+          {"name": "lifecycleStatus", "in": "query", "required": false, "description": "默认隐藏已报废设备；ALL 查看全部。", "schema": {"type": "string", "enum": ["NORMAL", "DISABLED", "RETIRED", "ALL"]}},
         {
           "$ref": "#/components/parameters/OrganizationCode"
         }
@@ -7717,6 +7870,24 @@
           }
         }
       },
+      "DevicePolicyOk": {
+        "description": "The global fullness policy and its automatic rollout projection",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DevicePolicyEnvelope"
+            }
+          }
+        }
+      },
       "RuntimeSnapshotPolicyOk": {
         "description": "The global runtime-snapshot policy and its automatic rollout projection",
         "headers": {
@@ -8114,7 +8285,7 @@
       },
       "DeviceConfigurationApplicationStatus": {
         "type": "string",
-        "enum": ["PENDING", "EDGE_SAVED", "APPLIED", "FAILED"]
+        "enum": ["PENDING", "EDGE_SAVED", "APPLIED", "FAILED", "CANCELLED"]
       },
       "ReliableDeviceDispatchState": {
         "type": "string",
@@ -10911,7 +11082,7 @@
             "uniqueItems": true,
             "items": {
               "type": "string",
-              "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$"
+              "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$"
             }
           },
           "organizations": {
@@ -10928,6 +11099,15 @@
           },
           "authVersion": {
             "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "tenantCapabilities": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$"
+            },
+            "description": "仅租户级授权；机构级权限不包含在此数组。租户主体账号天然拥有租户管理权限。"
           }
         }
       },
@@ -14468,6 +14648,127 @@
         }
       }
 ,
+      "DeviceListPort": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "portNo",
+          "displayName",
+          "reportedWeightGrams",
+          "weightValueAvailable",
+          "weightSensorHealth",
+          "weightMeasurementStatus",
+          "observedAt",
+          "weightFull",
+          "fullnessObservedAt",
+          "infraredValue",
+          "infraredSensorHealth",
+          "faults"
+        ],
+        "properties": {
+          "portNo": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "reportedWeightGrams": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "weightValueAvailable": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "weightSensorHealth": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "weightMeasurementStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "weightFull": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "当前在用袋最近已应用上报中的重量满溢判断；无有效上报为 null。"
+          },
+          "fullnessObservedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "infraredValue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "infraredSensorHealth": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "faults": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "DeviceListStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "faults",
+          "observedAt",
+          "ports"
+        ],
+        "properties": {
+          "faults": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "observedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "ports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceListPort"
+            }
+          }
+        }
+      },
       "DeviceAsset": {
         "type": "object",
         "additionalProperties": false,
@@ -14495,7 +14796,8 @@
           "installationProfile",
           "connectivity",
           "deviceManagement",
-          "oneNetMapping"
+          "oneNetMapping",
+          "listStatus"
         ],
         "properties": {
           "assetUid": {
@@ -14603,6 +14905,10 @@
           },
           "deviceManagement": {
             "$ref": "#/components/schemas/DeviceManagementSummary"
+          },
+          "listStatus": {
+            "description": "列表按当前授权分页批量返回；详情响应可为空。",
+            "oneOf": [{"$ref": "#/components/schemas/DeviceListStatus"}, {"type": "null"}]
           },
           "oneNetMapping": {
             "$ref": "#/components/schemas/ComputedOneNetMapping"
@@ -15507,7 +15813,7 @@
           "kind": {"type": "string", "enum": ["VALIDATION", "WAVE"]},
           "kindLabel": {"type": "string", "minLength": 1},
           "waveNo": {"type": "integer", "minimum": 0, "maximum": 1000},
-          "status": {"type": "string", "enum": ["PLANNED", "QUEUED", "RECEIVED", "DOWNLOADING", "VERIFYING_PACKAGE", "PACKAGE_READY", "WAITING_FOR_IDLE", "MIGRATING_DATA", "ACTIVATING", "VERIFYING_TARGET", "OBSERVING", "ROLLING_BACK", "VERIFYING_ROLLBACK", "SUCCEEDED", "ROLLED_BACK", "DEFERRED", "REJECTED", "FAILED_LOCKED", "DOWNLOAD_AUTHORIZATION_REQUIRED", "CANCELLED"]},
+          "status": {"type": "string", "enum": ["PLANNED", "QUEUED", "RECEIVED", "DOWNLOADING", "VERIFYING_PACKAGE", "PACKAGE_READY", "WAITING_FOR_IDLE", "MIGRATING_DATA", "ACTIVATING", "VERIFYING_TARGET", "OBSERVING", "ROLLING_BACK", "VERIFYING_ROLLBACK", "SUCCEEDED", "ROLLED_BACK", "DEFERRED", "REJECTED", "FAILED_LOCKED", "DOWNLOAD_AUTHORIZATION_REQUIRED", "CANCELLED", "LOCAL_CANCELLED"]},
           "statusLabel": {"type": "string", "minLength": 1},
           "cancellationStatus": {"type": "string", "enum": ["NONE", "QUEUED", "CANCELLED", "TOO_LATE"]},
           "cancellationStatusLabel": {"type": "string", "minLength": 1},
@@ -15750,7 +16056,7 @@
               "PREFLIGHT", "PREPARED",
               "FLASHING_TARGET", "VERIFYING_TARGET", "ROLLING_BACK",
               "VERIFYING_ROLLBACK", "SUCCEEDED", "ROLLED_BACK",
-              "FAILED_LOCKED", "REJECTED"
+              "FAILED_LOCKED", "REJECTED", "LOCAL_CANCELLED"
             ]
           },
           "commandUid": {
@@ -15895,6 +16201,68 @@
           "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
         }
       },
+      "DevicePolicyReleaseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedVersion",
+          "expectedDefaultVersion",
+          "configurationMode",
+          "reason"
+        ],
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "fullnessMode": {
+            "type": "string",
+            "enum": [
+              "INFRARED_ONLY",
+              "WEIGHT_ONLY",
+              "INFRARED_OR_WEIGHT"
+            ]
+          },
+          "fullnessWeightKg": {
+            "type": "string",
+            "pattern": "^[0-9]{1,7}(\\.[0-9]{1,3})?$",
+            "description": "满溢净重（千克），0.001～4294967.295；仅红外时保留此值，供切回重量判断使用。"
+          },
+          "expectedDefaultVersion": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "configurationMode": {
+            "type": "string",
+            "enum": [
+              "DEFAULT",
+              "INHERIT",
+              "CUSTOM"
+            ]
+          },
+          "unitPriceYuanPerKg": {
+            "type": "string",
+            "pattern": "^[0-9]{1,6}(\\.[0-9]{1,4})?$",
+            "description": "单价（元/千克），0.0001～429496.7295，最多四位小数。"
+          },
+          "negativeWeightThresholdGram": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 4294967295
+          }
+        },
+        "description": "平台只能发布 DEFAULT；租户可发布 CUSTOM 或恢复 INHERIT。CUSTOM/DEFAULT 必须提交单价、满溢方式、重量和重量减少异常阈值；INHERIT 的值由后端读取当前平台默认。范围取自登录会话，不接受租户或机构参数。"
+      },
       "RuntimeSnapshotPolicyReleaseRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -15918,6 +16286,191 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 500
+          }
+        }
+      },
+      "DevicePolicyValues": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "unitPriceYuanPerKg",
+          "fullnessMode",
+          "fullnessWeightKg",
+          "negativeWeightThresholdGram"
+        ],
+        "properties": {
+          "unitPriceYuanPerKg": {
+            "type": "string",
+            "pattern": "^[0-9]{1,6}(\\.[0-9]{1,4})?$",
+            "description": "单价（元/千克），0.0001～429496.7295，最多四位小数。"
+          },
+          "fullnessMode": {
+            "type": "string",
+            "enum": [
+              "INFRARED_ONLY",
+              "WEIGHT_ONLY",
+              "INFRARED_OR_WEIGHT"
+            ]
+          },
+          "fullnessWeightKg": {
+            "type": "string",
+            "pattern": "^[0-9]{1,7}(\\.[0-9]{1,3})?$",
+            "description": "满溢净重（千克），0.001～4294967.295；仅红外时保留此值，供切回重量判断使用。"
+          },
+          "negativeWeightThresholdGram": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 4294967295
+          }
+        }
+      },
+      "DevicePolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "publicationSource",
+          "updatedBy",
+          "changeReason",
+          "updatedAt",
+          "rolloutUid",
+          "rolloutStatus",
+          "targetDeviceCount",
+          "processedDeviceCount",
+          "publishedDeviceCount",
+          "pendingDeviceCount",
+          "edgeSavedDeviceCount",
+          "appliedDeviceCount",
+          "failedDeviceCount",
+          "blockedDeviceCount",
+          "fullnessMode",
+          "fullnessWeightKg",
+          "defaultVersion",
+          "configurationMode",
+          "unitPriceYuanPerKg",
+          "negativeWeightThresholdGram",
+          "platformDefaults"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "publicationSource": {
+            "type": "string",
+            "enum": [
+              "SYSTEM",
+              "PLATFORM_ADMIN",
+              "STAFF"
+            ]
+          },
+          "updatedBy": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "changeReason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "rolloutUid": {
+            "$ref": "#/components/schemas/UuidV4"
+          },
+          "rolloutStatus": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "RUNNING",
+              "DONE"
+            ]
+          },
+          "targetDeviceCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "processedDeviceCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "publishedDeviceCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "pendingDeviceCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "edgeSavedDeviceCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "appliedDeviceCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "failedDeviceCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "blockedDeviceCount": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "fullnessMode": {
+            "type": "string",
+            "enum": [
+              "INFRARED_ONLY",
+              "WEIGHT_ONLY",
+              "INFRARED_OR_WEIGHT"
+            ]
+          },
+          "fullnessWeightKg": {
+            "type": "string",
+            "pattern": "^[0-9]{1,7}(\\.[0-9]{1,3})?$",
+            "description": "满溢净重（千克），0.001～4294967.295；仅红外时保留此值，供切回重量判断使用。"
+          },
+          "defaultVersion": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "configurationMode": {
+            "type": "string",
+            "enum": [
+              "DEFAULT",
+              "INHERIT",
+              "CUSTOM"
+            ]
+          },
+          "unitPriceYuanPerKg": {
+            "type": "string",
+            "pattern": "^[0-9]{1,6}(\\.[0-9]{1,4})?$",
+            "description": "单价（元/千克），0.0001～429496.7295，最多四位小数。"
+          },
+          "negativeWeightThresholdGram": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "platformDefaults": {
+            "$ref": "#/components/schemas/DevicePolicyValues"
           }
         }
       },
@@ -16315,6 +16868,27 @@
           "code": {"type": "string", "const": "OK"},
           "data": {"$ref": "#/components/schemas/BaselineMeasurementAccepted"},
           "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "DevicePolicyEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "data",
+          "requestId"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DevicePolicy"
+          },
+          "requestId": {
+            "type": "string"
+          }
         }
       },
       "RuntimeSnapshotPolicyEnvelope": {

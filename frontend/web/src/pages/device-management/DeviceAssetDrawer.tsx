@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/authStore';
+import HelpTip from '@/components/HelpTip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -8,10 +10,10 @@ import {
   Descriptions,
   Divider,
   Drawer,
+  Dropdown,
   Empty,
   Form,
   Input,
-  InputNumber,
   List,
   Modal,
   Space,
@@ -28,6 +30,7 @@ import {
   EditOutlined,
   HistoryOutlined,
   MonitorOutlined,
+  MoreOutlined,
   QrcodeOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
@@ -130,8 +133,6 @@ interface DailyConfigurationEdits {
   ports?: Array<{
     displayName?: string;
     enabled?: boolean;
-    unitPriceYuanPerKg?: string;
-    fullnessWeightKg?: string;
   }>;
 }
 
@@ -221,13 +222,40 @@ function optionalTime(value?: string | null): string {
   return value ? formatShanghaiTime(value) : '尚无记录';
 }
 
-function portWeightText(port: DevicePortRuntime): string {
+function portWeightText(port: DevicePortRuntime, includeKind = true): string {
   if (port.weightValueAvailable === false) return '本次没有有效重量';
   if (port.reportedWeightGrams == null) return '尚无重量数据';
-  const kind = port.weightValueKind
+  const kind = includeKind && port.weightValueKind
     ? ` · ${runtimeStatusLabel(port.weightValueKind)}`
     : '';
   return `${port.reportedWeightGrams} 克${kind}`;
+}
+
+function PortAttentionTags({ port }: { port: DevicePortRuntime }) {
+  const checks = [
+    ['投递门', port.deliveryDoorState],
+    ['门驱动', port.deliveryDoorActuatorHealth],
+    ['门检测', port.deliveryDoorContactState],
+    ['清运锁', port.cleanLockPowerState],
+    ['电磁阀', port.cleanSolenoidHealth],
+    ['清运门', port.cleanDoorRecordedState],
+    ['称重', port.weightSensorHealth],
+    ['重量测量', port.weightMeasurementStatus],
+    ['红外传感器', port.infraredSensorHealth],
+    ['烟雾传感器', port.smokeSensorHealth],
+    ['烟雾', port.smokeState],
+  ] as const;
+  return <>
+    {!port.configuredEnabled && <Tag color="warning">投口已停用</Tag>}
+    {checks.filter(([, value]) => runtimeStatusColor(value) !== 'success')
+      .map(([label, value]) => (
+        <Tag key={label} color={runtimeStatusColor(value)}>
+          {label}：{runtimeStatusLabel(value)}
+        </Tag>
+      ))}
+    {port.lastDeliveryDoorOutputStatus === 'OUTPUT_REJECTED'
+      && <Tag color="error">投递门命令输出被拒绝</Tag>}
+  </>;
 }
 
 function PortRuntimePanel({ port }: { port: DevicePortRuntime }) {
@@ -377,28 +405,30 @@ function RuntimeStatusPanel({
 }) {
   const { health, configuration } = runtime;
   const online = health.oneNetConnectionStatus;
+  const healthItems = [
+    ['设备运行', health.edgeConnectionStatus], ['设备控制板通信', health.mcuLinkStatus],
+    ['整机安全', health.safetyStatus], ['称重', health.aggregateWeightHealth],
+    ['摄像头', health.cameraHealth], ['本地存储', health.localStorageHealth],
+    ['设备时钟', health.clockSyncHealth], ['控制板连接', health.uartState],
+  ] as const;
+  const attention = healthItems.filter(([, value]) => runtimeStatusColor(value) !== 'success');
   const configurationText = configuration.latestPublishedVersion == null
     ? '尚未发布配置'
     : `已发布 v${configuration.latestPublishedVersion}`
-      + (configuration.latestAppliedVersion == null
-        ? ' · 尚未应用'
-        : ` · 设备已应用 v${configuration.latestAppliedVersion}`);
+    + (configuration.latestAppliedVersion == null
+      ? ' · 尚未应用'
+      : ` · 设备已应用 v${configuration.latestAppliedVersion}`);
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
-      <Alert
+      {online === 'ONLINE' ? <Space><Tag color="success">设备在线</Tag><HelpTip label="设备状态时效">联网状态来自物联网平台；其他健康信息来自设备最近上报，请结合更新时间判断。</HelpTip></Space> : <Alert
         showIcon
-        type={online === 'ONLINE'
-          ? 'success'
-          : online === 'OFFLINE'
-            ? 'error'
-            : 'warning'}
-        message={online === 'ONLINE'
-          ? '物联网平台当前报告设备在线'
-          : online === 'OFFLINE'
-            ? '物联网平台当前报告设备离线，新投递和清运会被阻止'
-            : '平台暂时无法确认设备是否在线'}
-        description="设备是否在线由物联网平台通知；其他健康状态来自设备最近一次上报，请结合更新时间判断，可能不是实时状态。"
-      />
+        type={online === 'OFFLINE'
+          ? 'error'
+          : 'warning'}
+        message={online === 'OFFLINE'
+          ? '设备离线，无法开始新的投递和清运'
+          : '平台暂时无法确认设备是否在线'}
+      />}
       {!health.trustedRuntimeReceivedAt && (
         <Alert
           type="warning"
@@ -407,166 +437,194 @@ function RuntimeStatusPanel({
           description="设备可以已经在线，但控制板、摄像头和传感器等项目仍会显示未知；设备分配机构并上报运行状态后才会形成这些当前信息。"
         />
       )}
-      <Descriptions size="small" bordered column={2}>
-        <Descriptions.Item label="设备联网">
-          <RuntimeTag value={health.oneNetConnectionStatus} />
+      <Descriptions size="small" column={2}>
+        <Descriptions.Item label="当前作业">
+          {runtime.occupied ? <RuntimeTag value={runtime.occupancyKind} /> : <Tag>空闲</Tag>}
         </Descriptions.Item>
-        <Descriptions.Item label="设备状态发生时间">
-          {optionalTime(health.oneNetStatusObservedAt)}
+        <Descriptions.Item label="配置">
+          {configuration.latestPreciselyApplied
+            && configuration.latestAppliedVersion != null
+            ? `v${configuration.latestAppliedVersion} 已生效` : configurationText}
+          {!configuration.latestPreciselyApplied && (
+            <Tag color={configuration.latestApplicationStatus
+              ? configurationColors[configuration.latestApplicationStatus] : 'default'}>
+              {configuration.latestApplicationStatus
+                ? configurationLabels[configuration.latestApplicationStatus] : '应用状态未知'}
+            </Tag>
+          )}
         </Descriptions.Item>
-        <Descriptions.Item label="平台收到状态时间">
-          {optionalTime(health.oneNetStatusReceivedAt)}
-        </Descriptions.Item>
-        <Descriptions.Item label="香橙派最近运行状态">
-          <RuntimeTag value={health.edgeConnectionStatus} />
-        </Descriptions.Item>
-        <Descriptions.Item label="平台收到运行状态">
-          {optionalTime(health.trustedRuntimeReceivedAt)}
-        </Descriptions.Item>
-        <Descriptions.Item label="设备控制板通信">
-          <RuntimeTag value={health.mcuLinkStatus} />
-        </Descriptions.Item>
-        <Descriptions.Item label="整机安全状态">
-          <RuntimeTag value={health.safetyStatus} />
-        </Descriptions.Item>
-        <Descriptions.Item label="整机称重健康">
-          <RuntimeTag value={health.aggregateWeightHealth} />
-        </Descriptions.Item>
-        <Descriptions.Item label="摄像头健康">
-          <RuntimeTag value={health.cameraHealth} />
-        </Descriptions.Item>
-        <Descriptions.Item label="本地存储">
-          <RuntimeTag value={health.localStorageHealth} />
-        </Descriptions.Item>
-        <Descriptions.Item label="设备时钟">
-          <RuntimeTag value={health.clockSyncHealth} />
-        </Descriptions.Item>
-        <Descriptions.Item label="当前作业占用">
-          {runtime.occupied ? (
-            <Space size={4} wrap>
-              <RuntimeTag value={runtime.occupancyKind} />
-              <Typography.Text type="secondary">
-                {optionalTime(runtime.occupiedAt)}
-              </Typography.Text>
-            </Space>
-          ) : <Tag color="success">空闲</Tag>}
-        </Descriptions.Item>
-        <Descriptions.Item label="当前配置">
-          <Space size={4} wrap>
-            <Typography.Text>{configurationText}</Typography.Text>
-            {configuration.latestPreciselyApplied && (
-              <Tag color="success">精确生效</Tag>
-            )}
-          </Space>
-        </Descriptions.Item>
-        <Descriptions.Item label="控制板连接状态">
-          <RuntimeTag value={health.uartState} />
-        </Descriptions.Item>
-        <Descriptions.Item label="最近心跳记录">
-          {optionalTime(health.lastHeartbeatAt)}
-        </Descriptions.Item>
-        <Descriptions.Item label="最近设备事件">
-          {optionalTime(health.lastDeviceEventAt)}
-        </Descriptions.Item>
+        <Descriptions.Item label="联网状态更新于">{optionalTime(health.oneNetStatusObservedAt)}</Descriptions.Item>
+        <Descriptions.Item label="运行状态上报于">{optionalTime(health.trustedRuntimeReceivedAt)}</Descriptions.Item>
       </Descriptions>
-      <Collapse
-        size="small"
-        items={[{
-          key: 'runtime-technical-diagnostics',
-          label: '技术诊断（报修时使用）',
-          children: (
+      <Space wrap aria-label="部件状态摘要">
+        {attention.length === 0 && health.trustedRuntimeReceivedAt
+          ? <Tag color="success">最近上报：部件状态正常</Tag>
+          : attention.map(([label, value]) => <Tag key={label} color={runtimeStatusColor(value)}>{label}：{runtimeStatusLabel(value)}</Tag>)}
+      </Space>
+      <Collapse size="small" items={[{
+        key: 'runtime-details', label: '部件与时间明细', children: (
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Descriptions size="small" bordered column={2}>
-              <Descriptions.Item label="设备软件版本">
-                <Typography.Text copyable code>
-                  {health.edgeSoftwareVersion ?? '尚无数据'}
-                </Typography.Text>
+              <Descriptions.Item label="设备联网">
+                <RuntimeTag value={health.oneNetConnectionStatus} />
               </Descriptions.Item>
-              <Descriptions.Item label="控制板软件版本">
-                <Typography.Text copyable code>
-                  {health.mcuFirmwareVersion ?? '尚无数据'}
-                </Typography.Text>
+              <Descriptions.Item label="设备状态发生时间">
+                {optionalTime(health.oneNetStatusObservedAt)}
               </Descriptions.Item>
-              <Descriptions.Item label="设备本次启动编号">
-                <Typography.Text copyable code>
-                  {health.edgeBootId ?? '尚无数据'}
-                </Typography.Text>
+              <Descriptions.Item label="平台收到状态时间">
+                {optionalTime(health.oneNetStatusReceivedAt)}
               </Descriptions.Item>
-              <Descriptions.Item label="控制板重启原因代码">
-                <Typography.Text copyable code>
-                  {health.lastMcuResetReason ?? '尚无数据'}
-                </Typography.Text>
+              <Descriptions.Item label="香橙派最近运行状态">
+                <RuntimeTag value={health.edgeConnectionStatus} />
               </Descriptions.Item>
-              <Descriptions.Item label="控制板通信版本">
-                {health.uartProtocolMajor != null
-                  && health.uartProtocolMinor != null
-                  ? `${health.uartProtocolMajor}.${health.uartProtocolMinor}`
-                  : '尚无数据'}
+              <Descriptions.Item label="平台收到运行状态">
+                {optionalTime(health.trustedRuntimeReceivedAt)}
               </Descriptions.Item>
-              <Descriptions.Item label="等待上传的设备记录">
-                {health.pendingReliableEventCount ?? '尚无数据'}
+              <Descriptions.Item label="设备控制板通信">
+                <RuntimeTag value={health.mcuLinkStatus} />
               </Descriptions.Item>
-              <Descriptions.Item label="设备上报的配置版本" span={2}>
-                {health.orangePiReportedConfigurationVersion == null
-                  ? '尚无数据'
-                  : `v${health.orangePiReportedConfigurationVersion}`}
+              <Descriptions.Item label="整机安全状态">
+                <RuntimeTag value={health.safetyStatus} />
               </Descriptions.Item>
-              <Descriptions.Item label="设备联网状态代码">
-                <Typography.Text copyable code>
-                  {health.oneNetConnectionStatus}
-                </Typography.Text>
+              <Descriptions.Item label="整机称重健康">
+                <RuntimeTag value={health.aggregateWeightHealth} />
               </Descriptions.Item>
-              <Descriptions.Item label="设备运行状态代码">
-                <Typography.Text copyable code>
-                  {health.edgeConnectionStatus}
-                </Typography.Text>
+              <Descriptions.Item label="摄像头健康">
+                <RuntimeTag value={health.cameraHealth} />
               </Descriptions.Item>
-              <Descriptions.Item label="控制板通信状态代码">
-                <Typography.Text copyable code>
-                  {health.mcuLinkStatus}
-                </Typography.Text>
+              <Descriptions.Item label="本地存储">
+                <RuntimeTag value={health.localStorageHealth} />
               </Descriptions.Item>
-              <Descriptions.Item label="整机安全状态代码">
-                <Typography.Text copyable code>
-                  {health.safetyStatus}
-                </Typography.Text>
+              <Descriptions.Item label="设备时钟">
+                <RuntimeTag value={health.clockSyncHealth} />
               </Descriptions.Item>
-              <Descriptions.Item label="称重状态代码">
-                <Typography.Text copyable code>
-                  {health.aggregateWeightHealth}
-                </Typography.Text>
+              <Descriptions.Item label="当前作业占用">
+                {runtime.occupied ? (
+                  <Space size={4} wrap>
+                    <RuntimeTag value={runtime.occupancyKind} />
+                    <Typography.Text type="secondary">
+                      {optionalTime(runtime.occupiedAt)}
+                    </Typography.Text>
+                  </Space>
+                ) : <Tag color="success">空闲</Tag>}
               </Descriptions.Item>
-              <Descriptions.Item label="摄像头状态代码">
-                <Typography.Text copyable code>
-                  {health.cameraHealth}
-                </Typography.Text>
+              <Descriptions.Item label="当前配置">
+                <Space size={4} wrap>
+                  <Typography.Text>{configurationText}</Typography.Text>
+                  {configuration.latestPreciselyApplied && (
+                    <Tag color="success">精确生效</Tag>
+                  )}
+                </Space>
               </Descriptions.Item>
-              <Descriptions.Item label="存储状态代码">
-                <Typography.Text copyable code>
-                  {health.localStorageHealth}
-                </Typography.Text>
+              <Descriptions.Item label="控制板连接状态">
+                <RuntimeTag value={health.uartState} />
               </Descriptions.Item>
-              <Descriptions.Item label="设备时钟状态代码">
-                <Typography.Text copyable code>
-                  {health.clockSyncHealth}
-                </Typography.Text>
+              <Descriptions.Item label="最近心跳记录">
+                {optionalTime(health.lastHeartbeatAt)}
               </Descriptions.Item>
-              <Descriptions.Item label="控制板连接状态代码">
-                <Typography.Text copyable code>
-                  {health.uartState}
-                </Typography.Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="当前作业类型代码">
-                <Typography.Text copyable code>
-                  {runtime.occupancyKind ?? 'NONE'}
-                </Typography.Text>
+              <Descriptions.Item label="最近设备事件">
+                {optionalTime(health.lastDeviceEventAt)}
               </Descriptions.Item>
             </Descriptions>
-          ),
-        }]}
-      />
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        页面读取时间：{formatShanghaiTime(runtime.fetchedAt)}。这里显示的是最近一次记录；每次开始投递或清运前，系统都会再次确认设备当前满足安全和业务条件。
-      </Typography.Text>
+            <Collapse
+              size="small"
+              items={[{
+                key: 'runtime-technical-diagnostics',
+                label: '技术诊断（报修时使用）',
+                children: (
+                  <Descriptions size="small" bordered column={2}>
+                    <Descriptions.Item label="设备软件版本">
+                      <Typography.Text copyable code>
+                        {health.edgeSoftwareVersion ?? '尚无数据'}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="控制板软件版本">
+                      <Typography.Text copyable code>
+                        {health.mcuFirmwareVersion ?? '尚无数据'}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="设备本次启动编号">
+                      <Typography.Text copyable code>
+                        {health.edgeBootId ?? '尚无数据'}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="控制板重启原因代码">
+                      <Typography.Text copyable code>
+                        {health.lastMcuResetReason ?? '尚无数据'}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="控制板通信版本">
+                      {health.uartProtocolMajor != null
+                        && health.uartProtocolMinor != null
+                        ? `${health.uartProtocolMajor}.${health.uartProtocolMinor}`
+                        : '尚无数据'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="等待上传的设备记录">
+                      {health.pendingReliableEventCount ?? '尚无数据'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="设备上报的配置版本" span={2}>
+                      {health.orangePiReportedConfigurationVersion == null
+                        ? '尚无数据'
+                        : `v${health.orangePiReportedConfigurationVersion}`}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="设备联网状态代码">
+                      <Typography.Text copyable code>
+                        {health.oneNetConnectionStatus}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="设备运行状态代码">
+                      <Typography.Text copyable code>
+                        {health.edgeConnectionStatus}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="控制板通信状态代码">
+                      <Typography.Text copyable code>
+                        {health.mcuLinkStatus}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="整机安全状态代码">
+                      <Typography.Text copyable code>
+                        {health.safetyStatus}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="称重状态代码">
+                      <Typography.Text copyable code>
+                        {health.aggregateWeightHealth}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="摄像头状态代码">
+                      <Typography.Text copyable code>
+                        {health.cameraHealth}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="存储状态代码">
+                      <Typography.Text copyable code>
+                        {health.localStorageHealth}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="设备时钟状态代码">
+                      <Typography.Text copyable code>
+                        {health.clockSyncHealth}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="控制板连接状态代码">
+                      <Typography.Text copyable code>
+                        {health.uartState}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="当前作业类型代码">
+                      <Typography.Text copyable code>
+                        {runtime.occupancyKind ?? 'NONE'}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                  </Descriptions>
+                ),
+              }]}
+            />
+
+          </Space>
+        )
+      }]} />
       {runtime.ports.length ? (
         <Collapse
           size="small"
@@ -577,9 +635,10 @@ function RuntimeStatusPanel({
                 <Typography.Text strong>
                   {port.portNo} 号投口 · {port.displayName}
                 </Typography.Text>
-                <RuntimeTag value={port.safetyStatus} />
-                <RuntimeTag value={port.weightSensorHealth} />
-                <RuntimeTag value={port.smokeState} />
+                <Typography.Text>最近重量 {portWeightText(port, false)}</Typography.Text>
+                <Tag color={runtimeStatusColor(port.fullnessSensorValue)}>满溢：{runtimeStatusLabel(port.fullnessSensorValue)}</Tag>
+                <Tag color={runtimeStatusColor(port.safetyStatus)}>安全：{runtimeStatusLabel(port.safetyStatus)}</Tag>
+                <PortAttentionTags port={port} />
               </Space>
             ),
             children: <PortRuntimePanel port={port} />,
@@ -648,69 +707,22 @@ function DeviceManagementStatusPanel({
 
   return (
     <Card
-      title="设备软件与业务可用状态"
-      extra={(
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          随设备运行状态自动刷新
-        </Typography.Text>
-      )}
+      title="业务可用状态"
+
     >
       <Space direction="vertical" size={12} style={{ width: '100%' }}>
-        <Alert
+        {(runtimeUnavailable || reasonRequired) && <Alert
           showIcon
           type={alertType}
           message={admission.label}
           description={admission.description}
-        />
-        <Descriptions size="small" bordered column={2}>
-          <Descriptions.Item label="设备管理方式">
-            {architectureGenerationLabel(management)}
-          </Descriptions.Item>
-          <Descriptions.Item label="新投递和清运">
+        />}
+        {!runtimeUnavailable && !reasonRequired && (
+          <Space wrap>
             <Tag color={admission.color}>{admission.label}</Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="软件配合情况" span={2}>
-            <Space direction="vertical" size={2}>
-              <Tag color={compatibility.color}>{compatibility.label}</Tag>
-              <Typography.Text type="secondary">
-                {runtimeUnavailable
-                  ? `上一次记录：${compatibility.description}`
-                  : compatibility.description}
-              </Typography.Text>
-            </Space>
-          </Descriptions.Item>
-          {managed && detail && (
-            <>
-              <Descriptions.Item label="设备作业入口">
-                {deviceGateStateLabel(detail.deviceGateState)}
-              </Descriptions.Item>
-              <Descriptions.Item label="业务程序运行情况">
-                {businessProcessStateLabel(
-                  detail.businessProcessState,
-                  detail.businessReady,
-                )}
-              </Descriptions.Item>
-              <Descriptions.Item label="业务程序版本">
-                {detail.businessVersionName ?? '尚无数据'}
-              </Descriptions.Item>
-              <Descriptions.Item label="设备通信程序版本">
-                {detail.communicationAgentVersion ?? '尚无数据'}
-              </Descriptions.Item>
-              <Descriptions.Item label="设备更新程序版本">
-                {detail.deviceUpdaterVersion ?? '尚无数据'}
-              </Descriptions.Item>
-              <Descriptions.Item label="控制板程序版本">
-                {detail.mcuFirmwareVersion ?? '尚无数据'}
-              </Descriptions.Item>
-            </>
-          )}
-          <Descriptions.Item
-            label={managed ? '设备管理状态记录时间' : '新版管理状态记录'}
-            span={2}
-          >
-            {managed ? optionalTime(management?.observedAt) : '旧设备不需要此记录'}
-          </Descriptions.Item>
-        </Descriptions>
+            <HelpTip label="业务可用状态">{admission.description}</HelpTip>
+          </Space>
+        )}
         {visibleReasons.length > 0 && (
           <div>
             <Typography.Text strong>当前需要注意</Typography.Text>
@@ -728,27 +740,76 @@ function DeviceManagementStatusPanel({
             />
           </div>
         )}
-        {managed && protocolItems.some(([, value]) => value != null) && (
-          <Collapse
-            size="small"
-            items={[{
-              key: 'device-management-technical-diagnostics',
-              label: '通信版本（报修时使用）',
-              children: (
-                <Descriptions size="small" bordered column={1}>
-                  {protocolItems.map(([label, value]) => (
-                    <Descriptions.Item key={label} label={label}>
-                      {formatProtocolVersion(value)}
+        <Collapse size="small" items={[{
+          key: 'software-details', label: '软件与管理详情', children: (
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Descriptions size="small" bordered column={2}>
+                <Descriptions.Item label="设备管理方式">
+                  {architectureGenerationLabel(management)}
+                </Descriptions.Item>
+                <Descriptions.Item label="新投递和清运">
+                  <Tag color={admission.color}>{admission.label}</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="软件配合情况" span={2}>
+                  <Space direction="vertical" size={2}>
+                    <Tag color={compatibility.color}>{compatibility.label}</Tag>
+                    <HelpTip label="软件配合情况">{runtimeUnavailable ? '这是上一次成功读取的状态。' : ''}{compatibility.description}</HelpTip>
+                  </Space>
+                </Descriptions.Item>
+                {managed && detail && (
+                  <>
+                    <Descriptions.Item label="设备作业入口">
+                      {deviceGateStateLabel(detail.deviceGateState)}
                     </Descriptions.Item>
-                  ))}
-                </Descriptions>
-              ),
-            }]}
-          />
-        )}
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          页面展示的是平台当前记录。每次开始投递或清运时，系统仍会重新检查联网、配置、安全、占用和软件状态。
-        </Typography.Text>
+                    <Descriptions.Item label="业务程序运行情况">
+                      {businessProcessStateLabel(
+                        detail.businessProcessState,
+                        detail.businessReady,
+                      )}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="业务程序版本">
+                      {detail.businessVersionName ?? '尚无数据'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="设备通信程序版本">
+                      {detail.communicationAgentVersion ?? '尚无数据'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="设备更新程序版本">
+                      {detail.deviceUpdaterVersion ?? '尚无数据'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="控制板程序版本">
+                      {detail.mcuFirmwareVersion ?? '尚无数据'}
+                    </Descriptions.Item>
+                  </>
+                )}
+                <Descriptions.Item
+                  label={managed ? '设备管理状态记录时间' : '新版管理状态记录'}
+                  span={2}
+                >
+                  {managed ? optionalTime(management?.observedAt) : '旧设备不需要此记录'}
+                </Descriptions.Item>
+              </Descriptions>
+              {managed && protocolItems.some(([, value]) => value != null) && (
+                <Collapse
+                  size="small"
+                  items={[{
+                    key: 'device-management-technical-diagnostics',
+                    label: '通信版本（报修时使用）',
+                    children: (
+                      <Descriptions size="small" bordered column={1}>
+                        {protocolItems.map(([label, value]) => (
+                          <Descriptions.Item key={label} label={label}>
+                            {formatProtocolVersion(value)}
+                          </Descriptions.Item>
+                        ))}
+                      </Descriptions>
+                    ),
+                  }]}
+                />
+              )}
+
+            </Space>
+          )
+        }]} />
       </Space>
     </Card>
   );
@@ -766,12 +827,6 @@ function mergeConfiguration(
       ...port,
       displayName: edits.ports?.[index]?.displayName ?? port.displayName,
       enabled: edits.ports?.[index]?.enabled ?? port.enabled,
-      unitPriceYuanPerKg:
-        edits.ports?.[index]?.unitPriceYuanPerKg
-        ?? port.unitPriceYuanPerKg,
-      fullnessWeightKg:
-        edits.ports?.[index]?.fullnessWeightKg
-        ?? port.fullnessWeightKg,
     })),
   };
 }
@@ -1003,10 +1058,21 @@ function FactoryTaskDiagnostics({
   );
 }
 
+function factoryProgressCompleted(progress?: DeviceFactoryProgress): boolean {
+  return Boolean(progress
+    && progress.status === 'COMPLETED'
+    && progress.seal.status === 'SEALED'
+    && progress.acceptance.status === 'PASSED'
+    && progress.nextActionCodes.length === 0
+    && collectFactoryProgressCodes(progress).length === 0);
+}
+
 function FactoryProgressPanel({
+  retired,
   load,
   onRefresh,
 }: {
+  retired: boolean;
   load: FactoryProgressLoadState;
   onRefresh: () => void;
 }) {
@@ -1052,226 +1118,208 @@ function FactoryProgressPanel({
   const evidenceChanged = progress.acceptance.authoritativeEvidence
     && progress.acceptance.latestEvidence
     && progress.acceptance.authoritativeEvidence.evidenceUid
-      !== progress.acceptance.latestEvidence.evidenceUid;
+    !== progress.acceptance.latestEvidence.evidenceUid;
 
+  const completed = factoryProgressCompleted(progress);
   return (
-    <section aria-labelledby="factory-progress-title">
-      <Card
-        title={(
-          <Space wrap>
-            <SafetyCertificateOutlined />
-            <Typography.Text strong id="factory-progress-title">
-              接入与封存进度
-            </Typography.Text>
-            <Tag>{factoryStageLabel(progress.currentStage)}</Tag>
-          </Space>
-        )}
-        extra={(
-          <Space size={8}>
-            {progress.seal.status !== 'SEALED' && (
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                前台每 5 秒刷新
-              </Typography.Text>
-            )}
-            <Button
-              size="small"
-              icon={<ReloadOutlined />}
-              loading={loading}
-              onClick={onRefresh}
-            >
-              刷新
-            </Button>
-          </Space>
-        )}
-        styles={{ body: { padding: 16 } }}
-      >
-        {load.status === 'error' && (
-          <Alert
-            type="warning"
-            showIcon
-            style={{ marginBottom: 12 }}
-            message="进度刷新失败，以下为上一次成功结果"
-            description={load.error}
-          />
-        )}
-        <div
-          role="group"
-          aria-label="设备出厂接入节点链"
-          style={{ overflowX: 'auto', padding: '4px 2px 12px' }}
-        >
-          <div style={{ minWidth: 650 }}>
-            <Steps
-              size="small"
-              responsive={false}
-              items={steps.map((step) => ({
-                title: step.title,
-                description: step.description,
-                status: step.status,
-              }))}
-            />
-          </div>
-        </div>
-        <Alert
-          showIcon
-          type={summary.type}
-          message={summary.message}
-          description={summary.description}
-          style={{ marginBottom: 12 }}
-        />
-
-        {issueCodes.map((code) => {
-          const guidance = factoryFailureGuidance(code);
-          return (
-            <Alert
-              key={code}
-              type={factoryIssueAlertType(progress)}
-              showIcon
-              style={{ marginBottom: 8 }}
-              message={guidance.title}
-              description={(
-                <Space direction="vertical" size={4}>
-                  <Typography.Text>{guidance.action}</Typography.Text>
-                  <Typography.Text type="secondary">
-                    如需技术协助，请展开下方“技术诊断”并提供报修代码。
+    <section aria-label="接入与封存">
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        {load.status === 'error' && <Alert type="warning" showIcon message="接入进度刷新失败" description={load.error} />}
+        {!retired && !completed && <Alert type={summary.type} showIcon message={summary.message} description={summary.description} />}
+        {!retired && !completed && progress.nextActionCodes.length > 0 && <Space wrap>下一步{progress.nextActionCodes.map(action => <Tag key={action}>{factoryActionLabel(action)}</Tag>)}</Space>}
+        {!retired && issueCodes.map(code => <Alert key={code} type={factoryIssueAlertType(progress)} showIcon message={factoryFailureGuidance(code).title} description={factoryFailureGuidance(code).action} />)}
+        <Collapse size="small" items={[{
+          key: 'factory-progress-details', label: retired ? '接入与封存记录' : completed ? '接入与封存 · 已完成' : '接入与封存明细', children: (
+            <Card
+              title={(
+                <Space wrap>
+                  <SafetyCertificateOutlined />
+                  <Typography.Text strong id="factory-progress-title">
+                    接入与封存进度
                   </Typography.Text>
+                  <Tag>{factoryStageLabel(progress.currentStage)}</Tag>
                 </Space>
               )}
-            />
-          );
-        })}
-
-        <Descriptions size="small" column={2} bordered style={{ marginTop: 12 }}>
-          <Descriptions.Item label="初始袋码">
-            {progress.factoryBags.verifiedCount}/{progress.factoryBags.expectedPortCount}
-            {progress.factoryBags.complete
-              ? <Tag color="success" style={{ marginLeft: 8 }}>已完整</Tag>
-              : <Tag color="warning" style={{ marginLeft: 8 }}>待补齐</Tag>}
-          </Descriptions.Item>
-          <Descriptions.Item label="袋码更新次数">
-            {progress.factoryBags.revision}
-          </Descriptions.Item>
-          <Descriptions.Item label="当前验收结果">
-            <Tag color={acceptanceColors[progress.acceptance.status]}>
-              {acceptanceLabels[progress.acceptance.status]}
-            </Tag>
-            <Typography.Text type="secondary">
-              第 {progress.acceptance.generation} 次验收
-            </Typography.Text>
-          </Descriptions.Item>
-          <Descriptions.Item label="封存状态">
-            <Tag color={progress.seal.status === 'SEALED'
-              ? 'success'
-              : progress.seal.status === 'CANCELLED'
-                ? 'error'
-                : progress.seal.status === 'ACKNOWLEDGED'
-                  ? 'warning'
-                  : 'processing'}>
-              {sealStatusLabel(progress.seal.status)}
-            </Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="最近判定">
-            {optionalTime(progress.acceptance.lastEvaluatedAt)}
-          </Descriptions.Item>
-          <Descriptions.Item label="验收通过时间">
-            {optionalTime(progress.acceptance.acceptedAt)}
-          </Descriptions.Item>
-          <Descriptions.Item label="数据读取时间" span={2}>
-            {formatShanghaiTime(progress.fetchedAt)}
-          </Descriptions.Item>
-          <Descriptions.Item label="下一步" span={2}>
-            {progress.nextActionCodes.length ? (
-              <Space wrap>
-                {progress.nextActionCodes.map((action) => (
-                  <Tag key={action}>{factoryActionLabel(action)}</Tag>
-                ))}
-              </Space>
-            ) : '等待系统继续推进'}
-          </Descriptions.Item>
-        </Descriptions>
-
-        {evidenceChanged && (
-          <Alert
-            type="warning"
-            showIcon
-            style={{ marginTop: 12 }}
-            message="最近收到的检查记录不是本次验收采用的记录"
-            description="请分别核对下方两份记录；后到的记录不会自动改变已确认的验收结果或封存授权。"
-          />
-        )}
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 12,
-            width: '100%',
-            marginTop: 12,
-          }}
-        >
-          <FactoryEvidenceReference
-            title="当前验收采用的检查记录"
-            evidence={progress.acceptance.authoritativeEvidence}
-            emptyText="本次验收尚未采用任何设备检查记录"
-          />
-          <FactoryEvidenceReference
-            title="最近收到的检查记录"
-            evidence={progress.acceptance.latestEvidence}
-            emptyText="管理平台尚未收到设备检查记录"
-          />
-        </div>
-
-        <Collapse
-          size="small"
-          style={{ marginTop: 12 }}
-          items={[{
-            key: 'factory-task-diagnostics',
-            label: '技术诊断（报修时使用）',
-            children: (
-              <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                {issueCodes.length > 0 && (
-                  <Descriptions size="small" column={1} bordered>
-                    <Descriptions.Item label="报修代码">
-                      <Space wrap>
-                        {issueCodes.map((code) => (
-                          <Typography.Text key={code} copyable code>
-                            {code}
-                          </Typography.Text>
-                        ))}
-                      </Space>
-                    </Descriptions.Item>
-                  </Descriptions>
-                )}
-                <FactoryTaskDiagnostics
-                  title="设备功能检查指令"
-                  task={progress.acceptanceRequest}
+              extra={(
+                <Space size={8}>
+                  {!retired && progress.seal.status !== 'SEALED' && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      前台每 5 秒刷新
+                    </Typography.Text>
+                  )}
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    loading={loading}
+                    onClick={onRefresh}
+                  >
+                    刷新
+                  </Button>
+                </Space>
+              )}
+              styles={{ body: { padding: 16 } }}
+            >
+              {load.status === 'error' && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message="进度刷新失败，以下为上一次成功结果"
+                  description={load.error}
                 />
-                <FactoryTaskDiagnostics
-                  title="封存授权"
-                  task={progress.seal}
+              )}
+              <div
+                role="group"
+                aria-label="设备出厂接入节点链"
+                style={{ overflowX: 'auto', padding: '4px 2px 12px' }}
+              >
+                <div style={{ minWidth: 650 }}>
+                  <Steps
+                    size="small"
+                    responsive={false}
+                    items={steps.map((step) => ({
+                      title: step.title,
+                      description: step.description,
+                      status: step.status,
+                    }))}
+                  />
+                </div>
+              </div>
+              <Descriptions size="small" column={2} bordered style={{ marginTop: 12 }}>
+                <Descriptions.Item label="初始袋码">
+                  {progress.factoryBags.verifiedCount}/{progress.factoryBags.expectedPortCount}
+                  {progress.factoryBags.complete
+                    ? <Tag color="success" style={{ marginLeft: 8 }}>已完整</Tag>
+                    : <Tag color="warning" style={{ marginLeft: 8 }}>待补齐</Tag>}
+                </Descriptions.Item>
+                <Descriptions.Item label="袋码更新次数">
+                  {progress.factoryBags.revision}
+                </Descriptions.Item>
+                <Descriptions.Item label="当前验收结果">
+                  <Tag color={acceptanceColors[progress.acceptance.status]}>
+                    {acceptanceLabels[progress.acceptance.status]}
+                  </Tag>
+                  <Typography.Text type="secondary">
+                    第 {progress.acceptance.generation} 次验收
+                  </Typography.Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="封存状态">
+                  <Tag color={progress.seal.status === 'SEALED'
+                    ? 'success'
+                    : progress.seal.status === 'CANCELLED'
+                      ? 'error'
+                      : progress.seal.status === 'ACKNOWLEDGED'
+                        ? 'warning'
+                        : 'processing'}>
+                    {sealStatusLabel(progress.seal.status)}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="最近判定">
+                  {optionalTime(progress.acceptance.lastEvaluatedAt)}
+                </Descriptions.Item>
+                <Descriptions.Item label="验收通过时间">
+                  {optionalTime(progress.acceptance.acceptedAt)}
+                </Descriptions.Item>
+                <Descriptions.Item label="数据读取时间" span={2}>
+                  {formatShanghaiTime(progress.fetchedAt)}
+                </Descriptions.Item>
+                {!retired && <Descriptions.Item label="下一步" span={2}>
+                  {progress.nextActionCodes.length ? (
+                    <Space wrap>
+                      {progress.nextActionCodes.map((action) => (
+                        <Tag key={action}>{factoryActionLabel(action)}</Tag>
+                      ))}
+                    </Space>
+                  ) : '等待系统继续推进'}
+                </Descriptions.Item>}
+              </Descriptions>
+
+              {evidenceChanged && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginTop: 12 }}
+                  message="最近收到的检查记录不是本次验收采用的记录"
+                  description="请分别核对下方两份记录；后到的记录不会自动改变已确认的验收结果或封存授权。"
                 />
-                <Descriptions size="small" column={2} bordered>
-                  <Descriptions.Item label="对应第几次验收">
-                    {progress.seal.status === 'NOT_ISSUED'
-                      ? '尚未签发'
-                      : progress.seal.generation}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="设备接受授权">
-                    {optionalTime(progress.seal.acknowledgedAt)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="设备封存时间">
-                    {optionalTime(progress.seal.sealedAt)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="平台收到完成通知">
-                    {optionalTime(progress.seal.completionReceivedAt)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="设备清理完成" span={2}>
-                    {optionalTime(progress.seal.cleanupCompletedAt)}
-                  </Descriptions.Item>
-                </Descriptions>
-              </Space>
-            ),
-          }]}
-        />
-      </Card>
+              )}
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                  width: '100%',
+                  marginTop: 12,
+                }}
+              >
+                <FactoryEvidenceReference
+                  title="当前验收采用的检查记录"
+                  evidence={progress.acceptance.authoritativeEvidence}
+                  emptyText="本次验收尚未采用任何设备检查记录"
+                />
+                <FactoryEvidenceReference
+                  title="最近收到的检查记录"
+                  evidence={progress.acceptance.latestEvidence}
+                  emptyText="管理平台尚未收到设备检查记录"
+                />
+              </div>
+
+              <Collapse
+                size="small"
+                style={{ marginTop: 12 }}
+                items={[{
+                  key: 'factory-task-diagnostics',
+                  label: '技术诊断（报修时使用）',
+                  children: (
+                    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                      {issueCodes.length > 0 && (
+                        <Descriptions size="small" column={1} bordered>
+                          <Descriptions.Item label="报修代码">
+                            <Space wrap>
+                              {issueCodes.map((code) => (
+                                <Typography.Text key={code} copyable code>
+                                  {code}
+                                </Typography.Text>
+                              ))}
+                            </Space>
+                          </Descriptions.Item>
+                        </Descriptions>
+                      )}
+                      <FactoryTaskDiagnostics
+                        title="设备功能检查指令"
+                        task={progress.acceptanceRequest}
+                      />
+                      <FactoryTaskDiagnostics
+                        title="封存授权"
+                        task={progress.seal}
+                      />
+                      <Descriptions size="small" column={2} bordered>
+                        <Descriptions.Item label="对应第几次验收">
+                          {progress.seal.status === 'NOT_ISSUED'
+                            ? '尚未签发'
+                            : progress.seal.generation}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="设备接受授权">
+                          {optionalTime(progress.seal.acknowledgedAt)}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="设备封存时间">
+                          {optionalTime(progress.seal.sealedAt)}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="平台收到完成通知">
+                          {optionalTime(progress.seal.completionReceivedAt)}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="设备清理完成" span={2}>
+                          {optionalTime(progress.seal.cleanupCompletedAt)}
+                        </Descriptions.Item>
+                      </Descriptions>
+                    </Space>
+                  ),
+                }]}
+              />
+            </Card>
+          )
+        }]} />
+      </Space>
     </section>
   );
 }
@@ -1280,7 +1328,6 @@ export default function DeviceAssetDrawer({
   open,
   mode,
   asset,
-  organizationCode,
   onClose,
   onAssignTenant,
   onAssignOrganization,
@@ -1288,6 +1335,9 @@ export default function DeviceAssetDrawer({
   onReevaluateAcceptance,
   onChanged,
 }: DeviceAssetDrawerProps) {
+  // A tenant-wide list can contain devices from several organizations.
+  const organizationCode = asset?.organizationCode ?? undefined;
+  const canPublishConfiguration = useAuthStore((state) => state.hasCapability('device.configuration.manage'));
   const executeCommand = useCommandExecutor();
   const [configForm] = Form.useForm<DailyConfigurationEdits>();
   const [recoveryForm] = Form.useForm<PlatformConfigurationRecovery>();
@@ -1317,6 +1367,9 @@ export default function DeviceAssetDrawer({
   const factoryProgressSealed = useRef(false);
   const technicalIssueRequest = useRef(0);
   const [loadingConfiguration, setLoadingConfiguration] = useState(false);
+  const [configurationExpanded, setConfigurationExpanded] = useState(false);
+  const [configurationError, setConfigurationError] = useState<string>();
+  const configurationRequest = useRef(0);
   const [configurationModalOpen, setConfigurationModalOpen] = useState(false);
   const [recoveryKind, setRecoveryKind] = useState<PlatformRecoveryKind>();
   const [submitting, setSubmitting] = useState(false);
@@ -1340,6 +1393,7 @@ export default function DeviceAssetDrawer({
   const [reevaluating, setReevaluating] = useState(false);
   const [entryQrDataUrl, setEntryQrDataUrl] = useState<string>();
   const [entryQrError, setEntryQrError] = useState(false);
+  const [entryQrOpen, setEntryQrOpen] = useState(false);
   const technicalIssues = technicalIssueLoad.data;
   const loadingTechnicalIssues = technicalIssueLoad.status === 'loading';
   const loadingRuntime = runtimeLoad.status === 'loading';
@@ -1348,10 +1402,7 @@ export default function DeviceAssetDrawer({
     ? deviceManagementDetail(runtimeLoad.data) ?? deviceManagementSummary(asset)
     : deviceManagementSummary(asset);
 
-  const canConfigure = Boolean(asset) && (
-    (mode === 'organization' && Boolean(organizationCode))
-    || (mode === 'platform' && Boolean(asset?.organizationCode))
-  );
+  const canConfigure = Boolean(asset && organizationCode);
 
   const loadFactoryProgress = useCallback(async (
     background = false,
@@ -1471,6 +1522,8 @@ export default function DeviceAssetDrawer({
 
   const loadConfiguration = async () => {
     if (!asset || !canConfigure) return;
+    const requestId = ++configurationRequest.current;
+    setConfigurationError(undefined);
     setLoadingConfiguration(true);
     try {
       const page = mode === 'platform'
@@ -1483,6 +1536,7 @@ export default function DeviceAssetDrawer({
           asset.deviceCode,
           { limit: 20 },
         );
+      if (configurationRequest.current !== requestId) return;
       setVersions(page.items);
       if (page.items.length) {
         const latest = page.items[0];
@@ -1496,14 +1550,15 @@ export default function DeviceAssetDrawer({
             asset.deviceCode,
             latest.versionNo,
           );
+        if (configurationRequest.current !== requestId) return;
         setLatestVersion(version);
         if (mode === 'platform') {
-          setLatestApplication(
-            await getPlatformDeviceConfigurationApplication(
-              asset.hardwareSn,
-              latest.application.applicationUid,
-            ),
+          const application = await getPlatformDeviceConfigurationApplication(
+            asset.hardwareSn,
+            latest.application.applicationUid,
           );
+          if (configurationRequest.current !== requestId) return;
+          setLatestApplication(application);
         } else {
           setLatestApplication(undefined);
         }
@@ -1512,9 +1567,11 @@ export default function DeviceAssetDrawer({
         setLatestApplication(undefined);
       }
     } catch (error) {
+      if (configurationRequest.current !== requestId) return;
+      setConfigurationError(errorMessage(error));
       message.error(errorMessage(error));
     } finally {
-      setLoadingConfiguration(false);
+      if (configurationRequest.current === requestId) setLoadingConfiguration(false);
     }
   };
 
@@ -1525,7 +1582,11 @@ export default function DeviceAssetDrawer({
     factoryProgressRefreshQueued.current = false;
     factoryProgressSealed.current = false;
     technicalIssueRequest.current += 1;
+    configurationRequest.current += 1;
+    setEntryQrOpen(false);
     if (!open) return;
+    setConfigurationExpanded(false);
+    setConfigurationError(undefined);
     setEvidence([]);
     setEvidenceExpanded(false);
     setEvidenceLoaded(false);
@@ -1562,6 +1623,7 @@ export default function DeviceAssetDrawer({
       if (
         stopped
         || factoryProgressSealed.current
+        || asset?.lifecycleStatus === 'RETIRED'
         || document.visibilityState !== 'visible'
       ) return;
       timer = window.setTimeout(() => {
@@ -1580,7 +1642,7 @@ export default function DeviceAssetDrawer({
         timer = undefined;
         return;
       }
-      if (timer == null && !factoryProgressSealed.current) void poll();
+      if (timer == null && !factoryProgressSealed.current && asset?.lifecycleStatus !== 'RETIRED') void poll();
     };
 
     void poll();
@@ -1593,7 +1655,7 @@ export default function DeviceAssetDrawer({
       factoryProgressInFlight.current = null;
       factoryProgressRefreshQueued.current = false;
     };
-  }, [hardwareSn, loadFactoryProgress, mode, open]);
+  }, [asset?.lifecycleStatus, hardwareSn, loadFactoryProgress, mode, open]);
 
   useEffect(() => {
     if (!open || !asset) return () => undefined;
@@ -1619,7 +1681,7 @@ export default function DeviceAssetDrawer({
     let cancelled = false;
     setEntryQrDataUrl(undefined);
     setEntryQrError(false);
-    if (!open || !asset?.deviceEntryUrl) return () => undefined;
+    if (!open || !entryQrOpen || !asset?.deviceEntryUrl) return () => undefined;
     void QRCode.toDataURL(asset.deviceEntryUrl, {
       width: 360,
       margin: 2,
@@ -1635,7 +1697,7 @@ export default function DeviceAssetDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, asset?.deviceEntryUrl]);
+  }, [open, entryQrOpen, asset?.deviceEntryUrl]);
 
   const downloadEntryQr = () => {
     if (!asset || !entryQrDataUrl) return;
@@ -1651,49 +1713,36 @@ export default function DeviceAssetDrawer({
     if (mode === 'platform') {
       return (
         <Space wrap>
-          {!asset.tenantCode && (
+          {!asset.tenantCode && asset.lifecycleStatus === 'NORMAL' && (
             <Button type="primary" onClick={() => onAssignTenant(asset)}>
               永久分配租户
             </Button>
           )}
-          <Button
-            icon={<ReloadOutlined />}
-            loading={reevaluating}
-            onClick={async () => {
-              setReevaluating(true);
-              try {
-                await onReevaluateAcceptance(asset);
-                await Promise.all([
-                  loadEvidence(),
-                  loadTechnicalIssues(),
-                  loadFactoryProgress(),
-                ]);
-              } catch (error) {
-                message.error(errorMessage(error));
-              } finally {
-                setReevaluating(false);
-              }
-            }}
-          >
-            重新核对设备检查结果
-          </Button>
-          {asset.lifecycleStatus === 'NORMAL' && (
-            <Button onClick={() => onControl(asset, 'disable')}>禁用</Button>
-          )}
           {asset.lifecycleStatus === 'DISABLED' && (
-            <Button type="primary" onClick={() => onControl(asset, 'restore')}>
-              恢复
-            </Button>
+            <Button type="primary" onClick={() => onControl(asset, 'restore')}>恢复</Button>
           )}
-          {asset.lifecycleStatus !== 'RETIRED' && (
-            <Button danger onClick={() => onControl(asset, 'retire')}>
-              报废
-            </Button>
-          )}
+          <Dropdown trigger={['click']} menu={{
+            items: [
+              {
+                key: 'reevaluate', label: '重新核对设备检查结果', disabled: reevaluating || asset.lifecycleStatus !== 'NORMAL', onClick: async () => {
+                  setReevaluating(true);
+                  try {
+                    await onReevaluateAcceptance(asset);
+                    await Promise.all([loadEvidence(), loadTechnicalIssues(), loadFactoryProgress()]);
+                  } catch (error) { message.error(errorMessage(error)); }
+                  finally { setReevaluating(false); }
+                }
+              },
+              ...(asset.lifecycleStatus === 'NORMAL' ? [{ key: 'disable', label: '禁用设备', onClick: () => onControl(asset, 'disable') }] : []),
+              ...(asset.lifecycleStatus !== 'RETIRED' ? [{ key: 'retire', label: '报废设备', danger: true, onClick: () => onControl(asset, 'retire') }] : []),
+            ]
+          }}>
+            <Button icon={<MoreOutlined />} loading={reevaluating}>更多操作</Button>
+          </Dropdown>
         </Space>
       );
     }
-    if (mode === 'tenant' && !asset.organizationCode) {
+    if (mode === 'tenant' && !asset.organizationCode && asset.lifecycleStatus === 'NORMAL') {
       return (
         <Button type="primary" onClick={() => onAssignOrganization(asset)}>
           永久分配机构
@@ -1718,15 +1767,13 @@ export default function DeviceAssetDrawer({
       ports: latestVersion.ports.map((port) => ({
         displayName: port.displayName,
         enabled: port.enabled,
-        unitPriceYuanPerKg: port.unitPriceYuanPerKg,
-        fullnessWeightKg: port.fullnessWeightKg,
       })),
     });
     setConfigurationModalOpen(true);
   };
 
   const publishConfiguration = async () => {
-    if (!asset || !organizationCode || !latestVersion) return;
+    if (!asset || !organizationCode || !latestVersion || !canPublishConfiguration) return;
     const edits = await configForm.validateFields();
     const payload = mergeConfiguration(latestVersion, edits);
     setSubmitting(true);
@@ -2011,7 +2058,7 @@ export default function DeviceAssetDrawer({
   };
 
   const reevaluateAcceptanceFromIssue = async () => {
-    if (!asset) return;
+    if (!asset || asset.lifecycleStatus !== 'NORMAL') return;
     setReevaluating(true);
     try {
       await onReevaluateAcceptance(asset);
@@ -2029,7 +2076,7 @@ export default function DeviceAssetDrawer({
 
   const issueActions = (issue: DeviceTechnicalIssue) => (
     <Space wrap>
-      {issue.nextActions.includes('REEVALUATE_ACCEPTANCE') && (
+      {asset?.lifecycleStatus === 'NORMAL' && issue.nextActions.includes('REEVALUATE_ACCEPTANCE') && (
         <Button
           size="small"
           loading={reevaluating}
@@ -2109,213 +2156,34 @@ export default function DeviceAssetDrawer({
         title={
           <Space direction="vertical" size={0}>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              永久设备详情
+              设备详情
             </Typography.Text>
-            <Typography.Text strong>{asset?.hardwareSn ?? '设备详情'}</Typography.Text>
+            <Typography.Text strong>{asset?.installationProfile.displayName || '设备详情'}</Typography.Text>
+            <Typography.Text type="secondary" copyable={!!asset}>{asset?.hardwareSn}</Typography.Text>
           </Space>
         }
-        extra={actionButtons}
+        extra={<Space wrap><Button icon={<QrcodeOutlined />} onClick={() => setEntryQrOpen(true)}>设备二维码</Button>{actionButtons}</Space>}
       >
         {!asset ? (
           <Empty description="请选择设备" />
         ) : (
-          <Space direction="vertical" size={24} style={{ width: '100%' }}>
-            <Card
-              styles={{ body: { padding: 0 } }}
-              style={{ borderLeft: '4px solid #1677ff' }}
-            >
-              <Descriptions column={2} bordered size="small">
-                <Descriptions.Item label="设备公开码" span={2}>
-                  <Typography.Text copyable code>{asset.deviceCode}</Typography.Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="设备序列号">
-                  <Typography.Text copyable>{asset.hardwareSn}</Typography.Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="型号">{asset.modelCode}</Descriptions.Item>
-                <Descriptions.Item label="设备功能检查">
-                  <Tag color={acceptanceColors[asset.acceptanceStatus]}>
-                    {acceptanceLabels[asset.acceptanceStatus]}
-                  </Tag>
-                </Descriptions.Item>
-                <Descriptions.Item label="生命周期">
-                  <Tag color={assetColors[asset.lifecycleStatus]}>
-                    {assetLabels[asset.lifecycleStatus]}
-                  </Tag>
-                </Descriptions.Item>
-                <Descriptions.Item label="设备联网">
-                  <Space direction="vertical" size={0}>
-                    <Tag color={connectivityColors[
-                      asset.connectivity?.oneNetConnectionStatus ?? 'UNKNOWN'
-                    ]}>
-                      {connectivityLabels[
-                        asset.connectivity?.oneNetConnectionStatus ?? 'UNKNOWN'
-                      ]}
-                    </Tag>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      {optionalTime(asset.connectivity?.statusObservedAt)}
-                    </Typography.Text>
-                  </Space>
-                </Descriptions.Item>
-                <Descriptions.Item label="永久租户">
-                  {asset.tenantCode ?? '尚未分配'}
-                </Descriptions.Item>
-                <Descriptions.Item label="永久机构">
-                  {asset.organizationCode ?? '尚未分配'}
-                </Descriptions.Item>
-                <Descriptions.Item label="现场设备名称">
-                  {asset.installationProfile.displayName}
-                </Descriptions.Item>
-                <Descriptions.Item label="安装资料版本">
-                  V{asset.installationProfile.version}
-                  {asset.installationProfile.complete ? (
-                    <Tag color="success" style={{ marginLeft: 8 }}>完整</Tag>
-                  ) : (
-                    <Tag color="warning" style={{ marginLeft: 8 }}>待完善</Tag>
-                  )}
-                </Descriptions.Item>
-                <Descriptions.Item label="安装地址" span={2}>
-                  {asset.installationProfile.address ?? '尚未设置'}
-                </Descriptions.Item>
-                <Descriptions.Item label="安装坐标" span={2}>
-                  {asset.installationProfile.longitude
-                    && asset.installationProfile.latitude
-                    ? `${asset.installationProfile.longitude}, `
-                      + `${asset.installationProfile.latitude} `
-                      + `(${asset.installationProfile.coordinateSystem})`
-                    : '尚未设置'}
-                </Descriptions.Item>
-                <Descriptions.Item label="安装资料更新时间" span={2}>
-                  {formatShanghaiTime(asset.installationProfile.updatedAt)}
-                </Descriptions.Item>
-                <Descriptions.Item label="投口数量">
-                  {asset.expectedPortCount}
-                </Descriptions.Item>
-                <Descriptions.Item label="小程序入口" span={2}>
-                  {asset.deviceEntryUrl ? (
-                    <Space direction="vertical" size={12}>
-                      <Typography.Text copyable={{ text: asset.deviceEntryUrl }}>
-                        {asset.deviceEntryUrl}
-                      </Typography.Text>
-                      {entryQrError ? (
-                        <Typography.Text type="danger">
-                          二维码生成失败，请刷新页面重试
-                        </Typography.Text>
-                      ) : entryQrDataUrl ? (
-                        <Space align="end" size={16}>
-                          <img
-                            src={entryQrDataUrl}
-                            width={160}
-                            height={160}
-                            alt={`${asset.hardwareSn} 设备入口二维码`}
-                            style={{ border: '1px solid #edf0ed', borderRadius: 8 }}
-                          />
-                          <Button
-                            icon={<DownloadOutlined />}
-                            onClick={downloadEntryQr}
-                          >
-                            下载二维码
-                          </Button>
-                        </Space>
-                      ) : (
-                        <Space>
-                          <QrcodeOutlined />
-                          <Typography.Text type="secondary">
-                            正在本地生成二维码…
-                          </Typography.Text>
-                        </Space>
-                      )}
-                    </Space>
-                  ) : (
-                    <Typography.Text type="secondary">
-                      机构尚未绑定可用小程序渠道，暂不能生成入口二维码
-                    </Typography.Text>
-                  )}
-                </Descriptions.Item>
-                <Descriptions.Item label="物联网平台设备名称" span={2}>
-                  {asset.oneNetMapping.deviceName}
-                </Descriptions.Item>
-              </Descriptions>
-            </Card>
-
-            {mode === 'platform' && (
-              <FactoryProgressPanel
-                load={factoryProgressLoad}
-                onRefresh={() => void loadFactoryProgress()}
-              />
-            )}
+          <Space key={mode + hardwareSn} direction="vertical" size={16} style={{ width: '100%' }}>
+            <Descriptions column={2} size="small" bordered>
+              <Descriptions.Item label="所属机构">{asset.organizationCode ?? '尚未分配'}</Descriptions.Item>
+              <Descriptions.Item label="设备状态"><Tag color={assetColors[asset.lifecycleStatus]}>{assetLabels[asset.lifecycleStatus]}</Tag></Descriptions.Item>
+              <Descriptions.Item label="安装地址" span={2}>{asset.installationProfile.address ?? '尚未设置'}</Descriptions.Item>
+            </Descriptions>
 
             <DeviceManagementStatusPanel
               management={softwareManagement}
               runtimeUnavailable={runtimeLoad.status === 'error'}
             />
 
-            <section>
-              <Space
-                align="center"
-                style={{
-                  width: '100%',
-                  justifyContent: 'space-between',
-                  marginBottom: 12,
-                }}
-              >
-                <Space>
-                  <MonitorOutlined />
-                  <Typography.Title level={5} style={{ margin: 0 }}>
-                    当前联网与最近运行状态
-                  </Typography.Title>
-                  {runtimeLoad.data && (
-                    <RuntimeTag
-                      value={runtimeLoad.data.health.oneNetConnectionStatus}
-                    />
-                  )}
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    每 15 秒自动刷新
-                  </Typography.Text>
-                </Space>
-                <Button
-                  size="small"
-                  icon={<ReloadOutlined />}
-                  loading={loadingRuntime}
-                  onClick={() => void loadRuntime()}
-                >
-                  立即刷新
-                </Button>
-              </Space>
-              <Spin spinning={loadingRuntime && !runtimeLoad.hasLoaded}>
-                {runtimeLoad.status === 'error' && (
-                  <Alert
-                    type={runtimeLoad.hasLoaded ? 'warning' : 'error'}
-                    showIcon
-                    style={{ marginBottom: runtimeLoad.data ? 12 : 0 }}
-                    message={runtimeLoad.hasLoaded
-                      ? '设备状态刷新失败，以下是上一次成功结果'
-                      : '设备状态加载失败'}
-                    description={runtimeLoad.error}
-                    action={(
-                      <Button size="small" onClick={() => void loadRuntime()}>
-                        重试
-                      </Button>
-                    )}
-                  />
-                )}
-                {runtimeLoad.data ? (
-                  <RuntimeStatusPanel runtime={runtimeLoad.data} />
-                ) : loadingRuntime ? (
-                  <div
-                    aria-label="正在加载设备当前状态"
-                    style={{ minHeight: 96 }}
-                  />
-                ) : runtimeLoad.status !== 'error' ? (
-                  <Empty description="尚未读取设备当前状态" />
-                ) : null}
-              </Spin>
-            </section>
+            {asset.lifecycleStatus === 'DISABLED' && <Alert showIcon type="info" message="设备已禁用，配置和更新待办已暂停，启用后继续处理。" />}
+            {configurationError && <Alert showIcon type="warning" message="配置读取失败" description={configurationError} action={<Button size="small" onClick={() => void loadConfiguration()}>重试</Button>} />}
+            {latestApplication?.status === 'FAILED' && <Alert type="error" showIcon message="配置应用失败" description="新配置尚未生效，请先处理配置问题。" action={<Button size="small" onClick={() => setConfigurationExpanded(true)}>处理配置问题</Button>} />}
 
-            {mode === 'platform' && (
-              <RemoteSupportPanel hardwareSn={asset.hardwareSn} />
-            )}
-
-            {mode === 'platform' && (
+            {mode === 'platform' && (technicalIssues.length > 0 || technicalIssueLoad.status === 'error' || !technicalIssueLoad.hasLoaded) && (
               <section>
                 <Space
                   align="center"
@@ -2371,131 +2239,348 @@ export default function DeviceAssetDrawer({
                       )}
                     />
                   )}
-                  {technicalIssueLoad.status === 'loaded'
-                    && !technicalIssues.length ? (
-                    <Alert
-                      type="success"
-                      showIcon
-                      message="当前没有需要平台处理的设备问题"
-                      description="系统仍会继续监测验收、配置、投递、清运和初始空袋皮重。"
-                    />
-                    ) : null}
                   {technicalIssueLoad.hasLoaded
                     && technicalIssues.length > 0 && (
-                    <List
-                      split={false}
-                      dataSource={technicalIssues}
-                      renderItem={(issue) => (
-                        <List.Item style={{ padding: '6px 0' }}>
-                          <Alert
-                            style={{ width: '100%' }}
-                            showIcon
-                            type={issue.severity === 'CRITICAL'
-                              ? 'error'
-                              : issue.severity === 'WARNING'
-                                ? 'warning'
-                                : 'info'}
-                            message={(
-                              <Space wrap>
-                                <Typography.Text strong>
-                                  {operatorFacingTechnicalText(issue.title)}
-                                </Typography.Text>
-                                <Tag>{technicalIssueStateLabel(issue.state)}</Tag>
-                                {issue.portNo != null && (
-                                  <Tag>{issue.portNo} 号投口</Tag>
-                                )}
-                              </Space>
-                            )}
-                            description={(
-                              <Space
-                                direction="vertical"
-                                size={8}
-                                style={{ width: '100%' }}
-                              >
-                                <Typography.Text>
-                                  {operatorFacingTechnicalText(issue.description)}
-                                </Typography.Text>
-                                <Typography.Text
-                                  type="secondary"
-                                  style={{ fontSize: 12 }}
+                      <List
+                        split={false}
+                        dataSource={technicalIssues}
+                        renderItem={(issue) => (
+                          <List.Item style={{ padding: '6px 0' }}>
+                            <Alert
+                              style={{ width: '100%' }}
+                              showIcon
+                              type={issue.severity === 'CRITICAL'
+                                ? 'error'
+                                : issue.severity === 'WARNING'
+                                  ? 'warning'
+                                  : 'info'}
+                              message={(
+                                <Space wrap>
+                                  <Typography.Text strong>
+                                    {operatorFacingTechnicalText(issue.title)}
+                                  </Typography.Text>
+                                  <Tag>{technicalIssueStateLabel(issue.state)}</Tag>
+                                  {issue.portNo != null && (
+                                    <Tag>{issue.portNo} 号投口</Tag>
+                                  )}
+                                </Space>
+                              )}
+                              description={(
+                                <Space
+                                  direction="vertical"
+                                  size={8}
+                                  style={{ width: '100%' }}
                                 >
-                                  {issue.automaticAttemptNo != null
-                                    && issue.automaticAttemptLimit != null
-                                    ? `系统自动处理：第 ${issue.automaticAttemptNo} 次，最多 ${issue.automaticAttemptLimit} 次`
-                                    : ''}
-                                  {issue.occurredAt
-                                    ? `${issue.automaticAttemptNo != null ? ' · ' : ''}记录时间：${formatShanghaiTime(issue.occurredAt)}`
-                                    : ''}
+                                  <Typography.Text>
+                                    {operatorFacingTechnicalText(issue.description)}
+                                  </Typography.Text>
+                                  <Typography.Text
+                                    type="secondary"
+                                    style={{ fontSize: 12 }}
+                                  >
+                                    {issue.automaticAttemptNo != null
+                                      && issue.automaticAttemptLimit != null
+                                      ? `系统自动处理：第 ${issue.automaticAttemptNo} 次，最多 ${issue.automaticAttemptLimit} 次`
+                                      : ''}
+                                    {issue.occurredAt
+                                      ? `${issue.automaticAttemptNo != null ? ' · ' : ''}记录时间：${formatShanghaiTime(issue.occurredAt)}`
+                                      : ''}
+                                  </Typography.Text>
+                                  <Collapse
+                                    ghost
+                                    size="small"
+                                    items={[{
+                                      key: `technical-issue-${issue.issueUid}`,
+                                      label: '技术诊断（报修时使用）',
+                                      children: (
+                                        <Descriptions size="small" column={1}>
+                                          <Descriptions.Item label="问题代码">
+                                            <Typography.Text code>{issue.code}</Typography.Text>
+                                          </Descriptions.Item>
+                                          <Descriptions.Item label="问题记录编号">
+                                            <Typography.Text copyable>
+                                              {issue.issueUid}
+                                            </Typography.Text>
+                                          </Descriptions.Item>
+                                          {issue.taskUid && (
+                                            <Descriptions.Item label="后台任务编号">
+                                              <Typography.Text copyable>
+                                                {issue.taskUid}
+                                              </Typography.Text>
+                                            </Descriptions.Item>
+                                          )}
+                                          {issue.blockedReasonCode && (
+                                            <Descriptions.Item label="阻断原因代码">
+                                              <Typography.Text code>
+                                                {issue.blockedReasonCode}
+                                              </Typography.Text>
+                                            </Descriptions.Item>
+                                          )}
+                                          {issue.externalErrorCode && (
+                                            <Descriptions.Item label="外部服务错误代码">
+                                              <Typography.Text code>
+                                                {issue.externalErrorCode}
+                                              </Typography.Text>
+                                            </Descriptions.Item>
+                                          )}
+                                          {issue.httpStatus != null && (
+                                            <Descriptions.Item label="网络响应状态">
+                                              {issue.httpStatus}
+                                            </Descriptions.Item>
+                                          )}
+                                          {issue.diagnostic && (
+                                            <Descriptions.Item label="诊断详情">
+                                              <Typography.Text code>
+                                                {issue.diagnostic}
+                                              </Typography.Text>
+                                            </Descriptions.Item>
+                                          )}
+                                        </Descriptions>
+                                      ),
+                                    }]}
+                                  />
+                                  {issueActions(issue)}
+                                </Space>
+                              )}
+                            />
+                          </List.Item>
+                        )}
+                      />
+                    )}
+                  {loadingTechnicalIssues
+                    && !technicalIssueLoad.hasLoaded && (
+                      <div style={{ minHeight: 56 }} aria-label="正在加载设备问题" />
+                    )}
+                </Spin>
+              </section>
+            )}
+
+            {mode === 'platform' && asset.lifecycleStatus !== 'RETIRED' && !factoryProgressCompleted(factoryProgressLoad.data) && (
+              <FactoryProgressPanel
+                retired={false}
+                load={factoryProgressLoad}
+                onRefresh={() => void loadFactoryProgress()}
+              />
+            )}
+
+            <section>
+              <Space
+                align="center"
+                style={{
+                  width: '100%',
+                  justifyContent: 'space-between',
+                  marginBottom: 12,
+                }}
+              >
+                <Space>
+                  <MonitorOutlined />
+                  <Typography.Title level={5} style={{ margin: 0 }}>
+                    最近运行状态
+                  </Typography.Title>
+                </Space>
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  loading={loadingRuntime}
+                  onClick={() => void loadRuntime()}
+                >
+                  立即刷新
+                </Button>
+              </Space>
+              <Spin spinning={loadingRuntime && !runtimeLoad.hasLoaded}>
+                {runtimeLoad.status === 'error' && (
+                  <Alert
+                    type={runtimeLoad.hasLoaded ? 'warning' : 'error'}
+                    showIcon
+                    style={{ marginBottom: runtimeLoad.data ? 12 : 0 }}
+                    message={runtimeLoad.hasLoaded
+                      ? '设备状态刷新失败，以下是上一次成功结果'
+                      : '设备状态加载失败'}
+                    description={runtimeLoad.error}
+                    action={(
+                      <Button size="small" onClick={() => void loadRuntime()}>
+                        重试
+                      </Button>
+                    )}
+                  />
+                )}
+                {runtimeLoad.data ? (
+                  <RuntimeStatusPanel runtime={runtimeLoad.data} />
+                ) : loadingRuntime ? (
+                  <div
+                    aria-label="正在加载设备当前状态"
+                    style={{ minHeight: 96 }}
+                  />
+                ) : runtimeLoad.status !== 'error' ? (
+                  <Empty description="尚未读取设备当前状态" />
+                ) : null}
+              </Spin>
+            </section>
+
+            {mode === 'platform' && (
+              <RemoteSupportPanel hardwareSn={asset.hardwareSn} />
+            )}
+
+            {mode === 'platform' && (asset.lifecycleStatus === 'RETIRED' || factoryProgressCompleted(factoryProgressLoad.data)) && (
+              <FactoryProgressPanel
+                retired={asset.lifecycleStatus === 'RETIRED'}
+                load={factoryProgressLoad}
+                onRefresh={() => void loadFactoryProgress()}
+              />
+            )}
+
+            {mode === 'platform' && !asset.organizationCode && (
+              <Alert
+                type="info"
+                showIcon
+                message="永久分配机构后才会生成设备配置"
+              />
+            )}
+
+            {canConfigure && (
+              <section>
+                <Collapse size="small" activeKey={configurationExpanded ? ['configuration-details'] : []} onChange={keys => setConfigurationExpanded(keys.length > 0)} items={[{
+                  key: 'configuration-details', label: mode === 'platform' ? '配置下发与恢复' : '投口设置与配置记录', children: (
+                    <div>
+                      <Space
+                        align="center"
+                        style={{ width: '100%', justifyContent: 'space-between' }}
+                      >
+                        <Space>
+                          <CloudSyncOutlined />
+                          <Typography.Title level={5} style={{ margin: 0 }}>
+                            {mode === 'platform'
+                              ? '配置下发与恢复'
+                              : '投口设置与配置记录'}
+                          </Typography.Title>
+                        </Space>
+                        {mode === 'platform' ? (
+                          <Space wrap>
+                            <Button
+                              icon={<ReloadOutlined />}
+                              disabled={
+                                !latestApplication?.nextActions.includes(
+                                  'RESYNCHRONIZE',
+                                )
+                              }
+                              onClick={() => openPlatformRecovery('resynchronize')}
+                            >
+                              重新下发当前版本
+                            </Button>
+                            <Button
+                              type="primary"
+                              icon={<CloudSyncOutlined />}
+                              disabled={
+                                !latestVersion
+                                || asset.lifecycleStatus !== 'NORMAL'
+                                || !latestApplication?.nextActions.includes(
+                                  'PUBLISH_NEW_CONFIGURATION',
+                                )
+                              }
+                              onClick={() => openPlatformRecovery('roll-forward')}
+                            >
+                              发布修复版本
+                            </Button>
+                          </Space>
+                        ) : canPublishConfiguration ? (
+                          <Button
+                            icon={<EditOutlined />}
+                            disabled={!latestVersion || asset.lifecycleStatus !== 'NORMAL'}
+                            onClick={openConfigurationEditor}
+                          >
+                            基于最新版发布
+                          </Button>
+                        ) : null}
+                      </Space>
+                      <Alert
+                        style={{ margin: '12px 0' }}
+                        type={mode === 'platform' ? 'warning' : 'info'}
+                        showIcon
+                        message={mode === 'platform'
+                          ? '两种恢复操作处理的问题不同'
+                          : '安装、通电和联网后无需机构确认'}
+                        description={mode === 'platform'
+                          ? '“重新下发”只适用于指令尚未到达设备的情况；同一版本的配置内容与记录不一致、设备已经接收，或应用已经明确失败时，排除故障后都必须发布更高的修复版本。'
+                          : '系统会自动下发配置并测量厂家初始袋皮重；这里仅用于日常改价或调整投口配置。'}
+                      />
+                      {mode === 'platform'
+                        && latestApplication?.status === 'FAILED'
+                        && latestApplication.lastFailureCode && (
+                          <Alert
+                            style={{ marginBottom: 12 }}
+                            type="error"
+                            showIcon
+                            message="最近一次配置应用未成功"
+                            description={(
+                              <Space direction="vertical" size={6}>
+                                <Typography.Text>
+                                  请先排除设备连接或配置问题，再按页面建议发布修复版本。
                                 </Typography.Text>
                                 <Collapse
                                   ghost
                                   size="small"
                                   items={[{
-                                    key: `technical-issue-${issue.issueUid}`,
+                                    key: 'configuration-failure-diagnostic',
                                     label: '技术诊断（报修时使用）',
                                     children: (
                                       <Descriptions size="small" column={1}>
-                                        <Descriptions.Item label="问题代码">
-                                          <Typography.Text code>{issue.code}</Typography.Text>
-                                        </Descriptions.Item>
-                                        <Descriptions.Item label="问题记录编号">
-                                          <Typography.Text copyable>
-                                            {issue.issueUid}
+                                        <Descriptions.Item label="失败代码">
+                                          <Typography.Text code>
+                                            {latestApplication.lastFailureCode}
                                           </Typography.Text>
                                         </Descriptions.Item>
-                                        {issue.taskUid && (
-                                          <Descriptions.Item label="后台任务编号">
-                                            <Typography.Text copyable>
-                                              {issue.taskUid}
-                                            </Typography.Text>
-                                          </Descriptions.Item>
-                                        )}
-                                        {issue.blockedReasonCode && (
-                                          <Descriptions.Item label="阻断原因代码">
-                                            <Typography.Text code>
-                                              {issue.blockedReasonCode}
-                                            </Typography.Text>
-                                          </Descriptions.Item>
-                                        )}
-                                        {issue.externalErrorCode && (
-                                          <Descriptions.Item label="外部服务错误代码">
-                                            <Typography.Text code>
-                                              {issue.externalErrorCode}
-                                            </Typography.Text>
-                                          </Descriptions.Item>
-                                        )}
-                                        {issue.httpStatus != null && (
-                                          <Descriptions.Item label="网络响应状态">
-                                            {issue.httpStatus}
-                                          </Descriptions.Item>
-                                        )}
-                                        {issue.diagnostic && (
-                                          <Descriptions.Item label="诊断详情">
-                                            <Typography.Text code>
-                                              {issue.diagnostic}
-                                            </Typography.Text>
+                                        {latestApplication.lastFailedAt && (
+                                          <Descriptions.Item label="失败记录时间">
+                                            {formatShanghaiTime(latestApplication.lastFailedAt)}
                                           </Descriptions.Item>
                                         )}
                                       </Descriptions>
                                     ),
                                   }]}
                                 />
-                                {issueActions(issue)}
                               </Space>
                             )}
                           />
-                        </List.Item>
-                      )}
-                    />
-                    )}
-                  {loadingTechnicalIssues
-                    && !technicalIssueLoad.hasLoaded && (
-                    <div style={{ minHeight: 56 }} aria-label="正在加载设备问题" />
-                    )}
-                </Spin>
+                        )}
+                      <Spin spinning={loadingConfiguration}>
+                        {!versions.length ? (
+                          <Empty description={mode === 'platform'
+                            ? '尚未找到配置版本'
+                            : '系统正在创建并下发初始配置'} />
+                        ) : (
+                          <List
+                            dataSource={versions}
+                            renderItem={(version) => (
+                              <List.Item>
+                                <List.Item.Meta
+                                  title={
+                                    <Space>
+                                      <Typography.Text strong>
+                                        v{version.versionNo}
+                                      </Typography.Text>
+                                      <Tag color={configurationColors[version.application.status]}>
+                                        {configurationLabels[version.application.status]}
+                                      </Tag>
+                                      <Tag>
+                                        {taskStateLabel(version.application.dispatchState)}
+                                      </Tag>
+                                    </Space>
+                                  }
+                                  description={
+                                    `${version.publishedBy}`
+                                    + ` · ${formatShanghaiTime(version.publishedAt)}`
+                                  }
+                                />
+                              </List.Item>
+                            )}
+                          />
+                        )}
+                      </Spin>
+                    </div>
+                  )
+                }]} />
               </section>
             )}
-
             {mode === 'platform' && (
               <section>
                 <Collapse
@@ -2542,160 +2627,134 @@ export default function DeviceAssetDrawer({
               </section>
             )}
 
-            {mode === 'platform' && !asset.organizationCode && (
-              <Alert
-                type="info"
-                showIcon
-                message="永久分配机构后才会生成设备配置"
-                description="设备配置包含机构价格和投口经营参数；分配完成后系统自动创建初始版本，机构只需安装、通电和联网。"
-              />
-            )}
-
-            {canConfigure && (
-              <section>
-                <Space
-                  align="center"
-                  style={{ width: '100%', justifyContent: 'space-between' }}
+            <Collapse size="small" items={[{
+              key: 'asset-details', label: '设备资料', children: (
+                <Card
+                  styles={{ body: { padding: 0 } }}
+                  style={{ borderLeft: '4px solid #1677ff' }}
                 >
-                  <Space>
-                    <CloudSyncOutlined />
-                    <Typography.Title level={5} style={{ margin: 0 }}>
-                      {mode === 'platform'
-                        ? '配置下发与恢复'
-                        : '日常价格与设备配置'}
-                    </Typography.Title>
-                  </Space>
-                  {mode === 'platform' ? (
-                    <Space wrap>
-                      <Button
-                        icon={<ReloadOutlined />}
-                        disabled={
-                          !latestApplication?.nextActions.includes(
-                            'RESYNCHRONIZE',
-                          )
-                        }
-                        onClick={() => openPlatformRecovery('resynchronize')}
-                      >
-                        重新下发当前版本
-                      </Button>
-                      <Button
-                        type="primary"
-                        icon={<CloudSyncOutlined />}
-                        disabled={
-                          !latestVersion
-                          || asset.lifecycleStatus !== 'NORMAL'
-                          || !latestApplication?.nextActions.includes(
-                            'PUBLISH_NEW_CONFIGURATION',
-                          )
-                        }
-                        onClick={() => openPlatformRecovery('roll-forward')}
-                      >
-                        发布修复版本
-                      </Button>
-                    </Space>
-                  ) : (
-                    <Button
-                      icon={<EditOutlined />}
-                      disabled={!latestVersion}
-                      onClick={openConfigurationEditor}
-                    >
-                      基于最新版发布
-                    </Button>
-                  )}
-                </Space>
-                <Alert
-                  style={{ margin: '12px 0' }}
-                  type={mode === 'platform' ? 'warning' : 'info'}
-                  showIcon
-                  message={mode === 'platform'
-                    ? '两种恢复操作处理的问题不同'
-                    : '安装、通电和联网后无需机构确认'}
-                      description={mode === 'platform'
-                        ? '“重新下发”只适用于指令尚未到达设备的情况；同一版本的配置内容与记录不一致、设备已经接收，或应用已经明确失败时，排除故障后都必须发布更高的修复版本。'
-                        : '系统会自动下发配置并测量厂家初始袋皮重；这里仅用于日常改价或调整投口配置。'}
-                />
-                {mode === 'platform'
-                  && latestApplication?.status === 'FAILED'
-                  && latestApplication.lastFailureCode && (
-                  <Alert
-                    style={{ marginBottom: 12 }}
-                    type="error"
-                    showIcon
-                    message="最近一次配置应用未成功"
-                    description={(
-                      <Space direction="vertical" size={6}>
-                        <Typography.Text>
-                          请先排除设备连接或配置问题，再按页面建议发布修复版本。
+                  <Descriptions column={2} bordered size="small">
+                    <Descriptions.Item label="设备公开码" span={2}>
+                      <Typography.Text copyable code>{asset.deviceCode}</Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="设备序列号">
+                      <Typography.Text copyable>{asset.hardwareSn}</Typography.Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="型号">{asset.modelCode}</Descriptions.Item>
+                    <Descriptions.Item label="设备功能检查">
+                      <Tag color={acceptanceColors[asset.acceptanceStatus]}>
+                        {acceptanceLabels[asset.acceptanceStatus]}
+                      </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="生命周期">
+                      <Tag color={assetColors[asset.lifecycleStatus]}>
+                        {assetLabels[asset.lifecycleStatus]}
+                      </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="设备联网">
+                      <Space direction="vertical" size={0}>
+                        <Tag color={connectivityColors[
+                          asset.connectivity?.oneNetConnectionStatus ?? 'UNKNOWN'
+                        ]}>
+                          {connectivityLabels[
+                            asset.connectivity?.oneNetConnectionStatus ?? 'UNKNOWN'
+                          ]}
+                        </Tag>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          {optionalTime(asset.connectivity?.statusObservedAt)}
                         </Typography.Text>
-                        <Collapse
-                          ghost
-                          size="small"
-                          items={[{
-                            key: 'configuration-failure-diagnostic',
-                            label: '技术诊断（报修时使用）',
-                            children: (
-                              <Descriptions size="small" column={1}>
-                                <Descriptions.Item label="失败代码">
-                                  <Typography.Text code>
-                                    {latestApplication.lastFailureCode}
-                                  </Typography.Text>
-                                </Descriptions.Item>
-                                {latestApplication.lastFailedAt && (
-                                  <Descriptions.Item label="失败记录时间">
-                                    {formatShanghaiTime(latestApplication.lastFailedAt)}
-                                  </Descriptions.Item>
-                                )}
-                              </Descriptions>
-                            ),
-                          }]}
-                        />
                       </Space>
-                    )}
-                  />
-                )}
-                <Spin spinning={loadingConfiguration}>
-                  {!versions.length ? (
-                    <Empty description={mode === 'platform'
-                      ? '尚未找到配置版本'
-                      : '系统正在创建并下发初始配置'} />
-                  ) : (
-                    <List
-                      dataSource={versions}
-                      renderItem={(version) => (
-                        <List.Item>
-                          <List.Item.Meta
-                            title={
-                              <Space>
-                                <Typography.Text strong>
-                                  v{version.versionNo}
-                                </Typography.Text>
-                                <Tag color={configurationColors[version.application.status]}>
-                                  {configurationLabels[version.application.status]}
-                                </Tag>
-                                <Tag>
-                                  {taskStateLabel(version.application.dispatchState)}
-                                </Tag>
-                              </Space>
-                            }
-                            description={
-                              `${version.publishedBy}`
-                              + ` · ${formatShanghaiTime(version.publishedAt)}`
-                            }
-                          />
-                        </List.Item>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="永久租户">
+                      {asset.tenantCode ?? '尚未分配'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="永久机构">
+                      {asset.organizationCode ?? '尚未分配'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="现场设备名称">
+                      {asset.installationProfile.displayName}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="安装资料版本">
+                      V{asset.installationProfile.version}
+                      {asset.installationProfile.complete ? (
+                        <Tag color="success" style={{ marginLeft: 8 }}>完整</Tag>
+                      ) : (
+                        <Tag color="warning" style={{ marginLeft: 8 }}>待完善</Tag>
                       )}
-                    />
-                  )}
-                </Spin>
-              </section>
-            )}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="安装地址" span={2}>
+                      {asset.installationProfile.address ?? '尚未设置'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="安装坐标" span={2}>
+                      {asset.installationProfile.longitude
+                        && asset.installationProfile.latitude
+                        ? `${asset.installationProfile.longitude}, `
+                        + `${asset.installationProfile.latitude} `
+                        + `(${asset.installationProfile.coordinateSystem})`
+                        : '尚未设置'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="安装资料更新时间" span={2}>
+                      {formatShanghaiTime(asset.installationProfile.updatedAt)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="投口数量">
+                      {asset.expectedPortCount}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="物联网平台设备名称" span={2}>
+                      {asset.oneNetMapping.deviceName}
+                    </Descriptions.Item>
+                  </Descriptions>
+                </Card>
+              )
+            }]} />
           </Space>
         )}
       </Drawer>
+      <Modal title="设备二维码" open={entryQrOpen} onCancel={() => setEntryQrOpen(false)} footer={null} destroyOnClose>
+        {asset?.deviceEntryUrl ? (
+          <Space direction="vertical" size={12}>
+            <Typography.Text copyable={{ text: asset.deviceEntryUrl }}>
+              {asset.deviceEntryUrl}
+            </Typography.Text>
+            {entryQrError ? (
+              <Typography.Text type="danger">
+                二维码生成失败，请刷新页面重试
+              </Typography.Text>
+            ) : entryQrDataUrl ? (
+              <Space align="end" size={16}>
+                <img
+                  src={entryQrDataUrl}
+                  width={160}
+                  height={160}
+                  alt={`${asset.hardwareSn} 设备入口二维码`}
+                  style={{ border: '1px solid #edf0ed', borderRadius: 8 }}
+                />
+                <Button
+                  icon={<DownloadOutlined />}
+                  onClick={downloadEntryQr}
+                >
+                  下载二维码
+                </Button>
+              </Space>
+            ) : (
+              <Space>
+                <QrcodeOutlined />
+                <Typography.Text type="secondary">
+                  正在本地生成二维码…
+                </Typography.Text>
+              </Space>
+            )}
+          </Space>
+        ) : (
+          <Typography.Text type="secondary">
+            机构尚未绑定可用小程序渠道，暂不能生成入口二维码
+          </Typography.Text>
+        )}
+
+      </Modal>
 
       <Modal
         width={760}
-        title="发布日常价格与设备配置"
+        title="发布投口设置与配置记录"
         open={configurationModalOpen}
         confirmLoading={submitting}
         onOk={() => void publishConfiguration()}
@@ -2705,8 +2764,7 @@ export default function DeviceAssetDrawer({
         <Alert
           type="warning"
           showIcon
-          message="发布会生成一个不可修改的新版本"
-          description="当前进行中的投递或清运继续使用开始时采用的旧配置；新业务只在新版本准确应用后使用它。设备名称和安装位置由清运员在安装资料页维护，不属于设备运行配置。"
+          message="新配置应用后用于新业务，进行中的投递和清运继续使用原配置。"
           style={{ marginBottom: 20 }}
         />
         <Form form={configForm} layout="vertical">
@@ -2742,30 +2800,10 @@ export default function DeviceAssetDrawer({
                 >
                   <Input maxLength={32} style={{ width: 180 }} />
                 </Form.Item>
-                <Form.Item
-                  name={['ports', index, 'unitPriceYuanPerKg']}
-                  label="单价（元/千克）"
-                  rules={[{ required: true }]}
-                >
-                  <InputNumber
-                    stringMode
-                    min="0.0001"
-                    precision={4}
-                    style={{ width: 180 }}
-                  />
-                </Form.Item>
-                <Form.Item
-                  name={['ports', index, 'fullnessWeightKg']}
-                  label="满载重量（千克）"
-                  rules={[{ required: true }]}
-                >
-                  <InputNumber
-                    stringMode
-                    min="0.001"
-                    precision={3}
-                    style={{ width: 180 }}
-                  />
-                </Form.Item>
+                <Typography.Text type="secondary">
+                  单价 {port.unitPriceYuanPerKg} 元/千克
+                  <HelpTip label="设备单价来源">单价由配置管理中的设备配置统一设置。</HelpTip>
+                </Typography.Text>
               </Space>
             </Card>
           ))}

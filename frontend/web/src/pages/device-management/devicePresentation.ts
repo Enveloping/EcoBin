@@ -170,6 +170,7 @@ export const configurationLabels: Record<
   EDGE_SAVED: '设备已保存',
   APPLIED: '已精确应用',
   FAILED: '设备拒绝或应用失败',
+  CANCELLED: '已取消',
 };
 
 export const configurationColors: Record<
@@ -178,6 +179,7 @@ export const configurationColors: Record<
 > = {
   PENDING: 'processing',
   EDGE_SAVED: 'cyan',
+  CANCELLED: 'default',
   APPLIED: 'success',
   FAILED: 'error',
 };

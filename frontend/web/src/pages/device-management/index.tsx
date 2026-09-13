@@ -15,6 +15,7 @@ import {
   Select,
   Space,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd';
@@ -22,7 +23,6 @@ import {
   AppstoreAddOutlined,
   ArrowRightOutlined,
   DashboardOutlined,
-  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import {
   assignPlatformDeviceTenant,
@@ -52,16 +52,12 @@ import RuntimeSnapshotPolicyModal from './RuntimeSnapshotPolicyModal';
 import { operatorErrorMessage } from './operatorErrorPresentation';
 import {
   acceptanceColors,
-  acceptanceLabels,
   assetColors,
   assetLabels,
   connectivityColors,
   connectivityLabels,
 } from './devicePresentation';
-import {
-  businessAdmissionPresentation,
-  deviceManagementSummary,
-} from './deviceManagementPresentation';
+import { DeviceFaults, DeviceIdentifier, DevicePortMetric, listAcceptanceLabels } from './DeviceListCells';
 
 interface AssetFormValues {
   hardwareSn: string;
@@ -99,17 +95,17 @@ const controlCopy: Record<
   disable: {
     title: '禁用设备',
     action: '确认禁用',
-    warning: '禁用后租户和机构立即看不到设备，也不能开始新业务；已创建作业继续收敛。',
+    warning: '有投递、清运或远程维护时不能禁用。配置和更新任务暂停保留，其他现场任务结束，历史记录保留。',
   },
   restore: {
     title: '恢复设备',
     action: '确认恢复',
-    warning: '恢复后系统仍会重新检查设备联网、配置、空袋重量和安全状态，不会跳过任何必要条件。',
+    warning: '恢复后继续处理保留的配置和更新任务；设备离线时等待上线。系统仍会检查当前配置、空袋重量和安全状态。',
   },
   retire: {
     title: '报废设备',
     action: '永久报废',
-    warning: '报废不可恢复，永久归属和历史业务仍保留，但设备永远不能开始新业务。',
+    warning: '有投递、清运或远程维护时不能报废。报废将取消待处理的设备任务，历史记录保留，设备不可恢复。',
   },
 };
 
@@ -175,66 +171,41 @@ export default function DeviceManagementPage() {
     {
       title: '设备',
       dataIndex: 'hardwareSn',
-      width: 250,
+      order: 3,
+      width: 125,
       fieldProps: { placeholder: '搜索设备序列号' },
       render: (_, asset) => (
-        <Space direction="vertical" size={1}>
-          <Typography.Link
-            strong
-            onClick={() => setSelected(asset)}
-          >
-            {asset.hardwareSn}
-          </Typography.Link>
-          <Typography.Text type="secondary" copyable>
-            设备编号：{asset.deviceCode}
-          </Typography.Text>
-        </Space>
+        <DeviceIdentifier asset={asset} onOpen={() => setSelected(asset)} />
       ),
     },
     {
       title: '联网状态',
       dataIndex: ['connectivity', 'oneNetConnectionStatus'],
       search: false,
-      width: 170,
+      width: 90,
       render: (_, asset) => {
         const status = asset.connectivity?.oneNetConnectionStatus ?? 'UNKNOWN';
-        return (
-          <Space direction="vertical" size={1}>
-            <Tag color={connectivityColors[status]}>
-              {connectivityLabels[status]}
-            </Tag>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {asset.connectivity?.statusObservedAt
-                ? formatShanghaiTime(asset.connectivity.statusObservedAt)
-                : '平台尚未收到设备联网状态'}
-            </Typography.Text>
-          </Space>
-        );
+        return <Tooltip title={asset.connectivity?.statusObservedAt
+          ? `最近更新：${formatShanghaiTime(asset.connectivity.statusObservedAt)}` : '尚未收到联网状态'}>
+          <Tag color={connectivityColors[status]}>{connectivityLabels[status]}</Tag>
+        </Tooltip>;
       },
     },
     {
-      title: '新业务状态',
-      dataIndex: ['deviceManagement', 'businessAdmission'],
-      search: false,
-      width: 240,
-      render: (_, asset) => {
-        const management = deviceManagementSummary(asset);
-        const presentation = businessAdmissionPresentation(
-          management,
-        );
-        const secondary = management?.primaryReason?.title
-          ?? (management?.architectureGeneration === 'PERMANENT_V1'
-            ? '打开设备详情可查看当前判断依据'
-            : '仍按联网、配置、安全和占用等现有条件检查');
-        return (
-          <Space direction="vertical" size={1}>
-            <Tag color={presentation.color}>{presentation.label}</Tag>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {secondary}
-            </Typography.Text>
-          </Space>
-        );
-      },
+      title: '故障原因', key: 'faults', search: false, width: 180,
+      render: (_, asset) => <DeviceFaults asset={asset} />,
+    },
+    {
+      title: '投口重量', key: 'portWeight', search: false, width: 120,
+      render: (_, asset) => <DevicePortMetric asset={asset} metric="weight" />,
+    },
+    {
+      title: '重量满溢', key: 'weightFull', search: false, width: 90,
+      render: (_, asset) => <DevicePortMetric asset={asset} metric="weightFull" />,
+    },
+    {
+      title: '红外满溢', key: 'infraredFull', search: false, width: 90,
+      render: (_, asset) => <DevicePortMetric asset={asset} metric="infraredFull" />,
     },
     {
       title: '型号 / 投口',
@@ -245,7 +216,8 @@ export default function DeviceManagementPage() {
       ),
     },
     {
-      title: '永久归属',
+      title: '归属',
+      width: 115,
       dataIndex: 'tenantCode',
       search: false,
       render: (_, asset) => (
@@ -260,27 +232,29 @@ export default function DeviceManagementPage() {
       ),
     },
     {
-      title: '设备功能检查',
+      title: '出厂验收',
       dataIndex: 'acceptanceStatus',
+      order: 1,
       valueType: 'select',
       hideInSearch: mode !== 'platform',
       valueEnum: Object.fromEntries(
-        Object.entries(acceptanceLabels).map(([key, text]) => [key, { text }]),
+        Object.entries(listAcceptanceLabels).map(([key, text]) => [key, { text }]),
       ),
       render: (_, asset) => (
         <Tag color={acceptanceColors[asset.acceptanceStatus]}>
-          {acceptanceLabels[asset.acceptanceStatus]}
+          {listAcceptanceLabels[asset.acceptanceStatus]}
         </Tag>
       ),
     },
     {
-      title: '生命周期',
+      title: '设备状态',
       dataIndex: 'lifecycleStatus',
+      order: 2,
       valueType: 'select',
-      hideInSearch: mode !== 'platform',
-      valueEnum: Object.fromEntries(
+      fieldProps: { placeholder: '未报废' },
+      valueEnum: { ALL: { text: '全部' }, ...Object.fromEntries(
         Object.entries(assetLabels).map(([key, text]) => [key, { text }]),
-      ),
+      ) },
       render: (_, asset) => (
         <Tag color={assetColors[asset.lifecycleStatus]}>
           {assetLabels[asset.lifecycleStatus]}
@@ -291,13 +265,16 @@ export default function DeviceManagementPage() {
       title: '更新时间',
       dataIndex: 'updatedAt',
       search: false,
-      width: 180,
-      render: (_, asset) => formatShanghaiTime(asset.updatedAt),
+      width: 125,
+      render: (_, asset) => <Tooltip title={formatShanghaiTime(asset.updatedAt)}>
+        {formatShanghaiTime(asset.updatedAt).slice(5, 16)}
+      </Tooltip>,
     },
     {
       title: '',
       valueType: 'option',
-      width: 70,
+      fixed: 'right',
+      width: 45,
       render: (_, asset) => (
         <Button
           type="text"
@@ -424,7 +401,7 @@ export default function DeviceManagementPage() {
 
   return (
     <PageContainer
-      header={pageHeader(pageCopy.title, pageCopy.description)}
+      {...pageHeader(pageCopy.title)}
       extra={canCreate ? [
         <Button
           key="runtime-policy"
@@ -448,21 +425,6 @@ export default function DeviceManagementPage() {
         </Button>,
       ] : undefined}
     >
-      <Alert
-        type="info"
-        showIcon
-        icon={<SafetyCertificateOutlined />}
-        message="永久归属 · 自动验收 · 自动检查业务条件"
-        description={
-          mode === 'platform'
-            ? '设备功能检查发生在分配租户之前；设备控制板和摄像头是否为模拟来源只用于诊断，平台依据联网、通信、采集和上传等实际检查结果自动判定。'
-            : mode === 'tenant'
-              ? '租户界面不展示安装或启用进度；设备只能永久分配一次机构。'
-              : '系统自动下发配置、重测厂家初始袋皮重并计算业务资格，不需要现场确认或经营开关。'
-        }
-        style={{ marginBottom: 16, borderLeft: '4px solid #1677ff' }}
-      />
-
       {mode === 'organization' && !organizationScope.organizationCode ? (
         <Alert
           type="warning"
@@ -475,11 +437,22 @@ export default function DeviceManagementPage() {
           actionRef={actionRef}
           rowKey="assetUid"
           columns={columns}
+          columnsState={{
+            persistenceKey: `ecobin.web.columns.devices.${mode}.v1`,
+            persistenceType: 'localStorage',
+            defaultValue: {
+              modelCode: { show: false },
+              acceptanceStatus: { show: false },
+              lifecycleStatus: { show: false },
+            },
+          }}
           request={async (params) => {
             try {
               const query = {
                 page: params.current,
                 pageSize: params.pageSize,
+                lifecycleStatus: typeof params.lifecycleStatus === 'string'
+                  ? params.lifecycleStatus as DeviceAsset['lifecycleStatus'] | 'ALL' : undefined,
                 hardwareSn:
                   typeof params.hardwareSn === 'string'
                     ? params.hardwareSn.trim() || undefined
@@ -488,10 +461,6 @@ export default function DeviceManagementPage() {
               const page = mode === 'platform'
                 ? await listPlatformDeviceAssets({
                   ...query,
-                  lifecycleStatus:
-                    typeof params.lifecycleStatus === 'string'
-                      ? params.lifecycleStatus as DeviceAsset['lifecycleStatus']
-                      : undefined,
                   acceptanceStatus:
                     typeof params.acceptanceStatus === 'string'
                       ? params.acceptanceStatus as DeviceAsset['acceptanceStatus']
@@ -570,8 +539,7 @@ export default function DeviceManagementPage() {
         <Alert
           type="warning"
           showIcon
-          message="这里只登记设备资产，不登记厂家初始袋"
-          description="设备序列号创建后不可替换。设备首次装袋必须由已绑定的厂家操作员在共享小程序的设备出厂端逐口扫描防伪袋码（EB1 格式）；所有投口完成装袋后，设备才会进入自动验收。"
+          message="设备序列号登记后不可修改，请核对机身编号。"
           style={{ marginBottom: 20 }}
         />
         <Form form={assetForm} layout="vertical">

@@ -88,7 +88,17 @@ class RuntimeSafetyConfigurationTest {
             "V66__business_runtime_update_cancellation.sql",
             "V67__business_runtime_image_bridge_baseline.sql",
             "V68__device_software_image_bridge_fact.sql",
-            "V69__delivery_recovery_quarantine.sql"
+            "V69__delivery_recovery_quarantine.sql",
+            "V70__global_fullness_policy.sql",
+            "V71__tenant_device_policy.sql",
+            "V72__device_lifecycle_work_cancellation.sql",
+            "V73__delivery_timeout_median.sql",
+            "V74__clean_timeout_median.sql",
+            "V75__runtime_weight_evidence.sql",
+            "V76__baseline_timeout_median.sql",
+            "V77__fullness_state_timeout_median.sql",
+            "V78__native_business_measurement_identity.sql",
+            "V79__native_delivery_issue.sql"
     };
 
     @Test

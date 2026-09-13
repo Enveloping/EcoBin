@@ -1,0 +1,12 @@
+{
+  "status": "IMMUTABLE_LEGACY_ARTIFACTS_NOT_A_SECOND_REGISTRY",
+  "registryVersion": "1.0.0-rc.3",
+  "registrySha256": "d2b73386e99e7f5be3b05129617afcfe4499cbc4d3f2e8401a4ce5342ca90b75",
+  "hashProfile": "SHA256_UTF8_WITH_LF_NEWLINES",
+  "notes": "既有运行制品只读冻结；新 Registry 只生成 contracts 候选。禁止通过更新本清单的摘要绕过漂移。须待双端实现及配套发布审查后移除冻结，不做自动探测或回退。旧完整 Registry 已内嵌于冻结的 Python 制品，可用 Git 历史追溯。",
+  "artifacts": {
+    "hardware/uart_protocol.py": "76174a6b11080673e5937a207b5179c9dafea9bd38b8c1882c2de6dbaa1c3f5f",
+    "hardware_mcu/USER/uar/ecobin_uart_protocol.h": "d30324c40706b3ad377d2242453c1c16d17c1f00a61e849e08928a9802c72ed7",
+    "hardware_mcu/USER/uar/ecobin_uart_golden_test.c": "22261dc8f2936ef944d8b28f2dc963fbb82c9cd23a2b61bc9c84208134a41cd8"
+  }
+}

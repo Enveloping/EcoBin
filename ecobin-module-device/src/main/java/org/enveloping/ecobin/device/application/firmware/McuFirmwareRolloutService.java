@@ -68,7 +68,7 @@ public class McuFirmwareRolloutService {
     private static final String SHA256 = "^[0-9a-f]{64}$";
     private static final String IDENTITY = "^[0-9a-f]{16}$";
     private static final Set<String> TERMINAL = Set.of(
-            "SUCCEEDED", "ROLLED_BACK", "FAILED_LOCKED", "REJECTED");
+            "SUCCEEDED", "ROLLED_BACK", "FAILED_LOCKED", "REJECTED", "LOCAL_CANCELLED");
     private static final Set<String> RUNNING = Set.of(
             "QUEUED", "PACKAGE_FETCH_FAILED", "PREFLIGHT",
             "PREPARED", "FLASHING_TARGET",
@@ -677,7 +677,7 @@ public class McuFirmwareRolloutService {
                             WHERE id = ?
                               AND deployment_status NOT IN (
                                   'SUCCEEDED', 'ROLLED_BACK',
-                                  'FAILED_LOCKED', 'REJECTED'
+                                  'FAILED_LOCKED', 'REJECTED', 'LOCAL_CANCELLED'
                               )
                             """,
                     stage,
@@ -920,6 +920,7 @@ public class McuFirmwareRolloutService {
                             JOIN dev_mcu_firmware_rollout rollout
                               ON rollout.id = deployment.rollout_id
                             WHERE deployment.asset_id = ?
+                              AND deployment.deployment_status <> 'LOCAL_CANCELLED'
                               AND rollout.rollout_status IN (
                                   'DRAFT', 'VALIDATING',
                                   'AWAITING_PROMOTION', 'ACTIVE'
@@ -1037,7 +1038,7 @@ public class McuFirmwareRolloutService {
                                SUM(CASE WHEN deployment_status = 'SUCCEEDED'
                                    THEN 1 ELSE 0 END) AS succeeded,
                                SUM(CASE WHEN deployment_status IN (
-                                   'ROLLED_BACK', 'FAILED_LOCKED', 'REJECTED'
+                                   'ROLLED_BACK', 'FAILED_LOCKED', 'REJECTED', 'LOCAL_CANCELLED'
                                ) THEN 1 ELSE 0 END) AS failed
                         FROM dev_mcu_firmware_deployment
                         WHERE rollout_id = ? AND wave_no = ?
@@ -1064,7 +1065,7 @@ public class McuFirmwareRolloutService {
         long rolledBack = rows.stream()
                 .filter(item -> "ROLLED_BACK".equals(item.status())).count();
         long failed = rows.stream()
-                .filter(item -> Set.of("FAILED_LOCKED", "REJECTED")
+                .filter(item -> Set.of("FAILED_LOCKED", "REJECTED", "LOCAL_CANCELLED")
                         .contains(item.status())).count();
         String validationHardwareSn = rows.stream()
                 .filter(item -> "VALIDATION".equals(item.kind()))

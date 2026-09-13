@@ -1,0 +1,42 @@
+{
+  "identifier": "deliveryIssueEvidenceAppended",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "123",
+    "params": {
+      "deliveryIssueEvidenceAppended": {
+        "value": {
+          "archiveEvidenceSha256": "fedeea7944871b062312628b226fd82596cdb232c7701a1f0ef5970534f37c99",
+          "businessValue": 1,
+          "clockQuality": 1,
+          "commandUid": "30000000-0000-4000-8000-000000000003",
+          "dataHex": "7b22646961676e6f737469634f6e6c79223a747275657d",
+          "deliveryClass": 1,
+          "edgeEventSequence": 1059,
+          "eventType": 1,
+          "eventUid": "32000000-0000-4000-8000-000000000003",
+          "evidenceIndex": 0,
+          "evidenceKind": 1,
+          "evidenceSha256": "fedeea7944871b062312628b226fd82596cdb232c7701a1f0ef5970534f37c99",
+          "evidenceSizeBytes": 23,
+          "issueUid": "32000000-0000-4000-8000-000000000001",
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "originalCommandUid": "30000000-0000-4000-8000-000000000003",
+          "partCount": 1,
+          "partIndex": 1,
+          "payloadSha256": "160d51d6bf9e3dfe0d6771e11f0360f583f90daff511a002c0e3a07cc27760a2",
+          "schemaVersion": 1,
+          "sessionUid": "30000000-0000-4000-8000-000000000001",
+          "target": {
+            "type": 1,
+            "uid": "30000000-0000-4000-8000-000000000001"
+          }
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

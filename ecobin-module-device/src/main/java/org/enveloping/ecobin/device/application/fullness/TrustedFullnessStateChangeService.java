@@ -417,7 +417,7 @@ public class TrustedFullnessStateChangeService
                             fullness_sensor_value,
                             confirmation_basis,
                             measurement_uid, measurement_status,
-                            total_weight_g,
+                            total_weight_g, weight_value_available, weight_value_kind,
                             measurement_elapsed_ms, sample_count,
                             calibration_version, sensor_health,
                             fault_code, mcu_boot_id, mcu_event_sequence,
@@ -432,7 +432,7 @@ public class TrustedFullnessStateChangeService
                             backend_received_at, created_at
                         ) VALUES (
                             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                         )
                         """,
@@ -454,6 +454,8 @@ public class TrustedFullnessStateChangeService
                 measurement.measurementUid().toString(),
                 measurement.status(),
                 measurement.reportedWeightGrams(),
+                measurement.weightValueAvailable(),
+                measurement.weightValueKind(),
                 measurement.measurementElapsedMs(),
                 measurement.sampleCount(),
                 measurement.calibrationVersion(),
@@ -566,6 +568,10 @@ public class TrustedFullnessStateChangeService
     }
 
     private static FullnessSampleMeasurement measurement(JsonNode node) {
+        if ("TIMEOUT_MEDIAN".equals(node.path("weightValueKind").asText())
+                && (!node.has("faultCode") || !node.get("faultCode").isNull())) {
+            throw new IllegalArgumentException("fullness median requires explicit null faultCode");
+        }
         return new FullnessSampleMeasurement(
                 uuid(node, "measurementUid"),
                 requiredText(node, "status"),
@@ -601,11 +607,9 @@ public class TrustedFullnessStateChangeService
                 || ("SYNCED".equals(fact.clockQuality())
                     != (fact.deviceOccurredAt() != null))
                 || fact.portNo() < 1 || fact.portNo() > 6
-                || !"STABLE".equals(measurement.status())
+                || !usableWeight(measurement)
                 || !measurement.weightValueAvailable()
                 || measurement.reportedWeightGrams() == null
-                || !"STABLE_WINDOW_MEAN".equals(
-                measurement.weightValueKind())
                 || measurement.sampleCount() < 1
                 || !"OK".equals(measurement.sensorHealth())
                 || measurement.faultCode() != null) {
@@ -656,6 +660,21 @@ public class TrustedFullnessStateChangeService
             throw new IllegalArgumentException(
                     "fullness state decision differs from evidence");
         }
+    }
+
+    private static boolean usableWeight(FullnessSampleMeasurement measurement) {
+        if (!"TIMEOUT_MEDIAN".equals(measurement.weightValueKind())) {
+            return "STABLE".equals(measurement.status())
+                    && "STABLE_WINDOW_MEAN".equals(measurement.weightValueKind());
+        }
+        Long weight = measurement.reportedWeightGrams();
+        return "UNSTABLE".equals(measurement.status())
+                && weight != null && weight >= Integer.MIN_VALUE && weight <= Integer.MAX_VALUE
+                && measurement.measurementElapsedMs() == 5_000
+                && measurement.sampleCount() >= 5 && measurement.sampleCount() <= 32
+                && measurement.calibrationVersion() >= 0 && measurement.calibrationVersion() <= 4_294_967_295L
+                && measurement.mcuBootId() >= 1 && measurement.mcuBootId() <= 9_007_199_254_740_991L
+                && measurement.mcuEventSequence() >= 1 && measurement.mcuEventSequence() <= 4_294_967_295L;
     }
 
     private LocalDateTime databaseNow() {

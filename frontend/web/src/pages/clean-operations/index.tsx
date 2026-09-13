@@ -54,17 +54,17 @@ const statusMeta: Record<
   PREPARED: {
     label: '已准备',
     color: 'default',
-    description: '后端已创建操作，尚未确认香橙派持久化。',
+    description: '正在等待设备接收清运请求。',
   },
   EDGE_SAVED: {
-    label: '边缘端已保存',
+    label: '设备已接收',
     color: 'processing',
-    description: '香橙派已把启动命令保存到本地，但还不能证明投口已解锁。',
+    description: '设备已接收清运请求，尚未确认解锁。',
   },
   IN_PROGRESS: {
     label: '进行中',
     color: 'blue',
-    description: '启动命令已写向 MCU，第一次解锁可能已经发生。',
+    description: '解锁请求已发送，是否实际解锁尚未确认。',
   },
   RECOVERY_REQUIRED: {
     label: '需要恢复',
@@ -79,7 +79,7 @@ const statusMeta: Record<
   COMPLETED: {
     label: '已完成',
     color: 'success',
-    description: '设备已提交完成事实，并形成清运记录。',
+    description: '清运已完成，可查看对应清运记录。',
   },
   ABORTED: {
     label: '已中止',
@@ -410,10 +410,7 @@ export default function CleanOperationsPage() {
 
   return (
     <PageContainer
-      {...pageHeader(
-        '清运操作',
-        '查看从后端创建操作、香橙派保存命令、可能解锁到完成或安全结束的全过程。',
-      )}
+      {...pageHeader('清运操作')}
     >
       <DirectoryScopeBar scope={scope} />
       <Space direction="vertical" size={16} style={{ width: '100%' }}>

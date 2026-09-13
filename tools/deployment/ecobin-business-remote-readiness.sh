@@ -54,14 +54,14 @@ run_bounded 15s curl --fail --silent --connect-timeout 3 --max-time 10 \
     http://127.0.0.1:18080/ >/dev/null
 run_bounded 60s /usr/local/sbin/ecobin-runtime-secret-probe
 
-query=$'SELECT CONCAT("flyway=", COUNT(*), "/", MAX(CAST(version AS UNSIGNED))) FROM flyway_schema_history WHERE success=1;\nSELECT CONCAT("tables=", COUNT(*)) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_type="BASE TABLE" AND table_name<>"flyway_schema_history";\nSELECT CONCAT("readyRelease=", COUNT(*)) FROM dev_edge_software_release_control WHERE release_uid="9d5cf9e6-7b09-4409-9dc4-54a291984e22" AND version_name="0.3.0-rc.3" AND release_sequence=3 AND release_status="READY" AND LOWER(HEX(package_sha256))="6c5276bfa83bfba00636322b028219ef5087ec24d8a58b33925a06ba3f592610" AND package_size=53755880 AND signing_key_id="business_2026";\nSELECT CONCAT("nonterminalRollouts=", COUNT(*)) FROM dev_edge_software_rollout WHERE rollout_status NOT IN ("COMPLETED","STOPPED","VALIDATION_FAILED");\nSELECT CONCAT("activeDeployments=", COUNT(*)) FROM dev_edge_software_deployment WHERE deployment_status NOT IN ("PLANNED","SUCCEEDED","ROLLED_BACK","DEFERRED","REJECTED","FAILED_LOCKED","CANCELLED");'
+query=$'SELECT CONCAT("flyway=", COUNT(*), "/", MAX(CAST(version AS UNSIGNED))) FROM flyway_schema_history WHERE success=1;\nSELECT CONCAT("tables=", COUNT(*)) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_type="BASE TABLE" AND table_name<>"flyway_schema_history";\nSELECT CONCAT("readyRelease=", COUNT(*)) FROM dev_edge_software_release_control WHERE release_uid="9d5cf9e6-7b09-4409-9dc4-54a291984e22" AND version_name="0.3.0-rc.3" AND release_sequence=3 AND release_status="READY" AND LOWER(HEX(package_sha256))="6c5276bfa83bfba00636322b028219ef5087ec24d8a58b33925a06ba3f592610" AND package_size=53755880 AND signing_key_id="business_2026";\nSELECT CONCAT("nonterminalRollouts=", COUNT(*)) FROM dev_edge_software_rollout WHERE rollout_status NOT IN ("COMPLETED","STOPPED","VALIDATION_FAILED");\nSELECT CONCAT("activeDeployments=", COUNT(*)) FROM dev_edge_software_deployment WHERE deployment_status NOT IN ("PLANNED","SUCCEEDED","ROLLED_BACK","DEFERRED","REJECTED","FAILED_LOCKED","CANCELLED","LOCAL_CANCELLED");'
 database_result="$(run_bounded 30s docker exec ecobin-target-mysql84 sh -ec '
     export MYSQL_PWD="$(cat /run/secrets/mysql_root_password)"
     exec mysql --batch --skip-column-names -uroot ecobin -e "$1"
 ' sh "$query")"
-grep -Fqx 'flyway=69/69' <<<"$database_result" \
+grep -Fqx 'flyway=72/72' <<<"$database_result" \
     || fail 'the database migration epoch differs'
-grep -Fqx 'tables=132' <<<"$database_result" \
+grep -Fqx 'tables=134' <<<"$database_result" \
     || fail 'the database domain-table count differs'
 grep -Fqx 'readyRelease=1' <<<"$database_result" \
     || fail 'the approved healthy test release differs'

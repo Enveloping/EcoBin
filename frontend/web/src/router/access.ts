@@ -1,4 +1,5 @@
 export interface RouteAccessRule {
+  tenantCapability?: string;
   allOf?: readonly string[];
   anyOf?: readonly string[];
   accountTypes?: readonly string[];
@@ -7,6 +8,7 @@ export interface RouteAccessRule {
 export interface RouteAccessSession {
   accountType: string;
   capabilities: readonly string[];
+  tenantCapabilities?: readonly string[];
 }
 
 export function hasRouteAccess(
@@ -14,6 +16,8 @@ export function hasRouteAccess(
   rule: RouteAccessRule,
 ): boolean {
   if (!session) return false;
+  if (rule.tenantCapability && session.accountType === 'STAFF'
+      && !session.tenantCapabilities?.includes(rule.tenantCapability)) return false;
   if (
     rule.accountTypes
     && !rule.accountTypes.includes(session.accountType)

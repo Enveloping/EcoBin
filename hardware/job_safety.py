@@ -35,6 +35,33 @@ UPDATER_SOCKET_ENVIRONMENT = "ECOBIN_UPDATER_CONTROL_SOCKET"
 _DISABLED_MODES = frozenset({"", "disabled"})
 _CANDIDATE_MODE = "candidate"
 
+NATIVE_RECOVERY_CLOSE_EVIDENCE_FIELDS = frozenset({
+    "recoveryUid", "sourceActionUid", "sourceActionDigestSha256", "expectedSourceLedgerSequence",
+    "sourceMcuBootId", "targetMcuBootId", "portNo", "reason", "recoveryEvidenceSha256",
+    "sourceCommandPayloadHex", "closeCommandPayloadHex",
+})
+NATIVE_RECOVERY_CLOSE_REQUEST_FIELDS = NATIVE_RECOVERY_CLOSE_EVIDENCE_FIELDS | frozenset({
+    "actionUid", "permitUid", "workUid", "commandUid", "actionKey", "actionKind",
+    "actionDigestSha256", "dispatchAttemptToken",
+})
+NATIVE_RECOVERY_CLOSE_RETIRE_FIELDS = (NATIVE_RECOVERY_CLOSE_REQUEST_FIELDS - {"dispatchAttemptToken"}) | frozenset({
+    "receiptUid", "retirementEvidenceSha256",
+})
+NATIVE_RECOVERY_CLOSE_SUCCESSOR_FIELDS = frozenset({
+    "predecessorActionUid", "expectedPredecessorLedgerSequence", "predecessorReceiptUid",
+    "predecessorRetirementEvidenceSha256",
+})
+NATIVE_RECOVERY_CLOSE_SUCCESSOR_EVIDENCE_FIELDS = NATIVE_RECOVERY_CLOSE_EVIDENCE_FIELDS | NATIVE_RECOVERY_CLOSE_SUCCESSOR_FIELDS
+NATIVE_RECOVERY_CLOSE_SUCCESSOR_REQUEST_FIELDS = NATIVE_RECOVERY_CLOSE_REQUEST_FIELDS | NATIVE_RECOVERY_CLOSE_SUCCESSOR_FIELDS
+NATIVE_RECOVERY_CLOSE_SUCCESSOR_RETIRE_FIELDS = NATIVE_RECOVERY_CLOSE_RETIRE_FIELDS | NATIVE_RECOVERY_CLOSE_SUCCESSOR_FIELDS
+NATIVE_RECOVERY_CLOSE_BOOT_OBSERVATION_FIELDS = frozenset({
+    "observedMcuBootId", "bootObservationMessageName", "bootObservationPayloadHex",
+})
+NATIVE_RECOVERY_CLOSE_ISOLATE_FIELDS = (NATIVE_RECOVERY_CLOSE_REQUEST_FIELDS - {"dispatchAttemptToken"}) | frozenset({
+    "receiptUid", "isolationEvidenceSha256",
+}) | NATIVE_RECOVERY_CLOSE_BOOT_OBSERVATION_FIELDS
+NATIVE_RECOVERY_CLOSE_SUCCESSOR_ISOLATE_FIELDS = NATIVE_RECOVERY_CLOSE_ISOLATE_FIELDS | NATIVE_RECOVERY_CLOSE_SUCCESSOR_FIELDS
+
 
 class JobSafetyError(RuntimeError):
     """A stable failure which must prevent a new physical effect."""
@@ -330,6 +357,66 @@ class PermanentJobSafety:
                 "permanent ledger did not prepare the physical action",
             )
 
+    def prepare_native_recovery_close(self, permit: JobPermit, *, action: PhysicalAction,
+            evidence: Mapping[str, Any], dispatch_attempt_token: str) -> None:
+        """Caller supplies already durable, verified data-loss and native bytes.
+
+        The returned reservation is not an execution permission. Only the
+        existing final ARM and the native single-write gate may allow a write.
+        """
+        if (not isinstance(permit, JobPermit) or permit.work_type != "DELIVERY"
+                or not isinstance(action, PhysicalAction) or action.action_kind != "SAFE_CLOSE"
+                or not isinstance(evidence, Mapping) or set(evidence) not in (
+                    NATIVE_RECOVERY_CLOSE_EVIDENCE_FIELDS, NATIVE_RECOVERY_CLOSE_SUCCESSOR_EVIDENCE_FIELDS)):
+            raise ValueError("native recovery requires original delivery permit, close action and exact evidence")
+        payload = dict(evidence, actionUid=action.action_uid, permitUid=permit.permit_uid,
+            workUid=permit.work_uid, commandUid=permit.command_uid, actionKey=action.action_key,
+            actionKind=action.action_kind, actionDigestSha256=action.action_digest_sha256,
+            dispatchAttemptToken=dispatch_attempt_token)
+        operation = "PREPARE_NATIVE_RECOVERY_CLOSE_SUCCESSOR" if "predecessorActionUid" in evidence else "PREPARE_NATIVE_RECOVERY_CLOSE"
+        prepared = self._request(operation, payload)
+        identity = {key: payload[key] for key in
+            ("actionUid", "permitUid", "workUid", "commandUid", "actionKey", "actionKind", "actionDigestSha256")}
+        if (any(prepared.get(key) != value for key, value in identity.items())
+                or prepared.get("state") != "PREPARED" or prepared.get("mayExecute") is not False
+                or prepared.get("disposition") not in {"ACCEPTED", "DUPLICATE"}):
+            raise JobSafetyError("NATIVE_RECOVERY_NOT_PREPARED", "permanent ledger did not prepare the original recovery close")
+        saved = self.get_native_recovery_close(action.action_uid)
+        expected = {key: value for key, value in payload.items() if key != "dispatchAttemptToken"}
+        if saved != expected | {"disposition": "FOUND"}:
+            raise JobSafetyError("NATIVE_RECOVERY_EVIDENCE_CONFLICT", "permanent recovery evidence differs from the original")
+
+    def retire_native_recovery_close(self, permit: JobPermit, *, action: PhysicalAction,
+            evidence: Mapping[str, Any], retirement_evidence_sha256: str) -> dict[str, Any]:
+        """Close an original reservation, never grant or replay an output."""
+        if (not isinstance(permit, JobPermit) or permit.work_type != "DELIVERY"
+                or not isinstance(action, PhysicalAction) or action.action_kind != "SAFE_CLOSE"
+                or not isinstance(evidence, Mapping) or set(evidence) not in (
+                    NATIVE_RECOVERY_CLOSE_EVIDENCE_FIELDS, NATIVE_RECOVERY_CLOSE_SUCCESSOR_EVIDENCE_FIELDS)):
+            raise ValueError("native retirement requires original delivery permit, close action and exact evidence")
+        payload = dict(evidence, actionUid=action.action_uid, permitUid=permit.permit_uid,
+            workUid=permit.work_uid, commandUid=permit.command_uid, actionKey=action.action_key,
+            actionKind=action.action_kind, actionDigestSha256=action.action_digest_sha256,
+            receiptUid=action.receipt_uid,
+            retirementEvidenceSha256=_require_sha256(retirement_evidence_sha256, "retirementEvidenceSha256"))
+        operation = "RETIRE_NATIVE_RECOVERY_CLOSE_SUCCESSOR" if "predecessorActionUid" in evidence else "RETIRE_NATIVE_RECOVERY_CLOSE"
+        result = self._request(operation, payload)
+        expected = {key: payload[key] for key in
+            ("actionUid", "permitUid", "workUid", "commandUid", "actionKey", "actionKind", "actionDigestSha256", "receiptUid")}
+        expected.update(state="CONFIRMED", dispatchMode="PREPARED_ONLY", confirmedOutcome="NOT_EXECUTED",
+            confirmationBasis="PREPARED_NOT_ARMED", evidenceDigestSha256=retirement_evidence_sha256)
+        if (any(result.get(key) != value for key, value in expected.items())
+                or result.get("mayExecute") is not False or result.get("disposition") not in {"ACCEPTED", "DUPLICATE"}):
+            raise JobSafetyError("NATIVE_RECOVERY_NOT_RETIRED", "permanent ledger did not retire the original recovery close")
+        saved = self.get_native_recovery_close(action.action_uid)
+        binding = {key: value for key, value in payload.items() if key not in {"receiptUid", "retirementEvidenceSha256"}}
+        if saved != binding | {"disposition": "FOUND"}:
+            raise JobSafetyError("NATIVE_RECOVERY_EVIDENCE_CONFLICT", "permanent recovery evidence differs from the original")
+        return result
+
+    def get_native_recovery_close(self, action_uid: str) -> dict[str, Any]:
+        return self._request("GET_NATIVE_RECOVERY_CLOSE", {"actionUid": _require_uuid4(action_uid, "actionUid")})
+
     def arm_physical_action(
         self,
         action: PhysicalAction,
@@ -517,6 +604,68 @@ class PermanentJobSafety:
             "GET_PHYSICAL_ACTION",
             {"actionUid": _require_uuid4(action_uid, "actionUid")},
         )
+
+    def withdraw_native_recovery_close_dispatch(self, permit: JobPermit, *, action: PhysicalAction,
+            evidence: Mapping[str, Any], retirement_evidence_sha256: str) -> dict[str, Any]:
+        """Record an already committed local send fence without erasing ARM."""
+        if (not isinstance(permit, JobPermit) or permit.work_type != "DELIVERY"
+                or not isinstance(action, PhysicalAction) or action.action_kind != "SAFE_CLOSE"
+                or not isinstance(evidence, Mapping) or set(evidence) not in (
+                    NATIVE_RECOVERY_CLOSE_EVIDENCE_FIELDS, NATIVE_RECOVERY_CLOSE_SUCCESSOR_EVIDENCE_FIELDS)):
+            raise ValueError("native withdrawal requires original delivery permit, close action and exact evidence")
+        binding = dict(evidence, actionUid=action.action_uid, permitUid=permit.permit_uid,
+            workUid=permit.work_uid, commandUid=permit.command_uid, actionKey=action.action_key,
+            actionKind=action.action_kind, actionDigestSha256=action.action_digest_sha256)
+        payload = binding | dict(receiptUid=action.receipt_uid,
+            retirementEvidenceSha256=_require_sha256(retirement_evidence_sha256, "retirementEvidenceSha256"))
+        operation = ("WITHDRAW_NATIVE_RECOVERY_CLOSE_SUCCESSOR_DISPATCH" if "predecessorActionUid" in evidence
+            else "WITHDRAW_NATIVE_RECOVERY_CLOSE_DISPATCH")
+        result = self._request(operation, payload)
+        expected = binding | dict(receiptUid=action.receipt_uid,
+            evidenceDigestSha256=retirement_evidence_sha256, state="DISPATCH_WITHDRAWN",
+            dispositionBasis="AUTHORIZED_DISPATCH_WITHDRAWN_BEFORE_WRITE_CLAIM", mayExecute=False)
+        if (set(result) != set(expected) | {"ledgerSequence", "disposition"}
+                or any(type(result.get(key)) is not type(value) or result.get(key) != value for key, value in expected.items())
+                or isinstance(result.get("ledgerSequence"), bool) or not isinstance(result.get("ledgerSequence"), int)
+                or result["ledgerSequence"] < 1 or result.get("disposition") not in {"ACCEPTED", "DUPLICATE"}):
+            raise JobSafetyError("NATIVE_RECOVERY_NOT_WITHDRAWN", "permanent ledger did not record the exact withdrawn close")
+        if self.get_native_recovery_close_disposition(action.action_uid) != result | {"disposition": "FOUND"}:
+            raise JobSafetyError("NATIVE_RECOVERY_DISPOSITION_CONFLICT", "permanent withdrawal readback differs")
+        return result
+
+    def get_native_recovery_close_disposition(self, action_uid: str) -> dict[str, Any]:
+        return self._request("GET_NATIVE_RECOVERY_CLOSE_DISPOSITION",
+            {"actionUid": _require_uuid4(action_uid, "actionUid")})
+
+    def isolate_native_recovery_close_after_reboot(self, permit: JobPermit, *, action: PhysicalAction,
+            evidence: Mapping[str, Any], isolation_evidence_sha256: str,
+            boot_observation: Mapping[str, Any]) -> dict[str, Any]:
+        """Append the old target's reboot isolation, not a past execution result."""
+        if (not isinstance(permit, JobPermit) or permit.work_type != "DELIVERY"
+                or not isinstance(action, PhysicalAction) or action.action_kind != "SAFE_CLOSE"
+                or not isinstance(evidence, Mapping) or set(evidence) not in (
+                    NATIVE_RECOVERY_CLOSE_EVIDENCE_FIELDS, NATIVE_RECOVERY_CLOSE_SUCCESSOR_EVIDENCE_FIELDS)
+                or not isinstance(boot_observation, Mapping) or set(boot_observation) != NATIVE_RECOVERY_CLOSE_BOOT_OBSERVATION_FIELDS):
+            raise ValueError("native isolation requires original delivery, close evidence and exact boot observation")
+        binding = dict(evidence, actionUid=action.action_uid, permitUid=permit.permit_uid,
+            workUid=permit.work_uid, commandUid=permit.command_uid, actionKey=action.action_key,
+            actionKind=action.action_kind, actionDigestSha256=action.action_digest_sha256)
+        payload = binding | dict(boot_observation) | dict(receiptUid=action.receipt_uid,
+            isolationEvidenceSha256=_require_sha256(isolation_evidence_sha256, "isolationEvidenceSha256"))
+        operation = ("ISOLATE_NATIVE_RECOVERY_CLOSE_SUCCESSOR_AFTER_REBOOT" if "predecessorActionUid" in evidence
+            else "ISOLATE_NATIVE_RECOVERY_CLOSE_AFTER_REBOOT")
+        result = self._request(operation, payload)
+        expected = binding | dict(boot_observation) | dict(receiptUid=action.receipt_uid,
+            evidenceDigestSha256=isolation_evidence_sha256, state="ISOLATED_BY_REBOOT",
+            dispositionBasis="NEWER_MCU_BOOT_COMMAND_TARGET_ISOLATED", pastEffect="UNKNOWN", mayExecute=False)
+        if (set(result) != set(expected) | {"ledgerSequence", "disposition"}
+                or any(type(result.get(key)) is not type(value) or result.get(key) != value for key, value in expected.items())
+                or type(result.get("ledgerSequence")) is not int or result["ledgerSequence"] < 1
+                or result.get("disposition") not in {"ACCEPTED", "DUPLICATE"}):
+            raise JobSafetyError("NATIVE_RECOVERY_NOT_ISOLATED", "permanent ledger did not record exact reboot isolation")
+        if self.get_native_recovery_close_disposition(action.action_uid) != result | {"disposition": "FOUND"}:
+            raise JobSafetyError("NATIVE_RECOVERY_DISPOSITION_CONFLICT", "permanent isolation readback differs")
+        return result
 
     def quarantine_unknown_physical_action(
         self,

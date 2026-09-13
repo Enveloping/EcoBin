@@ -30,7 +30,7 @@ from trusted_clock import local_deadline_reference, sample_clock
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 18
+CURRENT_SCHEMA_VERSION = 40
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -211,6 +211,31 @@ class EdgeStore:
             )
         logger.info("EdgeStore 初始化: %s (v%d)", self.db_path, CURRENT_SCHEMA_VERSION)
 
+    def initialize_existing_recovery(self) -> None:
+        """Open existing native custody only; no empty DB or cloud-send recovery."""
+        from pathlib import Path
+        if self._conn is not None:
+            raise RuntimeError("native recovery requires a closed existing store")
+        conn = sqlite3.connect(Path(self.db_path).resolve().as_uri() + "?mode=rw", uri=True, check_same_thread=False)
+        try:
+            conn.row_factory = sqlite3.Row
+            table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version'").fetchone()
+            version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] if table else None
+            if type(version) is not int or not 36 <= version <= CURRENT_SCHEMA_VERSION:
+                raise ValueError("native recovery requires an existing native recovery schema")
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute("PRAGMA synchronous=FULL")
+            self._conn = conn
+            self._migrate()
+            if not self.integrity_check():
+                raise ValueError("native recovery store integrity failed")
+        except BaseException:
+            self._conn = None
+            conn.close()
+            raise
+
     def prepare_schema(self) -> None:
         """Migrate and verify the store without starting runtime recovery.
 
@@ -285,8 +310,30 @@ class EdgeStore:
             # clock evidence or command-observation identity.
             self._migrate_v17()
             self._migrate_v18()
+            self._migrate_v19()
+            self._migrate_v20()
+            self._migrate_v21()
+            self._migrate_v22()
+            self._migrate_v23()
+            self._migrate_v24()
+            self._migrate_v25()
+            self._migrate_v26()
+            self._migrate_v27()
+            self._migrate_v28()
+            self._migrate_v29()
+            self._migrate_v30()
+            self._migrate_v31()
+            self._migrate_v32()
+            self._migrate_v33()
+            self._migrate_v34()
+            self._migrate_v35()
+            self._migrate_v36()
+            self._migrate_v37()
+            self._migrate_v38()
+            self._migrate_v39()
+            self._migrate_v40()
             return
-        if current not in {0, 9, 10, 11, 12, 13, 14, 15, 16, 17}:
+        if current not in {0, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39}:
             raise RuntimeError(
                 "EdgeStore 数据库时代不兼容；永久资产 v9 不读取旧设备数据库"
             )
@@ -361,6 +408,2479 @@ class EdgeStore:
         if current < 18:
             self._migrate_v18()
             conn.execute("INSERT INTO schema_version (version) VALUES (18)")
+        if current < 19:
+            if current == 18:
+                # Preserve the integrity rechecks previously performed on v18 startup.
+                self._migrate_v17()
+                self._migrate_v18()
+            self._migrate_v19()
+            conn.execute("INSERT INTO schema_version (version) VALUES (19)")
+        if current < 20:
+            if current == 19:
+                self._migrate_v17()
+                self._migrate_v18()
+                self._migrate_v19()
+            self._migrate_v20()
+            conn.execute("INSERT INTO schema_version (version) VALUES (20)")
+        if current < 21:
+            if current == 20:
+                self._migrate_v17()
+                self._migrate_v18()
+                self._migrate_v19()
+                self._migrate_v20()
+            self._migrate_v21()
+            conn.execute("INSERT INTO schema_version (version) VALUES (21)")
+        if current < 22:
+            if current == 21:
+                self._migrate_v17()
+                self._migrate_v18()
+                self._migrate_v19()
+                self._migrate_v20()
+                self._migrate_v21()
+            self._migrate_v22()
+            conn.execute("INSERT INTO schema_version (version) VALUES (22)")
+
+        if current < 23:
+            if current == 22:
+                self._migrate_v17()
+                self._migrate_v18()
+                self._migrate_v19()
+                self._migrate_v20()
+                self._migrate_v21()
+                self._migrate_v22()
+            self._migrate_v23()
+            conn.execute("INSERT INTO schema_version (version) VALUES (23)")
+
+        if current < 24:
+            if current == 23:
+                self._migrate_v17()
+                self._migrate_v18()
+                self._migrate_v19()
+                self._migrate_v20()
+                self._migrate_v21()
+                self._migrate_v22()
+                self._migrate_v23()
+            self._migrate_v24()
+            conn.execute("INSERT INTO schema_version (version) VALUES (24)")
+
+        if current < 25:
+            if current == 24:
+                self._migrate_v17()
+                self._migrate_v18()
+                self._migrate_v19()
+                self._migrate_v20()
+                self._migrate_v21()
+                self._migrate_v22()
+                self._migrate_v23()
+                self._migrate_v24()
+            self._migrate_v25()
+            conn.execute("INSERT INTO schema_version (version) VALUES (25)")
+
+        if current < 26:
+            if current == 25:
+                self._migrate_v17()
+                self._migrate_v18()
+                self._migrate_v19()
+                self._migrate_v20()
+                self._migrate_v21()
+                self._migrate_v22()
+                self._migrate_v23()
+                self._migrate_v24()
+                self._migrate_v25()
+            self._migrate_v26()
+            conn.execute("INSERT INTO schema_version (version) VALUES (26)")
+
+        if current < 27:
+            if current == 26:
+                self._migrate_v17()
+                self._migrate_v18()
+                self._migrate_v19()
+                self._migrate_v20()
+                self._migrate_v21()
+                self._migrate_v22()
+                self._migrate_v23()
+                self._migrate_v24()
+                self._migrate_v25()
+                self._migrate_v26()
+            self._migrate_v27()
+            conn.execute("INSERT INTO schema_version (version) VALUES (27)")
+
+        if current < 28:
+            if current == 27:
+                for version in range(17, 28):
+                    getattr(self, f"_migrate_v{version}")()
+            self._migrate_v28()
+            conn.execute("INSERT INTO schema_version (version) VALUES (28)")
+
+        if current < 29:
+            if current == 28:
+                for version in range(17, 29):
+                    getattr(self, f"_migrate_v{version}")()
+            self._migrate_v29()
+            conn.execute("INSERT INTO schema_version (version) VALUES (29)")
+
+        if current < 30:
+            if current == 29:
+                for version in range(17, 30):
+                    getattr(self, f"_migrate_v{version}")()
+            self._migrate_v30()
+            conn.execute("INSERT INTO schema_version (version) VALUES (30)")
+
+        if current < 31:
+            if current == 30:
+                for version in range(17, 31):
+                    getattr(self, f"_migrate_v{version}")()
+            self._migrate_v31()
+            conn.execute("INSERT INTO schema_version (version) VALUES (31)")
+
+        if current < 32:
+            if current == 31:
+                for version in range(17, 32):
+                    getattr(self, f"_migrate_v{version}")()
+            self._migrate_v32()
+            conn.execute("INSERT INTO schema_version (version) VALUES (32)")
+
+        if current < 33:
+            if current == 32:
+                for version in range(17, 33):
+                    getattr(self, f"_migrate_v{version}")()
+            self._migrate_v33()
+            conn.execute("INSERT INTO schema_version (version) VALUES (33)")
+
+        if current < 34:
+            if current == 33:
+                for version in range(17, 34):
+                    getattr(self, f"_migrate_v{version}")()
+            self._migrate_v34()
+            conn.execute("INSERT INTO schema_version (version) VALUES (34)")
+
+        if current < 35:
+            if current == 34:
+                for version in range(17, 35):
+                    getattr(self, f"_migrate_v{version}")()
+            self._migrate_v35()
+            conn.execute("INSERT INTO schema_version (version) VALUES (35)")
+
+        if current < 36:
+            if current == 35:
+                for version in range(17, 36):
+                    getattr(self, f"_migrate_v{version}")()
+            self._migrate_v36()
+            conn.execute("INSERT INTO schema_version (version) VALUES (36)")
+
+        if current < 37:
+            if current == 36:
+                for version in range(17, 37):
+                    getattr(self, f"_migrate_v{version}")()
+            self._migrate_v37()
+            conn.execute("INSERT INTO schema_version (version) VALUES (37)")
+
+        if current < 38:
+            if current == 37:
+                for version in range(17, 38):
+                    getattr(self, f"_migrate_v{version}")()
+            self._migrate_v38()
+            conn.execute("INSERT INTO schema_version (version) VALUES (38)")
+
+        if current < 39:
+            if current == 38:
+                for version in range(17, 39):
+                    getattr(self, f"_migrate_v{version}")()
+            self._migrate_v39()
+            conn.execute("INSERT INTO schema_version (version) VALUES (39)")
+
+        if current < 40:
+            if current == 39:
+                for version in range(17, 40):
+                    getattr(self, f"_migrate_v{version}")()
+            self._migrate_v40()
+            conn.execute("INSERT INTO schema_version (version) VALUES (40)")
+
+    def _migrate_v40(self):
+        from native_recovery_close_isolation import checked
+        ddl = """CREATE TABLE native_recovery_close_isolation (
+            action_uid TEXT PRIMARY KEY NOT NULL REFERENCES native_delivery_recovery_close(action_uid),
+            bundle_json TEXT NOT NULL CHECK(length(bundle_json) BETWEEN 1 AND 65536),
+            evidence_sha256 TEXT NOT NULL CHECK(length(evidence_sha256)=64),
+            state TEXT NOT NULL DEFAULT 'PENDING' CHECK(state IN ('PENDING','ISOLATED'))
+        )"""
+        schema = self._conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='native_recovery_close_isolation'").fetchone()
+        if schema is None:
+            if self._conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] >= 40:
+                raise ValueError("native recovery close isolation table missing")
+            self._conn.execute(ddl)
+        elif ("".join(schema[0].split()).lower() != "".join(ddl.split()).lower()
+                or self._conn.execute("""SELECT 1 FROM sqlite_master WHERE tbl_name='native_recovery_close_isolation'
+                    AND (type='trigger' OR (type='index' AND sql IS NOT NULL))""").fetchone()):
+            raise ValueError("native recovery close isolation schema is incompatible")
+        for row in self._conn.execute("SELECT * FROM native_recovery_close_isolation").fetchall():
+            checked(self, self._conn, row)
+
+    def get_native_recovery_close_isolation(self, action_uid):
+        from native_recovery_close_isolation import checked
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM native_recovery_close_isolation WHERE action_uid=?", (action_uid,)).fetchone()
+            return checked(self, self._conn, row) if row else None
+
+    def prepare_native_recovery_close_isolation(self, action_uid, *, current_boot):
+        from native_recovery_close_isolation import bundle, digest
+        from native_delivery_recovery_close import close_effect_bundle, check_occupancy
+        from work_recovery import canonical
+        with self._standalone_native_transaction() as conn:
+            old = self.get_native_recovery_close_isolation(action_uid)
+            if old is not None:
+                return old
+            binding = self.get_native_delivery_recovery_close(action_uid)
+            if binding is None:
+                raise ValueError("recovery close isolation binding missing")
+            issue = self.get_native_delivery_issue(binding["permit"].work_uid)
+            check_occupancy(self, issue, binding["evidence"]["portNo"])
+            if (self.get_native_recovery_close_confirmation(action_uid) is not None
+                    or close_effect_bundle(self, conn, action_uid) is not None):
+                return None
+            boot = current_boot()
+            command = self.get_native_command(action_uid)
+            if (type(boot) is not int or boot <= command["mcu_boot_id"]
+                    or boot != self._native_counter(conn, "native_current_boot")):
+                raise ValueError("recovery close isolation requires a fresh newer owned boot")
+            witness = self.get_native_boot_observation(boot)
+            if witness is None:
+                raise ValueError("recovery close isolation boot witness missing")
+            value = bundle(self, conn, action_uid, binding=binding, boot_observation=dict(observedMcuBootId=boot,
+                bootObservationMessageName=witness["message_name"], bootObservationPayloadHex=witness["payload"].hex()))
+            raw = canonical(value)
+            proof = dict(action_uid=action_uid, bundle_json=raw, evidence_sha256=digest(raw), state="PENDING")
+            conn.execute("INSERT INTO native_recovery_close_isolation(action_uid,bundle_json,evidence_sha256) VALUES(?,?,?)",
+                (action_uid, raw, proof["evidence_sha256"]))
+            if current_boot() != boot:
+                raise ValueError("recovery close isolation requires fresh boot through commit")
+            return proof
+
+    def confirm_native_recovery_close_isolation(self, action_uid, ledger, disposition):
+        from native_recovery_close_isolation import check_disposition
+        with self._standalone_native_transaction() as conn:
+            proof = self.get_native_recovery_close_isolation(action_uid)
+            if proof is None:
+                raise ValueError("recovery close isolation proof missing")
+            check_disposition(self.get_native_delivery_recovery_close(action_uid), proof, ledger, disposition)
+            conn.execute("UPDATE native_recovery_close_isolation SET state='ISOLATED' WHERE action_uid=?", (action_uid,))
+            return proof | {"state": "ISOLATED"}
+
+    def _migrate_v39(self):
+        self._migrate_native_close_ancestry()
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(native_mcu_command)")}
+        if "dispatch_retired" not in columns:
+            if self._conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] >= 39:
+                raise ValueError("native dispatch retirement marker missing")
+            self._conn.execute("""ALTER TABLE native_mcu_command ADD COLUMN dispatch_retired
+                INTEGER NOT NULL DEFAULT 0 CHECK (dispatch_retired IN (0,1))""")
+            self._conn.execute("""UPDATE native_mcu_command SET dispatch_retired=1 WHERE command_uid IN
+                (SELECT action_uid FROM native_recovery_close_retirement WHERE state='RETIRED')""")
+        self._verify_native_dispatch_retirements(self._conn)
+        self._conn.execute("DROP INDEX IF EXISTS native_mcu_one_pending_command")
+        self._conn.execute("""CREATE UNIQUE INDEX native_mcu_one_pending_command
+            ON native_mcu_command ((1)) WHERE decision_outcome IS NULL AND boot_retired=0 AND dispatch_retired=0""")
+
+    def _migrate_native_close_ancestry(self):
+        """Preserve exact old proof bytes while replacing their referenced parent."""
+        conn = self._conn
+        old_sql = """CREATE TABLE native_delivery_recovery_close (
+            action_uid TEXT PRIMARY KEY NOT NULL REFERENCES native_mcu_command(command_uid),
+            issue_uid TEXT NOT NULL UNIQUE REFERENCES native_delivery_issue(issue_uid),
+            binding_json TEXT NOT NULL,
+            binding_sha256 TEXT NOT NULL CHECK(length(binding_sha256)=64)
+        )"""
+        new_sql = """CREATE TABLE native_delivery_recovery_close (
+            action_uid TEXT PRIMARY KEY NOT NULL REFERENCES native_mcu_command(command_uid),
+            issue_uid TEXT NOT NULL REFERENCES native_delivery_issue(issue_uid),
+            binding_json TEXT NOT NULL,
+            binding_sha256 TEXT NOT NULL CHECK(length(binding_sha256)=64),
+            predecessor_action_uid TEXT NOT NULL UNIQUE REFERENCES native_mcu_command(command_uid)
+        )"""
+        def normalized(sql):
+            return "".join(sql.replace('"', '').replace("IF NOT EXISTS", "").split()).lower()
+        stored = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='native_delivery_recovery_close'").fetchone()
+        if stored is None or normalized(stored[0]) not in {normalized(old_sql), normalized(new_sql)}:
+            raise ValueError("native recovery close ancestry schema is unsupported")
+        tables = ("native_delivery_recovery_close", "native_recovery_close_confirmation", "native_recovery_close_retirement")
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE tbl_name IN (?,?,?) AND type IN ('index','trigger') AND sql IS NOT NULL",
+                        tables).fetchone():
+            raise ValueError("native recovery close ancestry has unsupported schema extensions")
+        if normalized(stored[0]) == normalized(new_sql):
+            return
+        if conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] >= 39:
+            raise ValueError("native recovery close ancestry schema regressed")
+        children = []
+        for table, terminal in zip(tables[1:], ("CONFIRMED", "RETIRED")):
+            expected = f"""CREATE TABLE {table} (
+                action_uid TEXT PRIMARY KEY NOT NULL REFERENCES native_delivery_recovery_close(action_uid),
+                bundle_json TEXT NOT NULL CHECK(length(bundle_json) BETWEEN 1 AND 8192),
+                evidence_sha256 TEXT NOT NULL CHECK(length(evidence_sha256)=64),
+                state TEXT NOT NULL DEFAULT 'PENDING' CHECK(state IN ('PENDING','{terminal}'))
+            )"""
+            ddl = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
+            if ddl is None or normalized(ddl[0]) != normalized(expected):
+                raise ValueError("native recovery close child proof schema is unsupported")
+            children.append((table, ddl[0], [tuple(row) for row in conn.execute(f"SELECT * FROM {table}")]))
+        from native_delivery_recovery_close import checked_binding
+        parents = []
+        for row in conn.execute("SELECT * FROM native_delivery_recovery_close").fetchall():
+            binding = checked_binding(self, row)
+            parents.append((*tuple(row), binding["evidence"]["sourceActionUid"]))
+        # Child tables are copied and rebuilt inside the same startup transaction.
+        # Renaming the old parent would redirect their FK definitions to its old name.
+        for table, _, _ in children:
+            conn.execute(f"DROP TABLE {table}")
+        conn.execute("DROP TABLE native_delivery_recovery_close")
+        conn.execute(new_sql)
+        conn.executemany("INSERT INTO native_delivery_recovery_close VALUES(?,?,?,?,?)", parents)
+        for table, ddl, rows in children:
+            conn.execute(ddl)
+            conn.executemany(f"INSERT INTO {table} VALUES(?,?,?,?)", rows)
+        self._migrate_v36()
+        self._migrate_v37()
+        self._migrate_v38()
+        if conn.execute("PRAGMA foreign_key_check").fetchone():
+            raise ValueError("native recovery close ancestry migration broke foreign keys")
+
+    def _verify_native_dispatch_retirements(self, conn):
+        if conn.execute("""SELECT 1 FROM native_mcu_command c
+            LEFT JOIN native_recovery_close_retirement r ON r.action_uid=c.command_uid
+            WHERE c.dispatch_retired NOT IN (0,1) OR c.dispatch_retired IS NULL
+                OR c.dispatch_retired != CASE WHEN r.state='RETIRED' THEN 1 ELSE 0 END LIMIT 1""").fetchone():
+            raise ValueError("native dispatch retirement marker differs from durable proof")
+        for row in conn.execute("SELECT action_uid FROM native_recovery_close_retirement WHERE state='RETIRED'").fetchall():
+            self.get_native_recovery_close_retirement(row[0])
+
+    def _migrate_v38(self):
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_recovery_close_retirement (
+            action_uid TEXT PRIMARY KEY NOT NULL REFERENCES native_delivery_recovery_close(action_uid),
+            bundle_json TEXT NOT NULL CHECK(length(bundle_json) BETWEEN 1 AND 8192),
+            evidence_sha256 TEXT NOT NULL CHECK(length(evidence_sha256)=64),
+            state TEXT NOT NULL DEFAULT 'PENDING' CHECK(state IN ('PENDING','RETIRED'))
+        )""")
+        from native_delivery_recovery_close import checked_retirement
+        for row in self._conn.execute("SELECT * FROM native_recovery_close_retirement"):
+            checked_retirement(self, self._conn, row)
+
+    def get_native_recovery_close_retirement(self, action_uid):
+        from native_delivery_recovery_close import checked_retirement
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM native_recovery_close_retirement WHERE action_uid=?", (action_uid,)).fetchone()
+            return checked_retirement(self, self._conn, row) if row else None
+
+    def _prepare_native_recovery_close_retirement(self, conn, action_uid):
+        from native_delivery_recovery_close import retirement_bundle, retirement_digest, check_occupancy
+        from work_recovery import canonical
+        bundle = retirement_bundle(self, conn, action_uid)
+        old = self.get_native_recovery_close_retirement(action_uid)
+        if old is not None and old["state"] == "RETIRED":
+            return old
+        issue = self.get_native_delivery_issue(bundle["permit"]["work_uid"])
+        check_occupancy(self, issue, bundle["recovery"]["portNo"])
+        if old is not None:
+            return old
+        raw = canonical(bundle)
+        digest = retirement_digest(raw)
+        conn.execute("INSERT INTO native_recovery_close_retirement(action_uid,bundle_json,evidence_sha256) VALUES(?,?,?)",
+            (action_uid, raw, digest))
+        return dict(action_uid=action_uid, bundle_json=raw, evidence_sha256=digest, state="PENDING")
+
+    def prepare_native_recovery_close_retirement(self, action_uid):
+        with self._standalone_native_transaction() as conn:
+            return self._prepare_native_recovery_close_retirement(conn, action_uid)
+
+    def list_pending_native_recovery_close_retirements(self, *, limit=32):
+        if type(limit) is not int or not 1 <= limit <= 32:
+            raise ValueError("recovery close retirement batch must contain 1..32 actions")
+        with self._lock:
+            return [row[0] for row in self._conn.execute("""SELECT r.action_uid
+                FROM native_recovery_close_retirement r
+                JOIN native_delivery_recovery_close b ON b.action_uid=r.action_uid
+                JOIN native_delivery_issue i ON i.issue_uid=b.issue_uid
+                JOIN work_slot w ON w.slot_id=1 AND w.work_uid=i.work_uid AND w.work_type='DELIVERY'
+                WHERE r.state='PENDING' ORDER BY r.action_uid LIMIT ?""", (limit,))]
+
+    def confirm_native_recovery_close_retirement(self, action_uid, ledger):
+        from native_delivery_recovery_close import check_retirement_ledger
+        with self._standalone_native_transaction() as conn:
+            proof = self._prepare_native_recovery_close_retirement(conn, action_uid)
+            check_retirement_ledger(self.get_native_delivery_recovery_close(action_uid), proof, ledger)
+            conn.execute("UPDATE native_recovery_close_retirement SET state='RETIRED' WHERE action_uid=?", (action_uid,))
+            conn.execute("UPDATE native_mcu_command SET dispatch_retired=1 WHERE command_uid=?", (action_uid,))
+            return proof | {"state": "RETIRED"}
+
+    def confirm_native_recovery_close_withdrawal(self, action_uid, ledger, disposition):
+        from native_delivery_recovery_close import check_withdrawal_disposition
+        with self._standalone_native_transaction() as conn:
+            proof = self._prepare_native_recovery_close_retirement(conn, action_uid)
+            check_withdrawal_disposition(self.get_native_delivery_recovery_close(action_uid), proof, ledger, disposition)
+            conn.execute("UPDATE native_recovery_close_retirement SET state='RETIRED' WHERE action_uid=?", (action_uid,))
+            conn.execute("UPDATE native_mcu_command SET dispatch_retired=1 WHERE command_uid=?", (action_uid,))
+            return proof | {"state": "RETIRED"}
+
+    def _migrate_v37(self):
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_recovery_close_confirmation (
+            action_uid TEXT PRIMARY KEY NOT NULL REFERENCES native_delivery_recovery_close(action_uid),
+            bundle_json TEXT NOT NULL CHECK(length(bundle_json) BETWEEN 1 AND 8192),
+            evidence_sha256 TEXT NOT NULL CHECK(length(evidence_sha256)=64),
+            state TEXT NOT NULL DEFAULT 'PENDING' CHECK(state IN ('PENDING','CONFIRMED'))
+        )""")
+        from native_delivery_recovery_close import checked_close_confirmation
+        for row in self._conn.execute("SELECT * FROM native_recovery_close_confirmation"):
+            checked_close_confirmation(self, self._conn, row)
+
+    def get_native_recovery_close_confirmation(self, action_uid):
+        from native_delivery_recovery_close import checked_close_confirmation
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM native_recovery_close_confirmation WHERE action_uid=?", (action_uid,)).fetchone()
+            return checked_close_confirmation(self, self._conn, row) if row else None
+
+    def _prepare_native_recovery_close_confirmation(self, conn, action_uid):
+        from native_delivery_recovery_close import close_effect_bundle, check_occupancy
+        from mcu_action_evidence import bundle_digest
+        from work_recovery import canonical
+        if self.get_native_recovery_close_isolation(action_uid) is not None:
+            return None
+        binding = self.get_native_delivery_recovery_close(action_uid)
+        if binding is None:
+            raise ValueError("native recovery close binding missing")
+        issue = self.get_native_delivery_issue(binding["permit"].work_uid)
+        check_occupancy(self, issue, binding["evidence"]["portNo"])
+        old = self.get_native_recovery_close_confirmation(action_uid)
+        if old is not None:
+            return old
+        bundle = close_effect_bundle(self, conn, action_uid)
+        if bundle is None:
+            return None
+        encoded = canonical(bundle)
+        digest = bundle_digest(encoded)
+        conn.execute("INSERT INTO native_recovery_close_confirmation(action_uid,bundle_json,evidence_sha256) VALUES(?,?,?)",
+            (action_uid, encoded, digest))
+        return dict(action_uid=action_uid, bundle_json=encoded, evidence_sha256=digest, state="PENDING")
+
+    def prepare_native_recovery_close_confirmation(self, action_uid):
+        with self._standalone_native_transaction() as conn:
+            return self._prepare_native_recovery_close_confirmation(conn, action_uid)
+
+    def list_pending_native_recovery_close_uids(self, *, limit=32):
+        if type(limit) is not int or not 1 <= limit <= 32:
+            raise ValueError("native recovery close batch must contain 1..32 actions")
+        with self._lock:
+            return [row[0] for row in self._conn.execute("""SELECT r.action_uid
+                FROM native_delivery_recovery_close r
+                JOIN native_delivery_issue i ON i.issue_uid=r.issue_uid
+                JOIN native_mcu_command c ON c.command_uid=r.action_uid
+                JOIN work_slot w ON w.slot_id=1 AND w.work_uid=i.work_uid AND w.work_type='DELIVERY'
+                LEFT JOIN native_recovery_close_confirmation f ON f.action_uid=r.action_uid
+                WHERE c.write_claimed=1 AND (f.state IS NULL OR f.state='PENDING')
+                ORDER BY c.mcu_boot_id,c.command_sequence LIMIT ?""", (limit,))]
+
+    def confirm_native_recovery_close_effect(self, action_uid, ledger):
+        from mcu_action_evidence import check_ledger
+        with self._standalone_native_transaction() as conn:
+            proof = self._prepare_native_recovery_close_confirmation(conn, action_uid)
+            if proof is None:
+                raise ValueError("native recovery close output proof missing")
+            check_ledger(self.get_native_delivery_recovery_close(action_uid), ledger, proof)
+            conn.execute("UPDATE native_recovery_close_confirmation SET state='CONFIRMED' WHERE action_uid=?", (action_uid,))
+            return proof | {"state": "CONFIRMED"}
+
+    def _migrate_v36(self):
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_delivery_recovery_close (
+            action_uid TEXT PRIMARY KEY NOT NULL REFERENCES native_mcu_command(command_uid),
+            issue_uid TEXT NOT NULL UNIQUE REFERENCES native_delivery_issue(issue_uid),
+            binding_json TEXT NOT NULL,
+            binding_sha256 TEXT NOT NULL CHECK(length(binding_sha256)=64)
+        )""")
+        from native_delivery_recovery_close import checked_binding
+        if self._conn.execute("""SELECT 1 FROM native_mcu_command c
+                LEFT JOIN native_delivery_recovery_close r ON r.action_uid=c.command_uid
+                WHERE c.message_name='SAFE_CLOSE' AND r.action_uid IS NULL LIMIT 1""").fetchone():
+            raise ValueError("delivery recovery close lost its durable authority")
+        for row in self._conn.execute("SELECT * FROM native_delivery_recovery_close"):
+            checked_binding(self, row)
+
+    def get_native_delivery_recovery_close(self, action_uid):
+        from native_delivery_recovery_close import checked_binding
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM native_delivery_recovery_close WHERE action_uid=?", (action_uid,)).fetchone()
+            return checked_binding(self, row) if row else None
+
+    def snapshot_native_recovery_close_startup(self):
+        """One original occupied issue and its existing preparations, not new work."""
+        from native_delivery_recovery_close import check_occupancy, checked_binding
+        with self._standalone_native_transaction() as conn:
+            slot = self.get_work_slot()
+            if slot is None or slot["work_type"] != "DELIVERY":
+                return None
+            issue = self.get_native_delivery_issue(slot["work_uid"])
+            if issue is None:
+                return None
+            rows = conn.execute("""SELECT b.* FROM native_delivery_recovery_close b
+                JOIN native_mcu_command c ON c.command_uid=b.action_uid
+                WHERE b.issue_uid=? ORDER BY c.command_sequence""", (issue["issueUid"],)).fetchall()
+            bindings = [checked_binding(self, row) for row in rows]
+            for binding in bindings:
+                check_occupancy(self, issue, binding["evidence"]["portNo"])
+            return dict(issue=issue, bindings=bindings, slot=dict(slot))
+
+    def prepare_native_delivery_recovery_close(self, work_uid, source_ledger, *, current_boot, execution_window_ms):
+        from native_delivery_recovery_close import prepare_in_transaction
+        with self._standalone_native_transaction() as conn:
+            return prepare_in_transaction(self, conn, work_uid, source_ledger, current_boot, execution_window_ms)
+
+    def prepare_native_delivery_recovery_close_successor(self, predecessor_action_uid, source_ledger,
+            predecessor_ledger, *, current_boot, execution_window_ms, predecessor_disposition=None):
+        from native_delivery_recovery_close import prepare_successor_in_transaction
+        with self._standalone_native_transaction() as conn:
+            return prepare_successor_in_transaction(self, conn, predecessor_action_uid, source_ledger,
+                predecessor_ledger, current_boot, execution_window_ms, predecessor_disposition)
+
+    def validate_native_recovery_close_source(self, action_uid, source_ledger):
+        """One local custody snapshot; caller must finish external reads first."""
+        from native_delivery_recovery_close import check_occupancy, check_source_ledger
+        with self._standalone_native_transaction():
+            binding = self.get_native_delivery_recovery_close(action_uid)
+            if binding is None:
+                raise ValueError("delivery recovery close binding missing")
+            issue = self.get_native_delivery_issue(binding["permit"].work_uid)
+            check_occupancy(self, issue, binding["evidence"]["portNo"])
+            first = self.get_native_action_by_key(binding["permit"].work_uid, "delivery:first-open")
+            check_source_ledger(self, first, source_ledger)
+            return binding
+
+    def _migrate_v35(self):
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_delivery_issue_confirmation (
+            event_uid TEXT PRIMARY KEY NOT NULL REFERENCES native_delivery_issue_report(event_uid),
+            confirmation_uid TEXT NOT NULL UNIQUE REFERENCES confirmation_inbox(confirmation_uid),
+            command_json TEXT NOT NULL,
+            command_sha256 TEXT NOT NULL CHECK(length(command_sha256)=64),
+            receipt_sha256 TEXT NOT NULL CHECK(length(receipt_sha256)=64)
+        )""")
+        from native_delivery_issue_report import checked_issue_confirmation
+        for row in self._conn.execute("SELECT * FROM native_delivery_issue_confirmation"):
+            checked_issue_confirmation(self, self._conn, row)
+
+    def get_native_delivery_issue_confirmation(self, work_uid, *, device_name, event_uid=None):
+        from native_delivery_issue_report import checked_issue_confirmation
+        with self._lock:
+            issue = self.get_native_delivery_issue(work_uid)
+            if issue is None:
+                return None
+            if issue["deviceName"] != device_name:
+                raise ValueError("native issue confirmation belongs to another device")
+            uid = issue["issueUid"] if event_uid is None else event_uid
+            task = self._conn.execute("SELECT * FROM native_delivery_issue_report WHERE event_uid=?", (uid,)).fetchone()
+            if task is None:
+                return None
+            if task["issue_uid"] != issue["issueUid"]:
+                raise ValueError("native issue confirmation belongs to another work")
+            row = self._conn.execute("SELECT * FROM native_delivery_issue_confirmation WHERE event_uid=?", (uid,)).fetchone()
+            return checked_issue_confirmation(self, self._conn, row) if row else None
+
+    def _save_native_delivery_issue_confirmation(self, conn, task, stable_command):
+        if task is None:
+            return
+        from native_delivery_issue_report import checked_issue_confirmation
+        uid = stable_command["payload"]["confirmationUid"]
+        digest = canonical_payload_sha256(stable_command)
+        receipt = conn.execute("""SELECT e.payload_json FROM confirmation_inbox c
+            JOIN event_outbox e ON e.event_uid=c.receipt_event_uid WHERE c.confirmation_uid=?""", (uid,)).fetchone()
+        if receipt is None:
+            raise ValueError("native issue confirmation lacks its original receipt")
+        conn.execute("""INSERT OR IGNORE INTO native_delivery_issue_confirmation
+            (event_uid,confirmation_uid,command_json,command_sha256,receipt_sha256) VALUES(?,?,?,?,?)""",
+            (task["event_uid"], uid, _json.dumps(stable_command, ensure_ascii=False, sort_keys=True), digest,
+             canonical_payload_sha256(_json.loads(receipt["payload_json"]))))
+        row = conn.execute("SELECT * FROM native_delivery_issue_confirmation WHERE event_uid=?", (task["event_uid"],)).fetchone()
+        if row is None or row["confirmation_uid"] != uid or row["command_sha256"] != digest:
+            raise ValueError("native issue confirmation identity conflicts")
+        checked_issue_confirmation(self, conn, row)
+
+    def _migrate_v34(self):
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_delivery_issue_report (
+            event_uid TEXT PRIMARY KEY NOT NULL REFERENCES event_outbox(event_uid),
+            issue_uid TEXT NOT NULL REFERENCES native_delivery_issue(issue_uid),
+            device_name TEXT NOT NULL,
+            evidence_kind TEXT NOT NULL CHECK(evidence_kind IN ('ARCHIVE','ARCHIVE_CONTEXT','PROCESS_FACT','FINAL_RESULT')),
+            evidence_index INTEGER NOT NULL CHECK(evidence_index>=0),
+            part_index INTEGER NOT NULL CHECK(part_index>=0),
+            event_sha256 TEXT NOT NULL CHECK(length(event_sha256)=64),
+            UNIQUE(issue_uid,evidence_kind,evidence_index,part_index)
+        )""")
+        for row in self._conn.execute("""SELECT DISTINCT i.work_uid FROM native_delivery_issue_report r
+            JOIN native_delivery_issue i USING(issue_uid)"""):
+            self.list_native_delivery_issue_reports(row["work_uid"])
+
+    def list_native_delivery_issue_reports(self, work_uid):
+        from native_delivery_issue_report import report_sources, checked_report
+        with self._lock:
+            issue = self.get_native_delivery_issue(work_uid)
+            if issue is None:
+                return []
+            expected = {key:(key, kind, payload) for key,kind,payload in report_sources(self, issue)}
+            rows = self._conn.execute("SELECT * FROM native_delivery_issue_report WHERE issue_uid=? ORDER BY rowid",
+                (issue["issueUid"],)).fetchall()
+            for row in rows:
+                key = (row["evidence_kind"], row["evidence_index"], row["part_index"])
+                if key not in expected:
+                    raise ValueError("native issue report no longer has original evidence")
+                checked_report(self, row, issue, expected[key])
+            return [dict(row) for row in rows]
+
+    def prepare_native_delivery_issue_reports(self, work_uid, *, device_name, limit=50):
+        from native_delivery_issue_report import report_sources, checked_report, ARCHIVE_EVENT
+        from onenet_wire import build_event_envelope, encode_event_post
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("native issue report batch must contain 1..100 new events")
+        with self._standalone_native_transaction() as conn:
+            issue = self.get_native_delivery_issue(work_uid)
+            if issue is None or issue["deviceName"] != device_name:
+                raise ValueError("native issue report requires the original archived device/work")
+            created = []
+            for key, event_type, payload in report_sources(self, issue):
+                existing = conn.execute("""SELECT * FROM native_delivery_issue_report
+                    WHERE issue_uid=? AND evidence_kind=? AND evidence_index=? AND part_index=?""",
+                    (issue["issueUid"], *key)).fetchone()
+                if existing:
+                    checked_report(self, existing, issue, (key, event_type, payload))
+                    continue
+                uid = issue["issueUid"] if event_type == ARCHIVE_EVENT else self._new_uid()
+                event = build_event_envelope(device_name=device_name, event_uid=uid,
+                    edge_event_sequence=self._next_seq(conn), event_type=event_type,
+                    target_type="DELIVERY_SESSION", target_uid=work_uid, command_uid=issue["permit"]["command_uid"], payload=payload)
+                encode_event_post(event_type, event)
+                self._insert_event(conn, event, event_type)
+                conn.execute("""INSERT INTO native_delivery_issue_report
+                    (event_uid,issue_uid,device_name,evidence_kind,evidence_index,part_index,event_sha256)
+                    VALUES (?,?,?,?,?,?,?)""", (uid, issue["issueUid"], device_name, *key, canonical_payload_sha256(event)))
+                created.append(uid)
+                if len(created) == limit:
+                    break
+            return created
+
+    def _migrate_v33(self) -> None:
+        """Irreversible delivery issue verdict; not business completion/admission."""
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_delivery_issue (
+            issue_uid TEXT PRIMARY KEY NOT NULL,
+            work_uid TEXT NOT NULL UNIQUE,
+            recovery_uid TEXT NOT NULL REFERENCES native_work_recovery_intent(recovery_uid),
+            evidence_json TEXT NOT NULL,
+            evidence_sha256 TEXT NOT NULL CHECK(length(evidence_sha256)=64),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )""")
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_delivery_issue_fact (
+            issue_uid TEXT NOT NULL REFERENCES native_delivery_issue(issue_uid),
+            fact_sequence INTEGER NOT NULL CHECK(fact_sequence>0),
+            source_kind TEXT NOT NULL,
+            source_key TEXT NOT NULL,
+            message_name TEXT NOT NULL,
+            payload BLOB NOT NULL CHECK(length(payload) BETWEEN 1 AND 242),
+            metadata_json TEXT NOT NULL,
+            PRIMARY KEY(issue_uid,fact_sequence),
+            UNIQUE(issue_uid,source_kind,source_key)
+        )""")
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_delivery_issue_result (
+            issue_uid TEXT PRIMARY KEY NOT NULL REFERENCES native_delivery_issue(issue_uid),
+            mcu_boot_id INTEGER NOT NULL,
+            result_sequence INTEGER NOT NULL,
+            payload_sha256 TEXT NOT NULL CHECK(length(payload_sha256)=64),
+            UNIQUE(mcu_boot_id,result_sequence),
+            FOREIGN KEY(mcu_boot_id,result_sequence) REFERENCES native_mcu_result(mcu_boot_id,result_sequence)
+        )""")
+        from work_recovery import checked_delivery_issue
+        for row in self._conn.execute("SELECT * FROM native_delivery_issue"):
+            checked_delivery_issue(self, self._conn, row)
+        for row in self._conn.execute("SELECT issue_uid FROM native_delivery_issue_result"):
+            self.list_native_delivery_issue_results(row["issue_uid"])
+
+    def get_native_delivery_issue(self, work_uid):
+        from work_recovery import checked_delivery_issue
+        with self._lock:
+            # Earlier migrations revalidate normal reports before v33 exists.
+            if not self._conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='native_delivery_issue'").fetchone():
+                return None
+            row = self._conn.execute("SELECT * FROM native_delivery_issue WHERE work_uid=?", (work_uid,)).fetchone()
+            return checked_delivery_issue(self, self._conn, row)
+
+    def list_native_delivery_issue_results(self, issue_uid):
+        from work_recovery import checked_delivery_issue, match_issue_result
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM native_delivery_issue WHERE issue_uid=?", (issue_uid,)).fetchone()
+            issue = checked_delivery_issue(self, self._conn, row)
+            if issue is None:
+                raise ValueError("unknown native delivery issue")
+            rows = self._conn.execute("""SELECT e.*, r.payload FROM native_delivery_issue_result e
+                LEFT JOIN native_mcu_result r USING(mcu_boot_id,result_sequence) WHERE e.issue_uid=?""", (issue_uid,)).fetchall()
+            for row in rows:
+                if row["payload"] is None or hashlib.sha256(row["payload"]).hexdigest() != row["payload_sha256"]:
+                    raise ValueError("native delivery issue late result custody is corrupt")
+                match_issue_result(self, issue, bytes(row["payload"]))
+            return [dict(row) for row in rows]
+
+    def _append_native_delivery_issue_result(self, conn, payload, values):
+        from work_recovery import match_issue_result
+        # The result is already durably staged in this transaction. A failed
+        # identity check retains those bytes but never links trusted evidence.
+        related = conn.execute("""SELECT i.work_uid FROM native_delivery_issue i
+            JOIN native_work_recovery_intent r USING(recovery_uid)
+            WHERE i.work_uid=? OR r.start_command_uid=?""", (values["workUid"], values["originCommandUid"])).fetchall()
+        if not related:
+            return
+        if len(related) != 1:
+            raise ValueError("native late result identity names conflicting archived deliveries")
+        issue = self.get_native_delivery_issue(related[0]["work_uid"])
+        match_issue_result(self, issue, payload)
+        rows = self.list_native_delivery_issue_results(issue["issueUid"])
+        if rows:
+            if rows[0]["payload"] != payload:
+                raise ValueError("native delivery issue has conflicting late result identities")
+            return
+        conn.execute("""INSERT INTO native_delivery_issue_result
+            (issue_uid,mcu_boot_id,result_sequence,payload_sha256) VALUES (?,?,?,?)""",
+            (issue["issueUid"], values["mcuBootId"], values["resultSequence"], hashlib.sha256(payload).hexdigest()))
+
+    def list_native_delivery_issue_facts(self, issue_uid, *, after_sequence=0, limit=100):
+        if type(after_sequence) is not int or after_sequence < 0 or type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValueError("native issue facts require a nonnegative cursor and 1..1000 rows")
+        from work_recovery import checked_delivery_issue
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM native_delivery_issue WHERE issue_uid=?", (issue_uid,)).fetchone()
+            if checked_delivery_issue(self, self._conn, row) is None:
+                raise ValueError("unknown native delivery issue")
+            return [dict(r) for r in self._conn.execute("""SELECT * FROM native_delivery_issue_fact
+                WHERE issue_uid=? AND fact_sequence>? ORDER BY fact_sequence LIMIT ?""", (issue_uid, after_sequence, limit))]
+
+    def archive_native_delivery_issue(self, permit, start_command_uid, *, device_name, current_boot):
+        from dataclasses import asdict
+        from job_safety import JobPermit
+        from work_recovery import (original_work, complete_result, delivery_issue_authority,
+            known_facts, facts_fingerprint, canonical)
+        if not isinstance(permit, JobPermit) or permit.work_type != "DELIVERY":
+            raise ValueError("native issue archive applies only to delivery")
+        def existing_decision():
+            issue = self.get_native_delivery_issue(permit.work_uid)
+            if issue is not None:
+                if (issue["permit"] != asdict(permit) or issue["startCommandUid"] != start_command_uid
+                        or issue["deviceName"] != device_name):
+                    raise ValueError("native delivery issue differs from requested original identity")
+                return dict(status="DELIVERY_ISSUE_ARCHIVED", issue=issue)
+            return None
+        existing = existing_decision()
+        if existing is not None:
+            return existing
+        decision = self.evaluate_native_work_recovery(permit, start_command_uid, current_boot=current_boot)
+        if decision["status"] != "RECOVERY_INTENT_RECORDED":
+            return decision
+        # The neutral intent is not terminal. Arbitrate final packet vs archive
+        # again in the SAME write transaction that freezes the terminal verdict.
+        with self._standalone_native_transaction() as conn:
+            existing = existing_decision()
+            if existing is not None:
+                return existing
+            record, start = original_work(self, permit, start_command_uid)
+            result = complete_result(self, conn, permit, record, start)
+            if result is not None:
+                return result
+            intent = self.get_native_work_recovery_intent(decision["intent"]["recovery_uid"])
+            boot = intent["target_mcu_boot_id"]
+            if current_boot() != boot or boot != self._native_counter(conn, "native_current_boot"):
+                raise RuntimeError("native boot observation expired before issue archive")
+            delivery_issue_authority(self, permit, record, start, device_name)
+            facts = list(known_facts(self, conn, permit, start))
+            count, digest = facts_fingerprint(facts)
+            uid = self._new_uid()
+            issue = dict(profile="ecobin-native-delivery-issue-v1", issueUid=uid,
+                workUid=permit.work_uid, permit=asdict(permit), startCommandUid=start_command_uid,
+                recoveryUid=intent["recovery_uid"], deviceName=device_name,
+                originalWorkContext=self.get_work_slot()["context"],
+                sourceMcuBootId=start["targetMcuBootId"], targetMcuBootId=boot,
+                reason="MCU_RESTART_FINAL_RESULT_UNAVAILABLE", reasonText="单片机重启，未取得最终结果包",
+                settlementAllowed=False, finalResultAtArchive="ABSENT", knownFactCount=count, knownFactsSha256=digest)
+            encoded = canonical(issue)
+            conn.execute("""INSERT INTO native_delivery_issue
+                (issue_uid,work_uid,recovery_uid,evidence_json,evidence_sha256) VALUES (?,?,?,?,?)""",
+                (uid, permit.work_uid, intent["recovery_uid"], encoded, hashlib.sha256(encoded.encode("ascii")).hexdigest()))
+            for sequence, fact in enumerate(facts, 1):
+                conn.execute("""INSERT INTO native_delivery_issue_fact
+                    (issue_uid,fact_sequence,source_kind,source_key,message_name,payload,metadata_json)
+                    VALUES (?,?,?,?,?,?,?)""", (uid, sequence, fact["source_kind"], fact["source_key"],
+                    fact["message_name"], fact["payload"], fact["metadata_json"]))
+            if current_boot() != boot:
+                raise RuntimeError("native boot observation expired during issue archive")
+            return existing_decision()
+
+    def _migrate_v32(self) -> None:
+        """Bind native reports to their original accepted backend decisions."""
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_result_confirmation (
+            event_uid TEXT PRIMARY KEY NOT NULL REFERENCES native_result_report_outbox(event_uid),
+            confirmation_uid TEXT NOT NULL UNIQUE REFERENCES confirmation_inbox(confirmation_uid),
+            command_json TEXT NOT NULL,
+            command_sha256 TEXT NOT NULL CHECK (length(command_sha256)=64),
+            receipt_sha256 TEXT NOT NULL CHECK (length(receipt_sha256)=64)
+        )""")
+        for row in self._conn.execute("SELECT * FROM native_result_confirmation"):
+            self._native_result_confirmation_binding(self._conn, row)
+
+    def _native_result_confirmation_binding(self, conn, row):
+        from native_result_report import confirmation_for_report
+        task = conn.execute("SELECT * FROM native_result_report_outbox WHERE event_uid=?", (row["event_uid"],)).fetchone()
+        accepted = conn.execute("SELECT * FROM confirmation_inbox WHERE confirmation_uid=?", (row["confirmation_uid"],)).fetchone()
+        command = _json.loads(row["command_json"])
+        if (task is None or accepted is None or canonical_payload_sha256(command) != row["command_sha256"]
+                or accepted["canonical_sha256"] != row["command_sha256"]
+                or accepted["command_uid"] != command.get("commandUid")):
+            raise ValueError("native confirmation command custody is corrupt")
+        stable, binding = confirmation_for_report(self, conn, task, command, command.get("targetDeviceName"), persisted=True)
+        payload = stable["payload"]
+        if (accepted["event_uid"] != row["event_uid"] or accepted["outcome"] != payload["outcome"]
+                or row["confirmation_uid"] != payload["confirmationUid"]
+                or _json.loads(accepted["payload_json"]) != payload):
+            raise ValueError("native confirmation inbox differs from original decision")
+        receipt = self.get_event(accepted["receipt_event_uid"])
+        event = self.get_event(row["event_uid"])
+        if receipt is None or event["state"] != EVENT_CONFIRMED or event["confirmed_at"] is None:
+            raise ValueError("native confirmation lost its atomic receipt")
+        body = _json.loads(receipt["payload_json"])
+        if canonical_payload_sha256(body) != row["receipt_sha256"]:
+            raise ValueError("native confirmation original receipt digest is corrupt")
+        expected = {key: payload[key] for key in ("confirmationUid", "originalEventUid", "originalPayloadSha256", "outcome")}
+        if (body.get("payload") != expected or body.get("payloadSha256") != canonical_payload_sha256(expected)
+                or body.get("commandUid") != stable["commandUid"] or body.get("eventUid") != accepted["receipt_event_uid"]
+                or body.get("eventType") != "BUSINESS_CONFIRMATION_RECEIPT"
+                or receipt["event_type"] != body["eventType"] or receipt["work_uid"] != row["event_uid"]
+                or body.get("edgeEventSequence") != receipt["edge_event_sequence"]
+                or body.get("target") != {"type": "BUSINESS_CONFIRMATION", "uid": row["confirmation_uid"]}):
+            raise ValueError("native confirmation receipt differs from original decision")
+        return dict(eventUid=row["event_uid"], confirmationUid=row["confirmation_uid"],
+            receiptEventUid=accepted["receipt_event_uid"], workUid=binding["permit"]["work_uid"], **{
+                key: payload[key] for key in ("outcome", "effectKind", "resultReferences", "processedAt", "errorCode", "quarantineUid")})
+
+    def get_native_result_confirmation(self, permit, start_command_uid, *, device_name):
+        with self._lock:
+            report = self.get_native_result_report(permit, start_command_uid, device_name=device_name)
+            if report is None:
+                return None
+            row = self._conn.execute("SELECT * FROM native_result_confirmation WHERE event_uid=?", (report["eventUid"],)).fetchone()
+            return self._native_result_confirmation_binding(self._conn, row) if row else None
+
+    def _save_native_result_confirmation(self, conn, task, stable_command):
+        if task is None:
+            return
+        uid = stable_command["payload"]["confirmationUid"]
+        serialized = _json.dumps(stable_command, ensure_ascii=False, sort_keys=True)
+        digest = canonical_payload_sha256(stable_command)
+        receipt = conn.execute("""SELECT e.payload_json FROM confirmation_inbox c
+            JOIN event_outbox e ON e.event_uid=c.receipt_event_uid WHERE c.confirmation_uid=?""", (uid,)).fetchone()
+        if receipt is None:
+            raise ValueError("native confirmation lacks its original receipt")
+        receipt_digest = canonical_payload_sha256(_json.loads(receipt["payload_json"]))
+        conn.execute("""INSERT OR IGNORE INTO native_result_confirmation
+            (event_uid, confirmation_uid, command_json, command_sha256, receipt_sha256) VALUES (?,?,?,?,?)""",
+            (task["event_uid"], uid, serialized, digest, receipt_digest))
+        row = conn.execute("SELECT * FROM native_result_confirmation WHERE event_uid=?", (task["event_uid"],)).fetchone()
+        if row is None or row["confirmation_uid"] != uid or row["command_sha256"] != digest:
+            raise ValueError("native confirmation identity conflicts")
+        self._native_result_confirmation_binding(conn, row)
+
+    def _migrate_v31(self) -> None:
+        """Consume native result custody into the existing reliable event outbox."""
+        conn = self._conn
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(native_result_report_outbox)")}
+        if "report_json" not in columns:
+            conn.execute("ALTER TABLE native_result_report_outbox RENAME TO native_result_report_v30")
+            conn.execute("""CREATE TABLE native_result_report_outbox (
+                task_uid TEXT NOT NULL UNIQUE,
+                mcu_boot_id INTEGER NOT NULL,
+                result_sequence INTEGER NOT NULL,
+                state TEXT NOT NULL DEFAULT 'PENDING_CLASSIFICATION',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                event_uid TEXT UNIQUE REFERENCES event_outbox(event_uid),
+                report_json TEXT,
+                CHECK ((state='PENDING_CLASSIFICATION' AND event_uid IS NULL AND report_json IS NULL)
+                    OR (state='REPORT_CREATED' AND event_uid IS NOT NULL AND report_json IS NOT NULL)),
+                PRIMARY KEY (mcu_boot_id, result_sequence),
+                FOREIGN KEY (mcu_boot_id, result_sequence)
+                    REFERENCES native_mcu_result (mcu_boot_id, result_sequence)
+            )""")
+            conn.execute("""INSERT INTO native_result_report_outbox
+                (task_uid, mcu_boot_id, result_sequence, state, created_at)
+                SELECT task_uid, mcu_boot_id, result_sequence, state, created_at FROM native_result_report_v30""")
+            conn.execute("DROP TABLE native_result_report_v30")
+        for row in conn.execute("SELECT * FROM native_result_report_outbox"):
+            if row["state"] == "REPORT_CREATED":
+                self._native_report_binding(conn, row)
+            elif row["state"] != "PENDING_CLASSIFICATION" or row["event_uid"] is not None or row["report_json"] is not None:
+                raise ValueError("native report task state is corrupt")
+
+    def _native_report_binding(self, conn, row):
+        from native_result_report import checked_report
+        result = self.get_native_mcu_result(row["mcu_boot_id"], row["result_sequence"])
+        event = self.get_event(row["event_uid"])
+        body = _json.loads(event["payload_json"]) if event else None
+        if event and any(event[column] != body.get(field) for column, field in (
+                ("event_uid", "eventUid"), ("event_type", "eventType"), ("edge_event_sequence", "edgeEventSequence"))):
+            raise ValueError("native report event projection is corrupt")
+        if event and event["work_uid"] != body.get("target", {}).get("uid"):
+            raise ValueError("native report event work identity is corrupt")
+        return checked_report(self, conn, row, result, body)
+
+    def get_native_result_report(self, permit, start_command_uid: str, *, device_name):
+        from dataclasses import asdict
+        with self._lock:
+            rows = self._conn.execute("""SELECT t.* FROM native_result_report_outbox t
+                JOIN native_mcu_result r USING(mcu_boot_id, result_sequence)
+                WHERE r.work_uid=? AND t.state='REPORT_CREATED'""", (permit.work_uid,)).fetchall()
+            if not rows:
+                return None
+            if len(rows) != 1:
+                raise ValueError("native work has multiple business reports")
+            binding = self._native_report_binding(self._conn, rows[0])
+            if (binding["permit"] != asdict(permit) or binding["startCommandUid"] != start_command_uid
+                    or binding["deviceName"] != device_name):
+                raise ValueError("native report differs from original permit/START")
+            return dict(state="REPORT_CREATED", eventUid=binding["eventUid"])
+
+    def create_native_result_report(self, permit, start_command_uid: str, *, device_name, ledgers, photo_manager=None):
+        from native_result_report import original_authority, report_payload, pending_photos, report_binding, supports_result_policy
+        from work_recovery import original_work, complete_result
+        from mcu_action_evidence import check_ledger
+        from onenet_wire import build_event_envelope, encode_event_post
+        import uart2_protocol as uart
+        with self._standalone_native_transaction() as conn:
+            if self.get_native_delivery_issue(permit.work_uid) is not None:
+                raise ValueError("native delivery is archived; late results are evidence only")
+            existing = self.get_native_result_report(permit, start_command_uid, device_name=device_name)
+            if existing is not None:
+                return existing
+            record, start = original_work(self, permit, start_command_uid)
+            decision = complete_result(self, conn, permit, record, start)
+            if decision is None or decision["evidence"]["state"] != "MATCHED":
+                raise ValueError("native report lacks complete reconciled evidence")
+            evidence, saved = decision["evidence"], decision["result"]
+            value = uart.decode_payload("WORK_RESULT", saved["payload"])
+            if not supports_result_policy(value):
+                raise ValueError("native report requires an explicit supported result policy")
+            command = original_authority(self, permit, start, evidence, device_name)
+            if command is None:
+                raise ValueError("native report lacks original cloud command custody")
+            for item in evidence["execution"]["commands"]:
+                uid = item["binding"]["action"]["action_uid"]
+                proof = self.get_native_action_confirmation(uid)
+                if proof is None:
+                    raise ValueError("native report action has no durable confirmation")
+                if uid not in ledgers:
+                    raise ValueError("native report action lacks the queried permanent confirmation")
+                check_ledger(self.get_native_action_binding(uid), ledgers[uid], proof)
+            work_type = value["workType"]
+            event_type = "CLEAN_COMPLETE" if work_type == "CLEAN_OPERATION" else "DELIVERY_COMPLETE"
+            photos = (photo_manager.get_completion_photo_facts(permit.work_uid, work_type)
+                if photo_manager is not None else pending_photos(work_type))
+            event = build_event_envelope(device_name=device_name, event_uid=decision["task"]["task_uid"],
+                edge_event_sequence=self._next_seq(conn), event_type=event_type,
+                target_type=work_type, target_uid=permit.work_uid, command_uid=permit.command_uid,
+                payload=report_payload(value, evidence, command, photos))
+            encode_event_post(event_type, event)
+            self._insert_event(conn, event, event_type)
+            conn.execute("""UPDATE native_result_report_outbox SET state='REPORT_CREATED', event_uid=?, report_json=?
+                WHERE mcu_boot_id=? AND result_sequence=? AND state='PENDING_CLASSIFICATION'""",
+                (event["eventUid"], _json.dumps(report_binding(permit, start_command_uid, saved, event, device_name), sort_keys=True),
+                    saved["mcu_boot_id"], saved["result_sequence"]))
+            return dict(state="REPORT_CREATED", eventUid=event["eventUid"])
+
+    def _migrate_v30(self) -> None:
+        """Recovery preparation and frozen known facts; neither is a cloud result."""
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_work_recovery_intent (
+            recovery_uid TEXT PRIMARY KEY,
+            work_uid TEXT NOT NULL,
+            start_command_uid TEXT NOT NULL REFERENCES native_mcu_command(command_uid),
+            target_mcu_boot_id INTEGER NOT NULL REFERENCES native_mcu_boot_observation(boot_id),
+            evidence_json TEXT NOT NULL CHECK (length(evidence_json) BETWEEN 1 AND 16384),
+            evidence_sha256 TEXT NOT NULL CHECK (length(evidence_sha256)=64),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(work_uid, target_mcu_boot_id)
+        )""")
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_work_recovery_fact (
+            recovery_uid TEXT NOT NULL REFERENCES native_work_recovery_intent(recovery_uid),
+            fact_sequence INTEGER NOT NULL CHECK (fact_sequence>0),
+            source_kind TEXT NOT NULL,
+            source_key TEXT NOT NULL,
+            message_name TEXT NOT NULL,
+            payload BLOB NOT NULL CHECK (length(payload) BETWEEN 1 AND 242),
+            metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 1 AND 4096),
+            PRIMARY KEY(recovery_uid, fact_sequence),
+            UNIQUE(recovery_uid, source_kind, source_key)
+        )""")
+        if self._conn.execute("""SELECT 1 FROM native_work_recovery_fact f
+                LEFT JOIN native_work_recovery_intent i USING(recovery_uid)
+                WHERE i.recovery_uid IS NULL LIMIT 1""").fetchone():
+            raise ValueError("native recovery fact custody has no original intent")
+        rows = self._conn.execute("SELECT * FROM native_work_recovery_intent")
+        for row in rows:
+            from work_recovery import checked_intent
+            checked_intent(self, self._conn, row)
+
+    def _migrate_v29(self) -> None:
+        """One immutable positive handshake witness per owned MCU boot."""
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_mcu_boot_observation (
+            boot_id INTEGER PRIMARY KEY REFERENCES native_mcu_boot(boot_id),
+            probe_id INTEGER NOT NULL UNIQUE CHECK (probe_id BETWEEN 1 AND 9007199254740991),
+            message_name TEXT NOT NULL CHECK (message_name IN ('BOOT_PROBE_REPLY','BIND_BOOT_REPLY')),
+            payload BLOB NOT NULL CHECK (length(payload) IN (16,25)),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )""")
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(native_mcu_command)")}
+        if "boot_retired" not in columns:
+            self._conn.execute("""ALTER TABLE native_mcu_command ADD COLUMN boot_retired
+                INTEGER NOT NULL DEFAULT 0 CHECK (boot_retired IN (0,1))""")
+            self._conn.execute("DROP INDEX IF EXISTS native_mcu_one_pending_command")
+        predicate = "decision_outcome IS NULL AND boot_retired=0" + (" AND dispatch_retired=0" if "dispatch_retired" in columns else "")
+        self._conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS native_mcu_one_pending_command "
+                           f"ON native_mcu_command ((1)) WHERE {predicate}")
+        self._verify_native_boot_retirements(self._conn)
+
+    def evaluate_native_work_recovery(self, permit, start_command_uid: str, *, current_boot) -> dict:
+        """Serialize original-work inspection with complete-result custody."""
+        from dataclasses import asdict
+        from work_recovery import original_work, complete_result, recovery_evidence, known_facts, canonical, checked_intent
+        if not callable(current_boot):
+            raise ValueError("native recovery requires a fresh boot observation")
+        with self._standalone_native_transaction() as conn:
+            issue = self.get_native_delivery_issue(permit.work_uid)
+            if issue is not None:
+                if issue["permit"] != asdict(permit) or issue["startCommandUid"] != start_command_uid:
+                    raise ValueError("native archived delivery differs from original identity")
+                return dict(status="DELIVERY_ISSUE_ARCHIVED", issue=issue)
+            record, start = original_work(self, permit, start_command_uid)
+            result = complete_result(self, conn, permit, record, start)
+            if result is not None:
+                return result
+            if not record["write_claimed"]:
+                return {"status": "START_NOT_DISPATCHED"}
+            if record["decision_outcome"] == "REJECTED":
+                return {"status": "START_REJECTED"}
+            boot = current_boot()
+            if boot is None:
+                return {"status": "WAIT_FOR_BOOT"}
+            if type(boot) is not int or boot != self._native_counter(conn, "native_current_boot"):
+                raise ValueError("native recovery boot owner is stale")
+            if boot == start["targetMcuBootId"]:
+                return {"status": "WAIT_FOR_ORIGINAL_WORK"}
+            if boot < start["targetMcuBootId"]:
+                raise ValueError("native recovery boot predates the original START")
+            witness = self.get_native_boot_observation(boot)
+            if witness is None:
+                raise ValueError("native recovery requires a saved positive boot witness")
+            row = conn.execute("SELECT * FROM native_work_recovery_intent WHERE work_uid=? AND target_mcu_boot_id=?",
+                (permit.work_uid, boot)).fetchone()
+            if row is None:
+                uid = self._new_uid()
+                evidence = recovery_evidence(self, conn, permit, record, start, witness, uid)
+                encoded = canonical(evidence)
+                conn.execute("""INSERT INTO native_work_recovery_intent
+                    (recovery_uid, work_uid, start_command_uid, target_mcu_boot_id, evidence_json, evidence_sha256)
+                    VALUES (?, ?, ?, ?, ?, ?)""", (uid, permit.work_uid, start_command_uid, boot,
+                    encoded, hashlib.sha256(encoded.encode("ascii")).hexdigest()))
+                for sequence, fact in enumerate(known_facts(self, conn, permit, start), 1):
+                    conn.execute("""INSERT INTO native_work_recovery_fact
+                        (recovery_uid,fact_sequence,source_kind,source_key,message_name,payload,metadata_json)
+                        VALUES (?,?,?,?,?,?,?)""", (uid, sequence, fact["source_kind"], fact["source_key"],
+                        fact["message_name"], fact["payload"], fact["metadata_json"]))
+                row = conn.execute("SELECT * FROM native_work_recovery_intent WHERE recovery_uid=?", (uid,)).fetchone()
+            intent = checked_intent(self, conn, row)
+            if intent["start_command_uid"] != start_command_uid or intent["evidence"]["permit"] != asdict(permit):
+                raise ValueError("native recovery intent differs from the original work")
+            if current_boot() != boot:
+                raise RuntimeError("native boot observation expired during recovery inspection")
+            return {"status": "RECOVERY_INTENT_RECORDED", "intent": intent}
+
+    def get_native_work_recovery_intent(self, recovery_uid: str) -> Optional[dict]:
+        from work_recovery import checked_intent
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM native_work_recovery_intent WHERE recovery_uid=?", (recovery_uid,)).fetchone()
+            return checked_intent(self, self._conn, row)
+
+    def list_native_work_recovery_intents(self, work_uid: str) -> list[dict]:
+        with self._lock:
+            return [self.get_native_work_recovery_intent(row[0]) for row in self._conn.execute(
+                "SELECT recovery_uid FROM native_work_recovery_intent WHERE work_uid=? ORDER BY target_mcu_boot_id", (work_uid,))]
+
+    def list_native_work_recovery_facts(self, recovery_uid: str, *, after_sequence: int = 0, limit: int = 100) -> list[dict]:
+        if type(after_sequence) is not int or after_sequence < 0 or type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValueError("native recovery fact page requires a nonnegative cursor and 1..1000 rows")
+        with self._lock:
+            if self.get_native_work_recovery_intent(recovery_uid) is None:
+                raise ValueError("unknown native recovery intent")
+            return [dict(row) for row in self._conn.execute("""SELECT * FROM native_work_recovery_fact
+                WHERE recovery_uid=? AND fact_sequence>? ORDER BY fact_sequence LIMIT ?""", (recovery_uid, after_sequence, limit))]
+
+    def _verify_native_boot_retirements(self, conn) -> None:
+        current = self._native_counter(conn, "native_current_boot")
+        highest = 0
+        for row in conn.execute("SELECT * FROM native_mcu_boot_observation ORDER BY boot_id"):
+            self._checked_native_boot_observation(conn, row)
+            if row["boot_id"] > current:
+                raise ValueError("native boot observation exceeds current identity")
+            highest = row["boot_id"]
+        if conn.execute("""SELECT 1 FROM native_mcu_command
+                WHERE boot_retired=1 AND mcu_boot_id>=? LIMIT 1""", (highest,)).fetchone():
+            raise ValueError("native command retirement has no newer boot witness")
+
+    def _migrate_v28(self) -> None:
+        """Original permit/action/receipt survives Pi restart independently of work UI."""
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_action_binding (
+            action_uid TEXT PRIMARY KEY REFERENCES native_mcu_command(command_uid),
+            receipt_uid TEXT NOT NULL UNIQUE,
+            work_uid TEXT NOT NULL,
+            platform_command_uid TEXT NOT NULL,
+            action_key TEXT NOT NULL CHECK (length(action_key) BETWEEN 1 AND 160),
+            permit_json TEXT NOT NULL,
+            action_json TEXT NOT NULL,
+            command_payload BLOB NOT NULL CHECK (length(command_payload) BETWEEN 60 AND 242),
+            UNIQUE (work_uid, action_key),
+            UNIQUE (platform_command_uid, action_key)
+        )""")
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_action_confirmation (
+            action_uid TEXT PRIMARY KEY REFERENCES native_action_binding(action_uid),
+            bundle_json TEXT NOT NULL CHECK (length(bundle_json) BETWEEN 1 AND 8192),
+            evidence_sha256 TEXT NOT NULL CHECK (length(evidence_sha256) = 64),
+            state TEXT NOT NULL DEFAULT 'PENDING' CHECK (state IN ('PENDING', 'CONFIRMED'))
+        )""")
+
+    def bind_native_action(self, permit, action) -> dict:
+        """Freeze identities BEFORE permanent ARM or any possible serial write.
+
+        Exact replay reads the original; a restored caller cannot replace the
+        receipt/key/permit or manufacture a binding for an already sent command.
+        This is neither a permanent permission nor physical-result confirmation.
+        """
+        with self._standalone_native_transaction() as conn:
+            return self._bind_native_action_in_tx(conn, permit, action)
+
+    def _bind_native_action_in_tx(self, conn, permit, action):
+        from mcu_action_evidence import binding_values, decode_binding, confirmed_first_clean_unlock, saved_clean_reopen_intent
+        record = self._checked_native_command(conn.execute(
+            "SELECT * FROM native_mcu_command WHERE command_uid=?", (action.action_uid,)).fetchone())
+        values = binding_values(record, permit, action)
+        if confirmed_first_clean_unlock(self, permit, record) is not None:
+            import uart2_protocol as uart2
+            grant = uart2.decode_payload("UNLOCK_CLEAN_DOOR", record["payload"])
+            if saved_clean_reopen_intent(self, grant) is None:
+                raise ValueError("native reopen requires its saved original intent")
+        old = conn.execute("SELECT * FROM native_action_binding WHERE action_uid=?", (action.action_uid,)).fetchone()
+        if old is not None:
+            original = decode_binding(old, record)
+            if any(old[key] != value for key, value in values.items()):
+                raise ValueError("native action binding identity conflict")
+            return original
+        if record["write_claimed"] or record["decision_outcome"] is not None or record["conflict"]:
+            raise ValueError("cannot add native action binding after dispatch or decision")
+        conn.execute("""INSERT INTO native_action_binding (action_uid, receipt_uid, work_uid,
+            platform_command_uid, action_key, permit_json, action_json, command_payload)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", tuple(values.values()))
+        return {"permit": permit, "action": action, "command_payload": record["payload"]}
+
+    def get_native_action_binding(self, action_uid: str) -> Optional[dict]:
+        from mcu_action_evidence import decode_binding
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM native_action_binding WHERE action_uid=?", (action_uid,)).fetchone()
+            if row is None:
+                return None
+            record = self._checked_native_command(self._conn.execute(
+                "SELECT * FROM native_mcu_command WHERE command_uid=?", (action_uid,)).fetchone())
+            return decode_binding(row, record)
+
+    def get_native_action_by_key(self, work_uid: str, action_key: str) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute("SELECT action_uid FROM native_action_binding WHERE work_uid=? AND action_key=?",
+                (work_uid, action_key)).fetchone()
+            return self.get_native_action_binding(row["action_uid"]) if row else None
+
+    def prepare_native_clean_reopen(self, permit, intent_scope: bytes, *, remaining_operation_window_ms: int) -> dict:
+        """One saved button -> one atomically frozen command/action/receipt.
+
+        No RPC or UART is sent. Exact re-observation returns the original even
+        if the caller now has a smaller remaining window; it never rewrites a
+        queued command. The live dispatch gate must still check original time
+        limits/readiness. It can never resend a command already claimed.
+        """
+        from job_safety import JobPermit, PhysicalAction, action_digest
+        from mcu_action_evidence import clean_unlock_action_key, confirmed_first_clean_unlock, saved_clean_reopen_intent
+        from mcu_process_handoff import decode_process_scope
+        import uart2_protocol as uart2
+
+        original = decode_process_scope(intent_scope)
+        if (not isinstance(permit, JobPermit) or permit.work_type != "CLEAN"
+                or original["workType"] != "CLEAN_OPERATION" or original["workUid"] != permit.work_uid
+                or original["eventMessageType"] != "CLEAN_UNLOCK_REQUESTED" or original["stepSequence"] == 0):
+            raise ValueError("native clean reopen requires original unlock intent and permit")
+        if type(remaining_operation_window_ms) is not int or not 1 <= remaining_operation_window_ms <= 0xFFFFFFFF:
+            raise ValueError("native clean remaining operation window is invalid")
+        with self._standalone_native_transaction() as conn:
+            slot = self.get_work_slot()
+            if (slot is None or slot["work_type"] != "CLEAN" or slot["work_uid"] != permit.work_uid
+                    or slot["port_no"] != original["portNo"]):
+                raise ValueError("native clean reopen requires original occupied work")
+            intent = self.get_native_process_receipt(intent_scope)
+            first = self.get_native_action_by_key(permit.work_uid, "clean:first-unlock")
+            if intent is None or first is None:
+                raise ValueError("native clean reopen requires saved intent and first unlock")
+            first_grant = uart2.decode_payload("UNLOCK_CLEAN_DOOR", first["command_payload"])
+            if remaining_operation_window_ms > first_grant["remainingOperationWindowMs"]:
+                raise ValueError("native clean reopen cannot extend original operation window")
+            grant = dict(operationUid=permit.work_uid, portNo=original["portNo"],
+                parentCommandUid=original["mcuCommandUid"], cleanActionSequence=original["stepSequence"], recoveryGeneration=0,
+                unlockPulseMs=first_grant["unlockPulseMs"], remainingOperationWindowMs=remaining_operation_window_ms)
+            key = clean_unlock_action_key(grant | {"targetMcuBootId": original["targetMcuBootId"]})
+            matched = saved_clean_reopen_intent(self, grant | {"targetMcuBootId": original["targetMcuBootId"]})
+            if matched is None or matched["scope"] != intent_scope or matched["payload"] != intent["payload"]:
+                raise ValueError("native clean reopen intent differs from original command context")
+            existing = self.get_native_action_by_key(permit.work_uid, key)
+            if existing is not None:
+                if existing["permit"] != permit:
+                    raise ValueError("native clean reopen permit identity conflict")
+                record = self.get_native_command(existing["action"].action_uid)
+                confirmed_first_clean_unlock(self, permit, record)
+                return existing
+            uid, receipt_uid = str(_uuid.uuid4()), str(_uuid.uuid4())
+            record = self._prepare_native_command_in_tx(conn, "UNLOCK_CLEAN_DOOR", uid, original["targetMcuBootId"], grant)
+            digest = action_digest(work_uid=permit.work_uid, command_uid=permit.command_uid, action_key=key,
+                action_kind="UNLOCK_CLEAN_DOOR", payload={"nativeUartPayloadHex": record["payload"].hex()})
+            action = PhysicalAction(uid, receipt_uid, key, "UNLOCK_CLEAN_DOOR", digest)
+            return self._bind_native_action_in_tx(conn, permit, action)
+
+    def list_native_action_actuator_events(self, action_uid: str, message_name: str) -> list[dict]:
+        """Bounded first-action proof candidates; third output is a contradiction.
+
+        Later local-delivery rounds have their own message kind and cannot be
+        treated as additional executions of the Pi's original first-open grant.
+        """
+        if message_name not in {"DELIVERY_DOOR_COMMAND_RESULT", "CLEAN_LOCK_POWER_CHANGED"}:
+            raise ValueError("unsupported native action output kind")
+        with self._lock:
+            rows = self._conn.execute("""SELECT mcu_boot_id, event_sequence FROM native_actuator_event
+                WHERE reported_command_uid=? AND message_name=? ORDER BY mcu_boot_id, event_sequence LIMIT 3""",
+                (action_uid, message_name)).fetchall()
+            return [self.get_native_actuator_event(row["mcu_boot_id"], row["event_sequence"]) for row in rows]
+
+    def _native_action_confirmation_in_tx(self, conn, action_uid):
+        from mcu_action_evidence import canonical, bundle_digest, checked_confirmation, executed_bundle
+        row = conn.execute("SELECT * FROM native_action_confirmation WHERE action_uid=?", (action_uid,)).fetchone()
+        original = checked_confirmation(row) if row else None
+        pinned = _json.loads(original["bundle_json"]) if original else None
+        bundle = executed_bundle(self, action_uid, pinned)
+        if bundle is None:
+            if original:
+                raise ValueError("native pending proof lost its original evidence")
+            return None
+        binding = self.get_native_action_binding(action_uid)
+        slot = self.get_work_slot()
+        grant = bundle["command"]
+        import uart2_protocol as uart2
+        port = uart2.decode_payload(grant["messageName"], bytes.fromhex(grant["payloadHex"]))["portNo"]
+        if (slot is None or slot["work_uid"] != binding["permit"].work_uid
+                or slot["work_type"] != binding["permit"].work_type or slot["port_no"] != port):
+            raise ValueError("native action requires original occupied work")
+        encoded = canonical(bundle)
+        if original:
+            if encoded != original["bundle_json"]:
+                raise ValueError("native action proof identity conflict")
+            return original
+        if len(encoded) > 8192:
+            raise ValueError("native action proof exceeds bounded storage")
+        digest = bundle_digest(encoded)
+        conn.execute("INSERT INTO native_action_confirmation (action_uid, bundle_json, evidence_sha256) VALUES (?, ?, ?)",
+            (action_uid, encoded, digest))
+        return dict(action_uid=action_uid, bundle_json=encoded, evidence_sha256=digest, state="PENDING")
+
+    def prepare_native_action_confirmation(self, action_uid: str) -> Optional[dict]:
+        """Commit immutable full proof BEFORE a permanent-ledger confirmation RPC."""
+        with self._standalone_native_transaction() as conn:
+            return self._native_action_confirmation_in_tx(conn, action_uid)
+
+    def list_pending_native_action_uids(self, *, limit: int = 32) -> list[str]:
+        """Recover only the currently occupied work's original dispatched bindings."""
+        if type(limit) is not int or not 1 <= limit <= 32:
+            raise ValueError("native reconciliation batch must contain 1..32 actions")
+        with self._lock:
+            return [row[0] for row in self._conn.execute("""SELECT b.action_uid
+                FROM native_action_binding b JOIN native_mcu_command c ON c.command_uid=b.action_uid
+                JOIN work_slot w ON w.slot_id=1 AND w.work_uid=b.work_uid AND w.work_type<>'NONE'
+                LEFT JOIN native_action_confirmation f ON f.action_uid=b.action_uid
+                WHERE c.write_claimed=1 AND (f.state IS NULL OR f.state='PENDING')
+                ORDER BY c.mcu_boot_id,c.command_sequence LIMIT ?""", (limit,)).fetchall()]
+
+    def get_native_action_confirmation(self, action_uid: str) -> Optional[dict]:
+        """Historical outbox status; not a new admission/safety decision."""
+        from mcu_action_evidence import checked_confirmation
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM native_action_confirmation WHERE action_uid=?", (action_uid,)).fetchone()
+            return checked_confirmation(row) if row else None
+
+    def confirm_native_action_effect(self, action_uid: str, ledger: dict) -> dict:
+        """Match original permanent receipt and recheck custody before local confirmation."""
+        from mcu_action_evidence import check_ledger
+        with self._standalone_native_transaction() as conn:
+            proof = self._native_action_confirmation_in_tx(conn, action_uid)
+            if proof is None:
+                raise ValueError("native output proof missing")
+            check_ledger(self.get_native_action_binding(action_uid), ledger, proof)
+            conn.execute("UPDATE native_action_confirmation SET state='CONFIRMED' WHERE action_uid=?", (action_uid,))
+            return proof | {"state": "CONFIRMED"}
+
+    def _migrate_v27(self) -> None:
+        """Human confirmation is a separate fact from the same-step finish request."""
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_clean_confirmation (
+            mcu_boot_id INTEGER NOT NULL CHECK (mcu_boot_id BETWEEN 1 AND 9007199254740991),
+            event_sequence INTEGER NOT NULL CHECK (event_sequence BETWEEN 1 AND 4294967295),
+            scope BLOB NOT NULL UNIQUE CHECK (length(scope) = 89),
+            work_uid TEXT NOT NULL,
+            clean_action_sequence INTEGER NOT NULL CHECK (clean_action_sequence BETWEEN 1 AND 65535),
+            finish_event_sequence INTEGER NOT NULL CHECK (finish_event_sequence BETWEEN 1 AND 4294967295),
+            final_event_sequence INTEGER NOT NULL CHECK (final_event_sequence BETWEEN 1 AND 4294967295),
+            payload BLOB NOT NULL CHECK (length(payload) = 83),
+            saved_payload BLOB NOT NULL CHECK (length(saved_payload) = 45),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (mcu_boot_id, event_sequence),
+            UNIQUE (mcu_boot_id, work_uid)
+        )""")
+
+    def _native_clean_confirmation_record(self, scope: bytes, payload: bytes) -> dict:
+        import uart2_protocol as uart2
+        from mcu_process_handoff import decode_process_scope, process_event_receipt
+
+        receipt = process_event_receipt(scope, "CLEAN_COMPLETION_CONFIRMED", payload)
+        values = uart2.decode_payload("CLEAN_COMPLETION_CONFIRMED", payload)
+        original = decode_process_scope(scope)
+        predecessors = []
+        for name in ("CLEAN_FINISH_REQUESTED", "CLEAN_FINAL_WEIGHT_READY"):
+            prior_scope = uart2.encode_payload("QUERY_PROCESS_EVENT", original | {"queryId": 1, "eventMessageType": name})[8:]
+            row = self.get_native_process_receipt(prior_scope)
+            if row is None:
+                raise ValueError("clean confirmation requires exactly saved finish and final weight")
+            predecessors.append(uart2.decode_payload(name, bytes(row["payload"])))
+        finish, final = predecessors
+        if (final["measurementUid"] != values["finalMeasurementUid"]
+                or not finish["mcuEventSequence"] < final["mcuEventSequence"] < values["mcuEventSequence"]
+                or not finish["uptimeMs"] <= final["uptimeMs"] <= values["uptimeMs"]):
+            raise ValueError("clean confirmation differs from its saved final candidate or order")
+        return dict(mcu_boot_id=values["mcuBootId"], event_sequence=values["mcuEventSequence"], scope=scope,
+            work_uid=values["operationUid"], clean_action_sequence=values["cleanActionSequence"],
+            finish_event_sequence=finish["mcuEventSequence"], final_event_sequence=final["mcuEventSequence"],
+            payload=payload, saved_payload=receipt)
+
+    def _verify_native_clean_confirmation_row(self, row) -> None:
+        expected = self._native_clean_confirmation_record(bytes(row["scope"]), bytes(row["payload"]))
+        if any(row[key] != value for key, value in expected.items()):
+            raise ValueError("native clean confirmation custody is corrupt")
+
+    def _save_native_clean_confirmation_receipt(self, scope: bytes, payload: bytes) -> bytes:
+        import uart2_protocol as uart2
+        from mcu_process_handoff import process_event_receipt
+
+        name = "CLEAN_COMPLETION_CONFIRMED"
+        receipt = process_event_receipt(scope, name, payload)
+        values = uart2.decode_payload(name, payload)
+        key = values["mcuBootId"], values["mcuEventSequence"]
+        with self._standalone_native_transaction() as conn:
+            conflict = self._native_custody_conflicted(conn, key)
+            for table in ("native_measurement_event", "native_actuator_event", "native_delivery_selection", "native_clean_intent"):
+                if conn.execute(f"SELECT 1 FROM {table} WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone():
+                    conflict = True
+            matches = conn.execute("""SELECT * FROM native_clean_confirmation
+                WHERE (mcu_boot_id=? AND event_sequence=?) OR scope=? OR (mcu_boot_id=? AND work_uid=?)""",
+                (*key, scope, key[0], values["operationUid"])).fetchall()
+            for old in matches:
+                self._verify_native_clean_confirmation_row(old)
+                original = old["mcu_boot_id"], old["event_sequence"]
+                if bytes(old["scope"]) != scope or bytes(old["payload"]) != payload:
+                    self._retain_native_custody_conflict(conn, original, name, payload)
+                    conflict = True
+                if self._native_custody_conflicted(conn, original):
+                    conflict = True
+            if conflict:
+                self._retain_native_custody_conflict(conn, key, name, payload)
+            else:
+                record = self._native_clean_confirmation_record(scope, payload)
+                if not matches:
+                    conn.execute("""INSERT INTO native_clean_confirmation (mcu_boot_id,event_sequence,scope,work_uid,
+                        clean_action_sequence,finish_event_sequence,final_event_sequence,payload,saved_payload)
+                        VALUES (?,?,?,?,?,?,?,?,?)""", tuple(record.values()))
+        if conflict:
+            raise ValueError("native clean confirmation identity conflict; evidence retained, no receipt")
+        return receipt
+
+    def _migrate_v26(self) -> None:
+        """Clean button intents are not measurements, actions or final results."""
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_clean_intent (
+            mcu_boot_id INTEGER NOT NULL CHECK (mcu_boot_id BETWEEN 1 AND 9007199254740991),
+            event_sequence INTEGER NOT NULL CHECK (event_sequence BETWEEN 1 AND 4294967295),
+            message_name TEXT NOT NULL CHECK (message_name IN ('CLEAN_UNLOCK_REQUESTED','CLEAN_FINISH_REQUESTED')),
+            scope BLOB NOT NULL UNIQUE CHECK (length(scope) = 89),
+            work_uid TEXT NOT NULL,
+            clean_action_sequence INTEGER NOT NULL CHECK (clean_action_sequence BETWEEN 1 AND 65535),
+            payload BLOB NOT NULL CHECK (length(payload) = 63),
+            saved_payload BLOB NOT NULL CHECK (length(saved_payload) = 45),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (mcu_boot_id, event_sequence),
+            UNIQUE (mcu_boot_id, work_uid, clean_action_sequence)
+        )""")
+
+    @staticmethod
+    def _native_clean_intent_record(scope: bytes, message_name: str, payload: bytes) -> dict:
+        import uart2_protocol as uart2
+        from mcu_process_handoff import process_event_receipt
+
+        if message_name not in {"CLEAN_UNLOCK_REQUESTED", "CLEAN_FINISH_REQUESTED"}:
+            raise ValueError("not a clean button intent")
+        receipt = process_event_receipt(scope, message_name, payload)
+        values = uart2.decode_payload(message_name, payload)
+        return dict(mcu_boot_id=values["mcuBootId"], event_sequence=values["mcuEventSequence"],
+            message_name=message_name, scope=scope, work_uid=values["operationUid"],
+            clean_action_sequence=values["cleanActionSequence"], payload=payload, saved_payload=receipt)
+
+    @classmethod
+    def _verify_native_clean_intent_row(cls, row) -> None:
+        expected = cls._native_clean_intent_record(bytes(row["scope"]), row["message_name"], bytes(row["payload"]))
+        if any(row[key] != value for key, value in expected.items()):
+            raise ValueError("native clean intent custody is corrupt")
+
+    def _save_native_clean_intent_receipt(self, scope: bytes, message_name: str, payload: bytes) -> bytes:
+        record = self._native_clean_intent_record(scope, message_name, payload)
+        key = record["mcu_boot_id"], record["event_sequence"]
+        with self._standalone_native_transaction() as conn:
+            conflict = self._native_custody_conflicted(conn, key)
+            for table in ("native_measurement_event", "native_actuator_event", "native_delivery_selection", "native_clean_confirmation"):
+                if conn.execute(f"SELECT 1 FROM {table} WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone():
+                    conflict = True
+            matches = conn.execute("""SELECT * FROM native_clean_intent
+                WHERE (mcu_boot_id=? AND event_sequence=?) OR scope=?
+                OR (mcu_boot_id=? AND work_uid=? AND clean_action_sequence=?)""",
+                (*key, scope, key[0], record["work_uid"], record["clean_action_sequence"])).fetchall()
+            for old in matches:
+                self._verify_native_clean_intent_row(old)
+                original = old["mcu_boot_id"], old["event_sequence"]
+                if old["message_name"] != message_name or bytes(old["scope"]) != scope or bytes(old["payload"]) != payload:
+                    self._retain_native_custody_conflict(conn, original, message_name, payload)
+                    conflict = True
+                if self._native_custody_conflicted(conn, original):
+                    conflict = True
+            if conflict:
+                self._retain_native_custody_conflict(conn, key, message_name, payload)
+            elif not matches:
+                conn.execute("""INSERT INTO native_clean_intent (mcu_boot_id,event_sequence,message_name,scope,
+                    work_uid,clean_action_sequence,payload,saved_payload) VALUES (?,?,?,?,?,?,?,?)""", tuple(record.values()))
+        if conflict:
+            raise ValueError("native clean intent identity conflict; evidence retained, no receipt")
+        return record["saved_payload"]
+
+    def _migrate_v25(self) -> None:
+        """Widen actuator custody to 64 bytes without rewriting prior evidence.
+
+        The caller holds the single explicit migration transaction. Copy, swap
+        and version advance commit together or roll back together. No ledger,
+        business occupancy, conflict record or report task is cleared.
+        """
+        conn = self._conn
+        shape = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='native_actuator_event'").fetchone()
+        sql = " ".join(shape[0].split()).lower() if shape else ""
+        if "check (length(payload) between 1 and 64)" in sql:
+            return
+        if "check (length(payload) between 1 and 60)" not in sql:
+            raise RuntimeError("native actuator custody shape is incompatible")
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE tbl_name='native_actuator_event' AND type IN ('index', 'trigger') AND sql IS NOT NULL").fetchone():
+            raise RuntimeError("native actuator custody has unsupported additional schema")
+        conn.execute("""CREATE TABLE native_actuator_event_v25 (
+            mcu_boot_id INTEGER NOT NULL CHECK (mcu_boot_id BETWEEN 1 AND 9007199254740991),
+            event_sequence INTEGER NOT NULL CHECK (event_sequence BETWEEN 1 AND 4294967295),
+            message_name TEXT NOT NULL,
+            reported_command_uid TEXT NOT NULL,
+            reported_work_uid TEXT,
+            port_no INTEGER NOT NULL CHECK (port_no BETWEEN 1 AND 6),
+            payload BLOB NOT NULL CHECK (length(payload) BETWEEN 1 AND 64),
+            saved_payload BLOB NOT NULL CHECK (length(saved_payload) = 45),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (mcu_boot_id, event_sequence)
+        )""")
+        columns = "mcu_boot_id,event_sequence,message_name,reported_command_uid,reported_work_uid,port_no,payload,saved_payload,created_at"
+        conn.execute(f"INSERT INTO native_actuator_event_v25 ({columns}) SELECT {columns} FROM native_actuator_event")
+        conn.execute("DROP TABLE native_actuator_event")
+        conn.execute("ALTER TABLE native_actuator_event_v25 RENAME TO native_actuator_event")
+
+    def _migrate_v24(self) -> None:
+        """Choices are not measurements; preserve the referenced saved weight."""
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_delivery_selection (
+            mcu_boot_id INTEGER NOT NULL CHECK (mcu_boot_id BETWEEN 1 AND 9007199254740991),
+            event_sequence INTEGER NOT NULL CHECK (event_sequence BETWEEN 1 AND 4294967295),
+            scope BLOB NOT NULL UNIQUE CHECK (length(scope) = 89),
+            work_uid TEXT NOT NULL,
+            round_index INTEGER NOT NULL CHECK (round_index BETWEEN 1 AND 65535),
+            postclose_event_sequence INTEGER NOT NULL,
+            payload BLOB NOT NULL CHECK (length(payload) = 80),
+            saved_payload BLOB NOT NULL CHECK (length(saved_payload) = 45),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (mcu_boot_id, event_sequence),
+            UNIQUE (mcu_boot_id, work_uid, round_index),
+            FOREIGN KEY (mcu_boot_id, postclose_event_sequence)
+                REFERENCES native_process_receipt (mcu_boot_id, event_sequence)
+        )""")
+
+    def _native_selection_record(self, scope: bytes, payload: bytes) -> dict:
+        import uart2_protocol as uart2
+        from mcu_process_handoff import decode_process_scope, process_event_receipt
+
+        receipt = process_event_receipt(scope, "DELIVERY_SELECTION", payload)
+        values = uart2.decode_payload("DELIVERY_SELECTION", payload)
+        original = decode_process_scope(scope)
+        weight_scope = uart2.encode_payload("QUERY_PROCESS_EVENT", original | {
+            "queryId": 1, "eventMessageType": "WORK_POSTCLOSE_WEIGHT_READY"})[8:]
+        weight_record = self.get_native_process_receipt(weight_scope)
+        if weight_record is None:
+            raise ValueError("selection requires an exactly saved original post-close weight")
+        weight = uart2.decode_payload("WORK_POSTCLOSE_WEIGHT_READY", bytes(weight_record["payload"]))
+        if (weight["measurementUid"] != values["postCloseMeasurementUid"]
+                or weight["measurementKind"] not in {"STABLE_MEAN", "TIMEOUT_MEDIAN"}
+                or weight["mcuEventSequence"] >= values["mcuEventSequence"]
+                or weight["uptimeMs"] > values["uptimeMs"]):
+            raise ValueError("selection differs from its saved available post-close weight or order")
+        return dict(mcu_boot_id=values["mcuBootId"], event_sequence=values["mcuEventSequence"],
+            scope=scope, work_uid=values["sessionUid"], round_index=values["roundIndex"],
+            postclose_event_sequence=weight["mcuEventSequence"], payload=payload, saved_payload=receipt)
+
+    def _verify_native_selection_row(self, row) -> None:
+        expected = self._native_selection_record(bytes(row["scope"]), bytes(row["payload"]))
+        if any(row[key] != value for key, value in expected.items()):
+            raise ValueError("native selection custody is corrupt")
+
+    def _save_native_selection_receipt(self, scope: bytes, payload: bytes) -> bytes:
+        import uart2_protocol as uart2
+        from mcu_process_handoff import process_event_receipt
+
+        receipt = process_event_receipt(scope, "DELIVERY_SELECTION", payload)
+        values = uart2.decode_payload("DELIVERY_SELECTION", payload)
+        key = (values["mcuBootId"], values["mcuEventSequence"])
+        with self._standalone_native_transaction() as conn:
+            conflict = self._native_custody_conflicted(conn, key)
+            if (conn.execute("SELECT 1 FROM native_measurement_event WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone()
+                    or conn.execute("SELECT 1 FROM native_actuator_event WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone()
+                    or conn.execute("SELECT 1 FROM native_clean_intent WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone()
+                    or conn.execute("SELECT 1 FROM native_clean_confirmation WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone()):
+                conflict = True
+            matches = conn.execute("""SELECT * FROM native_delivery_selection
+                WHERE (mcu_boot_id=? AND event_sequence=?) OR scope=?
+                OR (mcu_boot_id=? AND work_uid=? AND round_index=?)""",
+                (*key, scope, key[0], values["sessionUid"], values["roundIndex"])).fetchall()
+            for old in matches:
+                self._verify_native_selection_row(old)
+                original = (old["mcu_boot_id"], old["event_sequence"])
+                if bytes(old["scope"]) != scope or bytes(old["payload"]) != payload:
+                    self._retain_native_custody_conflict(conn, original, "DELIVERY_SELECTION", payload)
+                    conflict = True
+                if self._native_custody_conflicted(conn, original):
+                    conflict = True
+            if conflict:
+                self._retain_native_custody_conflict(conn, key, "DELIVERY_SELECTION", payload)
+            else:
+                record = self._native_selection_record(scope, payload)  # Same locked COMMIT as custody.
+                if not matches:
+                    conn.execute("""INSERT INTO native_delivery_selection (mcu_boot_id, event_sequence, scope,
+                        work_uid, round_index, postclose_event_sequence, payload, saved_payload)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", tuple(record.values()))
+        if conflict:
+            raise ValueError("native selection identity conflict; evidence retained, no receipt")
+        return receipt
+
+    def get_native_process_event(self, message_name: str, mcu_boot_id: int, event_sequence: int) -> Optional[dict]:
+        """Read typed process evidence without mislabelling a choice as weight."""
+        if message_name == "CLEAN_COMPLETION_CONFIRMED":
+            with self._lock:
+                if self._native_custody_conflicted(self._conn, (mcu_boot_id, event_sequence)):
+                    raise ValueError("native clean confirmation identity conflict")
+                row = self._conn.execute("SELECT * FROM native_clean_confirmation WHERE mcu_boot_id=? AND event_sequence=?",
+                    (mcu_boot_id, event_sequence)).fetchone()
+                if row is None:
+                    return None
+                self._verify_native_clean_confirmation_row(row)
+                return dict(row) | {"message_name": message_name}
+        if message_name in {"CLEAN_UNLOCK_REQUESTED", "CLEAN_FINISH_REQUESTED"}:
+            with self._lock:
+                if self._native_custody_conflicted(self._conn, (mcu_boot_id, event_sequence)):
+                    raise ValueError("native clean intent identity conflict")
+                row = self._conn.execute("SELECT * FROM native_clean_intent WHERE mcu_boot_id=? AND event_sequence=?",
+                    (mcu_boot_id, event_sequence)).fetchone()
+                if row is None:
+                    return None
+                self._verify_native_clean_intent_row(row)
+                if row["message_name"] != message_name:
+                    raise ValueError("native clean intent message type differs")
+                return dict(row)
+        if message_name != "DELIVERY_SELECTION":
+            return self.get_native_measurement_event(mcu_boot_id, event_sequence)
+        with self._lock:
+            if self._native_custody_conflicted(self._conn, (mcu_boot_id, event_sequence)):
+                raise ValueError("native selection identity conflict")
+            row = self._conn.execute("SELECT * FROM native_delivery_selection WHERE mcu_boot_id=? AND event_sequence=?",
+                (mcu_boot_id, event_sequence)).fetchone()
+            if row is None:
+                return None
+            self._verify_native_selection_row(row)
+            return dict(row) | {"message_name": "DELIVERY_SELECTION"}
+
+    def retain_native_process_query_conflict(self, message_name: str, payload: bytes, query_payload: bytes) -> None:
+        """Persist contradictory process body/query claims without a receipt."""
+        import uart2_protocol as uart2
+
+        digest = uart2.compute_process_event_digest(message_name, payload)
+        values = uart2.decode_payload(message_name, payload)
+        query = uart2.decode_payload("PROCESS_EVENT_QUERY_REPLY", query_payload)
+        key = (values["mcuBootId"], values["mcuEventSequence"])
+        if query["status"] != "HELD" or key != (query["targetMcuBootId"], query["mcuEventSequence"]):
+            raise ValueError("query and body do not claim the same process identity")
+        if message_name == query["eventMessageType"] and digest == query["eventDigestSha256"]:
+            raise ValueError("matching process claims are not a conflict")
+        with self._standalone_native_transaction() as conn:
+            self._retain_native_custody_conflict(conn, key, message_name, payload)
+            self._retain_native_custody_conflict(conn, key, "PROCESS_EVENT_QUERY_REPLY", query_payload)
+
+    def retain_native_process_query_disagreement(self, first_payload: bytes, second_payload: bytes) -> None:
+        """Same fresh query, conflicting replies: retain every claimed event key."""
+        import uart2_protocol as uart2
+
+        first = uart2.decode_payload("PROCESS_EVENT_QUERY_REPLY", first_payload)
+        second = uart2.decode_payload("PROCESS_EVENT_QUERY_REPLY", second_payload)
+        size = uart2.MESSAGE_SPECS["QUERY_PROCESS_EVENT"]["maximumPayloadLength"]
+        if first_payload == second_payload or first_payload[:size] != second_payload[:size]:
+            raise ValueError("process query disagreement requires differing replies to the exact same query")
+        keys = {(value["targetMcuBootId"], value["mcuEventSequence"]) for value in (first, second)
+            if value["status"] in {"HELD", "RELEASED"}}
+        with self._standalone_native_transaction() as conn:
+            for key in keys:
+                self._retain_native_custody_conflict(conn, key, "PROCESS_EVENT_QUERY_REPLY", first_payload)
+                self._retain_native_custody_conflict(conn, key, "PROCESS_EVENT_QUERY_REPLY", second_payload)
+
+    def _migrate_v23(self) -> None:
+        """Actuator raw custody and REPORTED context, never an accepted command."""
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_actuator_event (
+            mcu_boot_id INTEGER NOT NULL CHECK (mcu_boot_id BETWEEN 1 AND 9007199254740991),
+            event_sequence INTEGER NOT NULL CHECK (event_sequence BETWEEN 1 AND 4294967295),
+            message_name TEXT NOT NULL,
+            reported_command_uid TEXT NOT NULL,
+            reported_work_uid TEXT,
+            port_no INTEGER NOT NULL CHECK (port_no BETWEEN 1 AND 6),
+            payload BLOB NOT NULL CHECK (length(payload) BETWEEN 1 AND 60),
+            saved_payload BLOB NOT NULL CHECK (length(saved_payload) = 45),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (mcu_boot_id, event_sequence)
+        )""")
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_actuator_event_conflict (
+            mcu_boot_id INTEGER NOT NULL,
+            event_sequence INTEGER NOT NULL,
+            message_name TEXT NOT NULL,
+            payload BLOB NOT NULL CHECK (length(payload) BETWEEN 1 AND 242),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (mcu_boot_id, event_sequence, message_name, payload)
+        )""")
+
+    @staticmethod
+    def _native_custody_conflicted(conn, key) -> bool:
+        return conn.execute("SELECT 1 FROM native_actuator_event_conflict WHERE mcu_boot_id=? AND event_sequence=? LIMIT 1", key).fetchone() is not None
+
+    @staticmethod
+    def _retain_native_custody_conflict(conn, key, message_name, payload) -> None:
+        conn.execute("INSERT OR IGNORE INTO native_actuator_event_conflict (mcu_boot_id, event_sequence, message_name, payload) VALUES (?, ?, ?, ?)",
+            (*key, message_name, payload))
+
+    def list_native_actuator_event_conflicts(self) -> list[dict]:
+        with self._lock:
+            return [dict(row) for row in self._conn.execute("SELECT * FROM native_actuator_event_conflict ORDER BY mcu_boot_id, event_sequence, message_name, payload")]
+
+    @staticmethod
+    def _native_actuator_record(message_name: str, payload: bytes) -> dict:
+        import uart2_protocol as uart2
+
+        if message_name not in uart2.REGISTRY["sessionPolicy"]["actuatorEventMessages"] or not isinstance(payload, bytes):
+            raise ValueError("actuator evidence requires immutable registered bytes")
+        values = uart2.decode_payload(message_name, payload)
+        receipt = uart2.encode_payload("ACTUATOR_EVENT_SAVED", dict(mcuBootId=values["mcuBootId"],
+            mcuEventSequence=values["mcuEventSequence"], eventMessageType=message_name,
+            eventDigestSha256=uart2.compute_actuator_event_digest(message_name, payload)))
+        return dict(mcu_boot_id=values["mcuBootId"], event_sequence=values["mcuEventSequence"],
+            message_name=message_name, reported_command_uid=values["mcuCommandUid"],
+            reported_work_uid=values.get("sessionUid", values.get("operationUid")),
+            port_no=values["portNo"], payload=payload, saved_payload=receipt)
+
+    @classmethod
+    def _verify_native_actuator_row(cls, row) -> None:
+        expected = cls._native_actuator_record(row["message_name"], bytes(row["payload"]))
+        if any(row[key] != value for key, value in expected.items()):
+            raise ValueError("native actuator evidence is corrupt")
+
+    def save_native_actuator_event(self, message_name: str, payload: bytes) -> bytes:
+        """Return custody receipt only AFTER standalone full evidence COMMIT.
+
+        Reported command/work IDs are copied from MCU bytes, NOT proof of an
+        accepted command or matched business ledger. This does not advance work,
+        clear occupancy, queue cloud events, authorize motion or produce money.
+        """
+        record = self._native_actuator_record(message_name, payload)
+        key = (record["mcu_boot_id"], record["event_sequence"])
+        with self._standalone_native_transaction() as conn:
+            conflict = self._native_custody_conflicted(conn, key)
+            if (conn.execute("SELECT 1 FROM native_measurement_event WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone()
+                    or conn.execute("SELECT 1 FROM native_delivery_selection WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone()
+                    or conn.execute("SELECT 1 FROM native_clean_intent WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone()
+                    or conn.execute("SELECT 1 FROM native_clean_confirmation WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone()):
+                self._retain_native_custody_conflict(conn, key, message_name, payload)
+                conflict = True
+            old = conn.execute("SELECT * FROM native_actuator_event WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone()
+            if old is not None:
+                self._verify_native_actuator_row(old)
+                if old["message_name"] != message_name or bytes(old["payload"]) != payload:
+                    self._retain_native_custody_conflict(conn, key, message_name, payload)
+                    conflict = True
+            elif not conflict:
+                conn.execute("""INSERT INTO native_actuator_event (mcu_boot_id, event_sequence, message_name,
+                    reported_command_uid, reported_work_uid, port_no, payload, saved_payload)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", tuple(record.values()))
+        if conflict:
+            raise ValueError("native actuator identity conflict; evidence retained, no receipt")
+        return record["saved_payload"]
+
+    def get_native_actuator_event(self, mcu_boot_id: int, event_sequence: int) -> Optional[dict]:
+        with self._lock:
+            if self._native_custody_conflicted(self._conn, (mcu_boot_id, event_sequence)):
+                raise ValueError("native actuator identity conflict")
+            row = self._conn.execute("SELECT * FROM native_actuator_event WHERE mcu_boot_id=? AND event_sequence=?",
+                (mcu_boot_id, event_sequence)).fetchone()
+            if row is None:
+                return None
+            self._verify_native_actuator_row(row)
+            return dict(row)
+
+    def list_native_work_actuator_events(self, work_uid: str) -> list[dict]:
+        """Original output/interrupt facts, including wire/index disagreements.
+
+        Work-scoped bodies have criticalEventIdentity (20 bytes), command UUID
+        (16 bytes), then work UUID. SAFE_CLOSE_RESULT has no work UUID. Do not
+        let a corrupt copied work index hide a result's original output.
+        Caller may hold the result's DB snapshot.
+        """
+        with self._lock:
+            rows = self._conn.execute("""SELECT mcu_boot_id,event_sequence FROM native_actuator_event
+                WHERE reported_work_uid=? OR substr(payload,37,16)=?
+                ORDER BY mcu_boot_id,event_sequence""", (work_uid, _uuid.UUID(work_uid).bytes)).fetchall()
+            return [self.get_native_actuator_event(row["mcu_boot_id"], row["event_sequence"]) for row in rows]
+
+    def retain_native_actuator_query_conflict(self, message_name: str, payload: bytes, query_payload: bytes) -> None:
+        """Persist both contradictory claims, with no sendable confirmation."""
+        import uart2_protocol as uart2
+
+        record = self._native_actuator_record(message_name, payload)
+        query = uart2.decode_payload("ACTUATOR_EVENT_QUERY_REPLY", query_payload)
+        key = (record["mcu_boot_id"], record["event_sequence"])
+        if query["status"] != "HELD" or key != (query["targetMcuBootId"], query["mcuEventSequence"]):
+            raise ValueError("query and body do not claim the same actuator identity")
+        if (message_name == query["eventMessageType"]
+                and uart2.compute_actuator_event_digest(message_name, payload) == query["eventDigestSha256"]):
+            raise ValueError("matching actuator claims are not a conflict")
+        with self._standalone_native_transaction() as conn:
+            self._retain_native_custody_conflict(conn, key, message_name, payload)
+            self._retain_native_custody_conflict(conn, key, "ACTUATOR_EVENT_QUERY_REPLY", query_payload)
+
+    def _migrate_v22(self) -> None:
+        """Process custody associations, separate from work and cloud tasks."""
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_process_receipt (
+            mcu_boot_id INTEGER NOT NULL,
+            event_sequence INTEGER NOT NULL,
+            scope BLOB NOT NULL UNIQUE CHECK (length(scope) = 89),
+            saved_payload BLOB NOT NULL CHECK (length(saved_payload) = 45),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (mcu_boot_id, event_sequence),
+            FOREIGN KEY (mcu_boot_id, event_sequence)
+                REFERENCES native_measurement_event (mcu_boot_id, event_sequence)
+        )""")
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_process_receipt_conflict (
+            original_boot_id INTEGER NOT NULL,
+            original_event_sequence INTEGER NOT NULL,
+            incoming_boot_id INTEGER NOT NULL,
+            incoming_event_sequence INTEGER NOT NULL,
+            incoming_scope BLOB NOT NULL CHECK (length(incoming_scope) = 89),
+            message_name TEXT NOT NULL,
+            payload BLOB NOT NULL CHECK (length(payload) BETWEEN 1 AND 242),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (original_boot_id, original_event_sequence, incoming_boot_id,
+                         incoming_event_sequence, incoming_scope, payload),
+            FOREIGN KEY (original_boot_id, original_event_sequence)
+                REFERENCES native_process_receipt (mcu_boot_id, event_sequence)
+        )""")
+
+    def save_native_process_receipt(self, scope: bytes, message_name: str, payload: bytes) -> bytes:
+        """COMMIT full bytes + original scope before returning a precise receipt.
+
+        Caller restores scope from the accepted business ledger; this does not
+        prove acceptance, create a cloud task, advance work or authorize motion.
+        Raw unscoped archives alone never produce a sendable saved confirmation.
+        """
+        from mcu_process_handoff import process_event_receipt
+
+        if message_name == "DELIVERY_SELECTION":
+            return self._save_native_selection_receipt(scope, payload)
+        if message_name in {"CLEAN_UNLOCK_REQUESTED", "CLEAN_FINISH_REQUESTED"}:
+            return self._save_native_clean_intent_receipt(scope, message_name, payload)
+        if message_name == "CLEAN_COMPLETION_CONFIRMED":
+            return self._save_native_clean_confirmation_receipt(scope, payload)
+        receipt = process_event_receipt(scope, message_name, payload)
+        values = self._native_measurement_values(message_name, payload)
+        key = (values["mcuBootId"], values["mcuEventSequence"])
+        with self._standalone_native_transaction() as conn:
+            conflict, _ = self._save_native_measurement_in_tx(conn, message_name, payload, values)
+            matches = conn.execute("""SELECT r.scope, r.saved_payload, e.* FROM native_process_receipt r
+                JOIN native_measurement_event e USING (mcu_boot_id, event_sequence)
+                WHERE (r.mcu_boot_id=? AND r.event_sequence=?) OR r.scope=?
+                OR (r.mcu_boot_id, r.event_sequence) IN (
+                    SELECT original_boot_id, original_event_sequence FROM native_process_receipt_conflict
+                    WHERE (incoming_boot_id=? AND incoming_event_sequence=?) OR incoming_scope=?)""",
+                (*key, scope, *key, scope)).fetchall()
+            for row in matches:
+                self._verify_native_process_receipt_row(row)
+                original = (row["mcu_boot_id"], row["event_sequence"])
+                if original != key or bytes(row["scope"]) != scope:
+                    conn.execute("""INSERT OR IGNORE INTO native_process_receipt_conflict
+                        (original_boot_id, original_event_sequence, incoming_boot_id,
+                         incoming_event_sequence, incoming_scope, message_name, payload) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (*original, *key, scope, message_name, payload))
+                    conflict = True
+                if conn.execute("""SELECT 1 FROM native_process_receipt_conflict
+                    WHERE original_boot_id=? AND original_event_sequence=? LIMIT 1""", original).fetchone():
+                    conflict = True
+            if not conflict and not matches:
+                conn.execute("""INSERT INTO native_process_receipt
+                    (mcu_boot_id, event_sequence, scope, saved_payload) VALUES (?, ?, ?, ?)""",
+                    (*key, scope, receipt))
+        if conflict:
+            raise ValueError("native process identity conflict; evidence retained, no receipt")
+        return receipt
+
+    @classmethod
+    def _verify_native_process_receipt_row(cls, row) -> None:
+        from mcu_process_handoff import process_event_receipt
+
+        cls._verify_native_measurement_row(row)
+        expected = process_event_receipt(bytes(row["scope"]), row["message_name"], bytes(row["payload"]))
+        if expected != bytes(row["saved_payload"]):
+            raise ValueError("native process receipt is corrupt")
+
+    def list_native_process_receipt_conflicts(self) -> list[dict]:
+        with self._lock:
+            return [dict(row) for row in self._conn.execute("""SELECT * FROM native_process_receipt_conflict
+                ORDER BY original_boot_id, original_event_sequence, incoming_boot_id, incoming_event_sequence""").fetchall()]
+
+    def get_native_process_receipt(self, scope: bytes) -> Optional[dict]:
+        from mcu_process_handoff import decode_process_scope
+
+        original = decode_process_scope(scope)
+        with self._lock:
+            if original["eventMessageType"] == "CLEAN_COMPLETION_CONFIRMED":
+                row = self._conn.execute("SELECT mcu_boot_id,event_sequence FROM native_clean_confirmation WHERE scope=?", (scope,)).fetchone()
+                return self.get_native_process_event(original["eventMessageType"], row["mcu_boot_id"], row["event_sequence"]) if row else None
+            if original["eventMessageType"] in {"CLEAN_UNLOCK_REQUESTED", "CLEAN_FINISH_REQUESTED"}:
+                row = self._conn.execute("SELECT mcu_boot_id,event_sequence FROM native_clean_intent WHERE scope=?", (scope,)).fetchone()
+                return self.get_native_process_event(original["eventMessageType"], row["mcu_boot_id"], row["event_sequence"]) if row else None
+            if original["eventMessageType"] == "DELIVERY_SELECTION":
+                row = self._conn.execute("SELECT mcu_boot_id, event_sequence FROM native_delivery_selection WHERE scope=?", (scope,)).fetchone()
+                return self.get_native_process_event("DELIVERY_SELECTION", row["mcu_boot_id"], row["event_sequence"]) if row else None
+            row = self._conn.execute("""SELECT r.scope, r.saved_payload, e.* FROM native_process_receipt r
+                JOIN native_measurement_event e USING (mcu_boot_id, event_sequence) WHERE r.scope=?""", (scope,)).fetchone()
+            if row is None:
+                return None
+            if self._native_custody_conflicted(self._conn, (row["mcu_boot_id"], row["event_sequence"])):
+                raise ValueError("native process identity conflict")
+            self._verify_native_process_receipt_row(row)
+            if self._conn.execute("""SELECT 1 FROM native_measurement_event_conflict
+                WHERE original_boot_id=? AND original_event_sequence=? LIMIT 1""",
+                (row["mcu_boot_id"], row["event_sequence"])).fetchone():
+                raise ValueError("native process evidence has an unresolved identity conflict")
+            if self._conn.execute("""SELECT 1 FROM native_process_receipt_conflict
+                WHERE original_boot_id=? AND original_event_sequence=? LIMIT 1""",
+                (row["mcu_boot_id"], row["event_sequence"])).fetchone():
+                raise ValueError("native process receipt has an unresolved context conflict")
+            return dict(row)
+
+    def _migrate_v21(self) -> None:
+        """Native terminal process evidence, not a business/OneNet outbox."""
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_measurement_event (
+            mcu_boot_id INTEGER NOT NULL CHECK (mcu_boot_id BETWEEN 1 AND 9007199254740991),
+            event_sequence INTEGER NOT NULL CHECK (event_sequence BETWEEN 1 AND 4294967295),
+            message_name TEXT NOT NULL,
+            measurement_uid TEXT NOT NULL UNIQUE,
+            payload BLOB NOT NULL CHECK (length(payload) BETWEEN 1 AND 242),
+            payload_sha256 TEXT NOT NULL CHECK (length(payload_sha256) = 64),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (mcu_boot_id, event_sequence)
+        )""")
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_measurement_event_conflict (
+            original_boot_id INTEGER NOT NULL,
+            original_event_sequence INTEGER NOT NULL,
+            incoming_boot_id INTEGER NOT NULL,
+            incoming_event_sequence INTEGER NOT NULL,
+            incoming_measurement_uid TEXT NOT NULL,
+            message_name TEXT NOT NULL,
+            payload BLOB NOT NULL CHECK (length(payload) BETWEEN 1 AND 242),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (original_boot_id, original_event_sequence, message_name, payload),
+            FOREIGN KEY (original_boot_id, original_event_sequence)
+                REFERENCES native_measurement_event (mcu_boot_id, event_sequence)
+        )""")
+
+    @staticmethod
+    def _native_measurement_values(message_name: str, payload: bytes) -> dict:
+        import uart2_protocol as uart2
+
+        if (message_name not in uart2.REGISTRY["sessionPolicy"]["processMeasurementMessages"]
+                or not isinstance(payload, bytes)):
+            raise ValueError("native process evidence requires a registered measurement and immutable bytes")
+        return uart2.decode_payload(message_name, payload)
+
+    @classmethod
+    def _verify_native_measurement_row(cls, row) -> None:
+        values = cls._native_measurement_values(row["message_name"], bytes(row["payload"]))
+        uid = values.get("weightMeasurementUid", values["measurementUid"])
+        if ((values["mcuBootId"], values["mcuEventSequence"], uid)
+                != (row["mcu_boot_id"], row["event_sequence"], row["measurement_uid"])
+                or hashlib.sha256(row["payload"]).hexdigest() != row["payload_sha256"]):
+            raise ValueError("native process evidence is corrupt")
+
+    def save_native_measurement_event(self, message_name: str, payload: bytes) -> str:
+        """Full validation -> standalone COMMIT; no transport receipt is returned.
+
+        This archives process evidence only. It does NOT prove current boot,
+        work/round/clean action or authorization, and does not ACK, advance work,
+        clear occupancy, queue OneNet events or produce financial value. A later
+        business owner must reconcile that context before using/acknowledging it.
+        Both event-identity and actual-measurement-UID collisions are sticky;
+        retain originals and conflicting incoming bytes, never last-write-wins.
+        """
+        values = self._native_measurement_values(message_name, payload)
+        with self._standalone_native_transaction() as conn:
+            conflict, disposition = self._save_native_measurement_in_tx(conn, message_name, payload, values)
+        if conflict:
+            raise ValueError("native process identity conflict; evidence retained, no receipt")
+        return disposition
+
+    def _save_native_measurement_in_tx(self, conn, message_name, payload, values):
+        key = (values["mcuBootId"], values["mcuEventSequence"])
+        if (self._native_custody_conflicted(conn, key)
+                or conn.execute("SELECT 1 FROM native_actuator_event WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone()
+                or conn.execute("SELECT 1 FROM native_delivery_selection WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone()
+                or conn.execute("SELECT 1 FROM native_clean_intent WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone()
+                or conn.execute("SELECT 1 FROM native_clean_confirmation WHERE mcu_boot_id=? AND event_sequence=?", key).fetchone()):
+            self._retain_native_custody_conflict(conn, key, message_name, payload)
+            return True, "CONFLICT"
+        uid = values.get("weightMeasurementUid", values["measurementUid"])
+        conflict, disposition = False, "STORED"
+        matches = conn.execute("""SELECT * FROM native_measurement_event
+                WHERE (mcu_boot_id=? AND event_sequence=?) OR measurement_uid=?
+                OR (mcu_boot_id, event_sequence) IN (
+                    SELECT original_boot_id, original_event_sequence FROM native_measurement_event_conflict
+                    WHERE (incoming_boot_id=? AND incoming_event_sequence=?) OR incoming_measurement_uid=?)""",
+                (*key, uid, *key, uid)).fetchall()
+        for existing in matches:
+            self._verify_native_measurement_row(existing)
+            original = (existing["mcu_boot_id"], existing["event_sequence"])
+            if existing["message_name"] != message_name or bytes(existing["payload"]) != payload:
+                conn.execute("""INSERT OR IGNORE INTO native_measurement_event_conflict
+                        (original_boot_id, original_event_sequence, incoming_boot_id,
+                         incoming_event_sequence, incoming_measurement_uid, message_name, payload) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (*original, *key, uid, message_name, payload))
+                conflict = True
+            if conn.execute("""SELECT 1 FROM native_measurement_event_conflict
+                    WHERE original_boot_id=? AND original_event_sequence=? LIMIT 1""", original).fetchone():
+                conflict = True
+        if matches:
+            disposition = "DUPLICATE"
+        else:
+            conn.execute("""INSERT INTO native_measurement_event
+                    (mcu_boot_id, event_sequence, message_name, measurement_uid, payload, payload_sha256)
+                    VALUES (?, ?, ?, ?, ?, ?)""", (*key, message_name, uid, payload, hashlib.sha256(payload).hexdigest()))
+        return conflict, disposition
+
+    def get_native_measurement_event(self, mcu_boot_id: int, event_sequence: int) -> Optional[dict]:
+        """Revalidate stored bytes; retrieval alone is not authorization or freshness."""
+        with self._lock:
+            if self._native_custody_conflicted(self._conn, (mcu_boot_id, event_sequence)):
+                raise ValueError("native process identity conflict")
+            row = self._conn.execute("""SELECT * FROM native_measurement_event
+                WHERE mcu_boot_id=? AND event_sequence=?""", (mcu_boot_id, event_sequence)).fetchone()
+            if row is None:
+                return None
+            self._verify_native_measurement_row(row)
+            if self._conn.execute("""SELECT 1 FROM native_measurement_event_conflict
+                WHERE original_boot_id=? AND original_event_sequence=? LIMIT 1""",
+                (mcu_boot_id, event_sequence)).fetchone():
+                raise ValueError("native process evidence has an unresolved identity conflict")
+            return dict(row)
+
+    def list_native_measurement_event_conflicts(self) -> list[dict]:
+        with self._lock:
+            return [dict(row) for row in self._conn.execute("""SELECT * FROM native_measurement_event_conflict
+                ORDER BY original_boot_id, original_event_sequence, incoming_boot_id, incoming_event_sequence""").fetchall()]
+
+    def _migrate_v20(self) -> None:
+        """Native boot/dispatch identities; no change to legacy work admission."""
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_mcu_boot (
+            boot_id INTEGER PRIMARY KEY CHECK (boot_id BETWEEN 1 AND 9007199254740991),
+            probe_id INTEGER NOT NULL UNIQUE CHECK (probe_id BETWEEN 1 AND 9007199254740991),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )""")
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_mcu_command (
+            command_uid TEXT PRIMARY KEY,
+            mcu_boot_id INTEGER NOT NULL REFERENCES native_mcu_boot(boot_id),
+            command_sequence INTEGER NOT NULL CHECK (command_sequence BETWEEN 1 AND 4294967295),
+            message_name TEXT NOT NULL,
+            payload BLOB NOT NULL CHECK (length(payload) BETWEEN 60 AND 242),
+            write_claimed INTEGER NOT NULL DEFAULT 0 CHECK (write_claimed IN (0,1)),
+            decision_outcome TEXT CHECK (decision_outcome IN ('ACCEPTED','REJECTED')),
+            decision_error TEXT,
+            conflict INTEGER NOT NULL DEFAULT 0 CHECK (conflict IN (0,1)),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(mcu_boot_id, command_sequence)
+        )""")
+        # This older migration is also rechecked on current-schema startup.
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(native_mcu_command)")}
+        predicate = "decision_outcome IS NULL" + (" AND boot_retired=0" if "boot_retired" in columns else "")
+        predicate += " AND dispatch_retired=0" if "dispatch_retired" in columns else ""
+        self._conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS native_mcu_one_pending_command "
+                           f"ON native_mcu_command ((1)) WHERE {predicate}")
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_mcu_command_observation (
+            command_uid TEXT NOT NULL REFERENCES native_mcu_command(command_uid),
+            outcome TEXT NOT NULL, current_boot_id INTEGER NOT NULL,
+            error_code TEXT NOT NULL, highest_sequence INTEGER NOT NULL,
+            message_name TEXT NOT NULL, payload BLOB NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY(command_uid, outcome, current_boot_id, error_code, highest_sequence)
+        )""")
+
+    @staticmethod
+    def _native_counter(conn, key: str, maximum: int = 9007199254740991) -> int:
+        row = conn.execute("SELECT state_value FROM device_state WHERE state_key=?", (key,)).fetchone()
+        raw = row[0] if row is not None else "0"
+        if (not isinstance(raw, str) or not raw.isascii() or not raw.isdecimal()
+                or len(raw) > 16 or (len(raw) > 1 and raw[0] == "0") or int(raw) > maximum):
+            raise ValueError("native counter is corrupt")
+        return int(raw)
+
+    def _set_native_counter(self, conn, key: str, value: int) -> None:
+        conn.execute("""INSERT INTO device_state (state_key, state_value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(state_key) DO UPDATE SET state_value=excluded.state_value, updated_at=excluded.updated_at""",
+            (key, str(value), self._now()))
+
+    def reserve_native_boot_id(self, probe_id: int) -> int:
+        """Consume a fresh boot identity for ONE pending probe, before one bind write.
+
+        Only a coordinator with a fresh zero-boot reply may call this. Never
+        reuse an offer after a restart or a missing bind reply. Gaps are legal.
+        """
+        with self._standalone_native_transaction() as conn:
+            if (type(probe_id) is not int or not 1 <= probe_id <= self._native_counter(conn, "native_query_sequence")
+                    or conn.execute("SELECT 1 FROM native_mcu_boot WHERE probe_id=?", (probe_id,)).fetchone()):
+                raise ValueError("native boot probe is not fresh")
+            previous = self._native_counter(conn, "native_boot_sequence")
+            maximum = conn.execute("SELECT COALESCE(MAX(boot_id),0) FROM native_mcu_boot").fetchone()[0]
+            if previous < maximum:
+                raise ValueError("native boot counter regressed")
+            if previous == 9007199254740991:
+                raise ValueError("native boot counter is exhausted")
+            boot_id = previous + 1
+            self._set_native_counter(conn, "native_boot_sequence", boot_id)
+            conn.execute("INSERT INTO native_mcu_boot (boot_id, probe_id) VALUES (?, ?)", (boot_id, probe_id))
+        return boot_id
+
+    def get_native_boot(self, boot_id: int) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM native_mcu_boot WHERE boot_id=?", (boot_id,)).fetchone()
+            return dict(row) if row else None
+
+    def recognize_native_boot_id(self, boot_id: int) -> bool:
+        """Legacy candidate identity selection; does not create a restart witness.
+
+        The live boot session uses save_native_boot_observation instead. Neither
+        method grants admission, mechanical permission or physical completion.
+        """
+        if type(boot_id) is not int or not 1 <= boot_id <= 9007199254740991:
+            return False
+        with self._standalone_native_transaction() as conn:
+            return self._recognize_native_boot_in_tx(conn, boot_id)
+
+    def _recognize_native_boot_in_tx(self, conn, boot_id):
+        current = self._native_counter(conn, "native_current_boot")
+        reserved = self._native_counter(conn, "native_boot_sequence")
+        if current > reserved:
+            raise ValueError("native boot counters are inconsistent")
+        if not 1 <= boot_id <= reserved or boot_id < current or not conn.execute(
+                "SELECT 1 FROM native_mcu_boot WHERE boot_id=?", (boot_id,)).fetchone():
+            return False
+        self._set_native_counter(conn, "native_current_boot", boot_id)
+        return True
+
+    @staticmethod
+    def _native_boot_reply_values(name, payload):
+        import uart2_protocol as uart2
+        if name not in {"BOOT_PROBE_REPLY", "BIND_BOOT_REPLY"} or not isinstance(payload, bytes):
+            raise ValueError("native boot observation requires an immutable reply")
+        return uart2.decode_payload(name, payload)
+
+    @classmethod
+    def _native_boot_observation_values(cls, conn, name, payload):
+        values = cls._native_boot_reply_values(name, payload)
+        if (values["mcuBootId"] == 0 or values["probeId"] > EdgeStore._native_counter(conn, "native_query_sequence")
+                or not conn.execute("SELECT 1 FROM native_mcu_boot WHERE boot_id=?", (values["mcuBootId"],)).fetchone()):
+            raise ValueError("native boot observation is not an owned positive reply")
+        if name == "BIND_BOOT_REPLY" and not conn.execute(
+                "SELECT 1 FROM native_mcu_boot WHERE boot_id=? AND probe_id=?",
+                (values["proposedMcuBootId"], values["probeId"])).fetchone():
+            raise ValueError("native boot observation does not match the original offer")
+        return values
+
+    def save_native_boot_observation(self, message_name: str, payload: bytes) -> bool:
+        """Called only by the fresh correlated boot session; commit before ready.
+
+        Keep the first positive raw reply, not an unbounded row for each probe.
+        The caller owns request freshness; stored history never makes a new Pi
+        instance ready. A bind refusal records the actual boot, not the offer.
+        """
+        with self._standalone_native_transaction() as conn:
+            values = self._native_boot_reply_values(message_name, payload)
+            boot = values["mcuBootId"]
+            if not self._recognize_native_boot_in_tx(conn, boot):
+                return False
+            self._native_boot_observation_values(conn, message_name, payload)
+            existing = conn.execute("SELECT * FROM native_mcu_boot_observation WHERE boot_id=?", (boot,)).fetchone()
+            if existing is not None:
+                self._checked_native_boot_observation(conn, existing)
+            else:
+                conn.execute("""INSERT INTO native_mcu_boot_observation
+                    (boot_id, probe_id, message_name, payload) VALUES (?, ?, ?, ?)""",
+                    (boot, values["probeId"], message_name, payload))
+            # Transport retirement is NOT a command decision, an action result,
+            # work completion or a grant to send anything. Keep every old byte.
+            conn.execute("UPDATE native_mcu_command SET boot_retired=1 WHERE mcu_boot_id<? AND boot_retired=0", (boot,))
+        return True
+
+    @classmethod
+    def _checked_native_boot_observation(cls, conn, row):
+        values = cls._native_boot_observation_values(conn, row["message_name"], bytes(row["payload"]))
+        if (row["boot_id"], row["probe_id"]) != (values["mcuBootId"], values["probeId"]):
+            raise ValueError("native boot observation is corrupt")
+        return dict(row)
+
+    def get_native_boot_observation(self, boot_id: int) -> Optional[dict]:
+        """Return checked historical evidence, never current freshness or admission."""
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM native_mcu_boot_observation WHERE boot_id=?", (boot_id,)).fetchone()
+            return self._checked_native_boot_observation(self._conn, row) if row is not None else None
+
+    @staticmethod
+    def _native_command_payload(name: str, uid: str, boot_id: int, sequence: int, fields: dict) -> bytes:
+        import uart2_protocol as uart2
+        spec = uart2.MESSAGE_SPECS.get(name)
+        if (not spec or (spec["category"] not in {"COMMAND", "CONFIGURATION"} and name != "SAFE_CLOSE")
+                or spec["direction"] != "EDGE_TO_MCU"):
+            raise ValueError("not a native business command")
+        identity = {"mcuCommandUid": uid, "targetMcuBootId": boot_id, "commandSequence": sequence,
+                    "commandDigestSha256": "00" * 32}
+        if identity.keys() & fields.keys():
+            raise ValueError("caller cannot override allocated command identity")
+        values = identity | fields
+        values["commandDigestSha256"] = uart2.compute_command_digest(name, values)
+        return uart2.encode_payload(name, values)
+
+    @staticmethod
+    def _checked_native_command(row) -> Optional[dict]:
+        import uart2_protocol as uart2
+        if row is None:
+            return None
+        record = dict(row)
+        spec = uart2.MESSAGE_SPECS.get(record["message_name"])
+        if (not spec or (spec["category"] not in {"COMMAND", "CONFIGURATION"} and record["message_name"] != "SAFE_CLOSE")
+                or spec["direction"] != "EDGE_TO_MCU"):
+            raise ValueError("native command record is corrupt")
+        values = uart2.decode_payload(record["message_name"], record["payload"])
+        if (values["mcuCommandUid"] != record["command_uid"] or values["targetMcuBootId"] != record["mcu_boot_id"]
+                or values["commandSequence"] != record["command_sequence"]):
+            raise ValueError("native command record identity is corrupt")
+        return record
+
+    def prepare_native_command(self, name: str, command_uid: str, boot_id: int, fields: dict) -> dict:
+        """Freeze one intention/sequence before dispatch; never a work permit.
+
+        command_uid is a caller's already durable logical action identity. A
+        duplicate returns the original bytes, not a new sequence or new action.
+        The caller must retain/revalidate original authorization deadlines.
+        """
+        if name == "SAFE_CLOSE":
+            raise ValueError("SAFE_CLOSE requires durable delivery recovery authority")
+        command_uid = str(_uuid.UUID(command_uid))
+        with self._standalone_native_transaction() as conn:
+            return self._prepare_native_command_in_tx(conn, name, command_uid, boot_id, fields)
+
+    def _prepare_native_command_in_tx(self, conn, name, command_uid, boot_id, fields):
+        self._verify_native_dispatch_retirements(conn)
+        existing = self._checked_native_command(conn.execute(
+            "SELECT * FROM native_mcu_command WHERE command_uid=?", (command_uid,)).fetchone())
+        if existing:
+            candidate = self._native_command_payload(name, command_uid, boot_id, existing["command_sequence"], fields)
+            if name != existing["message_name"] or candidate != existing["payload"]:
+                raise ValueError("native command identity conflict")
+            return existing
+        if conn.execute("""SELECT 1 FROM native_mcu_command
+                WHERE boot_retired=0 AND dispatch_retired=0 AND (decision_outcome IS NULL OR conflict=1)""").fetchone():
+            raise RuntimeError("native command unresolved; no additional action")
+        if (type(boot_id) is not int or boot_id == 0 or boot_id != self._native_counter(conn, "native_current_boot")
+                or not conn.execute("SELECT 1 FROM native_mcu_boot WHERE boot_id=?", (boot_id,)).fetchone()):
+            raise ValueError("native command requires a recognized boot")
+        key = f"native_command_sequence:{boot_id}"
+        previous = self._native_counter(conn, key, 4294967295)
+        highest = conn.execute("SELECT COALESCE(MAX(command_sequence),0) FROM native_mcu_command WHERE mcu_boot_id=?", (boot_id,)).fetchone()[0]
+        if previous < highest:
+            raise ValueError("native command counter regressed")
+        if previous == 4294967295:
+            raise ValueError("native command counter exhausted")
+        sequence = previous + 1
+        payload = self._native_command_payload(name, command_uid, boot_id, sequence, fields)
+        self._set_native_counter(conn, key, sequence)
+        conn.execute("""INSERT INTO native_mcu_command
+            (command_uid, mcu_boot_id, command_sequence, message_name, payload) VALUES (?, ?, ?, ?, ?)""",
+            (command_uid, boot_id, sequence, name, payload))
+        result = self._checked_native_command(conn.execute(
+            "SELECT * FROM native_mcu_command WHERE command_uid=?", (command_uid,)).fetchone())
+        return result
+
+    def claim_native_command_write(self, command_uid: str) -> bool:
+        """Commit 'may be sent' before ONE write. It can never be unclaimed.
+
+        Caller must first acquire/revalidate the permanent action gate. A crash
+        after this commit, even before the actual write, permits only queries.
+        """
+        with self._standalone_native_transaction() as conn:
+            self._verify_native_dispatch_retirements(conn)
+            record = self._checked_native_command(conn.execute(
+                "SELECT * FROM native_mcu_command WHERE command_uid=?", (command_uid,)).fetchone())
+            if record is None:
+                raise ValueError("unknown native command")
+            if conn.execute("SELECT 1 FROM native_recovery_close_retirement WHERE action_uid=?", (command_uid,)).fetchone():
+                return False
+            if record["write_claimed"] or record["boot_retired"] or record["dispatch_retired"] or record["conflict"] or record["decision_outcome"] is not None:
+                return False
+            if record["mcu_boot_id"] != self._native_counter(conn, "native_current_boot"):
+                raise ValueError("native command boot is retired")
+            conn.execute("UPDATE native_mcu_command SET write_claimed=1 WHERE command_uid=?", (command_uid,))
+        return True
+
+    def get_native_command(self, command_uid: str) -> Optional[dict]:
+        with self._lock:
+            return self._checked_native_command(self._conn.execute(
+                "SELECT * FROM native_mcu_command WHERE command_uid=?", (command_uid,)).fetchone())
+
+    def list_native_commands(self) -> list[dict]:
+        with self._lock:
+            return [self._checked_native_command(row) for row in self._conn.execute(
+                "SELECT * FROM native_mcu_command ORDER BY mcu_boot_id, command_sequence").fetchall()]
+
+    def save_native_command_observation(self, message_name: str, payload: bytes) -> bool:
+        """Exact original identity only. Caller also checks query freshness.
+
+        Decisions close only the 'awaiting acceptance' slot, not a business job,
+        actuator effect, or permanent receipt. Non-decisions never release it.
+        Repeated unchanged queries retain their first evidence, not one row/sec.
+        """
+        import uart2_protocol as uart2
+        if message_name not in {"COMMAND_DECISION", "COMMAND_QUERY_RESULT"} or type(payload) is not bytes:
+            raise ValueError("expected native command observation")
+        values = uart2.decode_payload(message_name, payload)
+        uid = values["mcuCommandUid"]
+        offset = 8 if message_name == "COMMAND_QUERY_RESULT" else 0
+        with self._standalone_native_transaction() as conn:
+            record = self._checked_native_command(conn.execute(
+                "SELECT * FROM native_mcu_command WHERE command_uid=?", (uid,)).fetchone())
+            if record is None or not record["write_claimed"] or payload[offset:offset + 60] != record["payload"][:60]:
+                return False
+            outcome, error = values["outcome"], values["errorCode"]
+            conn.execute("""INSERT OR IGNORE INTO native_mcu_command_observation
+                (command_uid, outcome, current_boot_id, error_code, highest_sequence, message_name, payload)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""", (uid, outcome, values["currentMcuBootId"], error,
+                    values.get("highestCommandSequence", -1), message_name, payload))
+            decision = outcome in {"ACCEPTED", "REJECTED"}
+            conflict = (outcome == "IDENTITY_CONFLICT" or (record["decision_outcome"] is not None
+                and (outcome == "NOT_SEEN" or (decision and (outcome != record["decision_outcome"]
+                    or error != record["decision_error"])))))
+            if conflict:
+                conn.execute("UPDATE native_mcu_command SET conflict=1 WHERE command_uid=?", (uid,))
+            elif decision and record["decision_outcome"] is None:
+                conn.execute("UPDATE native_mcu_command SET decision_outcome=?, decision_error=? WHERE command_uid=?",
+                             (outcome, error, uid))
+        return True
+
+    def list_native_command_observations(self, command_uid: str) -> list[dict]:
+        with self._lock:
+            return [dict(row) for row in self._conn.execute(
+                "SELECT * FROM native_mcu_command_observation WHERE command_uid=? ORDER BY created_at, outcome",
+                (command_uid,)).fetchall()]
+
+    def _migrate_v19(self) -> None:
+        """Native result handoff is durable but isolated from business relay."""
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_mcu_result (
+            mcu_boot_id INTEGER NOT NULL CHECK (mcu_boot_id BETWEEN 1 AND 9007199254740991),
+            result_sequence INTEGER NOT NULL CHECK (result_sequence BETWEEN 1 AND 4294967295),
+            work_uid TEXT NOT NULL,
+            result_digest TEXT NOT NULL,
+            payload BLOB NOT NULL CHECK (length(payload) = 199),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (mcu_boot_id, result_sequence)
+        )""")
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_result_report_outbox (
+            task_uid TEXT NOT NULL UNIQUE,
+            mcu_boot_id INTEGER NOT NULL,
+            result_sequence INTEGER NOT NULL,
+            state TEXT NOT NULL DEFAULT 'PENDING_CLASSIFICATION'
+                CHECK (state = 'PENDING_CLASSIFICATION'),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (mcu_boot_id, result_sequence),
+            FOREIGN KEY (mcu_boot_id, result_sequence)
+                REFERENCES native_mcu_result (mcu_boot_id, result_sequence)
+        )""")
+
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS native_mcu_result_conflict (
+            mcu_boot_id INTEGER NOT NULL,
+            result_sequence INTEGER NOT NULL,
+            payload BLOB NOT NULL CHECK (length(payload) = 199),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (mcu_boot_id, result_sequence, payload),
+            FOREIGN KEY (mcu_boot_id, result_sequence)
+                REFERENCES native_mcu_result (mcu_boot_id, result_sequence)
+        )""")
+
+    @contextmanager
+    def _standalone_native_transaction(self):
+        # Reject nesting before transaction() can roll back its caller's work.
+        with self._lock:
+            if self._conn.in_transaction:
+                raise RuntimeError("native persistence requires a standalone transaction")
+            with self.transaction(immediate=True) as conn:
+                yield conn
+
+    def reserve_native_query_id(self) -> int:
+        """Candidate read-only request identity: COMMIT before a single write.
+
+        Reconnect/restart never resets it. Abandoned reservations leave gaps.
+        Corrupt/exhausted counters fail closed; never wrap to an old query ID.
+        Existing device_state table keeps schema 19 unchanged. This is not an
+        MCU boot ID, action sequence or transport txSequence allocator.
+        """
+        with self._standalone_native_transaction() as conn:
+            row = conn.execute(
+                "SELECT state_value FROM device_state WHERE state_key='native_query_sequence'"
+            ).fetchone()
+            raw = row[0] if row is not None else "0"
+            if (not isinstance(raw, str) or not raw.isascii() or not raw.isdecimal()
+                    or len(raw) > 16 or (len(raw) > 1 and raw[0] == "0")):
+                raise ValueError("native query counter is corrupt")
+            previous = int(raw)
+            if previous >= 9007199254740991:
+                raise ValueError("native query counter is exhausted")
+            reserved = previous + 1
+            conn.execute(
+                """INSERT INTO device_state (state_key, state_value, updated_at)
+                   VALUES ('native_query_sequence', ?, ?)
+                   ON CONFLICT(state_key) DO UPDATE SET
+                       state_value=excluded.state_value, updated_at=excluded.updated_at""",
+                (str(reserved), self._now()),
+            )
+        return reserved
+
+    def save_native_mcu_result(self, payload: bytes) -> dict:
+        """Candidate-only: complete validation -> one COMMIT -> saved receipt.
+
+        The task is NOT a OneNet event and is invisible to the money/business
+        relay. A later classifier must merge Pi photos/context and choose the
+        approved normal/exception/restart policy. No work slot is released here.
+        Never call inside another EdgeStore transaction or acknowledge on error.
+        """
+        import uart2_protocol as uart2
+
+        if not isinstance(payload, bytes):
+            raise ValueError("native result must be immutable bytes")
+        values = uart2.decode_payload("WORK_RESULT", payload)
+        key = (values["mcuBootId"], values["resultSequence"])
+        conflict = False
+        issue_error = None
+        with self._standalone_native_transaction() as conn:
+            existing = conn.execute(
+                "SELECT payload FROM native_mcu_result WHERE mcu_boot_id=? AND result_sequence=?", key
+            ).fetchone()
+            if existing is not None:
+                if bytes(existing["payload"]) != payload:
+                    conn.execute(
+                        """INSERT OR IGNORE INTO native_mcu_result_conflict
+                           (mcu_boot_id, result_sequence, payload) VALUES (?, ?, ?)""",
+                        (*key, payload),
+                    )
+                    conflict = True
+                task = conn.execute(
+                    "SELECT task_uid FROM native_result_report_outbox WHERE mcu_boot_id=? AND result_sequence=?", key
+                ).fetchone()
+                if task is None:
+                    raise RuntimeError("native result has no durable report task")
+                task_uid = task["task_uid"]
+            else:
+                task_uid = self._new_uid()
+                conn.execute(
+                    """INSERT INTO native_mcu_result
+                       (mcu_boot_id, result_sequence, work_uid, result_digest, payload)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (*key, values["workUid"], values["resultDigestSha256"], payload),
+                )
+                conn.execute(
+                    """INSERT INTO native_result_report_outbox
+                       (task_uid, mcu_boot_id, result_sequence) VALUES (?, ?, ?)""",
+                    (task_uid, *key),
+                )
+            if not conflict:
+                try:
+                    self._append_native_delivery_issue_result(conn, payload, values)
+                except ValueError as exc:
+                    issue_error = exc
+        # This line is deliberately after the transaction context has committed.
+        if conflict:
+            raise ValueError("native result identity conflict; evidence saved, no saved acknowledgement")
+        if issue_error is not None:
+            raise issue_error
+        return {"savedPayload": payload[:60], "taskUid": task_uid}
+
+    def get_native_mcu_result(self, mcu_boot_id: int, result_sequence: int) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM native_mcu_result WHERE mcu_boot_id=? AND result_sequence=?",
+                (mcu_boot_id, result_sequence),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_native_result_report_tasks(self) -> list[dict]:
+        with self._lock:
+            return [dict(row) for row in self._conn.execute(
+                """SELECT t.* FROM native_result_report_outbox t
+                JOIN native_mcu_result r USING(mcu_boot_id,result_sequence)
+                WHERE NOT EXISTS (SELECT 1 FROM native_delivery_issue i
+                    JOIN native_work_recovery_intent a USING(recovery_uid)
+                    WHERE i.work_uid=r.work_uid OR replace(a.start_command_uid,'-','')=lower(hex(substr(r.payload,71,16))))
+                ORDER BY t.mcu_boot_id, t.result_sequence"""
+            ).fetchall()]
+
+    def list_native_mcu_result_conflicts(self) -> list[dict]:
+        with self._lock:
+            return [dict(row) for row in self._conn.execute(
+                "SELECT * FROM native_mcu_result_conflict ORDER BY mcu_boot_id, result_sequence"
+            ).fetchall()]
 
     def _migrate_v10(self) -> None:
         """Add the independent, reboot-safe remote-support control slot."""
@@ -3504,7 +6024,19 @@ class EdgeStore:
             return cur.rowcount == 1
 
     @staticmethod
+    def _reject_archived_delivery_event(conn, event_type, *work_uids):
+        if event_type != "DELIVERY_COMPLETE":
+            return
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='native_delivery_issue'").fetchone():
+            return
+        for uid in work_uids:
+            if uid is not None and conn.execute("SELECT 1 FROM native_delivery_issue WHERE work_uid=?", (uid,)).fetchone():
+                raise ValueError("native delivery is archived; normal completion is forbidden")
+
+    @staticmethod
     def _insert_event(conn, event: dict, event_type: str) -> None:
+        EdgeStore._reject_archived_delivery_event(conn, event_type,
+            event["target"]["uid"], event.get("payload", {}).get("sessionUid"))
         conn.execute(
             """INSERT INTO event_outbox
                (event_uid, edge_event_sequence, event_type, payload_json, work_uid)
@@ -6914,6 +9446,7 @@ class EdgeStore:
         if not isinstance(release_work_slot, bool):
             raise TypeError("release_work_slot must be boolean")
         with self.transaction():
+            self._reject_archived_delivery_event(self._conn, event_type, work_uid, event_payload.get("sessionUid"))
             slot = self._conn.execute(
                 """SELECT work_type, work_uid FROM work_slot
                    WHERE slot_id=1"""
@@ -7896,6 +10429,9 @@ class EdgeStore:
                                       outcome: str, payload: Optional[dict] = None) -> str:
         with self.transaction():
             conn = self._conn
+            if (conn.execute("SELECT 1 FROM native_result_report_outbox WHERE event_uid=?", (event_uid,)).fetchone()
+                    or conn.execute("SELECT 1 FROM native_delivery_issue_report WHERE event_uid=?", (event_uid,)).fetchone()):
+                raise ValueError("native report requires the complete backend confirmation command")
             existing = conn.execute(
                 "SELECT confirmation_uid FROM confirmation_inbox WHERE confirmation_uid=?",
                 (confirmation_uid,),
@@ -7952,6 +10488,14 @@ class EdgeStore:
 
         with self.transaction():
             conn = self._conn
+            native_task = conn.execute("SELECT * FROM native_result_report_outbox WHERE event_uid=?", (original_event_uid,)).fetchone()
+            if native_task is not None:
+                from native_result_report import confirmation_for_report
+                stable_command, _ = confirmation_for_report(self, conn, native_task, command, device_name)
+            issue_task = conn.execute("SELECT * FROM native_delivery_issue_report WHERE event_uid=?", (original_event_uid,)).fetchone()
+            if issue_task is not None:
+                from native_delivery_issue_report import confirmation_for_issue_report
+                stable_command, _ = confirmation_for_issue_report(self, conn, issue_task, command, device_name)
             existing = conn.execute(
                 """SELECT command_uid, canonical_sha256,
                           payload_json, receipt_event_uid
@@ -7975,6 +10519,8 @@ class EdgeStore:
                 )
                 if not same:
                     return "CONFLICT"
+                self._save_native_result_confirmation(conn, native_task, stable_command)
+                self._save_native_delivery_issue_confirmation(conn, issue_task, stable_command)
                 if existing["receipt_event_uid"]:
                     conn.execute(
                         """UPDATE event_outbox
@@ -8081,6 +10627,8 @@ class EdgeStore:
                     ),
                     self._now(),
                 )
+            self._save_native_result_confirmation(conn, native_task, stable_command)
+            self._save_native_delivery_issue_confirmation(conn, issue_task, stable_command)
             return "ACCEPTED"
 
     # ── 原子事务 5: 登记照片 ──
@@ -8149,6 +10697,7 @@ class EdgeStore:
                           work_uid: Optional[str] = None) -> str:
         with self.transaction():
             conn = self._conn
+            self._reject_archived_delivery_event(conn, event_type, work_uid, payload.get("sessionUid"))
             existing = conn.execute(
                 "SELECT state FROM event_outbox WHERE event_uid=?", (event_uid,)
             ).fetchone()
@@ -8178,6 +10727,7 @@ class EdgeStore:
                           mcu_event_sequence: Optional[int] = None) -> str:
         with self.transaction():
             conn = self._conn
+            self._reject_archived_delivery_event(conn, event_type, work_uid, target_uid, payload.get("sessionUid"))
             has_mcu_identity = (
                 isinstance(mcu_receive_generation, int)
                 and not isinstance(mcu_receive_generation, bool)

@@ -12,8 +12,10 @@
 **********************************************************************************/
 
 #include "usart1.h"
+#include "runtime_clock.h"
+#include "scale_reader.h"
 #include "firmware_identity.h"
-#define ECOBIN_MCU_RUNTIME_INCLUDE_WEIGHT
+#define ECOBIN_MCU_RUNTIME_INCLUDE_WEIGHT_POLL
 #include "mcu_runtime_logic.h"
 
 /* RS485�������: RE/DE����PA1 */
@@ -148,25 +150,25 @@ void RS485_SendBuf(unsigned char *buf, unsigned char len)
 /* Modbus CRC16 У�� */
 unsigned short CRC16_Modbus(unsigned char *buf, unsigned char len)
 {
-	unsigned short crc = 0xFFFF;
-	unsigned char i;
-	while(len--)
-	{
-		crc ^= *buf++;
-		for(i = 0; i < 8; i++)
-		{
-			if(crc & 0x0001)
-			{
-				crc >>= 1;
-				crc ^= 0xA001;
-			}
-			else
-			{
-				crc >>= 1;
-			}
-		}
-	}
-	return crc;
+    return ScaleReader_Crc16(buf, len);
+}
+
+/* Keep the legacy unsigned DD/EF/F1 projection until native result metadata is
+ * available. The new decoder itself preserves signed grams without clamping. */
+static unsigned char DecodeLegacyScaleResponse(unsigned long *weight)
+{
+    uint8_t frame[9];
+    uint8_t length, i, status;
+    int32_t grams = 0;
+    uint32_t previous = __get_PRIMASK();
+    __disable_irq();
+    length = RS485_RxLen;
+    for(i = 0U; i < 9U; i++) frame[i] = RS485_RxBuf[i];
+    __set_PRIMASK(previous);
+    status = ScaleReader_Decode(frame, length, INT32_MIN, MCU_WEIGHT_MAX_GRAMS, &grams);
+    if(status == SCALE_READER_OK)
+        *weight = grams < 0 ? 0UL : (unsigned long)grams;
+    return status;
 }
 
 /*
@@ -218,21 +220,12 @@ unsigned char Weight_Read(unsigned long *weight)
 	if(RS485_RxLen < 9)
 		return 2;  //����̫��
 
-	/* CRCУ�� */
-	crc = CRC16_Modbus(RS485_RxBuf, RS485_RxLen - 2);
-	if(RS485_RxBuf[RS485_RxLen - 2] != (crc & 0xFF) ||
-	   RS485_RxBuf[RS485_RxLen - 1] != ((crc >> 8) & 0xFF))
-		return 3;  //CRC����
-
-	/* Low Modbus word arrives first; normalize the signed scale result. */
-	return McuRuntime_DecodeScaleWeight(
-		RS485_RxBuf[3], RS485_RxBuf[4],
-		RS485_RxBuf[5], RS485_RxBuf[6], weight);
+    return DecodeLegacyScaleResponse(weight);
 }
 
 /* ===== 非阻塞称重状态机 (配合TIM3定时器) ===== */
 WeightState weight_state = WEIGHT_IDLE;
-static unsigned short weight_start_tick;  /* 记录发送时刻的滴答计数 */
+static uint32_t weight_start_ms;
 
 /*
  * 启动一次重量读取: 发送Modbus读保持寄存器指令
@@ -269,7 +262,7 @@ void Weight_Read_Start(void)
     RS485_SendBuf(cmd, 8);
 
     /* 记录起始滴答, 用于超时判断 */
-    weight_start_tick = g_tick_count;
+    weight_start_ms = RuntimeClock_Now();
     weight_state = WEIGHT_SENT;
 }
 
@@ -281,8 +274,7 @@ void Weight_Read_Start(void)
  */
 unsigned char Weight_Read_Poll(unsigned long *weight)
 {
-    unsigned short crc;
-    unsigned short tick_diff;
+    uint32_t elapsed_ms;
     unsigned char decode_status;
     unsigned char poll_status;
 
@@ -294,8 +286,8 @@ unsigned char Weight_Read_Poll(unsigned long *weight)
      * F0 ultrasonic ranging can block the main loop beyond 200ms even though
      * all Modbus bytes have already arrived in RS485_RxBuf.
      */
-    tick_diff = g_tick_count - weight_start_tick;
-    poll_status = McuRuntime_WeightPollDecision(RS485_RxLen, tick_diff);
+    elapsed_ms = (uint32_t)(RuntimeClock_Now() - weight_start_ms);
+    poll_status = McuRuntime_WeightPollDecision(RS485_RxLen, elapsed_ms);
     if(poll_status == MCU_WEIGHT_POLL_TIMEOUT)
     {
         weight_state = WEIGHT_IDLE;
@@ -304,19 +296,7 @@ unsigned char Weight_Read_Poll(unsigned long *weight)
     if(poll_status == MCU_WEIGHT_POLL_WAITING)
         return 2;  /* 等待中 */
 
-    /* 数据到齐, 进行CRC校验 */
-    crc = CRC16_Modbus(RS485_RxBuf, RS485_RxLen - 2);
-    if(RS485_RxBuf[RS485_RxLen - 2] != (crc & 0xFF) ||
-       RS485_RxBuf[RS485_RxLen - 1] != ((crc >> 8) & 0xFF))
-    {
-        weight_state = WEIGHT_IDLE;
-        return 3;  /* CRC错误 */
-    }
-
-    /* Low Modbus word arrives first; normalize the signed scale result. */
-    decode_status = McuRuntime_DecodeScaleWeight(
-        RS485_RxBuf[3], RS485_RxBuf[4],
-        RS485_RxBuf[5], RS485_RxBuf[6], weight);
+    decode_status = DecodeLegacyScaleResponse(weight);
     weight_state = WEIGHT_IDLE;
     return decode_status;
 }

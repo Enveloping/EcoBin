@@ -65,8 +65,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * <p>The test deliberately has no deployment, pool, reclaim or manual
  * activation fixture. It proves that the asset is the only lifecycle root,
  * ownership is written once, organization assignment creates the unattended
- * initial configuration, and disabled or retired assets disappear from
- * tenant-facing reads.</p>
+ * initial configuration, and stopping a device cancels its tasks while
+ * keeping scoped historical reads available.</p>
  */
 @SpringBootTest(properties = {
         "spring.datasource.url=${ECOBIN_DEVICE_MYSQL_URL}",
@@ -749,7 +749,7 @@ class TargetDeviceMysqlIntegrationTest {
     }
 
     @Test
-    void permanentOwnershipAutomaticallyCreatesOrganizationFactsAndHidesStoppedAssets()
+    void permanentOwnershipPreservesHistoryAndCancelsStoppedDeviceWork()
             throws Exception {
         BrowserClient platform = new BrowserClient();
         login(platform, "/api/v1/web/platform/auth/sessions",
@@ -1131,10 +1131,41 @@ class TargetDeviceMysqlIntegrationTest {
                 Map.of("expectedVersion", 3, "reason", "现场停用检查"),
                 200));
         assertEquals("DISABLED", disabled.path("lifecycleStatus").asText());
-        read(principal, "/api/v1/web/device-assets/" + hardwareSn, 404);
-        assertEquals(0, data(read(principal,
+        JsonNode stoppedAcceptance = json(write(
+                platform,
+                post("/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/acceptance-evaluations"),
+                UUID.randomUUID(), Map.of(), 409));
+        assertEquals("DEVICE.ASSET_UNAVAILABLE", stoppedAcceptance.path("code").asText());
+        read(principal, "/api/v1/web/device-assets/" + hardwareSn, 200);
+        assertEquals(1, data(read(principal,
                 "/api/v1/web/device-assets?page=1&pageSize=20",
                 200)).path("items").size());
+        String stoppedTaskUid = jdbc.queryForObject("""
+                SELECT task_uid FROM ops_reliable_task WHERE source_device_asset_id = ?
+                AND task_type = 'ENSURE_DEVICE_CONFIGURATION' ORDER BY id DESC LIMIT 1
+                """, String.class, assetId);
+        assertEquals("PENDING", jdbc.queryForObject(
+                "SELECT state FROM ops_reliable_task WHERE task_uid = ?", String.class, stoppedTaskUid));
+        assertEquals("DEVICE_DISABLED", jdbc.queryForObject("SELECT dispatch_wait_reason FROM ops_reliable_task WHERE task_uid = ?", String.class, stoppedTaskUid));
+        reliableOperationsRepository.wakeTask(UUID.fromString(stoppedTaskUid), LocalDateTime.now(ZoneOffset.UTC));
+        reliableOperationsRepository.wakeTaskForAuthorizedRedelivery(UUID.fromString(stoppedTaskUid),
+                "ENSURE_DEVICE_CONFIGURATION", LocalDateTime.now(ZoneOffset.UTC));
+        assertEquals("PENDING", jdbc.queryForObject(
+                "SELECT state FROM ops_reliable_task WHERE task_uid = ?", String.class, stoppedTaskUid));
+        assertEquals("PENDING", jdbc.queryForObject(
+                "SELECT status FROM dev_config_application WHERE asset_id = ? ORDER BY id DESC LIMIT 1",
+                String.class, assetId));
+        jdbc.update("""
+                UPDATE ops_reliable_task SET dispatch_wait_reason = 'AWAITING_DEVICE_EVIDENCE',
+                    next_run_at = created_at WHERE task_uid = ?
+                """, stoppedTaskUid);
+        long stoppedTaskId = jdbc.queryForObject("SELECT id FROM ops_reliable_task WHERE task_uid = ?",
+                Long.class, stoppedTaskUid);
+        assertTrue(reliableOperationsRepository.lockExpiredDeviceEvidenceWaits(LocalDateTime.now(ZoneOffset.UTC))
+                .stream().noneMatch(task -> task.taskId() == stoppedTaskId));
+        read(principal, "/api/v1/web/organizations/" + organizationCode + "/devices/" + deviceCode
+                + "/configuration-versions", 200);
 
         JsonNode restored = data(write(
                 platform,
@@ -1144,6 +1175,16 @@ class TargetDeviceMysqlIntegrationTest {
                 Map.of("expectedVersion", 4, "reason", "检查完成"),
                 200));
         assertEquals("NORMAL", restored.path("lifecycleStatus").asText());
+        assertTrue(jdbc.queryForObject("SELECT next_run_at FROM ops_reliable_task WHERE task_uid = ?",
+                LocalDateTime.class, stoppedTaskUid).isAfter(LocalDateTime.now(ZoneOffset.UTC).plusSeconds(90)));
+        assertEquals("PENDING", jdbc.queryForObject(
+                "SELECT state FROM ops_reliable_task WHERE task_uid = ?", String.class, stoppedTaskUid));
+        assertEquals(2L, jdbc.queryForObject(
+                "SELECT MAX(version_no) FROM dev_config_version WHERE asset_id = ?", Long.class, assetId));
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_reliable_task WHERE source_device_asset_id = ?
+                AND task_type = 'ENSURE_DEVICE_CONFIGURATION' AND state = 'PENDING'
+                """, Integer.class, assetId));
         read(principal, "/api/v1/web/device-assets/" + hardwareSn, 200);
 
         JsonNode retired = data(write(
@@ -1154,7 +1195,20 @@ class TargetDeviceMysqlIntegrationTest {
                 Map.of("expectedVersion", 5, "reason", "永久报废"),
                 200));
         assertEquals("RETIRED", retired.path("lifecycleStatus").asText());
-        read(principal, "/api/v1/web/device-assets/" + hardwareSn, 404);
+        assertEquals("CANCELLED", jdbc.queryForObject(
+                "SELECT state FROM ops_reliable_task WHERE task_uid = ?", String.class, stoppedTaskUid));
+        reliableOperationsRepository.wakeTask(UUID.fromString(stoppedTaskUid), LocalDateTime.now(ZoneOffset.UTC));
+        assertEquals("CANCELLED", jdbc.queryForObject(
+                "SELECT state FROM ops_reliable_task WHERE task_uid = ?", String.class, stoppedTaskUid));
+        assertEquals(0, data(read(principal,
+                "/api/v1/web/device-assets?hardwareSn=" + hardwareSn, 200)).path("items").size());
+        assertEquals(1, data(read(principal,
+                "/api/v1/web/device-assets?lifecycleStatus=RETIRED&hardwareSn=" + hardwareSn, 200)).path("items").size());
+        assertEquals(1, data(read(platform,
+                "/api/v1/web/platform/device-assets?lifecycleStatus=ALL&hardwareSn=" + hardwareSn, 200)).path("items").size());
+        assertEquals(0, data(read(platform,
+                "/api/v1/web/platform/device-assets?hardwareSn=" + hardwareSn, 200)).path("items").size());
+        read(principal, "/api/v1/web/device-assets/" + hardwareSn, 200);
         JsonNode cannotRestore = json(write(
                 platform,
                 post("/api/v1/web/platform/device-assets/" + hardwareSn

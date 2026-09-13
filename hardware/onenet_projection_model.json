@@ -19,6 +19,8 @@
     "DELIVERY:START:0": "DELIV_START_0",
     "DELIVERY_DOOR_HIL_NOT_QUALIFIED": "DOOR_HIL_NOT_QUAL",
     "DELIVERY_DOOR_OUTPUT_REJECTED": "DOOR_OUTPUT_REJECTED",
+    "DELIVERY_ISSUE_ARCHIVED": "DELIV_ISSUE_ARCHIVED",
+    "DELIVERY_ISSUE_EVIDENCE_APPENDED": "DELIV_ISSUE_EVIDENCE",
     "DELIVERY_RECOVERY_QUARANTINED": "DELIV_REC_QUAR",
     "DEVICE_ACCEPTANCE_EVIDENCE": "DEV_ACCEPT_EVIDENCE",
     "DEVICE_ASSET": "DEVICE_ASSET",
@@ -39,6 +41,7 @@
     "MCU_FIRMWARE_DEPLOYMENT": "MCU_FW_DEPLOYMENT",
     "MCU_FIRMWARE_UPDATE_PROGRESS": "MCU_FW_PROGRESS",
     "MCU_INDEPENDENT_RECHECK": "MCU_RECHECK",
+    "MCU_RESTART_FINAL_RESULT_UNAVAILABLE": "MCU_RESTART_NO_FINAL",
     "MEASURE_EMPTY_BAG_BASELINE": "MEAS_BAG_BASELINE",
     "NO_ECHO_CLEAR_FALLBACK": "NO_ECHO_CLEAR",
     "OPEN_REMOTE_SUPPORT_TUNNEL": "OPEN_REMOTE_TUNNEL",
@@ -316,7 +319,8 @@
                     "2": "STABLE_WINDOW_MEAN",
                     "3": "LAST_FOUR_MEAN",
                     "4": "AVAIL_SAMPLES_MEAN",
-                    "5": "LAST_OBSERVED"
+                    "5": "LAST_OBSERVED",
+                    "6": "TIMEOUT_MEDIAN"
                   },
                   "type": "enum"
                 },
@@ -2050,7 +2054,8 @@
                     "2": "STABLE_WINDOW_MEAN",
                     "3": "LAST_FOUR_MEAN",
                     "4": "AVAIL_SAMPLES_MEAN",
-                    "5": "LAST_OBSERVED"
+                    "5": "LAST_OBSERVED",
+                    "6": "TIMEOUT_MEDIAN"
                   },
                   "type": "enum"
                 },
@@ -2253,7 +2258,8 @@
                     "2": "STABLE_WINDOW_MEAN",
                     "3": "LAST_FOUR_MEAN",
                     "4": "AVAIL_SAMPLES_MEAN",
-                    "5": "LAST_OBSERVED"
+                    "5": "LAST_OBSERVED",
+                    "6": "TIMEOUT_MEDIAN"
                   },
                   "type": "enum"
                 },
@@ -3442,7 +3448,8 @@
                     "2": "STABLE_WINDOW_MEAN",
                     "3": "LAST_FOUR_MEAN",
                     "4": "AVAIL_SAMPLES_MEAN",
-                    "5": "LAST_OBSERVED"
+                    "5": "LAST_OBSERVED",
+                    "6": "TIMEOUT_MEDIAN"
                   },
                   "type": "enum"
                 },
@@ -3656,7 +3663,8 @@
                     "2": "STABLE_WINDOW_MEAN",
                     "3": "LAST_FOUR_MEAN",
                     "4": "AVAIL_SAMPLES_MEAN",
-                    "5": "LAST_OBSERVED"
+                    "5": "LAST_OBSERVED",
+                    "6": "TIMEOUT_MEDIAN"
                   },
                   "type": "enum"
                 },
@@ -4257,6 +4265,869 @@
         }
       ]
     },
+    "deliveryIssueArchived": {
+      "eventType": "DELIVERY_ISSUE_ARCHIVED",
+      "outputData": [
+        {
+          "dataType": {
+            "specs": {
+              "1": "2"
+            },
+            "type": "enum"
+          },
+          "identifier": "schemaVersion",
+          "name": "schemaVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "eventUid",
+          "name": "eventUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "9007199254740991",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "edgeEventSequence",
+          "name": "edgeEventSequence"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "DELIV_ISSUE_ARCHIVED"
+            },
+            "type": "enum"
+          },
+          "identifier": "eventType",
+          "name": "eventType"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "RELIABLE_FACT"
+            },
+            "type": "enum"
+          },
+          "identifier": "deliveryClass",
+          "name": "deliveryClass"
+        },
+        {
+          "dataType": {
+            "specs": [
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "DELIVERY_SESSION"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "type",
+                "name": "type"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 64
+                  },
+                  "type": "string"
+                },
+                "identifier": "uid",
+                "name": "uid"
+              }
+            ],
+            "type": "struct"
+          },
+          "identifier": "target",
+          "name": "target"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "commandUid",
+          "name": "commandUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "occurredAtPresent",
+          "name": "occurredAtPresent"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 30
+            },
+            "type": "string"
+          },
+          "identifier": "occurredAt",
+          "name": "occurredAt"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "SYNCED",
+              "2": "ESTIMATED",
+              "3": "UNAVAILABLE"
+            },
+            "type": "enum"
+          },
+          "identifier": "clockQuality",
+          "name": "clockQuality"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "payloadSha256",
+          "name": "payloadSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "issueUid",
+          "name": "issueUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "sessionUid",
+          "name": "sessionUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "originalCommandUid",
+          "name": "originalCommandUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "originalCommandPayloadSha256",
+          "name": "originalCommandPayloadSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "6",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int32"
+          },
+          "identifier": "portNo",
+          "name": "portNo"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "9007199254740991",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "sourceMcuBootId",
+          "name": "sourceMcuBootId"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "9007199254740991",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "targetMcuBootId",
+          "name": "targetMcuBootId"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "MCU_RESTART_NO_FINAL"
+            },
+            "type": "enum"
+          },
+          "identifier": "reason",
+          "name": "reason"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "NONE"
+            },
+            "type": "enum"
+          },
+          "identifier": "businessValue",
+          "name": "businessValue"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "ABSENT"
+            },
+            "type": "enum"
+          },
+          "identifier": "finalResultAtArchive",
+          "name": "finalResultAtArchive"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "archiveEvidenceSha256",
+          "name": "archiveEvidenceSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "4294967295",
+              "min": "0",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "knownFactCount",
+          "name": "knownFactCount"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 484
+            },
+            "type": "string"
+          },
+          "identifier": "originalStartPayloadHex",
+          "name": "originalStartPayloadHex"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "BOOT_PROBE_REPLY",
+              "2": "BIND_BOOT_REPLY"
+            },
+            "type": "enum"
+          },
+          "identifier": "bootObservationType",
+          "name": "bootObservationType"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 50
+            },
+            "type": "string"
+          },
+          "identifier": "bootObservationPayloadHex",
+          "name": "bootObservationPayloadHex"
+        }
+      ],
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.issueUid",
+          "nullable": false,
+          "wireIdentifier": "issueUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sessionUid",
+          "nullable": false,
+          "wireIdentifier": "sessionUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.originalCommandUid",
+          "nullable": false,
+          "wireIdentifier": "originalCommandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.originalCommandPayloadSha256",
+          "nullable": false,
+          "wireIdentifier": "originalCommandPayloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.portNo",
+          "nullable": false,
+          "wireIdentifier": "portNo"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sourceMcuBootId",
+          "nullable": false,
+          "wireIdentifier": "sourceMcuBootId"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.targetMcuBootId",
+          "nullable": false,
+          "wireIdentifier": "targetMcuBootId"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.reason",
+          "nullable": false,
+          "wireIdentifier": "reason"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.businessValue",
+          "nullable": false,
+          "wireIdentifier": "businessValue"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.finalResultAtArchive",
+          "nullable": false,
+          "wireIdentifier": "finalResultAtArchive"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.archiveEvidenceSha256",
+          "nullable": false,
+          "wireIdentifier": "archiveEvidenceSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.knownFactCount",
+          "nullable": false,
+          "wireIdentifier": "knownFactCount"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.originalStartPayloadHex",
+          "nullable": false,
+          "wireIdentifier": "originalStartPayloadHex"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.bootObservationType",
+          "nullable": false,
+          "wireIdentifier": "bootObservationType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.bootObservationPayloadHex",
+          "nullable": false,
+          "wireIdentifier": "bootObservationPayloadHex"
+        }
+      ]
+    },
+    "deliveryIssueEvidenceAppended": {
+      "eventType": "DELIVERY_ISSUE_EVIDENCE_APPENDED",
+      "outputData": [
+        {
+          "dataType": {
+            "specs": {
+              "1": "2"
+            },
+            "type": "enum"
+          },
+          "identifier": "schemaVersion",
+          "name": "schemaVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "eventUid",
+          "name": "eventUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "9007199254740991",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "edgeEventSequence",
+          "name": "edgeEventSequence"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "DELIV_ISSUE_EVIDENCE"
+            },
+            "type": "enum"
+          },
+          "identifier": "eventType",
+          "name": "eventType"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "RELIABLE_FACT"
+            },
+            "type": "enum"
+          },
+          "identifier": "deliveryClass",
+          "name": "deliveryClass"
+        },
+        {
+          "dataType": {
+            "specs": [
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "DELIVERY_SESSION"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "type",
+                "name": "type"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 64
+                  },
+                  "type": "string"
+                },
+                "identifier": "uid",
+                "name": "uid"
+              }
+            ],
+            "type": "struct"
+          },
+          "identifier": "target",
+          "name": "target"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "commandUid",
+          "name": "commandUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "occurredAtPresent",
+          "name": "occurredAtPresent"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 30
+            },
+            "type": "string"
+          },
+          "identifier": "occurredAt",
+          "name": "occurredAt"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "SYNCED",
+              "2": "ESTIMATED",
+              "3": "UNAVAILABLE"
+            },
+            "type": "enum"
+          },
+          "identifier": "clockQuality",
+          "name": "clockQuality"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "payloadSha256",
+          "name": "payloadSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "issueUid",
+          "name": "issueUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "sessionUid",
+          "name": "sessionUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "originalCommandUid",
+          "name": "originalCommandUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "archiveEvidenceSha256",
+          "name": "archiveEvidenceSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "NONE"
+            },
+            "type": "enum"
+          },
+          "identifier": "businessValue",
+          "name": "businessValue"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "ARCHIVE_CONTEXT",
+              "2": "PROCESS_FACT",
+              "3": "FINAL_RESULT"
+            },
+            "type": "enum"
+          },
+          "identifier": "evidenceKind",
+          "name": "evidenceKind"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "4294967295",
+              "min": "0",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "evidenceIndex",
+          "name": "evidenceIndex"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "evidenceSha256",
+          "name": "evidenceSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "4294967295",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "evidenceSizeBytes",
+          "name": "evidenceSizeBytes"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "16777216",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int32"
+          },
+          "identifier": "partIndex",
+          "name": "partIndex"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "16777216",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int32"
+          },
+          "identifier": "partCount",
+          "name": "partCount"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 512
+            },
+            "type": "string"
+          },
+          "identifier": "dataHex",
+          "name": "dataHex"
+        }
+      ],
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.issueUid",
+          "nullable": false,
+          "wireIdentifier": "issueUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sessionUid",
+          "nullable": false,
+          "wireIdentifier": "sessionUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.originalCommandUid",
+          "nullable": false,
+          "wireIdentifier": "originalCommandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.archiveEvidenceSha256",
+          "nullable": false,
+          "wireIdentifier": "archiveEvidenceSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.businessValue",
+          "nullable": false,
+          "wireIdentifier": "businessValue"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.evidenceKind",
+          "nullable": false,
+          "wireIdentifier": "evidenceKind"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.evidenceIndex",
+          "nullable": false,
+          "wireIdentifier": "evidenceIndex"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.evidenceSha256",
+          "nullable": false,
+          "wireIdentifier": "evidenceSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.evidenceSizeBytes",
+          "nullable": false,
+          "wireIdentifier": "evidenceSizeBytes"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.partIndex",
+          "nullable": false,
+          "wireIdentifier": "partIndex"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.partCount",
+          "nullable": false,
+          "wireIdentifier": "partCount"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.dataHex",
+          "nullable": false,
+          "wireIdentifier": "dataHex"
+        }
+      ]
+    },
     "deliveryRecoveryQuarantined": {
       "eventType": "DELIVERY_RECOVERY_QUARANTINED",
       "outputData": [
@@ -4832,7 +5703,8 @@
                     "2": "STABLE_WINDOW_MEAN",
                     "3": "LAST_FOUR_MEAN",
                     "4": "AVAIL_SAMPLES_MEAN",
-                    "5": "LAST_OBSERVED"
+                    "5": "LAST_OBSERVED",
+                    "6": "TIMEOUT_MEDIAN"
                   },
                   "type": "enum"
                 },
@@ -5046,7 +5918,8 @@
                     "2": "STABLE_WINDOW_MEAN",
                     "3": "LAST_FOUR_MEAN",
                     "4": "AVAIL_SAMPLES_MEAN",
-                    "5": "LAST_OBSERVED"
+                    "5": "LAST_OBSERVED",
+                    "6": "TIMEOUT_MEDIAN"
                   },
                   "type": "enum"
                 },
@@ -7890,7 +8763,8 @@
                       "2": "STABLE_WINDOW_MEAN",
                       "3": "LAST_FOUR_MEAN",
                       "4": "AVAIL_SAMPLES_MEAN",
-                      "5": "LAST_OBSERVED"
+                      "5": "LAST_OBSERVED",
+                      "6": "TIMEOUT_MEDIAN"
                     },
                     "type": "enum"
                   },
@@ -10047,7 +10921,8 @@
                     "2": "STABLE_WINDOW_MEAN",
                     "3": "LAST_FOUR_MEAN",
                     "4": "AVAIL_SAMPLES_MEAN",
-                    "5": "LAST_OBSERVED"
+                    "5": "LAST_OBSERVED",
+                    "6": "TIMEOUT_MEDIAN"
                   },
                   "type": "enum"
                 },
@@ -10684,7 +11559,8 @@
                     "2": "STABLE_WINDOW_MEAN",
                     "3": "LAST_FOUR_MEAN",
                     "4": "AVAIL_SAMPLES_MEAN",
-                    "5": "LAST_OBSERVED"
+                    "5": "LAST_OBSERVED",
+                    "6": "TIMEOUT_MEDIAN"
                   },
                   "type": "enum"
                 },
@@ -13043,5 +13919,5 @@
     }
   },
   "generated": true,
-  "mappingVersion": "2.1.1"
+  "mappingVersion": "2.2.0"
 }

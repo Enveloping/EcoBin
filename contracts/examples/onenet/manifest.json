@@ -163,6 +163,14 @@
     {
       "file": "delivery-recovery-quarantined.event.json",
       "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "delivery-issue-archived.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "delivery-issue-evidence-appended.event.json",
+      "schema": "../../onenet/events/events.schema.json"
     }
   ],
   "generated": true

@@ -3,6 +3,8 @@ package org.enveloping.ecobin.device.application.software;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import tools.jackson.databind.JsonNode;
@@ -106,14 +108,15 @@ class DeviceSoftwareCompatibilityServiceTest {
                 .contains("业务程序正在更新");
     }
 
-    @Test
-    void terminalUpdateReassessesTheLatestFactAndRemovesItsTemporaryHold() {
+    @ParameterizedTest
+    @ValueSource(strings = {"SUCCEEDED", "LOCAL_CANCELLED"})
+    void terminalUpdateReassessesTheLatestFactAndRemovesItsTemporaryHold(String terminalStatus) {
         registerRelease();
         jdbc.update("""
                 INSERT INTO dev_edge_software_deployment (
                     asset_id, deployment_status
-                ) VALUES (1, 'OBSERVING')
-                """);
+                ) VALUES (1, ?)
+                """, "LOCAL_CANCELLED".equals(terminalStatus) ? "QUEUED" : "OBSERVING");
         apply(10, event(7, "OPEN"));
         assertThat(value("business_admission_status")).isEqualTo("PAUSED");
         assertThat(value("reasons_json"))
@@ -121,9 +124,9 @@ class DeviceSoftwareCompatibilityServiceTest {
 
         jdbc.update("""
                 UPDATE dev_edge_software_deployment
-                SET deployment_status = 'SUCCEEDED'
+                SET deployment_status = ?
                 WHERE asset_id = 1
-                """);
+                """, terminalStatus);
         service.reassessLatestFact(1, now().plusMinutes(30));
 
         assertThat(value("compatibility_status"))

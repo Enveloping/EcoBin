@@ -1,0 +1,411 @@
+{
+  "generatedFrom": "contracts/uart/uart-registry.yaml",
+  "implementationStage": "WORK_FULLNESS_CUSTODY_NOT_RUNNABLE",
+  "messages": {
+    "ACK": {
+      "maximumFrameLength": 36,
+      "maximumPayloadLength": 22,
+      "minimumPayloadLength": 22,
+      "remainingBytes": 220
+    },
+    "ACTUATOR_EVENT_QUERY_REPLY": {
+      "maximumFrameLength": 80,
+      "maximumPayloadLength": 66,
+      "minimumPayloadLength": 66,
+      "remainingBytes": 176
+    },
+    "ACTUATOR_EVENT_SAVED": {
+      "maximumFrameLength": 59,
+      "maximumPayloadLength": 45,
+      "minimumPayloadLength": 45,
+      "remainingBytes": 197
+    },
+    "ACTUATOR_EVENT_SAVED_REPLY": {
+      "maximumFrameLength": 68,
+      "maximumPayloadLength": 54,
+      "minimumPayloadLength": 54,
+      "remainingBytes": 188
+    },
+    "AUTHORIZE_DELIVERY_FIRST_OPEN": {
+      "maximumFrameLength": 127,
+      "maximumPayloadLength": 113,
+      "minimumPayloadLength": 113,
+      "remainingBytes": 129
+    },
+    "BASELINE_MEASUREMENT_RESULT": {
+      "maximumFrameLength": 109,
+      "maximumPayloadLength": 95,
+      "minimumPayloadLength": 95,
+      "remainingBytes": 147
+    },
+    "BIND_BOOT": {
+      "maximumFrameLength": 30,
+      "maximumPayloadLength": 16,
+      "minimumPayloadLength": 16,
+      "remainingBytes": 226
+    },
+    "BIND_BOOT_REPLY": {
+      "maximumFrameLength": 39,
+      "maximumPayloadLength": 25,
+      "minimumPayloadLength": 25,
+      "remainingBytes": 217
+    },
+    "BOOT_PROBE": {
+      "maximumFrameLength": 22,
+      "maximumPayloadLength": 8,
+      "minimumPayloadLength": 8,
+      "remainingBytes": 234
+    },
+    "BOOT_PROBE_REPLY": {
+      "maximumFrameLength": 30,
+      "maximumPayloadLength": 16,
+      "minimumPayloadLength": 16,
+      "remainingBytes": 226
+    },
+    "BOOT_RECONCILIATION_RESULT": {
+      "maximumFrameLength": 78,
+      "maximumPayloadLength": 64,
+      "minimumPayloadLength": 64,
+      "remainingBytes": 178
+    },
+    "CLEAN_COMPLETION_CONFIRMED": {
+      "maximumFrameLength": 97,
+      "maximumPayloadLength": 83,
+      "minimumPayloadLength": 83,
+      "remainingBytes": 159
+    },
+    "CLEAN_FINAL_WEIGHT_READY": {
+      "maximumFrameLength": 205,
+      "maximumPayloadLength": 191,
+      "minimumPayloadLength": 191,
+      "remainingBytes": 51
+    },
+    "CLEAN_FINISH_REQUESTED": {
+      "maximumFrameLength": 77,
+      "maximumPayloadLength": 63,
+      "minimumPayloadLength": 63,
+      "remainingBytes": 179
+    },
+    "CLEAN_LOCK_POWER_CHANGED": {
+      "maximumFrameLength": 69,
+      "maximumPayloadLength": 55,
+      "minimumPayloadLength": 55,
+      "remainingBytes": 187
+    },
+    "CLEAN_OPERATION_INTERRUPTED": {
+      "maximumFrameLength": 75,
+      "maximumPayloadLength": 61,
+      "minimumPayloadLength": 61,
+      "remainingBytes": 181
+    },
+    "CLEAN_UNLOCK_REQUESTED": {
+      "maximumFrameLength": 77,
+      "maximumPayloadLength": 63,
+      "minimumPayloadLength": 63,
+      "remainingBytes": 179
+    },
+    "COMMAND_DECISION": {
+      "maximumFrameLength": 85,
+      "maximumPayloadLength": 71,
+      "minimumPayloadLength": 71,
+      "remainingBytes": 171
+    },
+    "COMMAND_QUERY_RESULT": {
+      "maximumFrameLength": 97,
+      "maximumPayloadLength": 83,
+      "minimumPayloadLength": 83,
+      "remainingBytes": 159
+    },
+    "CONFIG_APPLY_RESULT": {
+      "maximumFrameLength": 141,
+      "maximumPayloadLength": 127,
+      "minimumPayloadLength": 127,
+      "remainingBytes": 115
+    },
+    "CONFIG_BEGIN": {
+      "maximumFrameLength": 165,
+      "maximumPayloadLength": 151,
+      "minimumPayloadLength": 151,
+      "remainingBytes": 91
+    },
+    "CONFIG_COMMIT": {
+      "maximumFrameLength": 164,
+      "maximumPayloadLength": 150,
+      "minimumPayloadLength": 150,
+      "remainingBytes": 92
+    },
+    "CONFIG_DEVICE_BLOCK": {
+      "maximumFrameLength": 197,
+      "maximumPayloadLength": 183,
+      "minimumPayloadLength": 183,
+      "remainingBytes": 59
+    },
+    "CONFIG_PORT_BLOCK": {
+      "maximumFrameLength": 221,
+      "maximumPayloadLength": 207,
+      "minimumPayloadLength": 207,
+      "remainingBytes": 35
+    },
+    "CONFIRM_NO_ACTIVE_WORK": {
+      "maximumFrameLength": 114,
+      "maximumPayloadLength": 100,
+      "minimumPayloadLength": 100,
+      "remainingBytes": 142
+    },
+    "DELIVERY_CYCLE_ABORTED": {
+      "maximumFrameLength": 75,
+      "maximumPayloadLength": 61,
+      "minimumPayloadLength": 61,
+      "remainingBytes": 181
+    },
+    "DELIVERY_DOOR_COMMAND_RESULT": {
+      "maximumFrameLength": 74,
+      "maximumPayloadLength": 60,
+      "minimumPayloadLength": 60,
+      "remainingBytes": 182
+    },
+    "DELIVERY_LOCAL_DOOR_RESULT": {
+      "maximumFrameLength": 78,
+      "maximumPayloadLength": 64,
+      "minimumPayloadLength": 64,
+      "remainingBytes": 178
+    },
+    "DELIVERY_POSTCLOSE_INTERRUPTED": {
+      "maximumFrameLength": 75,
+      "maximumPayloadLength": 61,
+      "minimumPayloadLength": 61,
+      "remainingBytes": 181
+    },
+    "DELIVERY_SELECTION": {
+      "maximumFrameLength": 94,
+      "maximumPayloadLength": 80,
+      "minimumPayloadLength": 80,
+      "remainingBytes": 162
+    },
+    "DEVICE_FACTS_REPLY": {
+      "maximumFrameLength": 240,
+      "maximumPayloadLength": 226,
+      "minimumPayloadLength": 226,
+      "remainingBytes": 16
+    },
+    "END_CLEAN_BEFORE_UNLOCK": {
+      "maximumFrameLength": 116,
+      "maximumPayloadLength": 102,
+      "minimumPayloadLength": 102,
+      "remainingBytes": 140
+    },
+    "FAULT_OBSERVED": {
+      "maximumFrameLength": 73,
+      "maximumPayloadLength": 59,
+      "minimumPayloadLength": 59,
+      "remainingBytes": 183
+    },
+    "FULLNESS_SAMPLE_RESULT": {
+      "maximumFrameLength": 120,
+      "maximumPayloadLength": 106,
+      "minimumPayloadLength": 106,
+      "remainingBytes": 136
+    },
+    "HELLO": {
+      "maximumFrameLength": 105,
+      "maximumPayloadLength": 91,
+      "minimumPayloadLength": 27,
+      "remainingBytes": 151
+    },
+    "HELLO_ACK": {
+      "maximumFrameLength": 46,
+      "maximumPayloadLength": 32,
+      "minimumPayloadLength": 32,
+      "remainingBytes": 210
+    },
+    "MEASURE_BASELINE": {
+      "maximumFrameLength": 139,
+      "maximumPayloadLength": 125,
+      "minimumPayloadLength": 125,
+      "remainingBytes": 117
+    },
+    "NACK": {
+      "maximumFrameLength": 37,
+      "maximumPayloadLength": 23,
+      "minimumPayloadLength": 23,
+      "remainingBytes": 219
+    },
+    "PROCESS_EVENT_QUERY_REPLY": {
+      "maximumFrameLength": 156,
+      "maximumPayloadLength": 142,
+      "minimumPayloadLength": 142,
+      "remainingBytes": 100
+    },
+    "PROCESS_EVENT_SAVED": {
+      "maximumFrameLength": 59,
+      "maximumPayloadLength": 45,
+      "minimumPayloadLength": 45,
+      "remainingBytes": 197
+    },
+    "PROCESS_EVENT_SAVED_REPLY": {
+      "maximumFrameLength": 68,
+      "maximumPayloadLength": 54,
+      "minimumPayloadLength": 54,
+      "remainingBytes": 188
+    },
+    "QUERY_ACTUATOR_EVENT": {
+      "maximumFrameLength": 34,
+      "maximumPayloadLength": 20,
+      "minimumPayloadLength": 20,
+      "remainingBytes": 222
+    },
+    "QUERY_COMMAND": {
+      "maximumFrameLength": 82,
+      "maximumPayloadLength": 68,
+      "minimumPayloadLength": 68,
+      "remainingBytes": 174
+    },
+    "QUERY_DEVICE_FACTS": {
+      "maximumFrameLength": 31,
+      "maximumPayloadLength": 17,
+      "minimumPayloadLength": 17,
+      "remainingBytes": 225
+    },
+    "QUERY_PROCESS_EVENT": {
+      "maximumFrameLength": 111,
+      "maximumPayloadLength": 97,
+      "minimumPayloadLength": 97,
+      "remainingBytes": 145
+    },
+    "QUERY_RESULT": {
+      "maximumFrameLength": 82,
+      "maximumPayloadLength": 68,
+      "minimumPayloadLength": 68,
+      "remainingBytes": 174
+    },
+    "QUERY_STATE": {
+      "maximumFrameLength": 90,
+      "maximumPayloadLength": 76,
+      "minimumPayloadLength": 76,
+      "remainingBytes": 166
+    },
+    "QUERY_WORK": {
+      "maximumFrameLength": 100,
+      "maximumPayloadLength": 86,
+      "minimumPayloadLength": 86,
+      "remainingBytes": 156
+    },
+    "RESULT_QUERY_REPLY": {
+      "maximumFrameLength": 91,
+      "maximumPayloadLength": 77,
+      "minimumPayloadLength": 77,
+      "remainingBytes": 165
+    },
+    "RESULT_SAVED": {
+      "maximumFrameLength": 74,
+      "maximumPayloadLength": 60,
+      "minimumPayloadLength": 60,
+      "remainingBytes": 182
+    },
+    "RESULT_SAVED_REPLY": {
+      "maximumFrameLength": 83,
+      "maximumPayloadLength": 69,
+      "minimumPayloadLength": 69,
+      "remainingBytes": 173
+    },
+    "RESUME_CLEAN_OPERATION": {
+      "maximumFrameLength": 137,
+      "maximumPayloadLength": 123,
+      "minimumPayloadLength": 123,
+      "remainingBytes": 119
+    },
+    "SAFETY_SENSOR_EVENT": {
+      "maximumFrameLength": 56,
+      "maximumPayloadLength": 42,
+      "minimumPayloadLength": 42,
+      "remainingBytes": 200
+    },
+    "SAFE_CLOSE": {
+      "maximumFrameLength": 80,
+      "maximumPayloadLength": 66,
+      "minimumPayloadLength": 66,
+      "remainingBytes": 176
+    },
+    "SAFE_CLOSE_RESULT": {
+      "maximumFrameLength": 57,
+      "maximumPayloadLength": 43,
+      "minimumPayloadLength": 43,
+      "remainingBytes": 199
+    },
+    "SAMPLE_FULLNESS": {
+      "maximumFrameLength": 144,
+      "maximumPayloadLength": 130,
+      "minimumPayloadLength": 130,
+      "remainingBytes": 112
+    },
+    "START_CLEAN_OPERATION": {
+      "maximumFrameLength": 139,
+      "maximumPayloadLength": 125,
+      "minimumPayloadLength": 125,
+      "remainingBytes": 117
+    },
+    "START_DELIVERY_SESSION": {
+      "maximumFrameLength": 151,
+      "maximumPayloadLength": 137,
+      "minimumPayloadLength": 137,
+      "remainingBytes": 105
+    },
+    "STATE_SNAPSHOT_BEGIN": {
+      "maximumFrameLength": 243,
+      "maximumPayloadLength": 229,
+      "minimumPayloadLength": 229,
+      "remainingBytes": 13
+    },
+    "STATE_SNAPSHOT_END": {
+      "maximumFrameLength": 110,
+      "maximumPayloadLength": 96,
+      "minimumPayloadLength": 96,
+      "remainingBytes": 146
+    },
+    "STATE_SNAPSHOT_PORT": {
+      "maximumFrameLength": 95,
+      "maximumPayloadLength": 81,
+      "minimumPayloadLength": 81,
+      "remainingBytes": 161
+    },
+    "UNLOCK_CLEAN_DOOR": {
+      "maximumFrameLength": 121,
+      "maximumPayloadLength": 107,
+      "minimumPayloadLength": 107,
+      "remainingBytes": 135
+    },
+    "WORK_POSTCLOSE_WEIGHT_READY": {
+      "maximumFrameLength": 221,
+      "maximumPayloadLength": 207,
+      "minimumPayloadLength": 207,
+      "remainingBytes": 35
+    },
+    "WORK_PREOPEN_WEIGHT_READY": {
+      "maximumFrameLength": 111,
+      "maximumPayloadLength": 97,
+      "minimumPayloadLength": 97,
+      "remainingBytes": 145
+    },
+    "WORK_PREUNLOCK_WEIGHT_READY": {
+      "maximumFrameLength": 109,
+      "maximumPayloadLength": 95,
+      "minimumPayloadLength": 95,
+      "remainingBytes": 147
+    },
+    "WORK_QUERY_REPLY": {
+      "maximumFrameLength": 146,
+      "maximumPayloadLength": 132,
+      "minimumPayloadLength": 132,
+      "remainingBytes": 110
+    },
+    "WORK_RESULT": {
+      "maximumFrameLength": 213,
+      "maximumPayloadLength": 199,
+      "minimumPayloadLength": 199,
+      "remainingBytes": 43
+    }
+  },
+  "notes": "仅当前已登记消息的单帧预算；不代表未来完整结果分段或 MCU RAM/栈预算已完成。",
+  "registrySha256": "a41d80dd9c349b847107a3afc7844580ac0c7a371920a78dfb22bf1506512e70",
+  "registryVersion": "2.0.0-rc.22"
+}

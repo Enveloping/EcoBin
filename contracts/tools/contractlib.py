@@ -18,6 +18,13 @@ import urllib.parse
 import uuid
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
+from result_contract import validate_result_fields
+from process_measurement_contract import validate_process_measurement_fields
+from process_handoff_contract import validate_process_handoff_fields
+from actuator_event_contract import validate_door_output_fields
+from actuator_handoff_contract import validate_actuator_handoff_fields
+from work_query_contract import validate_work_query_fields
+from device_facts_contract import validate_device_facts_fields
 
 
 CONTRACTS_ROOT = Path(__file__).resolve().parents[1]
@@ -695,8 +702,13 @@ def validate_uart_registry(
 
     specs = uart_message_specs(registry)
     maximum_payload = registry["protocol"]["maximumPayloadLength"]
-    no_ack = {"HELLO", "HELLO_ACK", "ACK", "NACK"}
+    if not registry["registryVersion"].startswith(str(registry["protocol"]["major"]) + "."):
+        raise ContractError("Registry version differs from protocol major")
+    no_ack = {"HELLO", "HELLO_ACK", "ACK", "NACK"} | set(
+        registry["sessionPolicy"]["bootstrapMessages"]
+    ) | set(registry["sessionPolicy"]["sessionControlMessages"])
     required_messages = {
+        "BOOT_PROBE", "BOOT_PROBE_REPLY", "BIND_BOOT", "BIND_BOOT_REPLY",
         "HELLO",
         "HELLO_ACK",
         "ACK",
@@ -759,6 +771,27 @@ def validate_uart_registry(
                     f"critical event {name} must be MCU_TO_EDGE and ACK_REQUIRED"
                 )
         names = [field["name"] for field in spec["fields"]]
+        if (
+            message["direction"] == "EDGE_TO_MCU"
+            and name not in registry["sessionPolicy"]["bootstrapMessages"]
+            and name not in registry["sessionPolicy"]["readOnlyMessages"]
+            and name not in registry["sessionPolicy"]["savedResultMessages"]
+        ):
+            identity = spec["fields"][:4]
+            if (
+                [field["name"] for field in identity] != [
+                    "mcuCommandUid", "commandDigestSha256",
+                    "targetMcuBootId", "commandSequence",
+                ]
+                or [field["type"] for field in identity] != ["uuid", "sha256", "u64", "u32"]
+                or identity[2].get("minimum") != 1
+                or identity[3].get("minimum") != 1
+            ):
+                raise ContractError(name + " must retain the fenced command identity")
+        if message.get("criticalEvent"):
+            boot = next((field for field in spec["fields"] if field["name"] == "mcuBootId"), {})
+            if boot.get("type") != "u64" or boot.get("minimum") != 1:
+                raise ContractError(name + " must use a nonzero boot identity")
         if len(set(names)) != len(names):
             raise ContractError(f"{name} contains duplicate expanded field names")
         by_field_name = {field["name"]: field for field in spec["fields"]}
@@ -925,12 +958,16 @@ def validate_uart_registry(
             )
 
     expected_domains = {
-        "commandDigestSha256": b"ECOBIN:UART:COMMAND:v1\0",
-        "mcuPayloadSha256": b"ECOBIN:UART:MCU-CONFIG:v1\0",
+        "resultDigestSha256": b"ECOBIN:UART:WORK-RESULT:v2\0",
+        "commandDigestSha256": b"ECOBIN:UART:COMMAND:v2\0",
+        "mcuPayloadSha256": b"ECOBIN:UART:MCU-CONFIG:v2\0",
         "snapshotSha256": b"ECOBIN:UART:SNAPSHOT:v1\0",
     }
     for profile_name, expected_domain in expected_domains.items():
         profile = registry["digestProfiles"][profile_name]
+        expected_layout = 1 if profile_name == "snapshotSha256" else 2
+        if profile["layoutVersion"] != expected_layout:
+            raise ContractError(f"{profile_name} has an unexpected layout version")
         if bytes.fromhex(profile["domainHex"]) != expected_domain:
             raise ContractError(f"{profile_name} has an unexpected domain separator")
         if not profile["preimage"] or not profile["ordering"]:
@@ -1290,6 +1327,21 @@ def validate_uart_payload_semantics(
 
     if "measurementStatus" in values:
         _validate_measurement_semantics(message_name, values)
+    validate_work_query_fields(registry, message_name, values, ContractError)
+    validate_device_facts_fields(registry, message_name, values, ContractError)
+    validate_process_measurement_fields(registry, message_name, values, ContractError)
+    validate_process_handoff_fields(registry, message_name, values, ContractError)
+    validate_actuator_handoff_fields(registry, message_name, values, ContractError)
+    validate_door_output_fields(registry, message_name, values, ContractError)
+    if message_name == "WORK_RESULT":
+        validate_result_fields(registry, values, ContractError)
+        actual = values["resultDigestSha256"]
+        if (actual.hex() if isinstance(actual, bytes) else actual) != compute_uart_result_digest(registry, values):
+            raise ContractError("WORK_RESULT digest mismatch")
+    if message_name == "RESULT_QUERY_REPLY":
+        status = _enum_wire_value(registry, {"name": "status", "enum": "ResultQueryStatus"}, values["status"])
+        if (status == registry["enums"]["ResultQueryStatus"]["values"]["BOOT_MISMATCH"]) != (values["currentMcuBootId"] != values["mcuBootId"]):
+            raise ContractError("result query status/boot mismatch")
     if message_name in {"STATE_SNAPSHOT_PORT", "CLEAN_COMPLETION_CONFIRMED"}:
         _validate_clean_manual_confirmation(message_name, values)
 
@@ -1325,58 +1377,59 @@ def validate_uart_payload_semantics(
     if message_name == "NACK" and values["errorCode"] == "NONE":
         raise ContractError("NACK cannot use errorCode NONE")
 
-    if message_name == "SAFE_CLOSE":
-        if values["scope"] == "ALL_DELIVERY_DOORS" and values["portNo"] != 0:
-            raise ContractError("SAFE_CLOSE ALL_DELIVERY_DOORS requires portNo=0")
-        if values["scope"] == "SINGLE_DELIVERY_DOOR" and values["portNo"] == 0:
-            raise ContractError("SAFE_CLOSE SINGLE_DELIVERY_DOOR requires a port")
-
-    if message_name in {"DELIVERY_DOOR_COMMAND_RESULT", "SAFE_CLOSE_RESULT"}:
-        if values["physicalDoorStateBasis"] != "NOT_OBSERVABLE":
-            raise ContractError(
-                f"{message_name}: delivery-door physical state is not observable"
-            )
-        if values["command"] == "NONE":
-            raise ContractError(f"{message_name}: command NONE is snapshot-only")
-        status = values["outputStatus"]
-        if status == "COMMAND_DISPATCHED":
-            if values["faultCode"] != "NONE":
-                raise ContractError(
-                    f"{message_name}: successful output result requires faultCode NONE"
-                )
-        elif status == "COALESCED_WITH_EXISTING_CLOSE":
-            if values["faultCode"] != "NONE":
-                raise ContractError(
-                    f"{message_name}: coalesced close requires faultCode NONE"
-                )
-        elif status == "COMMAND_SUPERSEDED_BEFORE_DISPATCH":
-            if values["faultCode"] != "NONE":
-                raise ContractError(
-                    f"{message_name}: superseded command requires faultCode NONE"
-                )
-        elif status == "OUTPUT_REJECTED":
-            if values["faultCode"] not in {
-                "DELIVERY_DOOR_OUTPUT_REJECTED",
-                "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
-            }:
-                raise ContractError(
-                    f"{message_name}: rejected output has the wrong fault"
-                )
-        elif status == "NOT_DISPATCHED":
-            raise ContractError(
-                f"{message_name}: NOT_DISPATCHED is reserved for snapshots"
-            )
+    if message_name == "BIND_BOOT_REPLY":
+        status = _enum_wire_value(
+            registry, {"name": "status", "enum": "BootBindStatus"}, values["status"]
+        )
+        statuses = registry["enums"]["BootBindStatus"]["values"]
+        boot = values["mcuBootId"]
         if (
-            message_name == "SAFE_CLOSE_RESULT"
-            and values["command"] != "CLOSE"
+            (status == statuses["BOUND"] and boot != values["proposedMcuBootId"])
+            or (status == statuses["PROBE_MISMATCH"] and boot != 0)
+            or (status == statuses["ALREADY_BOUND"] and boot == 0)
         ):
-            raise ContractError("SAFE_CLOSE_RESULT must report a CLOSE command")
+            raise ContractError("BIND_BOOT_REPLY status/identity mismatch")
+
+    if message_name == "RESULT_SAVED_REPLY":
+        status = _enum_wire_value(registry, {"name": "status", "enum": "ResultSavedStatus"}, values["status"])
+        mismatch = values["currentMcuBootId"] != values["mcuBootId"]
+        if (status == registry["enums"]["ResultSavedStatus"]["values"]["BOOT_MISMATCH"]) != mismatch:
+            raise ContractError("saved reply status/current boot mismatch")
+
+    if message_name in {"COMMAND_DECISION", "COMMAND_QUERY_RESULT"}:
+        outcome = _enum_wire_value(registry, {"name": "outcome", "enum": "CommandOutcome"}, values["outcome"])
+        error = _enum_wire_value(registry, {"name": "errorCode", "enum": "NackError"}, values["errorCode"])
+        outcomes = registry["enums"]["CommandOutcome"]["values"]
+        mismatch = values["currentMcuBootId"] != values["targetMcuBootId"]
+        if ((outcome == outcomes["BOOT_MISMATCH"]) != mismatch
+                or (outcome == outcomes["REJECTED"]) != (error != 0)
+                or (message_name == "COMMAND_DECISION" and outcome == outcomes["NOT_SEEN"])):
+            raise ContractError("COMMAND_DECISION outcome/identity mismatch")
+        if message_name == "COMMAND_QUERY_RESULT":
+            high_water = values["highestCommandSequence"]
+            sequence = values["commandSequence"]
+            if values["currentMcuBootId"] == 0 and high_water != 0:
+                raise ContractError("unassigned MCU cannot have a command high-water mark")
+            if not mismatch and (
+                (outcome == outcomes["NOT_SEEN"] and sequence <= high_water)
+                or (outcome == outcomes["OLD_DETAILS_UNAVAILABLE"] and sequence > high_water)
+                or (outcome in (outcomes["ACCEPTED"], outcomes["REJECTED"], outcomes["IDENTITY_CONFLICT"])
+                    and sequence != high_water)
+            ):
+                raise ContractError("command query outcome/high-water mismatch")
+
+    if message_name == "SAFE_CLOSE":
+        scope = _enum_wire_value(registry, {"name": "scope", "enum": "SafeCloseScope"}, values["scope"])
+        if (scope == registry["enums"]["SafeCloseScope"]["values"]["ALL_DELIVERY_DOORS"]) != (values["portNo"] == 0):
+            raise ContractError("SAFE_CLOSE scope differs from portNo")
 
     if message_name == "CONFIG_BEGIN":
         if values["partCount"] != values["expectedPortCount"] + 3:
             raise ContractError("CONFIG_BEGIN partCount must equal expectedPortCount+3")
 
     if message_name == "CONFIG_PORT_BLOCK":
+        if values["partIndex"] >= values["partCount"]:
+            raise ContractError("CONFIG_PORT_BLOCK cannot occupy the COMMIT slot or exceed the set")
         if values["partIndex"] != values["portNo"] + 2:
             raise ContractError("CONFIG_PORT_BLOCK partIndex must equal portNo+2")
         if values["weightMinimumGrams"] >= values["weightMaximumGrams"]:
@@ -1428,15 +1481,16 @@ def validate_uart_payload_semantics(
             raise ContractError("FAULT_OBSERVED faultCode differs from component")
 
     if message_name in {"FULLNESS_SAMPLE_RESULT", "STATE_SNAPSHOT_PORT"}:
-        basis = values["fullnessSampleBasis"]
+        basis = _enum_wire_value(registry, {"name": "fullnessSampleBasis", "enum": "FullnessSampleBasis"}, values["fullnessSampleBasis"])
+        sensor_value = _enum_wire_value(registry, {"name": "fullnessSensorValue", "enum": "FullnessSensorValue"}, values["fullnessSensorValue"])
         distance_present = values["representativeDistancePresent"]
-        if basis == "MEASURED_MEDIAN":
+        if basis == registry["enums"]["FullnessSampleBasis"]["values"]["MEASURED_MEDIAN"]:
             if not distance_present:
                 raise ContractError(
                     f"{message_name}: measured fullness requires representative distance"
                 )
         elif (
-            values["fullnessSensorValue"] != "CLEAR"
+            sensor_value != registry["enums"]["FullnessSensorValue"]["values"]["CLEAR"]
             or distance_present
         ):
             raise ContractError(
@@ -1635,13 +1689,48 @@ def validate_uart_payload_semantics(
                 "cleaner confirmation"
             )
 
-    if verify_command_digest and "commandDigestSha256" in values:
+    if (verify_command_digest and message["direction"] == "EDGE_TO_MCU"
+            and message_name not in registry["sessionPolicy"]["readOnlyMessages"]
+            and "commandDigestSha256" in values):
         expected = compute_uart_command_digest(registry, message_name, values)
         actual = values["commandDigestSha256"]
         if isinstance(actual, bytes):
             actual = actual.hex()
         if actual != expected:
             raise ContractError(f"{message_name}: commandDigestSha256 mismatch")
+
+
+def uart_process_event_digest_preimage(registry, message_name, payload):
+    if message_name not in registry["sessionPolicy"]["processEventMessages"] or not isinstance(payload, bytes):
+        raise ContractError("digest requires registered process event bytes")
+    decode_uart_payload(registry, message_name, payload)
+    domain = bytes.fromhex(registry["digestProfiles"]["eventDigestSha256"]["domainHex"])
+    message = next(item for item in registry["messages"] if item["name"] == message_name)
+    return domain + bytes([message["id"]]) + len(payload).to_bytes(2, "big") + payload
+
+
+def compute_uart_process_event_digest(registry, message_name, payload):
+    return hashlib.sha256(uart_process_event_digest_preimage(registry, message_name, payload)).hexdigest()
+
+
+def uart_actuator_event_digest_preimage(registry, message_name, payload):
+    if message_name not in registry["sessionPolicy"]["actuatorEventMessages"] or not isinstance(payload, bytes):
+        raise ContractError("digest requires registered actuator event bytes")
+    decode_uart_payload(registry, message_name, payload)
+    domain = bytes.fromhex(registry["digestProfiles"]["actuatorEventDigestSha256"]["domainHex"])
+    message = next(item for item in registry["messages"] if item["name"] == message_name)
+    return domain + bytes([message["id"]]) + len(payload).to_bytes(2, "big") + payload
+
+
+def compute_uart_result_digest(registry, values):
+    return hashlib.sha256(uart_result_digest_preimage(registry, values)).hexdigest()
+
+
+def uart_result_digest_preimage(registry, values):
+    payload = encode_uart_payload(registry, "WORK_RESULT", values, validate_semantics=False)
+    profile = registry["digestProfiles"]["resultDigestSha256"]
+    message = next(item for item in registry["messages"] if item["name"] == "WORK_RESULT")
+    return bytes.fromhex(profile["domainHex"]) + bytes([message["id"]]) + len(payload).to_bytes(2, "big") + payload[:28] + payload[60:]
 
 
 def encode_uart_payload(
@@ -1821,6 +1910,18 @@ def encode_uart_frame(
     return bytes.fromhex(protocol["magicHex"]) + body + struct.pack(">H", crc)
 
 
+def uart_fenced_command_names(registry: Mapping[str, Any]) -> tuple[str, ...]:
+    """All EDGE commands required to carry the fenced identity by Registry validation.
+
+    Includes configuration/control, not only the category named COMMAND. This
+    classifies payload validation, not permissions or mechanical side effects.
+    """
+    policy = registry["sessionPolicy"]
+    excluded = set(policy["bootstrapMessages"]) | set(policy["readOnlyMessages"]) | set(policy["savedResultMessages"])
+    return tuple(message["name"] for message in registry["messages"]
+                 if message["direction"] == "EDGE_TO_MCU" and message["name"] not in excluded)
+
+
 def decode_uart_frame(
     registry: Mapping[str, Any],
     frame: bytes,
@@ -1867,6 +1968,15 @@ def decode_uart_frame(
             if message["direction"] not in {"BIDIRECTIONAL", allowed_direction}:
                 raise ContractError("message direction differs from the sender role")
     payload = frame[12:-2]
+    policy = registry.get("sessionPolicy", {})
+    bootstrap = message_name in policy.get("bootstrapMessages", [])
+    command = message_name in uart_fenced_command_names(registry)
+    if bootstrap or command or message_name in policy.get("sessionControlMessages", []) + policy.get("processEventMessages", []) + policy.get("actuatorEventMessages", []):
+        try:
+            decode_uart_payload(registry, message_name, payload)
+        except ContractError as error:
+            kind = "bootstrap" if bootstrap else "command" if command else "session"
+            raise ContractError("invalid " + kind + " payload") from error
     return {
         "protocolMajor": major,
         "protocolMinor": minor,
@@ -1881,7 +1991,7 @@ def decode_uart_frame(
 
 
 class UartStreamParser:
-    """Bounded UART 1.0 stream parser shared by tests and generated codecs."""
+    """Bounded candidate UART stream parser shared by tests and generated codecs."""
 
     def __init__(
         self,
@@ -1909,14 +2019,24 @@ class UartStreamParser:
     def feed(self, data: bytes, *, now_ms: int) -> list[dict[str, Any]]:
         if isinstance(now_ms, bool) or not isinstance(now_ms, int) or now_ms < 0:
             raise ContractError("now_ms must be a non-negative integer")
-        self._buffer.extend(data)
         limit = self._registry["streamParser"]["inputBufferLimit"]
-        if len(self._buffer) > limit:
-            overflow = len(self._buffer) - limit
-            del self._buffer[:overflow]
-            self._candidate_started_ms = None
-            self.diagnostics.append("BUFFER_OVERFLOW")
+        view = memoryview(data)
+        offset = 0
+        frames: list[dict[str, Any]] = []
+        while True:
+            available = limit - len(self._buffer)
+            # A drained partial frame is shorter than maximumFrameLength (256),
+            # so a valid registry's 512-byte buffer always has room here.
+            if available <= 0:
+                raise ContractError("stream buffer did not drain")
+            take = min(available, len(view) - offset)
+            self._buffer.extend(view[offset:offset + take])
+            offset += take
+            frames.extend(self._drain(now_ms))
+            if offset == len(view):
+                return frames
 
+    def _drain(self, now_ms: int) -> list[dict[str, Any]]:
         magic = bytes.fromhex(self._registry["protocol"]["magicHex"])
         maximum_payload = self._registry["protocol"]["maximumPayloadLength"]
         deadline = self._registry["streamParser"]["frameAssemblyDeadlineMs"]

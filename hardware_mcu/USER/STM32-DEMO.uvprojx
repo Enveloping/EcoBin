@@ -391,6 +391,36 @@
           <GroupName>USER</GroupName>
           <Files>
             <File>
+              <FileName>scale_reader.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\scale_reader.c</FilePath>
+            </File>
+            <File>
+              <FileName>weight_measurement.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\weight_measurement.c</FilePath>
+            </File>
+            <File>
+              <FileName>runtime_clock.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\runtime_clock.c</FilePath>
+            </File>
+            <File>
+              <FileName>door_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\door_control.c</FilePath>
+            </File>
+            <File>
+              <FileName>clean_lock.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\clean_lock.c</FilePath>
+            </File>
+            <File>
+              <FileName>actuator_runtime.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\actuator_runtime.c</FilePath>
+            </File>
+            <File>
               <FileName>main.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\main.c</FilePath>

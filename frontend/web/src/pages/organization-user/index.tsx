@@ -581,10 +581,7 @@ export default function OrganizationUserPage() {
 
   return (
     <PageContainer
-      {...pageHeader(
-        '机构用户',
-        '用户启用、禁用和清运资格调整均使用服务端版本校验。',
-      )}
+      {...pageHeader('机构用户')}
     >
       <DirectoryScopeBar scope={scope} />
       {!scope.context && !scope.loading ? (

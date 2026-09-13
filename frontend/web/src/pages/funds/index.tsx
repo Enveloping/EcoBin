@@ -332,7 +332,7 @@ export default function FundsPage() {
               </Card>
             )}
 
-            <Card title="机构充值记录" extra={<Typography.Text type="secondary">手续费按 0.6% 向上取整到分</Typography.Text>}>
+            <Card title="机构充值记录">
               <Table<RechargeOrder>
                 rowKey="rechargeNo"
                 pagination={false}
@@ -354,7 +354,7 @@ export default function FundsPage() {
   })();
 
   return (
-    <PageContainer {...pageHeader('机构资金', '机构钱包、充值、提现额度与微信渠道就绪事实')}>
+    <PageContainer {...pageHeader('机构资金')}>
       <DirectoryScopeBar scope={directory} />
       {directory.platform && gateError && (
         <Alert
@@ -394,8 +394,8 @@ export default function FundsPage() {
           style={{ marginBottom: 18 }}
           type="warning"
           showIcon
-          message="此操作不会增加任何机构额度"
-          description="系统只会打开公司公共出款闸门，并唤醒原提现任务；每笔任务仍会复用原微信单号并重新核验当前状态。"
+          message="确认恢复平台出款？"
+          description="请先补足公司微信运营账户余额。恢复后，原提现任务会继续处理，机构额度保持不变。"
         />
         <Form
           form={restoreForm}

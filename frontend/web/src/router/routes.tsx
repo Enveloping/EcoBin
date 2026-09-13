@@ -48,6 +48,7 @@ const BagLabelsPage = lazy(() => import('@/pages/bag-labels'));
 const DeliveryOrdersPage = lazy(
   () => import('@/pages/delivery-orders'),
 );
+const DeviceConfigurationPage = lazy(() => import('@/pages/device-configuration'));
 const DeliveryConfigurationPage = lazy(
   () => import('@/pages/delivery-configuration'),
 );
@@ -71,6 +72,7 @@ export interface AppRoute {
   name?: string;
   icon?: ReactNode;
   element: ReactNode;
+  tenantCapability?: string;
   allOf?: string[];
   anyOf?: string[];
   accountTypes?: WebAccountType[];
@@ -224,6 +226,22 @@ export const appRoutes: AppRoute[] = [
     anyOf: ['delivery.read', 'review.execute'],
   },
   {
+    path: '/configurations/device',
+    name: '设备配置',
+    icon: <SlidersOutlined />,
+    element: <DeviceConfigurationPage />,
+    anyOf: ['device.manage', 'device.configuration.manage'],
+    tenantCapability: 'device.configuration.manage',
+    accountTypes: ALL_WEB_ACCOUNTS,
+  },
+  {
+    path: '/configurations/fullness',
+    element: <Navigate to="/configurations/device" replace />,
+    anyOf: ['device.manage', 'device.configuration.manage'],
+    tenantCapability: 'device.configuration.manage',
+    accountTypes: ALL_WEB_ACCOUNTS,
+  },
+  {
     path: '/configurations/delivery',
     name: '投递审核规则',
     icon: <SlidersOutlined />,
@@ -293,7 +311,7 @@ export const appRoutes: AppRoute[] = [
 
 export function canAccessRoute(
   session: LoginResponse | null,
-  route: Pick<AppRoute, 'allOf' | 'anyOf' | 'accountTypes'>,
+  route: Pick<AppRoute, 'allOf' | 'anyOf' | 'accountTypes' | 'tenantCapability'>,
 ): boolean {
   return hasRouteAccess(session, route);
 }
@@ -421,18 +439,6 @@ export function menuRoutesFor(
     const deliveryRoutes: AppMenuRoute[] = [];
     deliveryRoutes.push(
       leaf(delivery, delivery.path, delivery.name ?? '', false),
-      {
-        path: '/menu/deliveries/rejected',
-        name: '已拒绝订单',
-        disabled: true,
-        tooltip: '目标投递契约没有“拒绝”终态',
-      },
-      {
-        path: '/menu/deliveries/corrected',
-        name: '已纠正订单',
-        disabled: true,
-        tooltip: '目标契约尚未提供仅看纠正订单的列表筛选',
-      },
     );
     menu.push({
       path: '/menu/deliveries',
@@ -482,12 +488,13 @@ export function menuRoutesFor(
     session,
     '/configurations/withdrawal',
   );
-  if (deliveryConfiguration || withdrawalConfiguration) {
+  const deviceConfiguration = visibleRoute(session, '/configurations/device');
+  if (deliveryConfiguration || withdrawalConfiguration || deviceConfiguration) {
     menu.push({
       path: '/menu/configurations',
       name: '配置管理',
       icon: <SlidersOutlined />,
-      routes: [deliveryConfiguration, withdrawalConfiguration]
+      routes: [deliveryConfiguration, withdrawalConfiguration, deviceConfiguration]
         .filter((route): route is AppRoute => !!route)
         .map((route) => leaf(
           route,

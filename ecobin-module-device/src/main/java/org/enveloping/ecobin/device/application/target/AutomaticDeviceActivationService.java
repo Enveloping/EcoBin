@@ -113,6 +113,7 @@ public class AutomaticDeviceActivationService {
                          AND previous.device_config_version_id =
                              snapshot.config_version_id
                          AND previous.initiator_kind = 'SYSTEM'
+                         AND (previous.fault_code IS NULL OR previous.fault_code NOT IN ('DEVICE_DISABLED', 'DEVICE_RETIRED'))
                    ) AS system_attempts,
                    (
                        SELECT MAX(previous.completed_at)
@@ -457,9 +458,10 @@ public class AutomaticDeviceActivationService {
                         asset.portCount());
         RuntimeSnapshotPolicyProvider.Policy runtimePolicy =
                 runtimeSnapshotPolicyProvider.current();
+        DevicePolicyProvider.Policy devicePolicy = new DevicePolicyProvider(jdbc).current(asset.tenantId());
         DeviceConfigurationCanonicalizer.NormalizedConfiguration normalized =
                 canonicalizer.normalize(
-                        request,
+                        devicePolicy.apply(request),
                         asset.portCount(),
                         runtimePolicy.fallbackIntervalMs(),
                         RuntimeSnapshotPolicyProvider.FIXED_MISS_THRESHOLD);
@@ -474,6 +476,7 @@ public class AutomaticDeviceActivationService {
                     edge_heartbeat_interval_ms,
                     edge_heartbeat_miss_threshold,
                     runtime_snapshot_policy_version_no,
+                    device_default_policy_version_no, tenant_device_policy_version_no,
                     mcu_heartbeat_interval_ms,
                     mcu_heartbeat_miss_threshold,
                     door_close_retry_limit,
@@ -490,7 +493,7 @@ public class AutomaticDeviceActivationService {
                     published_at, created_at
                 ) VALUES (
                     ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, 'SYSTEM', NULL, ?, ?
                 )
                 """,
@@ -502,6 +505,7 @@ public class AutomaticDeviceActivationService {
                 normalized.device().edgeHeartbeatIntervalMs(),
                 normalized.device().edgeHeartbeatMissThreshold(),
                 runtimePolicy.version(),
+                devicePolicy.defaultVersion(), devicePolicy.tenantVersion(),
                 normalized.device().mcuHeartbeatIntervalMs(),
                 normalized.device().mcuHeartbeatMissThreshold(),
                 normalized.device().doorCloseRetryLimit(),

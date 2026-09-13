@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.operations.application.reliability;
 
 import org.enveloping.ecobin.device.api.port.FactorySealDispatchAuthorizationPort;
+import org.enveloping.ecobin.device.api.port.UnsentUpgradeAuthorizationPort;
 import org.enveloping.ecobin.device.api.result.FactorySealDispatchDecision;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository.DeviceTaskExecution;
@@ -21,6 +22,53 @@ import static org.mockito.Mockito.when;
 class ReliableDeviceCommandAttemptServiceTest {
 
     @Test
+    void deviceDisabledAfterClaimCannotCrossTheExternalCallBoundary() {
+        var repository = mock(ReliableOperationsJdbcRepository.class);
+        var claim = claim("ENSURE_DEVICE_CONFIGURATION");
+        var now = LocalDateTime.of(2026, 9, 12, 12, 0);
+        when(repository.databaseNow()).thenReturn(now);
+        when(repository.lockDeviceTaskExecution(claim.taskUid(), claim.commandUid(), claim.attemptUid()))
+                .thenReturn(execution(claim));
+        when(repository.lockDeviceWorkAllowed(anyLong(), any())).thenReturn(false);
+        when(repository.shouldPauseDisabledTask(anyLong(), any())).thenReturn(true);
+        var service = new ReliableDeviceCommandAttemptService(repository, mock(FactorySealDispatchAuthorizationPort.class), mock(UnsentUpgradeAuthorizationPort.class));
+        assertThat(service.prepareExternalCall(claim)).isEqualTo(
+                ReliableDeviceCommandAttemptService.DispatchPreparation.NO_SUBMISSION);
+        verify(repository).releaseForDispatchWait(61L, "DEVICE_DISABLED", now);
+        verify(repository, never()).markExternalCallMayHaveStarted(any(), any(), any());
+    }
+
+    @Test
+    void replacedExpiredUpgradeCannotCrossTheExternalCallBoundary() {
+        var repository = mock(ReliableOperationsJdbcRepository.class);
+        var authorization = mock(UnsentUpgradeAuthorizationPort.class);
+        var claim = claim("START_MCU_FIRMWARE_UPDATE");
+        when(repository.lockDeviceTaskExecution(claim.taskUid(), claim.commandUid(), claim.attemptUid()))
+                .thenReturn(execution(claim));
+        when(repository.lockDeviceWorkAllowed(anyLong(), any())).thenReturn(true);
+        when(authorization.refreshBeforeDispatch(claim.hardwareSn(), claim.taskUid())).thenReturn(true);
+        var service = new ReliableDeviceCommandAttemptService(repository,
+                mock(FactorySealDispatchAuthorizationPort.class), authorization);
+        assertThat(service.prepareExternalCall(claim)).isEqualTo(
+                ReliableDeviceCommandAttemptService.DispatchPreparation.NO_SUBMISSION);
+        verify(repository, never()).markExternalCallMayHaveStarted(any(), any(), any());
+    }
+
+    @Test
+    void cancelledClaimCannotBeDispatchedAfterDeviceHasBeenRestored() {
+        var repository = mock(ReliableOperationsJdbcRepository.class);
+        var claim = claim("ENSURE_DEVICE_CONFIGURATION");
+        when(repository.lockDeviceWorkAllowed(anyLong(), any())).thenReturn(true);
+        when(repository.lockDeviceTaskExecution(claim.taskUid(), claim.commandUid(), claim.attemptUid()))
+                .thenReturn(new DeviceTaskExecution(61L, "CANCELLED", null, null,
+                        3L, 3L, 0, 1000, 1, 71L, claim.leaseToken(), claim.claimedWakeVersion(), null));
+        var service = new ReliableDeviceCommandAttemptService(repository, mock(FactorySealDispatchAuthorizationPort.class), mock(UnsentUpgradeAuthorizationPort.class));
+        assertThat(service.prepareExternalCall(claim)).isEqualTo(
+                ReliableDeviceCommandAttemptService.DispatchPreparation.NO_SUBMISSION);
+        verify(repository, never()).markExternalCallMayHaveStarted(any(), any(), any());
+    }
+
+    @Test
     void staleSealSnapshotIsCancelledBeforeTheExternalMarker() {
         ReliableOperationsJdbcRepository repository =
                 mock(ReliableOperationsJdbcRepository.class);
@@ -29,6 +77,9 @@ class ReliableDeviceCommandAttemptServiceTest {
         ClaimedDeviceCommandTask claim = claim("AUTHORIZE_FACTORY_SEAL");
         LocalDateTime now = LocalDateTime.of(2026, 8, 22, 15, 5);
         when(repository.databaseNow()).thenReturn(now);
+        when(repository.lockDeviceWorkAllowed(anyLong(), any())).thenReturn(true);
+        when(repository.lockDeviceTaskExecution(claim.taskUid(), claim.commandUid(), claim.attemptUid()))
+                .thenReturn(execution(claim));
         when(authorization.authorizeDispatch(
                 claim.taskUid(),
                 claim.commandUid(),
@@ -42,7 +93,7 @@ class ReliableDeviceCommandAttemptServiceTest {
                 claim.attemptUid())).thenReturn(execution(claim));
         ReliableDeviceCommandAttemptService service =
                 new ReliableDeviceCommandAttemptService(
-                        repository, authorization);
+                        repository, authorization, mock(UnsentUpgradeAuthorizationPort.class));
 
         assertThat(service.prepareExternalCall(claim)).isEqualTo(
                 ReliableDeviceCommandAttemptService.DispatchPreparation
@@ -75,6 +126,9 @@ class ReliableDeviceCommandAttemptServiceTest {
         ClaimedDeviceCommandTask claim = claim("AUTHORIZE_FACTORY_SEAL");
         LocalDateTime now = LocalDateTime.of(2026, 8, 22, 15, 6);
         when(repository.databaseNow()).thenReturn(now);
+        when(repository.lockDeviceWorkAllowed(anyLong(), any())).thenReturn(true);
+        when(repository.lockDeviceTaskExecution(claim.taskUid(), claim.commandUid(), claim.attemptUid()))
+                .thenReturn(execution(claim));
         when(authorization.authorizeDispatch(
                 claim.taskUid(),
                 claim.commandUid(),
@@ -84,7 +138,7 @@ class ReliableDeviceCommandAttemptServiceTest {
                 null));
         ReliableDeviceCommandAttemptService service =
                 new ReliableDeviceCommandAttemptService(
-                        repository, authorization);
+                        repository, authorization, mock(UnsentUpgradeAuthorizationPort.class));
 
         assertThat(service.prepareExternalCall(claim)).isEqualTo(
                 ReliableDeviceCommandAttemptService.DispatchPreparation

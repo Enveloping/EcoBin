@@ -1,3 +1,4 @@
+import HelpTip from '@/components/HelpTip';
 import { useRef, useState } from 'react';
 import { DeleteOutlined, KeyOutlined, PlusOutlined } from '@ant-design/icons';
 import {
@@ -222,6 +223,7 @@ export default function PlatformAdministratorsPage() {
           return [
             <span key='protected' style={{ color: palette.textSecondary }}>
               受保护账号
+              <HelpTip label='受保护账号'>默认管理员不能被停用、删除或重置密码；本人可在账号设置中修改密码。</HelpTip>
             </span>,
           ];
         }
@@ -259,10 +261,7 @@ export default function PlatformAdministratorsPage() {
 
   return (
     <PageContainer
-      {...pageHeader(
-        '平台管理员',
-        '仅默认平台管理员可治理其他管理员；普通管理员只能修改自己的密码。',
-      )}
+      {...pageHeader('平台管理员')}
     >
       <ProTable<PlatformAdmin>
         {...proTableConfig}

@@ -29,6 +29,9 @@ from local_control import (
     LocalControlServer,
 )
 from updater_store import UpdaterStore, UpdaterStoreError
+from job_safety import NATIVE_RECOVERY_CLOSE_REQUEST_FIELDS, NATIVE_RECOVERY_CLOSE_RETIRE_FIELDS
+from job_safety import NATIVE_RECOVERY_CLOSE_SUCCESSOR_REQUEST_FIELDS, NATIVE_RECOVERY_CLOSE_SUCCESSOR_RETIRE_FIELDS
+from job_safety import NATIVE_RECOVERY_CLOSE_ISOLATE_FIELDS, NATIVE_RECOVERY_CLOSE_SUCCESSOR_ISOLATE_FIELDS
 from onenet_wire import decode_service_command, validate_command_envelope
 
 
@@ -52,6 +55,16 @@ DISABLED_UPDATE_ACTIONS = frozenset(
 )
 
 JOB_ACTION_FIELDS = {
+    "ISOLATE_NATIVE_RECOVERY_CLOSE_AFTER_REBOOT": NATIVE_RECOVERY_CLOSE_ISOLATE_FIELDS,
+    "ISOLATE_NATIVE_RECOVERY_CLOSE_SUCCESSOR_AFTER_REBOOT": NATIVE_RECOVERY_CLOSE_SUCCESSOR_ISOLATE_FIELDS,
+    "WITHDRAW_NATIVE_RECOVERY_CLOSE_DISPATCH": NATIVE_RECOVERY_CLOSE_RETIRE_FIELDS,
+    "WITHDRAW_NATIVE_RECOVERY_CLOSE_SUCCESSOR_DISPATCH": NATIVE_RECOVERY_CLOSE_SUCCESSOR_RETIRE_FIELDS,
+    "GET_NATIVE_RECOVERY_CLOSE_DISPOSITION": frozenset({"actionUid"}),
+    "RETIRE_NATIVE_RECOVERY_CLOSE": NATIVE_RECOVERY_CLOSE_RETIRE_FIELDS,
+    "PREPARE_NATIVE_RECOVERY_CLOSE": NATIVE_RECOVERY_CLOSE_REQUEST_FIELDS,
+    "PREPARE_NATIVE_RECOVERY_CLOSE_SUCCESSOR": NATIVE_RECOVERY_CLOSE_SUCCESSOR_REQUEST_FIELDS,
+    "RETIRE_NATIVE_RECOVERY_CLOSE_SUCCESSOR": NATIVE_RECOVERY_CLOSE_SUCCESSOR_RETIRE_FIELDS,
+    "GET_NATIVE_RECOVERY_CLOSE": frozenset({"actionUid"}),
     "REQUEST_JOB_PERMIT": frozenset(
         {
             "permitUid",
@@ -300,6 +313,36 @@ class UpdaterControlHandler:
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         return self._store_call(self.store.prepare_physical_action, payload)
+
+    def prepare_native_recovery_close(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.prepare_native_recovery_close, payload)
+
+    def get_native_recovery_close(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.get_native_recovery_close, payload)
+
+    def retire_native_recovery_close(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.retire_native_recovery_close, payload)
+
+    def prepare_native_recovery_close_successor(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.prepare_native_recovery_close_successor, payload)
+
+    def retire_native_recovery_close_successor(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.retire_native_recovery_close_successor, payload)
+
+    def withdraw_native_recovery_close_dispatch(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.withdraw_native_recovery_close_dispatch, payload)
+
+    def withdraw_native_recovery_close_successor_dispatch(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.withdraw_native_recovery_close_successor_dispatch, payload)
+
+    def get_native_recovery_close_disposition(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.get_native_recovery_close_disposition, payload)
+
+    def isolate_native_recovery_close_after_reboot(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.isolate_native_recovery_close_after_reboot, payload)
+
+    def isolate_native_recovery_close_successor_after_reboot(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._store_call(self.store.isolate_native_recovery_close_successor_after_reboot, payload)
 
     def arm_physical_action(
         self,
@@ -1027,6 +1070,16 @@ def build_control_actions(
         "ABANDON_JOB_PERMIT": handler.abandon_job_permit,
         "COMPLETE_JOB": handler.complete_job,
         "PREPARE_PHYSICAL_ACTION": handler.prepare_physical_action,
+        "PREPARE_NATIVE_RECOVERY_CLOSE": handler.prepare_native_recovery_close,
+        "GET_NATIVE_RECOVERY_CLOSE": handler.get_native_recovery_close,
+        "RETIRE_NATIVE_RECOVERY_CLOSE": handler.retire_native_recovery_close,
+        "PREPARE_NATIVE_RECOVERY_CLOSE_SUCCESSOR": handler.prepare_native_recovery_close_successor,
+        "RETIRE_NATIVE_RECOVERY_CLOSE_SUCCESSOR": handler.retire_native_recovery_close_successor,
+        "WITHDRAW_NATIVE_RECOVERY_CLOSE_DISPATCH": handler.withdraw_native_recovery_close_dispatch,
+        "WITHDRAW_NATIVE_RECOVERY_CLOSE_SUCCESSOR_DISPATCH": handler.withdraw_native_recovery_close_successor_dispatch,
+        "GET_NATIVE_RECOVERY_CLOSE_DISPOSITION": handler.get_native_recovery_close_disposition,
+        "ISOLATE_NATIVE_RECOVERY_CLOSE_AFTER_REBOOT": handler.isolate_native_recovery_close_after_reboot,
+        "ISOLATE_NATIVE_RECOVERY_CLOSE_SUCCESSOR_AFTER_REBOOT": handler.isolate_native_recovery_close_successor_after_reboot,
         "ARM_PHYSICAL_ACTION": handler.arm_physical_action,
         "CANCEL_PREPARED_PHYSICAL_ACTION": (
             handler.cancel_prepared_physical_action

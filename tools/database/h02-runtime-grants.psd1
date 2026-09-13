@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 36
+    CatalogVersion = 40
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -417,6 +417,46 @@
             "lock_version"
             "updated_at"
         )
+        dev_device_default_policy = @(
+            "unit_price_yuan_per_kg"
+            "negative_weight_threshold_g"
+            "policy_version"
+            "fullness_mode"
+            "fullness_weight_kg"
+            "rollout_uid"
+            "rollout_status"
+            "next_asset_id"
+            "target_asset_count"
+            "processed_asset_count"
+            "published_asset_count"
+            "publication_source"
+            "updated_by_platform_admin_id"
+            "change_reason"
+            "started_at"
+            "completed_at"
+            "lock_version"
+            "updated_at"
+        )
+        dev_tenant_device_policy = @(
+            "unit_price_yuan_per_kg"
+            "negative_weight_threshold_g"
+            "policy_version"
+            "fullness_mode"
+            "fullness_weight_kg"
+            "rollout_uid"
+            "rollout_status"
+            "next_asset_id"
+            "target_asset_count"
+            "processed_asset_count"
+            "published_asset_count"
+            "configuration_mode"
+            "updated_by_staff_account_id"
+            "change_reason"
+            "started_at"
+            "completed_at"
+            "lock_version"
+            "updated_at"
+        )
         dev_config_application = @(
             "status"
             "reported_version_no"
@@ -498,6 +538,9 @@
             "weight_measurement_elapsed_ms"
             "weight_sample_count"
             "calibration_version"
+            "weight_fault_code"
+            "weight_mcu_boot_id"
+            "weight_mcu_event_sequence"
             "infrared_value"
             "infrared_sensor_health"
             "fullness_sensor_kind"

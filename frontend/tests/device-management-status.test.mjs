@@ -185,16 +185,17 @@ test('device directory and drawer expose only display-only operator controls', (
     import.meta.url,
   ), 'utf8');
 
-  assert.match(directory, /title: '新业务状态'/);
-  assert.match(directory, /businessAdmissionPresentation/);
+  assert.match(directory, /title: '故障原因'/);
+  assert.match(directory, /DeviceFaults/);
   assert.match(directory, /机构无需手动启用设备/);
   assert.doesNotMatch(directory, /联网即可使用/);
-  assert.match(drawer, /设备软件与业务可用状态/);
+  assert.match(drawer, /业务可用状态/);
   assert.match(drawer, /deviceManagementDetail\(runtimeLoad\.data\)/);
   assert.match(drawer, /runtimeUnavailable=\{runtimeLoad\.status === 'error'\}/);
   assert.match(drawer, /下面显示的是上一次成功读取的记录，不能据此开始新的投递或清运/);
-  assert.match(drawer, /上一次记录：/);
-  assert.match(drawer, /随设备运行状态自动刷新/);
+  assert.match(drawer, /这是上一次成功读取的状态/);
+  assert.match(drawer, /label: '软件与管理详情'/);
+  assert.doesNotMatch(drawer, /name=\{\['ports', index, 'unitPriceYuanPerKg'\]\}/);
   assert.match(drawer, /通信版本（报修时使用）/);
   assert.doesNotMatch(drawer, /detail\.(?:businessReleaseUid|businessPackageSha256|sourceEventUid|mcuFirmwareIdentityHex|managementStateSequence)/);
   assert.doesNotMatch(drawer, /\{reason\.code\}/);

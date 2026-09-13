@@ -555,6 +555,13 @@ function New-RuntimeGrantSql {
 
     $database = Quote-Identifier -Value $DatabaseName
     $lines = [Collections.Generic.List[string]]::new()
+    # MySQL leaves table and column grants under the old name after RENAME.
+    $retiredPolicy = "$database.$(Quote-Identifier -Value 'dev_fullness_policy')"
+    foreach ($principal in @("ecobin_app", "ecobin_backup")) {
+        $lines.Add(
+            "REVOKE IF EXISTS ALL PRIVILEGES ON $retiredPolicy " +
+            "FROM '$principal'@'%';")
+    }
     foreach ($table in $Tables) {
         $qualified = "$database.$(Quote-Identifier -Value $table)"
         if ($Catalog.ReadOnlyTables -contains $table) {
@@ -1061,15 +1068,45 @@ WHERE table_schema = '$DatabaseName'
                 $existingMaxVersion -eq 68) -or
             ($existingDomainTableCount -eq 132 -and
                 $existingHistoryCount -eq 69 -and
-                $existingMaxVersion -eq 69)
+                $existingMaxVersion -eq 69) -or
+            ($existingDomainTableCount -eq 133 -and
+                $existingHistoryCount -eq 70 -and
+                $existingMaxVersion -eq 70) -or
+            ($existingDomainTableCount -eq 134 -and
+                $existingHistoryCount -eq 71 -and
+                $existingMaxVersion -eq 71) -or
+            ($existingDomainTableCount -eq 134 -and
+                $existingHistoryCount -eq 72 -and
+                $existingMaxVersion -eq 72) -or
+            ($existingDomainTableCount -eq 134 -and
+                $existingHistoryCount -eq 73 -and
+                $existingMaxVersion -eq 73) -or
+            ($existingDomainTableCount -eq 134 -and
+                $existingHistoryCount -eq 74 -and
+                $existingMaxVersion -eq 74) -or
+            ($existingDomainTableCount -eq 134 -and
+                $existingHistoryCount -eq 75 -and
+                $existingMaxVersion -eq 75) -or
+            ($existingDomainTableCount -eq 134 -and
+                $existingHistoryCount -eq 76 -and
+                $existingMaxVersion -eq 76) -or
+            ($existingDomainTableCount -eq 134 -and
+                $existingHistoryCount -eq 77 -and
+                $existingMaxVersion -eq 77) -or
+            ($existingDomainTableCount -eq 134 -and
+                $existingHistoryCount -eq 78 -and
+                $existingMaxVersion -eq 78) -or
+            ($existingDomainTableCount -eq 137 -and
+                $existingHistoryCount -eq 79 -and
+                $existingMaxVersion -eq 79)
         )
         if (-not $resumeLayoutValid) {
             throw (
-                "Migrated resume requires a complete V30 through V69 " +
+                "Migrated resume requires a complete V30 through V79 " +
                 "target database"
             )
         }
-        if ($existingMaxVersion -lt 69) {
+        if ($existingMaxVersion -lt 79) {
             # Check before changing the owner account so a stale local tunnel
             # fails without opening a database mutation window.
             if ($RemoteHost.Length -gt 0) {
@@ -1188,13 +1225,13 @@ GRANT SELECT (
     TO 'ecobin_trigger_definer'@'%';
 "@ | Out-Null
 
-        Invoke-FlywayMigration -Target 69 -OwnerPassword $ownerPassword
-        $currentMigrationVersion = 69
+        Invoke-FlywayMigration -Target 79 -OwnerPassword $ownerPassword
+        $currentMigrationVersion = 79
         $migrationCompleted = $true
     }
 
     # Converge the trigger definer even when a resumed database is already at
-    # V69. MySQL preserves column grants under their old table/column names
+    # V79. MySQL preserves column grants under their old table/column names
     # across V36/V39 renames, so remove those historical entries explicitly
     # before applying the exact current grant matrix.
     Invoke-RootSql -Sql @"
@@ -1339,7 +1376,7 @@ ORDER BY grant_key;
             }
         ) -join "; "
         throw (
-            "Trigger definer grants did not converge to the exact V69 " +
+            "Trigger definer grants did not converge to the exact V71 " +
             "matrix: $grantDifferenceSummary"
         )
     }
@@ -1354,8 +1391,8 @@ ORDER BY grant_key;
         (Invoke-RootSql -Sql $tableSql) -split "`r?`n" |
             Where-Object { $_.Length -gt 0 }
     )
-    if ($tables.Count -ne 132) {
-        throw "Expected 132 domain tables, got $($tables.Count)"
+    if ($tables.Count -ne 137) {
+        throw "Expected 137 domain tables, got $($tables.Count)"
     }
 
     $grantCatalog = Import-PowerShellDataFile -Path $grantCatalogPath
@@ -1394,8 +1431,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 69) {
-        throw "Expected sixty-nine successful Flyway migrations"
+    if ($historyCount -ne 79) {
+        throw "Expected seventy-nine successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
@@ -1410,6 +1447,7 @@ WHERE version = '1';
                 $_ -notin @(
                     "iam_permission_definition",
                     "dev_runtime_snapshot_policy",
+                    "dev_device_default_policy",
                     "dev_remote_support_port_slot"
                 )
             } |
@@ -1711,7 +1749,7 @@ WHERE user = 'ecobin_schema_owner' AND host = '%';
     if (-not $migrationCompleted) {
         if ($upgradeExistingMigratedEnvironment) {
             Write-Warning (
-                "The target may contain a failed V69 forward migration. " +
+                "The target may contain a failed forward migration up to V79. " +
                 "It was intentionally preserved. Restore from the " +
                 "pre-migration backup; do not run Flyway repair. " +
                 "Container=$ContainerName Volume=$VolumeName"

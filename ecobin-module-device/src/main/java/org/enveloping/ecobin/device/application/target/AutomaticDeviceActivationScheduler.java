@@ -128,7 +128,15 @@ public class AutomaticDeviceActivationScheduler {
                         ON policy.singleton_id = 1
                        AND version.runtime_snapshot_policy_version_no
                            = policy.policy_version
+                      JOIN dev_device_default_policy defaults ON defaults.singleton_id = 1
+                      LEFT JOIN dev_tenant_device_policy tenant_policy ON tenant_policy.tenant_id = asset.tenant_id
                       WHERE version.asset_id = asset.id
+                        AND ((tenant_policy.configuration_mode = 'CUSTOM'
+                              AND version.tenant_device_policy_version_no = tenant_policy.policy_version
+                              AND version.device_default_policy_version_no IS NULL)
+                          OR (COALESCE(tenant_policy.configuration_mode, 'INHERIT') = 'INHERIT'
+                              AND version.device_default_policy_version_no = defaults.policy_version
+                              AND version.tenant_device_policy_version_no IS NULL))
                         AND version.version_no = (
                             SELECT MAX(latest.version_no)
                             FROM dev_config_version latest

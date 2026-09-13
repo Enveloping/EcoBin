@@ -442,6 +442,7 @@ public class TrustedConfigurationProgressService
             ConfigurationProgress event,
             ConfigurationTarget target,
             LocalDateTime now) {
+        if ("CANCELLED".equals(target.applicationStatus())) return;
         if ("APPLIED".equals(event.stage())) {
             updateApplication("""
                             status = 'APPLIED',
@@ -518,7 +519,8 @@ public class TrustedConfigurationProgressService
 
     static boolean canMergeEdgeSavedInto(String applicationStatus) {
         return !"APPLIED".equals(applicationStatus)
-                && !"FAILED".equals(applicationStatus);
+                && !"FAILED".equals(applicationStatus)
+                && !"CANCELLED".equals(applicationStatus);
     }
 
     private void updateApplication(

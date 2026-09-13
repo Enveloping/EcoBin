@@ -193,6 +193,9 @@ public class FactoryProgressQueryService {
             FactoryAcceptanceProgressView acceptance,
             ReliableTaskProgressView acceptanceRequest,
             FactorySealProgressView seal) {
+        if ("RETIRED".equals(asset.lifecycleStatus())) {
+            return blocked("DEVICE_ASSET", "DEVICE_ASSET_RETIRED");
+        }
         if (!"NORMAL".equals(asset.lifecycleStatus())
                 && !"SEALED".equals(seal.status())) {
             return blocked(

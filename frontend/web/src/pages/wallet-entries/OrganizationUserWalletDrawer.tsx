@@ -278,7 +278,7 @@ export default function OrganizationUserWalletDrawer({
               showIcon
               type="warning"
               message="当前可提现余额为负"
-              description="负余额会阻止用户继续提现；这里仅展示服务端账本投影，不提供人工修改。"
+              description="余额恢复前，该用户无法继续提现。"
             />
           )}
           {error && (

@@ -83,11 +83,12 @@ export default function TenantPage() {
       );
       message.success('租户资料已更新');
     } else {
-      await executeCommand(
+      const created = await executeCommand(
         commandKey('create-tenant', values.tenantCode, values),
         (intent) => createIdentityTenant(values, intent),
       );
-      message.success('租户已创建，下一步请建立主体账号');
+      message.success('租户已创建');
+      setPrincipalTenant(created);
     }
     setFormOpen(false);
     reload();
@@ -234,7 +235,7 @@ export default function TenantPage() {
       title: '操作',
       key: 'operation',
       valueType: 'option',
-      width: 88,
+      width: 200,
       hideInTable: !canManage,
       hideInSetting: true,
       render: (_, tenant) => canManage ? [
@@ -247,16 +248,21 @@ export default function TenantPage() {
         >
           编辑
         </a>,
-      ] : [],
+        !tenant.principalAccount && (
+          <a key="principal" onClick={() => setPrincipalTenant(tenant)}>建立主体账号</a>
+        ),
+        tenant.principalAccount && tenant.status === 'DISABLED' && (
+          <Popconfirm key="enable" title={`确认启用 ${tenant.enterpriseName}？`} onConfirm={() => toggle(tenant)}>
+            <a>启用租户</a>
+          </Popconfirm>
+        ),
+      ].filter(Boolean) : [],
     },
   ];
 
   return (
     <PageContainer
-      {...pageHeader(
-        '租户管理',
-        '平台特权入口；租户先创建、再建立唯一主体账号，最后启用。',
-      )}
+      {...pageHeader('租户管理')}
     >
       <ProTable<IdentityTenant>
         {...proTableConfig}
@@ -310,6 +316,7 @@ export default function TenantPage() {
 
       <ModalForm<TenantForm>
         title={editing ? '编辑租户资料' : '创建租户'}
+        submitter={{ searchConfig: { submitText: editing ? '保存资料' : '创建租户' } }}
         open={formOpen}
         onOpenChange={setFormOpen}
         initialValues={editing ?? undefined}
@@ -374,6 +381,7 @@ export default function TenantPage() {
 
       <ModalForm<PrincipalForm>
         title={`建立主体账号 · ${principalTenant?.enterpriseName ?? ''}`}
+        submitter={{ searchConfig: { submitText: '建立主体账号' } }}
         open={!!principalTenant}
         onOpenChange={(open) => !open && setPrincipalTenant(null)}
         modalProps={{ destroyOnClose: true }}

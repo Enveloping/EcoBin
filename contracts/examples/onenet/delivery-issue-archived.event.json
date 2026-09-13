@@ -1,0 +1,32 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "30000000-0000-4000-8000-000000000003",
+  "deliveryClass": "RELIABLE_FACT",
+  "edgeEventSequence": 1058,
+  "eventType": "DELIVERY_ISSUE_ARCHIVED",
+  "eventUid": "32000000-0000-4000-8000-000000000001",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "archiveEvidenceSha256": "fedeea7944871b062312628b226fd82596cdb232c7701a1f0ef5970534f37c99",
+    "bootObservationPayloadHex": "00000000000000640000000000000066000000000000006601",
+    "bootObservationType": "BIND_BOOT_REPLY",
+    "businessValue": "NONE",
+    "finalResultAtArchive": "ABSENT",
+    "issueUid": "32000000-0000-4000-8000-000000000001",
+    "knownFactCount": 0,
+    "originalCommandPayloadSha256": "de983ccb1cc90faffca18315e7483a402bd690dc36e6ccf0e85c7dffa06826fc",
+    "originalCommandUid": "30000000-0000-4000-8000-000000000003",
+    "originalStartPayloadHex": "32000000000040008000000000000002c41a5e4ae79dcb6f79de74a169e5d9b69b15684aa33d1f2a8ecb2290360b5c1a00000000000000650000000630000000000040008000000000000001020000000000000008aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0000119400007530000001f4000075300001d4c0",
+    "portNo": 2,
+    "reason": "MCU_RESTART_FINAL_RESULT_UNAVAILABLE",
+    "sessionUid": "30000000-0000-4000-8000-000000000001",
+    "sourceMcuBootId": 101,
+    "targetMcuBootId": 102
+  },
+  "payloadSha256": "a9c06dadf0f25a0f7f3989153955eaf54b619498358ec8f95bf335461df9d3c1",
+  "schemaVersion": 2,
+  "target": {
+    "type": "DELIVERY_SESSION",
+    "uid": "30000000-0000-4000-8000-000000000001"
+  }
+}

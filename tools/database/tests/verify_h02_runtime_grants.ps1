@@ -11,8 +11,20 @@ $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 $f07BootstrapPath = Join-Path $PSScriptRoot "../verify-f07-bootstrap.ps1"
 $f07BootstrapSource = Get-Content -LiteralPath $f07BootstrapPath -Raw
 
-if ($catalog.CatalogVersion -ne 36) {
-    throw "H-02 runtime grant catalog must be V36 for the V69 target"
+if ($catalog.CatalogVersion -ne 40) {
+    throw "H-02 runtime grant catalog must be V40 for the V79 target"
+}
+foreach ($table in @("dev_delivery_issue", "dev_delivery_issue_part", "dev_delivery_issue_evidence")) {
+    if ($catalog.UpdateColumns.ContainsKey($table) -or
+            $catalog.SlotTables -contains $table -or
+            $catalog.ReadOnlyTables -contains $table) {
+        throw "Native delivery issue evidence must keep default SELECT/INSERT only: $table"
+    }
+}
+if ($provisionSource -notmatch 'REVOKE IF EXISTS ALL PRIVILEGES ON \$retiredPolicy' -or
+        $provisionSource -notmatch "Quote-Identifier -Value 'dev_fullness_policy'" -or
+        $provisionSource -notmatch 'foreach \(\$principal in @\("ecobin_app", "ecobin_backup"\)\)') {
+    throw "V71 provisioning must remove stale table and column grants left by the policy table rename"
 }
 
 if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
@@ -21,9 +33,9 @@ if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
     throw "H-02 provisioning must reject dirty migrations and record provenance"
 }
 
-if ($provisionSource -notmatch '\$tables\.Count -ne 132' -or
-        $provisionSource -notmatch 'Expected 132 domain tables') {
-    throw "H-02 provisioning must enforce the V69 132-table shape"
+if ($provisionSource -notmatch '\$tables\.Count -ne 137' -or
+        $provisionSource -notmatch 'Expected 137 domain tables') {
+    throw "H-02 provisioning must enforce the V79 137-table shape"
 }
 if ($provisionSource -notmatch
         'id, asset_uid, device_public_code, hardware_sn' -or
@@ -79,7 +91,7 @@ if ($provisionSource -notmatch
 }
 if ($provisionSource -notmatch (
         '(?s)if \(-not \$skipMigration\) \{.*?' +
-        'Invoke-FlywayMigration -Target 69.*?' +
+        'Invoke-FlywayMigration -Target 79.*?' +
         '\r?\n    \}\r?\n\r?\n' +
         '    # Converge the trigger definer even when.*?' +
         '    Invoke-RootSql -Sql @"\r?\n' +
@@ -91,7 +103,7 @@ if ($provisionSource -notmatch (
         'GRANT TRIGGER ON \$database\.\*\r?\n' +
         "\s+TO 'ecobin_trigger_definer'@'%';\r?\n" +
         'GRANT SELECT \(')) {
-    throw "V69 resumed environments must revoke legacy and converge grants"
+    throw "V71 resumed environments must revoke legacy and converge grants"
 }
 if ($provisionSource -notmatch
         '\$expectedTriggerDefinerGrants = @\(' -or
@@ -116,15 +128,15 @@ $target39Index = $provisionSource.IndexOf(
     "Invoke-FlywayMigration -Target 39")
 $v39GrantIndex = $provisionSource.IndexOf(
     "V39 installs the current channel/account trigger shapes")
-$target69Index = $provisionSource.IndexOf(
-    "Invoke-FlywayMigration -Target 69")
+$target79Index = $provisionSource.IndexOf(
+    "Invoke-FlywayMigration -Target 79")
 if (
     $legacyGrantIndex -lt 0 -or
     $target36Index -le $legacyGrantIndex -or
     $v36GrantIndex -le $target36Index -or
     $target39Index -le $v36GrantIndex -or
     $v39GrantIndex -le $target39Index -or
-    $target69Index -le $v39GrantIndex
+    $target79Index -le $v39GrantIndex
 ) {
     throw "H-02 must grant each historical trigger before data backfills"
 }
@@ -145,19 +157,47 @@ if ($f07BootstrapSource -notmatch
         'deviceAssetManagementTriggerReady\s*=\s*\$true') {
     throw "F-07 must execute the V63 new-asset trigger with final definer grants"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 69') {
-    throw "H-02 provisioning must migrate through V69"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 79') {
+    throw "H-02 provisioning must migrate through V79"
 }
-if ($provisionSource -notmatch '\$historyCount -ne 69' -or
+if ($provisionSource -notmatch '\$historyCount -ne 79' -or
         $provisionSource -notmatch
-            'Expected sixty-nine successful Flyway migrations') {
-    throw "H-02 provisioning must verify all 69 migrations"
+            'Expected seventy-nine successful Flyway migrations') {
+    throw "H-02 provisioning must verify all 79 migrations"
 }
 if ($provisionSource -notmatch
-        '\$existingDomainTableCount -eq 132\s+-and\s+' +
-        '\$existingHistoryCount -eq 69\s+-and\s+' +
-        '\$existingMaxVersion -eq 69' -or
-        $provisionSource -notmatch '\$existingMaxVersion -lt 69' -or
+        '\$existingDomainTableCount -eq 134\s+-and\s+' +
+        '\$existingHistoryCount -eq 72\s+-and\s+' +
+        '\$existingMaxVersion -eq 72' -or
+        $provisionSource -notmatch
+        '\$existingDomainTableCount -eq 134\s+-and\s+' +
+        '\$existingHistoryCount -eq 73\s+-and\s+' +
+        '\$existingMaxVersion -eq 73' -or
+        $provisionSource -notmatch
+        '\$existingDomainTableCount -eq 134\s+-and\s+' +
+        '\$existingHistoryCount -eq 74\s+-and\s+' +
+        '\$existingMaxVersion -eq 74' -or
+        $provisionSource -notmatch
+        '\$existingDomainTableCount -eq 134\s+-and\s+' +
+        '\$existingHistoryCount -eq 75\s+-and\s+' +
+        '\$existingMaxVersion -eq 75' -or
+        $provisionSource -notmatch
+        '\$existingDomainTableCount -eq 134\s+-and\s+' +
+        '\$existingHistoryCount -eq 76\s+-and\s+' +
+        '\$existingMaxVersion -eq 76' -or
+        $provisionSource -notmatch
+        '\$existingDomainTableCount -eq 134\s+-and\s+' +
+        '\$existingHistoryCount -eq 77\s+-and\s+' +
+        '\$existingMaxVersion -eq 77' -or
+        $provisionSource -notmatch
+        '\$existingDomainTableCount -eq 134\s+-and\s+' +
+        '\$existingHistoryCount -eq 78\s+-and\s+' +
+        '\$existingMaxVersion -eq 78' -or
+        $provisionSource -notmatch
+        '\$existingDomainTableCount -eq 137\s+-and\s+' +
+        '\$existingHistoryCount -eq 79\s+-and\s+' +
+        '\$existingMaxVersion -eq 79' -or
+        $provisionSource -notmatch '\$existingMaxVersion -lt 79' -or
         $provisionSource -notmatch
         '\$existingHistoryCount -eq 60\s+-and\s+' +
         '\$existingMaxVersion -eq 60' -or
@@ -185,15 +225,15 @@ if ($provisionSource -notmatch
         $provisionSource -notmatch
         '\$existingHistoryCount -eq 68\s+-and\s+' +
         '\$existingMaxVersion -eq 68') {
-    throw "H-02 migrated resume must recognize V60-V68 and target V69"
+    throw "H-02 migrated resume must recognize V60-V68, V72/V73 and target V79"
 }
-if ($f07BootstrapSource -notmatch '\$tableCount -ne 133' -or
+if ($f07BootstrapSource -notmatch '\$tableCount -ne 138' -or
         $f07BootstrapSource -notmatch
-            'correct target must contain 132 domain tables plus Flyway history' -or
-        $f07BootstrapSource -notmatch 'targetVersion\s*=\s*69' -or
-        $f07BootstrapSource -notmatch 'domainTables\s*=\s*132' -or
+            'correct target must contain 137 domain tables plus Flyway history' -or
+        $f07BootstrapSource -notmatch 'targetVersion\s*=\s*79' -or
+        $f07BootstrapSource -notmatch 'domainTables\s*=\s*137' -or
         $f07BootstrapSource -notmatch
-            'correctV69Ready\s*=\s*\$true' -or
+            'correctV79Ready\s*=\s*\$true' -or
         $f07BootstrapSource -notmatch
             'businessReleaseValidationV65\s*=\s*\$true' -or
         $f07BootstrapSource -notmatch
@@ -222,8 +262,8 @@ if ($f07BootstrapSource -notmatch '\$tableCount -ne 133' -or
             'sealedClockQualityRequired\s*=\s*\$true' -or
         $f07BootstrapSource -match 'correct V56|correctV56Ready') {
     throw (
-        "F-07 bootstrap verification must report the V69 shape: " +
-        "132 domain tables plus Flyway history"
+        "F-07 bootstrap verification must report the V79 shape: " +
+        "137 domain tables plus Flyway history"
     )
 }
 if ($provisionSource -notmatch
@@ -806,6 +846,29 @@ if (@(
     throw "V46 runtime snapshot policy UPDATE grants are not minimal"
 }
 
+$fullnessRequiredColumns = @(
+    "unit_price_yuan_per_kg", "negative_weight_threshold_g",
+    "policy_version", "fullness_mode", "fullness_weight_kg", "rollout_uid", "rollout_status",
+    "next_asset_id", "target_asset_count", "processed_asset_count", "published_asset_count",
+    "publication_source", "updated_by_platform_admin_id", "change_reason", "started_at",
+    "completed_at", "lock_version", "updated_at"
+)
+if (@(Compare-Object $fullnessRequiredColumns @($catalog.UpdateColumns.dev_device_default_policy)).Count -ne 0) {
+    throw "V71 fullness policy UPDATE grants are not minimal"
+}
+$tenantPolicyRequiredColumns = @($fullnessRequiredColumns | Where-Object {
+    $_ -notin @("publication_source", "updated_by_platform_admin_id")
+}) + @("configuration_mode", "updated_by_staff_account_id")
+if (@(Compare-Object $tenantPolicyRequiredColumns @($catalog.UpdateColumns.dev_tenant_device_policy)).Count -ne 0) {
+    throw "V71 tenant policy UPDATE grants must exclude tenant_id and retain the exact mutable columns"
+}
+if ($provisionSource -notmatch '\$existingHistoryCount -eq 70\s+-and\s+\$existingMaxVersion -eq 70') {
+    throw "V70 databases must retain a forward upgrade path to V71"
+}
+if ($provisionSource -notmatch '\$existingHistoryCount -eq 69\s+-and\s+\$existingMaxVersion -eq 69') {
+    throw "V69 databases must retain a forward upgrade path to V71"
+}
+
 $opsAlertColumns = @($catalog.UpdateColumns.ops_alert)
 if ($opsAlertColumns -notcontains "source_key") {
     throw "ops_alert.source_key is required by the reliable-task alert projection"
@@ -910,4 +973,9 @@ if ($missingTransferAuthorizationColumns.Count -ne 0 -or
     )
 }
 
+foreach ($column in @('weight_fault_code', 'weight_mcu_boot_id', 'weight_mcu_event_sequence')) {
+    if ($catalog.UpdateColumns.dev_port_runtime_state -notcontains $column) {
+        throw "Runtime weight evidence update grant missing: $column"
+    }
+}
 Write-Output "h02-runtime-grants-contract=PASS"

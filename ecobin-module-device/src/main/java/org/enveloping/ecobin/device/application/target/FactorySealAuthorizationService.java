@@ -246,7 +246,7 @@ public class FactorySealAuthorizationService
                         WHERE asset_id = ?
                           AND NOT (
                               authorization_status = 'CANCELLED'
-                              AND cancellation_reason IN (?, ?)
+                              AND cancellation_reason IN (?, ?, 'DEVICE_DISABLED', 'DEVICE_RETIRED')
                           )
                         ORDER BY id
                         FOR UPDATE

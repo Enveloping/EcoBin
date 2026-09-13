@@ -102,7 +102,7 @@ public class BusinessReleaseControlPlaneService {
             "FULLY_COMPATIBLE", "BASE_COMPATIBLE");
     private static final Set<String> DEPLOYMENT_TERMINAL = Set.of(
             "SUCCEEDED", "ROLLED_BACK", "DEFERRED", "REJECTED",
-            "FAILED_LOCKED", "CANCELLED");
+            "FAILED_LOCKED", "CANCELLED", "LOCAL_CANCELLED");
     private static final Set<String> ERROR_STAGES = Set.of(
             "DEFERRED", "REJECTED", "FAILED_LOCKED",
             "DOWNLOAD_AUTHORIZATION_REQUIRED");
@@ -1164,7 +1164,7 @@ public class BusinessReleaseControlPlaneService {
                 WHERE id = ? AND cancellation_status = 'NONE'
                   AND deployment_status NOT IN (
                       'SUCCEEDED', 'ROLLED_BACK', 'DEFERRED', 'REJECTED',
-                      'FAILED_LOCKED', 'CANCELLED'
+                      'FAILED_LOCKED', 'CANCELLED', 'LOCAL_CANCELLED'
                   )
                 """,
                 commandUid.toString(),
@@ -1410,7 +1410,7 @@ public class BusinessReleaseControlPlaneService {
                     WHERE id = ?
                       AND deployment_status NOT IN (
                           'SUCCEEDED', 'ROLLED_BACK', 'DEFERRED',
-                          'REJECTED', 'FAILED_LOCKED', 'CANCELLED'
+                          'REJECTED', 'FAILED_LOCKED', 'CANCELLED', 'LOCAL_CANCELLED'
                       )
                     """,
                     stage,
@@ -1626,7 +1626,7 @@ public class BusinessReleaseControlPlaneService {
                     WHERE id = ? AND cancellation_status = 'QUEUED'
                       AND deployment_status NOT IN (
                           'SUCCEEDED', 'ROLLED_BACK', 'DEFERRED', 'REJECTED',
-                          'FAILED_LOCKED', 'CANCELLED'
+                          'FAILED_LOCKED', 'CANCELLED', 'LOCAL_CANCELLED'
                       )
                     """, now, now, now, deployment.id());
             if (updated != 1) {
@@ -1999,6 +1999,7 @@ public class BusinessReleaseControlPlaneService {
                         JOIN dev_edge_software_rollout rollout
                           ON rollout.id = deployment.rollout_id
                         WHERE deployment.asset_id = ?
+                          AND deployment.deployment_status <> 'LOCAL_CANCELLED'
                           AND rollout.rollout_status NOT IN (
                               'COMPLETED', 'STOPPED', 'VALIDATION_FAILED'
                           )
@@ -2009,6 +2010,7 @@ public class BusinessReleaseControlPlaneService {
                         JOIN dev_edge_software_rollout rollout
                           ON rollout.id = deployment.rollout_id
                         WHERE deployment.asset_id = ?
+                          AND deployment.deployment_status <> 'LOCAL_CANCELLED'
                           AND rollout.id <> ?
                           AND rollout.rollout_status NOT IN (
                               'COMPLETED', 'STOPPED', 'VALIDATION_FAILED'
@@ -2025,7 +2027,7 @@ public class BusinessReleaseControlPlaneService {
                 WHERE deployment.asset_id = ?
                   AND rollout.rollout_status NOT IN ('COMPLETED', 'STOPPED')
                   AND deployment.deployment_status NOT IN (
-                      'SUCCEEDED', 'ROLLED_BACK', 'FAILED_LOCKED', 'REJECTED'
+                      'SUCCEEDED', 'ROLLED_BACK', 'FAILED_LOCKED', 'REJECTED', 'LOCAL_CANCELLED'
                   )
                 """, Long.class, device.assetId());
         if (activeMcuUpdates > 0) {
@@ -3157,6 +3159,7 @@ public class BusinessReleaseControlPlaneService {
             case "REJECTED" -> "设备拒绝本次更新";
             case "FAILED_LOCKED" -> "更新和恢复均失败，设备已安全锁定";
             case "DOWNLOAD_AUTHORIZATION_REQUIRED" -> "等待新的下载授权";
+            case "LOCAL_CANCELLED" -> "设备禁用或报废，下发已取消";
             case "CANCELLED" -> "设备已安全取消本次更新";
             default -> "状态无法识别";
         };

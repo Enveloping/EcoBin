@@ -1538,6 +1538,304 @@
       ],
       "schemaRef": "events/events.schema.json#/$defs/deliveryCompleteEvent"
     },
+    "deliveryIssueArchived": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "DELIVERY_ISSUE_ARCHIVED",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.issueUid",
+          "nullable": false,
+          "wireIdentifier": "issueUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sessionUid",
+          "nullable": false,
+          "wireIdentifier": "sessionUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.originalCommandUid",
+          "nullable": false,
+          "wireIdentifier": "originalCommandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.originalCommandPayloadSha256",
+          "nullable": false,
+          "wireIdentifier": "originalCommandPayloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.portNo",
+          "nullable": false,
+          "wireIdentifier": "portNo"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sourceMcuBootId",
+          "nullable": false,
+          "wireIdentifier": "sourceMcuBootId"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.targetMcuBootId",
+          "nullable": false,
+          "wireIdentifier": "targetMcuBootId"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.reason",
+          "nullable": false,
+          "wireIdentifier": "reason"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.businessValue",
+          "nullable": false,
+          "wireIdentifier": "businessValue"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.finalResultAtArchive",
+          "nullable": false,
+          "wireIdentifier": "finalResultAtArchive"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.archiveEvidenceSha256",
+          "nullable": false,
+          "wireIdentifier": "archiveEvidenceSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.knownFactCount",
+          "nullable": false,
+          "wireIdentifier": "knownFactCount"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.originalStartPayloadHex",
+          "nullable": false,
+          "wireIdentifier": "originalStartPayloadHex"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.bootObservationType",
+          "nullable": false,
+          "wireIdentifier": "bootObservationType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.bootObservationPayloadHex",
+          "nullable": false,
+          "wireIdentifier": "bootObservationPayloadHex"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/deliveryIssueArchivedEvent"
+    },
+    "deliveryIssueEvidenceAppended": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "DELIVERY_ISSUE_EVIDENCE_APPENDED",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.issueUid",
+          "nullable": false,
+          "wireIdentifier": "issueUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sessionUid",
+          "nullable": false,
+          "wireIdentifier": "sessionUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.originalCommandUid",
+          "nullable": false,
+          "wireIdentifier": "originalCommandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.archiveEvidenceSha256",
+          "nullable": false,
+          "wireIdentifier": "archiveEvidenceSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.businessValue",
+          "nullable": false,
+          "wireIdentifier": "businessValue"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.evidenceKind",
+          "nullable": false,
+          "wireIdentifier": "evidenceKind"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.evidenceIndex",
+          "nullable": false,
+          "wireIdentifier": "evidenceIndex"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.evidenceSha256",
+          "nullable": false,
+          "wireIdentifier": "evidenceSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.evidenceSizeBytes",
+          "nullable": false,
+          "wireIdentifier": "evidenceSizeBytes"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.partIndex",
+          "nullable": false,
+          "wireIdentifier": "partIndex"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.partCount",
+          "nullable": false,
+          "wireIdentifier": "partCount"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.dataHex",
+          "nullable": false,
+          "wireIdentifier": "dataHex"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/deliveryIssueEvidenceAppendedEvent"
+    },
     "deliveryRecoveryQuarantined": {
       "deliveryClass": "RELIABLE_FACT",
       "eventType": "DELIVERY_RECOVERY_QUARANTINED",
@@ -5666,7 +5964,7 @@
     }
   },
   "generated": true,
-  "mappingVersion": "2.1.1",
+  "mappingVersion": "2.2.0",
   "projection": {
     "dataProtocol": "OneJSON",
     "enumEncoding": "JSON string enums are encoded as OneNet integer enums; generated wire mapping is authoritative for integer-to-symbol conversion.",

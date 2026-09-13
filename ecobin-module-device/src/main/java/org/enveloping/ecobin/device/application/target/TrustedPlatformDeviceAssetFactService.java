@@ -5,6 +5,7 @@ import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedPlatformDeviceAssetFactEvent;
 import org.enveloping.ecobin.device.application.firmware.McuFirmwareRolloutService;
 import org.enveloping.ecobin.device.application.delivery.DeliveryRecoveryQuarantineService;
+import org.enveloping.ecobin.device.application.delivery.NativeDeliveryIssueService;
 import org.enveloping.ecobin.device.application.remote.RemoteSupportSessionService;
 import org.enveloping.ecobin.device.application.software.DeviceSoftwareCompatibilityService;
 import org.enveloping.ecobin.device.application.software.BusinessReleaseControlPlaneService;
@@ -39,6 +40,8 @@ public class TrustedPlatformDeviceAssetFactService
             "FACTORY_SEAL_COMPLETED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
             DeliveryRecoveryQuarantineService.EVENT_TYPE,
+            NativeDeliveryIssueService.ARCHIVE_EVENT,
+            NativeDeliveryIssueService.EVIDENCE_EVENT,
             DeviceSoftwareCompatibilityService.EVENT_TYPE,
             BusinessReleaseControlPlaneService.EVENT_TYPE,
             BusinessReleaseControlPlaneService.CANCEL_EVENT_TYPE,
@@ -58,6 +61,7 @@ public class TrustedPlatformDeviceAssetFactService
     private final BusinessReleaseControlPlaneService businessReleases;
     private final DeliveryRecoveryQuarantineService
             deliveryRecoveryQuarantines;
+    private final NativeDeliveryIssueService nativeDeliveryIssues;
 
     public TrustedPlatformDeviceAssetFactService(
             JdbcTemplate jdbc,
@@ -100,7 +104,6 @@ public class TrustedPlatformDeviceAssetFactService
                 null);
     }
 
-    @Autowired
     public TrustedPlatformDeviceAssetFactService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
@@ -112,6 +115,20 @@ public class TrustedPlatformDeviceAssetFactService
             BusinessReleaseControlPlaneService businessReleases,
             DeliveryRecoveryQuarantineService
                     deliveryRecoveryQuarantines) {
+        this(jdbc, objectMapper, confirmationService, remoteSupportSessions,
+                firmwareRollouts, factorySealAuthorizations, softwareCompatibility,
+                businessReleases, deliveryRecoveryQuarantines, null);
+    }
+
+    @Autowired
+    public TrustedPlatformDeviceAssetFactService(JdbcTemplate jdbc, ObjectMapper objectMapper,
+            ReliablePlatformEdgeConfirmationService confirmationService,
+            RemoteSupportSessionService remoteSupportSessions, McuFirmwareRolloutService firmwareRollouts,
+            FactorySealAuthorizationService factorySealAuthorizations,
+            DeviceSoftwareCompatibilityService softwareCompatibility,
+            BusinessReleaseControlPlaneService businessReleases,
+            DeliveryRecoveryQuarantineService deliveryRecoveryQuarantines,
+            NativeDeliveryIssueService nativeDeliveryIssues) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.confirmationService = confirmationService;
@@ -122,6 +139,7 @@ public class TrustedPlatformDeviceAssetFactService
         this.businessReleases = businessReleases;
         this.deliveryRecoveryQuarantines =
                 deliveryRecoveryQuarantines;
+        this.nativeDeliveryIssues = nativeDeliveryIssues;
     }
 
     @Override
@@ -171,6 +189,14 @@ public class TrustedPlatformDeviceAssetFactService
 
             LocalDateTime now = jdbc.queryForObject(
                     "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+            if (NativeDeliveryIssueService.ARCHIVE_EVENT.equals(inboxEvent.messageKind())
+                    || NativeDeliveryIssueService.EVIDENCE_EVENT.equals(inboxEvent.messageKind())) {
+                if (nativeDeliveryIssues == null) throw new IllegalStateException("native delivery issue handler is unavailable");
+                NativeDeliveryIssueService.ApplyResult result = nativeDeliveryIssues.applyTrusted(sourceInboxId, normalized, now);
+                confirmationService.ensureApplied(result.assetId(), hardwareSn, eventUid, payloadSha256,
+                        result.changed() ? "UPDATED" : "NO_ACTION_REQUIRED", now);
+                return result.changed() ? TrustedDeviceEventApplyResult.APPLIED : TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
+            }
             if ("DEVICE_COMMAND_OBSERVED".equals(
                     inboxEvent.messageKind())) {
                 FactorySealAuthorizationService.ObservationResult observed =

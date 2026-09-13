@@ -35,7 +35,6 @@ import {
   ExclamationCircleOutlined,
   EyeOutlined,
   ReloadOutlined,
-  SafetyCertificateOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
 import {
@@ -968,43 +967,9 @@ export default function OperationalGovernancePage() {
 
   return (
     <PageContainer
-      {...pageHeader(
-        '运营治理',
-        '集中查看可靠任务，只恢复服务端明确判定为安全的失败操作。',
-      )}
+      {...pageHeader('可靠任务')}
       className="operations-governance-page"
     >
-      <section className="operations-control-brief" aria-label="可靠任务恢复边界">
-        <div>
-          <Typography.Text className="operations-eyebrow">
-            运营控制台 · 人工恢复
-          </Typography.Text>
-          <Typography.Title level={4}>先确认原因，再唤醒原任务</Typography.Title>
-          <Typography.Paragraph type="secondary">
-            恢复可能首次完成原任务本来应产生的业务结果；系统会沿用原任务及其防重复身份，不会创建重复或替代的业务结果。
-          </Typography.Paragraph>
-        </div>
-        <div className="operations-legend" aria-label="状态说明">
-          <span><i className="operations-dot operations-dot-blocked" /> 已阻断</span>
-          <span><i className="operations-dot operations-dot-safe" /> 允许恢复</span>
-          <span><i className="operations-dot operations-dot-readonly" /> 仅可查看</span>
-        </div>
-      </section>
-
-      <Alert
-        className="operations-boundary-alert"
-        type="info"
-        showIcon
-        icon={<SafetyCertificateOutlined />}
-        message={(
-          <ExplainedLabel
-            label="恢复权限由后端实时决定"
-            explanation={termExplanations.recovery}
-          />
-        )}
-        description="只有后端明确判定可以安全恢复的已阻断任务才会显示“恢复”。没有按钮表示该任务必须使用专用处置流程，或当前状态已经变化。"
-      />
-
       {Object.values(recoveryTrackers).length > 0 && (
         <section
           className="operations-recovery-panel"
@@ -1012,9 +977,6 @@ export default function OperationalGovernancePage() {
         >
           <div className="operations-recovery-panel-title">
             <Typography.Text strong>恢复任务跟踪</Typography.Text>
-            <Typography.Text type="secondary">
-              即使任务因当前筛选移出列表，仍会查询到完成、再次阻断或取消。
-            </Typography.Text>
           </div>
           <div className="operations-recovery-trackers">
             {Object.values(recoveryTrackers).map((tracker) => {
@@ -1032,9 +994,9 @@ export default function OperationalGovernancePage() {
                   <div className="operations-recovery-progress">
                     <Typography.Text>
                       {tracker.polling
-                        ? '正在等待后端完成处理并持续查询'
+                        ? '正在处理'
                         : terminal
-                          ? '已到达终态'
+                          ? '处理已结束'
                           : '状态查询已停止'}
                     </Typography.Text>
                     {tracker.lastError && (
@@ -1368,8 +1330,8 @@ export default function OperationalGovernancePage() {
           className="operations-resume-warning"
           type="warning"
           showIcon
-          message="这不是重新创建业务"
-          description="系统会唤醒原可靠任务，它可能首次完成原本应产生的订单、设备命令或提现请求；系统会复用原任务身份，并继续执行防重复检查、当前事实复核和外部系统边界校验。"
+          message="确认继续处理这条任务？"
+          description="恢复后可能生成订单、发送设备命令或提交提现。请先核对任务对象和阻断原因。"
         />
         <Descriptions size="small" column={1}>
           <Descriptions.Item label={(

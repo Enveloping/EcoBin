@@ -1,3 +1,4 @@
+import HelpTip from '@/components/HelpTip';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ReloadOutlined } from '@ant-design/icons';
 import {
@@ -218,13 +219,6 @@ export default function OrganizationDeliveryConfiguration({
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Alert
-        showIcon
-        type="info"
-        message="页面中的规则可直接修改"
-        description="点击保存后，修改只影响之后开始的投递；已开始的会话和订单继续使用当时的规则。系统会自动保留修改记录。"
-      />
-
       <Card
         size="small"
         title="投递审核规则"
@@ -237,8 +231,7 @@ export default function OrganizationDeliveryConfiguration({
         >
           <Form.Item
             name="reviewMode"
-            label="投递订单审核方式"
-            extra="只有重量可靠、金额不为负且没有用户或系统异常的正常订单才会自动审核；其他订单仍进入人工审核。"
+            label={<>投递订单审核方式<HelpTip label="投递订单审核方式">自动审核仅适用于重量可靠、金额非负且无异常的订单；其他订单仍需人工审核。</HelpTip></>}
             rules={[{ required: true, message: '请选择投递订单审核方式' }]}
           >
             <Select
@@ -254,8 +247,7 @@ export default function OrganizationDeliveryConfiguration({
           {selectedReviewMode && selectedReviewMode !== 'ALL_MANUAL' && (
             <Form.Item
               name="automaticReviewMaxAmountYuan"
-              label="投递自动审核单笔结算金额上限（元）"
-              extra="原始结算金额小于或等于该值时，正常订单才按上面的时间自动审核；超过后只等待人工审核，不会记为异常。允许填写 0.00。"
+              label={<>自动审核金额上限（元）<HelpTip label="自动审核金额上限">正常订单不超过该金额时自动审核；超过时等待人工审核。可填 0.00。</HelpTip></>}
               rules={[
                 { required: true, message: '请输入自动审核金额上限' },
                 {
@@ -270,7 +262,7 @@ export default function OrganizationDeliveryConfiguration({
           <Form.Item
             name="openBalanceFloorYuan"
             label="负余额停投下限（元）"
-            extra="用户可提现余额达到或低于这个值时，不能开始下一次投递。"
+            extra="余额达到或低于此值时，暂停该用户的新投递。"
             rules={[
               { required: true, message: '请输入负余额停投下限' },
               {
@@ -288,8 +280,7 @@ export default function OrganizationDeliveryConfiguration({
           </Form.Item>
           <Form.Item
             name="maxReviewAbsoluteWeightKg"
-            label="人工认定重量绝对值上限（kg）"
-            extra="防止审核人员误输入极端重量，允许范围为 0.001 至 1000.000 kg。"
+            label={<>人工认定重量上限（kg）<HelpTip label="人工认定重量上限">限制正负重量的绝对值，允许设置 0.001–1000.000 kg。</HelpTip></>}
             rules={[
               { required: true, message: '请输入人工认定重量上限' },
               {
@@ -324,6 +315,7 @@ export default function OrganizationDeliveryConfiguration({
             <Button type="primary" htmlType="submit" loading={submitting}>
               保存投递配置
             </Button>
+            <Typography.Text type="secondary">仅影响之后开始的投递</Typography.Text>
             <Typography.Text type="secondary">
               上次保存：{formatShanghaiTime(current.publishedAt)}，操作人：{current.publishedBy}
             </Typography.Text>

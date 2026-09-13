@@ -4,7 +4,9 @@ Run from the repository root:
 
     python contracts/tools/generate_contracts.py
     python contracts/tools/generate_contracts.py --check
-    python contracts/tools/generate_contracts.py --include-hardware-mcu
+
+Candidate stage: --include-hardware-mcu is intentionally rejected. The legacy
+runtime artifacts are hash-frozen until paired implementation/release review.
 
 Only authoritative files under contracts/onenet and contracts/uart are edited by
 hand.  Everything under generated/ or examples/ is rebuilt here.
@@ -30,12 +32,15 @@ if str(TOOLS_DIR) not in sys.path:
 
 from contractlib import (  # noqa: E402
     CONTRACTS_ROOT,
+    ContractError,
     JsonSchemaSubsetValidator,
     ONENET_IDENTIFIER_PATTERN,
     canonical_json_bytes,
     compute_uart_command_digest,
+    compute_uart_result_digest,
     crc16_ccitt_false,
     decode_uart_frame,
+    decode_uart_payload,
     encode_uart_frame,
     encode_uart_payload,
     flag_bitmap,
@@ -50,7 +55,11 @@ from contractlib import (  # noqa: E402
     payload_sha256,
     source_sha256,
     uart_command_digest_preimage,
+    uart_result_digest_preimage,
+    uart_process_event_digest_preimage,
+    uart_actuator_event_digest_preimage,
     uart_message_specs,
+    uart_fenced_command_names,
     validate_uart_registry,
 )
 
@@ -165,6 +174,9 @@ def build_uart_vectors(registry: Mapping[str, Any]) -> list[dict[str, Any]]:
                 message = _message_by_name(registry, decoded_message_name)
                 message_type = message["id"]
                 source_payload = dict(source["payload"])
+                if source_payload.get("resultDigestSha256") == "AUTO":
+                    source_payload["resultDigestSha256"] = "0" * 64
+                    source_payload["resultDigestSha256"] = compute_uart_result_digest(registry, source_payload)
                 if source_payload.get("commandDigestSha256") == "AUTO":
                     source_payload["commandDigestSha256"] = compute_uart_command_digest(
                         registry,
@@ -247,12 +259,16 @@ def build_uart_stream_traces(
     crc_invalid = by_name["crc_invalid"]
     unknown = by_name["empty_payload_unknown_message"]
 
-    invalid_length = bytes.fromhex("ec420100010000f300000001")
+    invalid_length = (
+        bytes.fromhex(registry["protocol"]["magicHex"])
+        + bytes([registry["protocol"]["major"], registry["protocol"]["minor"]])
+        + bytes.fromhex("010000f300000001")
+    )
     wrong_ack = bytearray(hello)
     wrong_ack[5] = 0x01
     wrong_ack[-2:] = crc16_ccitt_false(wrong_ack[2:-2]).to_bytes(2, "big")
 
-    return [
+    traces = [
         {
             "name": "bytewise_split",
             "senderRole": "EDGE",
@@ -343,9 +359,774 @@ def build_uart_stream_traces(
             "senderRole": "EDGE",
             "chunks": [{"atMs": 0, "hex": (bytes(600) + hello).hex()}],
             "expectedMessageNames": ["HELLO"],
-            "expectedDiagnostics": ["BUFFER_OVERFLOW", "NOISE_DISCARDED"],
+            "expectedDiagnostics": ["NOISE_DISCARDED"],
         },
     ]
+    large_batch = by_name["boot_probe_assigned"] * 40
+    for trace_name, chunks in (
+        ("large_valid_batch", [large_batch]),
+        ("retained_partial_then_large_batch", [large_batch[:12], large_batch[12:]]),
+        ("retained_partial_then_512_byte_reads", [large_batch[:12], large_batch[12:524], large_batch[524:1036], large_batch[1036:]]),
+    ):
+        traces.append({
+            "name": trace_name, "senderRole": "MCU",
+            "chunks": [{"atMs": 0, "hex": chunk.hex()} for chunk in chunks],
+            "expectedMessageNames": ["BOOT_PROBE_REPLY"] * 40,
+            "expectedDiagnostics": [],
+        })
+    bad_probe = encode_uart_frame(registry, _message_by_name(registry, "BOOT_PROBE_REPLY")["id"], 0, 999, bytes(16))
+    partial_probe = by_name["boot_probe_assigned"][:17]
+    mixed_batch = large_batch[:600] + bad_probe + large_batch[600:]
+    traces.append({
+        "name": "large_mixed_read_keeps_partial_and_timeout", "senderRole": "MCU",
+        "chunks": [
+            {"atMs": 0, "hex": mixed_batch[:13].hex()},
+            {"atMs": 90, "hex": (mixed_batch[13:] + partial_probe).hex()},
+            {"atMs": 189, "hex": ""}, {"atMs": 190, "hex": ""},
+            {"atMs": 191, "hex": by_name["boot_probe_assigned"].hex()},
+        ],
+        "expectedMessageNames": ["BOOT_PROBE_REPLY"] * 41,
+        "expectedDiagnostics": ["SEMANTIC_REJECTED:invalid bootstrap payload", "FRAME_TIMEOUT"],
+    })
+    # CRC-valid malformed bootstrap frames must never reach a runtime callback.
+    boot_valid = {
+        "BOOT_PROBE": by_name["boot_probe"],
+        "BOOT_PROBE_REPLY": by_name["boot_probe_unassigned"],
+        "BIND_BOOT": by_name["bind_boot"],
+        "BIND_BOOT_REPLY": by_name["bind_boot_bound"],
+    }
+    specs = uart_message_specs(registry)
+    for name, valid in boot_valid.items():
+        sender = "EDGE" if specs[name]["direction"] == "EDGE_TO_MCU" else "MCU"
+        traces.append({
+            "name": name.lower() + "_dispatch",
+            "senderRole": sender,
+            "chunks": [{"atMs": 0, "hex": valid.hex()}],
+            "expectedMessageNames": [name], "expectedDiagnostics": [],
+        })
+        mutations: dict[str, bytes] = {
+            "truncated": valid[12:-3], "extra_byte": valid[12:-2] + b"\0",
+        }
+        for field in specs[name]["fields"]:
+            offset, size = field["offset"], field["minimumSize"]
+            if field["type"] == "u64":
+                if field.get("minimum", 0) > 0:
+                    raw = bytearray(valid[12:-2])
+                    raw[offset:offset + size] = bytes(size)
+                    mutations[field["name"] + "_zero"] = bytes(raw)
+                raw = bytearray(valid[12:-2])
+                raw[offset:offset + size] = (field["maximum"] + 1).to_bytes(size, "big")
+                mutations[field["name"] + "_overflow"] = bytes(raw)
+                raw[offset:offset + size] = b"\xff" * size
+                mutations[field["name"] + "_uint64_maximum"] = bytes(raw)
+        if name == "BIND_BOOT_REPLY":
+            for label, boot, status in (
+                ("bound_wrong_id", 43, 1), ("bound_zero", 0, 1),
+                ("mismatch_nonzero", 42, 2), ("already_bound_zero", 0, 3),
+                ("unknown_status", 42, 255),
+            ):
+                raw = bytearray(valid[12:-2])
+                raw[16:24] = boot.to_bytes(8, "big")
+                raw[24] = status
+                mutations[label] = bytes(raw)
+        for label, payload in mutations.items():
+            bad = encode_uart_frame(registry, specs[name]["id"], 0, 100, payload)
+            traces.append({
+                "name": name.lower() + "_reject_" + label,
+                "senderRole": sender,
+                "chunks": [{"atMs": 0, "hex": (bad + valid).hex()}],
+                "expectedMessageNames": [name],
+                "expectedDiagnostics": ["SEMANTIC_REJECTED:invalid bootstrap payload"],
+            })
+    for vector in vectors:
+        name = vector["messageName"]
+        if name not in boot_valid or bytes.fromhex(vector["frameHex"]) == boot_valid[name]:
+            continue
+        traces.append({
+            "name": vector["name"] + "_dispatch",
+            "senderRole": "EDGE" if specs[name]["direction"] == "EDGE_TO_MCU" else "MCU",
+            "chunks": [{"atMs": 0, "hex": vector["frameHex"]}],
+            "expectedMessageNames": [name], "expectedDiagnostics": [],
+        })
+    traces.extend(build_session_control_traces(registry, vectors))
+    traces.extend(build_result_control_traces(registry, vectors))
+    traces.extend(build_work_query_traces(registry, vectors))
+    traces.extend(build_device_facts_traces(registry, vectors))
+    traces.extend(build_command_guard_traces(registry, vectors))
+    traces.extend(build_process_measurement_traces(registry, vectors))
+    traces.extend(build_actuator_event_traces(registry, vectors))
+    return traces
+
+
+def build_actuator_event_traces(registry, vectors):
+    """Explicit expectations shared by reference/Python/Java/C, not an oracle copy."""
+    traces = []
+    for name in registry["sessionPolicy"]["actuatorEventMessages"]:
+        seed = next(item for item in vectors if item["messageName"] == name)
+        spec = uart_message_specs(registry)[name]
+        payload = bytes.fromhex(seed["payloadHex"])
+        valid_frame = bytes.fromhex(seed["frameHex"])
+
+        def changed(changes):
+            raw = bytearray(payload)
+            for field in spec["fields"]:
+                if field["name"] not in changes:
+                    continue
+                number = changes[field["name"]]
+                if "enum" in field:
+                    number = registry["enums"][field["enum"]]["values"].get(number, number)
+                offset, width = field["offset"], field["minimumSize"]
+                raw[offset:offset + width] = int(number).to_bytes(width, "big")
+            return bytes(raw)
+
+        def case(label, raw, accepted):
+            frame = encode_uart_frame(registry, spec["id"], 1, 701, raw)
+            traces.append({"name": "actuator_" + name.lower() + "_" + label, "senderRole": "MCU",
+                "chunks": [{"atMs": 0, "hex": (frame if accepted else frame + valid_frame).hex()}],
+                "expectedMessageNames": [name],
+                "expectedDiagnostics": [] if accepted else ["SEMANTIC_REJECTED:invalid session payload"]})
+
+        case("valid", payload, True)
+        case("short", payload[:-1], False)
+        case("long", payload + b"\0", False)
+        for field in spec["fields"]:
+            key, kind = field["name"], field["type"]
+            if kind == "uuid":
+                case(key + "_zero", changed({key: 0}), False)
+            if field.get("minimum", 0) > 0:
+                case(key + "_below", changed({key: field["minimum"] - 1}), False)
+            if "maximum" in field and field["maximum"] < registry["wireTypes"][kind]["maximum"]:
+                case(key + "_above", changed({key: field["maximum"] + 1}), False)
+            if "enum" in field:
+                case(key + "_unknown", changed({key: (1 << (8 * field["minimumSize"])) - 1}), False)
+            if kind == "u64":
+                case(key + "_uint64_max", changed({key: (1 << 64) - 1}), False)
+        case("long_running", changed({"uptimeMs": 4294967296, "mcuBootId": 9007199254740991}), True)
+        if name == "DELIVERY_POSTCLOSE_INTERRUPTED":
+            allowed = ("DELIVERY_CLOSE_TRAVEL_WAIT", "DELIVERY_POSTCLOSE_MEASURING",
+                "DELIVERY_WAIT_SELECTION", "DELIVERY_FINALIZING")
+            for phase in registry["enums"]["McuWorkPhase"]["values"]:
+                reference = 0 if phase == "DELIVERY_CLOSE_TRAVEL_WAIT" else 9
+                for reason in registry["enums"]["PostcloseInterruptionReason"]["values"]:
+                    case(phase + "_" + reason, changed({"interruptedPhase": phase,
+                        "interruptionReason": reason, "postCloseMeasurementEventSequence": reference}), phase in allowed)
+            case("wait_with_measurement", changed({"postCloseMeasurementEventSequence": 9}), False)
+            for reference in (0, 10, 11, 4294967295):
+                case("invalid_measurement_reference_" + str(reference), changed({"interruptedPhase": "DELIVERY_POSTCLOSE_MEASURING",
+                    "postCloseMeasurementEventSequence": reference}), False)
+        if name == "DELIVERY_LOCAL_DOOR_RESULT":
+            for cause in (9, 10, 4294967295):
+                case("cause_not_before_output_" + str(cause), changed({"selectionEventSequence": cause}), False)
+        if name == "CLEAN_OPERATION_INTERRUPTED":
+            for phase in registry["enums"]["McuWorkPhase"]["values"]:
+                final = phase in ("CLEAN_FINAL_MEASURING", "CLEAN_RESULT_CONFIRMATION")
+                for reason in registry["enums"]["CleanInterruptionReason"]["values"]:
+                    for step in (0, 1):
+                        valid = ((phase == "CLEAN_WAIT_FIRST_UNLOCK" and step == 0 or phase == "CLEAN_ACTIVE" and step > 0)
+                            if reason == "UNLOCK_DISPATCH_REJECTED" else phase in ("CLEAN_UNLOCK_PULSE", "CLEAN_ACTIVE") or final and step > 0)
+                        case(phase + "_" + reason + "_step_" + str(step), changed({"interruptedPhase": phase,
+                            "interruptionReason": reason, "cleanActionSequence": step, "finalMeasurementEventSequence": 9 if final else 0}), valid)
+            case("stale_final", changed({"finalMeasurementEventSequence": 9}), False)
+            for reference in (0, 10, 11, 4294967295):
+                case("invalid_final_reference_" + str(reference), changed({"interruptedPhase": "CLEAN_FINAL_MEASURING",
+                    "cleanActionSequence": 1, "finalMeasurementEventSequence": reference}), False)
+        if name == "DELIVERY_CYCLE_ABORTED":
+            for reason in registry["enums"]["DeliveryCycleAbortReason"]["values"]:
+                for opened in (0, 1):
+                    case(reason + "_opened_" + str(opened), changed({"abortReason": reason, "openDispatched": opened}),
+                        reason == "UPDATE_STOPPED" or opened == 0)
+            case("first_round", changed({"roundIndex": 1, "selectionEventSequence": 0}), True)
+            case("first_round_local_cause", changed({"roundIndex": 1}), False)
+            for cause in (0, 10, 11, 4294967295):
+                case("invalid_cause_" + str(cause), changed({"selectionEventSequence": cause}), False)
+            case("not_boolean", changed({"openDispatched": 2}), False)
+        if name in ("DELIVERY_DOOR_COMMAND_RESULT", "SAFE_CLOSE_RESULT", "DELIVERY_LOCAL_DOOR_RESULT"):
+            for command in ("OPEN", "CLOSE"):
+                for status in ("COMMAND_DISPATCHED", "COMMAND_SUPERSEDED_BEFORE_DISPATCH", "COALESCED_WITH_EXISTING_CLOSE"):
+                    case(command + "_" + status, changed({"command": command, "outputStatus": status}),
+                         command == "CLOSE" or (name != "SAFE_CLOSE_RESULT" and status != "COALESCED_WITH_EXISTING_CLOSE"))
+                    case(command + "_" + status + "_spurious_fault", changed({"command": command,
+                         "outputStatus": status, "faultCode": "DELIVERY_DOOR_OUTPUT_REJECTED"}), False)
+                for fault in ("NONE", "DELIVERY_DOOR_OUTPUT_REJECTED", "DELIVERY_DOOR_HIL_NOT_QUALIFIED", "WEIGHT_TIMEOUT"):
+                    case(command + "_rejected_" + fault, changed({"command": command,
+                         "outputStatus": "OUTPUT_REJECTED", "faultCode": fault}),
+                         (command == "CLOSE" or name != "SAFE_CLOSE_RESULT") and fault in ("DELIVERY_DOOR_OUTPUT_REJECTED", "DELIVERY_DOOR_HIL_NOT_QUALIFIED"))
+            case("snapshot_command_none", changed({"command": "NONE"}), False)
+            case("snapshot_not_dispatched", changed({"outputStatus": "NOT_DISPATCHED"}), False)
+        elif name == "CLEAN_LOCK_POWER_CHANGED":
+            # Unknown/driver faults remain honest observations, not normal power/door evidence.
+            for power in registry["enums"]["CleanLockPowerState"]["values"]:
+                for health in registry["enums"]["SolenoidHealth"]["values"]:
+                    case(power + "_" + health, changed({"lockPowerState": power, "solenoidHealth": health}), True)
+            off = encode_uart_frame(registry, spec["id"], 1, 702, changed({
+                "lockPowerState": "DEENERGIZED", "mcuEventSequence": 8, "uptimeMs": 2000}))
+            traces.append({"name": "actuator_clean_power_edges", "senderRole": "MCU",
+                "chunks": [{"atMs": 0, "hex": (valid_frame + off[:10]).hex()}, {"atMs": 1, "hex": off[10:].hex()}],
+                "expectedMessageNames": [name, name], "expectedDiagnostics": []})
+        traces.append({"name": "actuator_" + name.lower() + "_partial_timeout_duplicate", "senderRole": "MCU",
+            "chunks": [{"atMs": 0, "hex": valid_frame[:21].hex()}, {"atMs": 100, "hex": ""},
+                       {"atMs": 101, "hex": (valid_frame * 2).hex()}],
+            "expectedMessageNames": [name, name], "expectedDiagnostics": ["FRAME_TIMEOUT"]})
+    return traces
+
+
+def build_process_measurement_traces(registry, vectors):
+    """All six terminal process messages, including MCU-to-Pi malformed frames.
+
+    The reference decoder is checked against explicit expectations; it does not
+    manufacture the expected disposition for these cross-language regressions.
+    """
+    seed = next(item for item in vectors if item["name"] == "timeout_weight_keeps_median_value")
+    common = decode_uart_payload(registry, seed["messageName"], bytes.fromhex(seed["payloadHex"]))
+    traces = []
+    for name in registry["sessionPolicy"]["processMeasurementMessages"]:
+        spec = uart_message_specs(registry)[name]
+        values = {}
+        for field in spec["fields"]:
+            key = field["name"]
+            if key in common:
+                values[key] = common[key]
+            elif field["type"] == "uuid":
+                values[key] = str(uuid.UUID(int=field["offset"] + 1))
+            elif field["type"] == "sha256":
+                values[key] = "00" * 32
+            elif field["type"] == "bool":
+                values[key] = False
+            elif "enum" in field:
+                values[key] = next(iter(registry["enums"][field["enum"]]["values"]))
+            else:
+                values[key] = field.get("minimum", 0)
+        if name == "FULLNESS_SAMPLE_RESULT":
+            values.update(representativeDistancePresent=True, representativeDistanceMm=200,
+                          requestedSampleCount=5, validSampleCount=5,
+                          fullnessSampleBasis="MEASURED_MEDIAN", fullnessSensorValue="CLEAR")
+        payload = encode_uart_payload(registry, name, values)
+        valid_frame = encode_uart_frame(registry, spec["id"], 1, 601, payload)
+        def case(label, raw, accepted):
+            frame = encode_uart_frame(registry, spec["id"], 1, 602, raw)
+            traces.append({"name": "process_measurement_" + name.lower() + "_" + label,
+                "senderRole": "MCU", "chunks": [{"atMs": 0, "hex": (frame if accepted else frame + valid_frame).hex()}],
+                "expectedMessageNames": [name],
+                "expectedDiagnostics": [] if accepted else ["SEMANTIC_REJECTED:invalid session payload"]})
+        def changed(changes):
+            raw = bytearray(payload)
+            for field in spec["fields"]:
+                if field["name"] not in changes:
+                    continue
+                number = changes[field["name"]]
+                if "enum" in field:
+                    number = registry["enums"][field["enum"]]["values"].get(number, number)
+                start, width = field["offset"], field["minimumSize"]
+                raw[start:start + width] = int(number).to_bytes(width, "big", signed=field["type"] == "i32")
+            return bytes(raw)
+        case("median", payload, True)
+        case("short", payload[:-1], False)
+        case("long", payload + b"\0", False)
+        for field in spec["fields"]:
+            key, kind = field["name"], field["type"]
+            if kind == "uuid":
+                case(key + "_zero", changed({key: 0}), False)
+            if field.get("minimum", 0) > 0:
+                case(key + "_below", changed({key: field["minimum"] - 1}), False)
+            if "maximum" in field and field["maximum"] < registry["wireTypes"][kind]["maximum"]:
+                case(key + "_above", changed({key: field["maximum"] + 1}), False)
+            if "enum" in field:
+                case(key + "_unknown", changed({key: (1 << (8 * field["minimumSize"])) - 1}), False)
+            if kind == "u64":
+                case(key + "_uint64_max", changed({key: (1 << 64) - 1}), False)
+            if kind == "bool":
+                case(key + "_not_boolean", changed({key: 2}), False)
+        for label, changes, accepted in (
+            ("stable_zero", {"measurementKind": "STABLE_MEAN", "reportedWeightGrams": 0, "sampleSpanGrams": 100, "measurementElapsedMs": 1000}, True),
+            ("stable_excess_span", {"measurementKind": "STABLE_MEAN", "sampleSpanGrams": 101}, False),
+            ("signed_min", {"reportedWeightGrams": -2147483648}, True),
+            ("signed_max", {"reportedWeightGrams": 2147483647}, True),
+            ("before_boot", {"uptimeMs": 4999}, False),
+            ("long_running", {"uptimeMs": 4294967296, "mcuBootId": 4294967296}, True),
+            ("four_samples", {"sampleCount": 4}, False),
+            ("early_median", {"measurementElapsedMs": 4999}, False),
+            ("spurious_fault", {"faultCode": "WEIGHT_UNSTABLE"}, False),
+            ("unavailable_with_value", {"measurementKind": "UNAVAILABLE", "reportedWeightGrams": 1}, False),
+        ):
+            case(label, changed(changes), accepted)
+        for kind in ("UNAVAILABLE", "SENSOR_FAULT", "OVERLOAD", "PROTOCOL_ERROR", "CONFIG_ERROR", "DISCONNECTED"):
+            case(kind.lower(), changed({"measurementKind": kind, "reportedWeightGrams": 0, "sampleCount": 0}), True)
+        interrupted = dict(measurementKind="INTERRUPTED", faultCode="MEASUREMENT_INTERRUPTED",
+            measurementElapsedMs=300, sampleCount=1, sampleSpanGrams=0, reportedWeightGrams=0)
+        case("interrupted", changed(interrupted), True)
+        case("interrupted_timeout_cause", changed(interrupted | {"faultCode": "WEIGHT_TIMEOUT"}), False)
+        case("interrupt_cause_without_kind", changed(interrupted | {"measurementKind": "UNAVAILABLE"}), False)
+        if "workFullnessStatus" in values:
+            # Explicit expected results exercise populated evidence in C, Java
+            # and Python, including sensor completion after weight resolution.
+            group = dict(workFullnessStatus="COMPLETE", fullnessGroupSequence=1,
+                fullnessConfigContentSha256=0xAB, fullnessMcuPayloadSha256=0xCD,
+                fullnessStartedUptimeMs=308000, fullnessCompletedUptimeMs=309200,
+                fullnessLastCapturedUptimeMs=309100, workFullnessSensorKind="ULTRASONIC",
+                workFullnessSensorValue="BLOCKED", workFullnessBasis="MEASURED_MEDIAN",
+                fullnessDistancePresent=1, fullnessDistanceMm=200,
+                fullnessRequestedSampleCount=5, fullnessCompletedSampleCount=5,
+                fullnessValidSampleCount=4, fullnessMinimumValidSampleCount=3,
+                fullnessDistanceThresholdMm=300, fullnessStopReason="NONE")
+            fallback = dict(workFullnessSensorValue="CLEAR", fullnessDistancePresent=0,
+                fullnessDistanceMm=0, workFullnessBasis="NO_ECHO_CLEAR_FALLBACK",
+                fullnessValidSampleCount=0)
+            cancelled = dict(workFullnessStatus="INTERRUPTED", fullnessStopReason="CALLER_CANCELLED",
+                fullnessCompletedSampleCount=2, fullnessValidSampleCount=1,
+                workFullnessSensorValue="NOT_OBSERVED", workFullnessBasis="NONE",
+                fullnessDistancePresent=0, fullnessDistanceMm=0)
+            for label, changes, accepted in (
+                ("median", {}, True),
+                ("threshold_equality", {"fullnessDistanceMm": 300, "workFullnessSensorValue": "CLEAR"}, True),
+                ("no_echo", fallback, True),
+                ("insufficient", fallback | {"fullnessValidSampleCount": 2,
+                    "workFullnessBasis": "INSUFFICIENT_VALID_SAMPLES_CLEAR_FALLBACK"}, True),
+                ("cancelled_partial", cancelled, True),
+                ("cancelled_before_sample", cancelled | {"fullnessStopReason": "CONFIGURATION_CHANGED",
+                    "fullnessCompletedSampleCount": 0, "fullnessValidSampleCount": 0,
+                    "fullnessLastCapturedUptimeMs": 0}, True),
+                ("unsampled_with_data", {"workFullnessStatus": "NOT_SAMPLED"}, False),
+                ("zero_sequence", {"fullnessGroupSequence": 0}, False),
+                ("zero_config", {"fullnessConfigContentSha256": 0}, False),
+                ("zero_mcu_config", {"fullnessMcuPayloadSha256": 0}, False),
+                ("unfinished", {"fullnessCompletedSampleCount": 4}, False),
+                ("excess_valid", {"fullnessValidSampleCount": 6}, False),
+                ("few_requested", {"fullnessRequestedSampleCount": 2}, False),
+                ("no_minimum", {"fullnessMinimumValidSampleCount": 0}, False),
+                ("impossible_minimum", {"fullnessMinimumValidSampleCount": 6}, False),
+                ("no_threshold", {"fullnessDistanceThresholdMm": 0}, False),
+                ("unsupported_sensor", {"workFullnessSensorKind": "DIGITAL_INFRARED"}, False),
+                ("no_sensor", {"workFullnessSensorKind": "NONE"}, False),
+                ("end_before_start", {"fullnessCompletedUptimeMs": 307999}, False),
+                ("capture_after_end", {"fullnessLastCapturedUptimeMs": 309201}, False),
+                ("capture_before_start", {"fullnessLastCapturedUptimeMs": 307999}, False),
+                ("completed_cancelled", {"fullnessStopReason": "CALLER_CANCELLED"}, False),
+                ("median_too_few", {"fullnessValidSampleCount": 2}, False),
+                ("false_clear", {"workFullnessSensorValue": "CLEAR"}, False),
+                ("no_basis", {"workFullnessBasis": "NONE"}, False),
+                ("interruption_with_judgement", {"workFullnessStatus": "INTERRUPTED"}, False),
+                ("no_echo_with_valid", fallback | {"fullnessValidSampleCount": 1}, False),
+                ("insufficient_without_valid", fallback | {
+                    "workFullnessBasis": "INSUFFICIENT_VALID_SAMPLES_CLEAR_FALLBACK"}, False),
+                ("cancelled_without_reason", cancelled | {"fullnessStopReason": "NONE"}, False),
+            ):
+                case("fullness_" + label, changed(group | changes), accepted)
+        if name == "FULLNESS_SAMPLE_RESULT":
+            for label, changes, accepted in (
+                ("excess_fullness_samples", {"validSampleCount": 6}, False),
+                ("median_without_distance", {"representativeDistancePresent": 0, "representativeDistanceMm": 0}, False),
+                ("fallback_with_distance", {"fullnessSampleBasis": 2}, False),
+                ("fallback_not_zero", {"fullnessSampleBasis": 2, "representativeDistancePresent": 0}, False),
+                ("fallback_blocked", {"fullnessSampleBasis": 2, "representativeDistancePresent": 0, "representativeDistanceMm": 0, "fullnessSensorValue": 2}, False),
+                ("fallback", {"fullnessSampleBasis": 2, "representativeDistancePresent": 0, "representativeDistanceMm": 0}, True),
+            ):
+                case(label, changed(changes), accepted)
+        traces.append({"name": "process_measurement_" + name.lower() + "_partial_timeout_duplicate",
+            "senderRole": "MCU", "chunks": [{"atMs": 0, "hex": valid_frame[:30].hex()},
+                {"atMs": 101, "hex": ""}, {"atMs": 102, "hex": (valid_frame + valid_frame).hex()}],
+            "expectedMessageNames": [name, name], "expectedDiagnostics": ["FRAME_TIMEOUT"]})
+    return traces
+
+
+def build_command_guard_traces(registry, vectors):
+    """Shared shape/digest cases, including valid SHA over invalid field values.
+
+    These are wire fixtures, not business authorization or execution examples.
+    No second command list: coverage follows the Registry fenced identity rule.
+    """
+    traces = []
+    for name, spec in uart_message_specs(registry).items():
+        if name not in uart_fenced_command_names(registry):
+            continue
+        vector = next((item for item in vectors if item["messageName"] == name), None)
+        if vector is not None:
+            payload = bytes.fromhex(vector["payloadHex"])
+        else:
+            values = {}
+            for field in spec["fields"]:
+                kind = field["type"]
+                if "enum" in field:
+                    value = next(iter(registry["enums"][field["enum"]]["values"]))
+                elif kind == "uuid":
+                    value = str(uuid.UUID(int=field["offset"] + 1))
+                elif kind == "sha256":
+                    value = "ab" * 32
+                elif kind == "bool":
+                    value = False
+                else:
+                    value = field.get("const", field.get("minimum", 0))
+                values[field["name"]] = value
+            values["commandDigestSha256"] = compute_uart_command_digest(registry, name, values)
+            payload = encode_uart_payload(registry, name, values)
+        valid = encode_uart_frame(registry, spec["id"], 1, 500, payload)
+        def case(label, raw, accepted):
+            frame = encode_uart_frame(registry, spec["id"], 1, 501, raw)
+            traces.append({"name": "command_guard_" + name.lower() + "_" + label, "senderRole": "EDGE",
+                "chunks": [{"atMs": 0, "hex": (frame if accepted else frame + valid).hex()}],
+                "expectedMessageNames": [name],
+                "expectedDiagnostics": [] if accepted else ["SEMANTIC_REJECTED:invalid command payload"]})
+        def changed_fields(changes):
+            raw = bytearray(payload)
+            for field in spec["fields"]:
+                if field["name"] not in changes:
+                    continue
+                number = changes[field["name"]]
+                if "enum" in field:
+                    number = registry["enums"][field["enum"]]["values"].get(number, number)
+                start, width = field["offset"], field["minimumSize"]
+                raw[start:start + width] = number.to_bytes(width, "big", signed=field["type"] == "i32")
+            # Intentional direct preimage: ordinary encoder correctly refuses
+            # invalid values before computing a digest, but the wire must too.
+            prefix = bytes.fromhex(registry["digestProfiles"]["commandDigestSha256"]["domainHex"])
+            prefix += bytes([spec["id"]]) + (len(raw) - 48).to_bytes(2, "big")
+            raw[16:48] = hashlib.sha256(prefix + raw[48:]).digest()
+            return bytes(raw)
+        def changed(field, number):
+            return changed_fields({field["name"]: number})
+        case("valid", payload, True)
+        wrong = bytearray(payload)
+        wrong[16] ^= 1
+        case("wrong_digest", bytes(wrong), False)
+        wrong = bytearray(payload)
+        wrong[-1] ^= 1
+        case("changed_body_without_digest", bytes(wrong), False)
+        case("short", payload[:-1], False)
+        case("long", payload + b"\0", False)
+        for field in spec["fields"]:
+            kind, field_name = field["type"], field["name"]
+            if kind == "uuid" and not field.get("zeroAllowed"):
+                case(field_name + "_zero", changed(field, 0), False)
+            if field.get("minimum", 0) > 0:
+                case(field_name + "_below", changed(field, field["minimum"] - 1), False)
+            if "maximum" in field and field["maximum"] < registry["wireTypes"][kind]["maximum"]:
+                case(field_name + "_above", changed(field, field["maximum"] + 1), False)
+                maximum = changed(field, field["maximum"])
+                try:
+                    decode_uart_payload(registry, name, maximum)
+                    accepted = True
+                except ContractError:
+                    accepted = False  # Individual bounds may conflict with sibling fields.
+                case(field_name + "_maximum", maximum, accepted)
+            if "enum" in field:
+                case(field_name + "_unknown", changed(field, (1 << (8 * field["minimumSize"])) - 1), False)
+            if kind == "u64":
+                case(field_name + "_uint64_max", changed(field, (1 << 64) - 1), False)
+            if kind == "bool":
+                case(field_name + "_not_boolean", changed(field, 2), False)
+            if "const" in field:
+                case(field_name + "_wrong_constant", changed(field, field["const"] + 1), False)
+        extra = []
+        if name == "SAFE_CLOSE":
+            extra = [("all_with_port", {"scope": "ALL_DELIVERY_DOORS", "portNo": 1}, False),
+                     ("single_without_port", {"scope": "SINGLE_DELIVERY_DOOR", "portNo": 0}, False)]
+        elif name == "CONFIG_BEGIN":
+            extra = [("wrong_set_count", {"expectedPortCount": 1, "partCount": 5}, False),
+                     ("six_ports", {"expectedPortCount": 6, "partCount": 9}, True)]
+        elif name == "CONFIG_PORT_BLOCK":
+            extra = [("wrong_port_index", {"portNo": 1, "partIndex": 4, "partCount": 5}, False),
+                     ("port_occupies_commit", {"portNo": 2, "partIndex": 4, "partCount": 4}, False),
+                     ("reversed_weight_range", {"weightMinimumGrams": 10, "weightMaximumGrams": 1}, False),
+                     ("negative_weight_maximum", {"weightMaximumGrams": -1}, False),
+                     ("signed_minimum", {"weightMinimumGrams": -2147483648, "weightMaximumGrams": 1}, True),
+                     ("signed_maximum", {"weightMinimumGrams": -1, "weightMaximumGrams": 2147483647}, True),
+                     ("wrong_fullness_sample_count", {"fullnessSampleCount": 3, "fullnessMinimumValidSampleCount": 4}, False)]
+        elif name == "CONFIG_COMMIT":
+            extra = [("wrong_commit_slot", {"partCount": 5, "partIndex": 4}, False)]
+        for label, changes, accepted in extra:
+            case(label, changed_fields(changes), accepted)
+    return traces
+
+
+def build_device_facts_traces(registry, vectors):
+    vector = next(item for item in vectors if item["messageName"] == "DEVICE_FACTS_REPLY")
+    base = decode_uart_payload(registry, "DEVICE_FACTS_REPLY", bytes.fromhex(vector["payloadHex"]))
+    spec = uart_message_specs(registry)["DEVICE_FACTS_REPLY"]
+    cases = []
+    def case(label, changes, valid=True):
+        payload = encode_uart_payload(registry, "DEVICE_FACTS_REPLY", base | changes, validate_semantics=False)
+        frame = encode_uart_frame(registry, spec["id"], 0, 400, payload)
+        cases.append({"name": "device_facts_" + label, "senderRole": "MCU",
+            "chunks": [{"atMs": 0, "hex": frame.hex()}],
+            "expectedMessageNames": ["DEVICE_FACTS_REPLY"] if valid else [],
+            "expectedDiagnostics": [] if valid else ["SEMANTIC_REJECTED:invalid session payload"]})
+    case("open_ignores_pinch", {"lastDeliveryDoorCommand": "OPEN", "pinchPaused": False, "pb6Output": True})
+    # rc.20 had no environment slots. An old correctly checksummed snapshot
+    # must fail closed, not silently supply fresh NORMAL/CLEAR defaults.
+    current = encode_uart_payload(registry, "DEVICE_FACTS_REPLY", base)
+    offsets = {field["name"]: field["offset"] for field in spec["fields"]}
+    old = current[:offsets["smokeObservationState"]] + current[offsets["retainedWorkState"]:]
+    cases.append({"name": "device_facts_old_rc20_rejected", "senderRole": "MCU",
+        "chunks": [{"atMs": 0, "hex": encode_uart_frame(registry, spec["id"], 0, 401, old).hex()}],
+        "expectedMessageNames": [], "expectedDiagnostics": ["SEMANTIC_REJECTED:invalid session payload"]})
+    case("close_released", {"pb5Active": False, "pinchPaused": False, "pb7Output": True})
+    case("stopped_keeps_target", {"doorActionActive": False, "pinchPaused": False, "updateLatched": True})
+    case("signed_raw_sample", {"scaleWeightGrams": -5})
+    case("old_raw_sample_is_diagnostic", {"capturedUptimeMs": 4294968500})
+    for smoke in ("NORMAL", "ALARM", "UNAVAILABLE"):
+        case("smoke_" + smoke, {"smokeObservationState": smoke, "smokeObservedUptimeMs": 1150})
+    for blocked in (False, True):
+        case("infrared_" + str(blocked), {"fullnessObservationKind": "DIGITAL_INFRARED",
+             "fullnessReadStatus": "VALID", "fullnessCapturedUptimeMs": 1100, "fullnessInfraredBlocked": blocked})
+    case("ultrasonic_zero_distance", {"fullnessObservationKind": "ULTRASONIC",
+         "fullnessReadStatus": "VALID", "fullnessCapturedUptimeMs": 1100, "fullnessDistanceMm": 0})
+    case("ultrasonic_distance", {"fullnessObservationKind": "ULTRASONIC",
+         "fullnessReadStatus": "VALID", "fullnessCapturedUptimeMs": 1100, "fullnessDistanceMm": 65535})
+    for kind in ("ULTRASONIC", "DIGITAL_INFRARED"):
+        case("fullness_unavailable_" + kind, {"fullnessObservationKind": kind,
+             "fullnessReadStatus": "UNAVAILABLE", "fullnessCapturedUptimeMs": 1100})
+    for index, fields in enumerate((
+        {"smokeObservedUptimeMs": 1},
+        {"smokeObservationState": "NORMAL", "smokeObservedUptimeMs": 1201},
+        {"fullnessReadStatus": "VALID"},
+        {"fullnessObservationKind": "DIGITAL_INFRARED"},
+        {"fullnessCapturedUptimeMs": 1},
+        {"fullnessObservationKind": "DIGITAL_INFRARED", "fullnessReadStatus": "UNAVAILABLE", "fullnessInfraredBlocked": True},
+        {"fullnessObservationKind": "ULTRASONIC", "fullnessReadStatus": "UNAVAILABLE", "fullnessDistanceMm": 1},
+        {"fullnessObservationKind": "DIGITAL_INFRARED", "fullnessReadStatus": "VALID", "fullnessDistanceMm": 1},
+        {"fullnessObservationKind": "ULTRASONIC", "fullnessReadStatus": "VALID", "fullnessInfraredBlocked": True},
+        {"fullnessObservationKind": "ULTRASONIC", "fullnessReadStatus": "VALID", "fullnessCapturedUptimeMs": 1201},
+    )):
+        case("environment_invalid_" + str(index), fields, False)
+    case("applied_config", {"appliedConfigVersion": 4, "appliedContentSha256": "ab" * 32, "appliedMcuPayloadSha256": "cd" * 32})
+    for status in ("BOOT_MISMATCH", "PORT_UNSUPPORTED"):
+        zero = dict(base)
+        for field in spec["fields"]:
+            if field["offset"] < 26:
+                continue
+            zero[field["name"]] = "00" * 32 if field["type"] == "sha256" else "00000000-0000-0000-0000-000000000000" if field["type"] == "uuid" else False if field["type"] == "bool" else 0
+        zero |= {"status": status, "currentMcuBootId": 0 if status == "BOOT_MISMATCH" else 42}
+        case(status, zero)
+    measurement = {"measurementSequence": 2, "measurementConfigVersion": 4, "measurementObservedUptimeMs": 1100}
+    case("measurement_running", measurement | {"measurementState": "RUNNING", "measurementSampleCount": 3})
+    case("stable_mean", measurement | {"measurementState": "STABLE_MEAN", "measurementSampleCount": 5, "measurementWeightGrams": 400, "measurementSpanGrams": 100, "measurementElapsedMs": 1250, "measurementObservedUptimeMs": 1500, "capturedUptimeMs": 1600})
+    case("median", measurement | {"measurementState": "TIMEOUT_MEDIAN", "measurementSampleCount": 20, "measurementWeightGrams": 400, "measurementSpanGrams": 1000, "measurementElapsedMs": 5000, "measurementObservedUptimeMs": 6000, "capturedUptimeMs": 6100})
+    retained = {"retainedWorkUid": "22222222-2222-4222-8222-222222222222", "retainedOriginCommandSequence": 2, "retainedPortNo": 1}
+    for work, prefix in (("DELIVERY_SESSION", "DELIVERY_"), ("CLEAN_OPERATION", "CLEAN_")):
+        for status in ("RUNNING", "RESULT_HELD", "RESULT_RELEASED"):
+            case(work + status, retained | {"retainedWorkType": work, "retainedWorkState": status,
+                "retainedWorkPhase": prefix + ("PREPARING" if status == "RUNNING" else "FINALIZING"),
+                "retainedResultSequence": 0 if status == "RUNNING" else 3})
+    for index, changes in enumerate((
+        {"pb6Output": True}, {"pinchPaused": False}, {"lastDeliveryDoorCommand": "NONE"},
+        {"doorActionActive": False}, {"updateLatched": True}, {"controlUptimeMs": 1201},
+        {"scaleCapturedUptimeMs": 1201}, {"scaleReadStatus": "NOT_OBSERVED"},
+        {"scaleReadStatus": "TIMEOUT", "scaleWeightGrams": 1}, {"scaleAttemptSequence": 0},
+        {"appliedConfigVersion": 1}, {"appliedContentSha256": "ab" * 32},
+        {"currentMcuBootId": 0}, {"status": "PORT_UNSUPPORTED"},
+        {"measurementSequence": 1}, measurement | {"measurementState": "STABLE_MEAN", "measurementSampleCount": 4},
+        measurement | {"measurementState": "RUNNING", "measurementWeightGrams": 1},
+        measurement | {"measurementState": "TIMEOUT_MEDIAN", "measurementSampleCount": 5},
+        measurement | {"measurementState": "UNAVAILABLE", "measurementObservedUptimeMs": 1201},
+        {"retainedOriginCommandSequence": 1}, retained | {"retainedWorkState": "RUNNING", "retainedWorkType": "CLEAN_OPERATION", "retainedWorkPhase": "DELIVERY_PREPARING"},
+        retained | {"retainedWorkState": "RESULT_HELD", "retainedWorkType": "CLEAN_OPERATION", "retainedWorkPhase": "CLEAN_FINALIZING"},
+    )):
+        case("invalid_" + str(index), changes, False)
+    return cases
+
+
+def build_work_query_traces(registry, vectors):
+    vector = next(item for item in vectors if item["messageName"] == "WORK_QUERY_REPLY")
+    base = decode_uart_payload(registry, "WORK_QUERY_REPLY", bytes.fromhex(vector["payloadHex"]))
+    spec = uart_message_specs(registry)["WORK_QUERY_REPLY"]
+    cases = []
+    def case(label, changes, valid=True):
+        values = base | changes
+        payload = encode_uart_payload(registry, "WORK_QUERY_REPLY", values, validate_semantics=False)
+        frame = encode_uart_frame(registry, spec["id"], 0, 300, payload)
+        cases.append({"name": "work_query_" + label, "senderRole": "MCU",
+            "chunks": [{"atMs": 0, "hex": frame.hex()}],
+            "expectedMessageNames": ["WORK_QUERY_REPLY"] if valid else [],
+            "expectedDiagnostics": [] if valid else ["SEMANTIC_REJECTED:invalid session payload"]})
+    for work, prefix in (("DELIVERY_SESSION", "DELIVERY_"), ("CLEAN_OPERATION", "CLEAN_")):
+        for phase in registry["enums"]["McuWorkPhase"]["values"]:
+            if phase.startswith(prefix) or phase == "SAFETY_LOCKED":
+                case(work + "_" + phase, {"workType": work, "phase": phase})
+        for status in ("RESULT_HELD", "RESULT_RELEASED", "NOT_FOUND", "IDENTITY_CONFLICT", "BOOT_MISMATCH"):
+            result = status in ("RESULT_HELD", "RESULT_RELEASED")
+            changes = {"workType": work, "status": status,
+                "phase": prefix + "FINALIZING" if result else "IDLE",
+                "resultSequence": 3 if result else 0,
+                "resultDigestSha256": "ab" * 32 if result else "00" * 32,
+                "currentMcuBootId": 0 if status == "BOOT_MISMATCH" else 42}
+            case(work + "_" + status, changes)
+    for index, changes in enumerate((
+        {"workType": "NONE"}, {"workType": "CLEAN_OPERATION"}, {"currentMcuBootId": 0},
+        {"phase": "IDLE"}, {"resultSequence": 1}, {"resultDigestSha256": "ab" * 32},
+        {"status": "NOT_FOUND"}, {"status": "IDENTITY_CONFLICT"},
+        {"status": "BOOT_MISMATCH", "phase": "IDLE"},
+        {"status": "RESULT_HELD", "phase": "DELIVERY_FINALIZING"},
+        {"status": "RESULT_RELEASED", "phase": "IDLE", "resultSequence": 3},
+    )):
+        case("invalid_" + str(index), changes, False)
+    return cases
+
+
+def build_result_control_traces(registry, vectors):
+    """Shared C/Java/Python positive and re-hashed semantic negative cases."""
+    vector = next(item for item in vectors if item["messageName"] == "WORK_RESULT")
+    base = decode_uart_payload(registry, "WORK_RESULT", bytes.fromhex(vector["payloadHex"]))
+    spec = uart_message_specs(registry)["WORK_RESULT"]
+    cases = []
+    def case(name, changes, valid=True):
+        values = base | changes
+        values["resultDigestSha256"] = compute_uart_result_digest(registry, values)
+        payload = encode_uart_payload(registry, "WORK_RESULT", values, validate_semantics=False)
+        frame = encode_uart_frame(registry, spec["id"], 0, 200, payload)
+        cases.append({"name": "work_result_" + name, "senderRole": "MCU",
+            "chunks": [{"atMs": 0, "hex": frame.hex()}],
+            "expectedMessageNames": ["WORK_RESULT"] if valid else [],
+            "expectedDiagnostics": [] if valid else ["SEMANTIC_REJECTED:invalid session payload"]})
+    case("measured_zero", {"initialWeightGrams": 0})
+    case("signed_weight", {"initialWeightGrams": -5})
+    case("median", {"finalKind": "TIMEOUT_MEDIAN", "finalElapsedMs": 5000, "finalSampleCount": 20, "finalSpanGrams": 1000})
+    case("clean_confirmed", {"workType": "CLEAN_OPERATION", "finishReason": "CLEAN_CONFIRMED", "deliveryRoundCount": 0, "cleanActionSequence": 1, "physicalCloseConfirmed": True})
+    for prefix in ("initial", "final"):
+        for kind in ("NOT_TAKEN", "MCU_RESET_LOST"):
+            changes = {prefix + "Kind": kind}
+            for field in spec["fields"]:
+                key = field["name"]
+                if key.startswith(prefix) and key != prefix + "Kind":
+                    changes[key] = ("00000000-0000-0000-0000-000000000000" if field["type"] == "uuid" else "NONE" if field.get("enum") == "FaultCode" else 0)
+            case(prefix + "_" + kind.lower(), changes)
+        for kind in ("UNAVAILABLE", "SENSOR_FAULT", "OVERLOAD", "PROTOCOL_ERROR", "CONFIG_ERROR", "DISCONNECTED"):
+            case(prefix + "_" + kind.lower(), {prefix + "Kind": kind, prefix + "WeightGrams": 0, "finishReason": "FAILED"})
+        interrupted = {prefix + "Kind": "INTERRUPTED", prefix + "FaultCode": "MEASUREMENT_INTERRUPTED",
+            prefix + "ElapsedMs": 300, prefix + "SampleCount": 1, prefix + "SpanGrams": 0,
+            prefix + "WeightGrams": 0, "finishReason": "FAILED"}
+        case(prefix + "_interrupted", interrupted)
+        case(prefix + "_interrupt_cancelled", interrupted | {"finishReason": "CANCELLED"})
+        case(prefix + "_interrupt_normal_completion", interrupted | {"finishReason": "DELIVERY_END"}, False)
+        case(prefix + "_interrupt_timeout_cause", interrupted | {prefix + "FaultCode": "WEIGHT_TIMEOUT"}, False)
+        case(prefix + "_interrupt_cause_without_kind", interrupted | {prefix + "Kind": "UNAVAILABLE"}, False)
+    invalids = [
+        {"workType": "NONE"}, {"initialMeasurementUid": base["finalMeasurementUid"]},
+        {"finalMcuEventSequence": 1}, {"initialSourceMcuBootId": 43},
+        {"initialKind": "NOT_TAKEN"}, {"finalSampleCount": 4},
+        {"finalSpanGrams": 101}, {"finalKind": "TIMEOUT_MEDIAN"},
+        {"finalKind": "UNAVAILABLE"}, {"physicalCloseConfirmed": True},
+        {"deliveryRoundCount": 0}, {"finishReason": "CLEAN_CONFIRMED"},
+        {"workType": "CLEAN_OPERATION", "finishReason": "CLEAN_CONFIRMED", "deliveryRoundCount": 0, "cleanActionSequence": 1},
+    ]
+    for index, changes in enumerate(invalids):
+        case("rehash_invalid_" + str(index), changes, False)
+    frame = bytes.fromhex(vector["frameHex"])
+    cases.append({"name": "work_result_partial_timeout_then_duplicate", "senderRole": "MCU",
+        "chunks": [{"atMs": 0, "hex": frame[:100].hex()}, {"atMs": 101, "hex": ""},
+                   {"atMs": 102, "hex": (frame + frame).hex()}],
+        "expectedMessageNames": ["WORK_RESULT", "WORK_RESULT"],
+        "expectedDiagnostics": ["FRAME_TIMEOUT"]})
+    return cases
+
+
+def build_session_control_traces(registry, vectors):
+    specs = uart_message_specs(registry)
+    traces = []
+    covered_outcomes = set()
+    for vector in vectors:
+        name = vector["messageName"]
+        if name not in registry["sessionPolicy"]["sessionControlMessages"] + ["DELIVERY_SELECTION", "CLEAN_UNLOCK_REQUESTED", "CLEAN_FINISH_REQUESTED", "CLEAN_COMPLETION_CONFIRMED"]:
+            continue
+        spec = specs[name]
+        payload = bytes.fromhex(vector["payloadHex"])
+        fields = {field["name"]: field for field in spec["fields"]}
+        valid = bytes.fromhex(vector["frameHex"])
+        sender = "EDGE" if spec["direction"] == "EDGE_TO_MCU" else "MCU"
+        traces.append({
+            "name": vector["name"] + "_dispatch", "senderRole": sender,
+            "chunks": [{"atMs": 0, "hex": valid.hex()}],
+            "expectedMessageNames": [name], "expectedDiagnostics": [],
+        })
+        base = decode_uart_payload(registry, name, payload)
+        if name not in covered_outcomes and name in {"COMMAND_DECISION", "COMMAND_QUERY_RESULT", "RESULT_SAVED_REPLY", "RESULT_QUERY_REPLY", "PROCESS_EVENT_QUERY_REPLY", "PROCESS_EVENT_SAVED_REPLY", "ACTUATOR_EVENT_QUERY_REPLY", "ACTUATOR_EVENT_SAVED_REPLY"}:
+            covered_outcomes.add(name)
+            enum_name = ("ActuatorEventQueryStatus" if name == "ACTUATOR_EVENT_QUERY_REPLY" else
+                "ResultSavedStatus" if name in {"RESULT_SAVED_REPLY", "PROCESS_EVENT_SAVED_REPLY", "ACTUATOR_EVENT_SAVED_REPLY"} else
+                "ResultQueryStatus" if name in {"RESULT_QUERY_REPLY", "PROCESS_EVENT_QUERY_REPLY"} else "CommandOutcome")
+            for outcome in registry["enums"][enum_name]["values"]:
+                if name == "COMMAND_DECISION" and outcome == "NOT_SEEN":
+                    continue
+                values = dict(base)
+                values["outcome" if enum_name == "CommandOutcome" else "status"] = outcome
+                original_boot = values.get("targetMcuBootId", values.get("mcuBootId"))
+                values["currentMcuBootId"] = 0 if outcome == "BOOT_MISMATCH" else original_boot
+                if name == "PROCESS_EVENT_QUERY_REPLY" and outcome not in {"HELD", "RELEASED"}:
+                    values.update(mcuEventSequence=0, eventDigestSha256="00" * 32)
+                if name == "ACTUATOR_EVENT_QUERY_REPLY" and outcome != "HELD":
+                    values.update(mcuEventSequence=0, eventMessageType="NONE", eventDigestSha256="00" * 32)
+                if enum_name == "CommandOutcome":
+                    values["errorCode"] = "BUSY" if outcome == "REJECTED" else "NONE"
+                if name == "COMMAND_QUERY_RESULT":
+                    values["highestCommandSequence"] = (
+                        0 if outcome == "BOOT_MISMATCH" else
+                        values["commandSequence"] - 1 if outcome == "NOT_SEEN" else values["commandSequence"]
+                    )
+                encoded = encode_uart_payload(registry, name, values)
+                frame = encode_uart_frame(registry, spec["id"], 0, 101, encoded)
+                traces.append({
+                    "name": name.lower() + "_legal_" + outcome.lower(), "senderRole": sender,
+                    "chunks": [{"atMs": 0, "hex": frame.hex()}],
+                    "expectedMessageNames": [name], "expectedDiagnostics": [],
+                })
+        mutations = {"short": payload[:-1], "long": payload + b"\0"}
+        def changed(field_name, value):
+            field = fields[field_name]
+            raw = bytearray(payload)
+            size, offset = field["minimumSize"], field["offset"]
+            raw[offset:offset + size] = value.to_bytes(size, "big")
+            return bytes(raw)
+        for field in spec["fields"]:
+            field_name = field["name"]
+            if field.get("minimum", 0) > 0 or field["type"] == "uuid":
+                mutations[field_name + "_zero"] = changed(field_name, 0)
+            if field["type"] == "u64":
+                mutations[field_name + "_overflow"] = changed(field_name, 1 << 53)
+                mutations[field_name + "_uint64_max"] = changed(field_name, (1 << 64) - 1)
+            if field.get("enum"):
+                maximum = (1 << (8 * field["minimumSize"])) - 1
+                mutations[field_name + "_unknown"] = changed(field_name, maximum)
+        if "outcome" in fields:
+            mutations["outcome_wrong_boot"] = changed("currentMcuBootId", base["targetMcuBootId"] if base["outcome"] == "BOOT_MISMATCH" else 0)
+            mutations["outcome_wrong_error"] = changed("errorCode", 0 if base["outcome"] == "REJECTED" else registry["enums"]["NackError"]["values"]["BUSY"])
+        if name == "CLEAN_COMPLETION_CONFIRMED":
+            mutations["not_human_confirmed"] = changed("cleanerPhysicalCloseConfirmed", 0)
+            mutations["invalid_confirmation_bool"] = changed("cleanerPhysicalCloseConfirmed", 2)
+            mutations["powered_lock"] = changed("lockPowerState", registry["enums"]["CleanLockPowerState"]["values"]["ENERGIZED"])
+            mutations["unobserved_door"] = changed("cleanDoorStateBasis", registry["enums"]["CleanDoorStateBasis"]["values"]["NOT_OBSERVABLE"])
+        if name == "COMMAND_QUERY_RESULT":
+            if base["outcome"] == "NOT_SEEN":
+                wrong_high_water = base["commandSequence"]
+            else:
+                wrong_high_water = base["commandSequence"] - 1
+            if base["outcome"] != "BOOT_MISMATCH":
+                mutations["outcome_wrong_high_water"] = changed("highestCommandSequence", wrong_high_water)
+            elif base["currentMcuBootId"] == 0:
+                mutations["unbound_wrong_high_water"] = changed("highestCommandSequence", 1)
+        if name in {"RESULT_SAVED_REPLY", "RESULT_QUERY_REPLY", "PROCESS_EVENT_QUERY_REPLY", "PROCESS_EVENT_SAVED_REPLY", "ACTUATOR_EVENT_QUERY_REPLY", "ACTUATOR_EVENT_SAVED_REPLY"}:
+            mutations["saved_status_wrong_boot"] = changed("currentMcuBootId", base.get("mcuBootId", base.get("targetMcuBootId")) if base["status"] == "BOOT_MISMATCH" else 0)
+        if name in {"QUERY_PROCESS_EVENT", "PROCESS_EVENT_QUERY_REPLY"}:
+            mutations["wrong_work_type"] = changed("workType", 3)
+            mutations["wrong_step"] = changed("stepSequence", 0)
+        if name == "PROCESS_EVENT_QUERY_REPLY":
+            mutations["held_without_sequence"] = changed("mcuEventSequence", 0)
+            mutations["missing_with_reference"] = changed("status", 3)
+        if name == "ACTUATOR_EVENT_QUERY_REPLY":
+            mutations["held_without_sequence"] = changed("mcuEventSequence", 0)
+            mutations["held_without_type"] = changed("eventMessageType", 0)
+            mutations["held_before_cursor"] = changed("afterMcuEventSequence", base["mcuEventSequence"])
+            mutations["missing_with_reference"] = changed("status", 3)
+        if name in {"ACTUATOR_EVENT_SAVED", "ACTUATOR_EVENT_SAVED_REPLY"}:
+            mutations["saved_without_type"] = changed("eventMessageType", 0)
+        for label, bad_payload in mutations.items():
+            if bad_payload == payload:
+                continue
+            bad = encode_uart_frame(registry, spec["id"], int(spec["ackRequired"]), 100, bad_payload)
+            traces.append({
+                "name": vector["name"] + "_reject_" + label, "senderRole": sender,
+                "chunks": [{"atMs": 0, "hex": (bad + valid).hex()}],
+                "expectedMessageNames": [name],
+                "expectedDiagnostics": ["SEMANTIC_REJECTED:invalid session payload"],
+            })
+    return traces
 
 
 def _digest_scalar(
@@ -417,10 +1198,12 @@ def build_uart_digest_vectors(
         "continueDeliveryWaitMs": 30000,
         "negativeWeightThresholdGrams": 500,
         "deliveryAutoCloseMs": 120000,
-        "weightMeasurementTimeoutMs": 6000,
+        "weightMeasurementTimeoutMs": 5000,
         "deliveryDoorTravelWaitMs": 30000,
         "cleanSolenoidPulseMs": 1000,
         "smokeMonitoringEnabled": True,
+        "weightPollIntervalMs": 250,
+        "weightResponseTimeoutMs": 200,
     }
     port_values = [
         {
@@ -436,12 +1219,14 @@ def build_uart_digest_vectors(
             "fullnessMinimumValidSampleCount": 3,
             "fullnessEchoTimeoutUs": 30000,
             "weightStableWindowMs": 1500,
-            "weightMaximumFluctuationGrams": 20,
-            "weightRequiredSampleCount": 10,
-            "weightMeasurementTimeoutMs": 6000,
+            "weightMaximumFluctuationGrams": 100,
+            "weightRequiredSampleCount": 5,
+            "weightMeasurementTimeoutMs": 5000,
             "weightMinimumGrams": -5000,
             "weightMaximumGrams": 100000,
             "calibrationVersion": 4,
+            "weightMaximumSampleAgeMs": 750,
+            "weightMinimumMedianSampleCount": 5,
         }
         for port_no in (1, 2)
     ]
@@ -453,6 +1238,8 @@ def build_uart_digest_vectors(
         "deliveryDoorTravelWaitMs",
         "cleanSolenoidPulseMs",
         "smokeMonitoringEnabled",
+        "weightPollIntervalMs",
+        "weightResponseTimeoutMs",
     ]
     port_field_names = [
         "portNo",
@@ -473,6 +1260,8 @@ def build_uart_digest_vectors(
         "weightMinimumGrams",
         "weightMaximumGrams",
         "calibrationVersion",
+        "weightMaximumSampleAgeMs",
+        "weightMinimumMedianSampleCount",
     ]
     config_preimage = bytearray(
         bytes.fromhex(
@@ -510,7 +1299,7 @@ def build_uart_digest_vectors(
         "uptimeMs": 1000,
         "snapshotUid": snapshot_uid,
         "queryCommandUid": "91919191-9191-4191-8191-919191919191",
-        "protocolMajor": 1,
+        "protocolMajor": registry["protocol"]["major"],
         "protocolMinor": 0,
         "firmwareVersionCode": 10000,
         "activeWorkType": "NONE",
@@ -654,7 +1443,30 @@ def build_uart_digest_vectors(
         encode_uart_payload(registry, "STATE_SNAPSHOT_PORT", port)
     encode_uart_payload(registry, "STATE_SNAPSHOT_END", end)
 
+    result_values = dict(next(item for item in registry["goldenVectors"] if item.get("message") == "WORK_RESULT")["payload"])
+    result_values["resultDigestSha256"] = "0" * 64
+    result_values["resultDigestSha256"] = compute_uart_result_digest(registry, result_values)
+    process_name = "WORK_POSTCLOSE_WEIGHT_READY"
+    process_values = dict(next(item for item in registry["goldenVectors"] if item.get("message") == process_name)["payload"])
+    process_payload = encode_uart_payload(registry, process_name, process_values)
+    process_preimage = uart_process_event_digest_preimage(registry, process_name, process_payload)
     source_vectors = [
+        *[("complete_actuator_" + name.lower(), "actuatorEventDigestSha256",
+           uart_actuator_event_digest_preimage(registry, name, encode_uart_payload(registry, name, values)),
+           {"message": name, "payload": values})
+          for name in registry["sessionPolicy"]["actuatorEventMessages"]
+          for values in [dict(next(item for item in registry["goldenVectors"] if item.get("message") == name)["payload"])]],
+        ("complete_process_event", "eventDigestSha256", process_preimage, {"message": process_name, "payload": process_values}),
+        *[("complete_delivery_selection", "eventDigestSha256",
+           uart_process_event_digest_preimage(registry, "DELIVERY_SELECTION", encode_uart_payload(registry, "DELIVERY_SELECTION", values)),
+           {"message": "DELIVERY_SELECTION", "payload": values})
+          for values in [dict(next(item for item in registry["goldenVectors"] if item.get("message") == "DELIVERY_SELECTION")["payload"])]],
+        *[("complete_" + name.lower(), "eventDigestSha256",
+           uart_process_event_digest_preimage(registry, name, encode_uart_payload(registry, name, values)),
+           {"message": name, "payload": values})
+          for name in ("CLEAN_UNLOCK_REQUESTED", "CLEAN_FINISH_REQUESTED", "CLEAN_COMPLETION_CONFIRMED")
+          for values in [dict(next(item for item in registry["goldenVectors"] if item.get("message") == name)["payload"])]],
+        ("complete_work_result", "resultDigestSha256", uart_result_digest_preimage(registry, result_values), {"message": "WORK_RESULT", "payload": result_values}),
         (
             "command_authorize_first_open",
             "commandDigestSha256",
@@ -705,6 +1517,13 @@ def render_python_module(
 ) -> str:
     registry_literal = pprint.pformat(dict(registry), width=100, sort_dicts=True)
     specs_literal = pprint.pformat(dict(specs), width=100, sort_dicts=True)
+    result_rules = (CONTRACTS_ROOT / "tools/result_contract.py").read_text(encoding="utf-8")
+    work_query_rules = (CONTRACTS_ROOT / "tools/work_query_contract.py").read_text(encoding="utf-8")
+    device_facts_rules = (CONTRACTS_ROOT / "tools/device_facts_contract.py").read_text(encoding="utf-8")
+    process_measurement_rules = (CONTRACTS_ROOT / "tools/process_measurement_contract.py").read_text(encoding="utf-8")
+    process_handoff_rules = (CONTRACTS_ROOT / "tools/process_handoff_contract.py").read_text(encoding="utf-8")
+    actuator_event_rules = (CONTRACTS_ROOT / "tools/actuator_event_contract.py").read_text(encoding="utf-8")
+    actuator_handoff_rules = (CONTRACTS_ROOT / "tools/actuator_handoff_contract.py").read_text(encoding="utf-8")
     return f'''"""Generated from contracts/uart/uart-registry.yaml.
 
 DO NOT EDIT. Registry SHA-256: {registry_digest}
@@ -726,6 +1545,7 @@ STOP_BITS = {registry["physicalLink"]["stopBits"]}
 FLOW_CONTROL = "{registry["physicalLink"]["flowControl"]}"
 PROTOCOL_MAJOR = {registry["protocol"]["major"]}
 PROTOCOL_MINOR = {registry["protocol"]["minor"]}
+IMPLEMENTATION_STAGE = {registry["implementationStage"]!r}
 MAGIC = bytes.fromhex("{registry["protocol"]["magicHex"]}")
 MAXIMUM_FRAME_LENGTH = {registry["protocol"]["maximumFrameLength"]}
 MAXIMUM_PAYLOAD_LENGTH = {registry["protocol"]["maximumPayloadLength"]}
@@ -735,6 +1555,7 @@ REGISTRY = {registry_literal}
 MESSAGE_SPECS = {specs_literal}
 MESSAGE_TYPE = {{message["name"]: message["id"] for message in REGISTRY["messages"]}}
 MESSAGE_NAME = {{value: key for key, value in MESSAGE_TYPE.items()}}
+FENCED_COMMAND_MESSAGES = {uart_fenced_command_names(registry)!r}
 
 
 class ProtocolError(ValueError):
@@ -868,6 +1689,37 @@ def _validate_manual_close(message_name: str, values: Mapping[str, Any]) -> None
         raise ProtocolError(message_name + ": invalid cleaner confirmation basis")
 
 
+{result_rules}
+{work_query_rules}
+{device_facts_rules}
+{process_measurement_rules}
+{process_handoff_rules}
+{actuator_event_rules}
+{actuator_handoff_rules}
+
+def compute_process_event_digest(message_name, payload):
+    if message_name not in REGISTRY["sessionPolicy"]["processEventMessages"] or not isinstance(payload, bytes):
+        raise ProtocolError("digest requires registered process event bytes")
+    decode_payload(message_name, payload)
+    domain = bytes.fromhex(REGISTRY["digestProfiles"]["eventDigestSha256"]["domainHex"])
+    return hashlib.sha256(domain + bytes([MESSAGE_SPECS[message_name]["id"]]) + len(payload).to_bytes(2, "big") + payload).hexdigest()
+
+
+def compute_actuator_event_digest(message_name, payload):
+    if message_name not in REGISTRY["sessionPolicy"]["actuatorEventMessages"] or not isinstance(payload, bytes):
+        raise ProtocolError("digest requires registered actuator event bytes")
+    decode_payload(message_name, payload)
+    domain = bytes.fromhex(REGISTRY["digestProfiles"]["actuatorEventDigestSha256"]["domainHex"])
+    return hashlib.sha256(domain + bytes([MESSAGE_SPECS[message_name]["id"]]) + len(payload).to_bytes(2, "big") + payload).hexdigest()
+
+
+def compute_result_digest(values):
+    payload = encode_payload("WORK_RESULT", values, validate_semantics=False)
+    domain = bytes.fromhex(REGISTRY["digestProfiles"]["resultDigestSha256"]["domainHex"])
+    preimage = domain + bytes([MESSAGE_SPECS["WORK_RESULT"]["id"]]) + len(payload).to_bytes(2, "big") + payload[:28] + payload[60:]
+    return hashlib.sha256(preimage).hexdigest()
+
+
 def validate_payload_semantics(
     message_name: str,
     values: Mapping[str, Any],
@@ -875,6 +1727,11 @@ def validate_payload_semantics(
     verify_command_digest: bool = True,
 ) -> None:
     for field in MESSAGE_SPECS[message_name]["fields"]:
+        if ((message_name in REGISTRY["sessionPolicy"]["sessionControlMessages"] + REGISTRY["sessionPolicy"]["processEventMessages"] + REGISTRY["sessionPolicy"]["actuatorEventMessages"]
+                or message_name in FENCED_COMMAND_MESSAGES)
+                and field["type"] == "uuid" and not field.get("zeroAllowed")
+                and _zero_slot(field, values[field["name"]])):
+            raise ProtocolError(field["name"] + ": all-zero UUID is reserved")
         condition = field.get("invalidWhen")
         if condition and condition.endswith("=false"):
             controller = condition[:-6]
@@ -884,36 +1741,76 @@ def validate_payload_semantics(
                 raise ProtocolError(field["name"] + ": invalid slot is not zero")
     _validate_measurement(message_name, values)
     _validate_manual_close(message_name, values)
+    validate_work_query_fields(REGISTRY, message_name, values, ProtocolError)
+    validate_device_facts_fields(REGISTRY, message_name, values, ProtocolError)
+    validate_process_measurement_fields(REGISTRY, message_name, values, ProtocolError)
+    validate_process_handoff_fields(REGISTRY, message_name, values, ProtocolError)
+    validate_actuator_handoff_fields(REGISTRY, message_name, values, ProtocolError)
+    validate_door_output_fields(REGISTRY, message_name, values, ProtocolError)
+    if message_name == "WORK_RESULT":
+        validate_result_fields(REGISTRY, values, ProtocolError)
+        actual = values["resultDigestSha256"]
+        if (actual.hex() if isinstance(actual, bytes) else actual) != compute_result_digest(values):
+            raise ProtocolError("WORK_RESULT digest mismatch")
+    if message_name == "RESULT_QUERY_REPLY":
+        status = _enum_value({{"name": "status", "enum": "ResultQueryStatus"}}, values["status"])
+        if (status == REGISTRY["enums"]["ResultQueryStatus"]["values"]["BOOT_MISMATCH"]) != (values["currentMcuBootId"] != values["mcuBootId"]):
+            raise ProtocolError("result query status/boot mismatch")
     if message_name == "NACK" and values["errorCode"] == "NONE":
         raise ProtocolError("NACK cannot use NONE")
-    if message_name == "SAFE_CLOSE":
-        if values["scope"] == "ALL_DELIVERY_DOORS" and values["portNo"] != 0:
-            raise ProtocolError("ALL_DELIVERY_DOORS requires portNo=0")
-        if values["scope"] == "SINGLE_DELIVERY_DOOR" and values["portNo"] == 0:
-            raise ProtocolError("SINGLE_DELIVERY_DOOR requires a port")
-    if message_name in ("DELIVERY_DOOR_COMMAND_RESULT", "SAFE_CLOSE_RESULT"):
-        if values["physicalDoorStateBasis"] != "NOT_OBSERVABLE":
-            raise ProtocolError("delivery-door physical state is not observable")
-        if values["command"] == "NONE":
-            raise ProtocolError("door command NONE is snapshot-only")
-        status = values["outputStatus"]
-        if status == "COMMAND_DISPATCHED":
-            if values["faultCode"] != "NONE":
-                raise ProtocolError("successful door output has a fault")
-        elif status == "COALESCED_WITH_EXISTING_CLOSE":
-            if values["faultCode"] != "NONE":
-                raise ProtocolError("coalesced close has a fault")
-        elif status == "COMMAND_SUPERSEDED_BEFORE_DISPATCH":
-            if values["faultCode"] != "NONE":
-                raise ProtocolError("superseded door command has a fault")
-        elif status == "OUTPUT_REJECTED":
-            if values["faultCode"] not in (
-                "DELIVERY_DOOR_OUTPUT_REJECTED",
-                "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
+    if message_name == "BIND_BOOT_REPLY":
+        status = _enum_value({{"name": "status", "enum": "BootBindStatus"}}, values["status"])
+        statuses = REGISTRY["enums"]["BootBindStatus"]["values"]
+        boot = values["mcuBootId"]
+        if (
+            (status == statuses["BOUND"] and boot != values["proposedMcuBootId"])
+            or (status == statuses["PROBE_MISMATCH"] and boot != 0)
+            or (status == statuses["ALREADY_BOUND"] and boot == 0)
+        ):
+            raise ProtocolError("BIND_BOOT_REPLY status/identity mismatch")
+    if message_name == "RESULT_SAVED_REPLY":
+        status = _enum_value({{"name": "status", "enum": "ResultSavedStatus"}}, values["status"])
+        mismatch = values["currentMcuBootId"] != values["mcuBootId"]
+        if (status == REGISTRY["enums"]["ResultSavedStatus"]["values"]["BOOT_MISMATCH"]) != mismatch:
+            raise ProtocolError("saved reply status/current boot mismatch")
+    if message_name in ("COMMAND_DECISION", "COMMAND_QUERY_RESULT"):
+        outcome = _enum_value({{"name": "outcome", "enum": "CommandOutcome"}}, values["outcome"])
+        error = _enum_value({{"name": "errorCode", "enum": "NackError"}}, values["errorCode"])
+        outcomes = REGISTRY["enums"]["CommandOutcome"]["values"]
+        mismatch = values["currentMcuBootId"] != values["targetMcuBootId"]
+        if ((outcome == outcomes["BOOT_MISMATCH"]) != mismatch
+                or (outcome == outcomes["REJECTED"]) != (error != 0)
+                or (message_name == "COMMAND_DECISION" and outcome == outcomes["NOT_SEEN"])):
+            raise ProtocolError("COMMAND_DECISION outcome/identity mismatch")
+        if message_name == "COMMAND_QUERY_RESULT":
+            high_water = values["highestCommandSequence"]
+            sequence = values["commandSequence"]
+            if values["currentMcuBootId"] == 0 and high_water != 0:
+                raise ProtocolError("unassigned MCU cannot have a command high-water mark")
+            if not mismatch and (
+                (outcome == outcomes["NOT_SEEN"] and sequence <= high_water)
+                or (outcome == outcomes["OLD_DETAILS_UNAVAILABLE"] and sequence > high_water)
+                or (outcome in (outcomes["ACCEPTED"], outcomes["REJECTED"], outcomes["IDENTITY_CONFLICT"])
+                    and sequence != high_water)
             ):
-                raise ProtocolError("rejected door output has the wrong fault")
-        else:
-            raise ProtocolError("NOT_DISPATCHED is reserved for snapshots")
+                raise ProtocolError("command query outcome/high-water mismatch")
+    if message_name == "SAFE_CLOSE":
+        scope = _enum_value({{"name": "scope", "enum": "SafeCloseScope"}}, values["scope"])
+        if (scope == REGISTRY["enums"]["SafeCloseScope"]["values"]["ALL_DELIVERY_DOORS"]) != (values["portNo"] == 0):
+            raise ProtocolError("SAFE_CLOSE scope differs from portNo")
+    if message_name == "CONFIG_BEGIN" and values["partCount"] != values["expectedPortCount"] + 3:
+        raise ProtocolError("CONFIG_BEGIN partCount must equal expectedPortCount+3")
+    if message_name == "CONFIG_PORT_BLOCK":
+        if values["partIndex"] >= values["partCount"]:
+            raise ProtocolError("CONFIG_PORT_BLOCK cannot occupy the COMMIT slot or exceed the set")
+        if values["partIndex"] != values["portNo"] + 2:
+            raise ProtocolError("CONFIG_PORT_BLOCK partIndex must equal portNo+2")
+        if values["weightMinimumGrams"] >= values["weightMaximumGrams"]:
+            raise ProtocolError("CONFIG_PORT_BLOCK weight range is reversed or empty")
+        if values["fullnessMinimumValidSampleCount"] > values["fullnessSampleCount"]:
+            raise ProtocolError("CONFIG_PORT_BLOCK minimum valid samples exceed total")
+    if message_name == "CONFIG_COMMIT" and values["partIndex"] != values["partCount"]:
+        raise ProtocolError("CONFIG_COMMIT partIndex must equal partCount")
     if message_name == "CONFIG_PORT_BLOCK":
         if (
             values["fullnessMinimumValidSampleCount"]
@@ -921,10 +1818,10 @@ def validate_payload_semantics(
         ):
             raise ProtocolError("minimum valid fullness samples exceed total")
     if message_name in ("FULLNESS_SAMPLE_RESULT", "STATE_SNAPSHOT_PORT"):
-        measured = values["fullnessSampleBasis"] == "MEASURED_MEDIAN"
+        measured = _enum_value({{"name": "fullnessSampleBasis", "enum": "FullnessSampleBasis"}}, values["fullnessSampleBasis"]) == REGISTRY["enums"]["FullnessSampleBasis"]["values"]["MEASURED_MEDIAN"]
         if measured != values["representativeDistancePresent"]:
             raise ProtocolError("fullness sample basis/distance mismatch")
-        if not measured and values["fullnessSensorValue"] != "CLEAR":
+        if not measured and _enum_value({{"name": "fullnessSensorValue", "enum": "FullnessSensorValue"}}, values["fullnessSensorValue"]) != REGISTRY["enums"]["FullnessSensorValue"]["values"]["CLEAR"]:
             raise ProtocolError("fullness fallback must be CLEAR")
         if (
             message_name == "FULLNESS_SAMPLE_RESULT"
@@ -981,7 +1878,9 @@ def validate_payload_semantics(
             raise ProtocolError("invalid boot reconciliation context")
         if (values["status"] == "ACCEPTED") != (values["faultCode"] == "NONE"):
             raise ProtocolError("boot reconciliation status/fault mismatch")
-    if verify_command_digest and "commandDigestSha256" in values:
+    if (verify_command_digest and MESSAGE_SPECS[message_name]["direction"] == "EDGE_TO_MCU"
+            and message_name not in REGISTRY["sessionPolicy"]["readOnlyMessages"]
+            and "commandDigestSha256" in values):
         actual = values["commandDigestSha256"]
         if isinstance(actual, bytes):
             actual = actual.hex()
@@ -1157,6 +2056,14 @@ def decode_frame(
             if spec["direction"] not in ("BIDIRECTIONAL", direction):
                 raise ProtocolError("message direction differs from the sender role")
     payload = frame[12:-2]
+    bootstrap = message_name in REGISTRY["sessionPolicy"]["bootstrapMessages"]
+    command = message_name in FENCED_COMMAND_MESSAGES
+    if bootstrap or command or message_name in REGISTRY["sessionPolicy"]["sessionControlMessages"] + REGISTRY["sessionPolicy"]["processEventMessages"] + REGISTRY["sessionPolicy"]["actuatorEventMessages"]:
+        try:
+            decode_payload(message_name, payload)
+        except ProtocolError as error:
+            kind = "bootstrap" if bootstrap else "command" if command else "session"
+            raise ProtocolError("invalid " + kind + " payload") from error
     return {{
         "messageName": message_name,
         "messageType": message_type,
@@ -1187,12 +2094,22 @@ class StreamParser:
     def feed(self, data: bytes, *, now_ms: int) -> list[dict[str, Any]]:
         if isinstance(now_ms, bool) or not isinstance(now_ms, int) or now_ms < 0:
             raise ProtocolError("now_ms must be non-negative")
-        self.buffer.extend(data)
         limit = REGISTRY["streamParser"]["inputBufferLimit"]
-        if len(self.buffer) > limit:
-            del self.buffer[:len(self.buffer) - limit]
-            self.candidate_started_ms = None
-            self.diagnostics.append("BUFFER_OVERFLOW")
+        view = memoryview(data)
+        offset = 0
+        frames: list[dict[str, Any]] = []
+        while True:
+            available = limit - len(self.buffer)
+            if available <= 0:
+                raise ProtocolError("stream buffer did not drain")
+            take = min(available, len(view) - offset)
+            self.buffer.extend(view[offset:offset + take])
+            offset += take
+            frames.extend(self._drain(now_ms))
+            if offset == len(view):
+                return frames
+
+    def _drain(self, now_ms: int) -> list[dict[str, Any]]:
         deadline = REGISTRY["streamParser"]["frameAssemblyDeadlineMs"]
         frames: list[dict[str, Any]] = []
         while True:
@@ -1248,11 +2165,482 @@ class StreamParser:
 '''
 
 
+def _session_wire_expression(field: Mapping[str, Any], language: str) -> str:
+    kind, offset = field["type"], field["offset"]
+    if language == "c":
+        if kind in {"u8", "bool"}:
+            return f"payload[{offset}]"
+        if kind == "i32":
+            return f"(int32_t)ecobin_uart_read_u32_be(payload + {offset}u)"
+        if kind in {"u16", "u32", "u64"}:
+            return f"ecobin_uart_read_{kind}_be(payload + {offset}u)"
+    else:
+        if kind in {"u8", "bool"}:
+            return f"Byte.toUnsignedInt(payload[{offset}])"
+        if kind == "i32":
+            return f"ByteBuffer.wrap(payload, {offset}, 4).order(ByteOrder.BIG_ENDIAN).getInt()"
+        if kind in {"u16", "u32", "u64"}:
+            size = {"u16": 2, "u32": 4, "u64": 8}[kind]
+            method = {"u16": "getShort", "u32": "getInt", "u64": "getLong"}[kind]
+            raw = f"ByteBuffer.wrap(payload, {offset}, {size}).order(ByteOrder.BIG_ENDIAN).{method}()"
+            return {"u16": f"Short.toUnsignedInt({raw})", "u32": f"Integer.toUnsignedLong({raw})", "u64": raw}[kind]
+    raise ContractError("unsupported session scalar " + kind)
+
+
+def render_result_conditions(registry, fields, value, reject, is_c):
+    """Cross-field rules corresponding to result_contract.validate_result_fields."""
+    def zero(name, length=16):
+        offset = fields[name]["offset"]
+        return f"ecobin_uart_bytes_zero(payload + {offset}u, {length}u)" if is_c else f"bytesZero(payload, {offset}, {length})"
+    work, reason = value("workType"), value("finishReason")
+    enum = registry["enums"]["WorkType"]["values"]
+    delivery, clean = enum["DELIVERY_SESSION"], enum["CLEAN_OPERATION"]
+    reject(f"{work} != {delivery} && {work} != {clean}")
+    reject(f"{work} == {delivery} && ({reason} == 3 || {value('cleanActionSequence')} != 0 || {value('physicalCloseConfirmed')} != 0)")
+    reject(f"{work} == {clean} && ({reason} <= 2 || {value('deliveryRoundCount')} != 0 || {value('negativeWeightAnomaly')} != 0)")
+    reject(f"{reason} <= 2 && {value('deliveryRoundCount')} == 0")
+    reject(f"{reason} == 3 && ({value('physicalCloseConfirmed')} == 0 || {value('cleanActionSequence')} == 0)")
+    for prefix in ("initial", "final"):
+        kind = value(prefix + "Kind")
+        interrupted = registry["enums"]["ResultMeasurementKind"]["values"]["INTERRUPTED"]
+        cause = registry["enums"]["FaultCode"]["values"]["MEASUREMENT_INTERRUPTED"]
+        reject(f"({kind} == {interrupted}) != ({value(prefix + 'FaultCode')} == {cause})")
+        reject(f"{kind} == {interrupted} && {reason} != 4 && {reason} != 5")
+        start = fields[prefix + "MeasurementUid"]["offset"]
+        end = fields[prefix + "FaultCode"]["offset"] + 2
+        reject(f"{kind} <= 1 && !{zero(prefix + 'MeasurementUid', end - start)}")
+        reject(f"{kind} > 1 && ({zero(prefix + 'MeasurementUid')} || {value(prefix + 'SourceMcuBootId')} != {value('mcuBootId')} || {value(prefix + 'McuEventSequence')} == 0)")
+        reject(f"({kind} == 2 || {kind} == 3) && ({value(prefix + 'SampleCount')} < 5 || {value(prefix + 'FaultCode')} != 0)")
+        reject(f"{kind} == 2 && {value(prefix + 'SpanGrams')} > 100")
+        reject(f"{kind} == 3 && {value(prefix + 'ElapsedMs')} != 5000")
+        reject(f"{kind} > 3 && {value(prefix + 'WeightGrams')} != 0")
+    first, last = fields['initialMeasurementUid']['offset'], fields['finalMeasurementUid']['offset']
+    same = f"memcmp(payload + {first}u, payload + {last}u, 16u) == 0" if is_c else f"Arrays.equals(payload, {first}, {first + 16}, payload, {last}, {last + 16})"
+    reject(f"{value('initialKind')} > 1 && {value('finalKind')} > 1 && (({same}) || {value('initialMcuEventSequence')} >= {value('finalMcuEventSequence')})")
+    reject("!ecobin_uart_result_digest_matches(payload)" if is_c else "!resultDigestMatches(payload)")
+
+
+def render_work_query_conditions(registry, name, fields, value, reject, is_c):
+    work = value("workType")
+    types = registry["enums"]["WorkType"]["values"]
+    delivery, clean = types["DELIVERY_SESSION"], types["CLEAN_OPERATION"]
+    reject(f"{work} != {delivery} && {work} != {clean}")
+    if name == "QUERY_WORK":
+        return
+    statuses = registry["enums"]["WorkQueryStatus"]["values"]
+    phases = registry["enums"]["McuWorkPhase"]["values"]
+    status, phase, sequence = value("status"), value("phase"), value("resultSequence")
+    reject(f"({status} == {statuses['BOOT_MISMATCH']}) != ({value('currentMcuBootId')} != {value('targetMcuBootId')})")
+    result = f"({status} == {statuses['RESULT_HELD']} || {status} == {statuses['RESULT_RELEASED']})"
+    reject(f"{result} && ({sequence} == 0 || ({work} == {delivery} && {phase} != {phases['DELIVERY_FINALIZING']}) || ({work} == {clean} && {phase} != {phases['CLEAN_FINALIZING']}))")
+    offset = fields["resultDigestSha256"]["offset"]
+    zero = f"ecobin_uart_bytes_zero(payload + {offset}u, 32u)" if is_c else f"bytesZero(payload, {offset}, 32)"
+    reject(f"!{result} && ({sequence} != 0 || !{zero})")
+    for work_value, prefix in ((delivery, "DELIVERY_"), (clean, "CLEAN_")):
+        choices = [number for key, number in phases.items() if key.startswith(prefix) or key == "SAFETY_LOCKED"]
+        invalid = " && ".join(f"{phase} != {number}" for number in choices)
+        reject(f"{status} == {statuses['RUNNING']} && {work} == {work_value} && ({invalid})")
+    reject(f"!{result} && {status} != {statuses['RUNNING']} && {phase} != {phases['IDLE']}")
+
+
+def render_process_event_digest(registry, *, actuator=False):
+    domain = bytes.fromhex(registry["digestProfiles"]["actuatorEventDigestSha256" if actuator else "eventDigestSha256"]["domainHex"])
+    kind = "actuator" if actuator else "process"
+    return f'''/* Hash a caller-validated, complete original {kind} event. */
+static inline void ecobin_uart_compute_{kind}_event_digest(uint8_t message_type,
+    const uint8_t *payload, uint16_t length, uint8_t *digest) {{
+    static const uint8_t domain[] = {{ {", ".join(str(b) + "u" for b in domain)} }};
+    ecobin_uart_sha256_context_t context;
+    uint8_t suffix[3];
+    suffix[0] = message_type;
+    ecobin_uart_write_u16_be(suffix + 1u, length);
+    ecobin_uart_sha256_init(&context);
+    ecobin_uart_sha256_update(&context, domain, sizeof(domain));
+    ecobin_uart_sha256_update(&context, suffix, sizeof(suffix));
+    ecobin_uart_sha256_update(&context, payload, length);
+    ecobin_uart_sha256_final(&context, digest);
+}}'''
+
+
+def render_result_digest(registry, specs, *, language):
+    spec = specs["WORK_RESULT"]
+    fields = {field["name"]: field for field in spec["fields"]}
+    offset = fields["resultDigestSha256"]["offset"]
+    size = spec["maximumPayloadLength"]
+    domain = bytes.fromhex(registry["digestProfiles"]["resultDigestSha256"]["domainHex"])
+    prefix = domain + bytes([spec["id"]]) + size.to_bytes(2, "big")
+    if language == "c":
+        return f'''/* Caller supplies a complete {size}-byte result and a 32-byte digest output.
+ * Output may alias the digest slot; all input updates finish before final writes. */
+static inline void ecobin_uart_compute_result_digest(const uint8_t *payload, uint8_t *digest) {{
+    static const uint8_t prefix[] = {{ {", ".join(str(b) + "u" for b in prefix)} }};
+    ecobin_uart_sha256_context_t context;
+    ecobin_uart_sha256_init(&context);
+    ecobin_uart_sha256_update(&context, prefix, sizeof(prefix));
+    ecobin_uart_sha256_update(&context, payload, {offset}u);
+    ecobin_uart_sha256_update(&context, payload + {offset + 32}u, {size - offset - 32}u);
+    ecobin_uart_sha256_final(&context, digest);
+}}
+static inline int ecobin_uart_result_digest_matches(const uint8_t *payload) {{
+    uint8_t digest[32];
+    ecobin_uart_compute_result_digest(payload, digest);
+    return memcmp(digest, payload + {offset}u, 32u) == 0;
+}}'''
+    return f'''    private static boolean resultDigestMatches(byte[] payload) {{
+        byte[] prefix = java.util.HexFormat.of().parseHex("{prefix.hex()}");
+        byte[] preimage = new byte[prefix.length + {size - 32}];
+        System.arraycopy(prefix, 0, preimage, 0, prefix.length);
+        System.arraycopy(payload, 0, preimage, prefix.length, {offset});
+        System.arraycopy(payload, {offset + 32}, preimage, prefix.length + {offset}, {size - offset - 32});
+        return Arrays.equals(sha256(preimage), Arrays.copyOfRange(payload, {offset}, {offset + 32}));
+    }}'''
+
+
+def render_command_digest(registry, specs, *, language):
+    # Digest layout is the authoritative v2 profile: domain, type, semantic
+    # length, target boot + sequence + business fields. UUID is compared as
+    # command identity separately; it is intentionally excluded from the hash.
+    commands = [specs[name] for name in uart_fenced_command_names(registry)]
+    for spec in commands:
+        fields = spec["fields"][:4]
+        if ([f["name"] for f in fields] != ["mcuCommandUid", "commandDigestSha256", "targetMcuBootId", "commandSequence"]
+                or [f["offset"] for f in fields] != [0, 16, 48, 56]):
+            raise ContractError("command digest requires fenced v2 identity layout")
+    domain = bytes.fromhex(registry["digestProfiles"]["commandDigestSha256"]["domainHex"])
+    if language == "c":
+        return f'''static inline int ecobin_uart_command_digest_matches(uint8_t message_type,
+    const uint8_t *payload, uint16_t length) {{
+    static const uint8_t domain[] = {{ {", ".join(str(b) + "u" for b in domain)} }};
+    ecobin_uart_sha256_context_t context;
+    uint8_t suffix[3], digest[32];
+    if (payload == NULL || length < 48u) return 0;
+    suffix[0] = message_type;
+    ecobin_uart_write_u16_be(suffix + 1u, (uint16_t)(length - 48u));
+    ecobin_uart_sha256_init(&context);
+    ecobin_uart_sha256_update(&context, domain, sizeof(domain));
+    ecobin_uart_sha256_update(&context, suffix, sizeof(suffix));
+    ecobin_uart_sha256_update(&context, payload + 48u, length - 48u);
+    ecobin_uart_sha256_final(&context, digest);
+    return memcmp(digest, payload + 16u, 32u) == 0;
+}}'''
+    return f'''    private static boolean commandDigestMatches(int messageType, byte[] payload) {{
+        byte[] domain = java.util.HexFormat.of().parseHex("{domain.hex()}");
+        int semanticLength = payload.length - 48;
+        byte[] preimage = new byte[domain.length + 3 + semanticLength];
+        System.arraycopy(domain, 0, preimage, 0, domain.length);
+        preimage[domain.length] = (byte) messageType;
+        preimage[domain.length + 1] = (byte) (semanticLength >>> 8);
+        preimage[domain.length + 2] = (byte) semanticLength;
+        System.arraycopy(payload, 48, preimage, domain.length + 3, semanticLength);
+        return Arrays.equals(sha256(preimage), Arrays.copyOfRange(payload, 16, 48));
+    }}'''
+
+
+def render_work_fullness_conditions(fields, value, reject, is_c, registry):
+    if "workFullnessStatus" not in fields:
+        return
+    def zero(key, size):
+        offset = fields[key]["offset"]
+        return f"ecobin_uart_bytes_zero(payload + {offset}u, {size}u)" if is_c else f"bytesZero(payload, {offset}, {size})"
+    status = value("workFullnessStatus")
+    start = fields["workFullnessStatus"]["offset"]
+    end = fields["fullnessStopReason"]["offset"] + 1
+    reject(f"{status} == 0 && !{zero('workFullnessStatus', end - start)}")
+    active = f"{status} != 0"
+    requested, completed, valid, minimum = (value(key) for key in (
+        "fullnessRequestedSampleCount", "fullnessCompletedSampleCount", "fullnessValidSampleCount", "fullnessMinimumValidSampleCount"))
+    reject(f"{active} && ({value('fullnessGroupSequence')} == 0 || {value('workFullnessSensorKind')} != 1 || {zero('fullnessConfigContentSha256', 32)} || {zero('fullnessMcuPayloadSha256', 32)})")
+    reject(f"{active} && ({requested} < 3 || {minimum} == 0 || {minimum} > {requested} || {completed} > {requested} || {valid} > {completed} || {value('fullnessDistanceThresholdMm')} == 0)")
+    started, ended, last = (value(key) for key in ("fullnessStartedUptimeMs", "fullnessCompletedUptimeMs", "fullnessLastCapturedUptimeMs"))
+    reject(f"{active} && ({ended} < {started} || ({completed} == 0 && {last} != 0) || ({completed} > 0 && ({last} < {started} || {last} > {ended})))")
+    reason, sensor, basis, present, distance = (value(key) for key in (
+        "fullnessStopReason", "workFullnessSensorValue", "workFullnessBasis", "fullnessDistancePresent", "fullnessDistanceMm"))
+    reject(f"{status} == 2 && ({reason} == 0 || {sensor} != 0 || {basis} != 0 || {present} != 0 || {distance} != 0)")
+    reject(f"{status} == 1 && ({reason} != 0 || {completed} != {requested})")
+    expected = f"({distance} < {value('fullnessDistanceThresholdMm')} ? 2 : 1)"
+    reject(f"{status} == 1 && {valid} >= {minimum} && ({basis} != 1 || {present} != 1 || {sensor} != {expected})")
+    reject(f"{status} == 1 && {valid} < {minimum} && ({basis} != ({valid} == 0 ? 2 : 3) || {sensor} != 1 || {present} != 0 || {distance} != 0)")
+
+
+def render_device_facts_conditions(fields, value, reject, is_c, registry):
+    def zero(name, end=None, length=None):
+        start = fields[name]["offset"]
+        size = length if length is not None else fields[end]["offset"] + fields[end]["minimumSize"] - start
+        return f"ecobin_uart_bytes_zero(payload + {start}u, {size}u)" if is_c else f"bytesZero(payload, {start}, {size})"
+    status = value("status")
+    reject(f"({status} == 2) != ({value('currentMcuBootId')} != {value('targetMcuBootId')})")
+    reject(f"{status} != 1 && !{zero('capturedUptimeMs', 'retainedResultSequence')}")
+    reject(f"{value('controlUptimeMs')} > {value('capturedUptimeMs')}")
+    content, payload = zero("appliedContentSha256", length=32), zero("appliedMcuPayloadSha256", length=32)
+    reject(f"({value('appliedConfigVersion')} == 0 && (!{content} || !{payload})) || ({value('appliedConfigVersion')} != 0 && ({content} || {payload}))")
+    target, active = value("lastDeliveryDoorCommand"), value("doorActionActive")
+    reject(f"{active} != 0 && {target} == 0")
+    reject(f"({value('pinchPaused')} != 0) != ({active} != 0 && {target} == 2 && {value('pb5Active')} != 0)")
+    reject(f"({value('pb6Output')} != 0) != ({active} != 0 && {target} == 1)")
+    reject(f"({value('pb7Output')} != 0) != ({active} != 0 && {target} == 2 && {value('pb5Active')} == 0)")
+    reject(f"{value('updateLatched')} != 0 && ({active} != 0 || {value('cleanLockPowered')} != 0)")
+    scale = value("scaleReadStatus")
+    reject(f"{scale} == 0 && !{zero('scaleAttemptSequence', 'scaleCalibrationVersion')}")
+    reject(f"{scale} != 0 && ({value('scaleAttemptSequence')} == 0 || {value('scaleCapturedUptimeMs')} > {value('capturedUptimeMs')})")
+    reject(f"{scale} != 1 && {value('scaleWeightGrams')} != 0")
+    measurement = value("measurementState")
+    reject(f"{measurement} == 0 && !{zero('measurementSequence', 'measurementSpanGrams')}")
+    reject(f"{measurement} != 0 && ({value('measurementSequence')} == 0 || {value('measurementConfigVersion')} == 0 || {value('measurementObservedUptimeMs')} > {value('capturedUptimeMs')} || {value('measurementElapsedMs')} > {value('measurementObservedUptimeMs')})")
+    reject(f"({measurement} == 2 || {measurement} == 3) && {value('measurementSampleCount')} < 5")
+    reject(f"{measurement} == 2 && {value('measurementSpanGrams')} > 100")
+    reject(f"{measurement} == 3 && {value('measurementElapsedMs')} != 5000")
+    reject(f"{measurement} != 2 && {measurement} != 3 && ({value('measurementWeightGrams')} != 0 || {value('measurementSpanGrams')} != 0)")
+    reject(f"{measurement} == 1 && {value('measurementElapsedMs')} != 0")
+    reject(f"{value('smokeObservedUptimeMs')} > {value('capturedUptimeMs')}")
+    reject(f"{value('smokeObservationState')} == 0 && {value('smokeObservedUptimeMs')} != 0")
+    full, kind = value("fullnessReadStatus"), value("fullnessObservationKind")
+    reject(f"{value('fullnessCapturedUptimeMs')} > {value('capturedUptimeMs')}")
+    reject(f"{full} == 0 && ({kind} != 0 || {value('fullnessCapturedUptimeMs')} != 0)")
+    reject(f"{full} != 0 && {kind} == 0")
+    reject(f"({full} != 1 || {kind} != 2) && {value('fullnessInfraredBlocked')} != 0")
+    reject(f"({full} != 1 || {kind} != 1) && {value('fullnessDistanceMm')} != 0")
+    retained, work, phase = value("retainedWorkState"), value("retainedWorkType"), value("retainedWorkPhase")
+    reject(f"{retained} == 0 && !{zero('retainedWorkState', 'retainedResultSequence')}")
+    reject(f"{retained} != 0 && ({zero('retainedWorkUid', length=16)} || {value('retainedOriginCommandSequence')} == 0 || {value('retainedPortNo')} == 0 || ({work} != 2 && {work} != 3))")
+    phases = registry["enums"]["McuWorkPhase"]["values"]
+    for work_value, prefix in ((2, "DELIVERY_"), (3, "CLEAN_")):
+        invalid = " && ".join(f"{phase} != {number}" for key, number in phases.items() if key.startswith(prefix) or key == "SAFETY_LOCKED")
+        reject(f"{retained} == 1 && {work} == {work_value} && ({invalid})")
+        reject(f"{retained} > 1 && {work} == {work_value} && {phase} != {phases[prefix + 'FINALIZING']}")
+    reject(f"({retained} == 1 && {value('retainedResultSequence')} != 0) || ({retained} > 1 && {value('retainedResultSequence')} == 0)")
+
+
+def render_session_validator(
+    registry: Mapping[str, Any], specs: Mapping[str, Any], *, language: str,
+) -> str:
+    """Generate bounded session/COMMAND guards, not a business executor.
+
+    Layout/ranges/enums come from the Registry. Stateful freshness and saved
+    receipt checks belong to the runtime, not to this payload-shape validator.
+    """
+    is_c = language == "c"
+    if language not in {"c", "java"}:
+        raise ValueError("unsupported session validator language")
+    lines = ([
+        "static inline int ecobin_uart_result_digest_matches(const uint8_t *payload);",
+        "static inline int ecobin_uart_command_digest_matches(uint8_t message_type, const uint8_t *payload, uint16_t length);",
+        "static inline int ecobin_uart_bytes_zero(const uint8_t *data, size_t length) {",
+        "    size_t index;",
+        "    for (index = 0u; index < length; ++index) { if (data[index] != 0u) return 0; }",
+        "    return 1;", "}",
+        "/* ARMCC5 shares this full validator across translation units. */",
+        "#if defined(__CC_ARM) && !defined(ECOBIN_UART_SHARED_PAYLOAD_VALIDATOR)",
+        "#define ECOBIN_UART_SHARED_PAYLOAD_VALIDATOR 1",
+        "#endif",
+        "#if defined(ECOBIN_UART_SHARED_PAYLOAD_VALIDATOR)",
+        "int ecobin_uart_validate_session_payload(uint8_t message_type, const uint8_t *payload, uint16_t length);",
+        "#endif",
+        "#if !defined(ECOBIN_UART_SHARED_PAYLOAD_VALIDATOR) || defined(ECOBIN_UART_PROTOCOL_IMPLEMENTATION)",
+        "/* Session shape only; not a runtime freshness or admission decision. */",
+        "#if defined(ECOBIN_UART_SHARED_PAYLOAD_VALIDATOR)",
+        "int ecobin_uart_validate_session_payload(",
+        "#else",
+        "static inline int ecobin_uart_validate_session_payload(",
+        "#endif",
+        "    uint8_t message_type, const uint8_t *payload, uint16_t length) {",
+        "    switch (message_type) {",
+    ] if is_c else [
+        "    private static boolean bytesZero(byte[] data, int offset, int length) {",
+        "        for (int i = offset; i < offset + length; i++) { if (data[i] != 0) return false; }",
+        "        return true;", "    }",
+        "    // Session shape only; not a runtime freshness or admission decision.",
+        "    private static void validateSessionPayload(int messageType, byte[] payload) {",
+        "        switch (messageType) {",
+    ])
+    indent = "    " if is_c else "        "
+    policy = registry["sessionPolicy"]
+    commands = uart_fenced_command_names(registry)
+    for name in policy["bootstrapMessages"] + policy["sessionControlMessages"] + policy["processEventMessages"] + policy["actuatorEventMessages"] + list(commands):
+        spec = specs[name]
+        diagnostic = "bootstrap" if name in policy["bootstrapMessages"] else "command" if name in commands else "session"
+        fail = "return -1;" if is_c else f'throw new IllegalArgumentException("invalid {diagnostic} payload");'
+        if spec["minimumPayloadLength"] != spec["maximumPayloadLength"]:
+            raise ContractError("session payload must have fixed length")
+        symbol = ("ECOBIN_UART_MESSAGE_" if is_c else "MESSAGE_") + name
+        lines.append(indent + "case " + symbol + ":")
+        def reject(condition):
+            lines.append(indent + f"    if ({condition}) {{ {fail} }}")
+        reject(f"payload == NULL || length != {spec['maximumPayloadLength']}u" if is_c else f"payload.length != {spec['maximumPayloadLength']}")
+        fields = {field["name"]: field for field in spec["fields"]}
+        def value(field_name):
+            return _session_wire_expression(fields[field_name], language)
+        def literal(number, signed=False):
+            return f"{'INT64_C' if signed else 'UINT64_C'}({number})" if is_c else f"{number}L"
+        for field in spec["fields"]:
+            kind, offset = field["type"], field["offset"]
+            if kind == "bool":
+                reject(f"{value(field['name'])} > 1")
+                if "const" in field:
+                    reject(f"{value(field['name'])} != {int(field['const'])}")
+            elif kind in {"u8", "u16", "u32", "u64", "i32"}:
+                read = value(field["name"])
+                wire = registry["wireTypes"][kind]
+                minimum, maximum = field.get("minimum", wire["minimum"]), field.get("maximum", wire["maximum"])
+                if field.get("enum"):
+                    choices = registry["enums"][field["enum"]]["values"].values()
+                    reject(" && ".join(f"{read} != {choice}" for choice in choices))
+                else:
+                    if minimum > wire["minimum"] or (not is_c and kind == "u64"):
+                        reject(f"{read} < {literal(minimum, kind == 'i32')}")
+                    if maximum < wire["maximum"]:
+                        reject(f"{read} > {literal(maximum, kind == 'i32')}")
+                if "const" in field:
+                    reject(f"{read} != {literal(field['const'], kind == 'i32')}")
+            elif kind == "uuid":
+                if field.get("zeroAllowedWhen"):
+                    raise ContractError("conditional UUID not implemented for session guard")
+                if not field.get("zeroAllowed"):
+                    reject(f"ecobin_uart_bytes_zero(payload + {offset}u, 16u)" if is_c else f"bytesZero(payload, {offset}, 16)")
+            elif kind != "sha256":
+                raise ContractError("unsupported session field " + kind)
+        if name in commands:
+            reject("!ecobin_uart_command_digest_matches(message_type, payload, length)" if is_c else "!commandDigestMatches(messageType, payload)")
+        if name == "SAFE_CLOSE":
+            all_doors = registry["enums"]["SafeCloseScope"]["values"]["ALL_DELIVERY_DOORS"]
+            reject(f"({value('scope')} == {all_doors}) != ({value('portNo')} == 0)")
+        if name == "CONFIG_BEGIN":
+            reject(f"{value('partCount')} != {value('expectedPortCount')} + 3")
+        if name == "CONFIG_PORT_BLOCK":
+            reject(f"{value('partIndex')} >= {value('partCount')}")
+            reject(f"{value('partIndex')} != {value('portNo')} + 2")
+            reject(f"{value('weightMinimumGrams')} >= {value('weightMaximumGrams')}")
+            reject(f"{value('fullnessMinimumValidSampleCount')} > {value('fullnessSampleCount')}")
+        if name == "CONFIG_COMMIT":
+            reject(f"{value('partIndex')} != {value('partCount')}")
+        if name == "BIND_BOOT_REPLY":
+            boot, proposed, status = value("mcuBootId"), value("proposedMcuBootId"), value("status")
+            enum = registry["enums"]["BootBindStatus"]["values"]
+            reject(" || ".join([
+                f"({status} == {enum['BOUND']} && {boot} != {proposed})",
+                f"({status} == {enum['PROBE_MISMATCH']} && {boot} != 0)",
+                f"({status} == {enum['ALREADY_BOUND']} && {boot} == 0)",
+            ]))
+        if name == "WORK_RESULT":
+            render_result_conditions(registry, fields, value, reject, is_c)
+        if name == "CLEAN_COMPLETION_CONFIRMED":
+            reject(f"{value('lockPowerState')} != {registry['enums']['CleanLockPowerState']['values']['DEENERGIZED']}")
+            reject(f"{value('cleanDoorStateBasis')} != {registry['enums']['CleanDoorStateBasis']['values']['CLEANER_CONFIRMATION']}")
+        if name == "DELIVERY_CYCLE_ABORTED":
+            update = registry["enums"]["DeliveryCycleAbortReason"]["values"]["UPDATE_STOPPED"]
+            reject(f"{value('abortReason')} != {update} && {value('openDispatched')} != 0")
+            reject(f"({value('roundIndex')} == 1) != ({value('selectionEventSequence')} == 0)")
+            reject(f"{value('selectionEventSequence')} >= {value('mcuEventSequence')}")
+        if name == "DELIVERY_POSTCLOSE_INTERRUPTED":
+            phases = registry["enums"]["McuWorkPhase"]["values"]
+            phase, measurement = value("interruptedPhase"), value("postCloseMeasurementEventSequence")
+            allowed = [phases[key] for key in ("DELIVERY_CLOSE_TRAVEL_WAIT", "DELIVERY_POSTCLOSE_MEASURING",
+                "DELIVERY_WAIT_SELECTION", "DELIVERY_FINALIZING")]
+            reject(" && ".join(f"{phase} != {number}" for number in allowed))
+            reject(f"({phase} == {phases['DELIVERY_CLOSE_TRAVEL_WAIT']}) != ({measurement} == 0)")
+            reject(f"{measurement} >= {value('mcuEventSequence')}")
+        if name == "CLEAN_OPERATION_INTERRUPTED":
+            phases = registry["enums"]["McuWorkPhase"]["values"]
+            dispatch = registry["enums"]["CleanInterruptionReason"]["values"]["UNLOCK_DISPATCH_REJECTED"]
+            phase, step, reason = value("interruptedPhase"), value("cleanActionSequence"), value("interruptionReason")
+            allowed = [phases[key] for key in ("CLEAN_UNLOCK_PULSE", "CLEAN_ACTIVE", "CLEAN_FINAL_MEASURING", "CLEAN_RESULT_CONFIRMATION")]
+            reject(f"{reason} != {dispatch} && (" + " && ".join(f"{phase} != {number}" for number in allowed) + ")")
+            reject(f"{reason} == {dispatch} && !(({phase} == {phases['CLEAN_WAIT_FIRST_UNLOCK']} && {step} == 0) || ({phase} == {phases['CLEAN_ACTIVE']} && {step} > 0))")
+            final_phase = f"({phase} == {phases['CLEAN_FINAL_MEASURING']} || {phase} == {phases['CLEAN_RESULT_CONFIRMATION']})"
+            measurement = value("finalMeasurementEventSequence")
+            reject(f"{final_phase} != ({measurement} > 0)")
+            reject(f"{final_phase} && {step} == 0")
+            reject(f"{measurement} >= {value('mcuEventSequence')}")
+        if name == "DELIVERY_LOCAL_DOOR_RESULT":
+            reject(f"{value('selectionEventSequence')} >= {value('mcuEventSequence')}")
+        if name in ("DELIVERY_DOOR_COMMAND_RESULT", "SAFE_CLOSE_RESULT", "DELIVERY_LOCAL_DOOR_RESULT"):
+            statuses = registry["enums"]["DoorCommandOutputStatus"]["values"]
+            door_commands = registry["enums"]["DeliveryDoorCommand"]["values"]
+            faults = registry["enums"]["FaultCode"]["values"]
+            command, status, fault = value("command"), value("outputStatus"), value("faultCode")
+            reject(f"{command} == {door_commands['NONE']} || {status} == {statuses['NOT_DISPATCHED']}")
+            reject(f"{status} == {statuses['OUTPUT_REJECTED']} && {fault} != {faults['DELIVERY_DOOR_OUTPUT_REJECTED']} && {fault} != {faults['DELIVERY_DOOR_HIL_NOT_QUALIFIED']}")
+            reject(f"{status} != {statuses['OUTPUT_REJECTED']} && {fault} != {faults['NONE']}")
+            reject(f"{status} == {statuses['COALESCED_WITH_EXISTING_CLOSE']} && {command} != {door_commands['CLOSE']}")
+            if name == "SAFE_CLOSE_RESULT":
+                reject(f"{command} != {door_commands['CLOSE']}")
+        if name in policy["processMeasurementMessages"]:
+            render_work_fullness_conditions(fields, value, reject, is_c, registry)
+            kind = value("measurementKind")
+            interrupted = registry["enums"]["ResultMeasurementKind"]["values"]["INTERRUPTED"]
+            cause = registry["enums"]["FaultCode"]["values"]["MEASUREMENT_INTERRUPTED"]
+            reject(f"({kind} == {interrupted}) != ({value('faultCode')} == {cause})")
+            reject(f"{kind} < 2")
+            reject(f"{value('measurementElapsedMs')} > {value('uptimeMs')}")
+            reject(f"({kind} == 2 || {kind} == 3) && ({value('sampleCount')} < 5 || {value('faultCode')} != 0)")
+            reject(f"{kind} == 2 && {value('sampleSpanGrams')} > 100")
+            reject(f"{kind} == 3 && {value('measurementElapsedMs')} != 5000")
+            reject(f"{kind} > 3 && {value('reportedWeightGrams')} != 0")
+            if name == "FULLNESS_SAMPLE_RESULT":
+                basis, present = value("fullnessSampleBasis"), value("representativeDistancePresent")
+                reject(f"{basis} == 1 && {present} == 0")
+                reject(f"{basis} != 1 && ({value('fullnessSensorValue')} != 1 || {present} != 0)")
+                reject(f"{present} == 0 && {value('representativeDistanceMm')} != 0")
+                reject(f"{value('validSampleCount')} > {value('requestedSampleCount')}")
+        if name in {"QUERY_WORK", "WORK_QUERY_REPLY"}:
+            render_work_query_conditions(registry, name, fields, value, reject, is_c)
+        if name in {"QUERY_PROCESS_EVENT", "PROCESS_EVENT_QUERY_REPLY"}:
+            event, work, step = value("eventMessageType"), value("workType"), value("stepSequence")
+            for event_id, work_id in ((48, 2), (50, 2), (51, 2), (52, 3), (54, 3), (55, 3), (56, 3), (57, 4), (58, 5), (62, 3)):
+                reject(f"{event} == {event_id} && {work} != {work_id}")
+            reject(f"({step} > 0) != ({event} == 48 || {event} == 50 || {event} == 51 || {event} == 54 || {event} == 55 || {event} == 56 || {event} == 62)")
+            if name == "PROCESS_EVENT_QUERY_REPLY":
+                status, sequence = value("status"), value("mcuEventSequence")
+                reject(f"({status} == 5) != ({value('currentMcuBootId')} != {value('targetMcuBootId')})")
+                reject(f"({status} == 1 || {status} == 2) && {sequence} == 0")
+                offset = fields["eventDigestSha256"]["offset"]
+                zero = f"ecobin_uart_bytes_zero(payload + {offset}u, 32u)" if is_c else f"bytesZero(payload, {offset}, 32)"
+                reject(f"{status} > 2 && ({sequence} != 0 || !{zero})")
+        if name == "DEVICE_FACTS_REPLY":
+            render_device_facts_conditions(fields, value, reject, is_c, registry)
+        if name == "ACTUATOR_EVENT_QUERY_REPLY":
+            status, sequence, event = value("status"), value("mcuEventSequence"), value("eventMessageType")
+            reject(f"({status} == 5) != ({value('currentMcuBootId')} != {value('targetMcuBootId')})")
+            reject(f"{status} == 1 && ({event} == 0 || {sequence} <= {value('afterMcuEventSequence')})")
+            offset = fields["eventDigestSha256"]["offset"]
+            zero = f"ecobin_uart_bytes_zero(payload + {offset}u, 32u)" if is_c else f"bytesZero(payload, {offset}, 32)"
+            reject(f"{status} != 1 && ({event} != 0 || {sequence} != 0 || !{zero})")
+        if name in {"RESULT_SAVED_REPLY", "RESULT_QUERY_REPLY", "PROCESS_EVENT_SAVED_REPLY", "ACTUATOR_EVENT_SAVED_REPLY"}:
+            status, current, original = value("status"), value("currentMcuBootId"), value("mcuBootId")
+            enum_name = "ResultQueryStatus" if name == "RESULT_QUERY_REPLY" else "ResultSavedStatus"
+            mismatch = registry["enums"][enum_name]["values"]["BOOT_MISMATCH"]
+            reject(f"({status} == {mismatch}) != ({current} != {original})")
+        if name in {"COMMAND_DECISION", "COMMAND_QUERY_RESULT"}:
+            outcome, error = value("outcome"), value("errorCode")
+            boot, target, sequence = value("currentMcuBootId"), value("targetMcuBootId"), value("commandSequence")
+            enum = registry["enums"]["CommandOutcome"]["values"]
+            reject(f"({outcome} == {enum['BOOT_MISMATCH']}) != ({boot} != {target})")
+            reject(f"({outcome} == {enum['REJECTED']}) != ({error} != 0)")
+            if name == "COMMAND_DECISION":
+                reject(f"{outcome} == {enum['NOT_SEEN']}")
+            else:
+                high = value("highestCommandSequence")
+                reject(f"{boot} == 0 && {high} != 0")
+                retained = " || ".join(f"{outcome} == {enum[key]}" for key in ("ACCEPTED", "REJECTED", "IDENTITY_CONFLICT"))
+                reject(f"{boot} == {target} && (({outcome} == {enum['NOT_SEEN']} && {sequence} <= {high}) || ({outcome} == {enum['OLD_DETAILS_UNAVAILABLE']} && {sequence} > {high}) || (({retained}) && {sequence} != {high}))")
+        lines.append(indent + ("    return 0;" if is_c else "    return;"))
+    lines.append(indent + ("default: return 0;" if is_c else "default: return;"))
+    lines.extend([indent + "}", "}" if is_c else "    }"])
+    if is_c:
+        lines.append("#endif /* shared validator implementation or header-only host use */")
+    return "\n".join(lines)
+
+
 def render_c_header(
     registry: Mapping[str, Any],
     specs: Mapping[str, Any],
     registry_digest: str,
 ) -> str:
+    config_domain = bytes.fromhex(registry["digestProfiles"]["mcuPayloadSha256"]["domainHex"])
+    device_fields = {field["name"]: field for field in specs["CONFIG_DEVICE_BLOCK"]["fields"]}
+    port_fields = {field["name"]: field for field in specs["CONFIG_PORT_BLOCK"]["fields"]}
+    config_device_size = specs["CONFIG_DEVICE_BLOCK"]["maximumPayloadLength"] - device_fields["continueDeliveryWaitMs"]["offset"]
+    config_port_size = specs["CONFIG_PORT_BLOCK"]["maximumPayloadLength"] - port_fields["portNo"]["offset"]
+    config_max_ports = next(field["maximum"] for field in specs["CONFIG_BEGIN"]["fields"] if field["name"] == "expectedPortCount")
     lines = [
         "/* Generated from contracts/uart/uart-registry.yaml.",
         " * DO NOT EDIT.",
@@ -1271,6 +2659,19 @@ def render_c_header(
         "#endif",
         "",
         f'#define ECOBIN_UART_REGISTRY_SHA256 "{registry_digest}"',
+        f'#define ECOBIN_UART_IMPLEMENTATION_STAGE "{registry["implementationStage"]}"',
+        f"#define ECOBIN_UART_CONFIG_DOMAIN_LENGTH {len(config_domain)}u",
+        "#define ECOBIN_UART_CONFIG_DOMAIN_BYTES { " + ", ".join(str(byte) + "u" for byte in config_domain) + " }",
+        f"#define ECOBIN_UART_CONFIG_MAX_PORTS {config_max_ports}u",
+        f"#define ECOBIN_UART_CONFIG_DEVICE_SEMANTIC_LENGTH {config_device_size}u",
+        f"#define ECOBIN_UART_CONFIG_PORT_SEMANTIC_LENGTH {config_port_size}u",
+        f"#define ECOBIN_UART_CONFIG_PREIMAGE_VERSION_OFFSET {len(config_domain)}u",
+        f"#define ECOBIN_UART_CONFIG_PREIMAGE_CONTENT_SHA256_OFFSET {len(config_domain) + 8}u",
+        f"#define ECOBIN_UART_CONFIG_PREIMAGE_PORT_COUNT_OFFSET {len(config_domain) + 40}u",
+        f"#define ECOBIN_UART_CONFIG_PREIMAGE_DEVICE_OFFSET {len(config_domain) + 41}u",
+        f"#define ECOBIN_UART_CONFIG_PREIMAGE_PORTS_OFFSET {len(config_domain) + 41 + config_device_size}u",
+        f"#define ECOBIN_UART_CONFIG_PREIMAGE_MAX_LENGTH {len(config_domain) + 41 + config_device_size + config_max_ports * config_port_size}u",
+        "/* Candidate only: do not integrate into the current device runtime. */",
         f"#define ECOBIN_UART_BAUD_RATE {registry['physicalLink']['baudRate']}u",
         f"#define ECOBIN_UART_DATA_BITS {registry['physicalLink']['dataBits']}u",
         f"#define ECOBIN_UART_STOP_BITS {registry['physicalLink']['stopBits']}u",
@@ -1439,6 +2840,8 @@ def render_c_header(
             "    }",
             "}",
             "",
+            render_session_validator(registry, specs, language="c"),
+            "",
             "static inline int ecobin_uart_validate_frame(",
             "    const uint8_t *frame, size_t length, ecobin_uart_sender_role_t sender,",
             "    ecobin_uart_frame_view_t *view) {",
@@ -1472,6 +2875,7 @@ def render_c_header(
             "    if ((((flags & ECOBIN_UART_FLAG_ACK_REQUIRED) != 0u) ? 1 : 0)",
             "        != ack_required) return -8;",
             "    if (direction != 0 && direction != (int)sender) return -9;",
+            "    if (ecobin_uart_validate_session_payload(message_type, frame + 12u, payload_length) != 0) return -10;",
             "    view->message_type = message_type;",
             "    view->flags = flags;",
             "    view->payload_length = payload_length;",
@@ -1641,6 +3045,10 @@ def render_c_header(
             "}",
             "",
             "#define ECOBIN_UART_DIAG_NOISE_DISCARDED UINT32_C(0x0001)",
+            render_result_digest(registry, specs, language="c"),
+            render_process_event_digest(registry),
+            render_process_event_digest(registry, actuator=True),
+            render_command_digest(registry, specs, language="c"),
             "#define ECOBIN_UART_DIAG_INVALID_LENGTH UINT32_C(0x0002)",
             "#define ECOBIN_UART_DIAG_CRC_INVALID UINT32_C(0x0004)",
             "#define ECOBIN_UART_DIAG_FRAME_TIMEOUT UINT32_C(0x0008)",
@@ -1687,21 +3095,11 @@ def render_c_header(
             "    return parser->length;",
             "}",
             "",
-            "static inline size_t ecobin_uart_stream_parser_feed(",
+            "static inline size_t ecobin_uart_stream_parser_drain(",
             "    ecobin_uart_stream_parser_t *parser,",
-            "    const uint8_t *data, size_t data_length, uint64_t now_ms,",
+            "    uint64_t now_ms,",
             "    ecobin_uart_frame_callback_t callback, void *context) {",
-            "    size_t input_index;",
             "    size_t emitted = 0u;",
-            "    for (input_index = 0u; input_index < data_length; ++input_index) {",
-            "        if (parser->length == sizeof(parser->buffer)) {",
-            "            memmove(parser->buffer, parser->buffer + 1u, parser->length - 1u);",
-            "            parser->length -= 1u;",
-            "            parser->candidate_active = 0;",
-            "            parser->diagnostics |= ECOBIN_UART_DIAG_BUFFER_OVERFLOW;",
-            "        }",
-            "        parser->buffer[parser->length++] = data[input_index];",
-            "    }",
             "    for (;;) {",
             "        size_t magic_index = ecobin_uart_stream_find_magic(parser);",
             "        uint16_t payload_length;",
@@ -1778,6 +3176,31 @@ def render_c_header(
             "    return emitted;",
             "}",
             "",
+            "/* Incrementally drain; input batch size is not a loss policy.",
+            " * Callback views are valid only until callback returns; no reentry. */",
+            "static inline size_t ecobin_uart_stream_parser_feed(",
+            "    ecobin_uart_stream_parser_t *parser,",
+            "    const uint8_t *data, size_t data_length, uint64_t now_ms,",
+            "    ecobin_uart_frame_callback_t callback, void *context) {",
+            "    size_t offset = 0u;",
+            "    size_t emitted = 0u;",
+            "    do {",
+            "        size_t available = sizeof(parser->buffer) - parser->length;",
+            "        size_t take = data_length - offset;",
+            "        if (available == 0u) {",
+            "            /* Defensive only: a drained partial frame is <256 bytes. */",
+            "            ecobin_uart_stream_drop_first(parser, ECOBIN_UART_DIAG_BUFFER_OVERFLOW);",
+            "            continue;",
+            "        }",
+            "        if (take > available) take = available;",
+            "        if (take > 0u) memcpy(parser->buffer + parser->length, data + offset, take);",
+            "        parser->length += take;",
+            "        offset += take;",
+            "        emitted += ecobin_uart_stream_parser_drain(parser, now_ms, callback, context);",
+            "    } while (offset < data_length);",
+            "    return emitted;",
+            "}",
+            "",
             "#endif /* ECOBIN_UART_PROTOCOL_H */",
             "",
         ]
@@ -1840,6 +3263,7 @@ import java.util.UUID;
 
 public final class EcobinUartProtocol {{
     public static final String REGISTRY_SHA256 = "{registry_digest}";
+    public static final String IMPLEMENTATION_STAGE = "{registry["implementationStage"]}";
     public static final int BAUD_RATE = {registry["physicalLink"]["baudRate"]};
     public static final int DATA_BITS = {registry["physicalLink"]["dataBits"]};
     public static final int STOP_BITS = {registry["physicalLink"]["stopBits"]};
@@ -1857,6 +3281,10 @@ public final class EcobinUartProtocol {{
     public enum Direction {{ BIDIRECTIONAL, EDGE_TO_MCU, MCU_TO_EDGE }}
 
     private EcobinUartProtocol() {{}}
+
+{render_session_validator(registry, specs, language="java")}
+{render_result_digest(registry, specs, language="java")}
+{render_command_digest(registry, specs, language="java")}
 
     public static Boolean ackRequired(int messageType) {{
         return switch (messageType) {{
@@ -2038,6 +3466,7 @@ public final class EcobinUartProtocol {{
             }}
         }}
         byte[] payload = Arrays.copyOfRange(frame, 12, frame.length - 2);
+        validateSessionPayload(messageType, payload);
         return new Frame(messageType, flags, txSequence, payload, actual);
     }}
 
@@ -2069,15 +3498,24 @@ public final class EcobinUartProtocol {{
             if (nowMs < 0) {{
                 throw new IllegalArgumentException("nowMs must be non-negative");
             }}
-            byte[] combined = Arrays.copyOf(buffer, buffer.length + data.length);
-            System.arraycopy(data, 0, combined, buffer.length, data.length);
-            buffer = combined;
-            if (buffer.length > 512) {{
-                buffer = Arrays.copyOfRange(buffer, buffer.length - 512, buffer.length);
-                candidateStartedMs = null;
-                diagnostics.add("BUFFER_OVERFLOW");
-            }}
             List<Frame> frames = new ArrayList<>();
+            int offset = 0;
+            do {{
+                int available = {registry['streamParser']['inputBufferLimit']} - buffer.length;
+                if (available <= 0) {{
+                    throw new IllegalStateException("stream buffer did not drain");
+                }}
+                int take = Math.min(available, data.length - offset);
+                byte[] combined = Arrays.copyOf(buffer, buffer.length + take);
+                System.arraycopy(data, offset, combined, buffer.length, take);
+                buffer = combined;
+                offset += take;
+                drain(nowMs, frames);
+            }} while (offset < data.length);
+            return frames;
+        }}
+
+        private void drain(long nowMs, List<Frame> frames) {{
             while (true) {{
                 int magicIndex = -1;
                 for (int index = 0; index + 1 < buffer.length; index++) {{
@@ -2142,7 +3580,6 @@ public final class EcobinUartProtocol {{
                 buffer = Arrays.copyOfRange(buffer, frameLength, buffer.length);
                 candidateStartedMs = null;
             }}
-            return frames;
         }}
     }}
 
@@ -2162,6 +3599,30 @@ def _java_byte_array(hex_value: str) -> str:
     return ", ".join(f"(byte) 0x{byte:02X}" for byte in raw)
 
 
+def _java_hex_bytes(hex_value: str) -> str:
+    # Keep large golden fixtures out of the JVM's 64 KiB initializer-code limit.
+    bytes.fromhex(hex_value)
+    return "java.util.HexFormat.of().parseHex(" + json.dumps(hex_value) + ")"
+
+
+def _java_fixture_array(kind: str, name: str, entries: list[str]) -> str:
+    """Bound initializer bytecode without dropping/reordering shared fixtures."""
+    chunk_size = 64
+    lines = [f"    private static final {kind}[] {name} = build_{name}();",
+             f"    private static {kind}[] build_{name}() {{",
+             f"        {kind}[] result = new {kind}[{len(entries)}];"]
+    chunks = []
+    for offset in range(0, len(entries), chunk_size):
+        chunk = entries[offset:offset + chunk_size]
+        method = f"{name}_{offset // chunk_size}"
+        lines.append(f"        System.arraycopy({method}(), 0, result, {offset}, {len(chunk)});")
+        chunks.append(f"    private static {kind}[] {method}() {{\n"
+                      f"        return new {kind}[] {{\n" + ",\n".join(chunk)
+                      + "\n        };\n    }")
+    lines.extend(["        return result;", "    }", *chunks])
+    return "\n".join(lines)
+
+
 def render_java_golden_test(
     registry: Mapping[str, Any],
     vectors: list[dict[str, Any]],
@@ -2173,13 +3634,13 @@ def render_java_golden_test(
         entries.append(
             "        new Vector("
             + json.dumps(vector["name"])
-            + ", new byte[] {"
-            + _java_byte_array(vector["frameHex"])
-            + "}, "
+            + ", "
+            + _java_hex_bytes(vector["frameHex"])
+            + ", "
             + ("true" if vector["expected"] == "CRC_INVALID" else "false")
             + ")"
         )
-    joined = ",\n".join(entries)
+    vectors_source = _java_fixture_array("Vector", "VECTORS", entries)
     message_ids = {
         message["name"]: message["id"] for message in registry["messages"]
     }
@@ -2188,9 +3649,9 @@ def render_java_golden_test(
         chunks = ", ".join(
             "new Chunk("
             + str(chunk["atMs"])
-            + "L, new byte[] {"
-            + _java_byte_array(chunk["hex"])
-            + "})"
+            + "L, "
+            + _java_hex_bytes(chunk["hex"])
+            + ")"
             for chunk in trace["chunks"]
         )
         expected_types = ", ".join(
@@ -2217,17 +3678,18 @@ def render_java_golden_test(
             + expected_diagnostics
             + "))"
         )
-    joined_traces = ",\n".join(trace_entries)
-    digest_entries = ",\n".join(
+    traces_source = _java_fixture_array("Trace", "TRACES", trace_entries)
+    digest_entries = [
         "        new DigestVector("
         + json.dumps(vector["name"])
-        + ", new byte[] {"
-        + _java_byte_array(vector["preimageHex"])
-        + "}, new byte[] {"
-        + _java_byte_array(vector["sha256"])
-        + "})"
+        + ", "
+        + _java_hex_bytes(vector["preimageHex"])
+        + ", "
+        + _java_hex_bytes(vector["sha256"])
+        + ")"
         for vector in digest_vectors
-    )
+    ]
+    digests_source = _java_fixture_array("DigestVector", "DIGEST_VECTORS", digest_entries)
     return f"""// Generated UART golden-vector test. DO NOT EDIT.
 
 import java.nio.charset.StandardCharsets;
@@ -2252,17 +3714,11 @@ public final class EcobinUartGoldenTest {{
         byte[] expectedSha256
     ) {{}}
 
-    private static final Vector[] VECTORS = new Vector[] {{
-{joined}
-    }};
+{vectors_source}
 
-    private static final Trace[] TRACES = new Trace[] {{
-{joined_traces}
-    }};
+{traces_source}
 
-    private static final DigestVector[] DIGEST_VECTORS = new DigestVector[] {{
-{digest_entries}
-    }};
+{digests_source}
 
     public static void main(String[] args) {{
         int check = EcobinUartProtocol.crc16CcittFalse(
@@ -2481,7 +3937,7 @@ typedef struct stream_trace {{
 }} stream_trace_t;
 
 typedef struct stream_capture {{
-    uint8_t message_types[16];
+    uint8_t message_types[{max(len(trace['expectedMessageNames']) for trace in stream_traces) + 1}];
     size_t count;
 }} stream_capture_t;
 
@@ -2518,8 +3974,9 @@ static void capture_frame(
     (void)frame;
     (void)length;
     if (capture->count < sizeof(capture->message_types)) {{
-        capture->message_types[capture->count++] = view->message_type;
+        capture->message_types[capture->count] = view->message_type;
     }}
+    capture->count++;
 }}
 
 int main(void) {{
@@ -2893,6 +4350,35 @@ def build_onenet_examples() -> dict[str, Any]:
         recovery_payload,
         command_uid=recovery_command_uid,
     )
+
+    registry = load_uart_registry()
+    native_start = dict(mcuCommandUid="32000000-0000-4000-8000-000000000002",
+        targetMcuBootId=101, commandSequence=6, commandDigestSha256="0" * 64,
+        sessionUid=session_uid, portNo=2, configVersion=config["version"],
+        configContentSha256=config["contentSha256"], unitPriceTenThousandths=4500,
+        continueDeliveryWaitMs=30000, negativeWeightThresholdGrams=500,
+        startExecutionWindowMs=30000, deliveryAutoCloseMs=120000)
+    native_start["commandDigestSha256"] = compute_uart_command_digest(registry, "START_DELIVERY_SESSION", native_start)
+    issue_uid = "32000000-0000-4000-8000-000000000001"
+    issue_payload = dict(issueUid=issue_uid, sessionUid=session_uid, originalCommandUid=start_delivery_uid,
+        originalCommandPayloadSha256=payload_sha256(start_delivery_payload), portNo=2,
+        sourceMcuBootId=101, targetMcuBootId=102, reason="MCU_RESTART_FINAL_RESULT_UNAVAILABLE",
+        businessValue="NONE", finalResultAtArchive="ABSENT", archiveEvidenceSha256="a" * 64, knownFactCount=0,
+        originalStartPayloadHex=encode_uart_payload(registry, "START_DELIVERY_SESSION", native_start).hex(),
+        bootObservationType="BIND_BOOT_REPLY", bootObservationPayloadHex=encode_uart_payload(registry,
+            "BIND_BOOT_REPLY", dict(probeId=100, proposedMcuBootId=102, mcuBootId=102, status="BOUND")).hex())
+    issue_event = _event(issue_uid, 1058, "DELIVERY_ISSUE_ARCHIVED", "RELIABLE_FACT", "DELIVERY_SESSION",
+        session_uid, issue_payload, command_uid=start_delivery_uid)
+    issue_context = b'{"diagnosticOnly":true}'
+    issue_payload["archiveEvidenceSha256"] = hashlib.sha256(issue_context).hexdigest()
+    issue_event["payloadSha256"] = payload_sha256(issue_payload)
+    issue_evidence = _event("32000000-0000-4000-8000-000000000003", 1059,
+        "DELIVERY_ISSUE_EVIDENCE_APPENDED", "RELIABLE_FACT", "DELIVERY_SESSION", session_uid,
+        dict(issueUid=issue_uid, sessionUid=session_uid, originalCommandUid=start_delivery_uid,
+            archiveEvidenceSha256=issue_payload["archiveEvidenceSha256"], businessValue="NONE",
+            evidenceKind="ARCHIVE_CONTEXT", evidenceIndex=0, evidenceSha256=hashlib.sha256(issue_context).hexdigest(),
+            evidenceSizeBytes=len(issue_context), partIndex=1, partCount=1, dataHex=issue_context.hex()),
+        command_uid=start_delivery_uid)
 
     operation_uid = "40000000-0000-4000-8000-000000000001"
     clean_payload = {
@@ -3970,6 +5456,8 @@ def build_onenet_examples() -> dict[str, Any]:
             recovery_event,
             "../../onenet/events/events.schema.json",
         ),
+        "delivery-issue-archived.event.json": (issue_event, "../../onenet/events/events.schema.json"),
+        "delivery-issue-evidence-appended.event.json": (issue_evidence, "../../onenet/events/events.schema.json"),
     }
 
 
@@ -5663,6 +7151,8 @@ def render_catalog(
         f"- UART Registry：`{registry['registryVersion']}`",
         f"- UART Registry SHA-256：`{registry_digest}`",
         f"- UART 状态：`{registry['status']}`",
+        f"- 实施阶段：`{registry['implementationStage']}`；候选不可运行，旧运行制品摘要冻结，不自动覆盖。",
+        "- 单帧预算见 `contracts/uart/generated/message-budget.json`；不代表完整结果/RAM 预算已完成。",
         f"- UART 物理链路：`{registry['physicalLink']['baudRate']} baud / "
         f"{registry['physicalLink']['dataBits']}{registry['physicalLink']['parity'][0]}"
         f"{registry['physicalLink']['stopBits']} / no flow control`",
@@ -5670,8 +7160,8 @@ def render_catalog(
         "",
         "## UART 消息",
         "",
-        "| ID | 消息 | 方向 | ACK | payload 字节 |",
-        "|---:|---|---|---|---:|",
+        "| ID | 消息 | 方向 | ACK | payload 字节 | 最大帧字节 | 余量 |",
+        "|---:|---|---|---|---:|---:|---:|",
     ]
     for message in registry["messages"]:
         spec = specs[message["name"]]
@@ -5683,7 +7173,9 @@ def render_catalog(
         lines.append(
             f"| `0x{message['id']:02X}` | `{message['name']}` | "
             f"`{message['direction']}` | "
-            f"{'是' if message['ackRequired'] else '否'} | `{size}` |"
+            f"{'是' if message['ackRequired'] else '否'} | `{size}` | "
+            f"{spec['maximumPayloadLength'] + registry['protocol']['headerLength'] + registry['protocol']['crcLength']} | "
+            f"{registry['protocol']['maximumPayloadLength'] - spec['maximumPayloadLength']} |"
         )
     lines.extend(
         [
@@ -5735,7 +7227,31 @@ def render_catalog(
     return "\n".join(lines)
 
 
+def validate_frozen_uart_runtime() -> None:
+    manifest = load_json(CONTRACTS_ROOT / "uart" / "frozen-v1-runtime.json")
+    expected_paths = {
+        path.relative_to(CONTRACTS_ROOT.parent).as_posix()
+        for path in (
+            HARDWARE_UART_PROTOCOL, HARDWARE_MCU_UART_HEADER,
+            HARDWARE_MCU_UART_GOLDEN_TEST,
+        )
+    }
+    if set(manifest["artifacts"]) != expected_paths:
+        raise ContractError("frozen UART v1 artifact inventory differs")
+    for relative, expected in manifest["artifacts"].items():
+        path = CONTRACTS_ROOT.parent / relative
+        if not path.is_file() or hashlib.sha256(
+            path.read_text(encoding="utf-8").encode("utf-8")
+        ).hexdigest() != expected:
+            raise ContractError("frozen UART v1 artifact drift: " + relative)
+
+
 def build_outputs(*, include_hardware_mcu: bool = False) -> dict[Path, str]:
+    if include_hardware_mcu:
+        raise ContractError(
+            "UART 2 candidate is not runnable; exporting into hardware_mcu is disabled"
+        )
+    validate_frozen_uart_runtime()
     schema_validator = JsonSchemaSubsetValidator()
     registry = load_uart_registry()
     validate_uart_registry(registry, schema_validator)
@@ -5774,6 +7290,8 @@ def build_outputs(*, include_hardware_mcu: bool = False) -> dict[Path, str]:
         "registryVersion": registry["registryVersion"],
         "registrySha256": registry_digest,
         "physicalLink": registry["physicalLink"],
+        "implementationStage": registry["implementationStage"],
+        "sessionPolicy": registry["sessionPolicy"],
         "protocol": registry["protocol"],
         "capabilities": registry["capabilities"],
         "enums": registry["enums"],
@@ -5789,8 +7307,26 @@ def build_outputs(*, include_hardware_mcu: bool = False) -> dict[Path, str]:
     )
     outputs: dict[Path, str] = {
         GENERATED_UART_ROOT / "uart-layout.json": json_text(expanded_layout),
+        GENERATED_UART_ROOT / "message-budget.json": json_text({
+            "generatedFrom": "contracts/uart/uart-registry.yaml",
+            "registryVersion": registry["registryVersion"],
+            "registrySha256": registry_digest,
+            "implementationStage": registry["implementationStage"],
+            "notes": "仅当前已登记消息的单帧预算；不代表未来完整结果分段或 MCU RAM/栈预算已完成。",
+            "messages": {
+                name: {
+                    "minimumPayloadLength": spec["minimumPayloadLength"],
+                    "maximumPayloadLength": spec["maximumPayloadLength"],
+                    "maximumFrameLength": spec["maximumPayloadLength"]
+                    + registry["protocol"]["headerLength"] + registry["protocol"]["crcLength"],
+                    "remainingBytes": registry["protocol"]["maximumPayloadLength"]
+                    - spec["maximumPayloadLength"],
+                }
+                for name, spec in specs.items()
+            },
+        }),
         GENERATED_UART_ROOT / "python" / "ecobin_uart_protocol.py": generated_python,
-        HARDWARE_UART_PROTOCOL: generated_python,
+        CONTRACTS_ROOT.parent / "hardware" / "uart2_protocol.py": generated_python,
         HARDWARE_ONENET_PROJECTION_MODEL: json_text(
             {
                 "generated": True,
@@ -5800,9 +7336,21 @@ def build_outputs(*, include_hardware_mcu: bool = False) -> dict[Path, str]:
             }
         ),
         GENERATED_UART_ROOT / "c" / "ecobin_uart_protocol.h": generated_c_header,
+        GENERATED_UART_ROOT / "c" / "ecobin_uart_protocol.c": (
+            "/* Generated from contracts/uart/uart-registry.yaml. DO NOT EDIT.\n"
+            f" * Registry SHA-256: {registry_digest}\n"
+            " * Compile exactly once when using the shared payload validator. */\n"
+            "#define ECOBIN_UART_SHARED_PAYLOAD_VALIDATOR 1\n"
+            "#define ECOBIN_UART_PROTOCOL_IMPLEMENTATION 1\n"
+            '#include "ecobin_uart_protocol.h"\n'
+        ),
         GENERATED_UART_ROOT / "c" / "ecobin_uart_golden_test.c": generated_c_golden_test,
         GENERATED_UART_ROOT / "java" / "EcobinUartProtocol.java": render_java_protocol(
             registry, specs, registry_digest
+        ),
+        CONTRACTS_ROOT.parent / "ecobin-module-device" / "src/main/java/org/enveloping/ecobin/device/api/uart/EcobinUartProtocol.java": (
+            "package org.enveloping.ecobin.device.api.uart;\n\n"
+            + render_java_protocol(registry, specs, registry_digest)
         ),
         GENERATED_UART_ROOT / "java" / "EcobinUartGoldenTest.java": render_java_golden_test(
             registry,
@@ -5854,10 +7402,6 @@ def build_outputs(*, include_hardware_mcu: bool = False) -> dict[Path, str]:
         GENERATED_ONENET_ROOT / "onenet-wire-mapping.json":
             json_text(onenet_wire_mapping),
     }
-    if include_hardware_mcu:
-        outputs[HARDWARE_MCU_UART_HEADER] = generated_c_header
-        outputs[HARDWARE_MCU_UART_GOLDEN_TEST] = generated_c_golden_test
-
     manifest_entries = []
     for filename, (instance, schema_ref) in examples.items():
         target = GENERATED_EXAMPLES_ROOT / "onenet" / filename
@@ -5909,6 +7453,7 @@ def build_outputs(*, include_hardware_mcu: bool = False) -> dict[Path, str]:
         [
             CONTRACTS_ROOT / "uart" / "uart-registry.yaml",
             CONTRACTS_ROOT / "uart" / "uart-registry.schema.json",
+            CONTRACTS_ROOT / "uart" / "frozen-v1-runtime.json",
             *(
                 path
                 for path in (CONTRACTS_ROOT / "onenet").rglob("*")
@@ -5956,8 +7501,7 @@ def main() -> int:
         "--include-hardware-mcu",
         action="store_true",
         help=(
-            "also write/check the optional uart-v1 C artifacts under hardware_mcu; "
-            "the fixed-frame Edge adapter does not require this"
+            "reserved export switch; rejected while UART 2 is candidate-only"
         ),
     )
     args = parser.parse_args()

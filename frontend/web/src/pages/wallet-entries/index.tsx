@@ -395,10 +395,7 @@ export default function WalletEntriesPage() {
 
   return (
     <PageContainer
-      {...pageHeader(
-        '钱包流水',
-        '只展示已实际改变钱包投影的追加账本事实；待审核返现不提前伪造流水。',
-      )}
+      {...pageHeader('钱包流水')}
     >
       <DirectoryScopeBar scope={scope} />
       {content}

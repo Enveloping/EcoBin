@@ -272,7 +272,7 @@ export default function OrganizationPage() {
 
   return (
     <PageContainer
-      {...pageHeader('机构管理', '机构作用域由服务端会话和任职实时判定。')}
+      {...pageHeader('机构管理')}
     >
       <DirectoryScopeBar scope={scope} />
       {!scope.context && !scope.loading ? (

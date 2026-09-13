@@ -1,7 +1,6 @@
 #include <assert.h>
 
 #define ECOBIN_MCU_RUNTIME_INCLUDE_WEIGHT
-#define ECOBIN_MCU_RUNTIME_INCLUDE_DIRECTION
 #include "mcu_runtime_logic.h"
 
 static void test_negative_zero_drift_is_normalized_to_zero(void)
@@ -62,34 +61,14 @@ static void test_complete_modbus_response_wins_over_elapsed_timeout(void)
      * Bytes still arrive in the USART2 ISR, so a complete response must be
      * decoded instead of being discarded merely because polling was delayed.
      */
-    assert(McuRuntime_WeightPollDecision(9U, 2U) ==
+    assert(McuRuntime_WeightPollDecision(9U, 200U) ==
            MCU_WEIGHT_POLL_DATA_READY);
     assert(McuRuntime_WeightPollDecision(10U, 65531U) ==
            MCU_WEIGHT_POLL_DATA_READY);
-    assert(McuRuntime_WeightPollDecision(8U, 1U) ==
+    assert(McuRuntime_WeightPollDecision(8U, 199U) ==
            MCU_WEIGHT_POLL_WAITING);
-    assert(McuRuntime_WeightPollDecision(8U, 2U) ==
+    assert(McuRuntime_WeightPollDecision(8U, 200U) ==
            MCU_WEIGHT_POLL_TIMEOUT);
-}
-
-static void test_direction_stops_only_at_its_matching_limit(void)
-{
-    assert(McuRuntime_DirectionAfterLimits(
-               MCU_DIRECTION_CLOSE, 0U, 0U) == MCU_DIRECTION_CLOSE);
-    assert(McuRuntime_DirectionAfterLimits(
-               MCU_DIRECTION_CLOSE, 1U, 0U) == MCU_DIRECTION_STOP);
-    assert(McuRuntime_DirectionAfterLimits(
-               MCU_DIRECTION_CLOSE, 0U, 1U) == MCU_DIRECTION_CLOSE);
-
-    assert(McuRuntime_DirectionAfterLimits(
-               MCU_DIRECTION_OPEN, 0U, 0U) == MCU_DIRECTION_OPEN);
-    assert(McuRuntime_DirectionAfterLimits(
-               MCU_DIRECTION_OPEN, 0U, 1U) == MCU_DIRECTION_STOP);
-    assert(McuRuntime_DirectionAfterLimits(
-               MCU_DIRECTION_OPEN, 1U, 0U) == MCU_DIRECTION_OPEN);
-
-    assert(McuRuntime_DirectionAfterLimits(
-               MCU_DIRECTION_STOP, 1U, 1U) == MCU_DIRECTION_STOP);
 }
 
 int main(void)
@@ -98,6 +77,5 @@ int main(void)
     test_valid_scale_weights_preserve_word_order();
     test_positive_overload_is_invalid_instead_of_saturated();
     test_complete_modbus_response_wins_over_elapsed_timeout();
-    test_direction_stops_only_at_its_matching_limit();
     return 0;
 }

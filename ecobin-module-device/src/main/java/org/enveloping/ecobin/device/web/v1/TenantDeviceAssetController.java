@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
-/** 租户只看到仍处于 NORMAL 的永久资产，不展示部署进度。 */
+/** 租户按永久归属查看资产及历史，列表默认排除已报废设备。 */
 @RestController
 @RequestMapping("/api/v1/web/device-assets")
 public class TenantDeviceAssetController {
@@ -38,9 +38,10 @@ public class TenantDeviceAssetController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(required = false) String hardwareSn,
+            @RequestParam(required = false) String lifecycleStatus,
             HttpServletRequest request) {
         return noStore(application.listTenantAssets(
-                page, pageSize, hardwareSn), request);
+                page, pageSize, hardwareSn, lifecycleStatus), request);
     }
 
     @GetMapping("/{hardwareSn}")

@@ -21,6 +21,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 try:
+    from .runtime_payload_manifest import verify_source_schema_version
     from .runtime_release import (
         ARTIFACT_KIND,
         EDGE_SCHEMA_VERSION,
@@ -39,6 +40,7 @@ try:
         write_sha256sums,
     )
 except ImportError:  # pragma: no cover - direct execution in the ARM64 builder
+    from runtime_payload_manifest import verify_source_schema_version  # type: ignore[no-redef]
     from runtime_release import (  # type: ignore[no-redef]
         ARTIFACT_KIND,
         EDGE_SCHEMA_VERSION,
@@ -438,6 +440,7 @@ def build_release(
     release_id: str,
     signing_private_key: Path,
 ) -> tuple[Path, Path, Path]:
+    verify_source_schema_version(source_root)
     _require_arm64_python311_builder()
     validate_release_id(release_id)
     private_key = _load_signing_private_key(signing_private_key)

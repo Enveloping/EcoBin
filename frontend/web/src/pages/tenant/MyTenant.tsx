@@ -58,7 +58,7 @@ export default function MyTenant() {
 
   return (
     <PageContainer
-      {...pageHeader('我的租户', '资料来自当前服务端会话租户，客户端不能切换作用域。')}
+      {...pageHeader('我的租户')}
       extra={
         canManage
           ? [<Button key="edit" onClick={() => setEditing(true)}>编辑资料</Button>]

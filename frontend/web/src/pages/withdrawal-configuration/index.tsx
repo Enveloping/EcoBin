@@ -1,3 +1,4 @@
+import HelpTip from '@/components/HelpTip';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ReloadOutlined, WalletOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
@@ -200,12 +201,7 @@ export default function WithdrawalConfigurationPage() {
         </Card>
 
         {directory.platform && (
-          <Alert
-            showIcon
-            type="info"
-            message="平台管理员只读查看"
-            description="提现审核规则属于机构资金决策，只能由目标租户内具有提现审核规则管理权限的工作人员修改并保存。"
-          />
+          <Typography.Text type="secondary">只读<HelpTip label="只读权限">规则由该租户内有权限的工作人员修改。</HelpTip></Typography.Text>
         )}
         {loadError && (
           <Alert
@@ -220,13 +216,6 @@ export default function WithdrawalConfigurationPage() {
           <Card><Spin tip="正在读取当前提现审核规则" /></Card>
         ) : configuration && (
           <Card title={<Space><WalletOutlined />提现审核规则设置</Space>}>
-            <Alert
-              showIcon
-              type="info"
-              message="提现审核与投递审核相互独立"
-              description="投递订单何时自动审核由“投递审核规则”管理；本页只决定提现订单何时自动批准或等待人工审核。"
-              style={{ marginBottom: 20 }}
-            />
             <Form<WithdrawalConfigurationForm>
               form={form}
               layout="vertical"
@@ -245,16 +234,10 @@ export default function WithdrawalConfigurationPage() {
                   >
                     共同金额限制
                   </Typography.Title>
-                  <Typography.Paragraph
-                    type="secondary"
-                    style={{ marginBottom: 12 }}
-                  >
-                    同时约束手动提现和自动提现，与投递订单审核方式无关。
-                  </Typography.Paragraph>
                   <MoneyField
                     name="hardLimitYuan"
                     label="单次最大提现金额（元）"
-                    extra="手动和自动提现都不能超过该值；当前系统硬约束最高为 200.00 元。"
+                    extra="适用于全部提现，最高 200.00 元。"
                   />
                 </section>
 
@@ -269,12 +252,6 @@ export default function WithdrawalConfigurationPage() {
                   >
                     手动提现审核
                   </Typography.Title>
-                  <Typography.Paragraph
-                    type="secondary"
-                    style={{ marginBottom: 12 }}
-                  >
-                    仅用于用户在小程序主动发起的提现订单。
-                  </Typography.Paragraph>
                   <Row gutter={16}>
                     <Col xs={24} md={12}>
                       <MoneyField name="manualMinimumYuan" label="手动提现最低额（元）" />
@@ -286,7 +263,7 @@ export default function WithdrawalConfigurationPage() {
                   <MoneyField
                     name="manualReviewFreeThresholdYuan"
                     label="手动提现自动批准金额上限（元）"
-                    extra="不超过该值时自动批准，超过后等待人工审核；填写 0.00 表示所有正金额都需要人工审核。"
+                    help="不超过上限时自动批准，超过时等待人工审核；填 0.00 表示全部人工审核。"
                   />
                 </section>
 
@@ -301,15 +278,9 @@ export default function WithdrawalConfigurationPage() {
                   >
                     投递返现自动提现审核
                   </Typography.Title>
-                  <Typography.Paragraph
-                    type="secondary"
-                    style={{ marginBottom: 12 }}
-                  >
-                    投递订单审核通过并产生正返现后，决定是否自动创建和自动批准提现订单。
-                  </Typography.Paragraph>
                   <Form.Item
                     name="autoWithdrawalEnabled"
-                    label="审核通过后自动创建提现"
+                    label={<>审核通过后自动创建提现<HelpTip label="自动创建提现">投递首次审核通过并产生正返现时，按本页规则尝试自动提现。</HelpTip></>}
                     valuePropName="checked"
                   >
                     <Switch checkedChildren="启用" unCheckedChildren="停用" />
@@ -327,7 +298,7 @@ export default function WithdrawalConfigurationPage() {
                       <MoneyField
                         name="autoReviewFreeThresholdYuan"
                         label="自动提现自动批准金额上限（元）"
-                        extra="不超过该值时自动批准并提交微信，超过后等待人工审核。"
+                        help="不超过上限时自动批准并提交微信，超过时等待人工审核。"
                       />
                     </>
                   )}
@@ -339,7 +310,7 @@ export default function WithdrawalConfigurationPage() {
                       保存提现配置
                     </Button>
                     <Typography.Text type="secondary">
-                      保存后只影响之后创建的提现，系统会自动保留修改记录。
+                      仅影响之后创建的提现
                     </Typography.Text>
                   </Space>
                 )}
@@ -356,10 +327,7 @@ export default function WithdrawalConfigurationPage() {
 
   return (
     <PageContainer
-      {...pageHeader(
-        '提现审核规则',
-        '统一设置手动提现、投递返现自动提现及共用的单次最大金额。',
-      )}
+      {...pageHeader('提现审核规则')}
     >
       <DirectoryScopeBar scope={directory} />
       {content}
@@ -371,15 +339,17 @@ function MoneyField({
   name,
   label,
   extra,
+  help,
 }: {
   name: keyof WithdrawalConfigurationForm;
   label: string;
-  extra?: string;
+  extra?: React.ReactNode;
+  help?: string;
 }) {
   return (
     <Form.Item
       name={name}
-      label={label}
+      label={<>{label}{help && <HelpTip label={label}>{help}</HelpTip>}</>}
       extra={extra}
       rules={[
         { required: true, message: `请输入${label}` },

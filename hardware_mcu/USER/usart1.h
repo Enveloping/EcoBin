@@ -13,10 +13,6 @@ extern volatile unsigned char RS485_RxLen;
 extern unsigned char Vision_RxBuf[VISION_RX_BUF_SIZE];
 extern volatile unsigned char Vision_RxLen;
 
-/* 定时器全局变量 (main.c 定义) */
-extern volatile unsigned char  g_weight_tick;
-extern volatile unsigned short g_tick_count;
-
 /* ===== 非阻塞称重状态机 ===== */
 typedef enum {
     WEIGHT_IDLE = 0,   /* 空闲: 等待定时器触发 */
@@ -36,7 +32,7 @@ void USART1_RX_IntEnable(void);  /* 使能USART1接收中断 */
 void RS485_SendByte(unsigned char SendData);
 void RS485_SendBuf(unsigned char *buf, unsigned char len);
 unsigned short CRC16_Modbus(unsigned char *buf, unsigned char len);
-/* 0=成功, 1=超时, 2=等待中/短帧, 3=CRC错误, 4=正向重量越界。 */
+/* 0=成功, 1=超时, 2=等待中/短帧, 3=CRC错误, 4=重量越界, 5=响应结构错误。 */
 unsigned char Weight_Read(unsigned long *weight);
 void USART2_int(void);
 

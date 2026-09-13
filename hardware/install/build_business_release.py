@@ -52,7 +52,7 @@ try:
         validate_version_name,
         write_sha256sums,
     )
-    from .runtime_payload_manifest import EDGE_SCHEMA_VERSION
+    from .runtime_payload_manifest import EDGE_SCHEMA_VERSION, verify_source_schema_version
     from .runtime_release import sha256_file
 except ImportError:  # pragma: no cover - direct execution in the builder
     from build_runtime_release import (  # type: ignore[no-redef]
@@ -92,7 +92,7 @@ except ImportError:  # pragma: no cover - direct execution in the builder
         validate_version_name,
         write_sha256sums,
     )
-    from runtime_payload_manifest import EDGE_SCHEMA_VERSION  # type: ignore[no-redef]
+    from runtime_payload_manifest import EDGE_SCHEMA_VERSION, verify_source_schema_version  # type: ignore[no-redef]
     from runtime_release import sha256_file  # type: ignore[no-redef]
 
 
@@ -374,6 +374,7 @@ def build_release(
     release_sequence: int,
     signing_private_key: Path,
 ) -> tuple[Path, Path, Path]:
+    verify_source_schema_version(source_root)
     _require_arm64_python311_builder()
     validate_business_release_id(release_id)
     validate_version_name(version_name)

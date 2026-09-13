@@ -6,6 +6,8 @@
     { "$ref": "#/$defs/deviceCommandObservedEvent" },
     { "$ref": "#/$defs/configurationProgressEvent" },
     { "$ref": "#/$defs/deliveryCompleteEvent" },
+    { "$ref": "#/$defs/deliveryIssueArchivedEvent" },
+    { "$ref": "#/$defs/deliveryIssueEvidenceAppendedEvent" },
     { "$ref": "#/$defs/deliveryRecoveryQuarantinedEvent" },
     { "$ref": "#/$defs/cleanCompleteEvent" },
     { "$ref": "#/$defs/fullnessStateChangedEvent" },
@@ -27,6 +29,234 @@
     { "$ref": "#/$defs/factorySealCompletedEvent" }
   ],
   "$defs": {
+  "deliveryIssueEvidenceAppendedPayload": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "issueUid",
+      "sessionUid",
+      "originalCommandUid",
+      "archiveEvidenceSha256",
+      "businessValue",
+      "evidenceKind",
+      "evidenceIndex",
+      "evidenceSha256",
+      "evidenceSizeBytes",
+      "partIndex",
+      "partCount",
+      "dataHex"
+    ],
+    "properties": {
+      "issueUid": {
+        "$ref": "../common.schema.json#/$defs/uuid"
+      },
+      "sessionUid": {
+        "$ref": "../common.schema.json#/$defs/uuid"
+      },
+      "originalCommandUid": {
+        "$ref": "../common.schema.json#/$defs/uuid"
+      },
+      "archiveEvidenceSha256": {
+        "$ref": "../common.schema.json#/$defs/sha256"
+      },
+      "businessValue": {
+        "const": "NONE"
+      },
+      "evidenceKind": {
+        "enum": [
+          "ARCHIVE_CONTEXT",
+          "PROCESS_FACT",
+          "FINAL_RESULT"
+        ]
+      },
+      "evidenceIndex": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 4294967295
+      },
+      "evidenceSha256": {
+        "$ref": "../common.schema.json#/$defs/sha256"
+      },
+      "evidenceSizeBytes": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 4294967295
+      },
+      "partIndex": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16777216
+      },
+      "partCount": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16777216
+      },
+      "dataHex": {
+        "type": "string",
+        "pattern": "^([0-9a-f]{2})+$",
+        "minLength": 2,
+        "maxLength": 512
+      }
+    }
+  },
+  "deliveryIssueEvidenceAppendedEvent": {
+    "allOf": [
+      {
+        "$ref": "../event-envelope.schema.json"
+      },
+      {
+        "properties": {
+          "eventType": {
+            "const": "DELIVERY_ISSUE_EVIDENCE_APPENDED"
+          },
+          "deliveryClass": {
+            "const": "RELIABLE_FACT"
+          },
+          "target": {
+            "allOf": [
+              {
+                "$ref": "../common.schema.json#/$defs/target"
+              },
+              {
+                "properties": {
+                  "type": {
+                    "const": "DELIVERY_SESSION"
+                  }
+                }
+              }
+            ]
+          },
+          "commandUid": {
+            "$ref": "../common.schema.json#/$defs/uuid"
+          },
+          "payload": {
+            "$ref": "#/$defs/deliveryIssueEvidenceAppendedPayload"
+          }
+        }
+      }
+    ]
+  },
+  "deliveryIssueArchivedPayload": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "issueUid",
+      "sessionUid",
+      "originalCommandUid",
+      "originalCommandPayloadSha256",
+      "portNo",
+      "sourceMcuBootId",
+      "targetMcuBootId",
+      "reason",
+      "businessValue",
+      "finalResultAtArchive",
+      "archiveEvidenceSha256",
+      "knownFactCount",
+      "originalStartPayloadHex",
+      "bootObservationType",
+      "bootObservationPayloadHex"
+    ],
+    "properties": {
+      "issueUid": {
+        "$ref": "../common.schema.json#/$defs/uuid"
+      },
+      "sessionUid": {
+        "$ref": "../common.schema.json#/$defs/uuid"
+      },
+      "originalCommandUid": {
+        "$ref": "../common.schema.json#/$defs/uuid"
+      },
+      "originalCommandPayloadSha256": {
+        "$ref": "../common.schema.json#/$defs/sha256"
+      },
+      "portNo": {
+        "$ref": "../common.schema.json#/$defs/portNo"
+      },
+      "sourceMcuBootId": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9007199254740991
+      },
+      "targetMcuBootId": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9007199254740991
+      },
+      "reason": {
+        "const": "MCU_RESTART_FINAL_RESULT_UNAVAILABLE"
+      },
+      "businessValue": {
+        "const": "NONE"
+      },
+      "finalResultAtArchive": {
+        "const": "ABSENT"
+      },
+      "archiveEvidenceSha256": {
+        "$ref": "../common.schema.json#/$defs/sha256"
+      },
+      "knownFactCount": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 4294967295
+      },
+      "originalStartPayloadHex": {
+        "type": "string",
+        "pattern": "^[0-9a-f]+$",
+        "minLength": 2,
+        "maxLength": 484
+      },
+      "bootObservationType": {
+        "enum": [
+          "BOOT_PROBE_REPLY",
+          "BIND_BOOT_REPLY"
+        ]
+      },
+      "bootObservationPayloadHex": {
+        "type": "string",
+        "pattern": "^[0-9a-f]+$",
+        "minLength": 32,
+        "maxLength": 50
+      }
+    }
+  },
+  "deliveryIssueArchivedEvent": {
+    "allOf": [
+      {
+        "$ref": "../event-envelope.schema.json"
+      },
+      {
+        "properties": {
+          "eventType": {
+            "const": "DELIVERY_ISSUE_ARCHIVED"
+          },
+          "deliveryClass": {
+            "const": "RELIABLE_FACT"
+          },
+          "target": {
+            "allOf": [
+              {
+                "$ref": "../common.schema.json#/$defs/target"
+              },
+              {
+                "properties": {
+                  "type": {
+                    "const": "DELIVERY_SESSION"
+                  }
+                }
+              }
+            ]
+          },
+          "commandUid": {
+            "$ref": "../common.schema.json#/$defs/uuid"
+          },
+          "payload": {
+            "$ref": "#/$defs/deliveryIssueArchivedPayload"
+          }
+        }
+      }
+    ]
+  },
     "configSnapshot": {
       "type": "object",
       "required": [
@@ -350,6 +580,7 @@
           "$ref": "../common.schema.json#/$defs/measurementWithQuality"
         },
         "removedNetWeightGrams": {
+          "description": "Current pre-unlock weight minus cleaner-confirmed final weight; null if either value is unavailable. Never subtract the previous bag baseline.",
           "$ref": "../common.schema.json#/$defs/nullableSafeSignedIntegerGrams"
         },
         "newBaselineWeightGrams": {
@@ -1709,7 +1940,8 @@
             "STABLE_WINDOW_MEAN",
             "LAST_FOUR_MEAN",
             "AVAILABLE_SAMPLES_MEAN",
-            "LAST_OBSERVED"
+            "LAST_OBSERVED",
+            "TIMEOUT_MEDIAN"
           ]
         },
         "measurementElapsedMs": {
@@ -1799,7 +2031,29 @@
           "minimum": 0,
           "maximum": 4294967295
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "weightValueKind": { "const": "TIMEOUT_MEDIAN" } },
+            "required": ["weightValueKind"]
+          },
+          "then": {
+            "properties": {
+              "weightMeasurementUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+              "weightMeasurementStatus": { "const": "UNSTABLE" },
+              "weightValueAvailable": { "const": true },
+              "reportedWeightGrams": { "$ref": "../common.schema.json#/$defs/signedInt32Grams" },
+              "measurementElapsedMs": { "const": 5000 },
+              "weightSampleCount": { "type": "integer", "minimum": 5, "maximum": 32 },
+              "weightSensorHealth": { "const": "OK" },
+              "weightFaultCode": { "type": "null" },
+              "weightMcuBootId": { "type": "integer" },
+              "weightMcuEventSequence": { "type": "integer" }
+            }
+          }
+        }
+      ]
     },
     "mcuFirmwareIdentityObservation": {
       "type": "object",

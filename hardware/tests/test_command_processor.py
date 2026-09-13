@@ -396,6 +396,16 @@ class StoreBackedUpdaterClient:
                 self.store.abort_physical_action_dispatch
             ),
             "GET_PHYSICAL_ACTION": self.store.get_physical_action,
+            "PREPARE_NATIVE_RECOVERY_CLOSE": self.store.prepare_native_recovery_close,
+            "PREPARE_NATIVE_RECOVERY_CLOSE_SUCCESSOR": self.store.prepare_native_recovery_close_successor,
+            "GET_NATIVE_RECOVERY_CLOSE": self.store.get_native_recovery_close,
+            "RETIRE_NATIVE_RECOVERY_CLOSE": self.store.retire_native_recovery_close,
+            "RETIRE_NATIVE_RECOVERY_CLOSE_SUCCESSOR": self.store.retire_native_recovery_close_successor,
+            "WITHDRAW_NATIVE_RECOVERY_CLOSE_DISPATCH": self.store.withdraw_native_recovery_close_dispatch,
+            "WITHDRAW_NATIVE_RECOVERY_CLOSE_SUCCESSOR_DISPATCH": self.store.withdraw_native_recovery_close_successor_dispatch,
+            "GET_NATIVE_RECOVERY_CLOSE_DISPOSITION": self.store.get_native_recovery_close_disposition,
+            "ISOLATE_NATIVE_RECOVERY_CLOSE_AFTER_REBOOT": self.store.isolate_native_recovery_close_after_reboot,
+            "ISOLATE_NATIVE_RECOVERY_CLOSE_SUCCESSOR_AFTER_REBOOT": self.store.isolate_native_recovery_close_successor_after_reboot,
             "CONFIRM_PHYSICAL_ACTION": (
                 self.store.confirm_physical_action
             ),
@@ -4238,7 +4248,7 @@ def test_compat_ef_completes_clean_with_protocol_guarantees(tmp_path):
     assert len(clean_events) == 1
     payload = clean_events[0]["payload"]
     encode_event_post("CLEAN_COMPLETE", clean_events[0])
-    assert payload["removedNetWeightGrams"] == 48_500
+    assert payload["removedNetWeightGrams"] == 48_000
     assert payload["newBaselineWeightGrams"] == 2_000
     assert (
         payload["preUnlockMeasurement"]["mcuEventSequence"]

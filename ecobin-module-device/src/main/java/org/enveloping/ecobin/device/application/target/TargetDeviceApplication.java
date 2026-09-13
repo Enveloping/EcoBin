@@ -40,6 +40,8 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeConfigurationSumm
 import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeHealthSummary;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeSnapshotPolicyReleaseRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeSnapshotPolicyView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DevicePolicyView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DevicePolicyReleaseRequest;
 import org.enveloping.ecobin.framework.audit.AuditActorKind;
 import org.enveloping.ecobin.framework.audit.AuditEntry;
 import org.enveloping.ecobin.framework.audit.AuditPort;
@@ -92,8 +94,8 @@ import java.util.function.Supplier;
 /**
  * 永久设备资产的唯一管理入口。
  *
- * <p>设备不再拥有部署实例。平台只写一次租户，租户只写一次机构；禁用和报废只改变
- * 新业务准入，不清除归属，也不取消已经由后端创建的作业。</p>
+ * <p>设备不再拥有部署实例。平台只写一次租户，租户只写一次机构；禁用和报废先检查业务空闲，
+ * 再停止未完成的设备任务；永久归属和历史事实保留。</p>
  */
 @Service
 public class TargetDeviceApplication {
@@ -192,11 +194,15 @@ public class TargetDeviceApplication {
     private static final SecureRandom PUBLIC_CODE_RANDOM = new SecureRandom();
 
     private final JdbcTemplate jdbc;
+    private final DeviceListStatusQuery listStatusQuery;
+    private final DeviceLifecycleControlService lifecycleControl;
     private final DeviceScopeAuthorizationPort authorizationPort;
     private final AuditPort auditPort;
     private final ObjectMapper objectMapper;
     private final DeviceConfigurationCanonicalizer canonicalizer;
     private final RuntimeSnapshotPolicyProvider runtimeSnapshotPolicyProvider;
+    private final DevicePolicyProvider devicePolicyProvider;
+    private final DevicePolicyStore devicePolicyStore;
     private final ReliableDeviceTaskRegistrationPort taskRegistrationPort;
     private final ReliableDeviceTaskStatusPort taskStatusPort;
     private final ReliableTaskWakePort taskWakePort;
@@ -242,7 +248,6 @@ public class TargetDeviceApplication {
                 null);
     }
 
-    @Autowired
     public TargetDeviceApplication(
             JdbcTemplate jdbc,
             DeviceScopeAuthorizationPort authorizationPort,
@@ -259,7 +264,59 @@ public class TargetDeviceApplication {
             DeviceEntryUrlFactory deviceEntryUrlFactory,
             FactorySealAuthorizationService factorySealAuthorizations,
             DeliveryRecoveryQuarantineService deliveryRecoveryQuarantines) {
+        this(jdbc, authorizationPort, auditPort, objectMapper, activationService,
+                canonicalizer, runtimeSnapshotPolicyProvider, taskRegistrationPort,
+                taskStatusPort, taskWakePort, taskRefFactory, oneNetProductId,
+                deviceEntryUrlFactory, factorySealAuthorizations, deliveryRecoveryQuarantines, null);
+    }
+
+    public TargetDeviceApplication(
+            JdbcTemplate jdbc,
+            DeviceScopeAuthorizationPort authorizationPort,
+            AuditPort auditPort,
+            ObjectMapper objectMapper,
+            AutomaticDeviceActivationService activationService,
+            DeviceConfigurationCanonicalizer canonicalizer,
+            RuntimeSnapshotPolicyProvider runtimeSnapshotPolicyProvider,
+            ReliableDeviceTaskRegistrationPort taskRegistrationPort,
+            ReliableDeviceTaskStatusPort taskStatusPort,
+            ReliableTaskWakePort taskWakePort,
+            DeviceCommandTaskRefFactory taskRefFactory,
+            @Value("${onenet.product-id:}") String oneNetProductId,
+            DeviceEntryUrlFactory deviceEntryUrlFactory,
+            FactorySealAuthorizationService factorySealAuthorizations,
+            DeliveryRecoveryQuarantineService deliveryRecoveryQuarantines,
+            DeviceListStatusQuery listStatusQuery) {
+        this(jdbc, authorizationPort, auditPort, objectMapper, activationService,
+                canonicalizer, runtimeSnapshotPolicyProvider, taskRegistrationPort,
+                taskStatusPort, taskWakePort, taskRefFactory, oneNetProductId,
+                deviceEntryUrlFactory, factorySealAuthorizations, deliveryRecoveryQuarantines, listStatusQuery, null);
+    }
+
+    @Autowired
+    public TargetDeviceApplication(
+            JdbcTemplate jdbc,
+            DeviceScopeAuthorizationPort authorizationPort,
+            AuditPort auditPort,
+            ObjectMapper objectMapper,
+            AutomaticDeviceActivationService activationService,
+            DeviceConfigurationCanonicalizer canonicalizer,
+            RuntimeSnapshotPolicyProvider runtimeSnapshotPolicyProvider,
+            ReliableDeviceTaskRegistrationPort taskRegistrationPort,
+            ReliableDeviceTaskStatusPort taskStatusPort,
+            ReliableTaskWakePort taskWakePort,
+            DeviceCommandTaskRefFactory taskRefFactory,
+            @Value("${onenet.product-id:}") String oneNetProductId,
+            DeviceEntryUrlFactory deviceEntryUrlFactory,
+            FactorySealAuthorizationService factorySealAuthorizations,
+            DeliveryRecoveryQuarantineService deliveryRecoveryQuarantines,
+            DeviceListStatusQuery listStatusQuery,
+            DeviceLifecycleControlService lifecycleControl) {
+        this.lifecycleControl = lifecycleControl;
+        this.listStatusQuery = listStatusQuery;
         this.jdbc = jdbc;
+        this.devicePolicyProvider = new DevicePolicyProvider(jdbc);
+        this.devicePolicyStore = new DevicePolicyStore(jdbc);
         this.authorizationPort = authorizationPort;
         this.auditPort = auditPort;
         this.objectMapper = objectMapper;
@@ -332,10 +389,51 @@ public class TargetDeviceApplication {
     }
 
     @Transactional(readOnly = true)
+    public DevicePolicyView devicePolicy(boolean platform) {
+        Scope scope = authorize(platform, null, null, platform ? "device.manage" : "device.configuration.manage");
+        return devicePolicyStore.view(platform ? null : scope.tenantId());
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public DevicePolicyView releaseDevicePolicy(boolean platform, UUID operationUid, DevicePolicyReleaseRequest request) {
+        Scope scope = authorize(platform, null, null, platform ? "device.manage" : "device.configuration.manage");
+        if (!platform) requireEnabledScope(scope);
+        if (request == null || request.expectedVersion() == null || request.expectedVersion() < (platform ? 1 : 0)
+                || request.expectedDefaultVersion() == null || request.expectedDefaultVersion() < 1
+                || !(platform ? "DEFAULT".equals(request.configurationMode())
+                    : Set.of("INHERIT", "CUSTOM").contains(request.configurationMode() == null ? "" : request.configurationMode()))) {
+            throw invalid("设备配置请求不完整或适用范围不正确");
+        }
+        boolean inherit = "INHERIT".equals(request.configurationMode());
+        String reason = required(request.reason(), 500, "reason");
+        var normalized = new DevicePolicyReleaseRequest(request.expectedVersion(), request.expectedDefaultVersion(), request.configurationMode(),
+                inherit ? null : DevicePolicyProvider.normalizePrice(request.unitPriceYuanPerKg()),
+                inherit ? null : request.fullnessMode(),
+                inherit ? null : DevicePolicyProvider.normalizeWeight(request.fullnessMode(), request.fullnessWeightKg()),
+                inherit ? null : DevicePolicyProvider.normalizeNegativeThreshold(request.negativeWeightThresholdGram()), reason);
+        Long tenantId = platform ? null : scope.tenantId();
+        return command(operationUid, scope, "device.configuration-policy.release", "DEVICE_CONFIGURATION_POLICY",
+                platform ? "DEFAULT" : "TENANT:" + tenantId, normalized, DevicePolicyView.class, () -> {
+                    devicePolicyStore.row(null, true);
+                    DevicePolicyView before = devicePolicyStore.view(tenantId);
+                    devicePolicyStore.save(tenantId, platform ? scope.platformAdminId() : scope.staffAccountId(), normalized);
+                    DevicePolicyView after = devicePolicyStore.view(tenantId);
+                    return new CommandResult<>(after, Map.of("policy", before), Map.of("policy", after), reason);
+                });
+    }
+
     public PageData<DeviceAssetView> listTenantAssets(
             int requestedPage,
             int requestedPageSize,
             String hardwareSn) {
+        return listTenantAssets(requestedPage, requestedPageSize, hardwareSn, null);
+    }
+
+    @Transactional(readOnly = true)
+    public PageData<DeviceAssetView> listTenantAssets(
+            int requestedPage,
+            int requestedPageSize,
+            String hardwareSn, String lifecycleStatus) {
         Scope scope = authorize(false, null, null, "device.read");
         return listAssets(
                 scope.tenantId(),
@@ -344,8 +442,16 @@ public class TargetDeviceApplication {
                 requestedPage,
                 requestedPageSize,
                 hardwareSn,
-                null,
+                lifecycleStatus,
                 null);
+    }
+
+    public PageData<DeviceAssetView> listOrganizationAssets(
+            String organizationCode,
+            int requestedPage,
+            int requestedPageSize,
+            String hardwareSn) {
+        return listOrganizationAssets(organizationCode, requestedPage, requestedPageSize, hardwareSn, null);
     }
 
     @Transactional(readOnly = true)
@@ -353,7 +459,7 @@ public class TargetDeviceApplication {
             String organizationCode,
             int requestedPage,
             int requestedPageSize,
-            String hardwareSn) {
+            String hardwareSn, String lifecycleStatus) {
         Scope scope = authorize(
                 false, null, organizationCode, "device.read");
         return listAssets(
@@ -363,7 +469,7 @@ public class TargetDeviceApplication {
                 requestedPage,
                 requestedPageSize,
                 hardwareSn,
-                null,
+                lifecycleStatus,
                 null);
     }
 
@@ -1528,8 +1634,9 @@ public class TargetDeviceApplication {
         }
         RuntimeSnapshotPolicyProvider.Policy runtimePolicy =
                 runtimeSnapshotPolicyProvider.current();
+        DevicePolicyProvider.Policy devicePolicy = devicePolicyProvider.current(asset.tenantId());
         var normalized = canonicalizer.normalize(
-                request,
+                devicePolicy.apply(request),
                 asset.expectedPortCount(),
                 runtimePolicy.fallbackIntervalMs(),
                 RuntimeSnapshotPolicyProvider.FIXED_MISS_THRESHOLD);
@@ -1555,6 +1662,7 @@ public class TargetDeviceApplication {
                     edge_heartbeat_interval_ms,
                     edge_heartbeat_miss_threshold,
                     runtime_snapshot_policy_version_no,
+                    device_default_policy_version_no, tenant_device_policy_version_no,
                     mcu_heartbeat_interval_ms,
                     mcu_heartbeat_miss_threshold,
                     door_close_retry_limit,
@@ -1571,7 +1679,7 @@ public class TargetDeviceApplication {
                     published_at, created_at
                 ) VALUES (
                     ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?
                 )
                 """,
@@ -1583,6 +1691,7 @@ public class TargetDeviceApplication {
                 normalized.device().edgeHeartbeatIntervalMs(),
                 normalized.device().edgeHeartbeatMissThreshold(),
                 runtimePolicy.version(),
+                devicePolicy.defaultVersion(), devicePolicy.tenantVersion(),
                 normalized.device().mcuHeartbeatIntervalMs(),
                 normalized.device().mcuHeartbeatMissThreshold(),
                 normalized.device().doorCloseRetryLimit(),
@@ -2200,6 +2309,23 @@ public class TargetDeviceApplication {
         return !completed;
     }
 
+    /** Advances one resumable platform or tenant batch; each asset uses its current tenant rule. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public boolean reconcileDevicePolicyNextBatch() {
+        DevicePolicyStore.Row rollout = devicePolicyStore.nextRollout();
+        if (rollout == null) return false;
+        List<Long> ids = devicePolicyStore.nextAssets(rollout);
+        long published = 0;
+        for (Long id : ids) {
+            Asset current = asset(id, true);
+            if (!"NORMAL".equals(current.lifecycleStatus()) || !"PASSED".equals(current.acceptanceStatus())
+                    || current.tenantId() == null || current.organizationId() == null) continue;
+            if (ensureCurrentDevicePolicy(current, systemAssignedScope(current), UUID.randomUUID())) published++;
+        }
+        devicePolicyStore.advance(rollout, ids, published);
+        return ids.size() == 100;
+    }
+
     /** Reconciles initial activation and a missed policy update in one tx. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void reconcileAutomaticActivation(long assetId) {
@@ -2218,6 +2344,7 @@ public class TargetDeviceApplication {
                 systemAssignedScope(asset),
                 policy,
                 UUID.randomUUID());
+        ensureCurrentDevicePolicy(asset, systemAssignedScope(asset), UUID.randomUUID());
     }
 
     private boolean ensureCurrentRuntimeSnapshotPolicy(
@@ -2263,6 +2390,54 @@ public class TargetDeviceApplication {
         return true;
     }
 
+    private boolean ensureCurrentDevicePolicy(
+            Asset asset,
+            Scope scope,
+            UUID correlationUid) {
+        DevicePolicyProvider.Policy policy = devicePolicyProvider.current(asset.tenantId());
+        ConfigurationVersionRow latest = latestConfigurationVersion(
+                scope, asset.id());
+        if (latest == null) {
+            activationService.reconcileInCurrentTransaction(
+                    asset.id(), correlationUid);
+            latest = latestConfigurationVersion(scope, asset.id());
+            if (latest == null) {
+                return false;
+            }
+            if (configurationUsesDevicePolicy(latest.id(), policy)) {
+                return true;
+            }
+        }
+        if (configurationUsesDevicePolicy(latest.id(), policy)) {
+            return false;
+        }
+        List<ConfigurationPortSnapshot> ports = configurationPorts(
+                scope, asset.id(), latest.id());
+        ConfigurationReleaseRequest cloned = cloneConfigurationRequest(
+                latest.versionNo(),
+                "自动同步租户统一设备配置",
+                latest,
+                ports);
+        releaseConfiguration(
+                correlationUid,
+                scope,
+                asset,
+                platformConfigurationApplicationCollectionUrl(
+                        asset.hardwareSn()),
+                cloned,
+                true,
+                "SYSTEM");
+        return true;
+    }
+
+    private boolean configurationUsesDevicePolicy(long configurationId, DevicePolicyProvider.Policy policy) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT COALESCE(device_default_policy_version_no, 0) = ? AND COALESCE(tenant_device_policy_version_no, 0) = ?
+                FROM dev_config_version WHERE id = ?
+                """, Boolean.class, policy.defaultVersion() == null ? 0 : policy.defaultVersion(),
+                policy.tenantVersion() == null ? 0 : policy.tenantVersion(), configurationId));
+    }
+
     private ConfigurationVersionRow latestConfigurationVersion(
             Scope scope, long assetId) {
         Long latest = jdbc.queryForObject("""
@@ -2306,11 +2481,15 @@ public class TargetDeviceApplication {
             from.append(" AND asset.organization_id = ?");
             args.add(organizationId);
         }
-        if (hideUnavailable) {
-            from.append(" AND asset.lifecycle_status = 'NORMAL'");
-        } else if (blankToNull(lifecycleStatus) != null) {
+        String status = blankToNull(lifecycleStatus);
+        if (status == null) {
+            from.append(" AND asset.lifecycle_status <> 'RETIRED'");
+        } else if (!"ALL".equalsIgnoreCase(status)) {
+            if (!Set.of("NORMAL", "DISABLED", "RETIRED").contains(status.toUpperCase(Locale.ROOT))) {
+                throw invalid("设备状态筛选无效");
+            }
             from.append(" AND asset.lifecycle_status = ?");
-            args.add(lifecycleStatus.trim().toUpperCase());
+            args.add(status.toUpperCase(Locale.ROOT));
         }
         if (blankToNull(acceptanceStatus) != null) {
             from.append(" AND asset.acceptance_status = ?");
@@ -2330,7 +2509,8 @@ public class TargetDeviceApplication {
                         + " ORDER BY asset.id DESC LIMIT ? OFFSET ?",
                 (rs, ignored) -> assetView(rs),
                 pageArgs.toArray());
-        return new PageData<>(items, page, pageSize, total == null ? 0 : total);
+        return new PageData<>(listStatusQuery == null ? items : listStatusQuery.enrich(items),
+                page, pageSize, total == null ? 0 : total);
     }
 
     private CommandResult<DeviceAssetView> createAsset(
@@ -2697,6 +2877,9 @@ public class TargetDeviceApplication {
                     "报废是最终状态，不能恢复或再次禁用");
         }
         requireVersion(before.controlVersion(), expectedVersion);
+        if (!"NORMAL".equals(targetStatus)) {
+            lifecycleControl.requireIdle(before.id(), hardwareSn);
+        }
         LocalDateTime now = databaseNow();
         int updated;
         if ("DISABLED".equals(targetStatus)) {
@@ -2743,6 +2926,9 @@ public class TargetDeviceApplication {
             throw new IllegalArgumentException("unknown device target status");
         }
         requireSingle(updated);
+        if (!"NORMAL".equals(targetStatus)) {
+            lifecycleControl.cancelDeviceWork(before.id(), hardwareSn, targetStatus, now);
+        }
         if ("NORMAL".equals(targetStatus)) {
             Asset restored = asset(before.id(), true);
             if (restored.tenantId() != null
@@ -2757,7 +2943,18 @@ public class TargetDeviceApplication {
                         systemAssignedScope(restored),
                         policy,
                         operationUid);
+                ensureCurrentDevicePolicy(restored, systemAssignedScope(restored), operationUid);
+                Scope restoredScope = systemAssignedScope(restored);
+                ConfigurationVersionRow latest = latestConfigurationVersion(restoredScope, restored.id());
+                if (latest != null && "CANCELLED".equals(latest.applicationStatus())) {
+                    releaseConfiguration(operationUid, restoredScope, restored,
+                            platformConfigurationApplicationCollectionUrl(hardwareSn),
+                            cloneConfigurationRequest(latest.versionNo(), "恢复设备，同步当前配置", latest,
+                                    configurationPorts(restoredScope, restored.id(), latest.id())),
+                            true, "SYSTEM");
+                }
             }
+            lifecycleControl.resumeDeviceWork(before.id(), hardwareSn, now);
         }
         DeviceAssetView response = platformView(hardwareSn);
         return changed(before, response, reason);
@@ -2766,6 +2963,9 @@ public class TargetDeviceApplication {
     private CommandResult<DeviceAssetView> reevaluateAcceptance(
             String hardwareSn) {
         Asset asset = asset(hardwareSn, true);
+        if (!"NORMAL".equals(asset.lifecycleStatus())) {
+            throw conflict("DEVICE.ASSET_UNAVAILABLE", "禁用或报废设备不能重新核对设备检查结果");
+        }
         LocalDateTime now = databaseNow();
         if (factorySealAuthorizations
                 .restartAcceptanceAfterRejectedAuthorization(
@@ -2885,8 +3085,7 @@ public class TargetDeviceApplication {
                         WHERE tenant_id = ?
                           AND organization_id = ?
                           AND device_public_code = ?
-                          AND lifecycle_status = 'NORMAL'
-                        """ + (lock ? " FOR UPDATE" : ""),
+                        """ + (lock ? " AND lifecycle_status = 'NORMAL' FOR UPDATE" : ""),
                 (rs, ignored) -> new Asset(
                         rs.getLong("id"),
                         rs.getString("hardware_sn"),
@@ -3196,10 +3395,20 @@ public class TargetDeviceApplication {
         boolean latest = application.versionNo()
                 == application.latestVersionNo();
         boolean superseded = !latest;
+        boolean disabled = "DISABLED".equals(jdbc.queryForObject("""
+                SELECT asset.lifecycle_status FROM dev_config_application app
+                JOIN dev_device_asset asset ON asset.id = app.asset_id WHERE app.id = ?
+                """, String.class, application.id()));
         List<String> nextActions;
         Long pollAfter;
-        if (superseded) {
+        if (disabled) {
+            nextActions = List.of();
+            pollAfter = null;
+        } else if (superseded) {
             nextActions = List.of("VIEW_LATEST_CONFIGURATION");
+            pollAfter = null;
+        } else if ("CANCELLED".equals(application.status()) || "CANCELLED".equals(task.state())) {
+            nextActions = List.of();
             pollAfter = null;
         } else if ("APPLIED".equals(application.status())) {
             nextActions = List.of();
@@ -3699,9 +3908,8 @@ public class TargetDeviceApplication {
             sql.append(" AND asset.organization_id = ?");
             args.add(organizationId);
         }
-        if (hideUnavailable) {
-            sql.append(" AND asset.lifecycle_status = 'NORMAL'");
-        }
+        // History remains visible within the original tenant/organization scope.
+        // Mutation entry points separately require a NORMAL asset.
     }
 
     private static String assetSelect() {
@@ -3800,7 +4008,8 @@ public class TargetDeviceApplication {
                 new ComputedOneNetMapping(
                         oneNetProductId,
                         hardwareSn,
-                        oneNetProductId != null));
+                        oneNetProductId != null),
+                null);
     }
 
     private DeviceManagementSummaryView deviceManagementSummary(

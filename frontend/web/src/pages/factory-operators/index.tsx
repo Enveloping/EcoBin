@@ -48,6 +48,7 @@ import {
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { pageHeader, proTableConfig } from '@/utils/pageStyle';
 import { formatShanghaiTime } from '@/utils/decimal';
+import HelpTip from '@/components/HelpTip';
 
 interface OperatorForm {
   operatorCode: string;
@@ -82,6 +83,7 @@ export default function FactoryOperatorsPage() {
   const [revoking, setRevoking] = useState<FactoryOperator | null>(null);
   const [bindingExisting, setBindingExisting] =
     useState<FactoryOperator | null>(null);
+  const [bindingTarget, setBindingTarget] = useState<FactoryOperator | null>(null);
   const [bindingCode, setBindingCode] = useState<BindingCode | null>(null);
   const [bindingLoadingUid, setBindingLoadingUid] = useState('');
 
@@ -96,7 +98,7 @@ export default function FactoryOperatorsPage() {
       commandKey('factory-operator.create', payload.operatorCode, payload),
       (intent) => createFactoryOperator(payload, intent),
     );
-    message.success('厂家操作员已创建；现在可以绑定已有微信用户或生成绑定码');
+    message.success('厂家操作员已创建');
     setCreateOpen(false);
     reload();
     return true;
@@ -148,8 +150,10 @@ export default function FactoryOperatorsPage() {
     try {
       const intent = await createFactoryBindingIntent(operator);
       setBindingCode({ operator, intent });
+      return true;
     } catch (error) {
       message.error(error instanceof Error ? error.message : '绑定码生成失败');
+      return false;
     } finally {
       setBindingLoadingUid('');
     }
@@ -266,20 +270,9 @@ export default function FactoryOperatorsPage() {
         operator.status === 'ACTIVE' && operator.bindingStatus === 'UNBOUND' && (
           <a
             key='bind-existing'
-            onClick={() => setBindingExisting(operator)}
+            onClick={() => setBindingTarget(operator)}
           >
-            <LinkOutlined /> 绑定已有微信用户
-          </a>
-        ),
-        operator.status === 'ACTIVE' && operator.bindingStatus === 'UNBOUND' && (
-          <a
-            key='bind-code'
-            onClick={() => void generateBindingCode(operator)}
-          >
-            <QrcodeOutlined />
-            {bindingLoadingUid === operator.factoryOperatorUid
-              ? ' 生成中…'
-              : ' 生成绑定码'}
+            <LinkOutlined /> 绑定微信
           </a>
         ),
         operator.bindingStatus === 'ACTIVE' && (
@@ -290,7 +283,7 @@ export default function FactoryOperatorsPage() {
         <Popconfirm
           key='status'
           title={operator.status === 'ACTIVE'
-            ? '停用后会立即解除微信绑定并撤销工厂会话，确认继续？'
+            ? '停用后将解除微信绑定，该人员将退出厂家端，确认停用？'
             : '启用后仍需重新绑定微信身份，确认继续？'}
           onConfirm={() => toggleStatus(operator)}
         >
@@ -302,18 +295,8 @@ export default function FactoryOperatorsPage() {
 
   return (
     <PageContainer
-      {...pageHeader(
-        '厂家操作员',
-        '平台管理员先建工号，再绑定已有机构用户的微信身份或生成一次性小程序码；厂家身份不具备 Web 管理权限。',
-      )}
+      {...pageHeader('厂家操作员')}
     >
-      <Alert
-        showIcon
-        type='info'
-        style={{ marginBottom: 16 }}
-        message='可以绑定已有微信用户，也可以让新人员扫描一次性绑定码'
-        description='选择已有机构用户时，系统只复用其微信身份，不会把机构权限授予厂家操作员，也不会把 OpenID 暴露到 Web。停用操作员会同时解除绑定并撤销厂家会话。'
-      />
       <ProTable<FactoryOperator>
         {...proTableConfig}
         actionRef={actionRef}
@@ -348,6 +331,32 @@ export default function FactoryOperatorsPage() {
         ]}
       />
 
+      <Modal
+        title={`绑定微信 · ${bindingTarget?.displayName ?? ''}`}
+        open={!!bindingTarget}
+        footer={null}
+        onCancel={() => !bindingLoadingUid && setBindingTarget(null)}
+      >
+        <Space wrap>
+          <Button disabled={!!bindingLoadingUid} icon={<LinkOutlined aria-hidden />} onClick={() => {
+            setBindingExisting(bindingTarget);
+            setBindingTarget(null);
+          }}>
+            选择已有用户
+          </Button>
+          <Button
+            icon={<QrcodeOutlined aria-hidden />}
+            loading={!!bindingLoadingUid}
+            onClick={async () => {
+              if (!bindingTarget) return;
+              if (await generateBindingCode(bindingTarget)) setBindingTarget(null);
+            }}
+          >
+            扫码绑定
+          </Button>
+        </Space>
+      </Modal>
+
       <ModalForm<OperatorForm>
         title='新建厂家操作员'
         open={createOpen}
@@ -358,7 +367,7 @@ export default function FactoryOperatorsPage() {
         <ProFormText
           name='operatorCode'
           label='工号'
-          extra='创建后不可修改；字母会自动转为大写。'
+          extra='创建后不可修改'
           rules={[
             { required: true },
             {
@@ -405,7 +414,7 @@ export default function FactoryOperatorsPage() {
         <Alert
           showIcon
           type='warning'
-          message='解除后，该微信已有的厂家会话会立即失效。'
+          message='解除后，该人员将退出厂家端，需重新绑定才能再次使用。'
           style={{ marginBottom: 16 }}
         />
         <ProFormText
@@ -427,13 +436,10 @@ export default function FactoryOperatorsPage() {
         submitter={{ searchConfig: { submitText: '确认绑定' } }}
         onFinish={submitExistingUserBinding}
       >
-        <Alert
-          showIcon
-          type='warning'
-          message='绑定的是该用户背后的微信身份，不是机构账号权限。'
-          description='绑定后，该微信下次通过 wx.login 进入小程序时会获得厂家端会话；原有机构用户、钱包和清运身份保持不变。'
-          style={{ marginBottom: 16 }}
-        />
+        <Typography.Paragraph>
+          选择要绑定的微信用户
+          <HelpTip label='微信绑定'>绑定后，该微信可进入厂家端；原机构账号的权限和钱包保持不变。</HelpTip>
+        </Typography.Paragraph>
         <ProFormSelect
           name='tenantCode'
           label='所属租户'

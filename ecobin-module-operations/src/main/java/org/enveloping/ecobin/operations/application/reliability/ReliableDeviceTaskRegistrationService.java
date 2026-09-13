@@ -70,6 +70,7 @@ public class ReliableDeviceTaskRegistrationService
                 initialRunAt,
                 dispatchWaitReason,
                 now);
+        repository.cancelRegisteredWorkIfUnavailable(keys[2], registration.taskType(), taskUid);
         workSignal.deviceCommand();
         return taskUid;
     }

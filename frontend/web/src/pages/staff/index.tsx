@@ -278,10 +278,7 @@ export default function StaffPage() {
 
   return (
     <PageContainer
-      {...pageHeader(
-        '工作人员',
-        '登录名全平台唯一；账号状态与安全版本由服务端实时校验。',
-      )}
+      {...pageHeader('工作人员')}
     >
       <DirectoryScopeBar scope={scope} />
       {!scope.context && !scope.loading ? (

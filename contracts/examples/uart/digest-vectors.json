@@ -1,25 +1,349 @@
 {
   "algorithm": "SHA-256",
-  "registrySha256": "d2b73386e99e7f5be3b05129617afcfe4499cbc4d3f2e8401a4ce5342ca90b75",
-  "registryVersion": "1.0.0-rc.3",
+  "registrySha256": "a41d80dd9c349b847107a3afc7844580ac0c7a371920a78dfb22bf1506512e70",
+  "registryVersion": "2.0.0-rc.22",
   "vectors": [
+    {
+      "components": {
+        "message": "DELIVERY_DOOR_COMMAND_RESULT",
+        "payload": {
+          "command": "OPEN",
+          "faultCode": "NONE",
+          "mcuBootId": 42,
+          "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+          "mcuEventSequence": 7,
+          "outputStatus": "COMMAND_DISPATCHED",
+          "physicalDoorStateBasis": "NOT_OBSERVABLE",
+          "portNo": 1,
+          "roundIndex": 1,
+          "sessionUid": "22222222-2222-4222-8222-222222222222",
+          "uptimeMs": 1000
+        }
+      },
+      "name": "complete_actuator_delivery_door_command_result",
+      "preimageHex": "45434f42494e3a554152543a4143545541544f522d4556454e543a76320031003c000000000000002a0000000700000000000003e811111111111141118111111111111111222222222222422282222222222222220100010101010000",
+      "profile": "actuatorEventDigestSha256",
+      "sha256": "2c8bd54761662ce67e56feec388edc8ceea29b0dafe5436aacf38bca938266cc"
+    },
+    {
+      "components": {
+        "message": "CLEAN_LOCK_POWER_CHANGED",
+        "payload": {
+          "lockPowerState": "ENERGIZED",
+          "mcuBootId": 42,
+          "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+          "mcuEventSequence": 7,
+          "operationUid": "33333333-3333-4333-8333-333333333333",
+          "portNo": 1,
+          "solenoidHealth": "OK",
+          "uptimeMs": 1000
+        }
+      },
+      "name": "complete_actuator_clean_lock_power_changed",
+      "preimageHex": "45434f42494e3a554152543a4143545541544f522d4556454e543a763200350037000000000000002a0000000700000000000003e81111111111114111811111111111111133333333333343338333333333333333010201",
+      "profile": "actuatorEventDigestSha256",
+      "sha256": "f31aa0930ee376aaae789441a01e8527192ab7bcb4949a8ad7eac5f6f78cced1"
+    },
+    {
+      "components": {
+        "message": "SAFE_CLOSE_RESULT",
+        "payload": {
+          "command": "CLOSE",
+          "faultCode": "NONE",
+          "mcuBootId": 42,
+          "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+          "mcuEventSequence": 9,
+          "outputStatus": "COMMAND_DISPATCHED",
+          "physicalDoorStateBasis": "NOT_OBSERVABLE",
+          "portNo": 1,
+          "scope": "SINGLE_DELIVERY_DOOR",
+          "uptimeMs": 2000
+        }
+      },
+      "name": "complete_actuator_safe_close_result",
+      "preimageHex": "45434f42494e3a554152543a4143545541544f522d4556454e543a7632003d002b000000000000002a0000000900000000000007d01111111111114111811111111111111102010201010000",
+      "profile": "actuatorEventDigestSha256",
+      "sha256": "d4522a9e561742ef53680dbcde79cebfef25a12bbb4e76b805162edadb4d5042"
+    },
+    {
+      "components": {
+        "message": "DELIVERY_LOCAL_DOOR_RESULT",
+        "payload": {
+          "command": "OPEN",
+          "faultCode": "NONE",
+          "mcuBootId": 42,
+          "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+          "mcuEventSequence": 9,
+          "outputStatus": "COMMAND_DISPATCHED",
+          "physicalDoorStateBasis": "NOT_OBSERVABLE",
+          "portNo": 1,
+          "roundIndex": 2,
+          "selectionEventSequence": 8,
+          "sessionUid": "22222222-2222-4222-8222-222222222222",
+          "uptimeMs": 12000
+        }
+      },
+      "name": "complete_actuator_delivery_local_door_result",
+      "preimageHex": "45434f42494e3a554152543a4143545541544f522d4556454e543a763200620040000000000000002a000000090000000000002ee01111111111114111811111111111111122222222222242228222222222222222010002010101000000000008",
+      "profile": "actuatorEventDigestSha256",
+      "sha256": "3f13b3f742799f54bde2efac3054156baf9830809c260f602a99ac97ce7d423f"
+    },
+    {
+      "components": {
+        "message": "DELIVERY_CYCLE_ABORTED",
+        "payload": {
+          "abortReason": "UPDATE_STOPPED",
+          "mcuBootId": 42,
+          "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+          "mcuEventSequence": 10,
+          "openDispatched": true,
+          "portNo": 1,
+          "roundIndex": 2,
+          "selectionEventSequence": 8,
+          "sessionUid": "22222222-2222-4222-8222-222222222222",
+          "uptimeMs": 12000
+        }
+      },
+      "name": "complete_actuator_delivery_cycle_aborted",
+      "preimageHex": "45434f42494e3a554152543a4143545541544f522d4556454e543a76320063003d000000000000002a0000000a0000000000002ee01111111111114111811111111111111122222222222242228222222222222222010002030100000008",
+      "profile": "actuatorEventDigestSha256",
+      "sha256": "28ed02a160c623f5191ec5fba89fe416b7621bf9c3184728a96743eea2f697fc"
+    },
+    {
+      "components": {
+        "message": "DELIVERY_POSTCLOSE_INTERRUPTED",
+        "payload": {
+          "interruptedPhase": "DELIVERY_CLOSE_TRAVEL_WAIT",
+          "interruptionReason": "UPDATE_STOPPED",
+          "mcuBootId": 42,
+          "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+          "mcuEventSequence": 10,
+          "portNo": 1,
+          "postCloseMeasurementEventSequence": 0,
+          "roundIndex": 1,
+          "sessionUid": "22222222-2222-4222-8222-222222222222",
+          "uptimeMs": 12000
+        }
+      },
+      "name": "complete_actuator_delivery_postclose_interrupted",
+      "preimageHex": "45434f42494e3a554152543a4143545541544f522d4556454e543a76320064003d000000000000002a0000000a0000000000002ee01111111111114111811111111111111122222222222242228222222222222222010001170100000000",
+      "profile": "actuatorEventDigestSha256",
+      "sha256": "59ddd28fb061ed7537b7d24ca88e29743bbca6fa82334ec4ec3614f1a7331212"
+    },
+    {
+      "components": {
+        "message": "CLEAN_OPERATION_INTERRUPTED",
+        "payload": {
+          "cleanActionSequence": 0,
+          "finalMeasurementEventSequence": 0,
+          "interruptedPhase": "CLEAN_ACTIVE",
+          "interruptionReason": "UPDATE_STOPPED",
+          "mcuBootId": 42,
+          "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+          "mcuEventSequence": 10,
+          "operationUid": "22222222-2222-4222-8222-222222222222",
+          "portNo": 1,
+          "uptimeMs": 12000
+        }
+      },
+      "name": "complete_actuator_clean_operation_interrupted",
+      "preimageHex": "45434f42494e3a554152543a4143545541544f522d4556454e543a76320065003d000000000000002a0000000a0000000000002ee01111111111114111811111111111111122222222222242228222222222222222010000240100000000",
+      "profile": "actuatorEventDigestSha256",
+      "sha256": "96d584ca2d65f011590a2a72d573f5e550705615b77f84cb7e6517cd015f11a7"
+    },
+    {
+      "components": {
+        "message": "WORK_POSTCLOSE_WEIGHT_READY",
+        "payload": {
+          "calibrationVersion": 4,
+          "configVersion": 8,
+          "faultCode": "NONE",
+          "fullnessCompletedSampleCount": 0,
+          "fullnessCompletedUptimeMs": 0,
+          "fullnessConfigContentSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "fullnessDistanceMm": 0,
+          "fullnessDistancePresent": false,
+          "fullnessDistanceThresholdMm": 0,
+          "fullnessGroupSequence": 0,
+          "fullnessLastCapturedUptimeMs": 0,
+          "fullnessMcuPayloadSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "fullnessMinimumValidSampleCount": 0,
+          "fullnessRequestedSampleCount": 0,
+          "fullnessStartedUptimeMs": 0,
+          "fullnessStopReason": "NONE",
+          "fullnessValidSampleCount": 0,
+          "mcuBootId": 101,
+          "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+          "mcuEventSequence": 202,
+          "measurementElapsedMs": 1250,
+          "measurementKind": "STABLE_MEAN",
+          "measurementUid": "33333333-3333-4333-8333-333333333333",
+          "portNo": 2,
+          "reportedWeightGrams": -500,
+          "roundIndex": 3,
+          "sampleCount": 5,
+          "sampleSpanGrams": 20,
+          "sessionUid": "22222222-2222-4222-8222-222222222222",
+          "uptimeMs": 303000,
+          "workFullnessBasis": "NONE",
+          "workFullnessSensorKind": "NONE",
+          "workFullnessSensorValue": "NOT_OBSERVED",
+          "workFullnessStatus": "NOT_SAMPLED"
+        }
+      },
+      "name": "complete_process_event",
+      "preimageHex": "45434f42494e3a554152543a50524f434553532d4556454e543a7632003200cf0000000000000065000000ca0000000000049f9811111111111141118111111111111111222222222222422282222222222222220200033333333333334333833333333333333302fffffe0c04e2050000001400000004000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "profile": "eventDigestSha256",
+      "sha256": "83adbe214a36f3e94e356689ce3655b2d5f5cd208eb36dd944932a02debb2a80"
+    },
+    {
+      "components": {
+        "message": "DELIVERY_SELECTION",
+        "payload": {
+          "configVersion": 7,
+          "mcuBootId": 42,
+          "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+          "mcuEventSequence": 8,
+          "portNo": 1,
+          "postCloseMeasurementUid": "33333333-3333-4333-8333-333333333333",
+          "roundIndex": 1,
+          "selection": "END",
+          "sessionUid": "22222222-2222-4222-8222-222222222222",
+          "uptimeMs": 11000
+        }
+      },
+      "name": "complete_delivery_selection",
+      "preimageHex": "45434f42494e3a554152543a50524f434553532d4556454e543a763200330050000000000000002a000000080000000000002af8111111111111411181111111111111112222222222224222822222222222222201000133333333333343338333333333333333000000000000000702",
+      "profile": "eventDigestSha256",
+      "sha256": "1ab9bedf661156869c887a4a8b0951c93431b08705be235af871d78b6a73cde3"
+    },
+    {
+      "components": {
+        "message": "CLEAN_UNLOCK_REQUESTED",
+        "payload": {
+          "cleanActionSequence": 1,
+          "configVersion": 7,
+          "mcuBootId": 42,
+          "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+          "mcuEventSequence": 4,
+          "operationUid": "22222222-2222-4222-8222-222222222222",
+          "portNo": 1,
+          "uptimeMs": 11000
+        }
+      },
+      "name": "complete_clean_unlock_requested",
+      "preimageHex": "45434f42494e3a554152543a50524f434553532d4556454e543a76320036003f000000000000002a000000040000000000002af811111111111141118111111111111111222222222222422282222222222222220100010000000000000007",
+      "profile": "eventDigestSha256",
+      "sha256": "4dcd040218f03798516593c83b32d2130766c1c16a589e9d6dc695fd6b951427"
+    },
+    {
+      "components": {
+        "message": "CLEAN_FINISH_REQUESTED",
+        "payload": {
+          "cleanActionSequence": 2,
+          "configVersion": 7,
+          "mcuBootId": 42,
+          "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+          "mcuEventSequence": 5,
+          "operationUid": "22222222-2222-4222-8222-222222222222",
+          "portNo": 1,
+          "uptimeMs": 12000
+        }
+      },
+      "name": "complete_clean_finish_requested",
+      "preimageHex": "45434f42494e3a554152543a50524f434553532d4556454e543a76320037003f000000000000002a000000050000000000002ee011111111111141118111111111111111222222222222422282222222222222220100020000000000000007",
+      "profile": "eventDigestSha256",
+      "sha256": "b14be3179a4188405bf76798792141bd40ce3774be4dbec9733179882fe3e579"
+    },
+    {
+      "components": {
+        "message": "CLEAN_COMPLETION_CONFIRMED",
+        "payload": {
+          "cleanActionSequence": 7,
+          "cleanDoorStateBasis": "CLEANER_CONFIRMATION",
+          "cleanerPhysicalCloseConfirmed": true,
+          "configVersion": 8,
+          "finalMeasurementUid": "62626262-6262-4262-8262-626262626262",
+          "lockPowerState": "DEENERGIZED",
+          "mcuBootId": 101,
+          "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+          "mcuEventSequence": 203,
+          "operationUid": "61616161-6161-4161-8161-616161616161",
+          "portNo": 2,
+          "solenoidHealth": "OK",
+          "uptimeMs": 304000
+        }
+      },
+      "name": "complete_clean_completion_confirmed",
+      "preimageHex": "45434f42494e3a554152543a50524f434553532d4556454e543a7632003e00530000000000000065000000cb000000000004a380111111111111411181111111111111116161616161614161816161616161616102000762626262626242628262626262626262010102010000000000000008",
+      "profile": "eventDigestSha256",
+      "sha256": "028f3219c5741b1b305ea3fd37894fb4472853c4a5813ff52eedac68ef8335f3"
+    },
+    {
+      "components": {
+        "message": "WORK_RESULT",
+        "payload": {
+          "cleanActionSequence": 0,
+          "completedUptimeMs": 10000,
+          "configVersion": 7,
+          "deliveryRoundCount": 1,
+          "finalCalibrationVersion": 1,
+          "finalElapsedMs": 1250,
+          "finalFaultCode": "NONE",
+          "finalKind": "STABLE_MEAN",
+          "finalMcuEventSequence": 2,
+          "finalMeasurementUid": "33333333-3333-4333-8333-000000000002",
+          "finalSampleCount": 5,
+          "finalSourceMcuBootId": 42,
+          "finalSpanGrams": 20,
+          "finalWeightGrams": 1000,
+          "finishReason": "DELIVERY_END",
+          "initialCalibrationVersion": 1,
+          "initialElapsedMs": 1250,
+          "initialFaultCode": "NONE",
+          "initialKind": "STABLE_MEAN",
+          "initialMcuEventSequence": 1,
+          "initialMeasurementUid": "33333333-3333-4333-8333-000000000001",
+          "initialSampleCount": 5,
+          "initialSourceMcuBootId": 42,
+          "initialSpanGrams": 20,
+          "initialWeightGrams": 400,
+          "mcuBootId": 42,
+          "negativeWeightAnomaly": false,
+          "originCommandSequence": 2,
+          "originCommandUid": "11111111-1111-4111-8111-111111111111",
+          "physicalCloseConfirmed": false,
+          "portNo": 1,
+          "resultDigestSha256": "b6b9905375a45b5c1f0e67efc20225a86391bf7595e432098c95739243310aa5",
+          "resultSequence": 3,
+          "workType": "DELIVERY_SESSION",
+          "workUid": "22222222-2222-4222-8222-222222222222"
+        }
+      },
+      "name": "complete_work_result",
+      "preimageHex": "45434f42494e3a554152543a574f524b2d524553554c543a7632004000c7000000000000002a000000032222222222224222822222222222222202010000000000000007111111111111411181111111111111110000000200000000000027100001000000000100000233333333333343338333000000000001000000000000002a000000010000019004e205000000140000000100000233333333333343338333000000000002000000000000002a00000002000003e804e20500000014000000010000",
+      "profile": "resultDigestSha256",
+      "sha256": "b6b9905375a45b5c1f0e67efc20225a86391bf7595e432098c95739243310aa5"
+    },
     {
       "components": {
         "message": "AUTHORIZE_DELIVERY_FIRST_OPEN",
         "payload": {
           "commandDigestSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "commandSequence": 1,
           "firstPreOpenMeasurementUid": "72727272-7272-4272-8272-727272727272",
           "mcuCommandUid": "70707070-7070-4070-8070-707070707070",
           "parentStartCommandUid": "73737373-7373-4373-8373-737373737373",
           "portNo": 2,
           "remainingStartAuthorizationMs": 45000,
-          "sessionUid": "71717171-7171-4171-8171-717171717171"
+          "sessionUid": "71717171-7171-4171-8171-717171717171",
+          "targetMcuBootId": 101
         }
       },
       "name": "command_authorize_first_open",
-      "preimageHex": "45434f42494e3a554152543a434f4d4d414e443a763100270035717171717171417181717171717171710272727272727242728272727272727272737373737373437383737373737373730000afc8",
+      "preimageHex": "45434f42494e3a554152543a434f4d4d414e443a763200270041000000000000006500000001717171717171417181717171717171710272727272727242728272727272727272737373737373437383737373737373730000afc8",
       "profile": "commandDigestSha256",
-      "sha256": "dfd0ad6ba8d037c9a10fa32e2830073cf755b7c17004b426c1edeae06847c00e"
+      "sha256": "3dd66e246356e04f4d2d25eec28a4ae330ff0fd4e112d53620f69a9e524658fc"
     },
     {
       "components": {
@@ -32,7 +356,9 @@
           "deliveryDoorTravelWaitMs": 30000,
           "negativeWeightThresholdGrams": 500,
           "smokeMonitoringEnabled": true,
-          "weightMeasurementTimeoutMs": 6000
+          "weightMeasurementTimeoutMs": 5000,
+          "weightPollIntervalMs": 250,
+          "weightResponseTimeoutMs": 200
         },
         "ports": [
           {
@@ -48,11 +374,13 @@
             "fullnessSettleWaitMs": 5000,
             "portNo": 1,
             "unitPriceTenThousandths": 4501,
-            "weightMaximumFluctuationGrams": 20,
+            "weightMaximumFluctuationGrams": 100,
             "weightMaximumGrams": 100000,
-            "weightMeasurementTimeoutMs": 6000,
+            "weightMaximumSampleAgeMs": 750,
+            "weightMeasurementTimeoutMs": 5000,
             "weightMinimumGrams": -5000,
-            "weightRequiredSampleCount": 10,
+            "weightMinimumMedianSampleCount": 5,
+            "weightRequiredSampleCount": 5,
             "weightStableWindowMs": 1500
           },
           {
@@ -68,19 +396,21 @@
             "fullnessSettleWaitMs": 5000,
             "portNo": 2,
             "unitPriceTenThousandths": 4502,
-            "weightMaximumFluctuationGrams": 20,
+            "weightMaximumFluctuationGrams": 100,
             "weightMaximumGrams": 100000,
-            "weightMeasurementTimeoutMs": 6000,
+            "weightMaximumSampleAgeMs": 750,
+            "weightMeasurementTimeoutMs": 5000,
             "weightMinimumGrams": -5000,
-            "weightRequiredSampleCount": 10,
+            "weightMinimumMedianSampleCount": 5,
+            "weightRequiredSampleCount": 5,
             "weightStableWindowMs": 1500
           }
         ]
       },
       "name": "mcu_configuration_two_ports",
-      "preimageHex": "45434f42494e3a554152543a4d43552d434f4e4649473a7631000000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10200007530000001f40001d4c00000177000007530000003e801010100001195030000c350000013880100000258050300007530000005dc00000014000a00001770ffffec78000186a000000004020100001196030000c350000013880100000258050300007530000005dc00000014000a00001770ffffec78000186a000000004",
+      "preimageHex": "45434f42494e3a554152543a4d43552d434f4e4649473a7632000000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10200007530000001f40001d4c00000138800007530000003e801000000fa000000c8010100001195030000c350000013880100000258050300007530000005dc00000064000500001388ffffec78000186a000000004000002ee05020100001196030000c350000013880100000258050300007530000005dc00000064000500001388ffffec78000186a000000004000002ee05",
       "profile": "mcuPayloadSha256",
-      "sha256": "531a7edd423b9c629e0e88a76a503e2e95e29f3c613e375d8e42f3709accc14b"
+      "sha256": "ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1"
     },
     {
       "components": {
@@ -91,7 +421,7 @@
           "activeWorkUid": "00000000-0000-0000-0000-000000000000",
           "appliedConfigVersion": 8,
           "appliedContentSha256": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
-          "appliedMcuPayloadSha256": "531a7edd423b9c629e0e88a76a503e2e95e29f3c613e375d8e42f3709accc14b",
+          "appliedMcuPayloadSha256": "ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1",
           "firmwareVersionCode": 10000,
           "latestMcuCommandUid": "00000000-0000-0000-0000-000000000000",
           "mcuBootId": 101,
@@ -99,7 +429,7 @@
           "partCount": 4,
           "partIndex": 1,
           "portCount": 2,
-          "protocolMajor": 1,
+          "protocolMajor": 2,
           "protocolMinor": 0,
           "queryCommandUid": "91919191-9191-4191-8191-919191919191",
           "resetReason": "POWER_ON",
@@ -122,7 +452,7 @@
           "partCount": 4,
           "partIndex": 4,
           "pendingCriticalEventCount": 0,
-          "snapshotSha256": "2866243c217b8225086223d5890a43e9d989db0a09f797123557b7b82323b532",
+          "snapshotSha256": "60d24571254a6ecc572fe807d7cc1a591bc471b623aef2fc2708917de9a5deba",
           "snapshotUid": "90909090-9090-4090-8090-909090909090",
           "uptimeMs": 1004
         },
@@ -198,9 +528,9 @@
         ]
       },
       "name": "state_snapshot_two_ports",
-      "preimageHex": "45434f42494e3a554152543a534e415053484f543a763100909090909090409080909090909090909191919191914191819191919191919101000000271000000000000000000000000000000000000000000000000000000000000000000000000000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1531a7edd423b9c629e0e88a76a503e2e95e29f3c613e375d8e42f3709accc14b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002010100000101010100010100002ee001000003e8000a0000000401000001010101000003200501010000000002000001010101000101fffffe0c01000003e8000a000000040100000101010100000320050101000000000000000000000000000000000000000000000000000000000000",
+      "preimageHex": "45434f42494e3a554152543a534e415053484f543a763100909090909090409080909090909090909191919191914191819191919191919102000000271000000000000000000000000000000000000000000000000000000000000000000000000000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002010100000101010100010100002ee001000003e8000a0000000401000001010101000003200501010000000002000001010101000101fffffe0c01000003e8000a000000040100000101010100000320050101000000000000000000000000000000000000000000000000000000000000",
       "profile": "snapshotSha256",
-      "sha256": "2866243c217b8225086223d5890a43e9d989db0a09f797123557b7b82323b532"
+      "sha256": "60d24571254a6ecc572fe807d7cc1a591bc471b623aef2fc2708917de9a5deba"
     }
   ]
 }

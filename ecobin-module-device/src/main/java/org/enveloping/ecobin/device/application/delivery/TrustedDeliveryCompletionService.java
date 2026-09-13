@@ -40,7 +40,7 @@ import java.util.UUID;
 /**
  * 保存可信香橙派上报的唯一正常投递结果，并在释放整机占位前调用 recycling 建单。
  *
- * <p>当前切片只处理正常稳定称重完成；超时、会话中断和现场物理恢复不在这里猜测或补造。
+ * <p>正常稳定均值或可用超时中位数沿原事务处理；真正缺值、会话中断和现场恢复不在这里猜测或补造。
  * eventUid 负责传输去重，sessionUid 才是“一次会话最多一单”的业务唯一根。</p>
  */
 @Service
@@ -742,11 +742,10 @@ public class TrustedDeliveryCompletionService
             long calibrationVersion,
             long minimumWeightGrams,
             long maximumWeightGrams) {
-        long weight = measurement.reportedWeightGrams();
-        return measurement.calibrationVersion() == calibrationVersion
-                && measurement.sampleCount() >= 1
-                && weight >= minimumWeightGrams
-                && weight <= maximumWeightGrams;
+        return isNormalWeight(measurement)
+                && measurement.calibrationVersion() == calibrationVersion
+                && measurement.reportedWeightGrams() >= minimumWeightGrams
+                && measurement.reportedWeightGrams() <= maximumWeightGrams;
     }
 
     private long insertEdgeEvent(
@@ -1025,24 +1024,8 @@ public class TrustedDeliveryCompletionService
                 fact.finalPostCloseMeasurement();
         DeliveryCompleteDoorCommand door =
                 fact.finalDoorCommand();
-        if (before == null
-                || after == null
-                || !"STABLE".equals(before.status())
-                || !"STABLE".equals(after.status())
-                || !before.weightValueAvailable()
-                || !after.weightValueAvailable()
-                || !"STABLE_WINDOW_MEAN".equals(
-                        before.weightValueKind())
-                || !"STABLE_WINDOW_MEAN".equals(
-                        after.weightValueKind())
-                || before.sampleCount() < 1
-                || after.sampleCount() < 1
-                || !"OK".equals(before.sensorHealth())
-                || !"OK".equals(after.sensorHealth())
-                || before.faultCode() != null
-                || after.faultCode() != null
-                || before.reportedWeightGrams() == null
-                || after.reportedWeightGrams() == null
+        if (!isNormalWeight(before)
+                || !isNormalWeight(after)
                 || before.measurementUid().equals(
                         after.measurementUid())
                 || (before.mcuBootId() == after.mcuBootId()
@@ -1072,8 +1055,30 @@ public class TrustedDeliveryCompletionService
                         "AFTER_INNER",
                         "AFTER_OUTER"))) {
             throw new IllegalArgumentException(
-                    "only the normal stable delivery completion is supported");
+                    "only delivery completion with usable mean or median weights is supported");
         }
+    }
+
+    private static boolean isNormalWeight(DeliveryCompleteMeasurement measurement) {
+        if (measurement == null || measurement.measurementUid() == null
+                || !measurement.weightValueAvailable() || measurement.reportedWeightGrams() == null
+                || !"OK".equals(measurement.sensorHealth()) || measurement.faultCode() != null
+                || measurement.reportedWeightGrams() < Integer.MIN_VALUE
+                || measurement.reportedWeightGrams() > Integer.MAX_VALUE
+                || measurement.measurementElapsedMs() < 0 || measurement.measurementElapsedMs() > 4_294_967_295L
+                || measurement.calibrationVersion() < 0 || measurement.calibrationVersion() > 4_294_967_295L
+                || measurement.mcuBootId() < 1 || measurement.mcuBootId() > 9_007_199_254_740_991L
+                || measurement.mcuEventSequence() < 1 || measurement.mcuEventSequence() > 4_294_967_295L) {
+            return false;
+        }
+        // Preserve the frozen fixed-frame single-sample mean; do not call it native five-point proof.
+        return ("STABLE".equals(measurement.status())
+                && "STABLE_WINDOW_MEAN".equals(measurement.weightValueKind())
+                && measurement.sampleCount() >= 1 && measurement.sampleCount() <= 65_535)
+                || ("UNSTABLE".equals(measurement.status())
+                && "TIMEOUT_MEDIAN".equals(measurement.weightValueKind())
+                && measurement.measurementElapsedMs() == 5_000
+                && measurement.sampleCount() >= 5 && measurement.sampleCount() <= 32);
     }
 
     private LocalDateTime databaseNow() {

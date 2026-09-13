@@ -45,6 +45,7 @@ export type McuFirmwareDeploymentStatus =
   | 'SUCCEEDED'
   | 'ROLLED_BACK'
   | 'FAILED_LOCKED'
+  | 'LOCAL_CANCELLED'
   | 'REJECTED';
 
 export interface McuFirmwareDeployment {

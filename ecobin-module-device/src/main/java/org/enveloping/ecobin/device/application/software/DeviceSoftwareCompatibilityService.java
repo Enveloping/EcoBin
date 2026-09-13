@@ -294,7 +294,7 @@ public class DeviceSoftwareCompatibilityService {
                 WHERE asset_id = ?
                   AND deployment_status NOT IN (
                       'PLANNED', 'SUCCEEDED', 'ROLLED_BACK', 'DEFERRED',
-                      'REJECTED', 'FAILED_LOCKED', 'CANCELLED'
+                      'REJECTED', 'FAILED_LOCKED', 'CANCELLED', 'LOCAL_CANCELLED'
                   )
                 """, Integer.class, assetId);
         if (activeUpdates == null || activeUpdates == 0) {

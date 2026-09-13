@@ -639,13 +639,7 @@ export default function DeliveryOrdersPage() {
     return (
       <>
         {!canReadAll && canReview && (
-          <Alert
-            showIcon
-            type="info"
-            message="当前账号仅具有投递审核权限"
-            description="列表由服务端固定为待审核订单；已通过历史和纠正记录不会通过该权限暴露。"
-            style={{ marginBottom: 16 }}
-          />
+          <Typography.Paragraph strong>待审核订单</Typography.Paragraph>
         )}
         {tableError && (
           <Alert
@@ -814,10 +808,7 @@ export default function DeliveryOrdersPage() {
 
   return (
     <PageContainer
-      {...pageHeader(
-        '投递订单',
-        '设备事实保持只读；审核与纠正以追加认定版本和精确钱包差额生效。',
-      )}
+      {...pageHeader('投递订单')}
     >
       <DirectoryScopeBar scope={scope} />
       {content}

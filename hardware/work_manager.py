@@ -5793,13 +5793,7 @@ class WorkManager:
             "capture_clean_close_photos",
             work_uid,
         )
-        old_baseline = ctx.get("old_baseline_weight_grams")
-        removed_weight = (
-            pre_weight - old_baseline
-            if isinstance(old_baseline, int)
-            and not isinstance(old_baseline, bool)
-            else None
-        )
+        removed_weight = pre_weight - post_weight
         event_payload = {
             "operationUid": ctx.get("operation_uid", work_uid),
             "portNo": ctx["port_no"],
@@ -6963,11 +6957,10 @@ class WorkManager:
             ctx.get("final_measurement") or {}
         )
         preunlock_weight = ctx.get("preunlock_weight_grams")
-        old_baseline = ctx.get("old_baseline_weight_grams")
         removed_weight = (
-            preunlock_weight - old_baseline
+            preunlock_weight - final_usable
             if preunlock_weight is not None
-            and old_baseline is not None
+            and final_usable is not None
             else None
         )
         event_payload = {

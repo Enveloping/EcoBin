@@ -53,6 +53,7 @@ public class ReliableDeviceControlTaskRegistrationService
                 registration.maxAutoAttempts(),
                 dispatchWaitReason,
                 repository.databaseNow());
+        repository.cancelRegisteredWorkIfUnavailable(keys[2], registration.taskType(), taskUid);
         workSignal.deviceCommand();
         return taskUid;
     }

@@ -5,7 +5,8 @@ import {
   ProFormText,
   ProFormTextArea,
 } from '@ant-design/pro-components';
-import { Alert, Descriptions, Form, Tag, Typography } from 'antd';
+import { Alert, Descriptions, Form, Spin, Tag, Typography } from 'antd';
+import HelpTip from '@/components/HelpTip';
 import type {
   DeliveryOrderDetail,
   DeliveryReviewDecision,
@@ -76,9 +77,6 @@ type PreviewState =
 const TWO_DECIMAL_WEIGHT = /^-?(0|[1-9]\d*)\.\d{2}$/;
 const TWO_DECIMAL_MONEY = /^-?(0|[1-9]\d*)\.\d{2}$/;
 
-function valueOrDash(value: string | null): string {
-  return value === null ? '—' : value;
-}
 
 function previewSignature(
   request: DeliveryReviewPreviewRequest,
@@ -451,17 +449,6 @@ function DeliveryReviewModalForm({
         });
       }}
     >
-      <Alert
-        showIcon
-        type={kind === 'review' ? 'info' : 'warning'}
-        message={
-          kind === 'review'
-            ? '审核会形成第一条认定版本，并按后端计算结果影响钱包'
-            : '纠正会追加新版本；设备原始事实和历史认定不会被覆盖'
-        }
-        style={{ marginBottom: 20 }}
-      />
-
       <Descriptions bordered size="small" column={2}>
         <Descriptions.Item label="当前版本">
           v{order.review.currentRevisionNo}
@@ -496,16 +483,6 @@ function DeliveryReviewModalForm({
           showIcon
           type="warning"
           message="原始重量或金额不可靠，必须填写最终重量"
-          description={(
-            <>
-              当前可靠性：
-              <Typography.Text code>
-                {order.raw.weightReliability}
-                {' / '}
-                {order.raw.amountReliability}
-              </Typography.Text>
-            </>
-          )}
           style={{ marginTop: 16 }}
         />
       )}
@@ -527,34 +504,17 @@ function DeliveryReviewModalForm({
         ]}
       />
 
-      {decision === 'ORIGINAL_APPROVED' ? (
-        <Descriptions size="small" bordered column={2}>
-          <Descriptions.Item label="最终认定重量">
-            {order.raw.weightKg === null
-              ? '不可用'
-              : formatBusinessWeight(order.raw.weightKg)}
-          </Descriptions.Item>
-          <Descriptions.Item label="最终认定金额">
-            {order.raw.amountYuan === null
-              ? '不可用'
-              : `¥ ${formatMoneyCny(order.raw.amountYuan)}`}
-          </Descriptions.Item>
-        </Descriptions>
-      ) : (
+      {decision === 'MODIFIED_APPROVED' && (
         <>
           <ProFormText
             name="finalWeightKg"
-            label="最终认定重量（千克）"
+            label={<>最终认定重量（千克）<HelpTip label="最终认定重量">可输入正负重量，精确两位小数；绝对值不能超过 {order.review.maxReviewAbsoluteWeightKg} kg。</HelpTip></>}
             placeholder="例如 1.25 或 -0.50"
-            extra={
-              `带符号、精确两位小数；范围为 `
-              + `±${valueOrDash(order.review.maxReviewAbsoluteWeightKg)} kg。`
-            }
             rules={[
               { required: true, message: '请填写最终认定重量' },
               {
                 pattern: TWO_DECIMAL_WEIGHT,
-                message: '请输入带两位小数的千克字符串',
+                message: '请填写重量，保留两位小数，例如 1.25',
               },
               {
                 validator: async (_, value?: string) => {
@@ -571,89 +531,54 @@ function DeliveryReviewModalForm({
           />
           <ProFormText
             name="targetAmountYuan"
-            label="目标金额（元，换算辅助）"
+            label={<>目标金额（元，换算辅助）<HelpTip label="目标金额">输入金额可换算重量；实际金额以最终重量和本单单价计算，下方会显示核对结果。</HelpTip></>}
             placeholder="例如 1.00 或 -0.50"
-            extra="金额只用于反推重量；正式提交仍只有最终重量，后端会重新计算。"
             rules={[
               { required: true, message: '请填写或由重量换算目标金额' },
               {
                 pattern: TWO_DECIMAL_MONEY,
-                message: '请输入带两位小数的金额字符串',
+                message: '请填写金额，保留两位小数，例如 1.00',
               },
             ]}
           />
-          {conversion && conversion.source === 'amount' && (
+          {conversion && conversion.source === 'amount' && !conversion.exact && (
             <Alert
+              type="warning"
               showIcon
-              type={conversion.exact ? 'info' : 'warning'}
-              message={conversion.exact
-                ? '目标金额可以由候选重量实现'
-                : '目标金额无法由两位小数重量精确实现'}
-              description={(
-                <>
-                  目标金额 ¥ {formatMoneyCny(conversion.targetAmountYuan)}；
-                  候选重量 {formatBusinessWeight(conversion.candidateWeightKg)}；
-                  实际金额 ¥ {formatMoneyCny(conversion.actualAmountYuan)}。
-                  {conversion.realizingCandidateCount !== '0'
-                    && conversion.realizingCandidateCount !== '1'
-                    ? ` 同一目标金额共有 ${conversion.realizingCandidateCount} 个可实现重量，范围 ${conversion.realizingWeightMinKg}～${conversion.realizingWeightMaxKg} 千克。`
-                    : ''}
-                </>
-              )}
-              style={{ marginBottom: 16 }}
-            />
-          )}
-          {conversion && conversion.source === 'weight' && (
-            <Alert
-              showIcon
-              type="info"
-              message="已按本单锁定单价换算预计金额"
-              description={(
-                <>
-                  {formatBusinessWeight(conversion.candidateWeightKg)} 对应
-                  金额 ¥ {formatMoneyCny(conversion.actualAmountYuan)}。
-                </>
-              )}
+              message="目标金额无法精确换算为两位小数重量"
+              description={`候选重量 ${formatBusinessWeight(conversion.candidateWeightKg)}，实际金额 ¥ ${formatMoneyCny(conversion.actualAmountYuan)}。请核对下方最终金额。`}
               style={{ marginBottom: 16 }}
             />
           )}
         </>
       )}
 
-      {(previewState.phase === 'waiting'
-        || previewState.phase === 'loading') && (
-        <Alert
-          showIcon
-          type="info"
-          message={previewState.phase === 'waiting'
-            ? '等待输入稳定后核对服务端预览'
-            : '正在核对服务端预览'}
-          style={{ marginBottom: 16 }}
-        />
+      {(previewState.phase === 'waiting' || previewState.phase === 'loading') && (
+        <div role="status" style={{ marginBottom: 16 }}>
+          <Spin size="small" /> <Typography.Text type="secondary">正在核对金额</Typography.Text>
+        </div>
       )}
       {previewState.phase === 'verified' && (
-        <Alert
-          showIcon
-          type="success"
-          message="客户端换算与服务端预览一致，可以确认"
-          description={(
-            <>
-              最终金额 ¥ {formatMoneyCny(
-                previewState.server.finalAmountYuan,
-              )}；钱包差额 ¥ {formatMoneyCny(
-                previewState.server.walletDeltaYuan,
-              )}。
-            </>
-          )}
-          style={{ marginBottom: 16 }}
-        />
+        <Descriptions title="本次确认结果" size="small" bordered column={2} style={{ marginBottom: 16 }}>
+          <Descriptions.Item label="最终重量">
+            {formatBusinessWeight(previewState.server.finalWeightKg)}
+          </Descriptions.Item>
+          <Descriptions.Item label="最终金额">
+            <span data-testid="review-final-amount">¥ {formatMoneyCny(previewState.server.finalAmountYuan)}</span>
+          </Descriptions.Item>
+          <Descriptions.Item label="钱包余额变化" span={2}>
+            <Typography.Text data-testid="review-wallet-delta" strong type={previewState.server.walletDeltaYuan.startsWith('-') ? 'danger' : undefined}>
+              {previewState.server.walletDeltaYuan.startsWith('-') ? '' : '+'}¥ {formatMoneyCny(previewState.server.walletDeltaYuan)}
+            </Typography.Text>
+          </Descriptions.Item>
+        </Descriptions>
       )}
       {previewState.phase === 'mismatch' && (
         <Alert
           showIcon
           type="error"
-          message="客户端换算与服务端预览不一致，已禁止确认"
-          description="请刷新订单；正式审核不会信任客户端金额。"
+          message="金额核对不一致，暂时无法确认"
+          description="请刷新订单后重试。"
           style={{ marginBottom: 16 }}
         />
       )}
@@ -661,7 +586,7 @@ function DeliveryReviewModalForm({
         <Alert
           showIcon
           type="error"
-          message="服务端预览失败，已禁止确认"
+          message="金额核对失败，暂时无法确认"
           description={previewState.message}
           style={{ marginBottom: 16 }}
         />

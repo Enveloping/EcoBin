@@ -11,10 +11,14 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
 public class ReliableOperationsJdbcRepository {
+    private static final Set<String> RETAINED_WHILE_DISABLED = Set.of(
+            "ENSURE_DEVICE_CONFIGURATION", "APPLY_CONFIGURATION",
+            "START_MCU_FIRMWARE_UPDATE", "START_BUSINESS_RUNTIME_UPDATE");
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -67,6 +71,106 @@ public class ReliableOperationsJdbcRepository {
                     "trusted device asset has no positive identity");
         }
         return assetId;
+    }
+
+    public boolean lockDeviceWorkAllowed(long assetId, String taskType) {
+        String lifecycle = jdbcTemplate.queryForObject(
+                "SELECT lifecycle_status FROM dev_device_asset WHERE id = ? FOR UPDATE",
+                String.class, assetId);
+        // These close existing evidence/photo delivery; they cannot start device work.
+        return "NORMAL".equals(lifecycle) || "CONFIRM_EDGE_EVENT".equals(taskType)
+                || "PROVIDE_PHOTO_UPLOAD_GRANT".equals(taskType);
+    }
+
+    public boolean externalCallMayHaveStarted(UUID taskUid) {
+        return jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM ops_task_attempt attempt
+                JOIN ops_reliable_task task ON task.id = attempt.task_id
+                WHERE task.task_uid = ? AND attempt.external_call_may_have_started_at IS NOT NULL
+                """, Long.class, taskUid.toString()) > 0;
+    }
+
+    public void cancelDeviceWork(long assetId, LocalDateTime now) {
+        cancelDeviceWork(assetId, now, false);
+    }
+
+    private void cancelDeviceWork(long assetId, LocalDateTime now, boolean preserveUpdates) {
+        String retained = preserveUpdates ? " AND task_type NOT IN ('ENSURE_DEVICE_CONFIGURATION', "
+                + "'START_MCU_FIRMWARE_UPDATE', 'START_BUSINESS_RUNTIME_UPDATE')" : "";
+        jdbcTemplate.update("""
+                UPDATE ops_reliable_task
+                SET state = 'CANCELLED', next_run_at = NULL,
+                    lease_token = NULL, lease_worker = NULL, lease_until = NULL,
+                    handled_wake_version = wake_version, completed_at = ?,
+                    blocked_reason_code = NULL, blocked_diagnostic = NULL,
+                    dispatch_wait_reason = NULL, updated_at = ?, lock_version = lock_version + 1
+                WHERE source_device_asset_id = ? AND execution_lane = 'DEVICE'
+                  AND task_type NOT IN ('CONFIRM_EDGE_EVENT', 'PROVIDE_PHOTO_UPLOAD_GRANT')
+                  AND state IN ('PENDING', 'BLOCKED')
+                """ + retained, now, now, assetId);
+    }
+
+    public void pauseDeviceWork(long assetId, LocalDateTime now) {
+        cancelDeviceWork(assetId, now, true);
+        jdbcTemplate.update("""
+                UPDATE ops_reliable_task
+                SET dispatch_wait_reason = CASE WHEN dispatch_wait_reason = 'AWAITING_DEVICE_EVIDENCE'
+                        THEN dispatch_wait_reason ELSE 'DEVICE_DISABLED' END,
+                    updated_at = ?, lock_version = lock_version + 1
+                WHERE source_device_asset_id = ? AND execution_lane = 'DEVICE' AND state = 'PENDING'
+                  AND task_type IN ('ENSURE_DEVICE_CONFIGURATION', 'START_MCU_FIRMWARE_UPDATE', 'START_BUSINESS_RUNTIME_UPDATE')
+                """, now, assetId);
+    }
+
+    public boolean shouldPauseDisabledTask(long assetId, String taskType) {
+        return RETAINED_WHILE_DISABLED.contains(taskType) && "DISABLED".equals(jdbcTemplate.queryForObject(
+                "SELECT lifecycle_status FROM dev_device_asset WHERE id = ?", String.class, assetId));
+    }
+
+    public void resumeDeviceWork(long assetId, LocalDateTime now) {
+        jdbcTemplate.update("""
+                UPDATE ops_reliable_task SET next_run_at = ?, updated_at = ?, lock_version = lock_version + 1
+                WHERE source_device_asset_id = ? AND state = 'PENDING'
+                  AND task_type = 'ENSURE_DEVICE_CONFIGURATION'
+                  AND dispatch_wait_reason = 'AWAITING_DEVICE_EVIDENCE'
+                """, now.plusMinutes(2), now, assetId);
+        reconcileDeviceTaskGates(assetId, now);
+    }
+
+    public Optional<UpgradeTaskToResume> upgradeTaskToResume(long assetId, UUID taskUid) {
+        return jdbcTemplate.query("""
+                SELECT task_type, target_type, target_stable_key, payload_schema_version,
+                       CAST(redacted_execution_snapshot AS CHAR) AS envelope_json,
+                       correlation_uid, max_auto_attempts
+                FROM ops_reliable_task WHERE source_device_asset_id = ? AND task_uid = ?
+                  AND scope_kind = 'PLATFORM' AND state = 'PENDING'
+                  AND task_type IN ('START_MCU_FIRMWARE_UPDATE', 'START_BUSINESS_RUNTIME_UPDATE')
+                FOR UPDATE
+                """, (rs, ignored) -> new UpgradeTaskToResume(rs.getString("task_type"), rs.getString("target_type"),
+                        rs.getString("target_stable_key"), rs.getInt("payload_schema_version"), rs.getString("envelope_json"),
+                        nullableUuid(rs.getString("correlation_uid")), rs.getInt("max_auto_attempts")),
+                assetId, taskUid.toString()).stream().findFirst();
+    }
+
+    public void cancelReplacedUpgradeTask(UUID taskUid, LocalDateTime now) {
+        WakeableTask task = lockWakeableTask(taskUid);
+        markTaskCancelled(task.id(), task.wakeVersion(), now);
+    }
+
+    public record UpgradeTaskToResume(String taskType, String targetType, String targetStableKey,
+            int payloadSchemaVersion, String envelopeJson, UUID correlationUid, int maxAutoAttempts) { }
+
+    public void cancelRegisteredWorkIfUnavailable(long assetId, String taskType, UUID taskUid) {
+        if (!lockDeviceWorkAllowed(assetId, taskType)) {
+            WakeableTask task = lockWakeableTask(taskUid);
+            if (shouldPauseDisabledTask(assetId, taskType)) {
+                if ("PENDING".equals(task.state())) releaseForDispatchWait(task.id(), "DEVICE_DISABLED", databaseNow());
+                return;
+            }
+            if ("PENDING".equals(task.state()) || "BLOCKED".equals(task.state())) {
+                markTaskCancelled(task.id(), task.wakeVersion(), databaseNow());
+            }
+        }
     }
 
     public void insertInbox(NewInbox inbox, LocalDateTime now) {
@@ -962,6 +1066,8 @@ public class ReliableOperationsJdbcRepository {
                             ON transport.asset_id = eligible_asset.id
                           WHERE eligible_asset.id =
                                 candidate.source_device_asset_id
+                            AND (eligible_asset.lifecycle_status = 'NORMAL'
+                                 OR candidate.task_type IN ('CONFIRM_EDGE_EVENT', 'PROVIDE_PHOTO_UPLOAD_GRANT'))
                             AND (
                                 (
                                     candidate.scope_kind = 'ORGANIZATION'
@@ -1438,6 +1544,8 @@ public class ReliableOperationsJdbcRepository {
                        ) AS command_uid
                 FROM ops_reliable_task task
                 WHERE task.state = 'PENDING'
+                  AND NOT EXISTS (SELECT 1 FROM dev_device_asset paused_asset
+                    WHERE paused_asset.id = task.source_device_asset_id AND paused_asset.lifecycle_status = 'DISABLED')
                   AND task.execution_lane = 'DEVICE'
                   AND task.dispatch_wait_reason =
                       'AWAITING_DEVICE_EVIDENCE'
@@ -1980,6 +2088,9 @@ public class ReliableOperationsJdbcRepository {
                     WHEN task.dispatch_wait_reason =
                         'AWAITING_DEVICE_EVIDENCE'
                     THEN 'AWAITING_DEVICE_EVIDENCE'
+                    WHEN asset.lifecycle_status = 'DISABLED'
+                      AND task.task_type IN ('ENSURE_DEVICE_CONFIGURATION', 'START_MCU_FIRMWARE_UPDATE', 'START_BUSINESS_RUNTIME_UPDATE')
+                    THEN 'DEVICE_DISABLED'
                     WHEN COALESCE(
                         transport.onenet_connection_status,
                         'UNKNOWN'
@@ -2114,6 +2225,7 @@ public class ReliableOperationsJdbcRepository {
             throw new IllegalStateException(
                     "download authorization evidence targets a different task type");
         }
+        if ("CANCELLED".equals(task.state())) return task.wakeVersion();
         long newVersion = task.wakeVersion() + 1;
         if (task.leaseToken() != null) {
             int updated = jdbcTemplate.update("""
@@ -2188,6 +2300,7 @@ public class ReliableOperationsJdbcRepository {
             WakeableTask task,
             LocalDateTime now,
             boolean resetConsecutiveFailures) {
+        if ("CANCELLED".equals(task.state())) return task.wakeVersion();
         long newVersion = task.wakeVersion() + 1;
         boolean hasLease = task.leaseToken() != null;
         if (!hasLease) {
@@ -2223,6 +2336,9 @@ public class ReliableOperationsJdbcRepository {
     }
 
     public void incrementWakeForLateResult(long taskId, LocalDateTime now) {
+        String state = jdbcTemplate.queryForObject(
+                "SELECT state FROM ops_reliable_task WHERE id = ? FOR UPDATE", String.class, taskId);
+        if ("CANCELLED".equals(state)) return;
         int updated = jdbcTemplate.update("""
                 UPDATE ops_reliable_task
                 SET wake_version = wake_version + 1,

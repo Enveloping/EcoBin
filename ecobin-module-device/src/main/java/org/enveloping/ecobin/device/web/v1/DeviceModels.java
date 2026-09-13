@@ -90,7 +90,34 @@ public final class DeviceModels {
             DeviceInstallationProfileView installationProfile,
             DeviceConnectivityView connectivity,
             DeviceManagementSummaryView deviceManagement,
-            ComputedOneNetMapping oneNetMapping) {
+            ComputedOneNetMapping oneNetMapping,
+            DeviceListStatusView listStatus) {
+        public DeviceAssetView withListStatus(DeviceListStatusView status) {
+            return new DeviceAssetView(assetUid, deviceCode, hardwareSn, modelCode,
+                    productionBatch, expectedPortCount, tenantCode, organizationCode,
+                    acceptanceStatus, mcuRemoteUpdateCapable, deviceEntryUrl,
+                    lifecycleStatus, version, tenantAssignedAt, organizationAssignedAt,
+                    acceptedAt, disabledAt, retiredAt, createdAt, updatedAt,
+                    installationProfile, connectivity, deviceManagement, oneNetMapping, status);
+        }
+    }
+
+    public record DeviceListStatusView(
+            List<String> faults, Instant observedAt, List<DeviceListPortView> ports) {
+        public DeviceListStatusView {
+            faults = List.copyOf(faults);
+            ports = List.copyOf(ports);
+        }
+    }
+
+    public record DeviceListPortView(
+            int portNo, String displayName,
+            Long reportedWeightGrams, Boolean weightValueAvailable,
+            String weightSensorHealth, String weightMeasurementStatus,
+            Instant observedAt, Boolean weightFull, Instant fullnessObservedAt,
+            String infraredValue, String infraredSensorHealth,
+            List<String> faults) {
+        public DeviceListPortView { faults = List.copyOf(faults); }
     }
 
     /**
@@ -322,6 +349,29 @@ public final class DeviceModels {
             long failedDeviceCount,
             long blockedDeviceCount) {
     }
+
+    public record DevicePolicyReleaseRequest(
+            @NotNull @Min(0) Long expectedVersion,
+            @NotNull @Min(1) Long expectedDefaultVersion,
+            @NotBlank String configurationMode,
+            String unitPriceYuanPerKg,
+            String fullnessMode,
+            String fullnessWeightKg,
+            Long negativeWeightThresholdGram,
+            @NotBlank @Size(max = 500) String reason) { }
+
+    public record DevicePolicyValues(
+            String unitPriceYuanPerKg, String fullnessMode, String fullnessWeightKg,
+            long negativeWeightThresholdGram) { }
+
+    public record DevicePolicyView(
+            long version, long defaultVersion, String configurationMode,
+            String unitPriceYuanPerKg, String fullnessMode, String fullnessWeightKg,
+            long negativeWeightThresholdGram, DevicePolicyValues platformDefaults,
+            String publicationSource, String updatedBy, String changeReason, Instant updatedAt,
+            UUID rolloutUid, String rolloutStatus, long targetDeviceCount,
+            long processedDeviceCount, long publishedDeviceCount, long pendingDeviceCount,
+            long edgeSavedDeviceCount, long appliedDeviceCount, long failedDeviceCount, long blockedDeviceCount) { }
 
     public record AcceptanceEvidenceView(
             UUID evidenceUid,

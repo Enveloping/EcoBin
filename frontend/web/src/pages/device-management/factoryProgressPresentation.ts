@@ -19,9 +19,13 @@ export interface FactoryProgressStep {
 }
 
 const FAILURE_GUIDANCE: Record<string, FactoryFailureGuidance> = {
+  DEVICE_ASSET_RETIRED: {
+    title: '设备已报废',
+    action: '历史记录仍可查看，报废设备不能恢复或继续出厂接入。',
+  },
   DEVICE_ASSET_UNAVAILABLE: {
     title: '设备资产当前不可用于出厂接入',
-    action: '检查设备是否被禁用或报废；只有恢复为正常生命周期状态后才能继续接入。',
+    action: '启用设备后才能继续出厂接入。',
   },
   ONENET_NOT_ONLINE: {
     title: '本次检查时设备未连接云端',

@@ -37,6 +37,8 @@ public class ReliableDeviceInboxWorkerService
             "DEVICE_COMMAND_OBSERVED",
             "FACTORY_SEAL_COMPLETED",
             "DELIVERY_RECOVERY_QUARANTINED",
+            "DELIVERY_ISSUE_ARCHIVED",
+            "DELIVERY_ISSUE_EVIDENCE_APPENDED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
             "MCU_FIRMWARE_UPDATE_PROGRESS",
             "BUSINESS_RUNTIME_UPDATE_PROGRESS",

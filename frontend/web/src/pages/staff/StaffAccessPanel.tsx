@@ -724,8 +724,7 @@ export default function StaffAccessPanel({
         <Alert
           type="info"
           showIcon
-          message="授权按完整集合替换"
-          description="机构负责人天然拥有本机构全部当前及未来能力；选择负责人时，直接权限会清空。"
+          message="保存后将按本次选择更新权限，取消勾选的权限会被移除。"
           style={{ marginBottom: 16 }}
         />
         <Form<MembershipAuthorizationForm>
@@ -745,9 +744,9 @@ export default function StaffAccessPanel({
           >
             <Switch checkedChildren="是" unCheckedChildren="否" />
           </Form.Item>
-          <Form.Item name="permissionCodes" label="普通任职的完整权限集合">
+          {manager ? <Typography.Text type="secondary">负责人拥有本机构全部权限，包括后续新增功能。</Typography.Text> : <Form.Item name="permissionCodes" label="可用功能">
             <PermissionTreeSelector
-              ariaLabel="普通任职的完整权限集合"
+              ariaLabel="可用功能"
               definitions={definitions}
               scopeKind="ORGANIZATION"
               delegablePermissionCodes={
@@ -759,7 +758,7 @@ export default function StaffAccessPanel({
               }
               disabled={manager}
             />
-          </Form.Item>
+          </Form.Item>}
         </Form>
       </Modal>
     </Spin>

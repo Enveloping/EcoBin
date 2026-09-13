@@ -7,9 +7,52 @@ release tooling and the immutable image builder.
 from __future__ import annotations
 
 
-EDGE_SCHEMA_VERSION = "18"
+EDGE_SCHEMA_VERSION = "25"
+
+
+def verify_source_schema_version(source_root):
+    """Check the source declaration without importing or executing the app.
+
+    Run before platform/dependency/signing work. A source tree with a newer
+    database version must not acquire this builder's older release label.
+    This check does not approve a protocol, a backend allowlist or a release.
+    """
+    import ast
+
+    try:
+        tree = ast.parse((source_root / "edge_store.py").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, SyntaxError) as error:
+        raise RuntimeError("cannot read source schema declaration in edge_store.py") from error
+    values = []
+    for node in tree.body:
+        targets = node.targets if isinstance(node, ast.Assign) else (
+            [node.target] if isinstance(node, ast.AnnAssign) else [])
+        if any(isinstance(target, ast.Name) and target.id == "CURRENT_SCHEMA_VERSION" for target in targets):
+            values.append(node.value)
+    if (len(values) != 1 or not isinstance(values[0], ast.Constant)
+            or type(values[0].value) is not int or values[0].value <= 0):
+        raise RuntimeError("source schema declaration must be one positive integer literal")
+    actual = values[0].value
+    if str(actual) != EDGE_SCHEMA_VERSION:
+        raise RuntimeError(f"source schema {actual} differs from release manifest {EDGE_SCHEMA_VERSION}")
+    return actual
+
 
 RUNTIME_APP_FILES = (
+    "uart2_protocol.py",
+    "mcu_action_evidence.py",
+    "work_recovery.py",
+    "native_result_evidence.py",
+    "native_result_report.py",
+    "native_delivery_issue_report.py",
+    "native_delivery_recovery_close.py",
+    "mcu_work_query.py",
+    "mcu_actuator_handoff.py",
+    "mcu_process_handoff.py",
+    "mcu_session.py",
+    "mcu_result_handoff.py",
+    "mcu_configuration.py",
+    "uart2_transport.py",
     "business_identity.py",
     "business_control.py",
     "business_message_handler.py",
@@ -152,6 +195,8 @@ COMMUNICATION_AGENT_FILES = (
 )
 
 DEVICE_UPDATER_FILES = (
+    "job_safety.py",
+    "uart2_protocol.py",
     "business_runtime_cutover.py",
     "business_runtime_cutover_state.py",
     "business_update_coordinator.py",

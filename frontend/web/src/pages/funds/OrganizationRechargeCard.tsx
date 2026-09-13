@@ -27,6 +27,8 @@ import {
   type RechargeOrder,
 } from '@/api/funds';
 import type { DirectoryContext } from '@/api/identityDirectory';
+import HelpTip from '@/components/HelpTip';
+import { rechargePreview } from './rechargePreview';
 import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import {
@@ -103,6 +105,7 @@ export default function OrganizationRechargeCard({
   const [preparing, setPreparing] = useState(false);
   const [paymentLocked, setPaymentLocked] = useState(false);
   const [issue, setIssue] = useState<string>();
+  const [previousCodeMayBeActive, setPreviousCodeMayBeActive] = useState(false);
   const scopeKey = JSON.stringify([
     context.domain,
     context.tenantCode ?? null,
@@ -116,6 +119,9 @@ export default function OrganizationRechargeCard({
   }, [choice, customAmount]);
 
   const invalidateVisibleOrder = () => {
+    if (tracked?.order.status === 'PENDING_PAYMENT' || preparing) {
+      setPreviousCodeMayBeActive(true);
+    }
     ownerSequence.current += 1;
     intentGeneration.current += 1;
     pollAbort.current?.abort();
@@ -141,6 +147,7 @@ export default function OrganizationRechargeCard({
 
   useEffect(() => {
     const ownerId = ++ownerSequence.current;
+    setPreviousCodeMayBeActive(false);
     const controller = new AbortController();
     pollAbort.current?.abort();
     pollAbort.current = controller;
@@ -305,6 +312,8 @@ export default function OrganizationRechargeCard({
   };
 
   const order = tracked?.order;
+  const quote = normalizedAmount ? rechargePreview(normalizedAmount) : null;
+  const amounts = order?.grossAmountYuan === normalizedAmount ? order : quote;
   const amountHelp = choice === CUSTOM_AMOUNT && customAmount
     && !normalizedAmount
     ? `请输入 1.00 至 ${MAX_RECHARGE_YUAN} 元，最多两位小数`
@@ -319,14 +328,10 @@ export default function OrganizationRechargeCard({
         </Space>
       )}
       extra={(
-        <Typography.Text type="secondary">
-          手续费按 0.6% 向上取整到分
-        </Typography.Text>
+        <HelpTip label="充值手续费">手续费为充值金额的 0.6%，不足一分按一分计算。</HelpTip>
       )}
     >
-      <Typography.Paragraph type="secondary">
-        选择金额并点击支付后，二维码会显示在本卡片下方。每次支付都会创建新的充值单，旧二维码在过期前仍可能有效。
-      </Typography.Paragraph>
+      {previousCodeMayBeActive && <Alert type="warning" showIcon message="之前的充值二维码可能仍有效，请勿重复付款。" style={{ marginBottom: 16 }} />}
       <Radio.Group
         aria-label="充值金额"
         value={choice}
@@ -392,6 +397,7 @@ export default function OrganizationRechargeCard({
         {normalizedAmount && (
           <Typography.Text type="secondary">
             本次充值金额 ¥{formatMoneyCny(normalizedAmount)}
+            {amounts && <> · 手续费 ¥{formatMoneyCny(amounts.feeYuan)} · 预计到账 ¥{formatMoneyCny(amounts.netAmountYuan)}</>}
           </Typography.Text>
         )}
       </Space>
@@ -452,7 +458,7 @@ export default function OrganizationRechargeCard({
           showIcon
           type="info"
           message="微信支付已确认，机构余额正在入账"
-          description={`充值单 ${order.rechargeNo}，到账结果以后端资金账本为准。`}
+          description={`充值单 ${order.rechargeNo}`}
         />
       )}
       {order?.status === 'POSTED' && (

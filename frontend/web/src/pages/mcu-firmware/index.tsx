@@ -16,6 +16,7 @@ import {
   Modal,
   Select,
   Space,
+  Steps,
   Table,
   Tabs,
   Tag,
@@ -42,6 +43,7 @@ import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { formatShanghaiTime } from '@/utils/decimal';
 import { pageHeader, proTableConfig } from '@/utils/pageStyle';
+import HelpTip from '@/components/HelpTip';
 
 interface ReleaseFormValues extends RegisterMcuFirmwareReleaseRequest {}
 
@@ -92,6 +94,7 @@ const deploymentLabels: Record<string, string> = {
   ROLLED_BACK: '已回滚',
   FAILED_LOCKED: '失败并锁定',
   REJECTED: '设备拒绝',
+  LOCAL_CANCELLED: '下发已取消',
 };
 
 function failureMessage(error: unknown) {
@@ -379,7 +382,7 @@ export default function McuFirmwarePage() {
               ? 'warning'
             : ['ROLLED_BACK', 'FAILED_LOCKED', 'REJECTED'].includes(status)
               ? 'error'
-              : status === 'PENDING' ? 'default' : 'processing'
+              : ['PENDING', 'LOCAL_CANCELLED'].includes(status) ? 'default' : 'processing'
         }>
           {deploymentLabels[status] ?? status}
         </Tag>
@@ -426,18 +429,8 @@ export default function McuFirmwarePage() {
 
   return (
     <PageContainer
-      {...pageHeader(
-        'MCU 固件灰度',
-        '管理离线签名固件包，先做单设备验证，再由平台管理员逐批推进。系统不会自动推广或跳过失败批次。',
-      )}
+      {...pageHeader('MCU 固件灰度')}
     >
-      <Alert
-        showIcon
-        type="warning"
-        style={{ marginBottom: 16 }}
-        message="固件包必须先离线签名并上传到私有 COS"
-        description="后端只登记版本、固件身份、对象路径和 SHA-256，不持有签名私钥。设备获得的临时凭证只能读取当前发布目录。"
-      />
       <Tabs
         items={[
           {
@@ -504,7 +497,7 @@ export default function McuFirmwarePage() {
         <Alert
           showIcon
           type="info"
-          message="对象路径必须为 ecobin/mcu-firmware/{发布编号}/{包 SHA-256}.efw"
+          message="请先上传已签名的固件包，再登记文件信息。"
           style={{ marginBottom: 16 }}
         />
         <Form form={releaseForm} layout="vertical">
@@ -538,7 +531,7 @@ export default function McuFirmwarePage() {
           </Form.Item>
           <Form.Item
             name="objectKey"
-            label="私有 COS 对象路径"
+            label={<>私有存储对象路径<HelpTip label="固件存储路径">路径格式：ecobin/mcu-firmware/发布编号/包 SHA-256.efw。SHA-256 是用于核对文件内容的摘要。</HelpTip></>}
             rules={[{ required: true }]}
             extra={(
               <Button
@@ -639,6 +632,12 @@ export default function McuFirmwarePage() {
       >
         {selected && (
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            {selected.status !== 'STOPPED' && <Steps
+              size="small"
+              current={selected.status === 'COMPLETED' ? 3 : selected.status === 'ACTIVE' ? 2 : selected.status === 'AWAITING_PROMOTION' ? 1 : 0}
+              status={selected.status === 'VALIDATION_FAILED' ? 'error' : selected.status === 'DRAFT' ? 'wait' : selected.status === 'COMPLETED' ? 'finish' : 'process'}
+              items={[{ title: '单设备验证' }, { title: '确认推广' }, { title: '分批更新' }, { title: '完成' }]}
+            />}
             {(selected.failedCount > 0 || selected.rolledBackCount > 0) && (
               <Alert
                 showIcon

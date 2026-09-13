@@ -24,6 +24,47 @@
       },
       "wireType": "u8"
     },
+    "ActuatorEventMessageType": {
+      "values": {
+        "CLEAN_LOCK_POWER_CHANGED": 53,
+        "CLEAN_OPERATION_INTERRUPTED": 101,
+        "DELIVERY_CYCLE_ABORTED": 99,
+        "DELIVERY_DOOR_COMMAND_RESULT": 49,
+        "DELIVERY_LOCAL_DOOR_RESULT": 98,
+        "DELIVERY_POSTCLOSE_INTERRUPTED": 100,
+        "SAFE_CLOSE_RESULT": 61
+      },
+      "wireType": "u8"
+    },
+    "ActuatorEventQueryStatus": {
+      "values": {
+        "BOOT_MISMATCH": 5,
+        "HELD": 1,
+        "NOT_FOUND": 3
+      },
+      "wireType": "u8"
+    },
+    "ActuatorEventReferenceType": {
+      "values": {
+        "CLEAN_LOCK_POWER_CHANGED": 53,
+        "CLEAN_OPERATION_INTERRUPTED": 101,
+        "DELIVERY_CYCLE_ABORTED": 99,
+        "DELIVERY_DOOR_COMMAND_RESULT": 49,
+        "DELIVERY_LOCAL_DOOR_RESULT": 98,
+        "DELIVERY_POSTCLOSE_INTERRUPTED": 100,
+        "NONE": 0,
+        "SAFE_CLOSE_RESULT": 61
+      },
+      "wireType": "u8"
+    },
+    "BootBindStatus": {
+      "values": {
+        "ALREADY_BOUND": 3,
+        "BOUND": 1,
+        "PROBE_MISMATCH": 2
+      },
+      "wireType": "u8"
+    },
     "BootReconciliationDecision": {
       "values": {
         "CONFIRM_NO_ACTIVE_WORK": 1,
@@ -53,6 +94,15 @@
       },
       "wireType": "u8"
     },
+    "CleanInterruptionReason": {
+      "values": {
+        "CONTROL_CONTEXT_LOST": 2,
+        "OPERATION_EXPIRED": 3,
+        "UNLOCK_DISPATCH_REJECTED": 4,
+        "UPDATE_STOPPED": 1
+      },
+      "wireType": "u8"
+    },
     "CleanLockPowerState": {
       "values": {
         "DEENERGIZED": 1,
@@ -61,10 +111,29 @@
       },
       "wireType": "u8"
     },
+    "CommandOutcome": {
+      "values": {
+        "ACCEPTED": 1,
+        "BOOT_MISMATCH": 3,
+        "IDENTITY_CONFLICT": 4,
+        "NOT_SEEN": 6,
+        "OLD_DETAILS_UNAVAILABLE": 5,
+        "REJECTED": 2
+      },
+      "wireType": "u8"
+    },
     "ConfigApplyStatus": {
       "values": {
         "APPLIED": 1,
         "FAILED": 2
+      },
+      "wireType": "u8"
+    },
+    "DeliveryCycleAbortReason": {
+      "values": {
+        "CYCLE_START_REJECTED": 1,
+        "OPEN_DEADLINE_EXPIRED": 2,
+        "UPDATE_STOPPED": 3
       },
       "wireType": "u8"
     },
@@ -81,6 +150,14 @@
         "CONTINUE": 1,
         "END": 2,
         "WINDOW_EXPIRED": 3
+      },
+      "wireType": "u8"
+    },
+    "DeviceFactsStatus": {
+      "values": {
+        "AVAILABLE": 1,
+        "BOOT_MISMATCH": 2,
+        "PORT_UNSUPPORTED": 3
       },
       "wireType": "u8"
     },
@@ -108,6 +185,7 @@
         "FULLNESS_SENSOR_DIAGNOSTIC": 1280,
         "MCU_INTERNAL": 2048,
         "MCU_STORAGE": 1792,
+        "MEASUREMENT_INTERRUPTED": 1031,
         "NONE": 0,
         "SMOKE_SENSOR": 1536,
         "UART_PROTOCOL": 256,
@@ -158,6 +236,22 @@
       },
       "wireType": "u8"
     },
+    "FullnessObservationKind": {
+      "values": {
+        "DIGITAL_INFRARED": 2,
+        "NONE": 0,
+        "ULTRASONIC": 1
+      },
+      "wireType": "u8"
+    },
+    "FullnessReadStatus": {
+      "values": {
+        "NOT_OBSERVED": 0,
+        "UNAVAILABLE": 2,
+        "VALID": 1
+      },
+      "wireType": "u8"
+    },
     "FullnessSampleBasis": {
       "values": {
         "INSUFFICIENT_VALID_SAMPLES_CLEAR_FALLBACK": 3,
@@ -177,6 +271,14 @@
       "values": {
         "BLOCKED": 2,
         "CLEAR": 1
+      },
+      "wireType": "u8"
+    },
+    "FullnessStopReason": {
+      "values": {
+        "CALLER_CANCELLED": 1,
+        "CONFIGURATION_CHANGED": 2,
+        "NONE": 0
       },
       "wireType": "u8"
     },
@@ -218,6 +320,19 @@
       },
       "wireType": "u8"
     },
+    "MeasurementObservationState": {
+      "values": {
+        "BUFFER_FULL": 6,
+        "CONFIG_ERROR": 5,
+        "INTERRUPTED": 7,
+        "NONE": 0,
+        "RUNNING": 1,
+        "STABLE_MEAN": 2,
+        "TIMEOUT_MEDIAN": 3,
+        "UNAVAILABLE": 4
+      },
+      "wireType": "u8"
+    },
     "MeasurementStatus": {
       "values": {
         "CONFIG_ERROR": 7,
@@ -249,6 +364,28 @@
       },
       "wireType": "u16"
     },
+    "PostcloseInterruptionReason": {
+      "values": {
+        "CLOSE_CONTEXT_LOST": 2,
+        "UPDATE_STOPPED": 1
+      },
+      "wireType": "u8"
+    },
+    "ProcessEventMessageType": {
+      "values": {
+        "BASELINE_MEASUREMENT_RESULT": 58,
+        "CLEAN_COMPLETION_CONFIRMED": 62,
+        "CLEAN_FINAL_WEIGHT_READY": 56,
+        "CLEAN_FINISH_REQUESTED": 55,
+        "CLEAN_UNLOCK_REQUESTED": 54,
+        "DELIVERY_SELECTION": 51,
+        "FULLNESS_SAMPLE_RESULT": 57,
+        "WORK_POSTCLOSE_WEIGHT_READY": 50,
+        "WORK_PREOPEN_WEIGHT_READY": 48,
+        "WORK_PREUNLOCK_WEIGHT_READY": 52
+      },
+      "wireType": "u8"
+    },
     "ResetReason": {
       "values": {
         "BROWN_OUT": 3,
@@ -256,6 +393,51 @@
         "SOFTWARE": 4,
         "UNKNOWN": 5,
         "WATCHDOG": 2
+      },
+      "wireType": "u8"
+    },
+    "ResultMeasurementKind": {
+      "values": {
+        "CONFIG_ERROR": 8,
+        "DISCONNECTED": 9,
+        "INTERRUPTED": 10,
+        "MCU_RESET_LOST": 1,
+        "NOT_TAKEN": 0,
+        "OVERLOAD": 6,
+        "PROTOCOL_ERROR": 7,
+        "SENSOR_FAULT": 5,
+        "STABLE_MEAN": 2,
+        "TIMEOUT_MEDIAN": 3,
+        "UNAVAILABLE": 4
+      },
+      "wireType": "u8"
+    },
+    "ResultQueryStatus": {
+      "values": {
+        "BOOT_MISMATCH": 5,
+        "HELD": 1,
+        "IDENTITY_CONFLICT": 4,
+        "NOT_FOUND": 3,
+        "RELEASED": 2
+      },
+      "wireType": "u8"
+    },
+    "ResultSavedStatus": {
+      "values": {
+        "ALREADY_RELEASED": 2,
+        "BOOT_MISMATCH": 5,
+        "IDENTITY_CONFLICT": 4,
+        "NOT_FOUND": 3,
+        "RELEASED": 1
+      },
+      "wireType": "u8"
+    },
+    "RetainedWorkState": {
+      "values": {
+        "NONE": 0,
+        "RESULT_HELD": 2,
+        "RESULT_RELEASED": 3,
+        "RUNNING": 1
       },
       "wireType": "u8"
     },
@@ -271,6 +453,17 @@
         "CONFIRMATION": 2,
         "INITIAL": 1,
         "MANUAL_RECHECK": 3
+      },
+      "wireType": "u8"
+    },
+    "ScaleReadStatus": {
+      "values": {
+        "CRC_ERROR": 3,
+        "NOT_OBSERVED": 0,
+        "PROTOCOL_ERROR": 5,
+        "RANGE_ERROR": 4,
+        "TIMEOUT": 2,
+        "VALID": 1
       },
       "wireType": "u8"
     },
@@ -291,6 +484,15 @@
         "SENSOR_FAULT": 3,
         "TIMEOUT": 2,
         "UNKNOWN": 5
+      },
+      "wireType": "u8"
+    },
+    "SmokeObservationState": {
+      "values": {
+        "ALARM": 2,
+        "NORMAL": 1,
+        "NOT_OBSERVED": 0,
+        "UNAVAILABLE": 3
       },
       "wireType": "u8"
     },
@@ -321,6 +523,52 @@
       },
       "wireType": "u8"
     },
+    "WorkFullnessBasis": {
+      "values": {
+        "INSUFFICIENT_VALID_SAMPLES_CLEAR_FALLBACK": 3,
+        "MEASURED_MEDIAN": 1,
+        "NONE": 0,
+        "NO_ECHO_CLEAR_FALLBACK": 2
+      },
+      "wireType": "u8"
+    },
+    "WorkFullnessStatus": {
+      "values": {
+        "COMPLETE": 1,
+        "INTERRUPTED": 2,
+        "NOT_SAMPLED": 0
+      },
+      "wireType": "u8"
+    },
+    "WorkFullnessValue": {
+      "values": {
+        "BLOCKED": 2,
+        "CLEAR": 1,
+        "NOT_OBSERVED": 0
+      },
+      "wireType": "u8"
+    },
+    "WorkQueryStatus": {
+      "values": {
+        "BOOT_MISMATCH": 6,
+        "IDENTITY_CONFLICT": 5,
+        "NOT_FOUND": 4,
+        "RESULT_HELD": 2,
+        "RESULT_RELEASED": 3,
+        "RUNNING": 1
+      },
+      "wireType": "u8"
+    },
+    "WorkResultFinishReason": {
+      "values": {
+        "CANCELLED": 5,
+        "CLEAN_CONFIRMED": 3,
+        "DELIVERY_END": 1,
+        "DELIVERY_WINDOW_EXPIRED": 2,
+        "FAILED": 4
+      },
+      "wireType": "u8"
+    },
     "WorkType": {
       "values": {
         "BASELINE_MEASUREMENT": 5,
@@ -334,6 +582,7 @@
     }
   },
   "generatedFrom": "contracts/uart/uart-registry.yaml",
+  "implementationStage": "WORK_FULLNESS_CUSTODY_NOT_RUNNABLE",
   "messages": {
     "ACK": {
       "ackRequired": false,
@@ -387,6 +636,182 @@
       "maximumPayloadLength": 22,
       "minimumPayloadLength": 22
     },
+    "ACTUATOR_EVENT_QUERY_REPLY": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "offset": 8,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "afterMcuEventSequence",
+          "offset": 16,
+          "type": "u32"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "currentMcuBootId",
+          "offset": 20,
+          "type": "u64"
+        },
+        {
+          "enum": "ActuatorEventQueryStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "status",
+          "offset": 28,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "mcuEventSequence",
+          "offset": 29,
+          "type": "u32"
+        },
+        {
+          "enum": "ActuatorEventReferenceType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "eventMessageType",
+          "offset": 33,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "eventDigestSha256",
+          "offset": 34,
+          "type": "sha256"
+        }
+      ],
+      "id": 95,
+      "maximumPayloadLength": 66,
+      "minimumPayloadLength": 66
+    },
+    "ACTUATOR_EVENT_SAVED": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "EDGE_TO_MCU",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "mcuEventSequence",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "enum": "ActuatorEventMessageType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "eventMessageType",
+          "offset": 12,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "eventDigestSha256",
+          "offset": 13,
+          "type": "sha256"
+        }
+      ],
+      "id": 96,
+      "maximumPayloadLength": 45,
+      "minimumPayloadLength": 45
+    },
+    "ACTUATOR_EVENT_SAVED_REPLY": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "mcuEventSequence",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "enum": "ActuatorEventMessageType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "eventMessageType",
+          "offset": 12,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "eventDigestSha256",
+          "offset": 13,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "currentMcuBootId",
+          "offset": 45,
+          "type": "u64"
+        },
+        {
+          "enum": "ResultSavedStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "status",
+          "offset": 53,
+          "type": "u8"
+        }
+      ],
+      "id": 97,
+      "maximumPayloadLength": 54,
+      "minimumPayloadLength": 54
+    },
     "AUTHORIZE_DELIVERY_FIRST_OPEN": {
       "ackRequired": true,
       "category": "COMMAND",
@@ -408,10 +833,29 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "sessionUid",
-          "offset": 48,
+          "offset": 60,
           "type": "uuid"
         },
         {
@@ -420,21 +864,21 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 64,
+          "offset": 76,
           "type": "u8"
         },
         {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "firstPreOpenMeasurementUid",
-          "offset": 65,
+          "offset": 77,
           "type": "uuid"
         },
         {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "parentStartCommandUid",
-          "offset": 81,
+          "offset": 93,
           "type": "uuid"
         },
         {
@@ -442,14 +886,14 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "remainingStartAuthorizationMs",
-          "offset": 97,
+          "offset": 109,
           "type": "u32",
           "unit": "ms"
         }
       ],
       "id": 39,
-      "maximumPayloadLength": 101,
-      "minimumPayloadLength": 101
+      "maximumPayloadLength": 113,
+      "minimumPayloadLength": 113
     },
     "BASELINE_MEASUREMENT_RESULT": {
       "ackRequired": true,
@@ -514,82 +958,199 @@
           "type": "uuid"
         },
         {
-          "enum": "MeasurementStatus",
+          "enum": "ResultMeasurementKind",
           "maximumSize": 1,
+          "minimum": 2,
           "minimumSize": 1,
-          "name": "measurementStatus",
+          "name": "measurementKind",
           "offset": 69,
           "type": "u8"
         },
         {
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "weightValuePresent",
-          "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
-          "offset": 70,
-          "type": "bool"
-        },
-        {
-          "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "weightValuePresent=false",
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "reportedWeightGrams",
-          "offset": 71,
+          "offset": 70,
           "type": "i32",
           "unit": "g"
         },
         {
-          "enum": "WeightValueKind",
+          "maximum": 5000,
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "measurementElapsedMs",
+          "offset": 74,
+          "type": "u16",
+          "unit": "ms"
+        },
+        {
+          "maximum": 32,
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "weightValueKind",
-          "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
-          "offset": 75,
+          "name": "sampleCount",
+          "offset": 76,
           "type": "u8"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
-          "name": "measurementElapsedMs",
-          "offset": 76,
+          "name": "sampleSpanGrams",
+          "offset": 77,
           "type": "u32",
-          "unit": "ms"
-        },
-        {
-          "maximumSize": 2,
-          "minimumSize": 2,
-          "name": "sampleCount",
-          "offset": 80,
-          "type": "u16"
+          "unit": "g"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 82,
+          "offset": 81,
           "type": "u32"
-        },
-        {
-          "enum": "SensorHealth",
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "weightSensorHealth",
-          "offset": 86,
-          "type": "u8"
         },
         {
           "enum": "FaultCode",
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 87,
+          "offset": 85,
           "type": "u16"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 87,
+          "type": "u64"
         }
       ],
       "id": 58,
-      "maximumPayloadLength": 89,
-      "minimumPayloadLength": 89
+      "maximumPayloadLength": 95,
+      "minimumPayloadLength": 95
+    },
+    "BIND_BOOT": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "EDGE_TO_MCU",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "probeId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "proposedMcuBootId",
+          "offset": 8,
+          "type": "u64"
+        }
+      ],
+      "id": 9,
+      "maximumPayloadLength": 16,
+      "minimumPayloadLength": 16
+    },
+    "BIND_BOOT_REPLY": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "probeId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "proposedMcuBootId",
+          "offset": 8,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 0,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 16,
+          "type": "u64"
+        },
+        {
+          "enum": "BootBindStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "status",
+          "offset": 24,
+          "type": "u8"
+        }
+      ],
+      "id": 10,
+      "maximumPayloadLength": 25,
+      "minimumPayloadLength": 25
+    },
+    "BOOT_PROBE": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "EDGE_TO_MCU",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "probeId",
+          "offset": 0,
+          "type": "u64"
+        }
+      ],
+      "id": 7,
+      "maximumPayloadLength": 8,
+      "minimumPayloadLength": 8
+    },
+    "BOOT_PROBE_REPLY": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "probeId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 0,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 8,
+          "type": "u64"
+        }
+      ],
+      "id": 8,
+      "maximumPayloadLength": 16,
+      "minimumPayloadLength": 16
     },
     "BOOT_RECONCILIATION_RESULT": {
       "ackRequired": true,
@@ -734,8 +1295,15 @@
         {
           "maximumSize": 16,
           "minimumSize": 16,
-          "name": "operationUid",
+          "name": "mcuCommandUid",
           "offset": 20,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "operationUid",
+          "offset": 36,
           "type": "uuid"
         },
         {
@@ -744,7 +1312,7 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 36,
+          "offset": 52,
           "type": "u8"
         },
         {
@@ -752,14 +1320,14 @@
           "minimum": 1,
           "minimumSize": 2,
           "name": "cleanActionSequence",
-          "offset": 37,
+          "offset": 53,
           "type": "u16"
         },
         {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "finalMeasurementUid",
-          "offset": 39,
+          "offset": 55,
           "type": "uuid"
         },
         {
@@ -767,7 +1335,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "lockPowerState",
-          "offset": 55,
+          "offset": 71,
           "type": "u8"
         },
         {
@@ -775,7 +1343,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "solenoidHealth",
-          "offset": 56,
+          "offset": 72,
           "type": "u8"
         },
         {
@@ -783,7 +1351,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "cleanDoorStateBasis",
-          "offset": 57,
+          "offset": 73,
           "type": "u8"
         },
         {
@@ -791,13 +1359,22 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "cleanerPhysicalCloseConfirmed",
-          "offset": 58,
+          "offset": 74,
           "type": "bool"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 75,
+          "type": "u64"
         }
       ],
       "id": 62,
-      "maximumPayloadLength": 59,
-      "minimumPayloadLength": 59
+      "maximumPayloadLength": 83,
+      "minimumPayloadLength": 83
     },
     "CLEAN_FINAL_WEIGHT_READY": {
       "ackRequired": true,
@@ -863,82 +1440,218 @@
           "type": "uuid"
         },
         {
-          "enum": "MeasurementStatus",
+          "enum": "ResultMeasurementKind",
           "maximumSize": 1,
+          "minimum": 2,
           "minimumSize": 1,
-          "name": "measurementStatus",
+          "name": "measurementKind",
           "offset": 55,
           "type": "u8"
         },
         {
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "weightValuePresent",
-          "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
-          "offset": 56,
-          "type": "bool"
-        },
-        {
-          "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "weightValuePresent=false",
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "reportedWeightGrams",
-          "offset": 57,
+          "offset": 56,
           "type": "i32",
           "unit": "g"
         },
         {
-          "enum": "WeightValueKind",
+          "maximum": 5000,
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "measurementElapsedMs",
+          "offset": 60,
+          "type": "u16",
+          "unit": "ms"
+        },
+        {
+          "maximum": 32,
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "weightValueKind",
-          "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
-          "offset": 61,
+          "name": "sampleCount",
+          "offset": 62,
           "type": "u8"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
-          "name": "measurementElapsedMs",
-          "offset": 62,
+          "name": "sampleSpanGrams",
+          "offset": 63,
           "type": "u32",
-          "unit": "ms"
-        },
-        {
-          "maximumSize": 2,
-          "minimumSize": 2,
-          "name": "sampleCount",
-          "offset": 66,
-          "type": "u16"
+          "unit": "g"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 68,
+          "offset": 67,
           "type": "u32"
-        },
-        {
-          "enum": "SensorHealth",
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "weightSensorHealth",
-          "offset": 72,
-          "type": "u8"
         },
         {
           "enum": "FaultCode",
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 73,
+          "offset": 71,
           "type": "u16"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 73,
+          "type": "u64"
+        },
+        {
+          "enum": "WorkFullnessStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "workFullnessStatus",
+          "offset": 81,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "fullnessGroupSequence",
+          "offset": 82,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "fullnessConfigContentSha256",
+          "offset": 86,
+          "type": "sha256"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "fullnessMcuPayloadSha256",
+          "offset": 118,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "fullnessStartedUptimeMs",
+          "offset": 150,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "fullnessCompletedUptimeMs",
+          "offset": 158,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "fullnessLastCapturedUptimeMs",
+          "offset": 166,
+          "type": "u64"
+        },
+        {
+          "enum": "FullnessObservationKind",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "workFullnessSensorKind",
+          "offset": 174,
+          "type": "u8"
+        },
+        {
+          "enum": "WorkFullnessValue",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "workFullnessSensorValue",
+          "offset": 175,
+          "type": "u8"
+        },
+        {
+          "enum": "WorkFullnessBasis",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "workFullnessBasis",
+          "offset": 176,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessDistancePresent",
+          "offset": 177,
+          "type": "bool"
+        },
+        {
+          "invalidEncoding": "all-zero bytes",
+          "invalidWhen": "fullnessDistancePresent=false",
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "fullnessDistanceMm",
+          "offset": 178,
+          "type": "u32",
+          "unit": "mm"
+        },
+        {
+          "maximum": 9,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessRequestedSampleCount",
+          "offset": 182,
+          "type": "u8"
+        },
+        {
+          "maximum": 9,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessCompletedSampleCount",
+          "offset": 183,
+          "type": "u8"
+        },
+        {
+          "maximum": 9,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessValidSampleCount",
+          "offset": 184,
+          "type": "u8"
+        },
+        {
+          "maximum": 9,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessMinimumValidSampleCount",
+          "offset": 185,
+          "type": "u8"
+        },
+        {
+          "maximum": 4000,
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "fullnessDistanceThresholdMm",
+          "offset": 186,
+          "type": "u32",
+          "unit": "mm"
+        },
+        {
+          "enum": "FullnessStopReason",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessStopReason",
+          "offset": 190,
+          "type": "u8"
         }
       ],
       "id": 56,
-      "maximumPayloadLength": 75,
-      "minimumPayloadLength": 75
+      "maximumPayloadLength": 191,
+      "minimumPayloadLength": 191
     },
     "CLEAN_FINISH_REQUESTED": {
       "ackRequired": true,
@@ -975,8 +1688,15 @@
         {
           "maximumSize": 16,
           "minimumSize": 16,
-          "name": "operationUid",
+          "name": "mcuCommandUid",
           "offset": 20,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "operationUid",
+          "offset": 36,
           "type": "uuid"
         },
         {
@@ -985,7 +1705,7 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 36,
+          "offset": 52,
           "type": "u8"
         },
         {
@@ -993,13 +1713,22 @@
           "minimum": 1,
           "minimumSize": 2,
           "name": "cleanActionSequence",
-          "offset": 37,
+          "offset": 53,
           "type": "u16"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 55,
+          "type": "u64"
         }
       ],
       "id": 55,
-      "maximumPayloadLength": 39,
-      "minimumPayloadLength": 39
+      "maximumPayloadLength": 63,
+      "minimumPayloadLength": 63
     },
     "CLEAN_LOCK_POWER_CHANGED": {
       "ackRequired": true,
@@ -1077,6 +1806,96 @@
       "maximumPayloadLength": 55,
       "minimumPayloadLength": 55
     },
+    "CLEAN_OPERATION_INTERRUPTED": {
+      "ackRequired": true,
+      "category": "EVENT",
+      "criticalEvent": true,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "mcuEventSequence",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "uptimeMs",
+          "offset": 12,
+          "type": "u64",
+          "unit": "ms"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "mcuCommandUid",
+          "offset": 20,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "operationUid",
+          "offset": 36,
+          "type": "uuid"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimum": 1,
+          "minimumSize": 1,
+          "name": "portNo",
+          "offset": 52,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "cleanActionSequence",
+          "offset": 53,
+          "type": "u16"
+        },
+        {
+          "enum": "McuWorkPhase",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "interruptedPhase",
+          "offset": 55,
+          "type": "u8"
+        },
+        {
+          "enum": "CleanInterruptionReason",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "interruptionReason",
+          "offset": 56,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "finalMeasurementEventSequence",
+          "offset": 57,
+          "type": "u32"
+        }
+      ],
+      "id": 101,
+      "maximumPayloadLength": 61,
+      "minimumPayloadLength": 61
+    },
     "CLEAN_UNLOCK_REQUESTED": {
       "ackRequired": true,
       "category": "EVENT",
@@ -1112,8 +1931,15 @@
         {
           "maximumSize": 16,
           "minimumSize": 16,
-          "name": "operationUid",
+          "name": "mcuCommandUid",
           "offset": 20,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "operationUid",
+          "offset": 36,
           "type": "uuid"
         },
         {
@@ -1122,7 +1948,7 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 36,
+          "offset": 52,
           "type": "u8"
         },
         {
@@ -1130,13 +1956,176 @@
           "minimum": 1,
           "minimumSize": 2,
           "name": "cleanActionSequence",
-          "offset": 37,
+          "offset": 53,
           "type": "u16"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 55,
+          "type": "u64"
         }
       ],
       "id": 54,
-      "maximumPayloadLength": 39,
-      "minimumPayloadLength": 39
+      "maximumPayloadLength": 63,
+      "minimumPayloadLength": 63
+    },
+    "COMMAND_DECISION": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "mcuCommandUid",
+          "offset": 0,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "commandDigestSha256",
+          "offset": 16,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 0,
+          "minimumSize": 8,
+          "name": "currentMcuBootId",
+          "offset": 60,
+          "type": "u64"
+        },
+        {
+          "enum": "CommandOutcome",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "outcome",
+          "offset": 68,
+          "type": "u8"
+        },
+        {
+          "enum": "NackError",
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "errorCode",
+          "offset": 69,
+          "type": "u16"
+        }
+      ],
+      "id": 11,
+      "maximumPayloadLength": 71,
+      "minimumPayloadLength": 71
+    },
+    "COMMAND_QUERY_RESULT": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "mcuCommandUid",
+          "offset": 8,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "commandDigestSha256",
+          "offset": 24,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 56,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 64,
+          "type": "u32"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 0,
+          "minimumSize": 8,
+          "name": "currentMcuBootId",
+          "offset": 68,
+          "type": "u64"
+        },
+        {
+          "enum": "CommandOutcome",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "outcome",
+          "offset": 76,
+          "type": "u8"
+        },
+        {
+          "enum": "NackError",
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "errorCode",
+          "offset": 77,
+          "type": "u16"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "highestCommandSequence",
+          "offset": 79,
+          "type": "u32"
+        }
+      ],
+      "id": 13,
+      "maximumPayloadLength": 83,
+      "minimumPayloadLength": 83
     },
     "CONFIG_APPLY_RESULT": {
       "ackRequired": true,
@@ -1249,10 +2238,29 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "applicationUid",
-          "offset": 48,
+          "offset": 60,
           "type": "uuid"
         },
         {
@@ -1261,21 +2269,21 @@
           "minimum": 1,
           "minimumSize": 8,
           "name": "configVersion",
-          "offset": 64,
+          "offset": 76,
           "type": "u64"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "contentSha256",
-          "offset": 72,
+          "offset": 84,
           "type": "sha256"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "mcuPayloadSha256",
-          "offset": 104,
+          "offset": 116,
           "type": "sha256"
         },
         {
@@ -1283,7 +2291,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "partIndex",
-          "offset": 136,
+          "offset": 148,
           "type": "u8"
         },
         {
@@ -1292,7 +2300,7 @@
           "minimum": 4,
           "minimumSize": 1,
           "name": "partCount",
-          "offset": 137,
+          "offset": 149,
           "type": "u8"
         },
         {
@@ -1301,13 +2309,13 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "expectedPortCount",
-          "offset": 138,
+          "offset": 150,
           "type": "u8"
         }
       ],
       "id": 16,
-      "maximumPayloadLength": 139,
-      "minimumPayloadLength": 139
+      "maximumPayloadLength": 151,
+      "minimumPayloadLength": 151
     },
     "CONFIG_COMMIT": {
       "ackRequired": true,
@@ -1330,10 +2338,29 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "applicationUid",
-          "offset": 48,
+          "offset": 60,
           "type": "uuid"
         },
         {
@@ -1342,21 +2369,21 @@
           "minimum": 1,
           "minimumSize": 8,
           "name": "configVersion",
-          "offset": 64,
+          "offset": 76,
           "type": "u64"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "contentSha256",
-          "offset": 72,
+          "offset": 84,
           "type": "sha256"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "mcuPayloadSha256",
-          "offset": 104,
+          "offset": 116,
           "type": "sha256"
         },
         {
@@ -1365,7 +2392,7 @@
           "minimum": 4,
           "minimumSize": 1,
           "name": "partIndex",
-          "offset": 136,
+          "offset": 148,
           "type": "u8"
         },
         {
@@ -1374,13 +2401,13 @@
           "minimum": 4,
           "minimumSize": 1,
           "name": "partCount",
-          "offset": 137,
+          "offset": 149,
           "type": "u8"
         }
       ],
       "id": 19,
-      "maximumPayloadLength": 138,
-      "minimumPayloadLength": 138
+      "maximumPayloadLength": 150,
+      "minimumPayloadLength": 150
     },
     "CONFIG_DEVICE_BLOCK": {
       "ackRequired": true,
@@ -1403,10 +2430,29 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "applicationUid",
-          "offset": 48,
+          "offset": 60,
           "type": "uuid"
         },
         {
@@ -1415,21 +2461,21 @@
           "minimum": 1,
           "minimumSize": 8,
           "name": "configVersion",
-          "offset": 64,
+          "offset": 76,
           "type": "u64"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "contentSha256",
-          "offset": 72,
+          "offset": 84,
           "type": "sha256"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "mcuPayloadSha256",
-          "offset": 104,
+          "offset": 116,
           "type": "sha256"
         },
         {
@@ -1437,7 +2483,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "partIndex",
-          "offset": 136,
+          "offset": 148,
           "type": "u8"
         },
         {
@@ -1446,7 +2492,7 @@
           "minimum": 4,
           "minimumSize": 1,
           "name": "partCount",
-          "offset": 137,
+          "offset": 149,
           "type": "u8"
         },
         {
@@ -1454,7 +2500,7 @@
           "minimum": 1000,
           "minimumSize": 4,
           "name": "continueDeliveryWaitMs",
-          "offset": 138,
+          "offset": 150,
           "type": "u32",
           "unit": "ms"
         },
@@ -1463,7 +2509,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "negativeWeightThresholdGrams",
-          "offset": 142,
+          "offset": 154,
           "type": "u32",
           "unit": "g"
         },
@@ -1474,18 +2520,17 @@
           "minimumSize": 4,
           "name": "deliveryAutoCloseMs",
           "notes": "V1 默认 120000；触摸屏可无限次重置该倒计时",
-          "offset": 146,
+          "offset": 158,
           "type": "u32",
           "unit": "ms"
         },
         {
-          "maximum": 6000,
+          "const": 5000,
           "maximumSize": 4,
-          "minimum": 1000,
           "minimumSize": 4,
           "name": "weightMeasurementTimeoutMs",
-          "notes": "V1 默认 6000",
-          "offset": 150,
+          "notes": "原生首版固定5秒，与每个投口相同；不得沿用旧6秒配置",
+          "offset": 162,
           "type": "u32",
           "unit": "ms"
         },
@@ -1496,7 +2541,7 @@
           "minimumSize": 4,
           "name": "deliveryDoorTravelWaitMs",
           "notes": "V1 默认和硬下限 30000；OPEN/CLOSE 方向电平持续锁存直到相反命令或复位，本字段仅是固定机械行程等待，不控制 GPIO 释放，也不是门位故障超时",
-          "offset": 154,
+          "offset": 166,
           "type": "u32",
           "unit": "ms"
         },
@@ -1507,7 +2552,7 @@
           "minimumSize": 4,
           "name": "cleanSolenoidPulseMs",
           "notes": "候选默认 1000；须经实机验证后调优，不得超过固件硬上限 5000",
-          "offset": 158,
+          "offset": 170,
           "type": "u32",
           "unit": "ms"
         },
@@ -1515,13 +2560,33 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "smokeMonitoringEnabled",
-          "offset": 162,
+          "offset": 174,
           "type": "bool"
+        },
+        {
+          "const": 250,
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "weightPollIntervalMs",
+          "notes": "已确认的单请求目标周期；实际响应速度待真机验证，不自动退回600毫秒",
+          "offset": 175,
+          "type": "u32",
+          "unit": "ms"
+        },
+        {
+          "const": 200,
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "weightResponseTimeoutMs",
+          "notes": "首版工程候选响应期限，须实测验证；显式进入v2配置摘要",
+          "offset": 179,
+          "type": "u32",
+          "unit": "ms"
         }
       ],
       "id": 17,
-      "maximumPayloadLength": 163,
-      "minimumPayloadLength": 163
+      "maximumPayloadLength": 183,
+      "minimumPayloadLength": 183
     },
     "CONFIG_PORT_BLOCK": {
       "ackRequired": true,
@@ -1544,10 +2609,29 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "applicationUid",
-          "offset": 48,
+          "offset": 60,
           "type": "uuid"
         },
         {
@@ -1556,21 +2640,21 @@
           "minimum": 1,
           "minimumSize": 8,
           "name": "configVersion",
-          "offset": 64,
+          "offset": 76,
           "type": "u64"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "contentSha256",
-          "offset": 72,
+          "offset": 84,
           "type": "sha256"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "mcuPayloadSha256",
-          "offset": 104,
+          "offset": 116,
           "type": "sha256"
         },
         {
@@ -1579,7 +2663,7 @@
           "minimum": 3,
           "minimumSize": 1,
           "name": "partIndex",
-          "offset": 136,
+          "offset": 148,
           "type": "u8"
         },
         {
@@ -1588,7 +2672,7 @@
           "minimum": 4,
           "minimumSize": 1,
           "name": "partCount",
-          "offset": 137,
+          "offset": 149,
           "type": "u8"
         },
         {
@@ -1597,14 +2681,14 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 138,
+          "offset": 150,
           "type": "u8"
         },
         {
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "enabled",
-          "offset": 139,
+          "offset": 151,
           "type": "bool"
         },
         {
@@ -1612,7 +2696,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "unitPriceTenThousandths",
-          "offset": 140,
+          "offset": 152,
           "type": "u32",
           "unit": "yuan_per_kg_x10000"
         },
@@ -1621,7 +2705,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "fullnessMode",
-          "offset": 144,
+          "offset": 156,
           "type": "u8"
         },
         {
@@ -1629,7 +2713,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "configuredFullWeightGrams",
-          "offset": 145,
+          "offset": 157,
           "type": "u32",
           "unit": "g"
         },
@@ -1637,7 +2721,7 @@
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "fullnessSettleWaitMs",
-          "offset": 149,
+          "offset": 161,
           "type": "u32",
           "unit": "ms"
         },
@@ -1646,7 +2730,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "fullnessSensorKind",
-          "offset": 153,
+          "offset": 165,
           "type": "u8"
         },
         {
@@ -1656,7 +2740,7 @@
           "minimumSize": 4,
           "name": "fullnessDistanceThresholdMm",
           "notes": "侧置超声波 BLOCKED 判定为距离小于该阈值；候选默认 600，须经真实桶体校准后调优",
-          "offset": 154,
+          "offset": 166,
           "type": "u32",
           "unit": "mm"
         },
@@ -1667,7 +2751,7 @@
           "minimumSize": 1,
           "name": "fullnessSampleCount",
           "notes": "V1 默认 5",
-          "offset": 158,
+          "offset": 170,
           "type": "u8"
         },
         {
@@ -1677,7 +2761,7 @@
           "minimumSize": 1,
           "name": "fullnessMinimumValidSampleCount",
           "notes": "V1 默认 3，且不得大于 fullnessSampleCount",
-          "offset": 159,
+          "offset": 171,
           "type": "u8"
         },
         {
@@ -1686,45 +2770,45 @@
           "minimum": 100,
           "minimumSize": 4,
           "name": "fullnessEchoTimeoutUs",
-          "offset": 160,
+          "offset": 172,
           "type": "u32",
           "unit": "us"
         },
         {
-          "maximum": 6000,
+          "const": 1500,
           "maximumSize": 4,
-          "minimum": 1,
           "minimumSize": 4,
           "name": "weightStableWindowMs",
-          "notes": "V1 默认 1500",
-          "offset": 164,
+          "notes": "首版工程候选：最近5个新点的最大时间跨度，不要求等满窗口",
+          "offset": 176,
           "type": "u32",
           "unit": "ms"
         },
         {
+          "const": 100,
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "weightMaximumFluctuationGrams",
-          "offset": 168,
+          "notes": "最近5点最大值减最小值不超过100克，不是正负各100克",
+          "offset": 180,
           "type": "u32",
           "unit": "g"
         },
         {
+          "const": 5,
           "maximumSize": 2,
-          "minimum": 1,
           "minimumSize": 2,
           "name": "weightRequiredSampleCount",
-          "offset": 172,
+          "offset": 184,
           "type": "u16"
         },
         {
-          "maximum": 6000,
+          "const": 5000,
           "maximumSize": 4,
-          "minimum": 1000,
           "minimumSize": 4,
           "name": "weightMeasurementTimeoutMs",
-          "notes": "V1 默认 6000",
-          "offset": 174,
+          "notes": "与全机相同，纯波动超时取本阶段合法读数中位数；缺失不得补0",
+          "offset": 186,
           "type": "u32",
           "unit": "ms"
         },
@@ -1732,7 +2816,7 @@
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "weightMinimumGrams",
-          "offset": 178,
+          "offset": 190,
           "type": "i32",
           "unit": "g"
         },
@@ -1741,7 +2825,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "weightMaximumGrams",
-          "offset": 182,
+          "offset": 194,
           "type": "i32",
           "unit": "g"
         },
@@ -1749,13 +2833,32 @@
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 186,
+          "offset": 198,
           "type": "u32"
+        },
+        {
+          "const": 750,
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "weightMaximumSampleAgeMs",
+          "notes": "首版工程候选：最后合法读数到判定的最大年龄",
+          "offset": 202,
+          "type": "u32",
+          "unit": "ms"
+        },
+        {
+          "const": 5,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "weightMinimumMedianSampleCount",
+          "notes": "首版工程候选：超时取中位数至少需要5个本阶段合法新点",
+          "offset": 206,
+          "type": "u8"
         }
       ],
       "id": 18,
-      "maximumPayloadLength": 190,
-      "minimumPayloadLength": 190
+      "maximumPayloadLength": 207,
+      "minimumPayloadLength": 207
     },
     "CONFIRM_NO_ACTIVE_WORK": {
       "ackRequired": true,
@@ -1782,21 +2885,130 @@
           "maximumSize": 8,
           "minimum": 1,
           "minimumSize": 8,
-          "name": "configVersion",
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
           "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 60,
           "type": "u64"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "configContentSha256",
-          "offset": 56,
+          "offset": 68,
           "type": "sha256"
         }
       ],
       "id": 40,
-      "maximumPayloadLength": 88,
-      "minimumPayloadLength": 88
+      "maximumPayloadLength": 100,
+      "minimumPayloadLength": 100
+    },
+    "DELIVERY_CYCLE_ABORTED": {
+      "ackRequired": true,
+      "category": "EVENT",
+      "criticalEvent": true,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "mcuEventSequence",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "uptimeMs",
+          "offset": 12,
+          "type": "u64",
+          "unit": "ms"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "mcuCommandUid",
+          "offset": 20,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "sessionUid",
+          "offset": 36,
+          "type": "uuid"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimum": 1,
+          "minimumSize": 1,
+          "name": "portNo",
+          "offset": 52,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 2,
+          "minimum": 1,
+          "minimumSize": 2,
+          "name": "roundIndex",
+          "offset": 53,
+          "type": "u16"
+        },
+        {
+          "enum": "DeliveryCycleAbortReason",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "abortReason",
+          "offset": 55,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "openDispatched",
+          "offset": 56,
+          "type": "bool"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "selectionEventSequence",
+          "offset": 57,
+          "type": "u32"
+        }
+      ],
+      "id": 99,
+      "maximumPayloadLength": 61,
+      "minimumPayloadLength": 61
     },
     "DELIVERY_DOOR_COMMAND_RESULT": {
       "ackRequired": true,
@@ -1898,6 +3110,205 @@
       "maximumPayloadLength": 60,
       "minimumPayloadLength": 60
     },
+    "DELIVERY_LOCAL_DOOR_RESULT": {
+      "ackRequired": true,
+      "category": "EVENT",
+      "criticalEvent": true,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "mcuEventSequence",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "uptimeMs",
+          "offset": 12,
+          "type": "u64",
+          "unit": "ms"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "mcuCommandUid",
+          "offset": 20,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "sessionUid",
+          "offset": 36,
+          "type": "uuid"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimum": 1,
+          "minimumSize": 1,
+          "name": "portNo",
+          "offset": 52,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 2,
+          "minimum": 2,
+          "minimumSize": 2,
+          "name": "roundIndex",
+          "offset": 53,
+          "type": "u16"
+        },
+        {
+          "enum": "DeliveryDoorCommand",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "command",
+          "offset": 55,
+          "type": "u8"
+        },
+        {
+          "enum": "DoorCommandOutputStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "outputStatus",
+          "offset": 56,
+          "type": "u8"
+        },
+        {
+          "enum": "DoorPhysicalStateBasis",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "physicalDoorStateBasis",
+          "offset": 57,
+          "type": "u8"
+        },
+        {
+          "enum": "FaultCode",
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "faultCode",
+          "offset": 58,
+          "type": "u16"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "selectionEventSequence",
+          "offset": 60,
+          "type": "u32"
+        }
+      ],
+      "id": 98,
+      "maximumPayloadLength": 64,
+      "minimumPayloadLength": 64
+    },
+    "DELIVERY_POSTCLOSE_INTERRUPTED": {
+      "ackRequired": true,
+      "category": "EVENT",
+      "criticalEvent": true,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "mcuEventSequence",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "uptimeMs",
+          "offset": 12,
+          "type": "u64",
+          "unit": "ms"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "mcuCommandUid",
+          "offset": 20,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "sessionUid",
+          "offset": 36,
+          "type": "uuid"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimum": 1,
+          "minimumSize": 1,
+          "name": "portNo",
+          "offset": 52,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 2,
+          "minimum": 1,
+          "minimumSize": 2,
+          "name": "roundIndex",
+          "offset": 53,
+          "type": "u16"
+        },
+        {
+          "enum": "McuWorkPhase",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "interruptedPhase",
+          "offset": 55,
+          "type": "u8"
+        },
+        {
+          "enum": "PostcloseInterruptionReason",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "interruptionReason",
+          "offset": 56,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "postCloseMeasurementEventSequence",
+          "offset": 57,
+          "type": "u32"
+        }
+      ],
+      "id": 100,
+      "maximumPayloadLength": 61,
+      "minimumPayloadLength": 61
+    },
     "DELIVERY_SELECTION": {
       "ackRequired": true,
       "category": "EVENT",
@@ -1933,8 +3344,15 @@
         {
           "maximumSize": 16,
           "minimumSize": 16,
-          "name": "sessionUid",
+          "name": "mcuCommandUid",
           "offset": 20,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "sessionUid",
+          "offset": 36,
           "type": "uuid"
         },
         {
@@ -1943,7 +3361,7 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 36,
+          "offset": 52,
           "type": "u8"
         },
         {
@@ -1951,28 +3369,406 @@
           "minimum": 1,
           "minimumSize": 2,
           "name": "roundIndex",
-          "offset": 37,
+          "offset": 53,
           "type": "u16"
         },
         {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "postCloseMeasurementUid",
-          "offset": 39,
+          "offset": 55,
           "type": "uuid"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 71,
+          "type": "u64"
         },
         {
           "enum": "DeliverySelection",
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "selection",
-          "offset": 55,
+          "offset": 79,
           "type": "u8"
         }
       ],
       "id": 51,
-      "maximumPayloadLength": 56,
-      "minimumPayloadLength": 56
+      "maximumPayloadLength": 80,
+      "minimumPayloadLength": 80
+    },
+    "DEVICE_FACTS_REPLY": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "offset": 8,
+          "type": "u64"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimum": 1,
+          "minimumSize": 1,
+          "name": "portNo",
+          "offset": 16,
+          "type": "u8"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 0,
+          "minimumSize": 8,
+          "name": "currentMcuBootId",
+          "offset": 17,
+          "type": "u64"
+        },
+        {
+          "enum": "DeviceFactsStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "status",
+          "offset": 25,
+          "type": "u8"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 0,
+          "minimumSize": 8,
+          "name": "capturedUptimeMs",
+          "offset": 26,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 0,
+          "minimumSize": 8,
+          "name": "appliedConfigVersion",
+          "offset": 34,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "appliedContentSha256",
+          "offset": 42,
+          "type": "sha256"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "appliedMcuPayloadSha256",
+          "offset": 74,
+          "type": "sha256"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "configStaging",
+          "offset": 106,
+          "type": "bool"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 0,
+          "minimumSize": 8,
+          "name": "controlUptimeMs",
+          "offset": 107,
+          "type": "u64"
+        },
+        {
+          "enum": "DeliveryDoorCommand",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "lastDeliveryDoorCommand",
+          "offset": 115,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "doorActionActive",
+          "offset": 116,
+          "type": "bool"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "pb6Output",
+          "offset": 117,
+          "type": "bool"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "pb7Output",
+          "offset": 118,
+          "type": "bool"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "pb5Active",
+          "offset": 119,
+          "type": "bool"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "pinchPaused",
+          "offset": 120,
+          "type": "bool"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "cleanLockPowered",
+          "offset": 121,
+          "type": "bool"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "updateLatched",
+          "offset": 122,
+          "type": "bool"
+        },
+        {
+          "enum": "ScaleReadStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "scaleReadStatus",
+          "offset": 123,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "scaleAttemptSequence",
+          "offset": 124,
+          "type": "u32"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 0,
+          "minimumSize": 8,
+          "name": "scaleCapturedUptimeMs",
+          "offset": 128,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "scaleWeightGrams",
+          "offset": 136,
+          "type": "i32"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "scaleCalibrationVersion",
+          "offset": 140,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "measurementSequence",
+          "offset": 144,
+          "type": "u32"
+        },
+        {
+          "enum": "MeasurementObservationState",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "measurementState",
+          "offset": 148,
+          "type": "u8"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 0,
+          "minimumSize": 8,
+          "name": "measurementConfigVersion",
+          "offset": 149,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 0,
+          "minimumSize": 8,
+          "name": "measurementObservedUptimeMs",
+          "offset": 157,
+          "type": "u64"
+        },
+        {
+          "maximum": 5000,
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "measurementElapsedMs",
+          "offset": 165,
+          "type": "u16"
+        },
+        {
+          "maximum": 32,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "measurementSampleCount",
+          "offset": 167,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "measurementWeightGrams",
+          "offset": 168,
+          "type": "i32"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "measurementSpanGrams",
+          "offset": 172,
+          "type": "u32"
+        },
+        {
+          "enum": "SmokeObservationState",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "smokeObservationState",
+          "offset": 176,
+          "type": "u8"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "smokeObservedUptimeMs",
+          "offset": 177,
+          "type": "u64"
+        },
+        {
+          "enum": "FullnessObservationKind",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessObservationKind",
+          "offset": 185,
+          "type": "u8"
+        },
+        {
+          "enum": "FullnessReadStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessReadStatus",
+          "offset": 186,
+          "type": "u8"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "fullnessCapturedUptimeMs",
+          "offset": 187,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessInfraredBlocked",
+          "offset": 195,
+          "type": "bool"
+        },
+        {
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "fullnessDistanceMm",
+          "offset": 196,
+          "type": "u16"
+        },
+        {
+          "enum": "RetainedWorkState",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "retainedWorkState",
+          "offset": 198,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "retainedWorkUid",
+          "offset": 199,
+          "type": "uuid",
+          "zeroAllowed": true
+        },
+        {
+          "enum": "WorkType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "retainedWorkType",
+          "offset": 215,
+          "type": "u8"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "retainedPortNo",
+          "offset": 216,
+          "type": "u8"
+        },
+        {
+          "enum": "McuWorkPhase",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "retainedWorkPhase",
+          "offset": 217,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "retainedOriginCommandSequence",
+          "offset": 218,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "retainedResultSequence",
+          "offset": 222,
+          "type": "u32"
+        }
+      ],
+      "id": 70,
+      "maximumPayloadLength": 226,
+      "minimumPayloadLength": 226
     },
     "END_CLEAN_BEFORE_UNLOCK": {
       "ackRequired": true,
@@ -1995,10 +3791,29 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "operationUid",
-          "offset": 48,
+          "offset": 60,
           "type": "uuid"
         },
         {
@@ -2007,21 +3822,21 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 64,
+          "offset": 76,
           "type": "u8"
         },
         {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "parentCommandUid",
-          "offset": 65,
+          "offset": 77,
           "type": "uuid"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "recoveryGeneration",
-          "offset": 81,
+          "offset": 93,
           "type": "u32"
         },
         {
@@ -2029,7 +3844,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "executionDeadlineMs",
-          "offset": 85,
+          "offset": 97,
           "type": "u32",
           "unit": "ms"
         },
@@ -2038,13 +3853,13 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "reason",
-          "offset": 89,
+          "offset": 101,
           "type": "u8"
         }
       ],
       "id": 36,
-      "maximumPayloadLength": 90,
-      "minimumPayloadLength": 90
+      "maximumPayloadLength": 102,
+      "minimumPayloadLength": 102
     },
     "FAULT_OBSERVED": {
       "ackRequired": true,
@@ -2275,82 +4090,75 @@
           "type": "uuid"
         },
         {
-          "enum": "MeasurementStatus",
+          "enum": "ResultMeasurementKind",
           "maximumSize": 1,
+          "minimum": 2,
           "minimumSize": 1,
-          "name": "measurementStatus",
+          "name": "measurementKind",
           "offset": 80,
           "type": "u8"
         },
         {
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "weightValuePresent",
-          "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
-          "offset": 81,
-          "type": "bool"
-        },
-        {
-          "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "weightValuePresent=false",
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "reportedWeightGrams",
-          "offset": 82,
+          "offset": 81,
           "type": "i32",
           "unit": "g"
         },
         {
-          "enum": "WeightValueKind",
+          "maximum": 5000,
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "measurementElapsedMs",
+          "offset": 85,
+          "type": "u16",
+          "unit": "ms"
+        },
+        {
+          "maximum": 32,
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "weightValueKind",
-          "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
-          "offset": 86,
+          "name": "sampleCount",
+          "offset": 87,
           "type": "u8"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
-          "name": "measurementElapsedMs",
-          "offset": 87,
+          "name": "sampleSpanGrams",
+          "offset": 88,
           "type": "u32",
-          "unit": "ms"
-        },
-        {
-          "maximumSize": 2,
-          "minimumSize": 2,
-          "name": "sampleCount",
-          "offset": 91,
-          "type": "u16"
+          "unit": "g"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 93,
+          "offset": 92,
           "type": "u32"
-        },
-        {
-          "enum": "SensorHealth",
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "weightSensorHealth",
-          "offset": 97,
-          "type": "u8"
         },
         {
           "enum": "FaultCode",
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 98,
+          "offset": 96,
           "type": "u16"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 98,
+          "type": "u64"
         }
       ],
       "id": 57,
-      "maximumPayloadLength": 100,
-      "minimumPayloadLength": 100
+      "maximumPayloadLength": 106,
+      "minimumPayloadLength": 106
     },
     "HELLO": {
       "ackRequired": false,
@@ -2376,7 +4184,7 @@
           "type": "u64"
         },
         {
-          "const": 1,
+          "const": 2,
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "supportedMajor",
@@ -2476,7 +4284,7 @@
           "type": "u64"
         },
         {
-          "const": 1,
+          "const": 2,
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "selectedMajor",
@@ -2557,10 +4365,29 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "measurementUid",
-          "offset": 48,
+          "offset": 60,
           "type": "uuid"
         },
         {
@@ -2569,7 +4396,7 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 64,
+          "offset": 76,
           "type": "u8"
         },
         {
@@ -2578,14 +4405,14 @@
           "minimum": 1,
           "minimumSize": 8,
           "name": "configVersion",
-          "offset": 65,
+          "offset": 77,
           "type": "u64"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "configContentSha256",
-          "offset": 73,
+          "offset": 85,
           "type": "sha256"
         },
         {
@@ -2593,24 +4420,24 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "startExecutionWindowMs",
-          "offset": 105,
+          "offset": 117,
           "type": "u32",
           "unit": "ms"
         },
         {
-          "maximum": 6000,
+          "const": 5000,
           "maximumSize": 4,
-          "minimum": 1000,
           "minimumSize": 4,
           "name": "measurementTimeoutMs",
-          "offset": 109,
+          "notes": "原生空袋基准测量统一5秒，不沿用旧6秒",
+          "offset": 121,
           "type": "u32",
           "unit": "ms"
         }
       ],
       "id": 38,
-      "maximumPayloadLength": 113,
-      "minimumPayloadLength": 113
+      "maximumPayloadLength": 125,
+      "minimumPayloadLength": 125
     },
     "NACK": {
       "ackRequired": false,
@@ -2664,6 +4491,518 @@
       "maximumPayloadLength": 23,
       "minimumPayloadLength": 23
     },
+    "PROCESS_EVENT_QUERY_REPLY": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "mcuCommandUid",
+          "offset": 8,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "commandDigestSha256",
+          "offset": 24,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 56,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 64,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "workUid",
+          "offset": 68,
+          "type": "uuid"
+        },
+        {
+          "enum": "WorkType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "workType",
+          "offset": 84,
+          "type": "u8"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimum": 1,
+          "minimumSize": 1,
+          "name": "portNo",
+          "offset": 85,
+          "type": "u8"
+        },
+        {
+          "enum": "ProcessEventMessageType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "eventMessageType",
+          "offset": 86,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "stepSequence",
+          "offset": 87,
+          "type": "u16"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 89,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "currentMcuBootId",
+          "offset": 97,
+          "type": "u64"
+        },
+        {
+          "enum": "ResultQueryStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "status",
+          "offset": 105,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "mcuEventSequence",
+          "offset": 106,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "eventDigestSha256",
+          "offset": 110,
+          "type": "sha256"
+        }
+      ],
+      "id": 91,
+      "maximumPayloadLength": 142,
+      "minimumPayloadLength": 142
+    },
+    "PROCESS_EVENT_SAVED": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "EDGE_TO_MCU",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "mcuEventSequence",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "enum": "ProcessEventMessageType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "eventMessageType",
+          "offset": 12,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "eventDigestSha256",
+          "offset": 13,
+          "type": "sha256"
+        }
+      ],
+      "id": 92,
+      "maximumPayloadLength": 45,
+      "minimumPayloadLength": 45
+    },
+    "PROCESS_EVENT_SAVED_REPLY": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "mcuEventSequence",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "enum": "ProcessEventMessageType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "eventMessageType",
+          "offset": 12,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "eventDigestSha256",
+          "offset": 13,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "currentMcuBootId",
+          "offset": 45,
+          "type": "u64"
+        },
+        {
+          "enum": "ResultSavedStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "status",
+          "offset": 53,
+          "type": "u8"
+        }
+      ],
+      "id": 93,
+      "maximumPayloadLength": 54,
+      "minimumPayloadLength": 54
+    },
+    "QUERY_ACTUATOR_EVENT": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "EDGE_TO_MCU",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "offset": 8,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "afterMcuEventSequence",
+          "offset": 16,
+          "type": "u32"
+        }
+      ],
+      "id": 94,
+      "maximumPayloadLength": 20,
+      "minimumPayloadLength": 20
+    },
+    "QUERY_COMMAND": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "EDGE_TO_MCU",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "mcuCommandUid",
+          "offset": 8,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "commandDigestSha256",
+          "offset": 24,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 56,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 64,
+          "type": "u32"
+        }
+      ],
+      "id": 12,
+      "maximumPayloadLength": 68,
+      "minimumPayloadLength": 68
+    },
+    "QUERY_DEVICE_FACTS": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "EDGE_TO_MCU",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "offset": 8,
+          "type": "u64"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimum": 1,
+          "minimumSize": 1,
+          "name": "portNo",
+          "offset": 16,
+          "type": "u8"
+        }
+      ],
+      "id": 69,
+      "maximumPayloadLength": 17,
+      "minimumPayloadLength": 17
+    },
+    "QUERY_PROCESS_EVENT": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "EDGE_TO_MCU",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "mcuCommandUid",
+          "offset": 8,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "commandDigestSha256",
+          "offset": 24,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 56,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 64,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "workUid",
+          "offset": 68,
+          "type": "uuid"
+        },
+        {
+          "enum": "WorkType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "workType",
+          "offset": 84,
+          "type": "u8"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimum": 1,
+          "minimumSize": 1,
+          "name": "portNo",
+          "offset": 85,
+          "type": "u8"
+        },
+        {
+          "enum": "ProcessEventMessageType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "eventMessageType",
+          "offset": 86,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "stepSequence",
+          "offset": 87,
+          "type": "u16"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 89,
+          "type": "u64"
+        }
+      ],
+      "id": 90,
+      "maximumPayloadLength": 97,
+      "minimumPayloadLength": 97
+    },
+    "QUERY_RESULT": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "EDGE_TO_MCU",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 8,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "resultSequence",
+          "offset": 16,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "workUid",
+          "offset": 20,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "resultDigestSha256",
+          "offset": 36,
+          "type": "sha256"
+        }
+      ],
+      "id": 65,
+      "maximumPayloadLength": 68,
+      "minimumPayloadLength": 68
+    },
     "QUERY_STATE": {
       "ackRequired": true,
       "category": "CONTROL",
@@ -2685,16 +5024,280 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "snapshotUid",
-          "offset": 48,
+          "offset": 60,
           "type": "uuid"
         }
       ],
       "id": 5,
-      "maximumPayloadLength": 64,
-      "minimumPayloadLength": 64
+      "maximumPayloadLength": 76,
+      "minimumPayloadLength": 76
+    },
+    "QUERY_WORK": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "EDGE_TO_MCU",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "mcuCommandUid",
+          "offset": 8,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "commandDigestSha256",
+          "offset": 24,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 56,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 64,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "workUid",
+          "offset": 68,
+          "type": "uuid"
+        },
+        {
+          "enum": "WorkType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "workType",
+          "offset": 84,
+          "type": "u8"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimum": 1,
+          "minimumSize": 1,
+          "name": "portNo",
+          "offset": 85,
+          "type": "u8"
+        }
+      ],
+      "id": 67,
+      "maximumPayloadLength": 86,
+      "minimumPayloadLength": 86
+    },
+    "RESULT_QUERY_REPLY": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 8,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "resultSequence",
+          "offset": 16,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "workUid",
+          "offset": 20,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "resultDigestSha256",
+          "offset": 36,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "currentMcuBootId",
+          "offset": 68,
+          "type": "u64"
+        },
+        {
+          "enum": "ResultQueryStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "status",
+          "offset": 76,
+          "type": "u8"
+        }
+      ],
+      "id": 66,
+      "maximumPayloadLength": 77,
+      "minimumPayloadLength": 77
+    },
+    "RESULT_SAVED": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "EDGE_TO_MCU",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "resultSequence",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "workUid",
+          "offset": 12,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "resultDigestSha256",
+          "offset": 28,
+          "type": "sha256"
+        }
+      ],
+      "id": 14,
+      "maximumPayloadLength": 60,
+      "minimumPayloadLength": 60
+    },
+    "RESULT_SAVED_REPLY": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "resultSequence",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "workUid",
+          "offset": 12,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "resultDigestSha256",
+          "offset": 28,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 0,
+          "minimumSize": 8,
+          "name": "currentMcuBootId",
+          "offset": 60,
+          "type": "u64"
+        },
+        {
+          "enum": "ResultSavedStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "status",
+          "offset": 68,
+          "type": "u8"
+        }
+      ],
+      "id": 15,
+      "maximumPayloadLength": 69,
+      "minimumPayloadLength": 69
     },
     "RESUME_CLEAN_OPERATION": {
       "ackRequired": true,
@@ -2717,10 +5320,29 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "operationUid",
-          "offset": 48,
+          "offset": 60,
           "type": "uuid"
         },
         {
@@ -2729,7 +5351,7 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 64,
+          "offset": 76,
           "type": "u8"
         },
         {
@@ -2737,7 +5359,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "recoveryGeneration",
-          "offset": 65,
+          "offset": 77,
           "type": "u32"
         },
         {
@@ -2746,7 +5368,7 @@
           "minimumSize": 2,
           "name": "nextCleanActionSequence",
           "notes": "必须大于该 operationUid 已接受的任何动作序号",
-          "offset": 69,
+          "offset": 81,
           "type": "u16"
         },
         {
@@ -2755,20 +5377,20 @@
           "minimum": 1,
           "minimumSize": 8,
           "name": "configVersion",
-          "offset": 71,
+          "offset": 83,
           "type": "u64"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "configContentSha256",
-          "offset": 79,
+          "offset": 91,
           "type": "sha256"
         }
       ],
       "id": 35,
-      "maximumPayloadLength": 111,
-      "minimumPayloadLength": 111
+      "maximumPayloadLength": 123,
+      "minimumPayloadLength": 123
     },
     "SAFETY_SENSOR_EVENT": {
       "ackRequired": true,
@@ -2878,11 +5500,30 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "enum": "SafeCloseScope",
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "scope",
-          "offset": 48,
+          "offset": 60,
           "type": "u8"
         },
         {
@@ -2891,7 +5532,7 @@
           "minimum": 0,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 49,
+          "offset": 61,
           "type": "u8"
         },
         {
@@ -2899,14 +5540,14 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "executionDeadlineMs",
-          "offset": 50,
+          "offset": 62,
           "type": "u32",
           "unit": "ms"
         }
       ],
       "id": 6,
-      "maximumPayloadLength": 54,
-      "minimumPayloadLength": 54
+      "maximumPayloadLength": 66,
+      "minimumPayloadLength": 66
     },
     "SAFE_CLOSE_RESULT": {
       "ackRequired": true,
@@ -3022,10 +5663,29 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "detectionUid",
-          "offset": 48,
+          "offset": 60,
           "type": "uuid"
         },
         {
@@ -3034,7 +5694,7 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 64,
+          "offset": 76,
           "type": "u8"
         },
         {
@@ -3042,7 +5702,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "sampleRole",
-          "offset": 65,
+          "offset": 77,
           "type": "u8"
         },
         {
@@ -3051,14 +5711,14 @@
           "minimum": 1,
           "minimumSize": 8,
           "name": "configVersion",
-          "offset": 66,
+          "offset": 78,
           "type": "u64"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "configContentSha256",
-          "offset": 74,
+          "offset": 86,
           "type": "sha256"
         },
         {
@@ -3066,7 +5726,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "startExecutionWindowMs",
-          "offset": 106,
+          "offset": 118,
           "type": "u32",
           "unit": "ms"
         },
@@ -3074,24 +5734,24 @@
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "settleWaitMs",
-          "offset": 110,
+          "offset": 122,
           "type": "u32",
           "unit": "ms"
         },
         {
-          "maximum": 6000,
+          "const": 5000,
           "maximumSize": 4,
-          "minimum": 1000,
           "minimumSize": 4,
           "name": "measurementTimeoutMs",
-          "offset": 114,
+          "notes": "原生称重策略统一5秒，与全机及投口配置一致",
+          "offset": 126,
           "type": "u32",
           "unit": "ms"
         }
       ],
       "id": 37,
-      "maximumPayloadLength": 118,
-      "minimumPayloadLength": 118
+      "maximumPayloadLength": 130,
+      "minimumPayloadLength": 130
     },
     "START_CLEAN_OPERATION": {
       "ackRequired": true,
@@ -3114,10 +5774,29 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "operationUid",
-          "offset": 48,
+          "offset": 60,
           "type": "uuid"
         },
         {
@@ -3126,7 +5805,7 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 64,
+          "offset": 76,
           "type": "u8"
         },
         {
@@ -3135,14 +5814,14 @@
           "minimum": 1,
           "minimumSize": 8,
           "name": "configVersion",
-          "offset": 65,
+          "offset": 77,
           "type": "u64"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "configContentSha256",
-          "offset": 73,
+          "offset": 85,
           "type": "sha256"
         },
         {
@@ -3150,7 +5829,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "startExecutionWindowMs",
-          "offset": 105,
+          "offset": 117,
           "type": "u32",
           "unit": "ms"
         },
@@ -3159,14 +5838,14 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "operationWindowMs",
-          "offset": 109,
+          "offset": 121,
           "type": "u32",
           "unit": "ms"
         }
       ],
       "id": 33,
-      "maximumPayloadLength": 113,
-      "minimumPayloadLength": 113
+      "maximumPayloadLength": 125,
+      "minimumPayloadLength": 125
     },
     "START_DELIVERY_SESSION": {
       "ackRequired": true,
@@ -3189,10 +5868,29 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "sessionUid",
-          "offset": 48,
+          "offset": 60,
           "type": "uuid"
         },
         {
@@ -3201,7 +5899,7 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 64,
+          "offset": 76,
           "type": "u8"
         },
         {
@@ -3210,14 +5908,14 @@
           "minimum": 1,
           "minimumSize": 8,
           "name": "configVersion",
-          "offset": 65,
+          "offset": 77,
           "type": "u64"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "configContentSha256",
-          "offset": 73,
+          "offset": 85,
           "type": "sha256"
         },
         {
@@ -3225,7 +5923,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "unitPriceTenThousandths",
-          "offset": 105,
+          "offset": 117,
           "type": "u32",
           "unit": "yuan_per_kg_x10000"
         },
@@ -3234,7 +5932,7 @@
           "minimum": 1000,
           "minimumSize": 4,
           "name": "continueDeliveryWaitMs",
-          "offset": 109,
+          "offset": 121,
           "type": "u32",
           "unit": "ms"
         },
@@ -3243,7 +5941,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "negativeWeightThresholdGrams",
-          "offset": 113,
+          "offset": 125,
           "type": "u32",
           "unit": "g"
         },
@@ -3252,7 +5950,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "startExecutionWindowMs",
-          "offset": 117,
+          "offset": 129,
           "type": "u32",
           "unit": "ms"
         },
@@ -3261,14 +5959,14 @@
           "minimum": 1000,
           "minimumSize": 4,
           "name": "deliveryAutoCloseMs",
-          "offset": 121,
+          "offset": 133,
           "type": "u32",
           "unit": "ms"
         }
       ],
       "id": 32,
-      "maximumPayloadLength": 125,
-      "minimumPayloadLength": 125
+      "maximumPayloadLength": 137,
+      "minimumPayloadLength": 137
     },
     "STATE_SNAPSHOT_BEGIN": {
       "ackRequired": true,
@@ -3317,7 +6015,7 @@
           "type": "uuid"
         },
         {
-          "const": 1,
+          "const": 2,
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "protocolMajor",
@@ -3903,10 +6601,29 @@
           "type": "sha256"
         },
         {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "operationUid",
-          "offset": 48,
+          "offset": 60,
           "type": "uuid"
         },
         {
@@ -3915,7 +6632,7 @@
           "minimum": 1,
           "minimumSize": 1,
           "name": "portNo",
-          "offset": 64,
+          "offset": 76,
           "type": "u8"
         },
         {
@@ -3923,7 +6640,7 @@
           "minimumSize": 2,
           "name": "cleanActionSequence",
           "notes": "首次自动解锁固定为0；再次解锁必须精确回显 CLEAN_UNLOCK_REQUESTED 的非零序号",
-          "offset": 65,
+          "offset": 77,
           "type": "u16"
         },
         {
@@ -3931,7 +6648,7 @@
           "minimumSize": 4,
           "name": "recoveryGeneration",
           "notes": "首次操作固定为0；恢复后与当前 RESUME_CLEAN_OPERATION 一致",
-          "offset": 67,
+          "offset": 79,
           "type": "u32"
         },
         {
@@ -3939,7 +6656,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "unlockPulseMs",
-          "offset": 71,
+          "offset": 83,
           "type": "u32",
           "unit": "ms"
         },
@@ -3948,7 +6665,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "remainingOperationWindowMs",
-          "offset": 75,
+          "offset": 87,
           "type": "u32",
           "unit": "ms"
         },
@@ -3956,13 +6673,13 @@
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "parentCommandUid",
-          "offset": 79,
+          "offset": 91,
           "type": "uuid"
         }
       ],
       "id": 34,
-      "maximumPayloadLength": 95,
-      "minimumPayloadLength": 95
+      "maximumPayloadLength": 107,
+      "minimumPayloadLength": 107
     },
     "WORK_POSTCLOSE_WEIGHT_READY": {
       "ackRequired": true,
@@ -4035,82 +6752,218 @@
           "type": "uuid"
         },
         {
-          "enum": "MeasurementStatus",
+          "enum": "ResultMeasurementKind",
           "maximumSize": 1,
+          "minimum": 2,
           "minimumSize": 1,
-          "name": "measurementStatus",
+          "name": "measurementKind",
           "offset": 71,
           "type": "u8"
         },
         {
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "weightValuePresent",
-          "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
-          "offset": 72,
-          "type": "bool"
-        },
-        {
-          "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "weightValuePresent=false",
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "reportedWeightGrams",
-          "offset": 73,
+          "offset": 72,
           "type": "i32",
           "unit": "g"
         },
         {
-          "enum": "WeightValueKind",
+          "maximum": 5000,
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "measurementElapsedMs",
+          "offset": 76,
+          "type": "u16",
+          "unit": "ms"
+        },
+        {
+          "maximum": 32,
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "weightValueKind",
-          "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
-          "offset": 77,
+          "name": "sampleCount",
+          "offset": 78,
           "type": "u8"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
-          "name": "measurementElapsedMs",
-          "offset": 78,
+          "name": "sampleSpanGrams",
+          "offset": 79,
           "type": "u32",
-          "unit": "ms"
-        },
-        {
-          "maximumSize": 2,
-          "minimumSize": 2,
-          "name": "sampleCount",
-          "offset": 82,
-          "type": "u16"
+          "unit": "g"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 84,
+          "offset": 83,
           "type": "u32"
-        },
-        {
-          "enum": "SensorHealth",
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "weightSensorHealth",
-          "offset": 88,
-          "type": "u8"
         },
         {
           "enum": "FaultCode",
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 89,
+          "offset": 87,
           "type": "u16"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 89,
+          "type": "u64"
+        },
+        {
+          "enum": "WorkFullnessStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "workFullnessStatus",
+          "offset": 97,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "fullnessGroupSequence",
+          "offset": 98,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "fullnessConfigContentSha256",
+          "offset": 102,
+          "type": "sha256"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "fullnessMcuPayloadSha256",
+          "offset": 134,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "fullnessStartedUptimeMs",
+          "offset": 166,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "fullnessCompletedUptimeMs",
+          "offset": 174,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "fullnessLastCapturedUptimeMs",
+          "offset": 182,
+          "type": "u64"
+        },
+        {
+          "enum": "FullnessObservationKind",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "workFullnessSensorKind",
+          "offset": 190,
+          "type": "u8"
+        },
+        {
+          "enum": "WorkFullnessValue",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "workFullnessSensorValue",
+          "offset": 191,
+          "type": "u8"
+        },
+        {
+          "enum": "WorkFullnessBasis",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "workFullnessBasis",
+          "offset": 192,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessDistancePresent",
+          "offset": 193,
+          "type": "bool"
+        },
+        {
+          "invalidEncoding": "all-zero bytes",
+          "invalidWhen": "fullnessDistancePresent=false",
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "fullnessDistanceMm",
+          "offset": 194,
+          "type": "u32",
+          "unit": "mm"
+        },
+        {
+          "maximum": 9,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessRequestedSampleCount",
+          "offset": 198,
+          "type": "u8"
+        },
+        {
+          "maximum": 9,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessCompletedSampleCount",
+          "offset": 199,
+          "type": "u8"
+        },
+        {
+          "maximum": 9,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessValidSampleCount",
+          "offset": 200,
+          "type": "u8"
+        },
+        {
+          "maximum": 9,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessMinimumValidSampleCount",
+          "offset": 201,
+          "type": "u8"
+        },
+        {
+          "maximum": 4000,
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "fullnessDistanceThresholdMm",
+          "offset": 202,
+          "type": "u32",
+          "unit": "mm"
+        },
+        {
+          "enum": "FullnessStopReason",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessStopReason",
+          "offset": 206,
+          "type": "u8"
         }
       ],
       "id": 50,
-      "maximumPayloadLength": 91,
-      "minimumPayloadLength": 91
+      "maximumPayloadLength": 207,
+      "minimumPayloadLength": 207
     },
     "WORK_PREOPEN_WEIGHT_READY": {
       "ackRequired": true,
@@ -4183,82 +7036,75 @@
           "type": "uuid"
         },
         {
-          "enum": "MeasurementStatus",
+          "enum": "ResultMeasurementKind",
           "maximumSize": 1,
+          "minimum": 2,
           "minimumSize": 1,
-          "name": "measurementStatus",
+          "name": "measurementKind",
           "offset": 71,
           "type": "u8"
         },
         {
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "weightValuePresent",
-          "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
-          "offset": 72,
-          "type": "bool"
-        },
-        {
-          "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "weightValuePresent=false",
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "reportedWeightGrams",
-          "offset": 73,
+          "offset": 72,
           "type": "i32",
           "unit": "g"
         },
         {
-          "enum": "WeightValueKind",
+          "maximum": 5000,
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "measurementElapsedMs",
+          "offset": 76,
+          "type": "u16",
+          "unit": "ms"
+        },
+        {
+          "maximum": 32,
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "weightValueKind",
-          "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
-          "offset": 77,
+          "name": "sampleCount",
+          "offset": 78,
           "type": "u8"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
-          "name": "measurementElapsedMs",
-          "offset": 78,
+          "name": "sampleSpanGrams",
+          "offset": 79,
           "type": "u32",
-          "unit": "ms"
-        },
-        {
-          "maximumSize": 2,
-          "minimumSize": 2,
-          "name": "sampleCount",
-          "offset": 82,
-          "type": "u16"
+          "unit": "g"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 84,
+          "offset": 83,
           "type": "u32"
-        },
-        {
-          "enum": "SensorHealth",
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "weightSensorHealth",
-          "offset": 88,
-          "type": "u8"
         },
         {
           "enum": "FaultCode",
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 89,
+          "offset": 87,
           "type": "u16"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 89,
+          "type": "u64"
         }
       ],
       "id": 48,
-      "maximumPayloadLength": 91,
-      "minimumPayloadLength": 91
+      "maximumPayloadLength": 97,
+      "minimumPayloadLength": 97
     },
     "WORK_PREUNLOCK_WEIGHT_READY": {
       "ackRequired": true,
@@ -4323,82 +7169,475 @@
           "type": "uuid"
         },
         {
-          "enum": "MeasurementStatus",
+          "enum": "ResultMeasurementKind",
           "maximumSize": 1,
+          "minimum": 2,
           "minimumSize": 1,
-          "name": "measurementStatus",
+          "name": "measurementKind",
           "offset": 69,
           "type": "u8"
         },
         {
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "weightValuePresent",
-          "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
-          "offset": 70,
-          "type": "bool"
-        },
-        {
-          "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "weightValuePresent=false",
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "reportedWeightGrams",
-          "offset": 71,
+          "offset": 70,
           "type": "i32",
           "unit": "g"
         },
         {
-          "enum": "WeightValueKind",
+          "maximum": 5000,
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "measurementElapsedMs",
+          "offset": 74,
+          "type": "u16",
+          "unit": "ms"
+        },
+        {
+          "maximum": 32,
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "weightValueKind",
-          "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
-          "offset": 75,
+          "name": "sampleCount",
+          "offset": 76,
           "type": "u8"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
-          "name": "measurementElapsedMs",
-          "offset": 76,
+          "name": "sampleSpanGrams",
+          "offset": 77,
           "type": "u32",
-          "unit": "ms"
-        },
-        {
-          "maximumSize": 2,
-          "minimumSize": 2,
-          "name": "sampleCount",
-          "offset": 80,
-          "type": "u16"
+          "unit": "g"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 82,
+          "offset": 81,
           "type": "u32"
-        },
-        {
-          "enum": "SensorHealth",
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "weightSensorHealth",
-          "offset": 86,
-          "type": "u8"
         },
         {
           "enum": "FaultCode",
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 87,
+          "offset": 85,
           "type": "u16"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 87,
+          "type": "u64"
         }
       ],
       "id": 52,
-      "maximumPayloadLength": 89,
-      "minimumPayloadLength": 89
+      "maximumPayloadLength": 95,
+      "minimumPayloadLength": 95
+    },
+    "WORK_QUERY_REPLY": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "mcuCommandUid",
+          "offset": 8,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "commandDigestSha256",
+          "offset": 24,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "notes": "MCU 必须先核对自身当前非零启动编号；不匹配时拒绝，不执行命令。",
+          "offset": 56,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "commandSequence",
+          "notes": "由香橙派在该 MCU 启动编号下持久递增分配；不能用 txSequence 代替，不允许回绕。只读查询不消耗动作高水位；动作占用和原命令查询在后续状态契约中明确。",
+          "offset": 64,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "workUid",
+          "offset": 68,
+          "type": "uuid"
+        },
+        {
+          "enum": "WorkType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "workType",
+          "offset": 84,
+          "type": "u8"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimum": 1,
+          "minimumSize": 1,
+          "name": "portNo",
+          "offset": 85,
+          "type": "u8"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "currentMcuBootId",
+          "offset": 86,
+          "type": "u64"
+        },
+        {
+          "enum": "WorkQueryStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "status",
+          "offset": 94,
+          "type": "u8"
+        },
+        {
+          "enum": "McuWorkPhase",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "phase",
+          "offset": 95,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "resultSequence",
+          "offset": 96,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "resultDigestSha256",
+          "offset": 100,
+          "type": "sha256"
+        }
+      ],
+      "id": 68,
+      "maximumPayloadLength": 132,
+      "minimumPayloadLength": 132
+    },
+    "WORK_RESULT": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "resultSequence",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "workUid",
+          "offset": 12,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "resultDigestSha256",
+          "offset": 28,
+          "type": "sha256"
+        },
+        {
+          "enum": "WorkType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "workType",
+          "offset": 60,
+          "type": "u8"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimum": 1,
+          "minimumSize": 1,
+          "name": "portNo",
+          "offset": 61,
+          "type": "u8"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 62,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "originCommandUid",
+          "offset": 70,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "originCommandSequence",
+          "offset": 86,
+          "type": "u32"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "completedUptimeMs",
+          "offset": 90,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "deliveryRoundCount",
+          "offset": 98,
+          "type": "u16"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "cleanActionSequence",
+          "offset": 100,
+          "type": "u32"
+        },
+        {
+          "enum": "WorkResultFinishReason",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "finishReason",
+          "offset": 104,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "physicalCloseConfirmed",
+          "offset": 105,
+          "type": "bool"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "negativeWeightAnomaly",
+          "offset": 106,
+          "type": "bool"
+        },
+        {
+          "enum": "ResultMeasurementKind",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "initialKind",
+          "offset": 107,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "initialMeasurementUid",
+          "offset": 108,
+          "type": "uuid",
+          "zeroAllowed": true
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "initialSourceMcuBootId",
+          "offset": 124,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "initialMcuEventSequence",
+          "offset": 132,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "initialWeightGrams",
+          "offset": 136,
+          "type": "i32",
+          "unit": "g"
+        },
+        {
+          "maximum": 5000,
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "initialElapsedMs",
+          "offset": 140,
+          "type": "u16",
+          "unit": "ms"
+        },
+        {
+          "maximum": 32,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "initialSampleCount",
+          "offset": 142,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "initialSpanGrams",
+          "offset": 143,
+          "type": "u32",
+          "unit": "g"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "initialCalibrationVersion",
+          "offset": 147,
+          "type": "u32"
+        },
+        {
+          "enum": "FaultCode",
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "initialFaultCode",
+          "offset": 151,
+          "type": "u16"
+        },
+        {
+          "enum": "ResultMeasurementKind",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "finalKind",
+          "offset": 153,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "finalMeasurementUid",
+          "offset": 154,
+          "type": "uuid",
+          "zeroAllowed": true
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "finalSourceMcuBootId",
+          "offset": 170,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "finalMcuEventSequence",
+          "offset": 178,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "finalWeightGrams",
+          "offset": 182,
+          "type": "i32",
+          "unit": "g"
+        },
+        {
+          "maximum": 5000,
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "finalElapsedMs",
+          "offset": 186,
+          "type": "u16",
+          "unit": "ms"
+        },
+        {
+          "maximum": 32,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "finalSampleCount",
+          "offset": 188,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "finalSpanGrams",
+          "offset": 189,
+          "type": "u32",
+          "unit": "g"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "finalCalibrationVersion",
+          "offset": 193,
+          "type": "u32"
+        },
+        {
+          "enum": "FaultCode",
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "finalFaultCode",
+          "offset": 197,
+          "type": "u16"
+        }
+      ],
+      "id": 64,
+      "maximumPayloadLength": 199,
+      "minimumPayloadLength": 199
     }
   },
   "physicalLink": {
@@ -4426,13 +7665,101 @@
     "frameReceiveDeadlineMs": 100,
     "headerLength": 12,
     "magicHex": "ec42",
-    "major": 1,
+    "major": 2,
     "maximumFrameLength": 256,
     "maximumPayloadLength": 242,
     "maximumSends": 3,
     "minor": 0,
     "receiveBufferLimit": 512
   },
-  "registrySha256": "d2b73386e99e7f5be3b05129617afcfe4499cbc4d3f2e8401a4ce5342ca90b75",
-  "registryVersion": "1.0.0-rc.3"
+  "registrySha256": "a41d80dd9c349b847107a3afc7844580ac0c7a371920a78dfb22bf1506512e70",
+  "registryVersion": "2.0.0-rc.22",
+  "sessionPolicy": {
+    "actuatorEventMessages": [
+      "DELIVERY_DOOR_COMMAND_RESULT",
+      "CLEAN_LOCK_POWER_CHANGED",
+      "SAFE_CLOSE_RESULT",
+      "DELIVERY_LOCAL_DOOR_RESULT",
+      "DELIVERY_CYCLE_ABORTED",
+      "DELIVERY_POSTCLOSE_INTERRUPTED",
+      "CLEAN_OPERATION_INTERRUPTED"
+    ],
+    "allocator": "EDGE_DURABLE_BEFORE_SEND",
+    "bindCondition": "UNASSIGNED_AND_MATCHING_PENDING_PROBE",
+    "bindTimeout": "FRESH_PROBE_NOT_BIND_RETRY",
+    "bootstrapMaximumSends": 1,
+    "bootstrapMessages": [
+      "BOOT_PROBE",
+      "BOOT_PROBE_REPLY",
+      "BIND_BOOT",
+      "BIND_BOOT_REPLY"
+    ],
+    "businessGate": "NONZERO_EXACT_TARGET_BOOT",
+    "channelPremise": "REQUESTS_MAY_BE_LOST_DELAYED_REORDERED_BUT_NOT_COPIED",
+    "commandMaximumSends": 1,
+    "commandPayloadValidation": "ALL_FENCED_EDGE_MESSAGES",
+    "commandSequencePolicy": "DURABLE_MONOTONIC_PER_MCU_BOOT_NO_WRAP",
+    "commandTimeout": "QUERY_ORIGINAL_NOT_MECHANICAL_RETRY",
+    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU 只在 RAM 保存启动编号及待绑定询问，接受绑定后消费待绑定询问，已有非零编号绝不重绑。绑定回复只关联本次请求，不证明 MCU 此后未重启；每条命令仍须核对目标启动。真实串口单次写入及旧帧边界尚未接入，禁止启用候选。",
+    "probeReuse": "NEVER",
+    "processEventMessages": [
+      "WORK_PREOPEN_WEIGHT_READY",
+      "WORK_POSTCLOSE_WEIGHT_READY",
+      "WORK_PREUNLOCK_WEIGHT_READY",
+      "CLEAN_FINAL_WEIGHT_READY",
+      "FULLNESS_SAMPLE_RESULT",
+      "BASELINE_MEASUREMENT_RESULT",
+      "DELIVERY_SELECTION",
+      "CLEAN_UNLOCK_REQUESTED",
+      "CLEAN_FINISH_REQUESTED",
+      "CLEAN_COMPLETION_CONFIRMED"
+    ],
+    "processMeasurementMessages": [
+      "WORK_PREOPEN_WEIGHT_READY",
+      "WORK_POSTCLOSE_WEIGHT_READY",
+      "WORK_PREUNLOCK_WEIGHT_READY",
+      "CLEAN_FINAL_WEIGHT_READY",
+      "FULLNESS_SAMPLE_RESULT",
+      "BASELINE_MEASUREMENT_RESULT"
+    ],
+    "readOnlyMessages": [
+      "QUERY_COMMAND",
+      "QUERY_RESULT",
+      "QUERY_WORK",
+      "QUERY_DEVICE_FACTS",
+      "QUERY_PROCESS_EVENT",
+      "QUERY_ACTUATOR_EVENT"
+    ],
+    "savedResultMessages": [
+      "RESULT_SAVED",
+      "RESULT_SAVED_REPLY",
+      "PROCESS_EVENT_SAVED",
+      "PROCESS_EVENT_SAVED_REPLY",
+      "ACTUATOR_EVENT_SAVED",
+      "ACTUATOR_EVENT_SAVED_REPLY"
+    ],
+    "sessionControlMessages": [
+      "COMMAND_DECISION",
+      "QUERY_COMMAND",
+      "COMMAND_QUERY_RESULT",
+      "RESULT_SAVED",
+      "RESULT_SAVED_REPLY",
+      "WORK_RESULT",
+      "QUERY_RESULT",
+      "RESULT_QUERY_REPLY",
+      "QUERY_WORK",
+      "WORK_QUERY_REPLY",
+      "QUERY_DEVICE_FACTS",
+      "DEVICE_FACTS_REPLY",
+      "QUERY_PROCESS_EVENT",
+      "PROCESS_EVENT_QUERY_REPLY",
+      "PROCESS_EVENT_SAVED",
+      "PROCESS_EVENT_SAVED_REPLY",
+      "QUERY_ACTUATOR_EVENT",
+      "ACTUATOR_EVENT_QUERY_REPLY",
+      "ACTUATOR_EVENT_SAVED",
+      "ACTUATOR_EVENT_SAVED_REPLY"
+    ],
+    "unassignedMcuBootId": 0
+  }
 }

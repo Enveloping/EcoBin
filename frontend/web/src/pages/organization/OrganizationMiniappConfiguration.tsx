@@ -281,32 +281,16 @@ export default function OrganizationMiniappConfiguration({
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Alert
-        type={configuration?.appSecretConfigured ? 'info' : 'warning'}
+      {(!configuration || !configuration.appSecretConfigured) && <Alert
+        type="warning"
         showIcon
         message={
-          configuration
-            ? configuration.appSecretConfigured
-              ? platformManaged
-                ? '共享小程序渠道由平台统一维护'
-                : '当前机构已绑定共享小程序渠道（只读）'
-              : '当前 AppSecret 已失效，需要重新配置'
-            : platformManaged
-              ? '尚未绑定小程序渠道'
-              : '当前机构尚未绑定小程序渠道'
+          configuration ? '小程序密钥不可用，登录暂不可用' : '当前机构尚未绑定小程序渠道'
         }
         description={
-          configuration
-            ? configuration.appSecretConfigured
-              ? platformManaged
-                ? '同一个 AppID 可供多个机构使用；设备公开码决定用户进入哪个机构。AppSecret 仅由平台维护。'
-                : '租户和机构只能查看渠道摘要，不能读取或修改 AppSecret、AppID 及登录开关。'
-              : '旧测试密钥已被清除；请填写新的 AppSecret 后保存，登录才能继续使用。'
-            : platformManaged
-              ? '平台填写渠道资料后绑定当前机构；相同 AppID 可继续绑定其他机构。'
-              : '请联系平台管理员为当前机构绑定共享小程序渠道。'
+          platformManaged ? '请填写下方配置后保存。' : '请联系平台管理员完成配置。'
         }
-      />
+      />}
 
       {configuration && (
         <Descriptions size="small" column={2} bordered>
@@ -365,7 +349,6 @@ export default function OrganizationMiniappConfiguration({
       {platformManaged && configuration?.appSecretConfigured && (
         <Form.Item
           label="当前 AppSecret"
-          extra={`服务端脱敏值：${configuration.maskedAppSecret ?? '已配置'}`}
         >
           <Input.Password
             readOnly

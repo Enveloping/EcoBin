@@ -1,0 +1,29 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "30000000-0000-4000-8000-000000000003",
+  "deliveryClass": "RELIABLE_FACT",
+  "edgeEventSequence": 1059,
+  "eventType": "DELIVERY_ISSUE_EVIDENCE_APPENDED",
+  "eventUid": "32000000-0000-4000-8000-000000000003",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "archiveEvidenceSha256": "fedeea7944871b062312628b226fd82596cdb232c7701a1f0ef5970534f37c99",
+    "businessValue": "NONE",
+    "dataHex": "7b22646961676e6f737469634f6e6c79223a747275657d",
+    "evidenceIndex": 0,
+    "evidenceKind": "ARCHIVE_CONTEXT",
+    "evidenceSha256": "fedeea7944871b062312628b226fd82596cdb232c7701a1f0ef5970534f37c99",
+    "evidenceSizeBytes": 23,
+    "issueUid": "32000000-0000-4000-8000-000000000001",
+    "originalCommandUid": "30000000-0000-4000-8000-000000000003",
+    "partCount": 1,
+    "partIndex": 1,
+    "sessionUid": "30000000-0000-4000-8000-000000000001"
+  },
+  "payloadSha256": "160d51d6bf9e3dfe0d6771e11f0360f583f90daff511a002c0e3a07cc27760a2",
+  "schemaVersion": 2,
+  "target": {
+    "type": "DELIVERY_SESSION",
+    "uid": "30000000-0000-4000-8000-000000000001"
+  }
+}

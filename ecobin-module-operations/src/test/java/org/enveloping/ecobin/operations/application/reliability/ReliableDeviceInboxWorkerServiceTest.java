@@ -286,6 +286,8 @@ class ReliableDeviceInboxWorkerServiceTest {
     @ValueSource(strings = {
             "SAFETY_SENSOR_STATE_CHANGED",
             "DELIVERY_RECOVERY_QUARANTINED",
+            "DELIVERY_ISSUE_ARCHIVED",
+            "DELIVERY_ISSUE_EVIDENCE_APPENDED",
             "REMOTE_SUPPORT_TUNNEL_STATUS",
             "FACTORY_SEAL_COMPLETED",
             "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",
@@ -381,6 +383,8 @@ class ReliableDeviceInboxWorkerServiceTest {
                         "DEVICE_FAULT_RECOVERED",
                         "SAFETY_SENSOR_STATE_CHANGED",
                         "DELIVERY_RECOVERY_QUARANTINED",
+                        "DELIVERY_ISSUE_ARCHIVED",
+                        "DELIVERY_ISSUE_EVIDENCE_APPENDED",
                         "REMOTE_SUPPORT_TUNNEL_STATUS",
                         "FACTORY_SEAL_COMPLETED",
                         "BUSINESS_RUNTIME_UPDATE_CANCEL_RESULT",

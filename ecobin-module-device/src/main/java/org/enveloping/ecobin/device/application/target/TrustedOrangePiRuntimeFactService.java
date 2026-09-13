@@ -860,7 +860,7 @@ public class TrustedOrangePiRuntimeFactService
                 || !target.mcuPayloadSha256().equals(
                         target.appliedMcuPayloadSha256());
         boolean success = !stale
-                && "STABLE".equals(normalized.status())
+                && normalized.hasUsableWeight()
                 && normalized.weightGrams() != null
                 && normalized.weightGrams() >= 0;
         if (technicallyAborted) {
@@ -880,7 +880,7 @@ public class TrustedOrangePiRuntimeFactService
         } else {
             String failureCode = stale
                     ? "BASELINE_FACT_STALE"
-                    : "STABLE".equals(normalized.status())
+                    : normalized.hasUsableWeight()
                     ? "NEGATIVE_EMPTY_BAG_WEIGHT"
                     : normalized.faultCode();
             applyFailedBaseline(
@@ -964,6 +964,8 @@ public class TrustedOrangePiRuntimeFactService
                             baseline_measurement_id,
                             baseline_measurement_uid,
                             baseline_measurement_status,
+                            baseline_weight_value_available,
+                            baseline_weight_value_kind,
                             baseline_total_weight_g,
                             baseline_last_observed_weight_g,
                             baseline_measurement_elapsed_ms,
@@ -983,7 +985,7 @@ public class TrustedOrangePiRuntimeFactService
                             ?, ?, ?,
                             'BASELINE_MEASUREMENT',
                             NULL, NULL, NULL, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
                             NULL, NULL, ?
                         )
                         """,
@@ -999,9 +1001,11 @@ public class TrustedOrangePiRuntimeFactService
                 target.measurementId(),
                 measurement.measurementUid(),
                 measurement.status(),
-                "STABLE".equals(measurement.status())
+                measurement.weightValueAvailable(),
+                measurement.weightValueKind(),
+                measurement.hasUsableWeight()
                         ? measurement.weightGrams() : null,
-                "STABLE".equals(measurement.status())
+                measurement.hasUsableWeight()
                         ? null : measurement.weightGrams(),
                 measurement.elapsedMs(),
                 measurement.sampleCount(),
@@ -1182,6 +1186,10 @@ public class TrustedOrangePiRuntimeFactService
                 now,
                 target.measurementId()),
                 "fail automatic baseline measurement");
+        // A superseded intent owns its evidence, not the current bag/capacity generation.
+        if (stale) {
+            return;
+        }
         jdbc.update("""
                         UPDATE rec_port_capacity_state
                         SET detection_gate = 'FAILED',
@@ -1246,6 +1254,10 @@ public class TrustedOrangePiRuntimeFactService
     }
 
     private static BaselineMeasurementFact baselineMeasurement(JsonNode node) {
+        if ("TIMEOUT_MEDIAN".equals(nullableText(node, "weightValueKind"))
+                && (!node.has("faultCode") || !node.get("faultCode").isNull())) {
+            throw new UntrustedInboxSourceException("baseline median requires explicit no-fault evidence");
+        }
         return new BaselineMeasurementFact(
                 requiredText(node, "measurementUid"),
                 requiredText(node, "status"),
@@ -1269,6 +1281,22 @@ public class TrustedOrangePiRuntimeFactService
             throw new UntrustedInboxSourceException(
                     "baseline measurement value presence differs");
         }
+        if ("TIMEOUT_MEDIAN".equals(fact.weightValueKind())) {
+            if (!available || !"UNSTABLE".equals(fact.status())
+                    || !"OK".equals(fact.sensorHealth()) || fact.faultCode() != null
+                    || fact.reportedWeightGrams() < Integer.MIN_VALUE
+                    || fact.reportedWeightGrams() > Integer.MAX_VALUE
+                    || fact.elapsedMs() != 5000 || fact.sampleCount() < 5 || fact.sampleCount() > 32
+                    || fact.calibrationVersion() > 4_294_967_295L
+                    || fact.mcuBootId() > 9_007_199_254_740_991L || fact.mcuEventSequence() > 4_294_967_295L
+                    || !fact.measurementUid().matches("[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")) {
+                throw new UntrustedInboxSourceException("baseline median quality or measurement identity differs");
+            }
+            return new NormalizedBaselineMeasurement(
+                    fact.measurementUid(), fact.status(), fact.reportedWeightGrams(),
+                    true, fact.weightValueKind(), fact.elapsedMs(), fact.sampleCount(), fact.calibrationVersion(),
+                    fact.sensorHealth(), null, fact.mcuBootId(), fact.mcuEventSequence());
+        }
         if ("STABLE".equals(fact.status())) {
             if (!available
                     || fact.sampleCount() < 1
@@ -1281,6 +1309,8 @@ public class TrustedOrangePiRuntimeFactService
                     fact.measurementUid(),
                     "STABLE",
                     fact.reportedWeightGrams(),
+                    fact.weightValueAvailable(),
+                    fact.weightValueKind(),
                     fact.elapsedMs(),
                     fact.sampleCount(),
                     fact.calibrationVersion(),
@@ -1322,6 +1352,8 @@ public class TrustedOrangePiRuntimeFactService
                 fact.measurementUid(),
                 status,
                 available ? fact.reportedWeightGrams() : null,
+                fact.weightValueAvailable(),
+                fact.weightValueKind(),
                 fact.elapsedMs(),
                 fact.sampleCount(),
                 fact.calibrationVersion(),
@@ -1357,6 +1389,7 @@ public class TrustedOrangePiRuntimeFactService
                 throw new UntrustedInboxSourceException(
                         "runtime snapshot port set is not authoritative");
             }
+            validateRuntimeMedian(port);
             normalizedPorts.add(port);
         }
 
@@ -1902,6 +1935,29 @@ public class TrustedOrangePiRuntimeFactService
                 acceptedErrorCode, incomingErrorCode);
     }
 
+    /** Validate new quality before any legacy health projection can hide original evidence. */
+    private static void validateRuntimeMedian(JsonNode port) {
+        if (!"TIMEOUT_MEDIAN".equals(nullableText(port, "weightValueKind"))) {
+            return;
+        }
+        long grams = exactLong(port.get("reportedWeightGrams"), "reportedWeightGrams", "an integer");
+        long count = nonNegativeLong(port, "weightSampleCount");
+        long calibration = nonNegativeLong(port, "calibrationVersion");
+        long boot = positiveLong(port, "weightMcuBootId");
+        long sequence = positiveLong(port, "weightMcuEventSequence");
+        if (!"UNSTABLE".equals(requiredText(port, "weightMeasurementStatus"))
+                || !"OK".equals(requiredText(port, "weightSensorHealth"))
+                || !requiredBoolean(port, "weightValueAvailable")
+                || !port.has("weightFaultCode") || !port.get("weightFaultCode").isNull()
+                || nullableUuid(port, "weightMeasurementUid") == null
+                || grams < Integer.MIN_VALUE || grams > Integer.MAX_VALUE
+                || nonNegativeLong(port, "measurementElapsedMs") != 5000
+                || count < 5 || count > 32 || calibration > 4_294_967_295L
+                || boot > 9_007_199_254_740_991L || sequence > 4_294_967_295L) {
+            throw new IllegalArgumentException("runtime median quality or measurement identity is invalid");
+        }
+    }
+
     private void mergePortRuntime(
             JsonNode port,
             long portId,
@@ -1959,6 +2015,9 @@ public class TrustedOrangePiRuntimeFactService
                             weight_measurement_elapsed_ms = ?,
                             weight_sample_count = ?,
                             calibration_version = ?,
+                            weight_fault_code = ?,
+                            weight_mcu_boot_id = ?,
+                            weight_mcu_event_sequence = ?,
                             infrared_value = ?,
                             infrared_sensor_health = ?,
                             fullness_sensor_kind = ?,
@@ -2006,6 +2065,9 @@ public class TrustedOrangePiRuntimeFactService
                 nonNegativeLong(port, "measurementElapsedMs"),
                 nonNegativeLong(port, "weightSampleCount"),
                 nonNegativeLong(port, "calibrationVersion"),
+                nullableText(port, "weightFaultCode"),
+                nullableLong(port, "weightMcuBootId"),
+                nullableLong(port, "weightMcuEventSequence"),
                 fullnessValue,
                 fullnessHealth,
                 requiredText(port, "fullnessSensorKind"),
@@ -3441,6 +3503,8 @@ public class TrustedOrangePiRuntimeFactService
             String measurementUid,
             String status,
             Long weightGrams,
+            boolean weightValueAvailable,
+            String weightValueKind,
             long elapsedMs,
             long sampleCount,
             long calibrationVersion,
@@ -3448,6 +3512,9 @@ public class TrustedOrangePiRuntimeFactService
             String faultCode,
             long mcuBootId,
             long mcuEventSequence) {
+        private boolean hasUsableWeight() {
+            return "STABLE".equals(status) || "TIMEOUT_MEDIAN".equals(weightValueKind);
+        }
     }
 
     private record FaultApplyResult(

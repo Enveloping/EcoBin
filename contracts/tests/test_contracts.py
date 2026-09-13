@@ -126,14 +126,13 @@ class GeneratedArtifactTests(unittest.TestCase):
                     r"\A[A-Za-z0-9_\-\u4e00-\u9fa5]{1,20}\Z",
                 )
 
-    def test_hardware_mcu_outputs_are_explicitly_opt_in(self) -> None:
+    def test_hardware_mcu_outputs_are_blocked_until_candidate_is_runnable(self) -> None:
         default_outputs = build_outputs()
         self.assertNotIn(HARDWARE_MCU_UART_HEADER, default_outputs)
         self.assertNotIn(HARDWARE_MCU_UART_GOLDEN_TEST, default_outputs)
 
-        mcu_outputs = build_outputs(include_hardware_mcu=True)
-        self.assertIn(HARDWARE_MCU_UART_HEADER, mcu_outputs)
-        self.assertIn(HARDWARE_MCU_UART_GOLDEN_TEST, mcu_outputs)
+        with self.assertRaisesRegex(ContractError, "candidate"):
+            build_outputs(include_hardware_mcu=True)
 
     def test_generated_python_parses_as_python_311(self) -> None:
         source = (
@@ -212,25 +211,26 @@ class UartRegistryTests(unittest.TestCase):
             ),
         )
 
-    def test_unstable_weight_preserves_fallback_value(self) -> None:
+    def test_timeout_weight_preserves_native_median_value(self) -> None:
         vectors = load_json(
             CONTRACTS_ROOT / "examples" / "uart" / "golden-vectors.json"
         )["vectors"]
         vector = next(
             item
             for item in vectors
-            if item["name"] == "unstable_weight_keeps_fallback_value"
+            if item["name"] == "timeout_weight_keeps_median_value"
         )
         values = decode_uart_payload(
             self.registry,
             "WORK_POSTCLOSE_WEIGHT_READY",
             bytes.fromhex(vector["payloadHex"]),
         )
-        self.assertEqual("UNSTABLE", values["measurementStatus"])
-        self.assertTrue(values["weightValuePresent"])
+        self.assertEqual("TIMEOUT_MEDIAN", values["measurementKind"])
         self.assertEqual(-480, values["reportedWeightGrams"])
-        self.assertEqual("LAST_FOUR_MEAN", values["weightValueKind"])
-        self.assertEqual("WEIGHT_UNSTABLE", values["faultCode"])
+        self.assertEqual(5000, values["measurementElapsedMs"])
+        self.assertEqual(20, values["sampleCount"])
+        self.assertEqual(1000, values["sampleSpanGrams"])
+        self.assertEqual("NONE", values["faultCode"])
 
     def test_registry_has_no_delivery_door_position_claim(self) -> None:
         self.assertNotIn("DeliveryDoorState", self.registry["enums"])
@@ -256,7 +256,7 @@ class UartRegistryTests(unittest.TestCase):
         self.assertNotIn("deliveryDoorCloseCommandSignalMs", device_fields)
 
         expected_lengths = {
-            "CONFIG_DEVICE_BLOCK": 163,
+            "CONFIG_DEVICE_BLOCK": 183,
             "DELIVERY_DOOR_COMMAND_RESULT": 60,
             "SAFE_CLOSE_RESULT": 43,
             "STATE_SNAPSHOT_PORT": 81,
@@ -423,18 +423,25 @@ class OneNetSchemaTests(unittest.TestCase):
             runtime_port["properties"],
         )
 
-    def test_uart_fault_codes_are_losslessly_representable_in_onenet(self) -> None:
+    def test_uart_hardware_fault_codes_are_losslessly_representable_in_onenet(self) -> None:
         registry = load_uart_registry()
         common = load_json(
             CONTRACTS_ROOT / "onenet" / "common.schema.json"
         )
-        uart_codes = set(registry["enums"]["FaultCode"]["values"]) - {"NONE"}
+        # The new candidate has one acquisition-interruption cause, not a
+        # sensor/device fault. It stays in raw local evidence until the business
+        # classifier is implemented; do not widen the deployed OneNet model.
+        local_causes = {"MEASUREMENT_INTERRUPTED"}
+        self.assertLessEqual(local_causes, set(registry["enums"]["FaultCode"]["values"]))
+        uart_codes = set(registry["enums"]["FaultCode"]["values"]) - {"NONE"} - local_causes
         measurement_codes = set(
             common["$defs"]["faultCodeSymbol"]["enum"]
         )
         device_codes = set(
             common["$defs"]["deviceFaultCodeSymbol"]["enum"]
         )
+
+        self.assertFalse(local_causes & (measurement_codes | device_codes))
 
         self.assertEqual(uart_codes, measurement_codes)
         self.assertEqual(
@@ -448,6 +455,19 @@ class OneNetSchemaTests(unittest.TestCase):
             },
             device_codes,
         )
+
+    def test_measurement_interruption_cannot_be_promoted_to_any_hardware_fault(self) -> None:
+        registry = load_uart_registry()
+        values = dict(mcuBootId=42, mcuEventSequence=3, uptimeMs=300,
+            faultUid="11111111-1111-4111-8111-111111111111", lifecycle="OBSERVED",
+            component="WEIGHT_SENSOR", severity="WARNING", faultCode="WEIGHT_TIMEOUT",
+            workType="NONE", workUid="00000000-0000-0000-0000-000000000000", portNo=1)
+        self.assertTrue(encode_uart_payload(registry, "FAULT_OBSERVED", values))
+        for component in registry["enums"]["FaultComponent"]["values"]:
+            with self.subTest(component=component):
+                with self.assertRaisesRegex(ContractError, "faultCode differs from component"):
+                    encode_uart_payload(registry, "FAULT_OBSERVED", values | {
+                        "component": component, "faultCode": "MEASUREMENT_INTERRUPTED"})
 
     def test_uart_result_enums_are_representable_in_onenet(self) -> None:
         registry_enums = load_uart_registry()["enums"]
@@ -467,7 +487,6 @@ class OneNetSchemaTests(unittest.TestCase):
 
         exact_pairs = (
             (measurement["status"]["enum"], "MeasurementStatus"),
-            (measurement["weightValueKind"]["enum"], "WeightValueKind"),
             (measurement["sensorHealth"]["enum"], "SensorHealth"),
             (
                 common["$defs"]["deliveryDoorCommandFact"]["properties"][
@@ -495,6 +514,12 @@ class OneNetSchemaTests(unittest.TestCase):
                     uart_symbols(uart_enum),
                     set(onenet_symbols),
                 )
+
+        # The cloud adds an explicit median; the frozen legacy UART weight
+        # structure retains its original five values and must not be widened.
+        expected_weight_kinds = uart_symbols("WeightValueKind") | {"TIMEOUT_MEDIAN"}
+        self.assertEqual(expected_weight_kinds, set(measurement["weightValueKind"]["enum"]))
+        self.assertEqual(expected_weight_kinds, set(runtime["weightValueKind"]["enum"]))
 
         subset_pairs = (
             (runtime["fullnessSensorKind"]["enum"], "FullnessSensorKind"),

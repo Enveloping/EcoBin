@@ -3,6 +3,7 @@ package org.enveloping.ecobin.integration.onenet.inbound;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceSourceScopePort;
+import org.enveloping.ecobin.device.api.result.NativeDeliveryIssueEvidence;
 import org.enveloping.ecobin.framework.reliability.TrustedInboxScopeResolver;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.enveloping.ecobin.integration.cos.CosProperties;
@@ -77,6 +78,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "DELIVERY_COMPLETE",
                     "RELIABLE_FACT",
                     "DELIVERY_SESSION")),
+            Map.entry("deliveryIssueArchived", new EventContract(
+                    "DELIVERY_ISSUE_ARCHIVED", "RELIABLE_FACT", "DELIVERY_SESSION")),
+            Map.entry("deliveryIssueEvidenceAppended", new EventContract(
+                    "DELIVERY_ISSUE_EVIDENCE_APPENDED", "RELIABLE_FACT", "DELIVERY_SESSION")),
             Map.entry("deliveryRecoveryQuarantined",
             new EventContract(
                     "DELIVERY_RECOVERY_QUARANTINED",
@@ -237,7 +242,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             2L, "STABLE_WINDOW_MEAN",
             3L, "LAST_FOUR_MEAN",
             4L, "AVAILABLE_SAMPLES_MEAN",
-            5L, "LAST_OBSERVED");
+            5L, "LAST_OBSERVED",
+            6L, "TIMEOUT_MEDIAN");
     private static final Set<String> DELIVERY_PHOTO_SLOTS = Set.of(
             "BEFORE_INNER",
             "BEFORE_OUTER",
@@ -601,6 +607,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         }
         if ("DEVICE_ACCEPTANCE_EVIDENCE".equals(
                 contract.messageKind())
+                || "DELIVERY_ISSUE_ARCHIVED".equals(contract.messageKind())
+                || "DELIVERY_ISSUE_EVIDENCE_APPENDED".equals(contract.messageKind())
                 || "DELIVERY_RECOVERY_QUARANTINED".equals(
                         contract.messageKind())
                 || "REMOTE_SUPPORT_TUNNEL_STATUS".equals(
@@ -651,6 +659,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         // 远程维护状态属于平台控制事实。独立的稳定来源身份既隔离权限边界，也允许
         // 已按旧规则错误落入机构作用域的不可变收件记录通过重传安全收敛。
         return switch (contract.messageKind()) {
+            case "DELIVERY_ISSUE_ARCHIVED", "DELIVERY_ISSUE_EVIDENCE_APPENDED" -> "onenet.delivery-issue";
             case "DEVICE_COMMAND_OBSERVED" ->
                     "AUTHORIZE_FACTORY_SEAL".equals(
                             payload.get("observedCommandType"))
@@ -809,6 +818,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 messageKind)
                 || "DELIVERY_COMPLETE".equals(messageKind)
                 || "DELIVERY_RECOVERY_QUARANTINED".equals(messageKind)
+                || "DELIVERY_ISSUE_ARCHIVED".equals(messageKind)
+                || "DELIVERY_ISSUE_EVIDENCE_APPENDED".equals(messageKind)
                 || "CLEAN_COMPLETE".equals(messageKind)
                 || "FULLNESS_SAMPLE_COMPLETE".equals(
                 messageKind)
@@ -838,6 +849,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             JsonNode wire,
             String trustedCosBaseUrl) {
         return switch (messageKind) {
+            case "DELIVERY_ISSUE_ARCHIVED", "DELIVERY_ISSUE_EVIDENCE_APPENDED" ->
+                    deliveryIssuePayload(messageKind, wire);
             case "CONFIGURATION_PROGRESS" ->
                     configurationPayload(wire);
             case "DEVICE_COMMAND_OBSERVED" ->
@@ -1164,6 +1177,50 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         return payload;
     }
 
+    private static Map<String, Object> deliveryIssuePayload(String kind, JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        for (String field : List.of("issueUid", "sessionUid", "originalCommandUid"))
+            payload.put(field, pattern(wire, field, UUID_V4));
+        payload.put("archiveEvidenceSha256", pattern(wire, "archiveEvidenceSha256", SHA256));
+        payload.put("businessValue", exactEnum(wire, "businessValue", 1, "NONE"));
+        if ("DELIVERY_ISSUE_ARCHIVED".equals(kind)) {
+            payload.put("originalCommandPayloadSha256", pattern(wire, "originalCommandPayloadSha256", SHA256));
+            long port = requiredIntegerInRange(wire, "portNo", 1, 6);
+            long source = positiveSafeInteger(wire, "sourceMcuBootId");
+            long target = positiveSafeInteger(wire, "targetMcuBootId");
+            payload.put("portNo", port); payload.put("sourceMcuBootId", source); payload.put("targetMcuBootId", target);
+            payload.put("reason", exactEnum(wire, "reason", 1, "MCU_RESTART_FINAL_RESULT_UNAVAILABLE"));
+            payload.put("finalResultAtArchive", exactEnum(wire, "finalResultAtArchive", 1, "ABSENT"));
+            payload.put("knownFactCount", requiredIntegerInRange(wire, "knownFactCount", 0, 4294967295L));
+            String start = text(wire, "originalStartPayloadHex", 484);
+            String bootKind = enumText(integer(wire, "bootObservationType"), Map.of(1L,"BOOT_PROBE_REPLY",2L,"BIND_BOOT_REPLY"), "bootObservationType");
+            String boot = text(wire, "bootObservationPayloadHex", 50);
+            NativeDeliveryIssueEvidence.validateArchive(start, bootKind, boot,
+                    UUID.fromString((String)payload.get("sessionUid")), (int)port, source, target);
+            payload.put("originalStartPayloadHex", start);
+            payload.put("bootObservationType", bootKind); payload.put("bootObservationPayloadHex", boot);
+        } else {
+            String evidenceKind = enumText(integer(wire, "evidenceKind"), Map.of(1L,"ARCHIVE_CONTEXT",2L,"PROCESS_FACT",3L,"FINAL_RESULT"), "evidenceKind");
+            long index = requiredIntegerInRange(wire, "evidenceIndex", 0, 4294967295L);
+            long size = requiredIntegerInRange(wire, "evidenceSizeBytes", 1, 4294967295L);
+            long part = requiredIntegerInRange(wire, "partIndex", 1, 16777216);
+            long count = requiredIntegerInRange(wire, "partCount", 1, 16777216);
+            String digest = pattern(wire, "evidenceSha256", SHA256);
+            String hex = text(wire, "dataHex", 512);
+            if (!hex.matches("([0-9a-f]{2})+")) throw permanent("issue evidence is not bounded lowercase hex");
+            byte[] raw = HexFormat.of().parseHex(hex);
+            if (count != (size+255)/256 || part > count || raw.length != Math.min(256,size-(part-1)*256)
+                    || (count == 1 && !HexFormat.of().formatHex(NativeDeliveryIssueEvidence.sha256(raw)).equals(digest))
+                    || "PROCESS_FACT".equals(evidenceKind) != (index > 0)
+                    || "ARCHIVE_CONTEXT".equals(evidenceKind) && !digest.equals(payload.get("archiveEvidenceSha256")))
+                throw permanent("issue evidence fragment size/identity/digest is inconsistent");
+            payload.put("evidenceKind", evidenceKind); payload.put("evidenceIndex", index);
+            payload.put("evidenceSizeBytes", size); payload.put("evidenceSha256", digest);
+            payload.put("partIndex", part); payload.put("partCount", count); payload.put("dataHex", hex);
+        }
+        return payload;
+    }
+
     private static Map<String, Object> deliveryRecoveryQuarantinedPayload(
             JsonNode wire,
             String trustedCosBaseUrl) {
@@ -1353,13 +1410,9 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 pattern(wire, "newBagUid", UUID_V4));
         Map<String, Object> pre = measurement(
                 object(wire, "preUnlockMeasurement"));
-        if (!"STABLE".equals(pre.get("status"))
-                || !Boolean.TRUE.equals(
-                pre.get("weightValueAvailable"))
-                || !"STABLE_WINDOW_MEAN".equals(
-                pre.get("weightValueKind"))) {
+        if (!hasUsableNormalWeight(pre)) {
             throw permanent(
-                    "clean pre-unlock measurement must be stable");
+                    "clean pre-unlock measurement must have a usable mean or median");
         }
         payload.put("preUnlockMeasurement", pre);
         Map<String, Object> finalMeasurement = measurement(
@@ -1379,11 +1432,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 wire,
                 "newBaselineWeightGramsPresent",
                 "newBaselineWeightGrams");
-        boolean stableFinal = "STABLE".equals(
-                finalMeasurement.get("status"));
-        if (stableFinal
+        boolean usableFinal = hasUsableNormalWeight(finalMeasurement);
+        if (usableFinal
                 != (newBaseline != null)
-                || (stableFinal
+                || (usableFinal
                 && !newBaseline.equals(
                 finalMeasurement.get("reportedWeightGrams")))) {
             throw permanent(
@@ -1729,9 +1781,23 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
 
     private static Map<String, Object> measurement(JsonNode wire) {
         Map<String, Object> measurement = new LinkedHashMap<>();
+        String measurementUid = text(wire, "measurementUid", 36);
+        if (measurementUid.startsWith("45424d31-00")) {
+            // EBM1 is an opaque, device-scoped MCU identity, not a random UUID.
+            long boot = requiredIntegerInRange(wire, "mcuBootId", 1, SAFE_INTEGER_MAX);
+            long sequence = requiredIntegerInRange(wire, "mcuEventSequence", 1, 4_294_967_295L);
+            String hex = "45424d31" + String.format(java.util.Locale.ROOT, "%016x%08x", boot, sequence);
+            String expected = hex.substring(0, 8) + "-" + hex.substring(8, 12) + "-" + hex.substring(12, 16)
+                    + "-" + hex.substring(16, 20) + "-" + hex.substring(20);
+            if (!measurementUid.equals(expected)) {
+                throw permanent("native measurement identity differs from its boot/event");
+            }
+        } else if (!measurementUid.matches(UUID_V4)) {
+            throw permanent("measurementUid has an invalid stable format");
+        }
         measurement.put(
                 "measurementUid",
-                pattern(wire, "measurementUid", UUID_V4));
+                measurementUid);
         String status = enumText(
                 integer(wire, "status"),
                 MEASUREMENT_STATUS,
@@ -1815,6 +1881,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 valueAvailable,
                 reportedWeight,
                 valueKind,
+                (Long) measurement.get("measurementElapsedMs"),
                 sampleCount,
                 sensorHealth,
                 faultCode);
@@ -1826,6 +1893,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             boolean valueAvailable,
             Long reportedWeight,
             String valueKind,
+            long measurementElapsedMs,
             long sampleCount,
             String sensorHealth,
             String faultCode) {
@@ -1834,6 +1902,17 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 || (!valueAvailable && !"NONE".equals(valueKind))) {
             throw permanent(
                     "measurement value availability fields differ");
+        }
+        if ("TIMEOUT_MEDIAN".equals(valueKind)) {
+            if (!"UNSTABLE".equals(status)
+                    || !valueAvailable
+                    || measurementElapsedMs != 5_000
+                    || sampleCount < 5 || sampleCount > 32
+                    || !"OK".equals(sensorHealth)
+                    || faultCode != null) {
+                throw permanent("timeout median quality fields differ");
+            }
+            return;
         }
         if ("STABLE".equals(status)
                 && (!valueAvailable
@@ -1853,6 +1932,15 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             throw permanent(
                     "unstable measurement quality fields differ");
         }
+    }
+
+    /** Shape was validated by measurement(); this is not a frozen calibration/range check. */
+    private static boolean hasUsableNormalWeight(Map<String, Object> measurement) {
+        return Boolean.TRUE.equals(measurement.get("weightValueAvailable"))
+                && (("STABLE".equals(measurement.get("status"))
+                && "STABLE_WINDOW_MEAN".equals(measurement.get("weightValueKind")))
+                || ("UNSTABLE".equals(measurement.get("status"))
+                && "TIMEOUT_MEDIAN".equals(measurement.get("weightValueKind"))));
     }
 
     private static Map<String, Object> nullableDeliveryDoorCommand(
@@ -2975,12 +3063,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                         "reportedWeightGrams"));
         String valueKind = enumText(
                 integer(wire, "weightValueKind"),
-                Map.of(
-                        1L, "NONE",
-                        2L, "STABLE_WINDOW_MEAN",
-                        3L, "LAST_FOUR_MEAN",
-                        4L, "AVAILABLE_SAMPLES_MEAN",
-                        5L, "LAST_OBSERVED"),
+                WEIGHT_VALUE_KIND,
                 "weightValueKind");
         port.put("weightValueKind", valueKind);
         port.put(
@@ -3088,6 +3171,23 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "runtime weight availability fields differ");
         }
         long sampleCount = (Long) port.get("weightSampleCount");
+        if ("TIMEOUT_MEDIAN".equals(valueKind)) {
+            Long weight = (Long) port.get("reportedWeightGrams");
+            if (port.get("weightMeasurementUid") == null
+                    || port.get("weightMcuBootId") == null
+                    || port.get("weightMcuEventSequence") == null
+                    || (Long) port.get("weightMcuEventSequence") > 4_294_967_295L
+                    || (Long) port.get("calibrationVersion") > 4_294_967_295L
+                    || (weight != null && (weight < Integer.MIN_VALUE
+                    || weight > Integer.MAX_VALUE))) {
+                throw permanent("runtime median identity or weight fields differ");
+            }
+            validateMeasurementShape(
+                    measurementStatus, valueAvailable, weight, valueKind,
+                    (Long) port.get("measurementElapsedMs"), sampleCount,
+                    (String) port.get("weightSensorHealth"),
+                    (String) port.get("weightFaultCode"));
+        }
         if (fixedFrameCompatibility
                 && "STABLE".equals(measurementStatus)
                 && (sampleCount < 0 || sampleCount > 1)) {
@@ -3710,6 +3810,14 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         Map<String, Object> target =
                 (Map<String, Object>) event.get("target");
         String targetUid = (String) target.get("uid");
+        if ("DELIVERY_ISSUE_ARCHIVED".equals(contract.messageKind())
+                || "DELIVERY_ISSUE_EVIDENCE_APPENDED".equals(contract.messageKind())) {
+            boolean archive = "DELIVERY_ISSUE_ARCHIVED".equals(contract.messageKind());
+            if (!payload.get("sessionUid").equals(targetUid)
+                    || !payload.get("originalCommandUid").equals(event.get("commandUid"))
+                    || archive != payload.get("issueUid").equals(event.get("eventUid")))
+                throw permanent("delivery issue event identity differs from original issue/work");
+        }
         if ("CONFIGURATION_PROGRESS".equals(contract.messageKind())
                 && !payload.get("applicationUid").equals(targetUid)) {
             throw permanent(

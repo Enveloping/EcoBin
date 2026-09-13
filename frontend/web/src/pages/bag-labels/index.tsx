@@ -22,12 +22,9 @@ import {
   CopyOutlined,
   DeleteOutlined,
   FileExcelOutlined,
-  FilePdfOutlined,
   KeyOutlined,
   PrinterOutlined,
   QrcodeOutlined,
-  SafetyCertificateOutlined,
-  TagsOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import QrCodeEncoder from 'qrcode';
@@ -354,29 +351,9 @@ export default function BagLabelsPage() {
 
   return (
     <PageContainer
-      header={pageHeader(
-        '袋码管理',
-        '签发可验真的实体清运袋标签，并按批次打印、保存 PDF 或导出 Excel。',
-      )}
+      {...pageHeader('袋码管理')}
     >
       <section className="bag-label-workbench">
-        <div className="bag-label-workbench-copy">
-          <div className="bag-label-eyebrow">
-            <SafetyCertificateOutlined /> AUTHENTICATED LABEL STATION
-          </div>
-          <Typography.Title level={2}>先签发，再贴袋</Typography.Title>
-          <Typography.Paragraph>
-            每个二维码都带有平台防伪签名。设备登记和清运换袋时，后端会验证签名；
-            仅仿造相同文字格式不能通过。
-          </Typography.Paragraph>
-          <Space wrap size={18} className="bag-label-facts">
-            <span>
-              <TagsOutlined /> 每批 1–{MAX_BAG_LABEL_BATCH_QUANTITY} 张
-            </span>
-            <span><FilePdfOutlined /> A4 · 3 × 8</span>
-            <span><KeyOutlined /> 后端活动密钥签发</span>
-          </Space>
-        </div>
         <div className="bag-label-generator">
           <Typography.Text type="secondary">本批标签数量</Typography.Text>
           <div className="bag-label-generator-row">
@@ -399,18 +376,10 @@ export default function BagLabelsPage() {
             </Button>
           </div>
           <Typography.Text className="bag-label-generator-note">
-            建议按 24 的倍数生成，正好铺满整张 A4 标签纸。
+            A4 标签纸 · 每页 24 张
           </Typography.Text>
         </div>
       </section>
-
-      <Alert
-        className="bag-label-boundary"
-        type="info"
-        showIcon
-        message="删除的是平台打印记录，不是已经贴出的袋码"
-        description="袋码无需提前分配租户或机构。机构首次用一个有效新袋码发起清运时，系统才在当前机构下建立袋资产。"
-      />
 
       <ProTable<BagLabelBatchSummary>
         {...proTableConfig}

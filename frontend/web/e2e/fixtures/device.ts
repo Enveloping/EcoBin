@@ -1,0 +1,168 @@
+export function legacyDeviceManagementSummary() {
+  return {
+    architectureGeneration: 'LEGACY_DIRECT',
+    businessAdmission: null,
+    compatibility: null,
+    primaryReason: null,
+    observedAt: null,
+  };
+}
+
+export function legacyDeviceManagementStatus() {
+  return {
+    ...legacyDeviceManagementSummary(),
+    reasons: [],
+    deviceGateState: null,
+    managementStateSequence: null,
+    communicationAgentVersion: null,
+    deviceUpdaterVersion: null,
+    businessReleaseUid: null,
+    businessVersionName: null,
+    businessReleaseSequence: null,
+    businessPackageSha256: null,
+    businessProcessState: null,
+    businessReady: null,
+    mcuFirmwareVersion: null,
+    mcuFirmwareIdentityHex: null,
+    managementTransportProtocol: null,
+    deviceMaintenanceProtocol: null,
+    agentBusinessProtocol: null,
+    agentUpdaterProtocol: null,
+    updaterBusinessProtocol: null,
+    uartProtocol: null,
+    sourceEventUid: null,
+  };
+}
+
+export function permanentDeviceAsset(overrides: Record<string, unknown> = {}) {
+  const deviceCode = typeof overrides.deviceCode === 'string'
+    ? overrides.deviceCode
+    : 'Dv_0123456789abcdefghijklmn';
+  const hardwareSn = typeof overrides.hardwareSn === 'string'
+    ? overrides.hardwareSn
+    : 'SN-PERMANENT-01';
+  return {
+    assetUid: '51000000-0000-4000-8000-000000000001',
+    deviceCode,
+    hardwareSn,
+    modelCode: 'ECOBIN-V1',
+    productionBatch: '2026-08',
+    expectedPortCount: 1,
+    tenantCode: null,
+    organizationCode: null,
+    acceptanceStatus: 'PENDING',
+    deviceEntryUrl: null,
+    lifecycleStatus: 'NORMAL',
+    version: 0,
+    tenantAssignedAt: null,
+    organizationAssignedAt: null,
+    acceptedAt: null,
+    disabledAt: null,
+    retiredAt: null,
+    createdAt: '2026-08-07T01:00:00.123Z',
+    updatedAt: '2026-08-07T01:00:00.123Z',
+    installationProfile: {
+      deviceCode,
+      version: 0,
+      complete: false,
+      displayName: `回收箱 ${hardwareSn}`,
+      address: null,
+      longitude: null,
+      latitude: null,
+      coordinateSystem: 'GCJ02',
+      updatedAt: '2026-08-07T01:00:00.123Z',
+    },
+    oneNetMapping: {
+      productId: 'onenet-product',
+      deviceName: hardwareSn,
+      currentComputedValue: true,
+    },
+    connectivity: {
+      oneNetConnectionStatus: 'UNKNOWN',
+      statusObservedAt: null,
+      statusReceivedAt: null,
+      evidenceSource: null,
+    },
+    deviceManagement: legacyDeviceManagementSummary(),
+    ...overrides,
+  };
+}
+
+export function permanentDeviceRuntime(deviceCode: string) {
+  return {
+    deviceCode,
+    lifecycleStatus: 'NORMAL',
+    acceptanceStatus: 'PASSED',
+    version: 4,
+    configuration: {
+      latestPublishedVersion: 3,
+      latestAppliedVersion: 3,
+      latestApplicationStatus: 'APPLIED',
+      latestPreciselyApplied: true,
+    },
+    health: {
+      edgeConnectionStatus: 'ONLINE',
+      oneNetConnectionStatus: 'ONLINE',
+      oneNetStatusObservedAt: '2026-08-24T03:00:00.000Z',
+      oneNetStatusReceivedAt: '2026-08-24T03:00:01.000Z',
+      oneNetEvidenceSource: 'LIFECYCLE_EVENT',
+      trustedRuntimeReceivedAt: '2026-08-24T03:00:02.000Z',
+      mcuLinkStatus: 'OK',
+      safetyStatus: 'SAFE',
+      aggregateWeightHealth: 'OK',
+      cameraHealth: 'OK',
+      localStorageHealth: 'OK',
+      clockSyncHealth: 'OK',
+      edgeSoftwareVersion: 'edge-1.2.3',
+      mcuFirmwareVersion: 'mcu-2.0.0',
+      uartState: 'READY',
+      uartProtocolMajor: 1,
+      uartProtocolMinor: 0,
+      capabilityBitmapHex: '0f',
+      edgeBootId: 18,
+      lastMcuResetReason: null,
+      pendingReliableEventCount: 0,
+      orangePiReportedConfigurationVersion: 3,
+      lastHeartbeatAt: '2026-08-24T03:00:02.000Z',
+      lastDeviceEventAt: '2026-08-24T02:59:30.000Z',
+      runtimeVersion: 6,
+    },
+    deviceManagement: legacyDeviceManagementStatus(),
+    occupied: false,
+    occupancyKind: null,
+    occupiedAt: null,
+    ports: [{
+      deviceCode,
+      portNo: 1,
+      displayName: '可回收物投口',
+      configuredEnabled: true,
+      deliveryDoorState: 'CLOSED',
+      deliveryDoorActuatorHealth: 'OK',
+      deliveryDoorContactState: 'CLOSED',
+      lastDeliveryDoorCommand: 'CLOSE',
+      lastDeliveryDoorOutputStatus: 'COMMAND_DISPATCHED',
+      cleanLockPowerState: 'DEENERGIZED',
+      cleanSolenoidHealth: 'OK',
+      cleanDoorRecordedState: 'CLOSED',
+      cleanDoorStateBasis: 'CLEANER_CONFIRMATION',
+      cleanerPhysicalCloseConfirmed: true,
+      weightSensorHealth: 'OK',
+      weightMeasurementStatus: 'STABLE',
+      weightValueAvailable: true,
+      reportedWeightGrams: 1200,
+      weightValueKind: 'STABLE_WINDOW_MEAN',
+      infraredValue: 'CLEAR',
+      infraredSensorHealth: 'OK',
+      fullnessSensorKind: 'ULTRASONIC',
+      fullnessSensorValue: 'NORMAL',
+      representativeDistanceMm: 438,
+      smokeState: 'CLEAR',
+      smokeSensorHealth: 'OK',
+      safetyStatus: 'SAFE',
+      lastObservedAt: '2026-08-24T03:00:02.000Z',
+      runtimeVersion: 8,
+    }],
+    fetchedAt: '2026-08-24T03:00:05.000Z',
+  };
+}
+

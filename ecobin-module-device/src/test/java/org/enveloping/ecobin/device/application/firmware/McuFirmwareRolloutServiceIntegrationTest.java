@@ -127,6 +127,27 @@ class McuFirmwareRolloutServiceIntegrationTest {
     }
 
     @Test
+    void cancelledDeploymentsReleaseDevicesForAFreshRollout() {
+        registerRelease(UUID.randomUUID(), "initial release");
+        service.createRollout(UUID.randomUUID(), rolloutRequest(RELEASE_UID, "first plan"));
+        jdbc.update("""
+                UPDATE dev_mcu_firmware_deployment
+                SET deployment_status = 'LOCAL_CANCELLED',
+                    error_code = 'DEVICE_DISABLED', completed_at = CURRENT_TIMESTAMP
+                """);
+
+        RolloutView fresh = service.createRollout(
+                UUID.randomUUID(), rolloutRequest(RELEASE_UID, "fresh plan after restoration"));
+
+        assertEquals(3, fresh.deployments().size());
+        assertEquals(3, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM dev_mcu_firmware_deployment
+                WHERE deployment_status = 'LOCAL_CANCELLED'
+                """, Integer.class));
+        assertTrue(tasks.isEmpty());
+    }
+
+    @Test
     void validationPromotionAndWavesAreExplicitAndFailClosed() {
         registerRelease(UUID.randomUUID(), "initial release");
         UUID rolloutUid = UUID.randomUUID();

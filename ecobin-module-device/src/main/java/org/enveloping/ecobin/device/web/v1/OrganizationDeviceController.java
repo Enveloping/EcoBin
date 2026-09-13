@@ -45,9 +45,10 @@ public class OrganizationDeviceController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(required = false) String hardwareSn,
+            @RequestParam(required = false) String lifecycleStatus,
             HttpServletRequest request) {
         return noStore(application.listOrganizationAssets(
-                organizationCode, page, pageSize, hardwareSn), request);
+                organizationCode, page, pageSize, hardwareSn, lifecycleStatus), request);
     }
 
     @GetMapping("/{deviceCode}")

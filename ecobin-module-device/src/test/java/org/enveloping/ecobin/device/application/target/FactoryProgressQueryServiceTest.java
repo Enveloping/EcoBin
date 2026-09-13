@@ -24,6 +24,18 @@ class FactoryProgressQueryServiceTest {
                     "FAILED", "bb", "2026-08-30T01:00:00Z");
 
     @Test
+    void retiredDevicesNeverRecommendRestorationOrNewFactoryWork() {
+        for (String sealStatus : List.of("SEALED", "CANCELLED")) {
+            var view = project(asset("PASSED", 8, List.of(), true, "RETIRED"),
+                    2, PASSED_A, PASSED_A, task("CANCELLED", null),
+                    seal(sealStatus, "DONE", null, null));
+            assertThat(view.blockingCode()).isEqualTo("DEVICE_ASSET_RETIRED");
+            assertThat(view.nextActionCodes()).isEmpty();
+            assertThat(view.seal().status()).isEqualTo(sealStatus);
+        }
+    }
+
+    @Test
     void noFactoryBagWaitsForOperatorScanning() {
         FactoryProgressView view = project(
                 asset("PENDING", 0, List.of(), false),
@@ -297,6 +309,12 @@ class FactoryProgressQueryServiceTest {
             long generation,
             List<String> failures,
             boolean hasEvidenceSha) {
+        return asset(status, generation, failures, hasEvidenceSha, "NORMAL");
+    }
+
+    private static FactoryProgressQueryService.AssetProgressRow asset(
+            String status, long generation, List<String> failures,
+            boolean hasEvidenceSha, String lifecycle) {
         return new FactoryProgressQueryService.AssetProgressRow(
                 41L,
                 2,
@@ -310,7 +328,7 @@ class FactoryProgressQueryServiceTest {
                 "PASSED".equals(status)
                         ? LocalDateTime.parse("2026-08-30T00:00:01")
                         : null,
-                "NORMAL");
+                lifecycle);
     }
 
     private static FactoryProgressQueryService.TaskProgressRow task(

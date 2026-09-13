@@ -110,6 +110,28 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
     }
 
     @Test
+    void cancelledDeploymentsReleaseDevicesForAFreshBusinessPlan() throws Exception {
+        var release = readyRelease();
+        var request = new CreateRolloutRequest(
+                release.releaseUid(), VALIDATION_SN, List.of(WAVE_SN), 1, "fresh plan");
+        service.createRollout(UUID.randomUUID(), request);
+        jdbc.update("""
+                UPDATE dev_edge_software_deployment
+                SET deployment_status = 'LOCAL_CANCELLED',
+                    error_code = 'DEVICE_DISABLED', completed_at = CURRENT_TIMESTAMP
+                """);
+
+        var fresh = service.createRollout(UUID.randomUUID(), request);
+
+        assertThat(fresh.deployments()).hasSize(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM dev_edge_software_deployment
+                WHERE deployment_status = 'LOCAL_CANCELLED'
+                """, Integer.class)).isEqualTo(2);
+        assertThat(fresh.deployments()).extracting(item -> item.status()).containsOnly("PLANNED");
+    }
+
+    @Test
     void releaseApprovalAndRolloutPlanningNeverDispatchDeviceWork()
             throws Exception {
         UUID createOperation = UUID.randomUUID();

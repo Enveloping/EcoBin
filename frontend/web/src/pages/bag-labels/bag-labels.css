@@ -1,102 +1,22 @@
 .bag-label-workbench {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(290px, 0.7fr);
-  gap: 32px;
-  overflow: hidden;
   margin-bottom: 16px;
-  padding: 30px 34px;
-  color: #effbf6;
-  border: 1px solid #153d36;
-  border-radius: 12px;
-  background: #102f2a;
+  padding: 16px 24px;
+  border-radius: 8px;
+  background: #fff;
 }
-
-.bag-label-workbench::after {
-  position: absolute;
-  top: -85px;
-  right: 22%;
-  width: 240px;
-  height: 240px;
-  border: 1px solid rgba(137, 209, 183, 0.18);
-  border-radius: 50%;
-  content: '';
-}
-
-.bag-label-workbench-copy,
 .bag-label-generator {
-  position: relative;
-  z-index: 1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
-
-.bag-label-eyebrow {
-  margin-bottom: 10px;
-  color: #8ed0b8;
-  font: 700 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  letter-spacing: 0.12em;
-}
-
-.bag-label-workbench h2.ant-typography {
-  margin: 0 0 8px;
-  color: #fff;
-  font-size: clamp(25px, 3vw, 36px);
-  letter-spacing: -0.035em;
-}
-
-.bag-label-workbench p.ant-typography {
-  max-width: 680px;
-  margin-bottom: 20px;
-  color: #c6ddd5;
-  font-size: 15px;
-  line-height: 1.8;
-}
-
-.bag-label-facts {
-  color: #dff3ec;
-  font-size: 13px;
-}
-
-.bag-label-facts span {
-  display: inline-flex;
-  gap: 7px;
+.bag-label-generator-row {
+  display: flex;
+  gap: 10px;
   align-items: center;
 }
-
-.bag-label-generator {
-  align-self: center;
-  padding: 22px;
-  border: 1px solid rgba(201, 237, 224, 0.2);
-  border-radius: 10px;
-  background: rgba(4, 23, 20, 0.5);
-  backdrop-filter: blur(8px);
-}
-
-.bag-label-generator > .ant-typography {
-  color: #b7d2c9;
-}
-
-.bag-label-generator-row {
-  display: grid;
-  grid-template-columns: 92px 1fr;
-  gap: 10px;
-  margin: 9px 0 12px;
-}
-
-.bag-label-generator-row .ant-input-number,
-.bag-label-generator-row .ant-btn {
-  width: 100%;
-}
-
-.bag-label-generator-note {
-  display: block;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.bag-label-boundary {
-  margin-bottom: 16px;
-  border-left: 4px solid #0f766e;
-}
+.bag-label-generator-row .ant-input-number { width: 100px; }
+.bag-label-generator-note { font-size: 12px; color: #6b7280; }
 
 .bag-label-batch-id {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

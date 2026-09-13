@@ -1,0 +1,45 @@
+{
+  "identifier": "deliveryIssueArchived",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "122",
+    "params": {
+      "deliveryIssueArchived": {
+        "value": {
+          "archiveEvidenceSha256": "fedeea7944871b062312628b226fd82596cdb232c7701a1f0ef5970534f37c99",
+          "bootObservationPayloadHex": "00000000000000640000000000000066000000000000006601",
+          "bootObservationType": 2,
+          "businessValue": 1,
+          "clockQuality": 1,
+          "commandUid": "30000000-0000-4000-8000-000000000003",
+          "deliveryClass": 1,
+          "edgeEventSequence": 1058,
+          "eventType": 1,
+          "eventUid": "32000000-0000-4000-8000-000000000001",
+          "finalResultAtArchive": 1,
+          "issueUid": "32000000-0000-4000-8000-000000000001",
+          "knownFactCount": 0,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "originalCommandPayloadSha256": "de983ccb1cc90faffca18315e7483a402bd690dc36e6ccf0e85c7dffa06826fc",
+          "originalCommandUid": "30000000-0000-4000-8000-000000000003",
+          "originalStartPayloadHex": "32000000000040008000000000000002c41a5e4ae79dcb6f79de74a169e5d9b69b15684aa33d1f2a8ecb2290360b5c1a00000000000000650000000630000000000040008000000000000001020000000000000008aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0000119400007530000001f4000075300001d4c0",
+          "payloadSha256": "a9c06dadf0f25a0f7f3989153955eaf54b619498358ec8f95bf335461df9d3c1",
+          "portNo": 2,
+          "reason": 1,
+          "schemaVersion": 1,
+          "sessionUid": "30000000-0000-4000-8000-000000000001",
+          "sourceMcuBootId": 101,
+          "target": {
+            "type": 1,
+            "uid": "30000000-0000-4000-8000-000000000001"
+          },
+          "targetMcuBootId": 102
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

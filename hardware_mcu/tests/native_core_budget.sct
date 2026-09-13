@@ -1,0 +1,5 @@
+; LINK-ONLY STM32F103C8 capacity probe, NOT a bootable firmware.
+LR_ROM 0x08000000 0x10000 {
+  ER_ROM 0x08000000 0x10000 { .ANY (+RO) }
+  RW_RAM 0x20000000 0x5000 { .ANY (+RW +ZI) }
+}

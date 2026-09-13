@@ -382,6 +382,7 @@ def test_builder_publishes_detached_sig_without_copying_private_key(
 ):
     source = tmp_path / "source"
     source.mkdir()
+    (source / "edge_store.py").write_text(f"CURRENT_SCHEMA_VERSION = {EDGE_SCHEMA_VERSION}\n", encoding="utf-8")
     unsigned = tmp_path / "unsigned-input"
     unsigned.write_bytes(b"seed")
     material = _write_signing_material(tmp_path / "signing", unsigned)

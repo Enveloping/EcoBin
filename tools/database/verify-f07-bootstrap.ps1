@@ -278,6 +278,7 @@ WHERE table_schema = '$Database'
       'flyway_schema_history',
       'iam_permission_definition',
       'dev_runtime_snapshot_policy',
+      'dev_device_default_policy',
       'dev_remote_support_port_slot',
       'dev_edge_software_release_sequence'
   );
@@ -312,6 +313,7 @@ function Start-TestApplication {
         "--dbUrl=$jdbcUrl",
         "--dbUsername=ecobin_app",
         "--dbPassword=$appPassword",
+        "--jwtSecret=$localJwtSecret",
         "--bagCodeKeyK1=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
         "--externalMode=fake",
         "--ecobin.identity.default-platform-admin.enabled=false",
@@ -372,7 +374,7 @@ function Get-ApplicationLog {
     else {
         ""
     }
-    return "$stdout`n$stderr"
+    return "$stdout`n$stderr".Replace($localJwtSecret, "[REDACTED]")
 }
 
 function Stop-TestApplication {
@@ -410,7 +412,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V69 application exited before readiness`n$diagnostic"
+            throw "correct V79 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -448,7 +450,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V69 application did not become ready; " +
+    throw "correct V79 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -533,6 +535,7 @@ function Assert-ApplicationRejectedBeforeReady {
 $rootPassword = New-RandomSecret
 $schemaOwnerPassword = New-RandomSecret
 $appPassword = New-RandomSecret
+$localJwtSecret = New-RandomSecret
 $mysqlPort = Get-FreeTcpPort
 $containerStarted = $false
 $applicationProcesses = @()
@@ -1152,7 +1155,22 @@ SELECT CONCAT_WS(
 FROM iam_platform_admin
 WHERE login_name = 'enveloping';
 "@
+    # Exercise the live V70 -> V71 boundary with an operator-edited default.
+    Invoke-FlywayMigrate -Database $databaseNames.ExistingAdminUpgrade -Target "70"
+    Invoke-MySql -Database $databaseNames.ExistingAdminUpgrade -Sql @"
+UPDATE dev_fullness_policy SET fullness_mode='WEIGHT_ONLY', fullness_weight_kg=73.125
+WHERE singleton_id=1;
+"@ | Out-Null
     Invoke-FlywayMigrate -Database $databaseNames.ExistingAdminUpgrade
+    $devicePolicyUpgradePreserved = Invoke-MySql -Database $databaseNames.ExistingAdminUpgrade -Sql @"
+SELECT COUNT(*) FROM dev_device_default_policy
+WHERE singleton_id=1 AND policy_version=2 AND fullness_mode='WEIGHT_ONLY'
+  AND fullness_weight_kg=73.125 AND unit_price_yuan_per_kg=0.4500
+  AND negative_weight_threshold_g=500;
+"@
+    if ([int]$devicePolicyUpgradePreserved -ne 1) {
+        throw "V71 must preserve the operator's V70 fullness rule and add device defaults"
+    }
     $existingAdminAfterV50 = Invoke-MySql `
         -Database $databaseNames.ExistingAdminUpgrade `
         -Sql @"
@@ -1284,8 +1302,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 69) {
-        throw "correct target must contain 69 successful Flyway migrations"
+    if ($historyCount -ne 79) {
+        throw "correct target must contain 79 successful Flyway migrations"
     }
 
     Invoke-MySql -Database "" -Sql @"
@@ -1363,8 +1381,19 @@ SELECT COUNT(*) FROM information_schema.tables
 WHERE table_schema = '$($databaseNames.Correct)'
   AND table_type = 'BASE TABLE';
 "@)
-    if ($tableCount -ne 133) {
-        throw "correct target must contain 132 domain tables plus Flyway history"
+    if ($tableCount -ne 138) {
+        throw "correct target must contain 137 domain tables plus Flyway history"
+    }
+    $fullnessPolicyShape = [int](Invoke-MySql `
+        -Database $databaseNames.Correct `
+        -Sql "SELECT COUNT(*) FROM dev_device_default_policy WHERE singleton_id=1 AND policy_version=2 AND unit_price_yuan_per_kg=0.4500 AND negative_weight_threshold_g=500 AND fullness_mode='INFRARED_OR_WEIGHT' AND fullness_weight_kg=50.000;")
+    if ($fullnessPolicyShape -ne 1) {
+        throw "V71 global fullness policy seed is missing"
+    }
+    $lifecycleProbeSql = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'tools/database/tests/device-lifecycle-cancellation-probe.sql')
+    $lifecycleProbe = @(Invoke-MySql -Database $databaseNames.Correct -Sql $lifecycleProbeSql)
+    if ($lifecycleProbe.Count -ne 2 -or $lifecycleProbe[0] -ne "MCU_LOCAL_CANCELLATION`t2" -or $lifecycleProbe[1] -ne "EDGE_LOCAL_CANCELLATION`t2") {
+        throw "V72 must allow cancellation of both planned and unsent queued upgrades"
     }
     $businessReleaseControlTableCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
@@ -1795,8 +1824,8 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 69
-        domainTables = 132
+        targetVersion = 79
+        domainTables = 137
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
         runtimePrincipal = $runtimePrincipal
@@ -1804,7 +1833,10 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV69Ready = $true
+        correctV79Ready = $true
+        deviceLifecycleCancellationV72 = $true
+        tenantDevicePolicyV71 = $true
+        devicePolicyV70UpgradePreserved = $true
         businessReleaseValidationV65 = $true
         businessUpdateCancellationV66 = $true
         imageBridgeBaselineV67 = $true

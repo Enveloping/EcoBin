@@ -10,6 +10,7 @@
  **********************************************************************************/
 #include "smoke_monitor.h"
 #include "adc.h"
+#include "runtime_clock.h"
 
 /* Thresholds */
 #define SMOKE_ALARM_THRESH   1800
@@ -25,8 +26,9 @@ static unsigned char stable_state = SMOKE_UNAVAIL;  /* power-on = warmup */
 static unsigned char candidate_state = SMOKE_UNAVAIL;
 static unsigned char candidate_count = 0;
 static unsigned char changed_flag = 0;
-static unsigned short warmup_ms = 0;
-static unsigned short tick_accum_ms = 0;
+static uint32_t warmup_started_ms;
+static unsigned char warmup_complete;
+static uint32_t last_sample_ms;
 
 void SmokeMonitor_Init(void)
 {
@@ -34,35 +36,34 @@ void SmokeMonitor_Init(void)
     candidate_state = SMOKE_UNAVAIL;
     candidate_count = 0;
     changed_flag = 0;
-    warmup_ms = 0;
-    tick_accum_ms = 0;
-}
-
-/* Call from TIM ISR every 1ms (use TIM3 overflow at 100ms = 100 ticks) */
-void SmokeMonitor_SetTickMs(unsigned short ms)
-{
-    tick_accum_ms += ms;
+    warmup_started_ms = RuntimeClock_Now();
+    warmup_complete = 0;
+    last_sample_ms = warmup_started_ms;
 }
 
 void SmokeMonitor_Update(void)
 {
+    (void)SmokeMonitor_UpdateSample();
+}
+
+unsigned char SmokeMonitor_UpdateSample(void)
+{
     unsigned char raw_state;
     u16 adc_val;
     unsigned char read_ok;
+    uint32_t now = RuntimeClock_Now();
 
-    /* Accumulate 50ms intervals */
-    if(tick_accum_ms < 50)
-        return;
-    tick_accum_ms -= 50;
+    /* One real ADC sample per elapsed interval, never replay missed samples. */
+    if(!RuntimeClock_PeriodDue(now, &last_sample_ms, 50U))
+        return 0;
 
     /* Warmup timer */
-    if(warmup_ms < SMOKE_WARMUP_MS)
+    if(!warmup_complete)
     {
-        warmup_ms += 50;
-        stable_state = SMOKE_UNAVAIL;
-        candidate_state = SMOKE_UNAVAIL;
-        candidate_count = 0;
-        return;
+        if((uint32_t)(now - warmup_started_ms) < SMOKE_WARMUP_MS)
+            return 0;
+        /* Startup warmup happens once, including across 32-bit clock wrap. */
+        warmup_complete = 1;
     }
 
     /* Read ADC with success flag */
@@ -121,6 +122,7 @@ void SmokeMonitor_Update(void)
             candidate_count = 0;
         }
     }
+    return 1;
 }
 
 unsigned char SmokeMonitor_GetState(void)

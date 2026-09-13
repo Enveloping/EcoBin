@@ -1,10 +1,12 @@
 import os
+import sqlite3
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 from edge_store import EdgeStore
+from hardware.tests.sqlite_failure_evidence import capture_failure_evidence
 
 
 CHILD_CODE = r"""
@@ -108,7 +110,17 @@ def test_committed_edge_state_survives_forced_process_termination(tmp_path):
             process.wait(timeout=10)
 
     store = EdgeStore(str(db_path))
-    store.initialize()
+    try:
+        store.initialize()
+    except sqlite3.Error as exc:
+        # Keep failure evidence without reopening, checkpointing or retrying the
+        # database. This assertion supplements, rather than replaces, the cause.
+        # Capture before this process exits/GC releases the failed connection;
+        # its WAL may be gone by the time an external follow-up inspects it.
+        evidence = capture_failure_evidence(db_path, exc, child_returncode=process.returncode)
+        raise AssertionError(
+            f"forced-process recovery failed: {evidence}"
+        ) from exc
     try:
         assert store.get_command(
             "91000000-0000-4000-8000-000000000001"

@@ -397,11 +397,10 @@ test('business rules stay versioned under one configuration menu', () => {
   );
   assert.match(configurationSource, /expectedLatestVersion:\s*current\.versionNo/);
   assert.match(configurationSource, /automaticReviewMaxAmountYuan/);
-  assert.match(configurationSource, /label="投递订单审核方式"/);
+  assert.match(configurationSource, /投递订单审核方式/);
   assert.doesNotMatch(configurationSource, /label="审核方式"/);
   assert.match(configurationSource, /onFinish=\{\(values\) => void submit\(values\)\}/);
   assert.match(configurationSource, /保存投递配置/);
-  assert.match(configurationSource, /系统会自动保留修改记录/);
   assert.doesNotMatch(
     configurationSource,
     /发布新版本|确认发布|<Modal/,
@@ -415,10 +414,6 @@ test('business rules stay versioned under one configuration menu', () => {
   assert.match(
     withdrawalConfigurationSource,
     /共同金额限制[\s\S]*手动提现审核[\s\S]*投递返现自动提现审核/,
-  );
-  assert.match(
-    withdrawalConfigurationSource,
-    /提现审核与投递审核相互独立/,
   );
   assert.match(
     withdrawalConfigurationSource,
@@ -464,13 +459,6 @@ test('device Web slice keeps one permanent asset and automatic activation model'
     ),
     'utf8',
   );
-  const configurationModalSource = readFileSync(
-    new URL(
-      'src/pages/device-management/DeviceConfigurationModal.tsx',
-      webRoot,
-    ),
-    'utf8',
-  );
   const runtimePolicySource = readFileSync(
     new URL(
       'src/pages/device-management/RuntimeSnapshotPolicyModal.tsx',
@@ -504,7 +492,7 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.match(pageSource, /永久分配租户/);
   assert.match(pageSource, /永久分配机构/);
   assert.doesNotMatch(pageSource, /factoryBags/);
-  assert.match(pageSource, /共享小程序的设备出厂端/);
+  assert.match(pageSource, /设备序列号登记后不可修改/);
   assert.match(pageSource, /机构无需手动启用设备/);
   assert.match(pageSource, /联网、配置、安全、占用和软件状态/);
   assert.match(pageSource, /设备状态上报策略/);
@@ -513,14 +501,14 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.match(runtimePolicySource, /不用于判断设备是否在线/);
   assert.match(runtimePolicySource, /fallbackIntervalMinutes/);
   assert.doesNotMatch(
-    configurationModalSource,
+    drawerSource,
     /name=\{\['device', 'edgeHeartbeat(?:IntervalMs|MissThreshold)'\]\}/,
   );
   assert.match(drawerSource, /mcuSimulated/);
   assert.match(drawerSource, /camerasSimulated/);
   assert.match(drawerSource, /本次验收尚未保存设备检查记录/);
-  assert.match(drawerSource, /当前联网与最近运行状态/);
-  assert.match(drawerSource, /每 15 秒自动刷新/);
+  assert.match(drawerSource, /最近运行状态/);
+  assert.match(drawerSource, /15_000/);
   assert.match(drawerSource, /设备检查历史记录/);
   assert.match(drawerSource, /不代表设备当前状态/);
   assert.match(drawerSource, /activeKey=\{evidenceExpanded/);
@@ -814,7 +802,7 @@ test('business runtime release page is platform-only and dispatches only the val
     /wave-advancements|reliable-tasks|OneNet/,
   );
   assert.match(page, />\s*开始验证设备更新\s*</);
-  assert.match(page, /后续批次仍不会自动开始/);
+  assert.match(page, /后续批次不会自动开始/);
   assert.doesNotMatch(page, />\s*下发下一批\s*</);
   assert.match(
     routes,

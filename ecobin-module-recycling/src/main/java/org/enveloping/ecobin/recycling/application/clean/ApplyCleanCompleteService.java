@@ -218,7 +218,7 @@ public class ApplyCleanCompleteService
                 operation, receivedAt);
         long visibilitySequence = nextVisibilitySequence(
                 tenantId, organizationId, receivedAt);
-        Calculation calculation = calculate(fact, operation);
+        Calculation calculation = calculate(fact);
         String recordNo = cleanRecordNo(operation.uid());
         long cleanRecordId = insertCleanRecord(
                 fact,
@@ -605,7 +605,7 @@ public class ApplyCleanCompleteService
                 > operation.weightMaximumGrams()
                 || finalMeasurement.calibrationVersion()
                 != operation.calibrationVersion()
-                || ("STABLE".equals(finalMeasurement.status())
+                || (hasUsableWeight(finalMeasurement)
                 && (!hasAtLeastOneReportedSample(
                 finalMeasurement.sampleCount())
                 || finalMeasurement.reportedWeightGrams()
@@ -689,12 +689,11 @@ public class ApplyCleanCompleteService
             LocalDateTime receivedAt) {
         Measurement pre = fact.preUnlockMeasurement();
         Measurement finalMeasurement = fact.finalMeasurement();
-        boolean stableFinal = "STABLE".equals(
-                finalMeasurement.status());
-        Long finalWeight = stableFinal
+        boolean usableFinal = hasUsableWeight(finalMeasurement);
+        Long finalWeight = usableFinal
                 ? finalMeasurement.reportedWeightGrams()
                 : null;
-        Long finalLastObserved = !stableFinal
+        Long finalLastObserved = !usableFinal
                 && finalMeasurement.weightValueAvailable()
                 ? finalMeasurement.reportedWeightGrams()
                 : null;
@@ -749,9 +748,8 @@ public class ApplyCleanCompleteService
                             ?, 'START_CLEAN_OPERATION',
                             ?, ?, ?,
                             'CLEAN', ?,
-                            ?, 'STABLE', ?, NULL, 1,
-                            'STABLE_WINDOW_MEAN',
-                            ?, ?, ?, 'OK', NULL, ?, ?,
+                            ?, ?, ?, NULL, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?,
                             ?, ?, ?, ?, ?, ?,
                             ?, ?, ?, ?, ?, ?, ?,
                             ?, ?, 1, 1, ?,
@@ -770,10 +768,15 @@ public class ApplyCleanCompleteService
                 operation.configMcuSha256(),
                 operation.id(),
                 pre.measurementUid().toString(),
+                pre.status(),
                 pre.reportedWeightGrams(),
+                pre.weightValueAvailable(),
+                pre.weightValueKind(),
                 pre.measurementElapsedMs(),
                 pre.sampleCount(),
                 pre.calibrationVersion(),
+                pre.sensorHealth(),
+                pre.faultCode(),
                 pre.mcuBootId(),
                 pre.mcuEventSequence(),
                 finalMeasurement.measurementUid().toString(),
@@ -1272,7 +1275,7 @@ public class ApplyCleanCompleteService
             long physicalResultId,
             long installedEventId,
             LocalDateTime now) {
-        if (!"STABLE".equals(fact.finalMeasurement().status())
+        if (!hasUsableWeight(fact.finalMeasurement())
                 || fact.newBaselineWeightGrams() == null
                 || fact.newBaselineWeightGrams() < 0) {
             return new Baseline(
@@ -1339,6 +1342,8 @@ public class ApplyCleanCompleteService
             Capacity capacity,
             Baseline baseline,
             LocalDateTime now) {
+        // Historical projection column names are not measurement-quality evidence.
+        // Mean/median status and method remain on the immutable source physical result.
         requireSingle(jdbc.update("""
                         UPDATE rec_port_capacity_state
                         SET baseline_state = ?,
@@ -1625,16 +1630,8 @@ public class ApplyCleanCompleteService
     private static void requireNormalCompletion(CleanFact fact) {
         Measurement pre = fact.preUnlockMeasurement();
         Measurement finalMeasurement = fact.finalMeasurement();
-        boolean stableFinal = "STABLE".equals(
-                finalMeasurement.status());
-        if (!"STABLE".equals(pre.status())
-                || !pre.weightValueAvailable()
-                || !"STABLE_WINDOW_MEAN".equals(
-                pre.weightValueKind())
-                || pre.reportedWeightGrams() == null
-                || pre.sampleCount() < 1
-                || !"OK".equals(pre.sensorHealth())
-                || pre.faultCode() != null
+        boolean usableFinal = hasUsableWeight(finalMeasurement);
+        if (!hasUsableWeight(pre)
                 || !fact.cleanerCompletionConfirmed()
                 || !fact.cleanerPhysicalCloseConfirmed()
                 || !"DEENERGIZED".equals(fact.lockPowerState())
@@ -1649,17 +1646,12 @@ public class ApplyCleanCompleteService
                 .map(CleanPhoto::slot)
                 .collect(Collectors.toSet())
                 .equals(PHOTO_POSITIONS)
-                || (stableFinal
-                && (!finalMeasurement.weightValueAvailable()
-                || !"STABLE_WINDOW_MEAN".equals(
-                finalMeasurement.weightValueKind())
-                || finalMeasurement.reportedWeightGrams() == null
-                || finalMeasurement.sampleCount() < 1
-                || !"OK".equals(finalMeasurement.sensorHealth())
-                || finalMeasurement.faultCode() != null
-                || !finalMeasurement.reportedWeightGrams().equals(
-                fact.newBaselineWeightGrams())))
-                || (!stableFinal
+                || (("STABLE".equals(finalMeasurement.status())
+                || "TIMEOUT_MEDIAN".equals(finalMeasurement.weightValueKind()))
+                && !usableFinal)
+                || (usableFinal && !finalMeasurement.reportedWeightGrams().equals(
+                fact.newBaselineWeightGrams()))
+                || (!usableFinal
                 && (fact.newBaselineWeightGrams() != null
                 || finalMeasurement.faultCode() == null))) {
             throw new IllegalArgumentException(
@@ -1667,28 +1659,51 @@ public class ApplyCleanCompleteService
         }
     }
 
-    private static Calculation calculate(
-            CleanFact fact,
-            Operation operation) {
+    private static boolean hasUsableWeight(Measurement measurement) {
+        if (measurement == null || measurement.measurementUid() == null
+                || !measurement.weightValueAvailable() || measurement.reportedWeightGrams() == null
+                || !"OK".equals(measurement.sensorHealth()) || measurement.faultCode() != null
+                || measurement.reportedWeightGrams() < Integer.MIN_VALUE
+                || measurement.reportedWeightGrams() > Integer.MAX_VALUE
+                || measurement.measurementElapsedMs() < 0 || measurement.measurementElapsedMs() > 4_294_967_295L
+                || measurement.calibrationVersion() < 0 || measurement.calibrationVersion() > 4_294_967_295L
+                || measurement.mcuBootId() < 1 || measurement.mcuBootId() > 9_007_199_254_740_991L
+                || measurement.mcuEventSequence() < 1 || measurement.mcuEventSequence() > 4_294_967_295L) {
+            return false;
+        }
+        // Frozen single-sample means remain supported; native timeout medians retain their quality.
+        return ("STABLE".equals(measurement.status())
+                && "STABLE_WINDOW_MEAN".equals(measurement.weightValueKind())
+                && measurement.sampleCount() >= 1 && measurement.sampleCount() <= 65_535)
+                || ("UNSTABLE".equals(measurement.status())
+                && "TIMEOUT_MEDIAN".equals(measurement.weightValueKind())
+                && measurement.measurementElapsedMs() == 5_000
+                && measurement.sampleCount() >= 5 && measurement.sampleCount() <= 32);
+    }
+
+    static Long calculateRemovedWeight(Long beforeGrams, Long afterGrams) {
+        return beforeGrams == null || afterGrams == null
+                ? null : Math.subtractExact(beforeGrams, afterGrams);
+    }
+
+    private static Calculation calculate(CleanFact fact) {
         String deviceStatus = fact.removedNetWeightGrams() == null
                 ? "FAILED" : "RELIABLE";
         String recalculatedStatus;
-        Long recalculated;
-        if ("TRUSTED".equals(operation.oldBaselineState())
-                && operation.oldBaselineWeightGrams() != null) {
-            recalculated = Math.subtractExact(
-                    fact.preUnlockMeasurement()
-                            .reportedWeightGrams(),
-                    operation.oldBaselineWeightGrams());
+        Long recalculated = calculateRemovedWeight(
+                hasUsableWeight(fact.preUnlockMeasurement())
+                        ? fact.preUnlockMeasurement().reportedWeightGrams() : null,
+                hasUsableWeight(fact.finalMeasurement())
+                        ? fact.finalMeasurement().reportedWeightGrams() : null);
+        if (recalculated != null) {
             recalculatedStatus = recalculated >= 0
                     ? "RELIABLE" : "INVALID";
         } else {
-            recalculated = null;
             recalculatedStatus = "UNAVAILABLE";
         }
         String finalStatus;
         Long finalWeight;
-        if ("STABLE".equals(fact.finalMeasurement().status())) {
+        if (hasUsableWeight(fact.finalMeasurement())) {
             finalWeight = fact.finalMeasurement()
                     .reportedWeightGrams();
             finalStatus = finalWeight >= 0

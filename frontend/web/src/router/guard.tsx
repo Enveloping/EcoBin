@@ -49,7 +49,7 @@ export function CapabilityGuard({
   route,
   children,
 }: {
-  route: Pick<AppRoute, 'allOf' | 'anyOf' | 'accountTypes'>;
+  route: Pick<AppRoute, 'allOf' | 'anyOf' | 'accountTypes' | 'tenantCapability'>;
   children: ReactNode;
 }) {
   const session = useAuthStore((state) => state.session);

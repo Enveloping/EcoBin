@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import hashlib
 import struct
 import threading
@@ -124,6 +125,7 @@ class UartLink:
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
                 timeout=self.timeout_s,
+                **({"exclusive": True} if os.name == "posix" else {}),
             )
             logger.info("UART 串口 %s 打开成功", self.port)
             return True

@@ -48,6 +48,9 @@ export type DeliveryRecoveryQuarantineRequest =
   Schemas['DeliveryRecoveryQuarantineRequest'];
 export type DeliveryRecoveryQuarantine =
   Schemas['DeliveryRecoveryQuarantine'];
+export type DevicePolicy = Schemas['DevicePolicy'];
+export type DevicePolicyReleaseRequest = Schemas['DevicePolicyReleaseRequest'];
+
 export type RuntimeSnapshotPolicy = Schemas['RuntimeSnapshotPolicy'];
 export type RuntimeSnapshotPolicyReleaseRequest =
   Schemas['RuntimeSnapshotPolicyReleaseRequest'];
@@ -100,6 +103,31 @@ export function releasePlatformRuntimeSnapshotPolicy(
     RuntimeSnapshotPolicyReleaseRequest
   >({
     url: '/api/v1/web/platform/device-runtime-snapshot-policy/releases',
+    method: 'POST',
+    data,
+    silent: true,
+  });
+}
+
+export function getDevicePolicy(platform: boolean) {
+  return request<DevicePolicy>({
+    url: platform ? '/api/v1/web/platform/device-configuration-policy' : '/api/v1/web/device-configuration-policy',
+    method: 'GET',
+    noStore: true,
+    silent: true,
+  });
+}
+
+export function releaseDevicePolicy(
+  platform: boolean,
+  data: DevicePolicyReleaseRequest,
+  intent: CommandIntent,
+) {
+  return intent.execute<
+    DevicePolicy,
+    DevicePolicyReleaseRequest
+  >({
+    url: platform ? '/api/v1/web/platform/device-configuration-policy/releases' : '/api/v1/web/device-configuration-policy/releases',
     method: 'POST',
     data,
     silent: true,

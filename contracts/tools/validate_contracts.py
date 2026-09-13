@@ -44,6 +44,8 @@ from contractlib import (  # noqa: E402
     payload_sha256,
     source_sha256,
     uart_command_digest_preimage,
+    uart_result_digest_preimage,
+    uart_process_event_digest_preimage,
     uart_message_specs,
     validate_uart_registry,
 )
@@ -649,6 +651,8 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
 
     uid_field = {
         "DELIVERY_COMPLETE": "sessionUid",
+        "DELIVERY_ISSUE_ARCHIVED": "sessionUid",
+        "DELIVERY_ISSUE_EVIDENCE_APPENDED": "sessionUid",
         "DELIVERY_RECOVERY_QUARANTINED": "sessionUid",
         "CLEAN_COMPLETE": "operationUid",
         "FULLNESS_SAMPLE_COMPLETE": "detectionUid",
@@ -665,6 +669,8 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         "DEVICE_COMMAND_OBSERVED",
         "CONFIGURATION_PROGRESS",
         "DELIVERY_COMPLETE",
+        "DELIVERY_ISSUE_ARCHIVED",
+        "DELIVERY_ISSUE_EVIDENCE_APPENDED",
         "DELIVERY_RECOVERY_QUARANTINED",
         "CLEAN_COMPLETE",
         "FULLNESS_SAMPLE_COMPLETE",
@@ -678,6 +684,29 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
     }
     if event_type in command_bound_events and instance["commandUid"] is None:
         raise ContractError(f"{event_type}: originating commandUid is required")
+    if event_type == "DELIVERY_ISSUE_ARCHIVED":
+        if (instance["eventUid"] != payload["issueUid"] or instance["commandUid"] != payload["originalCommandUid"]
+                or not payload["sourceMcuBootId"] < payload["targetMcuBootId"]):
+            raise ContractError("delivery issue archive identity or reboot differs")
+        try:
+            registry = load_uart_registry()
+            start = decode_uart_payload(registry, "START_DELIVERY_SESSION", bytes.fromhex(payload["originalStartPayloadHex"]))
+            boot = decode_uart_payload(registry, payload["bootObservationType"], bytes.fromhex(payload["bootObservationPayloadHex"]))
+        except (ValueError, KeyError) as exc:
+            raise ContractError("delivery issue archive wire evidence is invalid") from exc
+        if (start["sessionUid"] != payload["sessionUid"] or start["portNo"] != payload["portNo"]
+                or start["targetMcuBootId"] != payload["sourceMcuBootId"] or boot["mcuBootId"] != payload["targetMcuBootId"]):
+            raise ContractError("delivery issue archive wire evidence differs from original identity")
+    if event_type == "DELIVERY_ISSUE_EVIDENCE_APPENDED":
+        raw = bytes.fromhex(payload["dataHex"])
+        size, part, count = payload["evidenceSizeBytes"], payload["partIndex"], payload["partCount"]
+        if (instance["commandUid"] != payload["originalCommandUid"] or instance["eventUid"] == payload["issueUid"]
+                or count != (size+255)//256 or not 1 <= part <= count
+                or len(raw) != min(256, size-(part-1)*256)
+                or (count == 1 and hashlib.sha256(raw).hexdigest() != payload["evidenceSha256"])
+                or ((payload["evidenceKind"] == "PROCESS_FACT") != (payload["evidenceIndex"] > 0))
+                or (payload["evidenceKind"] == "ARCHIVE_CONTEXT" and payload["evidenceSha256"] != payload["archiveEvidenceSha256"])):
+            raise ContractError("delivery issue evidence fragment identity/size/digest is inconsistent")
     if (
         event_type == "DEVICE_COMMAND_OBSERVED"
         and instance["target"]["uid"] != instance["commandUid"]
@@ -952,17 +981,15 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
             and final["sensorHealth"] == "OK"
             else None
         )
-        if first_weight is not None and final_weight is not None:
-            expected_removed = first_weight - final_weight
-            if payload["removedNetWeightGrams"] != expected_removed:
-                raise ContractError("CLEAN_COMPLETE removed weight differs from measurements")
-            if payload["newBaselineWeightGrams"] != final_weight:
-                raise ContractError("CLEAN_COMPLETE new baseline differs from final weight")
-        elif (
-            payload["removedNetWeightGrams"] is not None
-            or payload["newBaselineWeightGrams"] is not None
-        ):
-            raise ContractError("unusable clean measurements cannot establish weights")
+        if first_weight is None:
+            raise ContractError("normal CLEAN_COMPLETE requires usable pre-unlock weight")
+        # Decision 2026-09-13: removal is this operation's before minus after.
+        # Never substitute the previous bag's baseline for an unavailable after.
+        expected_removed = first_weight - final_weight if final_weight is not None else None
+        if payload["removedNetWeightGrams"] != expected_removed:
+            raise ContractError("CLEAN_COMPLETE removed weight differs from before/after measurements")
+        if payload["newBaselineWeightGrams"] != final_weight:
+            raise ContractError("CLEAN_COMPLETE new baseline differs from final weight")
         for photo in payload["photos"]:
             _validate_photo_url(
                 photo,
@@ -1111,6 +1138,26 @@ def _validate_command_semantics(
         raise ContractError(f"{command_type}: target UID differs from payload")
 
     payload = instance["payload"]
+
+    def check_native_measurement_identity(value):
+        if isinstance(value, dict):
+            uid = value.get("measurementUid")
+            if isinstance(uid, str) and uid.startswith("45424d31-00"):
+                boot, sequence = value.get("mcuBootId"), value.get("mcuEventSequence")
+                if (type(boot) is not int or not 1 <= boot <= 9007199254740991
+                        or type(sequence) is not int or not 1 <= sequence <= 4294967295):
+                    raise ContractError("native measurement requires its original boot/event")
+                raw = f"45424d31{boot:016x}{sequence:08x}"
+                expected = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
+                if uid != expected:
+                    raise ContractError("native measurement identity differs from its boot/event")
+            for item in value.values():
+                check_native_measurement_identity(item)
+        elif isinstance(value, list):
+            for item in value:
+                check_native_measurement_identity(item)
+
+    check_native_measurement_identity(payload)
     if (
         command_type != "START_BUSINESS_RUNTIME_UPDATE"
         and instance.get("downloadGrant") is not None
@@ -1534,8 +1581,22 @@ def validate_uart_vectors(summary: ValidationSummary) -> None:
                 raise ContractError(
                     f"{vector['name']}: command digest preimage projection differs"
                 )
+        if vector["profile"] == "resultDigestSha256":
+            if uart_result_digest_preimage(registry, vector["components"]["payload"]) != preimage:
+                raise ContractError(f"{vector['name']}: result digest preimage projection differs")
+        if vector["profile"] == "actuatorEventDigestSha256":
+            from contractlib import uart_actuator_event_digest_preimage
+            components = vector["components"]
+            raw = encode_uart_payload(registry, components["message"], components["payload"])
+            if uart_actuator_event_digest_preimage(registry, components["message"], raw) != preimage:
+                raise ContractError(f"{vector['name']}: actuator event digest preimage projection differs")
+        if vector["profile"] == "eventDigestSha256":
+            components = vector["components"]
+            raw = encode_uart_payload(registry, components["message"], components["payload"])
+            if uart_process_event_digest_preimage(registry, components["message"], raw) != preimage:
+                raise ContractError(f"{vector['name']}: process event digest preimage projection differs")
     summary.passed(
-        f"{len(digest_document['vectors'])} UART command/config/snapshot digest "
+        f"{len(digest_document['vectors'])} UART command/config/snapshot/result/process digest "
         "preimages reproduce in Python"
     )
 
@@ -1613,6 +1674,14 @@ def validate_generated_c(summary: ValidationSummary, run_compiler: bool) -> None
             [str(executable)], check=True, capture_output=True, text=True
         )
         summary.passed(result.stdout.strip())
+
+        # Same generated function body, externally linked once as on ARMCC5.
+        # Keep the standalone-header check above for host consumers too.
+        shared = command[:-2] + ["-DECOBIN_UART_SHARED_PAYLOAD_VALIDATOR=1",
+            str(header_path.with_suffix(".c")), "-o", str(executable)]
+        subprocess.run(shared, check=True, capture_output=True, text=True)
+        result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
+        summary.passed("shared-validator " + result.stdout.strip())
 
 
 def validate_generated_java(summary: ValidationSummary, run_compiler: bool) -> None:

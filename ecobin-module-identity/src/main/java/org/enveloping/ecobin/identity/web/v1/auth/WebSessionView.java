@@ -15,6 +15,7 @@ public record WebSessionView(
         String contactPhone,
         String tenantCode,
         List<String> capabilities,
+        List<String> tenantCapabilities,
         List<OrganizationSummaryView> organizations,
         Instant expiresAt,
         long version,
@@ -29,6 +30,7 @@ public record WebSessionView(
                 actor.contactPhone(),
                 actor.tenantCode(),
                 actor.effectiveCapabilities().stream().sorted().toList(),
+                actor.tenantCapabilities().stream().sorted().toList(),
                 actor.organizations().stream()
                         .map(org -> new OrganizationSummaryView(
                                 org.organizationCode(),

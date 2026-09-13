@@ -6,6 +6,8 @@
   "required": [
     "registryVersion",
     "status",
+    "implementationStage",
+    "sessionPolicy",
     "physicalLink",
     "protocol",
     "streamParser",
@@ -23,6 +25,34 @@
   ],
   "additionalProperties": false,
   "properties": {
+    "implementationStage": { "const": "WORK_FULLNESS_CUSTODY_NOT_RUNNABLE" },
+    "sessionPolicy": {
+      "type": "object",
+      "required": ["commandPayloadValidation", "actuatorEventMessages", "processMeasurementMessages", "processEventMessages", "bootstrapMessages", "sessionControlMessages", "readOnlyMessages", "savedResultMessages", "bootstrapMaximumSends", "commandMaximumSends", "commandSequencePolicy", "commandTimeout", "unassignedMcuBootId", "allocator", "probeReuse", "bindCondition", "bindTimeout", "channelPremise", "businessGate", "notes"],
+      "additionalProperties": false,
+      "properties": {
+        "processEventMessages": { "const": ["WORK_PREOPEN_WEIGHT_READY", "WORK_POSTCLOSE_WEIGHT_READY", "WORK_PREUNLOCK_WEIGHT_READY", "CLEAN_FINAL_WEIGHT_READY", "FULLNESS_SAMPLE_RESULT", "BASELINE_MEASUREMENT_RESULT", "DELIVERY_SELECTION", "CLEAN_UNLOCK_REQUESTED", "CLEAN_FINISH_REQUESTED", "CLEAN_COMPLETION_CONFIRMED"] },
+        "actuatorEventMessages": { "const": ["DELIVERY_DOOR_COMMAND_RESULT", "CLEAN_LOCK_POWER_CHANGED", "SAFE_CLOSE_RESULT", "DELIVERY_LOCAL_DOOR_RESULT", "DELIVERY_CYCLE_ABORTED", "DELIVERY_POSTCLOSE_INTERRUPTED", "CLEAN_OPERATION_INTERRUPTED"] },
+        "processMeasurementMessages": { "const": ["WORK_PREOPEN_WEIGHT_READY", "WORK_POSTCLOSE_WEIGHT_READY", "WORK_PREUNLOCK_WEIGHT_READY", "CLEAN_FINAL_WEIGHT_READY", "FULLNESS_SAMPLE_RESULT", "BASELINE_MEASUREMENT_RESULT"] },
+        "commandPayloadValidation": { "const": "ALL_FENCED_EDGE_MESSAGES" },
+        "bootstrapMessages": { "const": ["BOOT_PROBE", "BOOT_PROBE_REPLY", "BIND_BOOT", "BIND_BOOT_REPLY"] },
+        "sessionControlMessages": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" } },
+        "readOnlyMessages": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" } },
+        "savedResultMessages": { "const": ["RESULT_SAVED", "RESULT_SAVED_REPLY", "PROCESS_EVENT_SAVED", "PROCESS_EVENT_SAVED_REPLY", "ACTUATOR_EVENT_SAVED", "ACTUATOR_EVENT_SAVED_REPLY"] },
+        "bootstrapMaximumSends": { "const": 1 },
+        "commandMaximumSends": { "const": 1 },
+        "commandSequencePolicy": { "const": "DURABLE_MONOTONIC_PER_MCU_BOOT_NO_WRAP" },
+        "commandTimeout": { "const": "QUERY_ORIGINAL_NOT_MECHANICAL_RETRY" },
+        "unassignedMcuBootId": { "const": 0 },
+        "allocator": { "const": "EDGE_DURABLE_BEFORE_SEND" },
+        "probeReuse": { "const": "NEVER" },
+        "bindCondition": { "const": "UNASSIGNED_AND_MATCHING_PENDING_PROBE" },
+        "bindTimeout": { "const": "FRESH_PROBE_NOT_BIND_RETRY" },
+        "channelPremise": { "const": "REQUESTS_MAY_BE_LOST_DELAYED_REORDERED_BUT_NOT_COPIED" },
+        "businessGate": { "const": "NONZERO_EXACT_TARGET_BOOT" },
+        "notes": { "type": "string", "minLength": 1 }
+      }
+    },
     "registryVersion": {
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[0-9]+$"
@@ -70,7 +100,7 @@
       "additionalProperties": false,
       "properties": {
         "magicHex": { "const": "ec42" },
-        "major": { "const": 1 },
+        "major": { "const": 2 },
         "minor": { "const": 0 },
         "byteOrder": { "const": "big-endian" },
         "maximumFrameLength": { "const": 256 },
@@ -112,6 +142,7 @@
       "required": [
         "algorithm",
         "inputBufferLimit",
+        "inputDrainPolicy",
         "frameAssemblyDeadlineMs",
         "crcBeforeSemanticValidation",
         "invalidLengthDisposition",
@@ -125,6 +156,7 @@
       "properties": {
         "algorithm": { "const": "BOUNDED_MAGIC_SCAN_CRC_FIRST" },
         "inputBufferLimit": { "const": 512 },
+        "inputDrainPolicy": { "const": "APPEND_AVAILABLE_CAPACITY_THEN_DRAIN" },
         "frameAssemblyDeadlineMs": { "const": 100 },
         "crcBeforeSemanticValidation": { "const": true },
         "invalidLengthDisposition": { "const": "DISCARD_FIRST_MAGIC_BYTE_AND_RESCAN" },
@@ -243,10 +275,13 @@
     },
     "digestProfiles": {
       "type": "object",
-      "required": ["commandDigestSha256", "mcuPayloadSha256", "snapshotSha256"],
+      "required": ["commandDigestSha256", "mcuPayloadSha256", "snapshotSha256", "resultDigestSha256", "eventDigestSha256", "actuatorEventDigestSha256"],
       "additionalProperties": false,
       "properties": {
         "commandDigestSha256": { "$ref": "#/$defs/digestProfile" },
+        "eventDigestSha256": { "$ref": "#/$defs/digestProfile" },
+        "actuatorEventDigestSha256": { "$ref": "#/$defs/digestProfile" },
+        "resultDigestSha256": { "$ref": "#/$defs/digestProfile" },
         "mcuPayloadSha256": { "$ref": "#/$defs/digestProfile" },
         "snapshotSha256": { "$ref": "#/$defs/digestProfile" }
       }
@@ -315,7 +350,10 @@
               "SNAPSHOT_PORT_FAULT_BITMAP",
               "CLEAN_COMPLETION_GENERATION",
               "DELIVERY_SELECTION_ORDER",
-              "BOOT_RECONCILIATION"
+              "BOOT_RECONCILIATION",
+              "BOOT_BINDING",
+              "COMMAND_OUTCOME",
+              "RESULT_HANDOFF"
             ]
           },
           "messages": {
@@ -434,7 +472,7 @@
           "type": "string",
           "pattern": "^(?:[0-9a-f]{2})+$"
         },
-        "layoutVersion": { "const": 1 },
+        "layoutVersion": { "enum": [1, 2] },
         "preimage": {
           "type": "array",
           "minItems": 1,

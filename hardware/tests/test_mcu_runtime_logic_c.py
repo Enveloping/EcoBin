@@ -65,9 +65,12 @@ def test_runtime_source_connects_validity_and_removes_debug_uart_frames() -> Non
     )
     compact_main = re.sub(r"\s+", "", main_source)
 
-    assert '#include"mcu_runtime_logic.h"' in compact_main
+    assert '#include"actuator_runtime.h"' in compact_main
     assert "g_weight_valid" in main_source
-    assert "McuRuntime_DirectionAfterLimits" in main_source
+    assert "ActuatorRuntime_SetDoorTarget" in main_source
+    assert "McuRuntime_DirectionAfterLimits" not in main_source
+    assert "lock_timer_ticks" not in main_source
+    assert "g_tick_count" not in main_source
     assert "Vision_SendPushRod(" not in main_source
     assert "voidVision_SendPushRod(" not in re.sub(r"\s+", "", usart_source)
 
@@ -106,9 +109,9 @@ def test_screen_repeat_unlock_requires_active_clean_operation() -> None:
 
     assert "if(cleaning_state==CLEAN_WAIT_CONFIRM&&" in repeat_unlock_block
     assert "cleaning_pre_weight_valid)" in repeat_unlock_block
-    assert "SUO=1;" in repeat_unlock_block
+    assert "ActuatorRuntime_Unlock(CLEAN_LOCK_PULSE_MS)" in repeat_unlock_block
     assert "cleaning_state=CLEAN_LOCK_ON;" in repeat_unlock_block
-    assert "lock_timer_ticks=0;" in repeat_unlock_block
+    assert "SUO=1;" not in repeat_unlock_block
 
 
 def test_clean_screen_returns_home_only_after_result_is_accepted() -> None:

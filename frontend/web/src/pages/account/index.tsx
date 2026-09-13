@@ -5,7 +5,7 @@ import {
   ProForm,
   ProFormText,
 } from '@ant-design/pro-components';
-import { App, Card } from 'antd';
+import { App, Card, Typography } from 'antd';
 import { changeOwnPassword } from '@/api/identityDirectory';
 import { changeCurrentPlatformAdministratorPassword } from '@/api/platformAdminAccounts';
 import { useAuthStore } from '@/stores/authStore';
@@ -57,14 +57,15 @@ export default function AccountSettingsPage() {
 
   return (
     <PageContainer
-      {...pageHeader(
-        '账号设置',
-        '登录名和账号类型不可修改；改密会立即撤销当前会话。',
-      )}
+      {...pageHeader('账号设置')}
     >
       <Card title="修改密码" style={{ maxWidth: 720 }}>
         <ProForm<PasswordForm>
-          submitter={{ submitButtonProps: { loading: passwordSubmitting } }}
+          submitter={{
+            searchConfig: { submitText: '修改密码' },
+            submitButtonProps: { loading: passwordSubmitting },
+            resetButtonProps: false,
+          }}
           onFinish={submitPassword}
         >
           <ProFormText.Password
@@ -82,6 +83,7 @@ export default function AccountSettingsPage() {
             label="确认新密码"
             rules={[{ required: true }, { min: 8 }]}
           />
+          <Typography.Paragraph type="secondary">修改后需重新登录</Typography.Paragraph>
         </ProForm>
       </Card>
       {session?.accountType === 'PLATFORM_ADMIN' && (

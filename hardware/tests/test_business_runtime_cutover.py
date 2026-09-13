@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from install.runtime_payload_manifest import EDGE_SCHEMA_VERSION
 from business_runtime_cutover import (
     STOP_UNITS,
     BusinessRuntimeCutover,
@@ -99,7 +100,6 @@ def _create_legacy_database(
     connection.executescript(
         """
         CREATE TABLE schema_version(version INTEGER NOT NULL);
-        INSERT INTO schema_version(version) VALUES (18);
         CREATE TABLE work_slot(
             slot_id INTEGER PRIMARY KEY,
             work_type TEXT NOT NULL,
@@ -121,6 +121,9 @@ def _create_legacy_database(
             owner_uid TEXT NOT NULL
         );
         """
+    )
+    connection.execute(
+        "INSERT INTO schema_version(version) VALUES (?)", (int(EDGE_SCHEMA_VERSION),)
     )
     connection.execute(
         "INSERT INTO work_slot VALUES (1, ?, ?, ?)",
@@ -402,7 +405,7 @@ def test_active_verification_accepts_a_later_business_schema(
     cutover, _ = _cutover(paths)
     cutover.prepare(OPERATION_UID, EVIDENCE_SHA256)
     with sqlite3.connect(paths.business_database) as connection:
-        connection.execute("INSERT INTO schema_version VALUES (19)")
+        connection.execute("INSERT INTO schema_version VALUES (?)", (int(EDGE_SCHEMA_VERSION) + 1,))
         connection.commit()
 
     assert cutover.verify_active()["runtimeDataVerified"] is True

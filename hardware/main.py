@@ -1527,6 +1527,19 @@ def _seed_enrolled_device_entry_url(store, device_entry_url):
     return True
 
 
+def run_gateway(argv=None, *, legacy_factory=None, candidate_runner=None):
+    """Choose the recovery candidate explicitly, before building any gateway."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args and args[0] == "--native-recovery-candidate":
+        if candidate_runner is None:
+            from native_recovery_entry import main as candidate_runner
+        return candidate_runner(args[1:])
+    if args:
+        import argparse
+        argparse.ArgumentParser(prog="main.py", allow_abbrev=False).error("unknown gateway arguments")
+    gateway = (legacy_factory or EcoBinEdge)()
+    return gateway.run()
+
+
 if __name__ == "__main__":
-    gateway = EcoBinEdge()
-    gateway.run()
+    run_gateway()

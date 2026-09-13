@@ -9,6 +9,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ApplyCleanCompleteServiceSqlTest {
 
     @Test
+    void removalUsesBothCurrentMeasurementsNotThePreviousBagBaseline() {
+        assertThat(ApplyCleanCompleteService.calculateRemovedWeight(20_000L, 1_200L)).isEqualTo(18_800L);
+        assertThat(ApplyCleanCompleteService.calculateRemovedWeight(500L, 100L)).isEqualTo(400L);
+        assertThat(ApplyCleanCompleteService.calculateRemovedWeight(0L, 0L)).isZero();
+        assertThat(ApplyCleanCompleteService.calculateRemovedWeight(100L, 200L)).isEqualTo(-100L);
+        assertThat(ApplyCleanCompleteService.calculateRemovedWeight(null, 100L)).isNull();
+        assertThat(ApplyCleanCompleteService.calculateRemovedWeight(500L, null)).isNull();
+        assertThat(ApplyCleanCompleteService.calculateRemovedWeight(null, null)).isNull();
+        assertThat(ApplyCleanCompleteService.calculateRemovedWeight(2_147_483_647L, -2_147_483_648L))
+                .isEqualTo(4_294_967_295L);
+    }
+
+    @Test
     void completionJoinLocksOnlyMutableOperationRoot() {
         assertThat(ApplyCleanCompleteService.OPERATION_LOCK_CLAUSE)
                 .isEqualTo("FOR UPDATE OF operation");

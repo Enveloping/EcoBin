@@ -1,12 +1,13 @@
 #ifndef __ECOBIN_MCU_RUNTIME_LOGIC_H
 #define __ECOBIN_MCU_RUNTIME_LOGIC_H
+#include <stdint.h>
 
 /* Fixed-frame weight fields are unsigned grams in the range 0..350000. */
 #define MCU_WEIGHT_MAX_GRAMS          350000UL
 #define MCU_WEIGHT_READ_OK            0U
 #define MCU_WEIGHT_READ_RANGE_ERROR   4U
 #define MCU_WEIGHT_RESPONSE_LENGTH    9U
-#define MCU_WEIGHT_TIMEOUT_TICKS      2U
+#define MCU_WEIGHT_TIMEOUT_MS         200U
 #define MCU_WEIGHT_POLL_DATA_READY    0U
 #define MCU_WEIGHT_POLL_TIMEOUT       1U
 #define MCU_WEIGHT_POLL_WAITING       2U
@@ -21,7 +22,7 @@
  * total weight cannot be negative, so expose it to the fixed-frame protocol
  * as 0 g. Positive overload must stay invalid rather than being saturated.
  */
-#ifdef ECOBIN_MCU_RUNTIME_INCLUDE_WEIGHT
+#if defined(ECOBIN_MCU_RUNTIME_INCLUDE_WEIGHT) || defined(ECOBIN_MCU_RUNTIME_INCLUDE_WEIGHT_POLL)
 /*
  * USART2 continues receiving bytes in its interrupt while the main loop is
  * busy (for example, while an F0 query performs blocking ultrasonic ranging).
@@ -30,15 +31,17 @@
  */
 static unsigned char McuRuntime_WeightPollDecision(
     unsigned char received_length,
-    unsigned short elapsed_ticks)
+    uint32_t elapsed_ms)
 {
     if(received_length >= MCU_WEIGHT_RESPONSE_LENGTH)
         return MCU_WEIGHT_POLL_DATA_READY;
-    if(elapsed_ticks >= MCU_WEIGHT_TIMEOUT_TICKS)
+    if(elapsed_ms >= MCU_WEIGHT_TIMEOUT_MS)
         return MCU_WEIGHT_POLL_TIMEOUT;
     return MCU_WEIGHT_POLL_WAITING;
 }
+#endif
 
+#ifdef ECOBIN_MCU_RUNTIME_INCLUDE_WEIGHT
 static unsigned char McuRuntime_DecodeScaleWeight(
     unsigned char low_word_high,
     unsigned char low_word_low,
@@ -66,21 +69,6 @@ static unsigned char McuRuntime_DecodeScaleWeight(
 
     *weight = raw;
     return MCU_WEIGHT_READ_OK;
-}
-#endif
-
-/* A reached limit is both an electrical stop and an idle direction state. */
-#ifdef ECOBIN_MCU_RUNTIME_INCLUDE_DIRECTION
-static unsigned char McuRuntime_DirectionAfterLimits(
-    unsigned char direction,
-    unsigned char close_limit_active,
-    unsigned char open_limit_active)
-{
-    if(direction == MCU_DIRECTION_CLOSE && close_limit_active != 0U)
-        return MCU_DIRECTION_STOP;
-    if(direction == MCU_DIRECTION_OPEN && open_limit_active != 0U)
-        return MCU_DIRECTION_STOP;
-    return direction;
 }
 #endif
 

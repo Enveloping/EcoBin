@@ -173,9 +173,7 @@ export default function OrganizationUserStaffBindingPanel({
         readUserLookup(),
       ]);
       if (!accepts(requestId, requestedTarget) || !nextUserLookup) return;
-      const candidates = nextStaffAccounts.filter(
-        (staff) => staff.accountKind === 'STAFF',
-      );
+      const candidates = nextStaffAccounts;
       const currentUid = nextUserLookup.currentMiniappBinding?.staffAccountUid;
       const nextSelectedUid = preferredStaffUid ?? currentUid;
       setStaffAccounts(candidates);
@@ -358,6 +356,7 @@ export default function OrganizationUserStaffBindingPanel({
       render: (_, staff) => (
         <div>
           <Typography.Text strong>{staff.displayName}</Typography.Text>
+          {staff.accountKind === 'TENANT_PRINCIPAL' && <Tag color="gold" style={{ marginLeft: 8 }}>租户负责人</Tag>}
           <div><Typography.Text type="secondary">{staff.loginName}</Typography.Text></div>
         </div>
       ),
@@ -561,12 +560,12 @@ export default function OrganizationUserStaffBindingPanel({
 
           {selectedStaffUid && staffBindingOwner === selectedStaffUid && (
             <Descriptions size="small" column={1} bordered>
-              <Descriptions.Item label="所选工作人员">
+              <Descriptions.Item label="绑定后工作人员">
                 {selectedStaff?.displayName ?? selectedStaffUid}
               </Descriptions.Item>
               <Descriptions.Item label="该工作人员当前绑定">
                 {currentStaffBinding
-                  ? `${currentStaffBinding.nickname ?? currentStaffBinding.organizationUserUid} · v${currentStaffBinding.version}`
+                  ? currentStaffBinding.nickname ?? currentStaffBinding.organizationUserUid
                   : '无'}
               </Descriptions.Item>
             </Descriptions>
@@ -576,7 +575,7 @@ export default function OrganizationUserStaffBindingPanel({
               showIcon
               type="warning"
               message="本次操作会替换现有绑定"
-              description="提交时会再次核对用户侧和工作人员侧版本，不会静默覆盖并发变更。"
+              description={`当前工作人员：${currentStaff?.displayName ?? '未绑定'} → ${selectedStaff?.displayName ?? '所选工作人员'}。涉及的旧绑定将解除，原管理登录将失效。`}
             />
           )}
           {sameBinding && (
@@ -593,7 +592,7 @@ export default function OrganizationUserStaffBindingPanel({
             maxLength={500}
             showCount
             autoSize={{ minRows: 2, maxRows: 4 }}
-            placeholder="原因（可选，会进入安全审计）"
+            placeholder="绑定原因（可选）"
             onChange={(event) => setReason(event.target.value)}
           />
         </Space>

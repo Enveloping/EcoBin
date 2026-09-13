@@ -12,6 +12,8 @@
     "configuration-progress.event-wire.json",
     "confirm-edge-event.service-wire.json",
     "delivery-complete.event-wire.json",
+    "delivery-issue-archived.event-wire.json",
+    "delivery-issue-evidence-appended.event-wire.json",
     "delivery-recovery-quarantined.event-wire.json",
     "device-acceptance-evidence.event-wire.json",
     "device-command-observed.event-wire.json",

@@ -103,6 +103,8 @@ export default function RemoteSupportPanel({ hardwareSn }: {
   const [closeModal, setCloseModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [readError, setReadError] = useState<string>();
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
   const activeKeys = useMemo(
     () => keys.filter((key) => key.status === 'ACTIVE'),
@@ -113,6 +115,7 @@ export default function RemoteSupportPanel({ hardwareSn }: {
     let cancelled = false;
     const restore = async () => {
       setLoading(true);
+      setReadError(undefined);
       try {
         const loadedKeys = await listMaintenanceSshKeys({ silent: true });
         if (cancelled) return;
@@ -135,7 +138,7 @@ export default function RemoteSupportPanel({ hardwareSn }: {
           if (cancelled) return;
           setSession(restored);
           if (terminalStates.has(restored.state)
-              && !restored.leaseCleanupPending) {
+            && !restored.leaseCleanupPending) {
             sessionStorage.removeItem(storageKey(hardwareSn));
           }
         } catch (error) {
@@ -146,30 +149,33 @@ export default function RemoteSupportPanel({ hardwareSn }: {
           }
         }
       } catch (error) {
-        if (!cancelled) message.error(errorText(error));
+        if (!cancelled) setReadError(errorText(error));
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
     void restore();
     return () => { cancelled = true; };
-  }, [hardwareSn]);
+  }, [hardwareSn, refreshVersion]);
 
   useEffect(() => {
     if (!session || (terminalStates.has(session.state)
-        && !session.leaseCleanupPending)) return undefined;
+      && !session.leaseCleanupPending)) return undefined;
     let cancelled = false;
     const timer = window.setInterval(() => {
       void getRemoteSupportSession(session.sessionUid)
         .then((updated) => {
           if (cancelled) return;
+          setReadError(undefined);
           setSession(updated);
           if (terminalStates.has(updated.state)
-              && !updated.leaseCleanupPending) {
+            && !updated.leaseCleanupPending) {
             sessionStorage.removeItem(storageKey(hardwareSn));
           }
         })
-        .catch(() => undefined);
+        .catch((error) => {
+          if (!cancelled) setReadError(errorText(error));
+        });
     }, 2000);
     return () => {
       cancelled = true;
@@ -236,127 +242,151 @@ export default function RemoteSupportPanel({ hardwareSn }: {
     : undefined;
 
   return (
-    <Card
-      loading={loading}
-      title={<Space><ToolOutlined />临时远程维护</Space>}
-      extra={!reservesPort ? (
-        <Button
-          type="primary"
-          icon={<CodeOutlined />}
-          disabled={!activeKeys.length}
-          onClick={() => {
-            openForm.setFieldsValue({
-              maintenanceSshKeyUid: activeKeys[0]?.maintenanceSshKeyUid,
-              lifetimeSeconds: 900,
-            });
-            setOpenModal(true);
-          }}
-        >开启反向 SSH</Button>
-      ) : canClose ? (
-        <Button
-          danger
-          icon={<DisconnectOutlined />}
-          onClick={() => {
-            closeForm.resetFields();
-            setCloseModal(true);
-          }}
-        >立即关闭</Button>
-      ) : null}
-    >
-      {!activeKeys.length && (
-        <Alert
-          type="warning"
-          showIcon
-          message="请先在“账号设置”登记本机 SSH 公钥"
-          description="公钥按管理员登记一次，不需要逐台设备配置。私钥始终留在你的电脑上。"
-        />
-      )}
-      {session && (
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          {session.leaseCleanupPending && (
-            <Alert
-              type="warning"
-              showIcon
-              message="会话已结束，服务器正在确认远程入口已清除"
-              description="确认完成前该共享端口不会交给其他设备，也不能在本设备上开启新会话。页面会自动刷新。"
-            />
-          )}
-          <Descriptions size="small" bordered column={2}>
-            <Descriptions.Item label="会话状态">
-              <Tag color={stateCopy[session.state].color}>
-                {stateCopy[session.state].label}
-              </Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="复用端口">
-              {session.remotePort}
-            </Descriptions.Item>
-            <Descriptions.Item label="到期时间" span={2}>
-              {formatShanghaiTime(session.expiresAt)}
-            </Descriptions.Item>
-          </Descriptions>
-          {failure && (
-            <Alert
-              type="error"
-              showIcon
-              message={failure.title}
-              description={failure.action}
-            />
-          )}
-          {session.failureCode && (
-            <Collapse
-              ghost
+    <section aria-label="远程维护">
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        {readError && (
+          <Alert type="warning" showIcon
+            message={session ? '远程维护状态更新失败，显示上次结果' : '远程维护状态读取失败'}
+            description={readError}
+            action={<Button size="small" onClick={() => setRefreshVersion(value => value + 1)}>重试</Button>}
+          />
+        )}
+        {reservesPort && session && (
+          <Card size="small" title="临时远程维护" extra={canClose ? (<Button
+            danger
+            icon={<DisconnectOutlined />}
+            onClick={() => {
+              closeForm.resetFields();
+              setCloseModal(true);
+            }}
+          >立即关闭</Button>) : null}>
+            <Space wrap>
+              <Tag color={stateCopy[session.state].color}>{stateCopy[session.state].label}</Tag>
+              <Typography.Text>到期：{formatShanghaiTime(session.expiresAt)}</Typography.Text>
+            </Space>
+          </Card>
+        )}
+        {session?.leaseCleanupPending && (
+          <Alert
+            type="warning"
+            showIcon
+            message="会话已结束，服务器正在确认远程入口已清除"
+            description="确认完成前该共享端口不会交给其他设备，也不能在本设备上开启新会话。页面会自动刷新。"
+          />
+        )}
+        {failure && (
+          <Alert
+            type="error"
+            showIcon
+            message={failure.title}
+            description={failure.action}
+          />
+        )}
+        <Collapse size="small" items={[{
+          key: 'remote-support-details',
+          label: reservesPort ? '连接与维护详情' : loading ? '远程维护 · 读取中' : '远程维护',
+          children: (
+            <Card
+              loading={loading}
               size="small"
-              items={[{
-                key: 'remote-support-failure-diagnostic',
-                label: '技术诊断（报修时使用）',
-                children: (
-                  <Descriptions size="small" column={1}>
-                    <Descriptions.Item label="失败代码">
-                      <Typography.Text type="danger" copyable code>
-                        {session.failureCode}
-                      </Typography.Text>
+              title={<Space><ToolOutlined />维护详情</Space>}
+              extra={!reservesPort ? (
+                <Button
+                  type="primary"
+                  icon={<CodeOutlined />}
+                  disabled={loading || Boolean(readError) || !activeKeys.length}
+                  onClick={() => {
+                    openForm.setFieldsValue({
+                      maintenanceSshKeyUid: activeKeys[0]?.maintenanceSshKeyUid,
+                      lifetimeSeconds: 900,
+                    });
+                    setOpenModal(true);
+                  }}
+                >开启远程维护</Button>
+              ) : null}
+            >
+              {!activeKeys.length && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="请先在“账号设置”登记本机 SSH 公钥"
+                  description="公钥按管理员登记一次，不需要逐台设备配置。私钥始终留在你的电脑上。"
+                />
+              )}
+              {session && (
+                <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  <Descriptions size="small" bordered column={2}>
+                    <Descriptions.Item label="会话状态">
+                      <Tag color={stateCopy[session.state].color}>
+                        {stateCopy[session.state].label}
+                      </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="复用端口">
+                      {session.remotePort}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="到期时间" span={2}>
+                      {formatShanghaiTime(session.expiresAt)}
                     </Descriptions.Item>
                   </Descriptions>
-                ),
-              }]}
-            />
-          )}
-          {session.state === 'OPEN' && session.certificate && (
-            <Alert
-              type="success"
-              showIcon
-              message="隧道与临时登录证书均已就绪"
-              description={(
-                <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                  <Typography.Text>
-                    将证书保存为私钥同名的
-                    <Typography.Text code>-cert.pub</Typography.Text>
-                    文件。例如私钥为
-                    <Typography.Text code>id_ed25519</Typography.Text>
-                    ，证书应为
-                    <Typography.Text code>id_ed25519-cert.pub</Typography.Text>。
-                  </Typography.Text>
-                  <Typography.Text strong>临时证书：</Typography.Text>
-                  <Typography.Paragraph code copyable>
-                    {session.certificate}
-                  </Typography.Paragraph>
-                  <Typography.Text strong>设备主机密钥：</Typography.Text>
-                  <Typography.Paragraph code copyable>
-                    {session.knownHostsLine}
-                  </Typography.Paragraph>
-                  <Typography.Text strong>连接命令：</Typography.Text>
-                  <Typography.Paragraph code copyable>
-                    {session.sshCommand}
-                  </Typography.Paragraph>
+                  {session.failureCode && (
+                    <Collapse
+                      ghost
+                      size="small"
+                      items={[{
+                        key: 'remote-support-failure-diagnostic',
+                        label: '技术诊断（报修时使用）',
+                        children: (
+                          <Descriptions size="small" column={1}>
+                            <Descriptions.Item label="失败代码">
+                              <Typography.Text type="danger" copyable code>
+                                {session.failureCode}
+                              </Typography.Text>
+                            </Descriptions.Item>
+                          </Descriptions>
+                        ),
+                      }]}
+                    />
+                  )}
+                  {session.state === 'OPEN' && session.certificate && (
+                    <Alert
+                      type="success"
+                      showIcon
+                      message="隧道与临时登录证书均已就绪"
+                      description={(
+                        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                          <Typography.Text>
+                            将证书保存为私钥同名的
+                            <Typography.Text code>-cert.pub</Typography.Text>
+                            文件。例如私钥为
+                            <Typography.Text code>id_ed25519</Typography.Text>
+                            ，证书应为
+                            <Typography.Text code>id_ed25519-cert.pub</Typography.Text>。
+                          </Typography.Text>
+                          <Typography.Text strong>临时证书：</Typography.Text>
+                          <Typography.Paragraph code copyable>
+                            {session.certificate}
+                          </Typography.Paragraph>
+                          <Typography.Text strong>设备主机密钥：</Typography.Text>
+                          <Typography.Paragraph code copyable>
+                            {session.knownHostsLine}
+                          </Typography.Paragraph>
+                          <Typography.Text strong>连接命令：</Typography.Text>
+                          <Typography.Paragraph code copyable>
+                            {session.sshCommand}
+                          </Typography.Paragraph>
+                        </Space>
+                      )}
+                    />
+                  )}
                 </Space>
               )}
-            />
-          )}
-        </Space>
-      )}
 
+            </Card>
+          ),
+        }]} />
+      </Space>
       <Modal
-        title={`开启 ${hardwareSn} 的临时反向 SSH`}
+        title={`开启 ${hardwareSn} 的临时远程维护`}
         open={openModal}
         confirmLoading={submitting}
         okText="确认开启"
@@ -367,10 +397,10 @@ export default function RemoteSupportPanel({ hardwareSn }: {
           type="warning"
           showIcon
           message="同时最多开放 4 台设备"
-          description="22011～22014 是共享端口池；关闭或到期后端口会被其他设备复用。会话最长 30 分钟，服务器和设备两端都会执行到期关闭。"
+          description="本次远程连接最长 30 分钟，到期自动关闭。"
           style={{ marginBottom: 18 }}
         />
-        <Form form={openForm} layout="vertical">
+        <Form form={openForm} name="open-remote-support" layout="vertical">
           <Form.Item
             name="maintenanceSshKeyUid"
             label="本机维护公钥"
@@ -407,7 +437,7 @@ export default function RemoteSupportPanel({ hardwareSn }: {
         onOk={() => void close()}
         onCancel={() => setCloseModal(false)}
       >
-        <Form form={closeForm} layout="vertical">
+        <Form form={closeForm} name="close-remote-support" layout="vertical">
           <Form.Item
             name="reason"
             label="关闭原因"
@@ -417,6 +447,6 @@ export default function RemoteSupportPanel({ hardwareSn }: {
           </Form.Item>
         </Form>
       </Modal>
-    </Card>
+    </section>
   );
 }

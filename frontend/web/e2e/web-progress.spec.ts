@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { permanentDeviceAsset, permanentDeviceRuntime } from './fixtures/device';
 
 const tenantSession = {
   sessionUid: '10000000-0000-4000-8000-000000000001',
@@ -1323,7 +1324,8 @@ test('platform principal reset sends both versions and reports session revocatio
   ).toBeVisible();
 });
 
-test('organization-user detail binds staff and grants cleaner capability', async ({
+for (const bindingAccountKind of ['STAFF', 'TENANT_PRINCIPAL'] as const) {
+test(`organization-user detail binds ${bindingAccountKind} and grants cleaner capability`, async ({
   page,
 }) => {
   const session = {
@@ -1425,7 +1427,7 @@ test('organization-user detail binds staff and grants cleaner capability', async
         items: [
           {
             staffAccountUid: staffUid,
-            accountKind: 'STAFF',
+            accountKind: bindingAccountKind,
             loginName: 'operator',
             displayName: '现场工作人员',
             status: 'ENABLED',
@@ -1436,7 +1438,7 @@ test('organization-user detail binds staff and grants cleaner capability', async
           },
           {
             staffAccountUid: disabledStaffUid,
-            accountKind: 'STAFF',
+            accountKind: bindingAccountKind,
             loginName: 'disabled.account',
             displayName: '停用工作人员',
             status: 'DISABLED',
@@ -1458,7 +1460,7 @@ test('organization-user detail binds staff and grants cleaner capability', async
     ) {
       await json(route, {
         staffAccountUid: staffUid,
-        accountKind: 'STAFF',
+        accountKind: bindingAccountKind,
         loginName: 'operator',
         displayName: '现场工作人员',
         status: 'ENABLED',
@@ -1596,6 +1598,7 @@ test('organization-user detail binds staff and grants cleaner capability', async
   });
   await expect(page.getByText('清运员', { exact: true }).first()).toBeVisible();
 });
+}
 
 test('tenant sidebar preset and name link apply real directory filters', async ({
   page,
@@ -1704,10 +1707,10 @@ test('tenant sidebar preset and name link apply real directory filters', async (
     .click();
   await expect(
     sider.getByText('已拒绝订单', { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(
     sider.getByText('已纠正订单', { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(page).toHaveURL(/\/tenant\?view=disabled/);
 
   await page.getByText('停用租户', { exact: true }).click();
@@ -2096,7 +2099,15 @@ test('platform binds a factory operator to an existing organization user without
 
   await page.goto('/factory-operators');
   await expect(page.getByText('验收员甲', { exact: true })).toBeVisible();
-  await page.getByText('绑定已有微信用户', { exact: true }).click();
+  await page.screenshot({ path: test.info().outputPath('factory-list.png'), fullPage: true });
+  await page.getByText('绑定微信', { exact: true }).click();
+  await page.getByRole('button', { name: '选择已有用户', exact: true }).click();
+  const help = page.getByRole('button', { name: '微信绑定说明', exact: true });
+  await help.focus();
+  await expect(page.getByText('绑定后，该微信可进入厂家端；原机构账号的权限和钱包保持不变。')).toBeVisible();
+  await help.press('Escape');
+  await expect(help).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('dialog', { name: /绑定已有微信用户/ })).toBeVisible();
 
   await page.getByLabel('所属租户').click();
   await page.getByText(`厂家测试租户（${tenantCode}）`, { exact: true }).click();
@@ -2262,12 +2273,13 @@ test('delivery configuration saves an immutable rule version', async ({
   await expect(
     page.getByText('投递审核规则', { exact: true }).first(),
   ).toBeVisible();
-  await expect(page.getByText('页面中的规则可直接修改')).toBeVisible();
+  await expect(page.getByRole('button', { name: '保存投递配置' })).toBeEnabled();
+  await page.screenshot({ path: test.info().outputPath('delivery-rules.png'), fullPage: true });
   await expect.poll(() => configurationReads).toBeGreaterThan(0);
 
   await page.getByLabel('负余额停投下限（元）').fill('-20.00');
   await page
-    .getByLabel('人工认定重量绝对值上限（kg）')
+    .getByRole('textbox', { name: /人工认定重量上限/ })
     .fill('200.000');
   await page.getByLabel('修改说明（可选）').fill('扩大人工审核重量范围');
   await page.getByRole('button', { name: '保存投递配置' }).click();
@@ -2483,174 +2495,6 @@ test('staff table hides security versions and keeps access actions inside edit',
   await expect(page.getByText('机构任职', { exact: true })).toBeVisible();
 });
 
-function legacyDeviceManagementSummary() {
-  return {
-    architectureGeneration: 'LEGACY_DIRECT',
-    businessAdmission: null,
-    compatibility: null,
-    primaryReason: null,
-    observedAt: null,
-  };
-}
-
-function legacyDeviceManagementStatus() {
-  return {
-    ...legacyDeviceManagementSummary(),
-    reasons: [],
-    deviceGateState: null,
-    managementStateSequence: null,
-    communicationAgentVersion: null,
-    deviceUpdaterVersion: null,
-    businessReleaseUid: null,
-    businessVersionName: null,
-    businessReleaseSequence: null,
-    businessPackageSha256: null,
-    businessProcessState: null,
-    businessReady: null,
-    mcuFirmwareVersion: null,
-    mcuFirmwareIdentityHex: null,
-    managementTransportProtocol: null,
-    deviceMaintenanceProtocol: null,
-    agentBusinessProtocol: null,
-    agentUpdaterProtocol: null,
-    updaterBusinessProtocol: null,
-    uartProtocol: null,
-    sourceEventUid: null,
-  };
-}
-
-function permanentDeviceAsset(overrides: Record<string, unknown> = {}) {
-  const deviceCode = typeof overrides.deviceCode === 'string'
-    ? overrides.deviceCode
-    : 'Dv_0123456789abcdefghijklmn';
-  const hardwareSn = typeof overrides.hardwareSn === 'string'
-    ? overrides.hardwareSn
-    : 'SN-PERMANENT-01';
-  return {
-    assetUid: '51000000-0000-4000-8000-000000000001',
-    deviceCode,
-    hardwareSn,
-    modelCode: 'ECOBIN-V1',
-    productionBatch: '2026-08',
-    expectedPortCount: 1,
-    tenantCode: null,
-    organizationCode: null,
-    acceptanceStatus: 'PENDING',
-    deviceEntryUrl: null,
-    lifecycleStatus: 'NORMAL',
-    version: 0,
-    tenantAssignedAt: null,
-    organizationAssignedAt: null,
-    acceptedAt: null,
-    disabledAt: null,
-    retiredAt: null,
-    createdAt: '2026-08-07T01:00:00.123Z',
-    updatedAt: '2026-08-07T01:00:00.123Z',
-    installationProfile: {
-      deviceCode,
-      version: 0,
-      complete: false,
-      displayName: `回收箱 ${hardwareSn}`,
-      address: null,
-      longitude: null,
-      latitude: null,
-      coordinateSystem: 'GCJ02',
-      updatedAt: '2026-08-07T01:00:00.123Z',
-    },
-    oneNetMapping: {
-      productId: 'onenet-product',
-      deviceName: hardwareSn,
-      currentComputedValue: true,
-    },
-    connectivity: {
-      oneNetConnectionStatus: 'UNKNOWN',
-      statusObservedAt: null,
-      statusReceivedAt: null,
-      evidenceSource: null,
-    },
-    deviceManagement: legacyDeviceManagementSummary(),
-    ...overrides,
-  };
-}
-
-function permanentDeviceRuntime(deviceCode: string) {
-  return {
-    deviceCode,
-    lifecycleStatus: 'NORMAL',
-    acceptanceStatus: 'PASSED',
-    version: 4,
-    configuration: {
-      latestPublishedVersion: 3,
-      latestAppliedVersion: 3,
-      latestApplicationStatus: 'APPLIED',
-      latestPreciselyApplied: true,
-    },
-    health: {
-      edgeConnectionStatus: 'ONLINE',
-      oneNetConnectionStatus: 'ONLINE',
-      oneNetStatusObservedAt: '2026-08-24T03:00:00.000Z',
-      oneNetStatusReceivedAt: '2026-08-24T03:00:01.000Z',
-      oneNetEvidenceSource: 'LIFECYCLE_EVENT',
-      trustedRuntimeReceivedAt: '2026-08-24T03:00:02.000Z',
-      mcuLinkStatus: 'OK',
-      safetyStatus: 'SAFE',
-      aggregateWeightHealth: 'OK',
-      cameraHealth: 'OK',
-      localStorageHealth: 'OK',
-      clockSyncHealth: 'OK',
-      edgeSoftwareVersion: 'edge-1.2.3',
-      mcuFirmwareVersion: 'mcu-2.0.0',
-      uartState: 'READY',
-      uartProtocolMajor: 1,
-      uartProtocolMinor: 0,
-      capabilityBitmapHex: '0f',
-      edgeBootId: 18,
-      lastMcuResetReason: null,
-      pendingReliableEventCount: 0,
-      orangePiReportedConfigurationVersion: 3,
-      lastHeartbeatAt: '2026-08-24T03:00:02.000Z',
-      lastDeviceEventAt: '2026-08-24T02:59:30.000Z',
-      runtimeVersion: 6,
-    },
-    deviceManagement: legacyDeviceManagementStatus(),
-    occupied: false,
-    occupancyKind: null,
-    occupiedAt: null,
-    ports: [{
-      deviceCode,
-      portNo: 1,
-      displayName: '可回收物投口',
-      configuredEnabled: true,
-      deliveryDoorState: 'CLOSED',
-      deliveryDoorActuatorHealth: 'OK',
-      deliveryDoorContactState: 'CLOSED',
-      lastDeliveryDoorCommand: 'CLOSE',
-      lastDeliveryDoorOutputStatus: 'COMMAND_DISPATCHED',
-      cleanLockPowerState: 'DEENERGIZED',
-      cleanSolenoidHealth: 'OK',
-      cleanDoorRecordedState: 'CLOSED',
-      cleanDoorStateBasis: 'CLEANER_CONFIRMATION',
-      cleanerPhysicalCloseConfirmed: true,
-      weightSensorHealth: 'OK',
-      weightMeasurementStatus: 'STABLE',
-      weightValueAvailable: true,
-      reportedWeightGrams: 1200,
-      weightValueKind: 'STABLE_WINDOW_MEAN',
-      infraredValue: 'CLEAR',
-      infraredSensorHealth: 'OK',
-      fullnessSensorKind: 'ULTRASONIC',
-      fullnessSensorValue: 'NORMAL',
-      representativeDistanceMm: 438,
-      smokeState: 'CLEAR',
-      smokeSensorHealth: 'OK',
-      safetyStatus: 'SAFE',
-      lastObservedAt: '2026-08-24T03:00:02.000Z',
-      runtimeVersion: 8,
-    }],
-    fetchedAt: '2026-08-24T03:00:05.000Z',
-  };
-}
-
 test('device drawer separates current runtime from collapsed historical acceptance evidence', async ({
   page,
 }) => {
@@ -2758,36 +2602,40 @@ test('device drawer separates current runtime from collapsed historical acceptan
 
   await page.goto('/devices');
   await expect(page.getByText('在线', { exact: true }).first()).toBeVisible();
-  await page.getByText(hardwareSn, { exact: true }).click();
+  await page.getByRole('button', { name: `查看设备 ${hardwareSn}`, exact: true }).click();
   const drawer = page.locator('.ant-drawer').filter({ hasText: hardwareSn });
 
   await expect(
-    drawer.getByText('OneNet 当前报告设备在线', { exact: true }),
+    drawer.getByText('设备在线', { exact: true }),
   ).toBeVisible();
-  await expect(drawer.getByText('MCU 通信', { exact: true })).toBeVisible();
+  await expect(drawer.getByText('设备控制板通信', { exact: true })).not.toBeVisible();
+  await drawer.getByRole('button', { name: /部件与时间明细$/, exact: false }).click();
+  await expect(drawer.getByText('设备控制板通信', { exact: true })).toBeVisible();
+  await drawer.getByRole('button', { name: /部件与时间明细$/, exact: false }).click();
   await expect(drawer.getByText('可回收物投口', { exact: false }))
     .toBeVisible();
   await expect(
-    drawer.getByText('出厂自动机器验收（历史证据）', { exact: true }),
+    drawer.getByText('设备检查历史记录', { exact: true }),
   ).toBeVisible();
-  await expect(drawer.getByText('验收已通过', { exact: true })).toBeVisible();
-  await expect(drawer.getByText('OneNet 在线', { exact: true })).toHaveCount(0);
+  await expect(drawer.getByText('设备功能检查通过', { exact: true })).not.toBeVisible();
+  await expect(drawer.getByText('云端连接', { exact: true })).toHaveCount(0);
   expect(evidenceRequests).toBe(0);
 
   await drawer.getByText(
-    '出厂自动机器验收（历史证据）',
+    '设备检查历史记录',
     { exact: true },
   ).click();
   await expect.poll(() => evidenceRequests).toBe(1);
   await expect(drawer.getByText(
-    '这里是验收时保存的历史功能快照，不是设备当前状态',
+    '这里展示的是以往检查记录，不代表设备当前状态',
     { exact: true },
   )).toBeVisible();
   await expect(drawer.getByText(
-    '验收代次最后一份功能证据已通过',
+    '当次判定 设备功能检查通过',
     { exact: true },
   )).toBeVisible();
-  await expect(drawer.getByText('OneNet 在线', { exact: true })).toBeVisible();
+  await drawer.getByText('验收记录 1', { exact: true }).click();
+  await expect(drawer.getByText('云端连接', { exact: true })).toBeVisible();
 });
 
 test('failed acceptance reevaluation refreshes CSRF and reports once', async ({
@@ -2888,22 +2736,24 @@ test('failed acceptance reevaluation refreshes CSRF and reports once', async ({
   });
 
   await page.goto('/devices');
-  await page.getByText(hardwareSn, { exact: true }).click();
+  await page.getByRole('button', { name: `查看设备 ${hardwareSn}`, exact: true }).click();
   const drawer = page.locator('.ant-drawer').filter({ hasText: hardwareSn });
-  const reevaluate = drawer.getByRole('button', {
-    name: '重新读取验收证据',
+  const reevaluate = page.getByRole('menuitem', {
+    name: '重新核对设备检查结果',
   });
 
+  await drawer.getByRole('button', { name: '更多操作' }).click();
   await reevaluate.click();
   await expect.poll(() => reevaluationCount).toBe(1);
   const reevaluationError = page.getByText(
-    '服务端数据库结构或查询不兼容（请求 ID：req-e2e）',
+    '服务暂时不可用，请稍后再试',
     { exact: true },
   );
   await expect(reevaluationError).toHaveCount(1);
   await expect(reevaluationError).toBeVisible();
-  await expect(reevaluate).not.toHaveClass(/ant-btn-loading/);
+  await expect(drawer.getByRole('button', { name: '更多操作' })).not.toHaveClass(/ant-btn-loading/);
 
+  await drawer.getByRole('button', { name: '更多操作' }).click();
   await reevaluate.click();
   await expect.poll(() => reevaluationCount).toBe(2);
   await expect.poll(() => csrfRequestCount).toBe(2);
@@ -2911,10 +2761,11 @@ test('failed acceptance reevaluation refreshes CSRF and reports once', async ({
   expect(idempotencyKeys[0]).toBeTruthy();
   expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
   await expect(
-    page.getByText('已根据最新功能证据重新计算验收结果'),
+    page.getByText('已根据最新设备检查记录重新核对验收结果'),
   ).toBeVisible();
+  await drawer.getByRole('button', { name: /设备资料$/, exact: false }).click();
   await expect(
-    drawer.getByText('机器验收通过', { exact: true }),
+    drawer.getByText('设备功能检查通过', { exact: true }),
   ).toBeVisible();
 });
 
@@ -3009,7 +2860,7 @@ test('device technical issue failures never masquerade as a healthy device', asy
   });
 
   await page.goto('/devices');
-  await page.getByText(hardwareSn, { exact: true }).click();
+  await page.getByRole('button', { name: `查看设备 ${hardwareSn}`, exact: true }).click();
   const drawer = page.locator('.ant-drawer').filter({ hasText: hardwareSn });
 
   await expect(drawer.getByText('设备问题加载失败', { exact: true }))
@@ -3021,7 +2872,7 @@ test('device technical issue failures never masquerade as a healthy device', asy
   await drawer.getByRole('button', { name: '重试加载' }).click();
   await expect(drawer.getByText(issue.title, { exact: true })).toBeVisible();
 
-  await drawer.locator('button').filter({ hasText: /^刷新$/ }).click();
+  await drawer.locator('section').filter({ has: page.getByRole('heading', { name: '设备问题与安全恢复' }) }).getByRole('button', { name: /刷新/ }).click();
   await expect(drawer.getByText('设备问题刷新失败', { exact: true }))
     .toBeVisible();
   await expect(
@@ -3156,7 +3007,7 @@ test('platform registers an asset without factory bags and writes tenant ownersh
   await expect(page.getByText('永久设备资产', { exact: true })).toBeVisible();
   await expect(
     page.getByText('永久归属 · 自动验收 · 自动检查业务条件', { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await page.getByRole('button', { name: '登记真实设备' }).click();
   const createDialog = page.getByRole('dialog', { name: '登记真实设备资产' });
   await createDialog.locator('.ant-form-item')
@@ -3172,7 +3023,7 @@ test('platform registers an asset without factory bags and writes tenant ownersh
     .locator('input')
     .fill('2026-08');
   await expect(
-    createDialog.getByText('这里只登记设备资产，不登记厂家初始袋'),
+    createDialog.getByText('设备序列号登记后不可修改，请核对机身编号。'),
   ).toBeVisible();
   await expect(createDialog.getByText(/厂家初始袋码/)).toHaveCount(0);
   await createDialog.getByRole('button', { name: '创建资产' }).click();
@@ -3188,10 +3039,10 @@ test('platform registers an asset without factory bags and writes tenant ownersh
   });
   const drawer = page.locator('.ant-drawer').filter({ hasText: hardwareSn });
   await expect(
-    drawer.getByText('设备软件与业务可用状态', { exact: true }),
+    drawer.getByText('业务可用状态', { exact: true }),
   ).toBeVisible();
   await expect(
-    drawer.getByText('沿用现有业务检查', { exact: true }).first(),
+    drawer.getByText('当前状态无法确认', { exact: true }).first(),
   ).toBeVisible();
   await drawer.getByRole('button', { name: '永久分配租户' }).click();
   const assignmentDialog = page.getByRole('dialog', { name: '永久分配租户' });
@@ -3205,6 +3056,7 @@ test('platform registers an asset without factory bags and writes tenant ownersh
     body: { tenantCode, expectedVersion: 0 },
     key: expect.any(String),
   });
+  await drawer.getByRole('button', { name: /设备资料$/, exact: false }).click();
   await expect(drawer.getByText(tenantCode, { exact: true })).toBeVisible();
   expect(legacyRequests).toEqual([]);
 });
@@ -3287,8 +3139,8 @@ test('tenant writes the only organization ownership without deployment progress'
 
   await page.goto('/devices');
   await expect(page.getByText('租户设备', { exact: true })).toBeVisible();
-  await expect(page.getByText(hardwareSn, { exact: true })).toBeVisible();
-  await page.getByText(hardwareSn, { exact: true }).click();
+  await expect(page.getByRole('button', { name: `查看设备 ${hardwareSn}`, exact: true })).toBeVisible();
+  await page.getByRole('button', { name: `查看设备 ${hardwareSn}`, exact: true }).click();
   const drawer = page.locator('.ant-drawer').filter({ hasText: hardwareSn });
   await drawer.getByRole('button', { name: '永久分配机构' }).click();
   const assignmentDialog = page.getByRole('dialog', { name: '永久分配机构' });
@@ -3603,7 +3455,9 @@ test('delivery list applies deep-link filters and reviews from the evidence draw
   await expect(page.getByText('照片证据', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '审核', exact: true }).click();
   const reviewDialog = page.getByRole('dialog');
-  await expect(reviewDialog.getByText('审核会形成第一条认定版本')).toBeVisible();
+  await expect(reviewDialog.getByTestId('review-final-amount')).toHaveText('¥ 1.00');
+  await expect(reviewDialog.getByTestId('review-wallet-delta')).toContainText('1.00');
+  await page.screenshot({ path: test.info().outputPath('review-result.png'), fullPage: true });
   const confirmReview = reviewDialog.getByRole('button', { name: '确认审核' });
   await expect(confirmReview).toBeEnabled();
   await confirmReview.click();
@@ -3768,21 +3622,18 @@ test('delivery review waits for the latest silent preview before committing', as
   await expect.poll(() => previewBodies.some(
     (body) => body.finalWeightKg === '2.00',
   )).toBe(true);
-  await expect(dialog.getByText(
-    '客户端换算与服务端预览一致，可以确认',
-    { exact: true },
-  )).toBeVisible();
-  await expect(dialog.getByText(/最终金额 ¥ 1\.60/)).toBeVisible();
+  await expect(dialog.getByText('本次确认结果', { exact: true })).toBeVisible();
+  await expect(dialog.getByTestId('review-final-amount')).toHaveText('¥ 1.60');
   await expect(dialog.getByRole('button', { name: '确认审核' }))
     .toBeEnabled();
 
   releaseOneKgPreview?.();
   await page.waitForTimeout(100);
-  await expect(dialog.getByText(/最终金额 ¥ 1\.60/)).toBeVisible();
-  await expect(dialog.getByText(/最终金额 ¥ 0\.80/)).toHaveCount(0);
+  await expect(dialog.getByTestId('review-final-amount')).toBeVisible();
+  await expect(dialog.getByTestId('review-final-amount').filter({ hasText: '¥ 0.80' })).toHaveCount(0);
 
   const previewCountBeforeReason = previewBodies.length;
-  await dialog.getByLabel('说明').fill('只修改说明不应使预览失效');
+  await dialog.getByRole('textbox', { name: '说明（用户可见）' }).fill('只修改说明不应使预览失效');
   await page.waitForTimeout(400);
   expect(previewBodies).toHaveLength(previewCountBeforeReason);
   await expect(dialog.getByRole('button', { name: '确认审核' }))
@@ -4044,7 +3895,7 @@ test('approved delivery can append a correction with the observed revision', asy
     .getByLabel('最终认定重量（千克）')
     .fill('1.50');
   await correctionDialog
-    .getByLabel('说明')
+    .getByRole('textbox', { name: '说明（用户可见）' })
     .fill('现场复核后重新认定');
   const confirmCorrection = correctionDialog.getByRole('button', {
     name: '确认纠正',

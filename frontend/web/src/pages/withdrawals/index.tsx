@@ -186,12 +186,6 @@ export default function WithdrawalsPage() {
             </Button>
           </Space>
         </Card>
-        <Alert
-          type="info"
-          showIcon
-          message="提现是否需要人工审核由创建时冻结的规则决定"
-          description="手动提现与投递返现自动提现分别使用各自的免审阈值。超过阈值的订单进入人工审核；未超过阈值的订单由系统直接批准并可靠提交微信。"
-        />
         {error && <Alert type="error" showIcon message="提现订单加载失败" description={error} />}
         <Card title="提现订单">
           <Table<WithdrawalOrder>
@@ -292,7 +286,7 @@ export default function WithdrawalsPage() {
   })();
 
   return (
-    <PageContainer {...pageHeader('提现订单', '规则免审、人工审核、双方冻结与微信商家转账状态')}>
+    <PageContainer {...pageHeader('提现订单')}>
       <DirectoryScopeBar scope={directory} />
       {content}
       <Modal

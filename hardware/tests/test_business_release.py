@@ -246,6 +246,7 @@ def test_business_builder_signs_only_the_final_archive(
 ) -> None:
     source = tmp_path / "hardware"
     source.mkdir()
+    (source / "edge_store.py").write_text(f"CURRENT_SCHEMA_VERSION = {EDGE_SCHEMA_VERSION}\n", encoding="utf-8")
     output = tmp_path / "output"
     private_key = Ed25519PrivateKey.generate()
     private_path = tmp_path / "business-private.pem"

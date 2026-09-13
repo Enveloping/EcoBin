@@ -1,5 +1,5 @@
 {
-  "mappingVersion": "2.1.1",
+  "mappingVersion": "2.2.0",
   "status": "IMPLEMENTATION_CANDIDATE",
   "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "transport": {
@@ -243,6 +243,20 @@
     }
   },
   "events": {
+    "deliveryIssueEvidenceAppended": {
+      "description": "追加原投递问题的上下文、过程原文或迟到完整包分片，不改变归档结论或业务价值。",
+      "eventType": "DELIVERY_ISSUE_EVIDENCE_APPENDED",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "DELIVERY_SESSION",
+      "schemaRef": "events/events.schema.json#/$defs/deliveryIssueEvidenceAppendedEvent"
+    },
+    "deliveryIssueArchived": {
+      "description": "设备确认单片机重启但未取得最终包，只归档原投递问题，不重建订单或产生资金效果。",
+      "eventType": "DELIVERY_ISSUE_ARCHIVED",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "DELIVERY_SESSION",
+      "schemaRef": "events/events.schema.json#/$defs/deliveryIssueArchivedEvent"
+    },
     "deviceCommandObserved": {
       "description": "设备报告某条下行命令已接收、接受或拒绝，供后台区分平台送达与设备实际受理。",
       "eventType": "DEVICE_COMMAND_OBSERVED",
@@ -403,6 +417,10 @@
     "issuedAt is strictly before expiresAt",
     "target.uid equals the strong work UID repeated inside the payload",
     "QUARANTINE_DELIVERY_RECOVERY requires explicit confirmation that the old physical outcome is unknown, all field-safety confirmations, a changed device boot identity, fresh fixed-frame idle safeFlags 0x0F, a healthy F1 self-test and one exact permanent ARMED action; DELIVERY_RECOVERY_QUARANTINED is issue-only evidence and must never enter delivery-order or financial projections",
+    "DELIVERY_ISSUE_ARCHIVED is a separate automatic native-delivery issue path, not the manual quarantine command: eventUid equals issueUid, commandUid equals originalCommandUid, target equals sessionUid, and the authenticated immutable device, original cloud command digest, raw START identity/digest/configuration and positive reboot observation must match the original delivery; sourceMcuBootId is strictly less than targetMcuBootId. MCU timeout alone is not reboot proof. A complete result saved before local archive commit takes precedence; process weights/actions cannot reconstruct a missing final packet",
+    "DELIVERY_ISSUE_ARCHIVED freezes businessValue NONE and finalResultAtArchive ABSENT with reason MCU_RESTART_FINAL_RESULT_UNAVAILABLE (单片机重启，未取得最终结果包). It never creates a normal settlement order, wallet credit or withdrawal; existing weights are retained, not labelled entirely lost. Archive is not proof of safe closure or permission to admit work",
+    "DELIVERY_ISSUE_EVIDENCE_APPENDED belongs to the original authenticated device, issueUid, sessionUid, originalCommandUid and archiveEvidenceSha256; eventUid differs from issueUid. ARCHIVE_CONTEXT and FINAL_RESULT use evidenceIndex 0, PROCESS_FACT uses the original positive fact sequence. Raw evidence is not truncated: dataHex contains at most 256 original bytes per one-based part, partCount equals ceil(evidenceSizeBytes/256), and all non-final parts are 256 bytes. Identity, kind, index, whole digest, size and part count are immutable across parts; duplicate/conflicting fragments must not overwrite original evidence",
+    "Archive evidence digest covers the exact ASCII bytes of the Pi frozen archive JSON (sorted keys, compact separators, escaped non-ASCII), not RFC8785 reserialization. PROCESS_FACT bytes use the original source_kind/source_key/message_name/metadata_json/payloadHex fingerprint object; FINAL_RESULT bytes are the exact UART WORK_RESULT body. A backend must assemble every part and verify byte length and whole SHA-256 before trusting an artifact, then validate the complete final result against original START/work/boot/configuration. Late evidence cannot change the archived verdict, settle an order, credit a wallet, trigger withdrawal or overwrite current bag/tare/later work, even after a device assignment or bag change",
     "DELIVERY_COMPLETE has exactly the four delivery slots and no intermediate cycle fields",
     "DELIVERY_COMPLETE net weight equals final stable grams minus first stable grams, otherwise is null",
     "CLEAN_COMPLETE has exactly the four cleaning slots",
@@ -437,6 +455,9 @@
     "Dp_"
   ],
   "enumDisplay": {
+    "DELIVERY_ISSUE_EVIDENCE_APPENDED": "DELIV_ISSUE_EVIDENCE",
+    "DELIVERY_ISSUE_ARCHIVED": "DELIV_ISSUE_ARCHIVED",
+    "MCU_RESTART_FINAL_RESULT_UNAVAILABLE": "MCU_RESTART_NO_FINAL",
     "DEVICE_COMMAND_OBSERVED": "DEV_CMD_OBSERVED",
     "CONFIGURATION_PROGRESS": "CONFIG_PROGRESS",
     "FULLNESS_SAMPLE_COMPLETE": "FULLNESS_SAMPLE_DONE",

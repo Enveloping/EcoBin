@@ -17,6 +17,20 @@
       "maxLength": 36,
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     },
+    "measurementUid": {
+      "type": "string",
+      "minLength": 36,
+      "maxLength": 36,
+      "description": "Legacy UUIDv4 or native EBM1 + big-endian boot uint64 + event uint32. Prefix 45424d31-00 is reserved for native, device-scoped identities, not globally unique; embedded boot/event must equal the measurement fields.",
+      "anyOf": [
+        { "$ref": "#/$defs/uuid" },
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^45424d31-00[01][0-9a-f]-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}(?!00000000$)[0-9a-f]{8}$"
+        }
+      ]
+    },
     "sha256": {
       "type": "string",
       "minLength": 64,
@@ -194,7 +208,7 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "measurementUid": { "$ref": "#/$defs/uuid" },
+        "measurementUid": { "$ref": "#/$defs/measurementUid" },
         "status": {
           "enum": [
             "STABLE",
@@ -217,7 +231,8 @@
             "STABLE_WINDOW_MEAN",
             "LAST_FOUR_MEAN",
             "AVAILABLE_SAMPLES_MEAN",
-            "LAST_OBSERVED"
+            "LAST_OBSERVED",
+            "TIMEOUT_MEDIAN"
           ]
         },
         "measurementElapsedMs": { "$ref": "#/$defs/durationMs" },
@@ -298,12 +313,33 @@
           "then": {
             "properties": {
               "weightValueAvailable": { "const": true },
-              "weightValueKind": {
-                "enum": ["LAST_FOUR_MEAN", "AVAILABLE_SAMPLES_MEAN"]
+              "sensorHealth": { "const": "OK" }
+            },
+            "oneOf": [
+              {
+                "properties": {
+                  "weightValueKind": { "enum": ["LAST_FOUR_MEAN", "AVAILABLE_SAMPLES_MEAN"] },
+                  "faultCode": { "const": "WEIGHT_UNSTABLE" }
+                }
               },
-              "sensorHealth": { "const": "OK" },
-              "faultCode": { "const": "WEIGHT_UNSTABLE" }
-            }
+              {
+                "properties": {
+                  "weightValueKind": { "const": "TIMEOUT_MEDIAN" },
+                  "faultCode": { "type": "null" },
+                  "measurementElapsedMs": { "const": 5000 },
+                  "sampleCount": { "type": "integer", "minimum": 5, "maximum": 32 }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": { "weightValueKind": { "const": "TIMEOUT_MEDIAN" } },
+            "required": ["weightValueKind"]
+          },
+          "then": {
+            "properties": { "status": { "const": "UNSTABLE" } }
           }
         }
       ]

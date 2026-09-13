@@ -208,6 +208,19 @@ def validate_command_envelope(
     )
 
 
+def validate_stored_confirmation_envelope(command: dict[str, Any]) -> None:
+    """Recheck an already accepted confirmation, not fresh delivery authority.
+
+    EdgeStore verifies the original durable command hash before using this.
+    Expiry cannot invalidate a previously committed business fact on restart.
+    Never use this validator for initial service acceptance or physical commands.
+    """
+    if command.get("commandType") != "CONFIRM_EDGE_EVENT":
+        raise ValueError("stored confirmation validator requires CONFIRM_EDGE_EVENT")
+    _validate_command_envelope(command, trusted_environment=None,
+        trusted_business_release_download_base_url=None, expiry_reference_time=None)
+
+
 def validate_unavailable_mcu_firmware_update_envelope(
     command: dict[str, Any],
 ) -> None:
@@ -1255,6 +1268,12 @@ def build_event_envelope(
 
 def encode_event_post(event_type: str, event: dict[str, Any]) -> dict[str, Any]:
     """Project an event envelope into OneNet OneJSON event/post payload."""
+
+    if event_type in {"DELIVERY_ISSUE_ARCHIVED", "DELIVERY_ISSUE_EVIDENCE_APPENDED"}:
+        from native_delivery_issue_report import validate_envelope
+        if event.get("eventType") != event_type:
+            raise ValueError("native issue event kind differs from projection")
+        validate_envelope(event)
 
     projection = _EVENT_PROJECTIONS.get(event_type)
     if projection is None:

@@ -15,20 +15,19 @@
 #include "adc.h"
 #include "smoke_monitor.h"
 #include "mcu_update_execution.h"
-#define ECOBIN_MCU_RUNTIME_INCLUDE_DIRECTION
-#include "mcu_runtime_logic.h"
+#include "actuator_runtime.h"
+#include "runtime_clock.h"
 
-/* ===== 定时器驱动重量采集: 全局变量 (100ms周期) ===== */
-volatile unsigned char  g_weight_tick = 0;
-volatile unsigned short g_tick_count  = 0;
+/* Local candidate schedule; native measurement configuration is wired in P3. */
+#define WEIGHT_POLL_INTERVAL_MS 250U
+#define CLEAN_LOCK_PULSE_MS 4800U
 
 #define SUO   PBout(8)
 
 #define RELAY1   PBout(6)//控制推杆方向
 #define RELAY2   PBout(7)
 
-#define LIMIT_SW1   PBin(4)   /* PB4: 关盖方向限位 */
-#define LIMIT_SW2   PBin(5)   /* PB5: 开盖方向限位 */
+#define PINCH_INPUT PBin(5)   /* PB5: high-active, CLOSE only; PB4 is unused. */
 
 /* HC-SR04 超声波溢满检测 */
 #define HCSR04_TRIG      PAout(11)   /* PA11=TRIG 触发输出 */
@@ -43,8 +42,8 @@ unsigned char unit_price = 8;
 
 /* 推杆方向定义 */
 #define DIR_STOP    MCU_DIRECTION_STOP   /* 停止 */
-#define Close_PB4   MCU_DIRECTION_CLOSE  /* 伸长/关盖: RELAY1=0 RELAY2=1 (+24V) */
-#define Open_PB5    MCU_DIRECTION_OPEN   /* 缩回/开盖: RELAY1=1 RELAY2=0 (-24V) */
+#define DIR_CLOSE   MCU_DIRECTION_CLOSE  /* PB6/PB7=01 */
+#define DIR_OPEN    MCU_DIRECTION_OPEN   /* PB6/PB7=10 */
 
 /* 注: PA11/PA12 已分配给 HC-SR04, 见上方 HCSR04_TRIG/HCSR04_ECHO */
 
@@ -59,7 +58,7 @@ unsigned long  stable_garbage     = 0;   /* 当前稳定的垃圾重量值 */
 unsigned char  garbage_stable_cnt = 0;   /* 垃圾重量连续稳定计数 */
 unsigned char  baseline_inited    = 0;   /* baseline是否已初始化 */
 
-/* Weight moving-average filter (4 samples @600ms = 2.4s window) */
+/* Legacy display/fixed-frame filter, not proof of a native stable measurement. */
 #define WEIGHT_FILTER_N  4
 static unsigned long weight_history[WEIGHT_FILTER_N];
 static unsigned char weight_hist_cnt = 0;
@@ -75,8 +74,7 @@ unsigned char  delivery_flow_active = 0;
 #define CLEAN_LOCK_ON       1
 #define CLEAN_WAIT_CONFIRM  2
 unsigned char  cleaning_state = CLEAN_IDLE;
-unsigned char  lock_timer_ticks = 0;
-unsigned char  update_prepared = 0;
+volatile unsigned char update_prepared = 0;
 unsigned char  weigh_state = WEIGH_IDLE;
 
 /* 稳定判定: 连续3次读数波动≤5g视为稳定 */
@@ -110,9 +108,9 @@ unsigned long Weight_Filter(unsigned long raw)
 
 
 /*
- * TIM3 初始化: 100ms 周期中断
+ * TIM3 初始化: 10ms 周期中断
  * APB1=36MHz, 因APB1预分频≠1, TIM3时钟=72MHz
- * 预分频=7200 → 10kHz, 自动重载=1000 → 100ms
+ * 预分频=7200 → 10kHz, 自动重载=100 → 10ms
  */
 void TIM3_Init(void)
 {
@@ -121,7 +119,7 @@ void TIM3_Init(void)
 
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3, ENABLE);
 
-    TIM_TimeBaseStructure.TIM_Period        = 1000 - 1;
+    TIM_TimeBaseStructure.TIM_Period        = 100 - 1;
     TIM_TimeBaseStructure.TIM_Prescaler      = 7200 - 1;
     TIM_TimeBaseStructure.TIM_ClockDivision  = TIM_CKD_DIV1;
     TIM_TimeBaseStructure.TIM_CounterMode    = TIM_CounterMode_Up;
@@ -235,38 +233,32 @@ void LIMIT_SW_Init(void)
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
 
-    /* PB4=限位下, PB5=限位上 下拉输入 */
+    /* PB4 unused; PB5 bottom anti-pinch, keep existing active-high wiring. */
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_4 | GPIO_Pin_5;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_10MHz;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPD;
     GPIO_Init(GPIOB, &GPIO_InitStructure);
 }
 
-/* 推杆控制 */
-void Motor_Control(unsigned char *pDir)
+static uint32_t Actuator_EnterCritical(void)
 {
-    *pDir = McuRuntime_DirectionAfterLimits(
-        *pDir, LIMIT_SW1 ? 1U : 0U, LIMIT_SW2 ? 1U : 0U);
-
-    switch(*pDir)
-    {
-    case Close_PB4:
-        RELAY1 = 0;
-        RELAY2 = 1;
-        break;
-
-    case Open_PB5:
-        RELAY1 = 1;
-        RELAY2 = 0;
-        break;
-
-    case DIR_STOP:
-    default:
-        RELAY1 = 0;
-        RELAY2 = 0;
-        break;
-    }
+    uint32_t previous = __get_PRIMASK();
+    __disable_irq();
+    return previous;
 }
+static void Actuator_LeaveCritical(uint32_t previous) { __set_PRIMASK(previous); }
+static uint8_t Actuator_ReadPinch(void) { return PINCH_INPUT ? 1U : 0U; }
+static void Actuator_WriteOutputs(uint8_t mask)
+{
+    /* One atomic write: never pass through PB6/PB7=11 on a direction change. */
+    uint32_t set_bits = ((uint32_t)mask & 7U) << 6;
+    uint32_t reset_bits = ((uint32_t)(~mask) & 7U) << 6;
+    GPIOB->BSRR = set_bits | (reset_bits << 16);
+}
+static const ActuatorHardware actuator_hardware = {
+    Actuator_EnterCritical, Actuator_LeaveCritical,
+    Actuator_ReadPinch, Actuator_WriteOutputs
+};
 
 /*
  * 称重状态机处理
@@ -379,16 +371,13 @@ static unsigned char Firmware_ExecuteUpdatePrepare(
      * Latch first so later local input cannot turn an output back on.
      */
     update_prepared = state.update_latched;
+    ActuatorRuntime_StopForUpdate();
     delivery_flow_active = state.delivery_active;
     cleaning_state = state.cleaning_state;
     delivery_pre_weight_valid = 0;
     cleaning_pre_weight_valid = 0;
-    lock_timer_ticks = 0;
     *pCmdDir = state.command_direction;
     *pWeighState = state.weigh_state;
-    RELAY1 = state.relay1;
-    RELAY2 = state.relay2;
-    SUO = state.lock_output;
     UART3_RxLen = 0;
 
     flags = Firmware_ExecutionFlags(*pCmdDir, *pWeighState);
@@ -445,7 +434,8 @@ void Vision_Process(unsigned char *pCmdDir, unsigned char *pPrice,
                     delivery_pre_weight = g_weight;
                     delivery_pre_weight_valid = 1;
                     delivery_flow_active = 1;
-                    *pCmdDir = Open_PB5;
+                    *pCmdDir = DIR_OPEN;
+                    ActuatorRuntime_SetDoorTarget(*pCmdDir);
                     UART3_SendPage("page4");
                 }
                 break;
@@ -465,9 +455,8 @@ void Vision_Process(unsigned char *pCmdDir, unsigned char *pPrice,
                 {
                     cleaning_pre_weight = g_weight;
                     cleaning_pre_weight_valid = 1;
-                    SUO = 1;
+                    ActuatorRuntime_Unlock(CLEAN_LOCK_PULSE_MS);
                     cleaning_state = CLEAN_LOCK_ON;
-                    lock_timer_ticks = 0;
                     UART3_SendPage("page8");
                 }
                 break;
@@ -563,9 +552,12 @@ int main(void)
     unsigned long  weight = 0;
     unsigned char ret;
     unsigned char cmdDir = DIR_STOP;
+    uint32_t last_weight_poll_ms = 0U;
 
     SystemInit();
     IO_Init();
+    RuntimeClock_Init();
+    ActuatorRuntime_Init(&actuator_hardware);
     LED_GPIO_Config();
     NVIC_Configuration();
     USART1_Init();
@@ -574,9 +566,9 @@ int main(void)
     USART3_Init();         /* UART3 串口屏幕通信 */
     LIMIT_SW_Init();
     ADC1_Init();        /* PA4 MQ-2烟雾传感器 */
-    TIM3_Init();        /* 100ms定时器, 驱动重量采集 */
     HCSR04_Init();      /* HC-SR04超声波溢满检测 */
     SmokeMonitor_Init();
+    TIM3_Init();        /* Enable last: actuator/smoke state is initialized. */
 
 
     while (1)
@@ -589,9 +581,7 @@ int main(void)
         {
             cmdDir = DIR_STOP;
             weigh_state = WEIGH_IDLE;
-            RELAY1 = 0;
-            RELAY2 = 0;
-            SUO = 0;
+            ActuatorRuntime_StopForUpdate();
             UART3_RxLen = 0;
         }
         while(!update_prepared && UART3_RxLen > 0)
@@ -602,12 +592,14 @@ int main(void)
             switch(UART3_RxBuf[0])
             {
             case 0x01:   /* 开盖 */
-                cmdDir = Open_PB5;
+                cmdDir = DIR_OPEN;
+                ActuatorRuntime_SetDoorTarget(cmdDir);
 //                UART3_SendByte(0xC1); UART3_SendByte(0xC1);
                 matched = 1; consumed = 1;
                 break;
             case 0x00:   /* 关盖 */
-                cmdDir = Close_PB4;
+                cmdDir = DIR_CLOSE;
+                ActuatorRuntime_SetDoorTarget(cmdDir);
 //                UART3_SendByte(0xC3); UART3_SendByte(0xF0);
                 matched = 1; consumed = 1;
                 break;
@@ -620,7 +612,8 @@ int main(void)
             case 0x04:   /* 显示结果: 发送稳定垃圾重量+总价到 page7 */
             {
 				unsigned short d_kg, d_bg, d_yuan, d_jiao, d_fen;
-								cmdDir = Close_PB4;
+                cmdDir = DIR_CLOSE;
+                ActuatorRuntime_SetDoorTarget(cmdDir);
                 d_kg    = stable_garbage / 1000;
                 d_bg    = stable_garbage % 1000 / 100;
 							
@@ -694,9 +687,8 @@ int main(void)
                 if(cleaning_state == CLEAN_WAIT_CONFIRM &&
                    cleaning_pre_weight_valid)
                 {
-                    SUO = 1;
+                    ActuatorRuntime_Unlock(CLEAN_LOCK_PULSE_MS);
                     cleaning_state = CLEAN_LOCK_ON;
-                    lock_timer_ticks = 0;
                 }
                 matched = 1; consumed = 1;
                 break;
@@ -728,8 +720,10 @@ int main(void)
 
 
 
-        /* 推杆控制 */
-        Motor_Control(&cmdDir);
+        /* Timer-owned outputs continue even while the main loop is blocked. */
+        if(cleaning_state == CLEAN_LOCK_ON &&
+           !ActuatorRuntime_Snapshot().lock_powered)
+            cleaning_state = CLEAN_WAIT_CONFIRM;
 
                 /* SmokeMonitor: debounced state machine */
         SmokeMonitor_Update();
@@ -738,17 +732,11 @@ int main(void)
 
 
         /* ========== 定时器驱动的非阻塞称重采集 ========== */
-        if(g_weight_tick)
+        if(RuntimeClock_PeriodDue(RuntimeClock_Now(), &last_weight_poll_ms,
+                                  WEIGHT_POLL_INTERVAL_MS))
         {
-            g_weight_tick = 0;
             Weight_Read_Start();
-            /* Lock auto-off ~4s */
-            if(cleaning_state == CLEAN_LOCK_ON)
-            {
-                lock_timer_ticks++;
-                if(lock_timer_ticks >= 8){SUO=0;cleaning_state=CLEAN_WAIT_CONFIRM;lock_timer_ticks=0;}
-            }
-}
+        }
 
         ret = Weight_Read_Poll(&weight);
 
@@ -772,20 +760,10 @@ int main(void)
             jiao = (total_price / 100) % 10;
             fen  = (total_price / 10) % 10;
         }
-        else if(ret == 1)
+        else if(ret != 2U)
         {
             g_weight_valid = 0;
-            /* Weight Timeout */ // printf("Weight Read Timeout!\r\n");
-        }
-        else if(ret == 3)
-        {
-            g_weight_valid = 0;
-            /* Weight CRC Err */ // printf("Weight CRC Error!\r\n");
-        }
-        else if(ret == MCU_WEIGHT_READ_RANGE_ERROR)
-        {
-            g_weight_valid = 0;
-            /* Positive scale value exceeds the fixed-frame maximum. */
+            /* Timeout, CRC, structure or range error: never reuse as valid. */
         }
      
 

@@ -80,6 +80,7 @@ function progress(overrides = {}) {
 test('all current acceptance and seal diagnostics have actionable Chinese guidance', () => {
   const codes = [
     'DEVICE_ASSET_UNAVAILABLE',
+    'DEVICE_ASSET_RETIRED',
     'ONENET_NOT_ONLINE',
     'FACTORY_BAGS_INCOMPLETE',
     'UNSUPPORTED_EDGE_SOFTWARE',
@@ -516,7 +517,7 @@ test('device operations distinguish queued work from device execution and hide r
   );
   assert.match(
     drawer,
-    /onClick=\{async \(\) => \{[\s\S]*?await onReevaluateAcceptance\(asset\);[\s\S]*?catch \(error\) \{[\s\S]*?message\.error\(errorMessage\(error\)\)/,
+    /onClick: async \(\) => \{[\s\S]*?await onReevaluateAcceptance\(asset\);[\s\S]*?catch \(error\) \{[\s\S]*?message\.error\(errorMessage\(error\)\)/,
   );
   assert.match(
     drawer,
@@ -595,5 +596,5 @@ test('operator-managed device requests stay silent and rollout copy describes ge
   assert.match(runtimePolicy, /设备设置生成进度/);
   assert.doesNotMatch(runtimePolicy, /正在下发|下发完成|自动下发进度/);
   assert.doesNotMatch(directory, /机器验收/);
-  assert.match(directory, /设备功能检查/);
+  assert.match(directory, /出厂验收/);
 });

@@ -136,7 +136,6 @@ function CleanRecordDrawer({
             showIcon
             type={detail.resultKind === 'NORMAL' ? 'success' : 'warning'}
             message={detail.resultKind === 'NORMAL' ? '清运已正常完成' : '清运已完成，但存在系统异常'}
-            description="记录是设备完成事件形成的业务事实；后台修正只改变有效重量或备注，不会改写设备原始数据。"
           />
           <Card size="small" title="来源">
             <Descriptions bordered size="small" column={2}>
@@ -512,10 +511,7 @@ export default function CleanRecordsPage() {
 
   return (
     <PageContainer
-      {...pageHeader(
-        '清运记录',
-        '查询设备完成后形成的清运事实；具备清运编辑能力的账号可追加重量或备注修正历史。',
-      )}
+      {...pageHeader('清运记录')}
     >
       <DirectoryScopeBar scope={scope} />
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -616,7 +612,7 @@ export default function CleanRecordsPage() {
         onOk={() => void editForm.submit()}
         destroyOnClose
       >
-        <Alert style={{ marginBottom: 16 }} showIcon type="info" message="修正会追加一条不可覆盖的历史记录，不会改写设备原始重量。" />
+        <Typography.Paragraph type="secondary">保存后立即更新有效重量或备注，并保留修改记录。</Typography.Paragraph>
         <Form<EditValues> form={editForm} layout="vertical" onFinish={(values) => void submitEdit(values)}>
           <Form.Item name="weightAction" label="有效净重" initialValue="NONE" rules={[{ required: true }]}>
             <Select options={[{ value: 'NONE', label: '不修改' }, { value: 'SET', label: '设置人工净重' }, { value: 'CLEAR', label: '清除人工净重' }]} />
