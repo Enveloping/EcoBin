@@ -252,7 +252,7 @@ class BusinessReleasePackageVerifierTest {
                 ECOBIN_GIT_COMMIT=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                 ECOBIN_PYTHON_SERIES=3.11
                 ECOBIN_TARGET_PLATFORM=linux-arm64
-                ECOBIN_EDGE_SCHEMA_VERSION=18
+                ECOBIN_EDGE_SCHEMA_VERSION=25
                 ECOBIN_SOURCE_DATE_EPOCH=1
                 ECOBIN_BUSINESS_ALLOWLIST_SHA256=%s
                 ECOBIN_BACKEND_COMMAND_CONTRACT_VERSION=2

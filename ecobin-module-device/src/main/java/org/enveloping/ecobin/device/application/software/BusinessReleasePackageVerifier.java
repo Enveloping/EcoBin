@@ -50,7 +50,7 @@ public class BusinessReleasePackageVerifier {
     private static final Pattern GIT_COMMIT = Pattern.compile("^[0-9a-f]{40}$");
     private static final Pattern BITMAP = Pattern.compile("^[0-9a-f]{16}$");
     private static final String APP_ALLOWLIST_SHA256 =
-            "07c5ddef9e209b46f714dbd204b5115108ddf2e960bf777a9fe8df34d4fcfefc";
+            "fab9540f7707814996dd97b9bca9e83659350f4228ff792444e06ee5ea35e550";
     private static final Set<String> TOP_LEVEL = Set.of(
             "app", "wheelhouse", "migrations", "manifest.env", "release.env",
             "requirements-runtime.txt", "requirements-offline.txt", "SHA256SUMS");
@@ -58,8 +58,23 @@ public class BusinessReleasePackageVerifier {
             "", "app", "app/factory_seal", "app/system",
             "wheelhouse", "migrations");
     private static final Set<String> APP_FILES = Set.of(
+            "uart2_protocol.py",
+            "mcu_action_evidence.py",
+            "work_recovery.py",
+            "native_result_evidence.py",
+            "native_result_report.py",
+            "native_delivery_issue_report.py",
+            "native_delivery_recovery_close.py",
+            "mcu_work_query.py",
+            "mcu_actuator_handoff.py",
+            "mcu_process_handoff.py",
+            "mcu_session.py",
+            "mcu_result_handoff.py",
+            "mcu_configuration.py",
+            "uart2_transport.py",
             "business_identity.py",
             "business_control.py",
+            "native_fault_control_cli.py",
             "business_message_handler.py",
             "business_outbox_relay.py",
             "camera_capture.py",
@@ -383,7 +398,7 @@ public class BusinessReleasePackageVerifier {
         requireManifest(manifest, "ECOBIN_RELEASE_SEQUENCE", Long.toString(sequence));
         requireManifest(manifest, "ECOBIN_PYTHON_SERIES", "3.11");
         requireManifest(manifest, "ECOBIN_TARGET_PLATFORM", "linux-arm64");
-        requireManifest(manifest, "ECOBIN_EDGE_SCHEMA_VERSION", "18");
+        requireManifest(manifest, "ECOBIN_EDGE_SCHEMA_VERSION", "25");
         requireManifest(manifest, "ECOBIN_BUSINESS_ALLOWLIST_SHA256", APP_ALLOWLIST_SHA256);
         requireManifest(manifest, "ECOBIN_UART_PROTOCOL_FAMILY", "FIXED_FRAME");
         requireManifest(manifest, "ECOBIN_UART_PROTOCOL_MAJOR", "NONE");

@@ -8136,6 +8136,127 @@ class EdgeStore:
                 )
             return "ACCEPTED"
 
+    def recover_native_control_communication_fault(
+        self,
+        *,
+        device_name: str,
+        fault_uid: str,
+        mcu_boot_id: int,
+        recovery_evidence: str,
+    ) -> str:
+        """Atomically clear one operator-selected native UART stop.
+
+        This is deliberately narrower than the generic fault recovery path.
+        It clears the admission latch only when the exact active fault is the
+        manually recoverable native-control communication fault, no business
+        still owns the local slot, and the caller supplies the current MCU
+        boot observation. A stale operator retry therefore cannot clear a
+        later occurrence of the same fault code.
+        """
+        if (
+            not device_name
+            or device_name == "UNKNOWN_DEVICE"
+            or not isinstance(fault_uid, str)
+            or not fault_uid
+            or isinstance(mcu_boot_id, bool)
+            or not isinstance(mcu_boot_id, int)
+            or not 1 <= mcu_boot_id <= 9_007_199_254_740_991
+            or not isinstance(recovery_evidence, str)
+            or not recovery_evidence
+            or len(recovery_evidence) > 1024
+        ):
+            return "REJECTED"
+        with self.transaction(immediate=True):
+            state = self._conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='native_blocking_fault'"""
+            ).fetchone()
+            if (
+                state is None
+                or state["state_value"]
+                != "MCU_COMMUNICATION_UNAVAILABLE"
+            ):
+                return "CONFLICT"
+            slot = self._conn.execute(
+                """SELECT work_type FROM work_slot WHERE slot_id=1"""
+            ).fetchone()
+            if slot is None or slot["work_type"] != WORK_TYPE_NONE:
+                return "BUSY"
+            fault = self._conn.execute(
+                """SELECT * FROM edge_fault_state
+                   WHERE fault_uid=?""",
+                (fault_uid,),
+            ).fetchone()
+            if fault is None:
+                return "UNKNOWN"
+            if (
+                fault["lifecycle"] != "OBSERVED"
+                or fault["scope_key"] != "DEVICE"
+                or fault["port_no"] is not None
+                or fault["component"] != "UART"
+                or fault["fault_code"] != "UART_PROTOCOL"
+                or fault["severity"] != "BLOCK_DEVICE"
+            ):
+                return "CONFLICT"
+            try:
+                detail = _json.loads(fault["detail_json"] or "{}")
+            except (TypeError, ValueError, _json.JSONDecodeError):
+                return "CONFLICT"
+            if (
+                detail.get("profile")
+                != "native-control-communication-v1"
+                or detail.get("reasonCode")
+                != "MCU_COMMUNICATION_UNAVAILABLE"
+                or detail.get("automaticRecovery") is not False
+            ):
+                return "CONFLICT"
+
+            now = self._now()
+            updated = self._conn.execute(
+                """UPDATE edge_fault_state
+                   SET lifecycle='RECOVERED', recovered_at=?,
+                       recovery_evidence=?
+                   WHERE fault_uid=? AND lifecycle='OBSERVED'""",
+                (now, recovery_evidence, fault_uid),
+            )
+            if updated.rowcount != 1:
+                return "CONFLICT"
+            sequence = self._next_seq(self._conn)
+            event_uid = self._new_uid()
+            event = build_event_envelope(
+                event_uid=event_uid,
+                device_name=device_name,
+                edge_event_sequence=sequence,
+                event_type="DEVICE_FAULT_RECOVERED",
+                target_type="DEVICE_ASSET",
+                target_uid=device_name,
+                payload={
+                    "faultUid": fault_uid,
+                    "portNo": None,
+                    "component": "UART",
+                    "severity": "BLOCK_DEVICE",
+                    "faultCode": "UART_PROTOCOL",
+                    "mcuBootId": mcu_boot_id,
+                    "mcuEventSequence": None,
+                },
+            )
+            self._insert_event(
+                self._conn,
+                event,
+                "DEVICE_FAULT_RECOVERED",
+            )
+            cleared = self._conn.execute(
+                """UPDATE device_state SET state_value='', updated_at=?
+                   WHERE state_key='native_blocking_fault'
+                     AND state_value='MCU_COMMUNICATION_UNAVAILABLE'""",
+                (now,),
+            )
+            if cleared.rowcount != 1:
+                raise RuntimeError(
+                    "native communication admission latch changed"
+                )
+            return "ACCEPTED"
+
     @staticmethod
     def _mark_mcu_event_processed_in_tx(
         conn,

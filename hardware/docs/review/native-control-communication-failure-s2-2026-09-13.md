@@ -52,7 +52,37 @@ D06“Pi单独重启继续处理原业务”仍适用于已经登记可能写出
 `native-control-communication-v1`、准确原因和`automaticRecovery=false`，供后台和页面显示。
 若此前已有其他阻断原因，本批不会用通信原因覆盖它；UART故障仍作为独立故障事实记录。
 
-本批没有新增“自动解除通信故障”。现场修复后的人工核查/解除入口仍须单独接入；不能直接清数据库或仅凭一次回复恢复接单。
+本批不自动解除通信故障。后续增量已经接入只允许本机 `root` 使用的人工核查/解除入口；具体条件和验证见下节。
+
+## 人工确认恢复增量
+
+现场人员排除通信故障后，先读取当前故障状态，再用返回的准确 `faultUid`（故障编号）执行恢复。入口同时要求：
+
+- 操作人明确提交“原因已经排除”和非空处理说明；
+- 当前没有仍占用本地工作槽的投递或清运；
+- Pi刚收到过当前MCU启动号下的真实 `DEVICE_FACTS`（设备事实）回复，且仍在既有通信超时时限内；
+- 待恢复的故障仍是同一个设备级 `UART_PROTOCOL / MCU_COMMUNICATION_UNAVAILABLE` 故障，未被更新一故障替代。
+
+故障转为 `RECOVERED`（已恢复）、新增 `DEVICE_FAULT_RECOVERED` 事件和清除本地通信阻断锁在同一个SQLite事务完成；
+任一步失败都会整体回滚。旧页面、随机收到的一帧或过期的重复操作都不能解除新故障。解除后只允许系统重新执行普通接单检查，
+不会绕过称重、配置、其他控制故障或业务互斥，也不会恢复已经失败的原业务。
+
+正式业务发布目录中可按以下方式操作；实际发布可能位于兼容的 `hardware/current` 路径，先以服务当前使用的目录为准：
+
+```bash
+sudo /opt/ecobin/business/current/.venv/bin/python \
+  /opt/ecobin/business/current/app/native_fault_control_cli.py status
+sudo /opt/ecobin/business/current/.venv/bin/python \
+  /opt/ecobin/business/current/app/native_fault_control_cli.py recover \
+  --fault-uid <status返回的faultUid> \
+  --reason "已检查串口接线和MCU供电，通信恢复" \
+  --confirm-cause-fixed
+```
+
+相关Python定向集合84项通过，包含只允许UID 0、精确故障编号、新鲜MCU事实、活动业务拒绝、并发故障变化以及事件写入失败时事务回滚；
+Java 21发布包固定清单5项通过。发布清单同时补入此前S1/S2的14个运行文件，业务应用清单为53个文件、schema 25，
+Python 3.11权威摘要为 `fab9540f7707814996dd97b9bca9e83659350f4228ff792444e06ee5ea35e550`。
+这些均是本地候选验证；未连接现场设备、未部署或执行恢复命令。
 
 ## 验证
 
@@ -69,4 +99,4 @@ D06“Pi单独重启继续处理原业务”仍适用于已经登记可能写出
 
 - 清运中断后的人工袋确认/必要时重新换袋流程仍未接入精简Runtime。
 - 连续断网600秒释放用户和设备使用占用、热点页面必要数据、固件/镜像与成对现场测试仍未完成。
-- 人工确认通信恢复并解除持续阻断的正式运维入口仍待实现；在此之前本批不是可部署版本。
+- 人工确认通信恢复并解除持续阻断的本机运维入口已完成本地候选；仍需随正式业务包发布并在现场验证，不能把本地通过等同于已部署。

@@ -297,6 +297,16 @@ class EcoBinEdge:
                 software_runtime_facts_provider=(
                     self._software_runtime_facts
                 ),
+                native_fault_status_provider=(
+                    self.uart.communication_fault_status
+                    if self._native_mode
+                    else None
+                ),
+                native_fault_recovery_handler=(
+                    self.uart.confirm_communication_fault_recovered
+                    if self._native_mode
+                    else None
+                ),
             )
         )
 

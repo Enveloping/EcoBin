@@ -311,6 +311,67 @@ def test_software_runtime_facts_are_read_only_and_updater_only(tmp_path) -> None
     }
 
 
+def test_native_fault_actions_are_root_only_and_delegate_exact_request(
+    tmp_path,
+) -> None:
+    parent = tmp_path / "business"
+    parent.mkdir()
+    status = {
+        "reasonCode": "MCU_COMMUNICATION_UNAVAILABLE",
+        "faultUid": "11111111-1111-4111-8111-111111111111",
+        "manualRecoveryEligible": True,
+    }
+    calls = []
+
+    def recover(payload):
+        calls.append(payload)
+        return {
+            "disposition": "RECOVERED",
+            "faultUid": payload["expectedFaultUid"],
+        }
+
+    service = build_business_control_service(
+        parent / "control.sock",
+        release_version="1.2.3",
+        allowed_uids={0, 1234},
+        socket_gid=5678,
+        native_fault_status_provider=lambda: status,
+        native_fault_recovery_handler=recover,
+    )
+    service.controller.mark_ready()
+
+    expected = {
+        "expectedFaultUid": status["faultUid"],
+        "reason": "现场重新接好串口线并复核",
+        "causeFixedConfirmed": True,
+    }
+    assert service.controller.get_native_fault_status({}) == status
+    assert service.controller.recover_native_communication_fault(
+        expected
+    ) == {
+        "disposition": "RECOVERED",
+        "faultUid": status["faultUid"],
+    }
+    assert calls == [expected]
+    assert service.server.actions[
+        "GET_NATIVE_FAULT_STATUS"
+    ].allowed_uids == frozenset({0})
+    assert service.server.actions[
+        "RECOVER_NATIVE_COMMUNICATION_FAULT"
+    ].allowed_uids == frozenset({0})
+    assert service.server.actions[
+        "RECOVER_NATIVE_COMMUNICATION_FAULT"
+    ].payload_fields == frozenset(expected)
+
+
+def test_native_fault_control_requires_both_handlers() -> None:
+    with pytest.raises(ValueError, match="status and recovery together"):
+        BusinessControlController(
+            "1.2.3",
+            native_fault_status_provider=lambda: {},
+        )
+
+
 def test_candidate_requires_port_and_nonempty_updater_uids(tmp_path) -> None:
     parent = tmp_path / "business"
     parent.mkdir()

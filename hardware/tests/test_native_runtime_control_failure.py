@@ -85,6 +85,112 @@ def test_unanswered_start_times_out_despite_healthy_facts_and_blocks_new_busines
         assert blocked.value.code == "MCU_COMMUNICATION_UNAVAILABLE"
 
 
+def test_operator_clears_exact_communication_fault_only_after_fresh_reply(
+    runtime,
+    tmp_path,
+):
+    with dropped_start_decision(runtime, tmp_path) as (case, owner):
+        wait_for_control_failure(case, owner)
+        status = owner.communication_fault_status()
+        assert status == {
+            "reasonCode": "MCU_COMMUNICATION_UNAVAILABLE",
+            "faultUid": status["faultUid"],
+            "mcuBootId": case.start["targetMcuBootId"],
+            "freshCommunicationConfirmed": True,
+            "activeWorkUid": None,
+            "manualRecoveryEligible": True,
+        }
+        assert status["faultUid"]
+
+        result = owner.confirm_communication_fault_recovered({
+            "expectedFaultUid": status["faultUid"],
+            "reason": "现场修复串口连接并确认设备事实查询已恢复",
+            "causeFixedConfirmed": True,
+        })
+
+        assert result == {
+            "disposition": "RECOVERED",
+            "faultUid": status["faultUid"],
+            "mcuBootId": case.start["targetMcuBootId"],
+            "newBusinessAdmissionRecheckRequired": True,
+        }
+        assert case.store.get_state("native_blocking_fault") == ""
+        assert case.store.get_active_edge_fault(
+            "UART", "UART_PROTOCOL"
+        ) is None
+        fault = case.store._conn.execute(
+            "SELECT * FROM edge_fault_state WHERE fault_uid=?",
+            (status["faultUid"],),
+        ).fetchone()
+        assert fault["lifecycle"] == "RECOVERED"
+        evidence = json.loads(fault["recovery_evidence"])
+        assert evidence["profile"] == (
+            "native-control-communication-manual-recovery-v1"
+        )
+        assert evidence["causeFixedConfirmed"] is True
+        assert evidence["mcuBootId"] == case.start["targetMcuBootId"]
+        assert any(
+            row["event_type"] == "DEVICE_FAULT_RECOVERED"
+            and json.loads(row["payload_json"])["payload"]["faultUid"]
+            == status["faultUid"]
+            for row in case.store.list_pending_events()
+        )
+        with pytest.raises(JobSafetyError) as stale:
+            owner.confirm_communication_fault_recovered({
+                "expectedFaultUid": status["faultUid"],
+                "reason": "重复旧操作",
+                "causeFixedConfirmed": True,
+            })
+        assert stale.value.code == "FAULT_IDENTITY_CHANGED"
+
+
+def test_operator_cannot_clear_communication_fault_without_confirmation(
+    runtime,
+    tmp_path,
+):
+    with dropped_start_decision(runtime, tmp_path) as (case, owner):
+        wait_for_control_failure(case, owner)
+        status = owner.communication_fault_status()
+        with pytest.raises(JobSafetyError) as missing:
+            owner.confirm_communication_fault_recovered({
+                "expectedFaultUid": status["faultUid"],
+                "reason": "尚未确认原因已经排除",
+                "causeFixedConfirmed": False,
+            })
+        assert missing.value.code == "MANUAL_CONFIRMATION_REQUIRED"
+        assert case.store.get_state(
+            "native_blocking_fault"
+        ) == "MCU_COMMUNICATION_UNAVAILABLE"
+
+
+def test_manual_communication_recovery_rolls_back_latch_if_event_write_fails(
+    runtime,
+    tmp_path,
+    monkeypatch,
+):
+    with dropped_start_decision(runtime, tmp_path) as (case, owner):
+        wait_for_control_failure(case, owner)
+        status = owner.communication_fault_status()
+
+        def fail_event(*_args, **_kwargs):
+            raise RuntimeError("injected recovery event failure")
+
+        monkeypatch.setattr(case.store, "_insert_event", fail_event)
+        with pytest.raises(RuntimeError, match="recovery event failure"):
+            owner.confirm_communication_fault_recovered({
+                "expectedFaultUid": status["faultUid"],
+                "reason": "现场已修复，但模拟事件落盘失败",
+                "causeFixedConfirmed": True,
+            })
+
+        assert case.store.get_state(
+            "native_blocking_fault"
+        ) == "MCU_COMMUNICATION_UNAVAILABLE"
+        assert case.store.get_active_edge_fault(
+            "UART", "UART_PROTOCOL"
+        )["fault_uid"] == status["faultUid"]
+
+
 def test_late_complete_result_after_control_failure_is_raw_evidence_only(runtime, tmp_path):
     with dropped_start_decision(runtime, tmp_path) as (case, owner):
         wait_for_control_failure(case, owner)

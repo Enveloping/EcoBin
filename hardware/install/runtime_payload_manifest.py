@@ -55,6 +55,7 @@ RUNTIME_APP_FILES = (
     "uart2_transport.py",
     "business_identity.py",
     "business_control.py",
+    "native_fault_control_cli.py",
     "business_message_handler.py",
     "business_outbox_relay.py",
     "business_runtime_cutover_state.py",

@@ -483,6 +483,12 @@ class BusinessControlController:
         software_runtime_facts_provider: (
             Callable[[], Mapping[str, Any]] | None
         ) = None,
+        native_fault_status_provider: (
+            Callable[[], Mapping[str, Any]] | None
+        ) = None,
+        native_fault_recovery_handler: (
+            Callable[[dict[str, Any]], Mapping[str, Any]] | None
+        ) = None,
     ) -> None:
         self.release_version = _require_release_version(release_version)
         if not isinstance(maintenance_handoff_enabled, bool):
@@ -525,6 +531,22 @@ class BusinessControlController:
         ):
             raise ValueError("software runtime facts provider must be callable")
         self._software_runtime_facts_provider = software_runtime_facts_provider
+        if (native_fault_status_provider is None) != (
+            native_fault_recovery_handler is None
+        ):
+            raise ValueError(
+                "native fault control requires status and recovery together"
+            )
+        if native_fault_status_provider is not None and not callable(
+            native_fault_status_provider
+        ):
+            raise ValueError("native fault status provider must be callable")
+        if native_fault_recovery_handler is not None and not callable(
+            native_fault_recovery_handler
+        ):
+            raise ValueError("native fault recovery handler must be callable")
+        self._native_fault_status_provider = native_fault_status_provider
+        self._native_fault_recovery_handler = native_fault_recovery_handler
         now = (utc_now or (lambda: datetime.now(timezone.utc)))()
         self.started_at = _format_utc(now)
         instance_uid = instance_uid_factory()
@@ -619,6 +641,64 @@ class BusinessControlController:
                 "software runtime facts could not be confirmed",
             )
         return {**self.health({}), **dict(facts)}
+
+    def get_native_fault_status(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        _require_action_payload(payload, frozenset())
+        self._require_runtime_ready()
+        provider = self._native_fault_status_provider
+        if provider is None:
+            raise LocalControlActionError(
+                "FEATURE_DISABLED",
+                "native fault control is not available",
+            )
+        result = provider()
+        if not isinstance(result, Mapping):
+            raise LocalControlActionError(
+                "NATIVE_FAULT_STATUS_UNAVAILABLE",
+                "native fault status could not be confirmed",
+            )
+        return dict(result)
+
+    def recover_native_communication_fault(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        _require_action_payload(
+            payload,
+            frozenset(
+                {"expectedFaultUid", "reason", "causeFixedConfirmed"}
+            ),
+        )
+        self._require_runtime_ready()
+        handler = self._native_fault_recovery_handler
+        if handler is None:
+            raise LocalControlActionError(
+                "FEATURE_DISABLED",
+                "native fault control is not available",
+            )
+        try:
+            result = handler(payload)
+        except Exception as error:
+            code = getattr(error, "code", None)
+            message = getattr(error, "message", None)
+            if (
+                isinstance(code, str)
+                and re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", code)
+                and isinstance(message, str)
+                and 1 <= len(message) <= 256
+                and all(character not in message for character in "\x00\r\n")
+            ):
+                raise LocalControlActionError(code, message) from error
+            raise
+        if not isinstance(result, Mapping):
+            raise LocalControlActionError(
+                "NATIVE_FAULT_RECOVERY_UNCONFIRMED",
+                "native fault recovery could not be confirmed",
+            )
+        return dict(result)
 
     def complete_cloud_service_reply(
         self,
@@ -1195,6 +1275,12 @@ def build_business_control_service(
     software_runtime_facts_provider: (
         Callable[[], Mapping[str, Any]] | None
     ) = None,
+    native_fault_status_provider: (
+        Callable[[], Mapping[str, Any]] | None
+    ) = None,
+    native_fault_recovery_handler: (
+        Callable[[dict[str, Any]], Mapping[str, Any]] | None
+    ) = None,
 ) -> BusinessControlService:
     """Build the adapter without resolving accounts or weakening UID checks."""
 
@@ -1236,6 +1322,8 @@ def build_business_control_service(
         job_permit_enforced=job_permit_enforced,
         business_database_size_provider=business_database_size_provider,
         software_runtime_facts_provider=software_runtime_facts_provider,
+        native_fault_status_provider=native_fault_status_provider,
+        native_fault_recovery_handler=native_fault_recovery_handler,
     )
     actions = {
         "HEALTH": LocalControlAction(
@@ -1254,6 +1342,20 @@ def build_business_control_service(
             controller.get_software_runtime_facts,
             payload_fields=frozenset(),
             allowed_uids=updater_action_uids,
+        )
+    if native_fault_status_provider is not None:
+        root_only = frozenset({0})
+        actions["GET_NATIVE_FAULT_STATUS"] = LocalControlAction(
+            controller.get_native_fault_status,
+            payload_fields=frozenset(),
+            allowed_uids=root_only,
+        )
+        actions["RECOVER_NATIVE_COMMUNICATION_FAULT"] = LocalControlAction(
+            controller.recover_native_communication_fault,
+            payload_fields=frozenset(
+                {"expectedFaultUid", "reason", "causeFixedConfirmed"}
+            ),
+            allowed_uids=root_only,
         )
     if enable_mcu_maintenance_candidate:
         actions.update(
@@ -1360,6 +1462,12 @@ def build_business_control_service_from_environment(
     business_database_path: str | Path | None = None,
     software_runtime_facts_provider: (
         Callable[[], Mapping[str, Any]] | None
+    ) = None,
+    native_fault_status_provider: (
+        Callable[[], Mapping[str, Any]] | None
+    ) = None,
+    native_fault_recovery_handler: (
+        Callable[[dict[str, Any]], Mapping[str, Any]] | None
     ) = None,
     environment: Mapping[str, str] | None = None,
     user_uid_lookup: Callable[[str], int] | None = None,
@@ -1488,6 +1596,8 @@ def build_business_control_service_from_environment(
         job_permit_enforced=job_permit_enforced,
         business_database_size_provider=database_size_provider,
         software_runtime_facts_provider=software_runtime_facts_provider,
+        native_fault_status_provider=native_fault_status_provider,
+        native_fault_recovery_handler=native_fault_recovery_handler,
     )
 
 

@@ -6,6 +6,7 @@ It never runs the old per-action recovery driver or converts native frames to v1
 Serial creation, polling and commands must all run on the same foreground thread.
 """
 from dataclasses import asdict, fields
+import hashlib
 import json
 import os
 from time import monotonic_ns
@@ -89,6 +90,146 @@ class NativeBusinessRuntime:
         if self.store.get_state("native_blocking_fault"):
             return "FAULT"
         return "READY" if self._mcu_boot_id else "STARTING"
+
+    def communication_fault_status(self):
+        """Return read-only facts for one explicit operator recovery action."""
+        reason = self.store.get_state("native_blocking_fault") or None
+        fault = self.store.get_active_edge_fault("UART", "UART_PROTOCOL")
+        detail = {}
+        if fault is not None:
+            try:
+                candidate = json.loads(fault["detail_json"] or "{}")
+                detail = candidate if isinstance(candidate, dict) else {}
+            except (TypeError, ValueError):
+                detail = {}
+        now = self.clock()
+        facts = self._fresh_facts(now) if self.boot is not None else None
+        current_boot = self.boot.current_boot(now) if self.boot is not None else None
+        native_fault = bool(
+            reason == "MCU_COMMUNICATION_UNAVAILABLE"
+            and fault is not None
+            and fault["severity"] == "BLOCK_DEVICE"
+            and fault["port_no"] is None
+            and detail.get("profile")
+            == "native-control-communication-v1"
+            and detail.get("reasonCode")
+            == "MCU_COMMUNICATION_UNAVAILABLE"
+            and detail.get("automaticRecovery") is False
+        )
+        fresh_communication = bool(
+            current_boot
+            and facts is not None
+            and facts.get("status") == "AVAILABLE"
+            and facts.get("currentMcuBootId") == current_boot
+            and self._last_alive is not None
+            and 0 <= now - self._last_alive < self.timeout_ms
+        )
+        return {
+            "reasonCode": reason,
+            "faultUid": fault["fault_uid"] if native_fault else None,
+            "mcuBootId": current_boot,
+            "freshCommunicationConfirmed": fresh_communication,
+            "activeWorkUid": (
+                (self.store.get_work_slot() or {}).get("work_uid")
+            ),
+            "manualRecoveryEligible": bool(
+                native_fault
+                and fresh_communication
+                and self.store.get_work_slot() is None
+            ),
+        }
+
+    def confirm_communication_fault_recovered(self, payload):
+        """Clear only the exact communication stop selected by an operator.
+
+        The local control thread never accesses UART. It can only consume the
+        foreground owner's already-saved, still-fresh device-facts reply.
+        Admission remains subject to configuration, weight, door-control and
+        every other normal start check after this one latch is cleared.
+        """
+        expected = {"expectedFaultUid", "reason", "causeFixedConfirmed"}
+        if not isinstance(payload, dict) or set(payload) != expected:
+            raise JobSafetyError(
+                "REQUEST_INVALID",
+                "manual communication recovery fields are invalid",
+            )
+        fault_uid = payload["expectedFaultUid"]
+        try:
+            parsed_uid = uuid.UUID(fault_uid)
+        except (TypeError, ValueError, AttributeError) as error:
+            raise JobSafetyError(
+                "REQUEST_INVALID",
+                "expected fault identity must be a lowercase UUID",
+            ) from error
+        if str(parsed_uid) != fault_uid or not parsed_uid.int:
+            raise JobSafetyError(
+                "REQUEST_INVALID",
+                "expected fault identity must be a lowercase UUID",
+            )
+        reason = payload["reason"]
+        if (
+            not isinstance(reason, str)
+            or not 1 <= len(reason.strip()) <= 512
+            or any(ord(character) < 32 or ord(character) == 127
+                   for character in reason)
+        ):
+            raise JobSafetyError(
+                "REQUEST_INVALID",
+                "manual communication recovery reason is invalid",
+            )
+        reason = reason.strip()
+        if payload["causeFixedConfirmed"] is not True:
+            raise JobSafetyError(
+                "MANUAL_CONFIRMATION_REQUIRED",
+                "operator must confirm that the communication cause is fixed",
+            )
+        status = self.communication_fault_status()
+        if status["faultUid"] != fault_uid:
+            raise JobSafetyError(
+                "FAULT_IDENTITY_CHANGED",
+                "active communication fault differs from the selected fault",
+            )
+        if status["activeWorkUid"] is not None:
+            raise JobSafetyError(
+                "DEVICE_BUSY",
+                "an original business still owns the device",
+            )
+        if not status["freshCommunicationConfirmed"]:
+            raise JobSafetyError(
+                "MCU_COMMUNICATION_UNAVAILABLE",
+                "fresh MCU communication has not been confirmed",
+            )
+        evidence = json.dumps(
+            {
+                "profile": "native-control-communication-manual-recovery-v1",
+                "causeFixedConfirmed": True,
+                "operatorReason": reason,
+                "operatorReasonSha256": hashlib.sha256(
+                    reason.encode("utf-8")
+                ).hexdigest(),
+                "mcuBootId": status["mcuBootId"],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        disposition = self.store.recover_native_control_communication_fault(
+            device_name=self.device_name,
+            fault_uid=fault_uid,
+            mcu_boot_id=status["mcuBootId"],
+            recovery_evidence=evidence,
+        )
+        if disposition != "ACCEPTED":
+            raise JobSafetyError(
+                "FAULT_RECOVERY_CONFLICT",
+                "communication fault changed before recovery was committed",
+            )
+        return {
+            "disposition": "RECOVERED",
+            "faultUid": fault_uid,
+            "mcuBootId": status["mcuBootId"],
+            "newBusinessAdmissionRecheckRequired": True,
+        }
 
     def open(self, *, port, baudrate=115200, port_factory=None):
         if self.transport is not None:
