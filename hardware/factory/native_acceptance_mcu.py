@@ -305,7 +305,10 @@ class NativeAcceptanceMcu:
         }.get(smoke_state)
         if smoke_projection is None:
             raise AcceptanceHardwareError("MCU_SMOKE_FACT_UNHEALTHY")
-        if smoke_state != "NOT_OBSERVED":
+        # UNAVAILABLE carries no physical observation whose age could be
+        # evaluated.  The MCU may legitimately leave its timestamp at the
+        # boot default while preserving the auxiliary warning.
+        if smoke_state in {"NORMAL", "ALARM"}:
             NativeAcceptanceMcu._require_fresh_observation(
                 captured,
                 facts["smokeObservedUptimeMs"],
@@ -336,7 +339,9 @@ class NativeAcceptanceMcu:
                 fullness_blocked = distance < FACTORY_PORT_CONFIG[
                     "fullnessDistanceThresholdMm"
                 ]
-        if fullness_status != "NOT_OBSERVED":
+        # Only a VALID sample claims a current physical observation.
+        # UNAVAILABLE/NOT_OBSERVED remain non-blocking auxiliary facts.
+        if fullness_status == "VALID":
             NativeAcceptanceMcu._require_fresh_observation(
                 captured,
                 facts["fullnessCapturedUptimeMs"],
@@ -1455,7 +1460,7 @@ class NativeAcceptanceMcu:
             "UNAVAILABLE",
         }:
             raise AcceptanceHardwareError("MCU_FULLNESS_FACT_UNAVAILABLE")
-        if status != "NOT_OBSERVED":
+        if status == "VALID":
             NativeAcceptanceMcu._require_fresh_observation(
                 captured,
                 facts["fullnessCapturedUptimeMs"],

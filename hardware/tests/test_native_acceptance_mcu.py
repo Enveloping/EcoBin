@@ -658,6 +658,10 @@ def test_self_test_maps_only_fresh_actual_device_facts(tmp_path):
             "MCU_SMOKE_FACT_STALE",
         ),
         (
+            {"fullnessCapturedUptimeMs": 8_000},
+            "MCU_FULLNESS_FACT_STALE",
+        ),
+        (
             {
                 "fullnessObservationKind": "NONE",
                 "fullnessReadStatus": "NOT_OBSERVED",
@@ -702,6 +706,9 @@ def test_self_test_accepts_signed_zero_offset_and_records_auxiliary_warning(
             "smokeObservationState": "ALARM",
             "fullnessObservationKind": "ULTRASONIC",
             "fullnessReadStatus": "UNAVAILABLE",
+            # An unavailable auxiliary sensor has no usable observation to
+            # age.  MCU boot defaults may therefore leave its timestamp at 0.
+            "fullnessCapturedUptimeMs": 0,
             "fullnessDistanceMm": 0,
             "fullnessInfraredBlocked": False,
         },
@@ -730,6 +737,30 @@ def test_self_test_accepts_signed_zero_offset_and_records_auxiliary_warning(
         "smokeState": "ALARM",
         "smokeSensorHealth": "ALARM",
     }
+
+
+def test_self_test_accepts_stale_unavailable_smoke_warning(tmp_path):
+    state_path = tmp_path / "native-uart-state.json"
+    serial_port = ScriptedSerial(
+        state_path=state_path,
+        initial_boot_id=42,
+        facts_changes={
+            "smokeObservationState": "UNAVAILABLE",
+            "smokeObservedUptimeMs": 0,
+        },
+    )
+    mcu = NativeAcceptanceMcu.for_port(
+        state_path=state_path,
+        serial_factory=lambda **arguments: serial_port,
+    )
+    try:
+        result = sanitize_self_test(mcu.query_self_test(timeout_ms=1_000))
+    finally:
+        mcu.close()
+
+    assert result["smokeCode"] == 2
+    assert result["smokeState"] == "UNAVAILABLE"
+    assert result["smokeSensorHealth"] == "UNAVAILABLE"
 
 
 def test_short_write_fails_without_replaying_the_frame(tmp_path):
@@ -979,7 +1010,9 @@ def test_clean_uses_pre_minus_post_and_keeps_raw_ultrasonic_with_legacy_projecti
     assert result["cleanerPhysicalCloseConfirmed"] is True
 
 
-def test_delivery_keeps_signed_weights_and_auxiliary_unavailable_fact(tmp_path):
+def test_delivery_keeps_signed_weights_and_stale_auxiliary_unavailable_fact(
+    tmp_path,
+):
     state_path = tmp_path / "native-uart-state.json"
     serial_port = ScriptedSerial(
         state_path=state_path,
@@ -987,6 +1020,9 @@ def test_delivery_keeps_signed_weights_and_auxiliary_unavailable_fact(tmp_path):
         facts_changes={
             "fullnessObservationKind": "ULTRASONIC",
             "fullnessReadStatus": "UNAVAILABLE",
+            # The real MCU leaves this at its last/default value when the
+            # optional ultrasonic module cannot provide a reading.
+            "fullnessCapturedUptimeMs": 0,
             "fullnessDistanceMm": 0,
             "fullnessInfraredBlocked": False,
         },
@@ -1043,7 +1079,17 @@ def test_failed_work_result_is_journaled_but_never_mapped_to_success(tmp_path):
 
 def test_recovery_returns_journaled_result_without_replaying_start(tmp_path):
     state_path = tmp_path / "native-uart-state.json"
-    serial_port = ScriptedSerial(state_path=state_path, initial_boot_id=42)
+    serial_port = ScriptedSerial(
+        state_path=state_path,
+        initial_boot_id=42,
+        facts_changes={
+            "fullnessObservationKind": "ULTRASONIC",
+            "fullnessReadStatus": "UNAVAILABLE",
+            "fullnessCapturedUptimeMs": 0,
+            "fullnessDistanceMm": 0,
+            "fullnessInfraredBlocked": False,
+        },
+    )
     first = NativeAcceptanceMcu.for_port(
         state_path=state_path,
         serial_factory=lambda **arguments: serial_port,
@@ -1065,6 +1111,9 @@ def test_recovery_returns_journaled_result_without_replaying_start(tmp_path):
         recovered.close()
 
     assert result["weightDeltaGrams"] == 480
+    assert result["fullnessReadStatus"] == "UNAVAILABLE"
+    assert result["fullnessDistanceMm"] is None
+    assert result["fullnessBlocked"] is None
     assert sum(
         name == "START_DELIVERY_SESSION" for name, _ in serial_port.writes
     ) == starts_before
