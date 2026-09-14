@@ -1,6 +1,6 @@
 # 异常投递人工结束与设备报废分离
 
-状态：已按用户纠正完成拆分并部署为 `20260914054917-646ab11784ae`。原生产版本错误地把结束异常投递与永久报废绑定，但该入口在现网没有被使用；修正版上线后旧入口已消失。原发布见[历史部署记录](../operations/abnormal-delivery-retirement-deployment-2026-09-14.md)，修正版见[拆分部署记录](../operations/abnormal-delivery-termination-separation-deployment-2026-09-14.md)。
+状态：已按用户纠正完成拆分；会话版本冲突热修复已部署为 `20260914061433-32504237d0cb`。原绑定入口在现网没有被使用，拆分和热修复也没有代替管理员执行异常结束。原发布见[历史部署记录](../operations/abnormal-delivery-retirement-deployment-2026-09-14.md)，拆分见[拆分部署记录](../operations/abnormal-delivery-termination-separation-deployment-2026-09-14.md)，版本冲突见[热修复记录](../operations/abnormal-delivery-version-conflict-deployment-2026-09-14.md)。
 
 ## 现网问题
 
