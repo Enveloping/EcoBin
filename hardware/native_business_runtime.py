@@ -1911,7 +1911,7 @@ class NativeBusinessRuntime:
                         mcu_boot_id=record["mcu_boot_id"],
                     )
             return
-        if permit.work_type == "BASELINE" and record["decision_outcome"] == "REJECTED":
+        if record["decision_outcome"] == "REJECTED":
             pending = self.store.prepare_native_control_failure(
                 permit,
                 uid,

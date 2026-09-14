@@ -193,3 +193,12 @@ uint8_t McuProcessEventSlot_Saved(McuProcessEventSlot *slot, const uint8_t *iden
     slot->held = 0u;
     return ECOBIN_UART_RESULT_SAVED_STATUS_RELEASED;
 }
+
+uint8_t McuProcessEventSlot_DiscardOptional(McuProcessEventSlot *slot) {
+    if (slot == NULL) return 0u;
+    if (!slot->held) return 1u;
+    if (slot->scope[SCOPE(EVENT_MESSAGE_TYPE)]
+        == ECOBIN_UART_MESSAGE_BASELINE_MEASUREMENT_RESULT) return 0u;
+    slot->held = 0u;
+    return 1u;
+}

@@ -45,3 +45,23 @@ test('manual refresh reuses an in-flight status request on both operation pages'
   assert.match(cleaning, /if \(this\.pollRequest\) return this\.pollRequest/);
   assert.match(cleaning, /await this\.pollOnce\(\)/);
 });
+
+test('cleaning keeps polling only after an explicit offline occupancy release', () => {
+  const cleaning = source(
+    '../miniprogram/miniprogram/pages/clean-operation/clean-operation.ts',
+  );
+
+  assert.match(cleaning, /offlineReleasedRecoveryPending:\s*false/);
+  assert.match(
+    cleaning,
+    /projection\.offlineOccupancyReleasedAt[\s\S]*?projection\.status === 'RECOVERY_REQUIRED'/,
+  );
+  assert.match(
+    cleaning,
+    /status === 'RECOVERY_REQUIRED'[\s\S]*?&& this\.offlineReleasedRecoveryPending/,
+  );
+  assert.match(
+    cleaning,
+    /status === 'RECOVERY_REQUIRED'[\s\S]*?&& !this\.offlineReleasedRecoveryPending[\s\S]*?clearPollTimer\(\)/,
+  );
+});

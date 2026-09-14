@@ -8841,6 +8841,30 @@ class EdgeStore:
                 (key, value, self._now(), value, self._now()),
             )
 
+    def latch_state_if_empty(self, key: str, value: str) -> str:
+        """Persist the first non-empty cause and never overwrite its identity."""
+        if not isinstance(key, str) or not key or not isinstance(value, str) or not value:
+            raise ValueError("latched state requires non-empty strings")
+        with self.transaction(immediate=True):
+            row = self._conn.execute(
+                "SELECT state_value FROM device_state WHERE state_key=?",
+                (key,),
+            ).fetchone()
+            current = row["state_value"] if row else ""
+            if current:
+                return current
+            now = self._now()
+            self._conn.execute(
+                """INSERT INTO device_state (state_key, state_value, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(state_key) DO UPDATE
+                   SET state_value=excluded.state_value,
+                       updated_at=excluded.updated_at
+                   WHERE device_state.state_value=''""",
+                (key, value, now),
+            )
+            return value
+
     def save_device_entry_url(
         self,
         url: str,

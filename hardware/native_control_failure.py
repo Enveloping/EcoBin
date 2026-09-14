@@ -217,14 +217,10 @@ def _checked_marker(store, permit, record, start, command, device_name):
             != (stage in {"FAILED", "REJECTED"})
             or (reason == RESTART_REASON and stage != "PRE_START_FAILED")
             or (reason == MCU_RESTART_REASON and stage != "FAILED")
-            or (
-                stage == "REJECTED"
-                and (
-                    permit.work_type != "BASELINE"
-                    or record["decision_outcome"] != "REJECTED"
-                    or record["decision_error"] != reason
-                )
-            )):
+            or (stage == "REJECTED" and (
+                record["decision_outcome"] != "REJECTED"
+                or record["decision_error"] != reason
+            ))):
         raise ValueError("native control failure receipt conflicts with its original work")
     return result, marker
 
@@ -306,8 +302,7 @@ def prepare(store, permit, start_uid, *, device_name, stage, reason):
                 return completed
         expected_stage = (
             "REJECTED"
-            if permit.work_type == "BASELINE"
-            and record["decision_outcome"] == "REJECTED"
+            if record["decision_outcome"] == "REJECTED"
             else "FAILED" if record["write_claimed"] else "PRE_START_FAILED"
         )
         if (stage != expected_stage

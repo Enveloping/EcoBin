@@ -481,6 +481,88 @@ def test_new_partial_configuration_blocks_start_even_while_old_applied_facts_rem
     assert exchange(runtime, "START_DELIVERY_SESSION", start_values(commandSequence=7))[0][1]["errorCode"] == "BUSY"
 
 
+def test_released_normal_work_diagnostic_cannot_block_next_reliable_baseline(runtime):
+    lib, endpoint, owner, *_ = runtime
+    configured(runtime, applied=True)
+    start = start_values()
+    assert exchange(runtime, "START_DELIVERY_SESSION", start)[0][1]["outcome"] == "ACCEPTED"
+    now = take_samples(runtime, [500] * 5)
+    old_scope = original_scope(start) | {
+        "eventMessageType": "WORK_PREOPEN_WEIGHT_READY",
+        "stepSequence": 1,
+        "configVersion": inputs()["config_version"],
+    }
+    assert exchange(runtime, "QUERY_PROCESS_EVENT", old_scope, now=now)[0][1][
+        "status"
+    ] == "HELD"
+
+    result = result_payload(
+        mcuBootId=42,
+        workUid=start["sessionUid"],
+        portNo=1,
+        configVersion=inputs()["config_version"],
+        originCommandUid=start["mcuCommandUid"],
+        originCommandSequence=start["commandSequence"],
+    )
+    assert lib.McuWorkState_Complete(
+        lib.TestPreparation_Work(endpoint), result, len(result)
+    )
+    assert exchange(runtime, "RESULT_SAVED", payload=result[:60], now=now)[0][1][
+        "status"
+    ] == "RELEASED"
+
+    spec = uart.MESSAGE_SPECS["MEASURE_BASELINE"]
+    baseline = minimal_command(uart.REGISTRY, spec | {"name": "MEASURE_BASELINE"})
+    baseline.update(
+        targetMcuBootId=42,
+        commandSequence=7,
+        configVersion=inputs()["config_version"],
+        configContentSha256=inputs()["content_sha256"],
+        portNo=1,
+        startExecutionWindowMs=5000,
+        measurementTimeoutMs=5000,
+    )
+    baseline["commandDigestSha256"] = uart.compute_command_digest(
+        "MEASURE_BASELINE", baseline
+    )
+    decision = exchange(runtime, "MEASURE_BASELINE", baseline, now=now)[0][1]
+    assert decision["outcome"] == "ACCEPTED"
+    assert exchange(runtime, "QUERY_PROCESS_EVENT", old_scope, now=now)[0][1][
+        "status"
+    ] == "RELEASED"
+
+    lib.RuntimeClock_Advance(250)
+    now = take_samples(
+        runtime,
+        [100] * 5,
+        start=now + 250,
+        measurement=2,
+        publish=False,
+    )
+    assert lib.McuWorkPreparation_Poll(owner, endpoint, now)
+    baseline_scope = {
+        "queryId": 2,
+        **{
+            key: baseline[key]
+            for key in (
+                "mcuCommandUid",
+                "commandDigestSha256",
+                "targetMcuBootId",
+                "commandSequence",
+                "portNo",
+            )
+        },
+        "workUid": baseline["measurementUid"],
+        "workType": "BASELINE_MEASUREMENT",
+        "eventMessageType": "BASELINE_MEASUREMENT_RESULT",
+        "stepSequence": 0,
+        "configVersion": baseline["configVersion"],
+    }
+    reply = exchange(runtime, "QUERY_PROCESS_EVENT", baseline_scope, now=now)
+    assert reply[0][1]["status"] == "HELD"
+    assert reply[1][1]["reportedWeightGrams"] == 100
+
+
 @pytest.mark.parametrize("error,code", [(6, "EXPIRED"), (11, "SAFETY_BLOCKED"), (65535, "INTERNAL_FAULT")])
 def test_external_prerequisite_refusal_is_cached_and_not_retried_as_a_new_action(runtime, error, code):
     lib, _, owner, _, prerequisites, *_ = runtime

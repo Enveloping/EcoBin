@@ -33,6 +33,7 @@ from hardware.tests.test_command_processor import (
 from hardware.tests.test_mcu_simplified_execution import library, runtime, select, tick, request
 from hardware.tests.test_mcu_work_preparation import take_samples
 from hardware.tests.test_mcu_work_preparation import start_values, original_scope
+from hardware.tests.test_mcu_control_endpoint import running_firmware_identity
 from hardware.tests.test_native_configuration import inputs
 from hardware.tests.test_job_safety import _command
 from hardware.tests.test_native_result_report import original_command
@@ -251,17 +252,18 @@ def test_pristine_production_runtime_claims_factory_boot_then_verifies_identity(
         )
         try:
             poll_until(owner, clock, lambda: owner.mcu_session_ready)
+            expected_identity = running_firmware_identity()
             assert owner.current_mcu_boot_id == factory_boot
             assert owner._identity_boot_id == factory_boot
-            assert owner._mcu_firmware_version == "1.0.1-hil.4"
+            assert owner._mcu_firmware_version == expected_identity["firmwareVersion"]
             assert owner.current_runtime_observation()["mcuCapability"] == 0x8100
             assert owner.verified_firmware_identity == {
                 "queryStatus": "OK",
                 "statusCode": 0,
                 "fixedFrameRevision": 2,
-                "firmwareVersionCode": 10_004,
-                "firmwareVersion": "1.0.1-hil.4",
-                "firmwareIdentityHex": "391ce0b83076c981",
+                "firmwareVersionCode": expected_identity["firmwareVersionCode"],
+                "firmwareVersion": expected_identity["firmwareVersion"],
+                "firmwareIdentityHex": expected_identity["firmwareIdentityHex"],
             }
             assert production.get_native_boot_observation(factory_boot)
             production_uid = str(uuid.uuid4())

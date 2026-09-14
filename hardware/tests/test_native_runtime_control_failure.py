@@ -88,6 +88,58 @@ def wait_for_control_failure(case, owner):
     raise AssertionError("control failure did not release its exact local work")
 
 
+def save_start_rejection(case, reason):
+    record = case.store.get_native_command(case.uid)
+    values = uart.decode_payload(record["message_name"], record["payload"])
+    payload = uart.encode_payload(
+        "COMMAND_DECISION",
+        {
+            key: values[key]
+            for key in (
+                "mcuCommandUid",
+                "commandDigestSha256",
+                "targetMcuBootId",
+                "commandSequence",
+            )
+        }
+        | {
+            "currentMcuBootId": values["targetMcuBootId"],
+            "outcome": "REJECTED",
+            "errorCode": reason,
+        },
+    )
+    assert case.store.save_native_command_observation(
+        "COMMAND_DECISION",
+        payload,
+    )
+
+
+@pytest.mark.parametrize("clean", [False, True])
+def test_explicit_start_rejection_closes_original_work_without_device_latch_or_clean_interlock(
+    runtime,
+    tmp_path,
+    clean,
+):
+    with dropped_start_decision(runtime, tmp_path, clean=clean) as (case, owner):
+        save_start_rejection(case, "BUSY")
+        poll_until(owner, case.clock, lambda: case.store.get_work_slot() is None)
+
+        command = case.store.get_command(case.business["commandUid"])
+        marker = command["result"]["nativeControlFailure"]
+        assert command["state"] == "REJECTED"
+        assert command["last_error"] == "BUSY"
+        assert marker["state"] == "APPLIED"
+        assert marker["evidence"]["stage"] == "REJECTED"
+        assert marker["evidence"]["reason"] == "BUSY"
+        assert marker["evidence"]["businessValue"] == "NONE"
+        assert case.safety.get_job_permit(case.permit.permit_uid)[
+            "completionOutcome"
+        ] == "FAILED"
+        assert case.store.get_state("native_blocking_fault") in {None, ""}
+        assert not case.store.clean_restart_interlock_active(1)
+        assert len(matching_observations(case, case.business["commandUid"])) == 1
+
+
 def test_unanswered_start_times_out_despite_healthy_facts_and_blocks_new_business(runtime, tmp_path):
     with dropped_start_decision(runtime, tmp_path) as (case, owner):
         wait_for_control_failure(case, owner)

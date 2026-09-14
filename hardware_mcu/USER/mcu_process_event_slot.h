@@ -34,4 +34,9 @@ size_t McuProcessEventSlot_CopyHeld(const McuProcessEventSlot *slot, uint8_t *ou
 size_t McuProcessEventSlot_Query(const McuProcessEventSlot *slot, const uint8_t *request,
     size_t length, uint8_t *reply, size_t capacity);
 uint8_t McuProcessEventSlot_Saved(McuProcessEventSlot *slot, const uint8_t *identity, size_t length);
+/* Simplified normal work may leave one best-effort diagnostic event behind.
+ * Once no work/result is active, a later baseline command may discard that
+ * non-baseline event instead of turning optional telemetry into admission.
+ * A retained BASELINE_MEASUREMENT_RESULT is never discarded here. */
+uint8_t McuProcessEventSlot_DiscardOptional(McuProcessEventSlot *slot);
 #endif

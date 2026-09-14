@@ -86,6 +86,15 @@ static uint8_t baseline_command_received(McuWorkPreparation *owner, McuControlEn
     error = owner->guard(ECOBIN_UART_MESSAGE_MEASURE_BASELINE, payload, length, now, owner->guard_context);
     if (error > ECOBIN_UART_NACK_ERROR_INTERNAL_FAULT) error = ECOBIN_UART_NACK_ERROR_INTERNAL_FAULT;
     if (error == ECOBIN_UART_NACK_ERROR_NONE) {
+        /* Normal-work process events are best-effort diagnostics in the
+         * simplified contract.  After that work and its result are released,
+         * they must not permanently block the separately reliable baseline.
+         * DiscardOptional refuses to erase an unacknowledged baseline result. */
+        if (!owner->recovery_active && !owner->baseline_active
+            && (!owner->weight.present || owner->weight.retired) && !owner->weight.in_flight
+            && endpoint->work.status != ECOBIN_UART_WORK_QUERY_STATUS_RUNNING
+            && !endpoint->work.result.held && !McuConfiguration_IsStaging(&owner->configuration))
+            McuProcessEventSlot_DiscardOptional(&endpoint->process_event);
         if (owner->recovery_active || owner->baseline_active
             || (owner->weight.present && !owner->weight.retired) || owner->weight.in_flight
             || endpoint->work.status == ECOBIN_UART_WORK_QUERY_STATUS_RUNNING || endpoint->work.result.held

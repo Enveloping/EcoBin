@@ -2375,6 +2375,22 @@ class TestIntegrity:
         assert store.integrity_check()
         store.close()
 
+    def test_latched_state_preserves_first_non_empty_fault_identity(self):
+        store = make_store()
+        store.set_state("native_blocking_fault", "")
+        assert store.latch_state_if_empty(
+            "native_blocking_fault",
+            "MCU_COMMUNICATION_UNAVAILABLE",
+        ) == "MCU_COMMUNICATION_UNAVAILABLE"
+        first = store.get_state_record("native_blocking_fault")
+
+        assert store.latch_state_if_empty(
+            "native_blocking_fault",
+            "NATIVE_RUNTIME_FAILED",
+        ) == "MCU_COMMUNICATION_UNAVAILABLE"
+        assert store.get_state_record("native_blocking_fault") == first
+        store.close()
+
     def test_tombstone_confirmed_events(self):
         store = make_store()
         store.receive_mcu_event("evt-1", "E1", {})

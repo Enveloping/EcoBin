@@ -932,7 +932,15 @@ class EcoBinEdge:
                     # failure or permit another START. No retry of an old action.
                     code = getattr(error, "code", "NATIVE_RUNTIME_FAILED")
                     logger.error("native runtime blocked: %s", code)
-                    self.store.set_state("native_blocking_fault", code)
+                    retained = self.store.latch_state_if_empty(
+                        "native_blocking_fault",
+                        code,
+                    )
+                    if retained != code:
+                        logger.error(
+                            "native runtime retained original blocking fault: %s",
+                            retained,
+                        )
                     self._request_runtime_snapshot()
                 self._exit_flag.wait(0.05)
         finally:

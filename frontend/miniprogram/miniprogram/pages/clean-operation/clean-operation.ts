@@ -178,6 +178,7 @@ Page({
   recoveryPollRequest: undefined as Promise<void> | undefined,
   submitting: false,
   recoveryConfirming: false,
+  offlineReleasedRecoveryPending: false,
   phoneBindingIntentKey: '',
   pendingBagScanAfterPhone: false,
 
@@ -274,8 +275,14 @@ Page({
       this.scheduleRecoveryPoll(0)
       return
     }
-    if (this.intent?.operationUid && this.shouldPoll()) {
-      this.schedulePoll(0)
+    if (this.intent?.operationUid) {
+      if (this.shouldPoll()) this.schedulePoll(0)
+      else if (this.intent.lastStatus === 'RECOVERY_REQUIRED') {
+        // A restored intent predates the server projection that tells us
+        // whether the offline occupancy was released. Query once; only that
+        // explicit pending-result fact is allowed to keep automatic polling.
+        void this.pollOnce()
+      }
     }
   },
 
@@ -351,6 +358,7 @@ Page({
     }
     if (intent.lastStatus === 'RECOVERY_REQUIRED') {
       this.applyStatus('RECOVERY_REQUIRED')
+      if (this.visible) void this.pollOnce()
       return
     }
     if (intent.lastStatus === 'COMPLETED') {
@@ -1133,6 +1141,10 @@ Page({
     const status = this.intent?.lastStatus
     return status === null
       || cleanOperationDisposition(status) === 'POLL'
+      || (
+        status === 'RECOVERY_REQUIRED'
+        && this.offlineReleasedRecoveryPending
+      )
   },
 
   schedulePoll(delayMs: number) {
@@ -1178,6 +1190,10 @@ Page({
       const projection = await cleanOperation(operationUid, false)
       if (this.intent?.operationUid !== operationUid) return
       this.intent = projectCleanOperationIntent(intent, projection)
+      this.offlineReleasedRecoveryPending = Boolean(
+        projection.offlineOccupancyReleasedAt
+        && projection.status === 'RECOVERY_REQUIRED',
+      )
       this.setData({ cleanRecordNo: projection.cleanRecordNo || '' })
       if (
         projection.status === 'ABORTED'
@@ -1201,6 +1217,7 @@ Page({
         projection.status === 'PREPARED'
         || projection.status === 'EDGE_SAVED'
         || projection.status === 'IN_PROGRESS'
+        || this.offlineReleasedRecoveryPending
       ) {
         this.schedulePoll(businessOperationPollDelay())
       }
@@ -1249,7 +1266,10 @@ Page({
       this.intent = null
       this.clearPollTimer()
     }
-    if (status === 'RECOVERY_REQUIRED') this.clearPollTimer()
+    if (
+      status === 'RECOVERY_REQUIRED'
+      && !this.offlineReleasedRecoveryPending
+    ) this.clearPollTimer()
   },
 
   onBackHome() {

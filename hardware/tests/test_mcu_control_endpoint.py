@@ -1,5 +1,6 @@
 """Actual C byte-stream control endpoint paired with Python/SQLite clients."""
 import ctypes as c
+import re
 import subprocess
 from pathlib import Path
 
@@ -11,6 +12,40 @@ from mcu_session import McuBootSession
 
 ROOT = Path(__file__).resolve().parents[2]
 SINK = c.CFUNCTYPE(None, c.c_void_p, c.c_size_t, c.c_void_p)
+
+
+def running_firmware_identity():
+    """Read the exact generated identity compiled into the current candidate."""
+    header = (ROOT / "hardware_mcu/USER/firmware_identity.h").read_text(
+        encoding="ascii"
+    )
+    version = re.search(
+        r'ECOBIN_MCU_FIRMWARE_VERSION\s+"([^"]+)"',
+        header,
+    )
+    version_code = re.search(
+        r"ECOBIN_MCU_FIRMWARE_VERSION_CODE\s+(\d+)UL",
+        header,
+    )
+    identity = re.search(
+        r"ECOBIN_MCU_FIRMWARE_IDENTITY_BYTES\s*\\\s*\{([^}]+)\}",
+        header,
+    )
+    if version is None or version_code is None or identity is None:
+        raise AssertionError("generated MCU firmware identity header is malformed")
+    identity_bytes = bytes(
+        int(value, 16)
+        for value in re.findall(r"0x([0-9A-Fa-f]{2})", identity.group(1))
+    )
+    if len(identity_bytes) != 8:
+        raise AssertionError("generated MCU firmware identity must be eight bytes")
+    return {
+        "firmwareVersionCode": int(version_code.group(1)),
+        "firmwareIdentityHigh": int.from_bytes(identity_bytes[:4], "big"),
+        "firmwareIdentityLow": int.from_bytes(identity_bytes[4:], "big"),
+        "firmwareVersion": version.group(1),
+        "firmwareIdentityHex": identity_bytes.hex(),
+    }
 
 
 @pytest.fixture
@@ -173,6 +208,7 @@ def test_identity_query_returns_the_actual_running_firmware_without_side_effects
     frame = uart.decode_frame(received[0], sender_role="MCU")
     assert frame["messageName"] == "DEVICE_IDENTITY_REPLY"
     values = uart.decode_payload("DEVICE_IDENTITY_REPLY", frame["payload"])
+    expected_identity = running_firmware_identity()
     assert values == {
         "queryId": 5,
         "targetMcuBootId": 42,
@@ -183,10 +219,10 @@ def test_identity_query_returns_the_actual_running_firmware_without_side_effects
         "portCount": 1,
         "capabilityBitmap": 0x8100,
         "highestCommandSequence": 0,
-        "firmwareVersionCode": 10_004,
-        "firmwareIdentityHigh": 0x391CE0B8,
-        "firmwareIdentityLow": 0x3076C981,
-        "firmwareVersion": "1.0.1-hil.4",
+        "firmwareVersionCode": expected_identity["firmwareVersionCode"],
+        "firmwareIdentityHigh": expected_identity["firmwareIdentityHigh"],
+        "firmwareIdentityLow": expected_identity["firmwareIdentityLow"],
+        "firmwareVersion": expected_identity["firmwareVersion"],
     }
 
     mismatch = exchange(
