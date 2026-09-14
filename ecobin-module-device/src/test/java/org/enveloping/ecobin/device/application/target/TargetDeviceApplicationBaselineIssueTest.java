@@ -141,7 +141,7 @@ class TargetDeviceApplicationBaselineIssueTest {
     }
 
     @Test
-    void permanentlyOfflineStartedDeliveryOffersOnlyAtomicRetirement() {
+    void permanentlyOfflineStartedDeliveryOffersIndependentTermination() {
         var issue = TargetDeviceApplication.taskIssue(
                 new TargetDeviceApplication.TechnicalTaskRow(
                         24L,
@@ -168,9 +168,10 @@ class TargetDeviceApplicationBaselineIssueTest {
 
         assertThat(issue.title()).isEqualTo("投递物理结果无法确认");
         assertThat(issue.description()).contains(
-                "连续离线", "没有生成订单", "永久报废");
+                "连续离线", "没有生成订单", "保持禁用",
+                "单独选择恢复或报废");
         assertThat(issue.nextActions()).containsExactly(
-                "RETIRE_AFTER_ABNORMAL_DELIVERY");
+                "END_ABNORMAL_DELIVERY");
     }
 
     @Test

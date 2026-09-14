@@ -1,6 +1,6 @@
 package org.enveloping.ecobin.device.application.target;
 
-import org.enveloping.ecobin.device.web.v1.DeviceModels.AbnormalDeliveryRetirementRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.AbnormalDeliveryTerminationRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AcceptanceEvidenceView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignOrganizationRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignTenantRequest;
@@ -188,17 +188,17 @@ public class TargetDeviceApplication {
               AND occupancy_kind = 'DELIVERY'
               AND delivery_session_id = ?
             """;
-    static final String LOCK_ABNORMAL_RETIREMENT_TRANSPORT_SQL = """
+    static final String LOCK_ABNORMAL_TERMINATION_TRANSPORT_SQL = """
             SELECT onenet_connection_status, offline_since_at
             FROM dev_device_transport_state
             WHERE asset_id = ?
             FOR UPDATE
             """;
-    static final String CLOSE_ABNORMAL_DELIVERY_FOR_RETIREMENT_SQL = """
+    static final String CLOSE_ABNORMAL_DELIVERY_SQL = """
             UPDATE dev_delivery_session
             SET status = 'DEVICE_ABORTED',
                 ended_at = ?,
-                end_reason = 'OPERATOR_RETIRED_UNKNOWN_DELIVERY',
+                end_reason = 'OPERATOR_CLOSED_UNKNOWN_DELIVERY',
                 lock_version = lock_version + 1,
                 updated_at = ?
             WHERE id = ?
@@ -210,10 +210,14 @@ public class TargetDeviceApplication {
               AND end_reason IS NULL
               AND lock_version = ?
             """;
-    static final String RETIRE_AFTER_ABNORMAL_DELIVERY_SQL = """
+    static final String DISABLE_AFTER_ABNORMAL_DELIVERY_SQL = """
             UPDATE dev_device_asset
-            SET lifecycle_status = 'RETIRED',
-                retired_at = ?, retirement_reason = ?,
+            SET lifecycle_status = 'DISABLED',
+                disabled_at = COALESCE(disabled_at, ?),
+                disable_reason = CASE
+                    WHEN lifecycle_status = 'NORMAL' THEN ?
+                    ELSE disable_reason
+                END,
                 control_version = control_version + 1,
                 updated_at = ?
             WHERE id = ?
@@ -760,7 +764,7 @@ public class TargetDeviceApplication {
                                                 )
                                     )
                                    THEN 1 ELSE 0
-                               END AS delivery_manual_retirement_available,
+                               END AS delivery_manual_termination_available,
                                clean_row.status AS clean_status,
                                application.status AS application_status,
                                application.edge_persisted_at,
@@ -809,7 +813,7 @@ public class TargetDeviceApplication {
                         rs.getBoolean(
                                 "delivery_recovery_quarantine_available"),
                         rs.getBoolean(
-                                "delivery_manual_retirement_available"),
+                                "delivery_manual_termination_available"),
                         rs.getString("clean_status"),
                         rs.getString("application_status"),
                         rs.getObject(
@@ -825,7 +829,7 @@ public class TargetDeviceApplication {
                     && !("START_DELIVERY_SESSION".equals(
                     task.taskType())
                     && (task.deliveryRecoveryQuarantineAvailable()
-                    || task.deliveryManualRetirementAvailable()))) {
+                    || task.deliveryManualTerminationAvailable()))) {
                 continue;
             }
             if ("REQUEST_DEVICE_ACCEPTANCE".equals(task.taskType())
@@ -1494,11 +1498,11 @@ public class TargetDeviceApplication {
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    public DeviceAssetView retireAbnormalDelivery(
+    public DeviceAssetView terminateAbnormalDelivery(
             UUID operationUid,
             String hardwareSn,
             UUID sessionUid,
-            AbnormalDeliveryRetirementRequest request) {
+            AbnormalDeliveryTerminationRequest request) {
         Scope platform = authorize(true, null, null, "device.manage");
         String normalizedHardwareSn = normalizeHardwareSn(hardwareSn);
         if (sessionUid == null
@@ -1516,17 +1520,14 @@ public class TargetDeviceApplication {
                 || !Boolean.TRUE.equals(request.motionAreaClearConfirmed())
                 || !Boolean.TRUE.equals(
                 request.deliveryDoorClosedConfirmed())
-                || !Boolean.TRUE.equals(request.mechanismClearConfirmed())
-                || !Boolean.TRUE.equals(
-                request.permanentRetirementConfirmed())) {
-            throw invalid("必须确认原投递结果未知、整机已断电、投递门关闭、机构无卡物、运动范围无人，并确认设备永久报废");
+                || !Boolean.TRUE.equals(request.mechanismClearConfirmed())) {
+            throw invalid("必须确认原投递结果未知、整机已断电、投递门关闭、机构无卡物且运动范围无人");
         }
         String reason = required(request.reason(), 500, "reason");
-        var normalizedRequest = new AbnormalDeliveryRetirementRequest(
+        var normalizedRequest = new AbnormalDeliveryTerminationRequest(
                 request.expectedTaskUid(),
                 request.expectedSessionVersion(),
                 request.expectedAssetVersion(),
-                true,
                 true,
                 true,
                 true,
@@ -1536,25 +1537,25 @@ public class TargetDeviceApplication {
         return command(
                 operationUid,
                 platform,
-                "device.delivery.abnormal-retire",
+                "device.delivery.abnormal-terminate",
                 "DEVICE_ASSET",
                 normalizedHardwareSn,
                 normalizedRequest,
                 DeviceAssetView.class,
-                () -> retireAbnormalDelivery(
+                () -> terminateAbnormalDelivery(
                         normalizedHardwareSn,
                         sessionUid,
                         normalizedRequest,
                         reason));
     }
 
-    private CommandResult<DeviceAssetView> retireAbnormalDelivery(
+    private CommandResult<DeviceAssetView> terminateAbnormalDelivery(
             String hardwareSn,
             UUID sessionUid,
-            AbnormalDeliveryRetirementRequest request,
+            AbnormalDeliveryTerminationRequest request,
             String reason) {
-        // The asset lock serializes this irreversible close with late device
-        // results, ordinary lifecycle control and device-side quarantine.
+        // The asset lock serializes the close and safety disable with late
+        // device results, ordinary lifecycle control and device quarantine.
         Asset before = asset(hardwareSn, true);
         if ("RETIRED".equals(before.lifecycleStatus())) {
             throw conflict(
@@ -1581,7 +1582,7 @@ public class TargetDeviceApplication {
                 session.id(),
                 before.id());
         if (commandTasks.size() != 1) {
-            throw abnormalDeliveryRetirementConflict();
+            throw abnormalDeliveryTerminationConflict();
         }
         DeliveryRecoveryCommandTaskRow commandTask =
                 commandTasks.getFirst();
@@ -1600,9 +1601,9 @@ public class TargetDeviceApplication {
                 commandTask.commandId(),
                 commandTask.commandId(),
                 session.id());
-        List<DeliveryRetirementTransportRow> transports = jdbc.query(
-                LOCK_ABNORMAL_RETIREMENT_TRANSPORT_SQL,
-                (rs, ignored) -> new DeliveryRetirementTransportRow(
+        List<DeliveryTerminationTransportRow> transports = jdbc.query(
+                LOCK_ABNORMAL_TERMINATION_TRANSPORT_SQL,
+                (rs, ignored) -> new DeliveryTerminationTransportRow(
                         rs.getString("onenet_connection_status"),
                         rs.getObject("offline_since_at", LocalDateTime.class)),
                 before.id());
@@ -1621,7 +1622,7 @@ public class TargetDeviceApplication {
                         && occupancies.getFirst().isDelivery(session.id())
                         : occupancies.isEmpty();
         LocalDateTime now = databaseNow();
-        if (!canRetireAbnormalDelivery(
+        if (!canTerminateAbnormalDelivery(
                 session,
                 commandTask,
                 transports.size() == 1 ? transports.getFirst() : null,
@@ -1634,10 +1635,10 @@ public class TargetDeviceApplication {
                 request.expectedTaskUid(),
                 sessionUid,
                 now)) {
-            throw abnormalDeliveryRetirementConflict();
+            throw abnormalDeliveryTerminationConflict();
         }
         requireSingle(jdbc.update(
-                CLOSE_ABNORMAL_DELIVERY_FOR_RETIREMENT_SQL,
+                CLOSE_ABNORMAL_DELIVERY_SQL,
                 now,
                 now,
                 session.id(),
@@ -1653,17 +1654,18 @@ public class TargetDeviceApplication {
                 session.offlineOccupancyReleasedAt());
 
         // Recheck every other business after the exact stale delivery is
-        // closed. Any remaining use rolls back both the close and retirement.
+        // closed. Any remaining use rolls back both the close and safety
+        // disable. Permanent retirement remains a separate lifecycle action.
         lifecycleControl.requireIdle(before.id(), hardwareSn);
         requireSingle(jdbc.update(
-                RETIRE_AFTER_ABNORMAL_DELIVERY_SQL,
+                DISABLE_AFTER_ABNORMAL_DELIVERY_SQL,
                 now,
                 reason,
                 now,
                 before.id(),
                 before.controlVersion()));
         lifecycleControl.cancelDeviceWork(
-                before.id(), hardwareSn, "RETIRED", now);
+                before.id(), hardwareSn, "DISABLED", now);
         DeviceAssetView response = platformView(hardwareSn);
         return new CommandResult<>(
                 response,
@@ -1675,27 +1677,27 @@ public class TargetDeviceApplication {
                         "deliverySessionVersion", session.lockVersion(),
                         "taskUid", commandTask.taskUid()),
                 Map.of(
-                        "assetLifecycleStatus", "RETIRED",
+                        "assetLifecycleStatus", "DISABLED",
                         "assetVersion", before.controlVersion() + 1,
                         "deliverySessionUid", sessionUid,
                         "deliveryStatus", "DEVICE_ABORTED",
                         "deliverySessionVersion", session.lockVersion() + 1,
                         "occupancyReleased", true,
                         "businessValue", "NONE",
+                        "deviceDisabledForSafety", true,
                         "operatorConfirmations", Map.of(
                                 "physicalOutcomeUnknown", true,
                                 "devicePoweredOff", true,
                                 "motionAreaClear", true,
                                 "deliveryDoorClosed", true,
-                                "mechanismClear", true,
-                                "permanentRetirement", true)),
+                                "mechanismClear", true)),
                 reason);
     }
 
-    static boolean canRetireAbnormalDelivery(
+    static boolean canTerminateAbnormalDelivery(
             DeliveryRecoverySessionRow session,
             DeliveryRecoveryCommandTaskRow commandTask,
-            DeliveryRetirementTransportRow transport,
+            DeliveryTerminationTransportRow transport,
             boolean expectedOccupancy,
             boolean activeRecovery,
             DeliveryRecoveryEvidenceRow evidence,
@@ -1746,9 +1748,9 @@ public class TargetDeviceApplication {
     }
 
     private static TargetApiException
-            abnormalDeliveryRetirementConflict() {
+            abnormalDeliveryTerminationConflict() {
         return conflict(
-                "DEVICE.ABNORMAL_DELIVERY_RETIREMENT_NOT_ALLOWED",
+                "DEVICE.ABNORMAL_DELIVERY_TERMINATION_NOT_ALLOWED",
                 "异常投递状态已经变化，或设备尚未连续离线 10 分钟；请刷新详情并按当前提示处理");
     }
 
@@ -4846,7 +4848,7 @@ public class TargetDeviceApplication {
                 category = "DELIVERY";
                 boolean uncertain = "RESULT_PENDING_RECOVERY".equals(
                         task.deliveryStatus())
-                        || task.deliveryManualRetirementAvailable();
+                        || task.deliveryManualTerminationAvailable();
                 boolean safelyEnded = "PRE_OPEN_ENDED".equals(
                         task.deliveryStatus());
                 state = uncertain
@@ -4862,8 +4864,8 @@ public class TargetDeviceApplication {
                                 ? "原开门授权已经失效，后台也没有收到设备接受、开门或投递结果。系统不会重发开门；现场确认本次投递从未开始后，可以安全结束原投递。"
                                 : task.deliveryRecoveryQuarantineAvailable()
                                 ? "后台无法判断原投递动作是否执行。确认设备已经完整断电重启、投递门关闭、机构无卡物且运动范围无人后，可以要求设备采集新的只读安全证据并隔离结束原业务。已有重量和照片只保存为问题证据；不会创建投递订单、不会增加余额，也不会触发自动提现。"
-                                : task.deliveryManualRetirementAvailable()
-                                ? "设备已连续离线，后台没有收到投递结果，也没有生成订单。若这台设备确定不再使用，可在现场确认断电和门体安全后结束原投递并永久报废。"
+                                : task.deliveryManualTerminationAvailable()
+                                ? "设备已连续离线，后台没有收到投递结果，也没有生成订单。现场确认断电和门体安全后，可以结束原投递并解除占用；设备会先保持禁用，之后再单独选择恢复或报废。"
                                 : "设备云平台可能已经接收启动请求，但后台无法排除设备曾经接受或执行。系统保留设备占用且不会重发开门，请先让设备上线并联系技术人员核对现场。"
                         : safelyEnded
                                 ? "现场已确认设备没有开门或进入投递流程，原投递不会重发，也不会生成投递订单。故障排除后，请让用户重新扫码发起一次新投递。"
@@ -4874,8 +4876,8 @@ public class TargetDeviceApplication {
                                 ? "CONFIRM_DELIVERY_NOT_STARTED"
                                 : task.deliveryRecoveryQuarantineAvailable()
                                 ? "QUARANTINE_DELIVERY_RECOVERY"
-                                : task.deliveryManualRetirementAvailable()
-                                ? "RETIRE_AFTER_ABNORMAL_DELIVERY"
+                                : task.deliveryManualTerminationAvailable()
+                                ? "END_ABNORMAL_DELIVERY"
                                 : "CONTACT_SUPPORT"
                         : "USER_RESTART_REQUIRED");
             }
@@ -5804,7 +5806,7 @@ public class TargetDeviceApplication {
         }
     }
 
-    record DeliveryRetirementTransportRow(
+    record DeliveryTerminationTransportRow(
             String connectionStatus,
             LocalDateTime offlineSinceAt) {
     }
@@ -5828,7 +5830,7 @@ public class TargetDeviceApplication {
             Long deliverySessionVersion,
             boolean deliveryNotStartedConfirmationAvailable,
             boolean deliveryRecoveryQuarantineAvailable,
-            boolean deliveryManualRetirementAvailable,
+            boolean deliveryManualTerminationAvailable,
             String cleanStatus,
             String applicationStatus,
             LocalDateTime edgePersistedAt,

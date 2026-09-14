@@ -8,7 +8,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class TargetDeviceApplicationAbnormalDeliveryRetirementTest {
+class TargetDeviceApplicationAbnormalDeliveryTerminationTest {
 
     private static final UUID SESSION_UID = UUID.fromString(
             "80acf8e0-8ff6-4cc3-a6a2-1b22621426cc");
@@ -18,7 +18,7 @@ class TargetDeviceApplicationAbnormalDeliveryRetirementTest {
             LocalDateTime.parse("2026-09-14T02:00:00");
 
     @Test
-    void productionShapedStartedDeliveryCanBeClosedOnlyWithRetirement() {
+    void productionShapedStartedDeliveryCanBeEndedSafely() {
         assertThat(allowed(
                 session("IN_PROGRESS", NOW.minusDays(4), null),
                 command("PHYSICAL_STARTED", "DONE", null),
@@ -85,7 +85,7 @@ class TargetDeviceApplicationAbnormalDeliveryRetirementTest {
         var offline = transport("OFFLINE", NOW.minusHours(1));
         var noResult = evidence(false, false);
 
-        assertThat(TargetDeviceApplication.canRetireAbnormalDelivery(
+        assertThat(TargetDeviceApplication.canTerminateAbnormalDelivery(
                 session,
                 command,
                 offline,
@@ -98,7 +98,7 @@ class TargetDeviceApplicationAbnormalDeliveryRetirementTest {
                 TASK_UID,
                 SESSION_UID,
                 NOW)).isFalse();
-        assertThat(TargetDeviceApplication.canRetireAbnormalDelivery(
+        assertThat(TargetDeviceApplication.canTerminateAbnormalDelivery(
                 session,
                 command,
                 offline,
@@ -121,31 +121,34 @@ class TargetDeviceApplicationAbnormalDeliveryRetirementTest {
     }
 
     @Test
-    void updateSqlEndsOnlyTheExactSessionAndPermanentlyRetiresAsset() {
+    void updateSqlEndsOnlyTheExactSessionAndDisablesWithoutRetiringAsset() {
         String close = upper(TargetDeviceApplication
-                .CLOSE_ABNORMAL_DELIVERY_FOR_RETIREMENT_SQL);
-        String retire = upper(TargetDeviceApplication
-                .RETIRE_AFTER_ABNORMAL_DELIVERY_SQL);
+                .CLOSE_ABNORMAL_DELIVERY_SQL);
+        String disable = upper(TargetDeviceApplication
+                .DISABLE_AFTER_ABNORMAL_DELIVERY_SQL);
         assertThat(close).contains(
                 "STATUS = 'DEVICE_ABORTED'",
-                "OPERATOR_RETIRED_UNKNOWN_DELIVERY",
+                "OPERATOR_CLOSED_UNKNOWN_DELIVERY",
                 "STATUS IN ('IN_PROGRESS', 'RESULT_PENDING_RECOVERY')",
                 "DEVICE_COMPLETED_AT IS NULL",
                 "LOCK_VERSION = ?");
-        assertThat(retire).contains(
-                "LIFECYCLE_STATUS = 'RETIRED'",
+        assertThat(disable).contains(
+                "LIFECYCLE_STATUS = 'DISABLED'",
+                "DISABLED_AT = COALESCE(DISABLED_AT, ?)",
+                "DISABLE_REASON = CASE",
                 "LIFECYCLE_STATUS IN ('NORMAL', 'DISABLED')",
-                "CONTROL_VERSION = ?");
+                "CONTROL_VERSION = ?")
+                .doesNotContain("RETIRED_AT", "RETIREMENT_REASON");
     }
 
     private static boolean allowed(
             TargetDeviceApplication.DeliveryRecoverySessionRow session,
             TargetDeviceApplication.DeliveryRecoveryCommandTaskRow command,
-            TargetDeviceApplication.DeliveryRetirementTransportRow transport,
+            TargetDeviceApplication.DeliveryTerminationTransportRow transport,
             boolean expectedOccupancy,
             boolean activeRecovery,
             TargetDeviceApplication.DeliveryRecoveryEvidenceRow evidence) {
-        return TargetDeviceApplication.canRetireAbnormalDelivery(
+        return TargetDeviceApplication.canTerminateAbnormalDelivery(
                 session,
                 command,
                 transport,
@@ -198,9 +201,9 @@ class TargetDeviceApplicationAbnormalDeliveryRetirementTest {
                 lease);
     }
 
-    private static TargetDeviceApplication.DeliveryRetirementTransportRow
+    private static TargetDeviceApplication.DeliveryTerminationTransportRow
             transport(String status, LocalDateTime offlineSinceAt) {
-        return new TargetDeviceApplication.DeliveryRetirementTransportRow(
+        return new TargetDeviceApplication.DeliveryTerminationTransportRow(
                 status, offlineSinceAt);
     }
 

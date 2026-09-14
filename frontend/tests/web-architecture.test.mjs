@@ -565,7 +565,7 @@ test('blocked delivery recovery closes only an onsite-confirmed unstarted sessio
   assert.doesNotMatch(apiSource, /delivery-sessions[\s\S]*?resumptions/);
 });
 
-test('permanently offline abnormal delivery can be ended only with asset retirement', () => {
+test('abnormal delivery termination stays separate from permanent retirement', () => {
   const apiSource = readFileSync(
     new URL('src/api/deviceDirectory.ts', webRoot),
     'utf8',
@@ -579,13 +579,15 @@ test('permanently offline abnormal delivery can be ended only with asset retirem
     'utf8',
   );
 
-  assert.match(apiSource, /retirePlatformDeviceAfterAbnormalDelivery/);
-  assert.match(apiSource, /abnormal-retirements/);
-  assert.match(drawerSource, /RETIRE_AFTER_ABNORMAL_DELIVERY/);
-  assert.match(drawerSource, /结束异常投递并报废/);
-  assert.match(drawerSource, /permanentRetirementConfirmed/);
+  assert.match(apiSource, /terminatePlatformAbnormalDelivery/);
+  assert.match(apiSource, /abnormal-terminations/);
+  assert.match(drawerSource, /END_ABNORMAL_DELIVERY/);
+  assert.match(drawerSource, /结束异常投递/);
+  assert.match(drawerSource, /设备将进入禁用状态，恢复与报废需另行操作/);
   assert.match(drawerSource, /devicePoweredOffConfirmed/);
-  assert.match(generatedSource, /AbnormalDeliveryRetirementRequest/);
+  assert.match(generatedSource, /AbnormalDeliveryTerminationRequest/);
+  assert.doesNotMatch(drawerSource, /结束异常投递并报废/);
+  assert.doesNotMatch(drawerSource, /permanentRetirementConfirmed/);
   assert.doesNotMatch(drawerSource, /结束异常投递并继续使用/);
 });
 

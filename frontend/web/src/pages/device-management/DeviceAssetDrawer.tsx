@@ -52,7 +52,7 @@ import {
   listPlatformDeviceTechnicalIssues,
   releaseDeviceConfiguration,
   quarantinePlatformDeliveryRecovery,
-  retirePlatformDeviceAfterAbnormalDelivery,
+  terminatePlatformAbnormalDelivery,
   resynchronizePlatformDeviceConfiguration,
   rollForwardPlatformDeviceConfiguration,
   startPlatformBaselineMeasurementAttempt,
@@ -163,13 +163,12 @@ interface DeliveryRecoveryQuarantineForm {
   reason: string;
 }
 
-interface AbnormalDeliveryRetirementForm {
+interface AbnormalDeliveryTerminationForm {
   physicalOutcomeUnknownConfirmed: boolean;
   devicePoweredOffConfirmed: boolean;
   motionAreaClearConfirmed: boolean;
   deliveryDoorClosedConfirmed: boolean;
   mechanismClearConfirmed: boolean;
-  permanentRetirementConfirmed: boolean;
   reason: string;
 }
 
@@ -1405,8 +1404,8 @@ export default function DeviceAssetDrawer({
     Form.useForm<DeliveryNotStartedConfirmationForm>();
   const [deliveryQuarantineForm] =
     Form.useForm<DeliveryRecoveryQuarantineForm>();
-  const [abnormalRetirementForm] =
-    Form.useForm<AbnormalDeliveryRetirementForm>();
+  const [abnormalTerminationForm] =
+    Form.useForm<AbnormalDeliveryTerminationForm>();
   const [evidence, setEvidence] = useState<DeviceAcceptanceEvidence[]>([]);
   const [evidenceExpanded, setEvidenceExpanded] = useState(false);
   const [evidenceLoaded, setEvidenceLoaded] = useState(false);
@@ -1445,9 +1444,9 @@ export default function DeviceAssetDrawer({
     useState(false);
   const [deliveryQuarantineIssue, setDeliveryQuarantineIssue] =
     useState<DeviceTechnicalIssue>();
-  const [abnormalRetirementSubmitting,
-    setAbnormalRetirementSubmitting] = useState(false);
-  const [abnormalRetirementIssue, setAbnormalRetirementIssue] =
+  const [abnormalTerminationSubmitting,
+    setAbnormalTerminationSubmitting] = useState(false);
+  const [abnormalTerminationIssue, setAbnormalTerminationIssue] =
     useState<DeviceTechnicalIssue>();
   const [deliveryQuarantineEvidence, setDeliveryQuarantineEvidence] =
     useState<DeliveryRecoveryQuarantine>();
@@ -1664,7 +1663,7 @@ export default function DeviceAssetDrawer({
     setBaselineIssue(undefined);
     setDeliveryRecoveryIssue(undefined);
     setDeliveryQuarantineIssue(undefined);
-    setAbnormalRetirementIssue(undefined);
+    setAbnormalTerminationIssue(undefined);
     setDeliveryQuarantineEvidence(undefined);
     setDeliveryQuarantineEvidenceIssue(undefined);
     void loadTechnicalIssues();
@@ -2103,68 +2102,66 @@ export default function DeviceAssetDrawer({
     }
   };
 
-  const openAbnormalDeliveryRetirement = (issue: DeviceTechnicalIssue) => {
+  const openAbnormalDeliveryTermination = (issue: DeviceTechnicalIssue) => {
     if (
       !issue.taskUid
       || !issue.deliverySessionUid
       || issue.deliverySessionVersion == null
     ) return;
-    abnormalRetirementForm.setFieldsValue({
+    abnormalTerminationForm.setFieldsValue({
       physicalOutcomeUnknownConfirmed: false,
       devicePoweredOffConfirmed: false,
       motionAreaClearConfirmed: false,
       deliveryDoorClosedConfirmed: false,
       mechanismClearConfirmed: false,
-      permanentRetirementConfirmed: false,
       reason: '',
     });
-    setAbnormalRetirementIssue(issue);
+    setAbnormalTerminationIssue(issue);
   };
 
-  const submitAbnormalDeliveryRetirement = async () => {
+  const submitAbnormalDeliveryTermination = async () => {
     if (
       !asset
-      || !abnormalRetirementIssue?.taskUid
-      || !abnormalRetirementIssue.deliverySessionUid
-      || abnormalRetirementIssue.deliverySessionVersion == null
+      || !abnormalTerminationIssue?.taskUid
+      || !abnormalTerminationIssue.deliverySessionUid
+      || abnormalTerminationIssue.deliverySessionVersion == null
     ) return;
-    const values = await abnormalRetirementForm.validateFields();
+    const values = await abnormalTerminationForm.validateFields();
     const payload = {
-      expectedTaskUid: abnormalRetirementIssue.taskUid,
+      expectedTaskUid: abnormalTerminationIssue.taskUid,
       expectedSessionVersion:
-        abnormalRetirementIssue.deliverySessionVersion,
+        abnormalTerminationIssue.deliverySessionVersion,
       expectedAssetVersion: asset.version,
       physicalOutcomeUnknownConfirmed: true as const,
       devicePoweredOffConfirmed: true as const,
       motionAreaClearConfirmed: true as const,
       deliveryDoorClosedConfirmed: true as const,
       mechanismClearConfirmed: true as const,
-      permanentRetirementConfirmed: true as const,
       reason: values.reason,
     };
-    setAbnormalRetirementSubmitting(true);
+    setAbnormalTerminationSubmitting(true);
     try {
       await executeCommand(
         commandKey(
-          'device.delivery.abnormal-retire',
-          `${asset.hardwareSn}:${abnormalRetirementIssue.deliverySessionUid}`,
+          'device.delivery.abnormal-terminate',
+          `${asset.hardwareSn}:${abnormalTerminationIssue.deliverySessionUid}`,
           payload,
         ),
-        (intent) => retirePlatformDeviceAfterAbnormalDelivery(
+        (intent) => terminatePlatformAbnormalDelivery(
           asset.hardwareSn,
-          abnormalRetirementIssue.deliverySessionUid!,
+          abnormalTerminationIssue.deliverySessionUid!,
           payload,
           intent,
         ),
       );
-      message.success('异常投递已留档，用户和设备占用已解除，设备已报废');
-      setAbnormalRetirementIssue(undefined);
-      onClose();
+      message.success('异常投递已结束，占用已解除，设备已禁用；可另行恢复或报废');
+      setAbnormalTerminationIssue(undefined);
+      await Promise.all([loadTechnicalIssues(), loadRuntime()]);
       onChanged();
     } catch (error) {
       message.error(errorMessage(error));
     } finally {
-      setAbnormalRetirementSubmitting(false);
+      setAbnormalTerminationSubmitting(false);
     }
   };
 
@@ -2264,14 +2261,13 @@ export default function DeviceAssetDrawer({
           隔离结束物理结果未知的投递
         </Button>
       )}
-      {issue.nextActions.includes('RETIRE_AFTER_ABNORMAL_DELIVERY') && (
+      {issue.nextActions.includes('END_ABNORMAL_DELIVERY') && (
         <Button
           size="small"
           type="primary"
-          danger
-          onClick={() => openAbnormalDeliveryRetirement(issue)}
+          onClick={() => openAbnormalDeliveryTermination(issue)}
         >
-          结束异常投递并报废
+          结束异常投递
         </Button>
       )}
       {issue.nextActions.includes('VIEW_DELIVERY_RECOVERY_EVIDENCE') && (
@@ -2895,22 +2891,22 @@ export default function DeviceAssetDrawer({
 
       <Modal
         width={720}
-        title="结束异常投递并报废设备"
-        open={Boolean(abnormalRetirementIssue)}
-        confirmLoading={abnormalRetirementSubmitting}
-        onOk={() => void submitAbnormalDeliveryRetirement()}
-        onCancel={() => setAbnormalRetirementIssue(undefined)}
-        okText="确认结束并永久报废"
+        title="结束异常投递"
+        open={Boolean(abnormalTerminationIssue)}
+        confirmLoading={abnormalTerminationSubmitting}
+        onOk={() => void submitAbnormalDeliveryTermination()}
+        onCancel={() => setAbnormalTerminationIssue(undefined)}
+        okText="确认结束异常投递"
         okButtonProps={{ danger: true }}
         destroyOnClose
       >
         <Alert
-          type="error"
+          type="warning"
           showIcon
-          message="操作完成后设备不可恢复，原投递不会生成订单或返现"
+          message="原投递不会生成订单或返现；设备将进入禁用状态，恢复与报废需另行操作"
           style={{ marginBottom: 20 }}
         />
-        <Form form={abnormalRetirementForm} layout="vertical">
+        <Form form={abnormalTerminationForm} layout="vertical">
           <Form.Item
             name="physicalOutcomeUnknownConfirmed"
             valuePropName="checked"
@@ -2967,19 +2963,8 @@ export default function DeviceAssetDrawer({
             <Checkbox>机构运动范围内无人</Checkbox>
           </Form.Item>
           <Form.Item
-            name="permanentRetirementConfirmed"
-            valuePropName="checked"
-            rules={[{
-              validator: (_, value) => value
-                ? Promise.resolve()
-                : Promise.reject(new Error('请确认设备永久报废')),
-            }]}
-          >
-            <Checkbox>确认设备永久报废，不再恢复使用</Checkbox>
-          </Form.Item>
-          <Form.Item
             name="reason"
-            label="异常经过和报废原因"
+            label="异常经过和结束原因"
             rules={[{ required: true, message: '请填写处理原因' }]}
           >
             <Input.TextArea maxLength={500} showCount rows={3} />

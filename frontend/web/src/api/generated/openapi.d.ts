@@ -5200,7 +5200,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/web/platform/device-assets/{hardwareSn}/delivery-sessions/{sessionUid}/abnormal-retirements": {
+    "/api/v1/web/platform/device-assets/{hardwareSn}/delivery-sessions/{sessionUid}/abnormal-terminations": {
         parameters: {
             query?: never;
             header?: never;
@@ -5213,10 +5213,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * End one unknowable delivery and permanently retire its offline device
-         * @description After at least ten minutes of continuous device offline time and explicit onsite safety confirmations, the server atomically ends the exact delivery as DEVICE_ABORTED, releases only its occupancy, retires the asset and cancels remaining device work. It never creates an order or funds effect.
+         * End one unknowable delivery and safety-disable its offline device
+         * @description After at least ten minutes of continuous device offline time and explicit onsite safety confirmations, the server atomically ends the exact delivery as DEVICE_ABORTED, releases only its occupancy and safety-disables the device. It never retires the asset, creates an order or produces a funds effect. Restore and retirement remain separate lifecycle actions.
          */
-        post: operations["retirePlatformDeviceAfterAbnormalDelivery"];
+        post: operations["terminatePlatformAbnormalDelivery"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9200,7 +9200,7 @@ export interface components {
             mechanismClearConfirmed: true;
             reason: string;
         };
-        AbnormalDeliveryRetirementRequest: {
+        AbnormalDeliveryTerminationRequest: {
             expectedTaskUid: components["schemas"]["UuidV4"];
             expectedSessionVersion: components["schemas"]["ExpectedVersion"];
             expectedAssetVersion: components["schemas"]["ExpectedVersion"];
@@ -9220,11 +9220,6 @@ export interface components {
             deliveryDoorClosedConfirmed: true;
             /** @constant */
             mechanismClearConfirmed: true;
-            /**
-             * @description The operator accepts that the asset retirement is permanent.
-             * @constant
-             */
-            permanentRetirementConfirmed: true;
             reason: string;
         };
         DeliveryRecoveryQuarantine: {
@@ -9280,7 +9275,7 @@ export interface components {
             automaticAttemptNo: number | null;
             automaticAttemptLimit: number | null;
             occurredAt: components["schemas"]["UtcTimestamp"] | null;
-            nextActions: ("WAIT" | "REEVALUATE_ACCEPTANCE" | "OPEN_RELIABLE_TASK" | "RESOLVE_FACTORY_SEAL_TASK_BLOCKER" | "RESYNCHRONIZE_CONFIGURATION" | "PUBLISH_NEW_CONFIGURATION" | "START_MANUAL_BASELINE_MEASUREMENT" | "CONFIRM_DELIVERY_NOT_STARTED" | "QUARANTINE_DELIVERY_RECOVERY" | "RETIRE_AFTER_ABNORMAL_DELIVERY" | "VIEW_DELIVERY_RECOVERY_EVIDENCE" | "USER_RESTART_REQUIRED" | "CLEANER_RESTART_REQUIRED" | "CONTACT_SUPPORT")[];
+            nextActions: ("WAIT" | "REEVALUATE_ACCEPTANCE" | "OPEN_RELIABLE_TASK" | "RESOLVE_FACTORY_SEAL_TASK_BLOCKER" | "RESYNCHRONIZE_CONFIGURATION" | "PUBLISH_NEW_CONFIGURATION" | "START_MANUAL_BASELINE_MEASUREMENT" | "CONFIRM_DELIVERY_NOT_STARTED" | "QUARANTINE_DELIVERY_RECOVERY" | "END_ABNORMAL_DELIVERY" | "VIEW_DELIVERY_RECOVERY_EVIDENCE" | "USER_RESTART_REQUIRED" | "CLEANER_RESTART_REQUIRED" | "CONTACT_SUPPORT")[];
         };
         /** @enum {string} */
         DeviceFactoryProgressStage: "DEVICE_ASSET" | "FACTORY_BAGS" | "MACHINE_ACCEPTANCE" | "FACTORY_SEAL_AUTHORIZATION" | "END_FACTORY_MODE" | "FACTORY_SEALED";
@@ -18210,7 +18205,7 @@ export interface operations {
             422: components["responses"]["BusinessRuleProblem"];
         };
     };
-    retirePlatformDeviceAfterAbnormalDelivery: {
+    terminatePlatformAbnormalDelivery: {
         parameters: {
             query?: never;
             header: {
@@ -18225,7 +18220,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AbnormalDeliveryRetirementRequest"];
+                "application/json": components["schemas"]["AbnormalDeliveryTerminationRequest"];
             };
         };
         responses: {

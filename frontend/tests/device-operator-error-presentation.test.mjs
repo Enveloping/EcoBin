@@ -31,7 +31,7 @@ test('device busy conflicts show the actionable server message', async () => {
   assert.equal(
     present(new ApiProblem(
       409,
-      'DEVICE.ABNORMAL_DELIVERY_RETIREMENT_NOT_ALLOWED',
+      'DEVICE.ABNORMAL_DELIVERY_TERMINATION_NOT_ALLOWED',
       '设备尚未连续离线 10 分钟',
     ), 'fallback'),
     '设备尚未连续离线 10 分钟',

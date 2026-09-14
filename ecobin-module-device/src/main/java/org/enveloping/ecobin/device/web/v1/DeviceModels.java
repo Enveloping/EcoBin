@@ -249,8 +249,8 @@ public final class DeviceModels {
             String nextAction) {
     }
 
-    /** Permanently closes one unknowable delivery together with its asset. */
-    public record AbnormalDeliveryRetirementRequest(
+    /** Closes one unknowable delivery and safety-disables its device. */
+    public record AbnormalDeliveryTerminationRequest(
             @NotNull UUID expectedTaskUid,
             @NotNull @Min(0) Long expectedSessionVersion,
             @NotNull @Min(0) Long expectedAssetVersion,
@@ -259,7 +259,6 @@ public final class DeviceModels {
             @NotNull @AssertTrue Boolean motionAreaClearConfirmed,
             @NotNull @AssertTrue Boolean deliveryDoorClosedConfirmed,
             @NotNull @AssertTrue Boolean mechanismClearConfirmed,
-            @NotNull @AssertTrue Boolean permanentRetirementConfirmed,
             @NotBlank @Size(max = 500) String reason) {
     }
 
