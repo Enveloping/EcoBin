@@ -154,7 +154,7 @@ def test_report_requires_return_to_empty(removal_error, expected):
     {"targetDeltaGrams": 10}, {"targetDeltaGrams": 350001},
     {"targetDeltaGrams": "500"}, {"toleranceGrams": 10.0},
     {"deltaGrams": True}, {"deltaGrams": 501},
-    {"emptyWeightGrams": -1}, {"loadedWeightGrams": 350001},
+    {"emptyWeightGrams": -350001}, {"loadedWeightGrams": 350001},
     {"loadedWeightGrams": 28}, {"removedWeightGrams": True},
     {"stableSampleCount": 3.0}, {"sampleIntervalMs": 100.0},
 ])
@@ -168,6 +168,42 @@ def test_report_rejects_invalid_or_inconsistent_weight_facts(override):
 
 def test_500g_object_reported_as_28g_cannot_pass_500g_reference():
     assert not _accepted(_weight_report(500, error=28 - 500))
+
+
+def test_report_accepts_stable_signed_absolute_zero_offset():
+    report = _weight_report(28, sampling=True)
+    weight = report["checks"]["weight"]
+    values = {
+        "emptyWeightGrams": -25_623,
+        "loadedWeightGrams": -25_595,
+        "removedWeightGrams": -25_623,
+        "deltaGrams": 28,
+    }
+    weight.update(values)
+    for stage, field in (
+        ("empty", "emptyWeightGrams"),
+        ("loaded", "loadedWeightGrams"),
+        ("removed", "removedWeightGrams"),
+    ):
+        weight["sampling"][stage]["samplesGrams"] = [values[field]] * 3
+
+    assert _accepted(report)
+    FactoryAcceptanceExecutor._validate_report(report)
+
+
+def test_report_keeps_auxiliary_fullness_unavailable_without_blocking():
+    report = _weight_report()
+    for name in ("delivery", "clean"):
+        report["checks"][name].update(
+            infraredBlocked=None,
+            fullnessSensorKind="ULTRASONIC",
+            fullnessReadStatus="UNAVAILABLE",
+            fullnessDistanceMm=None,
+            fullnessDistanceThresholdMm=600,
+            fullnessBlocked=None,
+        )
+
+    assert _accepted(report)
 
 
 @pytest.mark.parametrize("case", ["oversized", "wrong_median", "unstable", "missing_stage", "failed_stage"])

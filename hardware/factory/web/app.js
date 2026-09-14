@@ -1018,10 +1018,17 @@ function fullnessRows(prefix, value) {
     ? `${prefix}${name.charAt(0).toUpperCase()}${name.slice(1)}`
     : name;
   const kind = value?.[field("fullnessSensorKind")];
+  const status = value?.[field("fullnessReadStatus")];
   const blocked = value?.[field("fullnessBlocked")];
+  const statusText = ({
+    VALID: "已取得有效数据",
+    UNAVAILABLE: "本次读取不可用（不阻断业务）",
+    NOT_OBSERVED: "尚未完成读取（不阻断业务）",
+  })[status] || "尚未采集";
   if (kind === "ULTRASONIC") {
     return [
       ["满溢传感器", "超声波测距"],
+      ["满溢采集状态", statusText],
       ["实测距离", Number.isInteger(value?.[field("fullnessDistanceMm")])
         ? `${value[field("fullnessDistanceMm")]} mm` : "尚未采集"],
       ["满溢距离阈值", Number.isInteger(value?.[field("fullnessDistanceThresholdMm")])
@@ -1031,6 +1038,7 @@ function fullnessRows(prefix, value) {
   }
   return [
     ["满溢传感器", kind === "DIGITAL_INFRARED" ? "数字红外" : "尚未识别"],
+    ["满溢采集状态", statusText],
     ["红外遮挡", measuredFlag(value?.[field("infraredBlocked")] ?? blocked, "有遮挡", "无遮挡")],
   ];
 }
@@ -1131,7 +1139,12 @@ function updateMeasurements(status) {
     ["控制板能力位", factory.mcuIdentity?.mcuCapabilityBitmapHex ? `0x${factory.mcuIdentity.mcuCapabilityBitmapHex}` : "旧协议未提供"],
     ["自检时重量", grams(mcu.selfTestWeightGrams)],
     ...fullnessRows("selfTest", mcu),
-    ["自检时烟雾状态", mcu.selfTestSmokeCode === 0 ? "正常（0）" : "尚未取得有效自检"],
+    ["自检时烟雾状态", ({
+      NORMAL: "正常（0）",
+      ALARM: "报警（仅提示人工排查）",
+      UNAVAILABLE: "读取不可用（仅提示人工排查）",
+      NOT_OBSERVED: "尚未完成读取（仅提示人工排查）",
+    })[mcu.selfTestSmokeState] || (mcu.selfTestSmokeCode === 0 ? "正常（0）" : "尚未取得有效自检")],
   ]);
   const cameras = checks.cameras || {};
   add("cameras", "双摄像头", [

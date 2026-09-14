@@ -50,7 +50,7 @@ BOOT_ID_PATH = Path("/proc/sys/kernel/random/boot_id")
 MAXIMUM_REQUEST_BYTES = 4096
 MAXIMUM_RESPONSE_BYTES = 64 * 1024
 CLIENT_SOCKET_TIMEOUT_SECONDS = 2.0
-MAXIMUM_CONCURRENT_CLIENTS = 4
+MAXIMUM_PENDING_CLIENTS = 4
 _RELEASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 _NONCE = re.compile(r"^[0-9a-f]{32}$")
 _PHYSICAL_FAILED_SAFE_CODES = {
@@ -169,6 +169,8 @@ def _check_summary(value: object) -> dict[str, Any]:
             "weightGrams",
             "infraredBlocked",
             "smokeCode",
+            "smokeState",
+            "smokeSensorHealth",
             "fullnessSensorKind",
             "fullnessReadStatus",
             "fullnessDistanceMm",
@@ -180,7 +182,13 @@ def _check_summary(value: object) -> dict[str, Any]:
                 bool
                 if key in {"infraredBlocked", "fullnessBlocked"}
                 else str
-                if key in {"fullnessSensorKind", "fullnessReadStatus"}
+                if key
+                in {
+                    "smokeState",
+                    "smokeSensorHealth",
+                    "fullnessSensorKind",
+                    "fullnessReadStatus",
+                }
                 else int
             )
             if type(item) is expected_type:
@@ -881,16 +889,21 @@ class _AcceptanceRequestHandler(socketserver.StreamRequestHandler):
         self.wfile.write(encoded)
 
 
-_ThreadingUnixStreamServer = getattr(
+_UnixStreamServer = getattr(
     socketserver,
-    "ThreadingUnixStreamServer",
-    socketserver.ThreadingTCPServer,
+    "UnixStreamServer",
+    socketserver.TCPServer,
 )
 
 
-class AcceptanceUnixServer(_ThreadingUnixStreamServer):
-    daemon_threads = True
+class AcceptanceUnixServer(_UnixStreamServer):
+    # The acceptance executor opens the native UART before entering
+    # serve_forever().  NativeUartTransport deliberately binds that endpoint
+    # to its opening thread, so requests that may touch the MCU must execute on
+    # this same server thread.  The bounded per-client read timeout prevents an
+    # incomplete local client from holding the single owner indefinitely.
     allow_reuse_address = False
+    request_queue_size = MAXIMUM_PENDING_CLIENTS
 
     def __init__(
         self,
@@ -915,38 +928,9 @@ class AcceptanceUnixServer(_ThreadingUnixStreamServer):
             path.unlink()
         self.controller = controller
         self._path = path
-        self._client_slots = threading.BoundedSemaphore(
-            MAXIMUM_CONCURRENT_CLIENTS
-        )
         super().__init__(str(path), _AcceptanceRequestHandler)
         os.chmod(path, 0o660)
         os.chown(path, 0, grp.getgrnam(portal_group).gr_gid)
-
-    def process_request(self, request: socket.socket, client_address: object) -> None:
-        if not self._client_slots.acquire(blocking=False):
-            try:
-                request.settimeout(CLIENT_SOCKET_TIMEOUT_SECONDS)
-                request.sendall(
-                    b'{"error":"IPC_CONCURRENCY_LIMIT","httpStatus":503,"ok":false}\n'
-                )
-            except OSError:
-                pass
-            finally:
-                self.shutdown_request(request)
-            return
-        try:
-            super().process_request(request, client_address)
-        except BaseException:
-            self._client_slots.release()
-            raise
-
-    def process_request_thread(
-        self, request: socket.socket, client_address: object
-    ) -> None:
-        try:
-            super().process_request_thread(request, client_address)
-        finally:
-            self._client_slots.release()
 
     def server_close(self) -> None:
         try:

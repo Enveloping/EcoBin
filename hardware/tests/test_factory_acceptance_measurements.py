@@ -16,7 +16,7 @@ def test_reference_protocol_bounds(reference: int) -> None:
 
 
 @pytest.mark.parametrize("override", [
-    {"samplesGrams": [True]}, {"samplesGrams": [-1]}, {"samplesGrams": [350001]},
+    {"samplesGrams": [True]}, {"samplesGrams": [-350001]}, {"samplesGrams": [350001]},
     {"samplesGrams": [1.1]}, {"samplesGrams": ["secret"]}, {"samplesGrams": [0] * 33},
     {"readCount": False}, {"readCount": -1}, {"resultCode": "not a safe code"}, {"secret": "hidden"},
 ])

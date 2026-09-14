@@ -40,14 +40,15 @@ MAXIMUM_COMMAND_SEQUENCE = 0xFFFFFFFF
 DEFAULT_BOOT_ATTEMPT_TIMEOUT_MS = 250
 POLL_INTERVAL_SECONDS = 0.005
 MAXIMUM_WEIGHT_GRAMS = 350_000
+MINIMUM_WEIGHT_GRAMS = -MAXIMUM_WEIGHT_GRAMS
 MAXIMUM_WEIGHT_FACT_AGE_MS = 750
 MAXIMUM_ENVIRONMENT_FACT_AGE_MS = 1_000
 COMMAND_RESPONSE_TIMEOUT_MS = 250
 RESULT_CONFIRM_TIMEOUT_MS = 3_000
 MAXIMUM_PENDING_REPLY_FRAMES = 256
 MAXIMUM_COMPLETED_ACTIONS = 16
-FACTORY_CONFIG_VERSION = 1
-FACTORY_CONFIG_PROFILE = "ECOBIN_FACTORY_UART_V2_ONE_PORT_V1"
+FACTORY_CONFIG_VERSION = 3
+FACTORY_CONFIG_PROFILE = "ECOBIN_FACTORY_UART_V2_ONE_PORT_V2"
 FACTORY_DEVICE_CONFIG = {
     "continueDeliveryWaitMs": 30_000,
     "negativeWeightThresholdGrams": 500,
@@ -74,7 +75,10 @@ FACTORY_PORT_CONFIG = {
     "weightMaximumFluctuationGrams": 100,
     "weightRequiredSampleCount": 5,
     "weightMeasurementTimeoutMs": 5_000,
-    "weightMinimumGrams": -5_000,
+    # The scale reports an absolute signed value.  A mechanically useful
+    # installation may have a large stable zero offset; factory acceptance
+    # validates the known load by delta in its dedicated weight step.
+    "weightMinimumGrams": MINIMUM_WEIGHT_GRAMS,
     "weightMaximumGrams": 350_000,
     "calibrationVersion": 4,
 }
@@ -282,7 +286,7 @@ class NativeAcceptanceMcu:
         if (
             facts["scaleReadStatus"] != "VALID"
             or type(weight) is not int
-            or not 0 <= weight <= MAXIMUM_WEIGHT_GRAMS
+            or not MINIMUM_WEIGHT_GRAMS <= weight <= MAXIMUM_WEIGHT_GRAMS
         ):
             raise AcceptanceHardwareError("MCU_WEIGHT_FACT_UNAVAILABLE")
         NativeAcceptanceMcu._require_fresh_observation(
@@ -292,42 +296,53 @@ class NativeAcceptanceMcu:
             "MCU_WEIGHT_FACT_STALE",
         )
 
-        if facts["smokeObservationState"] != "NORMAL":
+        smoke_state = facts["smokeObservationState"]
+        smoke_projection = {
+            "NORMAL": (0, "OK"),
+            "ALARM": (1, "ALARM"),
+            "UNAVAILABLE": (2, "UNAVAILABLE"),
+            "NOT_OBSERVED": (3, "NOT_OBSERVED"),
+        }.get(smoke_state)
+        if smoke_projection is None:
             raise AcceptanceHardwareError("MCU_SMOKE_FACT_UNHEALTHY")
-        NativeAcceptanceMcu._require_fresh_observation(
-            captured,
-            facts["smokeObservedUptimeMs"],
-            MAXIMUM_ENVIRONMENT_FACT_AGE_MS,
-            "MCU_SMOKE_FACT_STALE",
-        )
+        if smoke_state != "NOT_OBSERVED":
+            NativeAcceptanceMcu._require_fresh_observation(
+                captured,
+                facts["smokeObservedUptimeMs"],
+                MAXIMUM_ENVIRONMENT_FACT_AGE_MS,
+                "MCU_SMOKE_FACT_STALE",
+            )
 
         kind = facts["fullnessObservationKind"]
-        if facts["fullnessReadStatus"] != "VALID" or kind not in {
+        fullness_status = facts["fullnessReadStatus"]
+        if kind not in {
             "DIGITAL_INFRARED",
             "ULTRASONIC",
         }:
             raise AcceptanceHardwareError("MCU_FULLNESS_FACT_UNAVAILABLE")
-        if kind == "DIGITAL_INFRARED" and not isinstance(
-            facts["fullnessInfraredBlocked"], bool
-        ):
+        if fullness_status not in {"VALID", "NOT_OBSERVED", "UNAVAILABLE"}:
             raise AcceptanceHardwareError("MCU_FULLNESS_FACT_UNAVAILABLE")
-        distance = facts["fullnessDistanceMm"] if kind == "ULTRASONIC" else None
-        if kind == "ULTRASONIC" and (
-            type(distance) is not int or not 0 <= distance <= 4_000
-        ):
-            raise AcceptanceHardwareError("MCU_FULLNESS_FACT_UNAVAILABLE")
-        NativeAcceptanceMcu._require_fresh_observation(
-            captured,
-            facts["fullnessCapturedUptimeMs"],
-            MAXIMUM_ENVIRONMENT_FACT_AGE_MS,
-            "MCU_FULLNESS_FACT_STALE",
-        )
-        if kind == "ULTRASONIC":
-            fullness_blocked = distance < FACTORY_PORT_CONFIG[
-                "fullnessDistanceThresholdMm"
-            ]
-        else:
-            fullness_blocked = facts["fullnessInfraredBlocked"]
+        distance = None
+        fullness_blocked = None
+        if fullness_status == "VALID":
+            if kind == "DIGITAL_INFRARED":
+                fullness_blocked = facts["fullnessInfraredBlocked"]
+                if not isinstance(fullness_blocked, bool):
+                    raise AcceptanceHardwareError("MCU_FULLNESS_FACT_UNAVAILABLE")
+            else:
+                distance = facts["fullnessDistanceMm"]
+                if type(distance) is not int or not 0 <= distance <= 4_000:
+                    raise AcceptanceHardwareError("MCU_FULLNESS_FACT_UNAVAILABLE")
+                fullness_blocked = distance < FACTORY_PORT_CONFIG[
+                    "fullnessDistanceThresholdMm"
+                ]
+        if fullness_status != "NOT_OBSERVED":
+            NativeAcceptanceMcu._require_fresh_observation(
+                captured,
+                facts["fullnessCapturedUptimeMs"],
+                MAXIMUM_ENVIRONMENT_FACT_AGE_MS,
+                "MCU_FULLNESS_FACT_STALE",
+            )
         return {
             "queryStatus": "OK",
             "communicationHealthy": True,
@@ -341,14 +356,16 @@ class NativeAcceptanceMcu:
             "mcuBootId": facts["currentMcuBootId"],
             "scaleAttemptSequence": facts["scaleAttemptSequence"],
             "scaleCapturedUptimeMs": facts["scaleCapturedUptimeMs"],
-            "infraredValid": kind == "DIGITAL_INFRARED",
+            "infraredValid": (
+                kind == "DIGITAL_INFRARED" and fullness_status == "VALID"
+            ),
             # The factory-report v2 compatibility field historically used the
             # infrared name.  For an ultrasonic installation it is the exact
             # threshold projection below, while the raw kind/distance remain
             # available so no caller can mistake it for an infrared reading.
             "infraredBlocked": fullness_blocked,
             "fullnessSensorKind": kind,
-            "fullnessReadStatus": facts["fullnessReadStatus"],
+            "fullnessReadStatus": fullness_status,
             "fullnessDistanceMm": distance,
             "fullnessDistanceThresholdMm": (
                 FACTORY_PORT_CONFIG["fullnessDistanceThresholdMm"]
@@ -356,9 +373,9 @@ class NativeAcceptanceMcu:
                 else None
             ),
             "fullnessBlocked": fullness_blocked,
-            "smokeCode": 0,
-            "smokeState": "NORMAL",
-            "smokeSensorHealth": "OK",
+            "smokeCode": smoke_projection[0],
+            "smokeState": smoke_state,
+            "smokeSensorHealth": smoke_projection[1],
         }
 
     def execute_update_prepare(self, timeout_ms: int = 3_000) -> dict:
@@ -1388,8 +1405,12 @@ class NativeAcceptanceMcu:
             or values["finalKind"] not in USABLE_RESULT_MEASUREMENT_KINDS
             or type(values["initialWeightGrams"]) is not int
             or type(values["finalWeightGrams"]) is not int
-            or not 0 <= values["initialWeightGrams"] <= MAXIMUM_WEIGHT_GRAMS
-            or not 0 <= values["finalWeightGrams"] <= MAXIMUM_WEIGHT_GRAMS
+            or not MINIMUM_WEIGHT_GRAMS
+            <= values["initialWeightGrams"]
+            <= MAXIMUM_WEIGHT_GRAMS
+            or not MINIMUM_WEIGHT_GRAMS
+            <= values["finalWeightGrams"]
+            <= MAXIMUM_WEIGHT_GRAMS
         ):
             raise AcceptanceHardwareError("MCU_FACTORY_WORK_FAILED")
         fullness = NativeAcceptanceMcu._map_fullness(facts)
@@ -1428,14 +1449,32 @@ class NativeAcceptanceMcu:
         captured = facts["capturedUptimeMs"]
         kind = facts["fullnessObservationKind"]
         status = facts["fullnessReadStatus"]
-        if status != "VALID" or kind not in {"DIGITAL_INFRARED", "ULTRASONIC"}:
+        if kind not in {"DIGITAL_INFRARED", "ULTRASONIC"} or status not in {
+            "VALID",
+            "NOT_OBSERVED",
+            "UNAVAILABLE",
+        }:
             raise AcceptanceHardwareError("MCU_FULLNESS_FACT_UNAVAILABLE")
-        NativeAcceptanceMcu._require_fresh_observation(
-            captured,
-            facts["fullnessCapturedUptimeMs"],
-            MAXIMUM_ENVIRONMENT_FACT_AGE_MS,
-            "MCU_FULLNESS_FACT_STALE",
-        )
+        if status != "NOT_OBSERVED":
+            NativeAcceptanceMcu._require_fresh_observation(
+                captured,
+                facts["fullnessCapturedUptimeMs"],
+                MAXIMUM_ENVIRONMENT_FACT_AGE_MS,
+                "MCU_FULLNESS_FACT_STALE",
+            )
+        if status != "VALID":
+            return {
+                "infraredBlocked": None,
+                "fullnessSensorKind": kind,
+                "fullnessReadStatus": status,
+                "fullnessDistanceMm": None,
+                "fullnessDistanceThresholdMm": (
+                    FACTORY_PORT_CONFIG["fullnessDistanceThresholdMm"]
+                    if kind == "ULTRASONIC"
+                    else None
+                ),
+                "fullnessBlocked": None,
+            }
         if kind == "ULTRASONIC":
             distance = facts["fullnessDistanceMm"]
             if type(distance) is not int or not 0 <= distance <= 4_000:

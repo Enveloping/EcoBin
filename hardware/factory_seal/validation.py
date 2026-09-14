@@ -609,13 +609,15 @@ def valid_passed_factory_report(
             or isinstance(action.get("postWeightGrams"), bool)
             or not isinstance(action.get("weightDeltaGrams"), int)
             or isinstance(action.get("weightDeltaGrams"), bool)
-            or not isinstance(action.get("infraredBlocked"), bool)
         ):
             return False
         fullness_kind = action.get("fullnessSensorKind")
-        if fullness_kind is not None:
+        if fullness_kind is None:
+            if not isinstance(action.get("infraredBlocked"), bool):
+                return False
+        elif action.get("fullnessReadStatus") == "VALID":
             if (
-                action.get("fullnessReadStatus") != "VALID"
+                not isinstance(action.get("infraredBlocked"), bool)
                 or not isinstance(action.get("fullnessBlocked"), bool)
                 or action["infraredBlocked"] is not action["fullnessBlocked"]
             ):
@@ -639,6 +641,27 @@ def valid_passed_factory_report(
                     return False
             else:
                 return False
+        elif action.get("fullnessReadStatus") in {
+            "NOT_OBSERVED",
+            "UNAVAILABLE",
+        }:
+            if (
+                action.get("infraredBlocked") is not None
+                or action.get("fullnessBlocked") is not None
+                or action.get("fullnessDistanceMm") is not None
+            ):
+                return False
+            threshold = action.get("fullnessDistanceThresholdMm")
+            if fullness_kind == "ULTRASONIC":
+                if type(threshold) is not int or not 1 <= threshold <= 4_000:
+                    return False
+            elif fullness_kind == "DIGITAL_INFRARED":
+                if threshold is not None:
+                    return False
+            else:
+                return False
+        else:
+            return False
     return True
 
 

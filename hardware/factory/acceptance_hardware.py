@@ -38,6 +38,8 @@ import uart2_protocol as uart
 
 
 MAXIMUM_WEIGHT_GRAMS = 350_000
+MINIMUM_WEIGHT_GRAMS = -MAXIMUM_WEIGHT_GRAMS
+MAXIMUM_SAFE_IDENTIFIER = 9_007_199_254_740_991
 FACTORY_PRICE_DIGIT = 9
 DELIVERY_WIRE = bytes((0xBB, FACTORY_PRICE_DIGIT, 0xBB, 0xAA, 0x01, 0xAA))
 CLEAN_WIRE = bytes((0xEE, 0x01, 0xEE))
@@ -197,6 +199,21 @@ def sanitize_self_test(result: dict) -> dict:
                 "fullnessDistanceThresholdMm": None,
                 "fullnessBlocked": infrared,
             }
+        elif (
+            result.get("fullnessReadStatus") in {"NOT_OBSERVED", "UNAVAILABLE"}
+            and infrared is None
+            and result.get("fullnessDistanceMm") is None
+            and result.get("fullnessDistanceThresholdMm") is None
+            and result.get("fullnessBlocked") is None
+        ):
+            fullness = {
+                "infraredBlocked": None,
+                "fullnessSensorKind": fullness_kind,
+                "fullnessReadStatus": result["fullnessReadStatus"],
+                "fullnessDistanceMm": None,
+                "fullnessDistanceThresholdMm": None,
+                "fullnessBlocked": None,
+            }
     elif fullness_kind == "ULTRASONIC":
         distance = result.get("fullnessDistanceMm")
         threshold = result.get("fullnessDistanceThresholdMm")
@@ -222,6 +239,33 @@ def sanitize_self_test(result: dict) -> dict:
                 "fullnessDistanceThresholdMm": threshold,
                 "fullnessBlocked": blocked,
             }
+        elif (
+            result.get("fullnessReadStatus") in {"NOT_OBSERVED", "UNAVAILABLE"}
+            and infrared is None
+            and result.get("fullnessDistanceMm") is None
+            and type(threshold) is int
+            and 1 <= threshold <= 4_000
+            and blocked is None
+        ):
+            fullness = {
+                "infraredBlocked": None,
+                "fullnessSensorKind": fullness_kind,
+                "fullnessReadStatus": result["fullnessReadStatus"],
+                "fullnessDistanceMm": None,
+                "fullnessDistanceThresholdMm": threshold,
+                "fullnessBlocked": None,
+            }
+    smoke = (
+        result.get("smokeCode"),
+        result.get("smokeState"),
+        result.get("smokeSensorHealth"),
+    )
+    valid_smoke = smoke in {
+        (0, "NORMAL", "OK"),
+        (1, "ALARM", "ALARM"),
+        (2, "UNAVAILABLE", "UNAVAILABLE"),
+        (3, "NOT_OBSERVED", "NOT_OBSERVED"),
+    }
     if (
         result.get("queryStatus") != "OK"
         or result.get("communicationHealthy") is not True
@@ -229,16 +273,16 @@ def sanitize_self_test(result: dict) -> dict:
         or result.get("weightValid") is not True
         or not isinstance(weight, int)
         or isinstance(weight, bool)
-        or not 0 <= weight <= MAXIMUM_WEIGHT_GRAMS
+        or not MINIMUM_WEIGHT_GRAMS <= weight <= MAXIMUM_WEIGHT_GRAMS
         or fullness is None
-        or result.get("smokeCode") != 0
-        or result.get("smokeState") != "NORMAL"
-        or result.get("smokeSensorHealth") != "OK"
+        or not valid_smoke
     ):
         raise AcceptanceHardwareError("MCU_F1_UNHEALTHY")
     sanitized = {
         "weightGrams": weight,
-        "smokeCode": 0,
+        "smokeCode": smoke[0],
+        "smokeState": smoke[1],
+        "smokeSensorHealth": smoke[2],
     } | fullness
     sample_identity_fields = (
         "mcuBootId",
@@ -253,11 +297,11 @@ def sanitize_self_test(result: dict) -> dict:
         if (
             not all(present)
             or type(boot_id) is not int
-            or not 1 <= boot_id <= 0xFFFFFFFF
+            or not 1 <= boot_id <= MAXIMUM_SAFE_IDENTIFIER
             or type(attempt) is not int
             or not 1 <= attempt <= 0xFFFFFFFF
             or type(captured) is not int
-            or not 0 <= captured <= 0xFFFFFFFF
+            or not 0 <= captured <= MAXIMUM_SAFE_IDENTIFIER
         ):
             raise AcceptanceHardwareError("MCU_SCALE_SAMPLE_IDENTITY_INVALID")
         sanitized.update(

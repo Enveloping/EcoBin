@@ -1,6 +1,7 @@
 # EcoBin 项目上下文（Claude Code → Codex）
 
 > 当前推进：[MCU与香橙派精简实施计划](../planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)。[UART rc.26能力、串口屏批次、工厂投影与终态失败收口](../../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)已整合真实MCU能力位、原生工厂验收投影、投递控制通信失败的无业务价值终结和统一HMI可信边界。当前为UART rc.26、OneNet2.4.0、EdgeStore schema40、数据库V83的本地候选，共73种消息；完整MCU ROM/bin 60588/65536、RAM12960/20480。硬件全量首次4258通过/123环境跳过/5子测试通过，另有1项已知Windows SQLite强杀恢复1546错误，单项复跑通过。真实串口屏/RS485/机构/断电HIL、Linux/ARM64安装和部署仍未完成，当前不是可部署版本；下方旧候选均为历史。
+> 2026-09-14 v40实机热点首步验收已修复：Unix socket网页动作与原生UART恢复为同一线程所有者；真实RS485连续读取到稳定绝对零点`-25623 g`，工厂观测范围按350 kg量程改为有符号范围，加载差值规则不变；超声波`UNAVAILABLE`按非核心传感器规则展示留证而不阻断。实机`CHECK_MCU`已由失败变为HTTP 200并进入`MCU_CHECK_PASSED`，尚未执行其余整机动作。详见[修复记录](../../hardware/docs/review/v40-hotspot-acceptance-repair-2026-09-14.md)。
 
 > 2026-09-14 v40现场验收镜像：此前实际写入TF卡的是无厂家接入/热点密钥的候选，热点未出现是首次启动服务的预期失败关闭。现已从同一v40候选制作受控HIL镜像，只继承厂家接入密钥、热点密钥和受控串口维护登录，不继承旧设备身份、业务数据、网络连接或SSH主机密钥；root仍锁定。镜像长度2,571,108,352字节，SHA-256为`21581060db890b0902e2cc270e44b23e1867f6e7bdd8db8eeac44948b258690a`，离线审计及断网只读ARM64镜像内smoke通过。同一指定TF卡已完成全范围写入和回读，摘要一致。生产后端经明确授权只追加`hardware-runtime-20260914-40`，实际文件和容器配置、生产预检、秘密探针及双容器健康独立复核通过；既有版本、发布镜像及远程业务下发关闭状态未变。卡尚未装回香橙派冷启动，真实热点、注册、UART、HMI、RS485、机构和断电HIL仍待验证。
 

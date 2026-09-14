@@ -477,10 +477,12 @@ def test_identity_recovers_lost_bind_reply_after_persisting_every_number(tmp_pat
     mcu = NativeAcceptanceMcu.for_port(
         state_path=state_path,
         serial_factory=serial_factory,
-        boot_attempt_timeout_ms=20,
+        # Keep the lost-reply window comfortably above loaded CI scheduling
+        # jitter; production uses the independently tested 250 ms default.
+        boot_attempt_timeout_ms=100,
     )
     try:
-        result = mcu.query_identity(timeout_ms=300)
+        result = mcu.query_identity(timeout_ms=750)
     finally:
         mcu.close()
 
@@ -530,10 +532,10 @@ def test_factory_boot_identity_uses_high_namespace_and_migrates_old_counter(
     mcu = NativeAcceptanceMcu.for_port(
         state_path=state_path,
         serial_factory=lambda **arguments: serial_port,
-        boot_attempt_timeout_ms=20,
+        boot_attempt_timeout_ms=100,
     )
     try:
-        mcu.query_identity(timeout_ms=300)
+        mcu.query_identity(timeout_ms=750)
     finally:
         mcu.close()
     first = next(
@@ -551,10 +553,10 @@ def test_factory_boot_identity_uses_high_namespace_and_migrates_old_counter(
     mcu = NativeAcceptanceMcu.for_port(
         state_path=state_path,
         serial_factory=lambda **arguments: replacement,
-        boot_attempt_timeout_ms=20,
+        boot_attempt_timeout_ms=100,
     )
     try:
-        mcu.query_identity(timeout_ms=300)
+        mcu.query_identity(timeout_ms=750)
     finally:
         mcu.close()
     migrated = next(
@@ -572,11 +574,11 @@ def test_factory_boot_identity_uses_high_namespace_and_migrates_old_counter(
     mcu = NativeAcceptanceMcu.for_port(
         state_path=state_path,
         serial_factory=lambda **arguments: exhausted,
-        boot_attempt_timeout_ms=20,
+        boot_attempt_timeout_ms=100,
     )
     try:
         with pytest.raises(AcceptanceHardwareError) as failure:
-            mcu.query_identity(timeout_ms=300)
+            mcu.query_identity(timeout_ms=750)
     finally:
         mcu.close()
     assert failure.value.code == "MCU_UART_COUNTER_EXHAUSTED"
@@ -610,6 +612,8 @@ def test_self_test_maps_only_fresh_actual_device_facts(tmp_path):
         "fullnessDistanceThresholdMm": None,
         "fullnessBlocked": True,
         "smokeCode": 0,
+        "smokeState": "NORMAL",
+        "smokeSensorHealth": "OK",
     }
     names = [name for name, _ in serial_port.writes]
     assert names == [
@@ -650,8 +654,8 @@ def test_self_test_maps_only_fresh_actual_device_facts(tmp_path):
             "MCU_WEIGHT_FACT_STALE",
         ),
         (
-            {"smokeObservationState": "ALARM"},
-            "MCU_SMOKE_FACT_UNHEALTHY",
+            {"smokeObservedUptimeMs": 8_000},
+            "MCU_SMOKE_FACT_STALE",
         ),
         (
             {
@@ -684,6 +688,48 @@ def test_self_test_rejects_missing_unhealthy_or_stale_facts(
         mcu.close()
 
     assert failure.value.code == code
+
+
+def test_self_test_accepts_signed_zero_offset_and_records_auxiliary_warning(
+    tmp_path,
+):
+    state_path = tmp_path / "native-uart-state.json"
+    serial_port = ScriptedSerial(
+        state_path=state_path,
+        initial_boot_id=8_000_000_000_000_001,
+        facts_changes={
+            "scaleWeightGrams": -25_623,
+            "smokeObservationState": "ALARM",
+            "fullnessObservationKind": "ULTRASONIC",
+            "fullnessReadStatus": "UNAVAILABLE",
+            "fullnessDistanceMm": 0,
+            "fullnessInfraredBlocked": False,
+        },
+    )
+    mcu = NativeAcceptanceMcu.for_port(
+        state_path=state_path,
+        serial_factory=lambda **arguments: serial_port,
+    )
+    try:
+        result = sanitize_self_test(mcu.query_self_test(timeout_ms=1_000))
+    finally:
+        mcu.close()
+
+    assert result == {
+        "weightGrams": -25_623,
+        "mcuBootId": 8_000_000_000_000_001,
+        "scaleAttemptSequence": 7,
+        "scaleCapturedUptimeMs": 9_900,
+        "infraredBlocked": None,
+        "fullnessSensorKind": "ULTRASONIC",
+        "fullnessReadStatus": "UNAVAILABLE",
+        "fullnessDistanceMm": None,
+        "fullnessDistanceThresholdMm": 600,
+        "fullnessBlocked": None,
+        "smokeCode": 1,
+        "smokeState": "ALARM",
+        "smokeSensorHealth": "ALARM",
+    }
 
 
 def test_short_write_fails_without_replaying_the_frame(tmp_path):
@@ -739,6 +785,7 @@ def test_factory_configuration_is_exact_persistent_and_not_reapplied(tmp_path):
     assert port["weightMinimumMedianSampleCount"] == 5
     assert port["weightMaximumFluctuationGrams"] == 100
     assert port["weightMeasurementTimeoutMs"] == 5_000
+    assert port["weightMinimumGrams"] == -350_000
     assert port["weightMaximumGrams"] == 350_000
     assert port["fullnessSensorKind"] == "ULTRASONIC"
     for name, values in config_writes:
@@ -909,6 +956,8 @@ def test_clean_uses_pre_minus_post_and_keeps_raw_ultrasonic_with_legacy_projecti
             "fullnessDistanceThresholdMm": 600,
             "fullnessBlocked": True,
             "smokeCode": 0,
+            "smokeState": "NORMAL",
+            "smokeSensorHealth": "OK",
         }
         mcu.write_action_once("CLEAN")
         result = mcu.await_final_result("CLEAN", timeout_ms=500)
@@ -928,6 +977,43 @@ def test_clean_uses_pre_minus_post_and_keeps_raw_ultrasonic_with_legacy_projecti
     assert result["cleanSolenoidHealth"] == "UNKNOWN"
     assert result["cleanDoorStateBasis"] == "CLEANER_CONFIRMATION"
     assert result["cleanerPhysicalCloseConfirmed"] is True
+
+
+def test_delivery_keeps_signed_weights_and_auxiliary_unavailable_fact(tmp_path):
+    state_path = tmp_path / "native-uart-state.json"
+    serial_port = ScriptedSerial(
+        state_path=state_path,
+        initial_boot_id=42,
+        facts_changes={
+            "fullnessObservationKind": "ULTRASONIC",
+            "fullnessReadStatus": "UNAVAILABLE",
+            "fullnessDistanceMm": 0,
+            "fullnessInfraredBlocked": False,
+        },
+        result_changes={
+            "initialWeightGrams": -25_623,
+            "finalWeightGrams": -25_595,
+        },
+    )
+    mcu = NativeAcceptanceMcu.for_port(
+        state_path=state_path,
+        serial_factory=lambda **arguments: serial_port,
+    )
+    try:
+        mcu.write_action_once("DELIVERY")
+        result = mcu.await_final_result("DELIVERY", timeout_ms=500)
+    finally:
+        mcu.close()
+
+    assert result["preWeightGrams"] == -25_623
+    assert result["postWeightGrams"] == -25_595
+    assert result["weightDeltaGrams"] == 28
+    assert result["fullnessSensorKind"] == "ULTRASONIC"
+    assert result["fullnessReadStatus"] == "UNAVAILABLE"
+    assert result["fullnessDistanceMm"] is None
+    assert result["fullnessDistanceThresholdMm"] == 600
+    assert result["fullnessBlocked"] is None
+    assert result["infraredBlocked"] is None
 
 
 def test_failed_work_result_is_journaled_but_never_mapped_to_success(tmp_path):

@@ -1018,6 +1018,66 @@ def _unix_server(
 
 
 @requires_unix_socket
+def test_unix_executor_runs_actions_on_the_server_owner_thread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The native UART is opened before serving and stays thread-affine."""
+
+    monkeypatch.setattr(
+        acceptance_service.grp,
+        "getgrnam",
+        lambda _name: SimpleNamespace(gr_gid=os.getgid()),
+    )
+    monkeypatch.setattr(acceptance_service.os, "chown", lambda *_args: None)
+    ready = threading.Event()
+    holder: dict[str, object] = {}
+
+    class ThreadBoundController:
+        def __init__(self) -> None:
+            self.owner = threading.get_ident()
+
+        def execute(self, request: object) -> dict[str, object]:
+            assert threading.get_ident() == self.owner
+            return {"request": request, "sameOwnerThread": True}
+
+    def serve() -> None:
+        server = AcceptanceUnixServer(
+            tmp_path / "acceptance.sock",
+            ThreadBoundController(),  # type: ignore[arg-type]
+            portal_group="ecobin-factory-web",
+        )
+        holder["server"] = server
+        ready.set()
+        try:
+            server.serve_forever(poll_interval=0.01)
+        finally:
+            server.server_close()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    assert ready.wait(timeout=1)
+    server = holder["server"]
+    assert isinstance(server, AcceptanceUnixServer)
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(1)
+            client.connect(str(tmp_path / "acceptance.sock"))
+            client.sendall(b'{"operation":"CHECK_MCU"}\n')
+            response = json.loads(client.makefile("rb").readline().decode("ascii"))
+
+        assert response == {
+            "data": {
+                "request": {"operation": "CHECK_MCU"},
+                "sameOwnerThread": True,
+            },
+            "ok": True,
+        }
+    finally:
+        server.shutdown()
+        thread.join(timeout=1)
+
+
+@requires_unix_socket
 def test_slow_unix_client_receives_stable_timeout_and_cannot_hold_thread(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1047,43 +1107,62 @@ def test_slow_unix_client_receives_stable_timeout_and_cannot_hold_thread(
 
 
 @requires_unix_socket
-def test_unix_executor_rejects_connections_above_fixed_concurrency_limit(
+def test_unix_executor_serializes_complete_requests(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        acceptance_service, "CLIENT_SOCKET_TIMEOUT_SECONDS", 1.0
+        acceptance_service.grp,
+        "getgrnam",
+        lambda _name: SimpleNamespace(gr_gid=os.getgid()),
     )
-    server = _unix_server(tmp_path, monkeypatch)
+    monkeypatch.setattr(acceptance_service.os, "chown", lambda *_args: None)
+    first_started = threading.Event()
+    release_first = threading.Event()
+    second_started = threading.Event()
+
+    class SerialController:
+        def execute(self, request: object) -> dict[str, object]:
+            if request == {"request": 1}:
+                first_started.set()
+                assert release_first.wait(timeout=1)
+            elif request == {"request": 2}:
+                second_started.set()
+            return {"request": request}
+
+    server = AcceptanceUnixServer(
+        tmp_path / "acceptance.sock",
+        SerialController(),  # type: ignore[arg-type]
+        portal_group="ecobin-factory-web",
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    clients: list[socket.socket] = []
-    overflow: socket.socket | None = None
+    first = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    second = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
-        for _ in range(acceptance_service.MAXIMUM_CONCURRENT_CLIENTS):
-            client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            client.settimeout(1)
-            client.connect(str(tmp_path / "acceptance.sock"))
-            clients.append(client)
-        deadline = time.monotonic() + 0.5
-        while server._client_slots._value != 0 and time.monotonic() < deadline:
-            time.sleep(0.005)
-        assert server._client_slots._value == 0
+        first.settimeout(1)
+        first.connect(str(tmp_path / "acceptance.sock"))
+        first.sendall(b'{"request":1}\n')
+        assert first_started.wait(timeout=1)
 
-        overflow = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        overflow.settimeout(1)
-        overflow.connect(str(tmp_path / "acceptance.sock"))
-        response = json.loads(overflow.makefile("rb").readline().decode("ascii"))
+        second.settimeout(1)
+        second.connect(str(tmp_path / "acceptance.sock"))
+        second.sendall(b'{"request":2}\n')
+        assert not second_started.wait(timeout=0.05)
 
-        assert response == {
-            "error": "IPC_CONCURRENCY_LIMIT",
-            "httpStatus": HTTPStatus.SERVICE_UNAVAILABLE.value,
-            "ok": False,
-        }
+        release_first.set()
+        first_response = json.loads(
+            first.makefile("rb").readline().decode("ascii")
+        )
+        second_response = json.loads(
+            second.makefile("rb").readline().decode("ascii")
+        )
+        assert first_response["ok"] is True
+        assert second_response["ok"] is True
+        assert second_started.is_set()
     finally:
-        if overflow is not None:
-            overflow.close()
-        for client in clients:
-            client.close()
+        release_first.set()
+        first.close()
+        second.close()
         server.shutdown()
-        thread.join(timeout=2)
+        thread.join(timeout=1)
         server.server_close()

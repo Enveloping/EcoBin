@@ -11,6 +11,8 @@ DEFAULT_REFERENCE_WEIGHT_GRAMS = 500
 WEIGHT_TOLERANCE_GRAMS = 10
 MIN_REFERENCE_WEIGHT_GRAMS = WEIGHT_TOLERANCE_GRAMS + 1
 MAX_REFERENCE_WEIGHT_GRAMS = 350_000
+MIN_OBSERVED_WEIGHT_GRAMS = -MAX_REFERENCE_WEIGHT_GRAMS
+MAX_OBSERVED_WEIGHT_GRAMS = MAX_REFERENCE_WEIGHT_GRAMS
 MAX_RECENT_SAMPLES = 32
 
 
@@ -40,7 +42,10 @@ def valid_sampling(value: object) -> bool:
             not isinstance(samples, list)
             or len(samples) > MAX_RECENT_SAMPLES
             or any(
-                type(sample) is not int or not 0 <= sample <= MAX_REFERENCE_WEIGHT_GRAMS
+                type(sample) is not int
+                or not MIN_OBSERVED_WEIGHT_GRAMS
+                <= sample
+                <= MAX_OBSERVED_WEIGHT_GRAMS
                 for sample in samples
             )
             or type(trace["readCount"]) is not int
@@ -79,7 +84,9 @@ def valid_passed_weight_check(check: object) -> bool:
     }
     if any(
         type(check.get(field)) is not int
-        or not 0 <= check[field] <= MAX_REFERENCE_WEIGHT_GRAMS
+        or not MIN_OBSERVED_WEIGHT_GRAMS
+        <= check[field]
+        <= MAX_OBSERVED_WEIGHT_GRAMS
         for field in stages.values()
     ):
         return False
