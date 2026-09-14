@@ -44,6 +44,8 @@ export type DeliveryNotStartedConfirmationRequest =
   Schemas['DeliveryNotStartedConfirmationRequest'];
 export type DeliveryNotStartedConfirmation =
   Schemas['DeliveryNotStartedConfirmation'];
+export type AbnormalDeliveryRetirementRequest =
+  Schemas['AbnormalDeliveryRetirementRequest'];
 export type DeliveryRecoveryQuarantineRequest =
   Schemas['DeliveryRecoveryQuarantineRequest'];
 export type DeliveryRecoveryQuarantine =
@@ -320,6 +322,22 @@ export function quarantinePlatformDeliveryRecovery(
     url:
       `${platformDeviceAssetUrl(hardwareSn)}/delivery-sessions/`
       + `${encodeURIComponent(sessionUid)}/recovery-quarantines`,
+    method: 'POST',
+    data,
+    silent: true,
+  });
+}
+
+export function retirePlatformDeviceAfterAbnormalDelivery(
+  hardwareSn: string,
+  sessionUid: string,
+  data: AbnormalDeliveryRetirementRequest,
+  intent: CommandIntent,
+) {
+  return intent.execute<DeviceAsset, AbnormalDeliveryRetirementRequest>({
+    url:
+      `${platformDeviceAssetUrl(hardwareSn)}/delivery-sessions/`
+      + `${encodeURIComponent(sessionUid)}/abnormal-retirements`,
     method: 'POST',
     data,
     silent: true,

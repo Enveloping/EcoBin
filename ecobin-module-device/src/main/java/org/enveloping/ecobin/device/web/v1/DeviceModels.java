@@ -249,6 +249,20 @@ public final class DeviceModels {
             String nextAction) {
     }
 
+    /** Permanently closes one unknowable delivery together with its asset. */
+    public record AbnormalDeliveryRetirementRequest(
+            @NotNull UUID expectedTaskUid,
+            @NotNull @Min(0) Long expectedSessionVersion,
+            @NotNull @Min(0) Long expectedAssetVersion,
+            @NotNull @AssertTrue Boolean physicalOutcomeUnknownConfirmed,
+            @NotNull @AssertTrue Boolean devicePoweredOffConfirmed,
+            @NotNull @AssertTrue Boolean motionAreaClearConfirmed,
+            @NotNull @AssertTrue Boolean deliveryDoorClosedConfirmed,
+            @NotNull @AssertTrue Boolean mechanismClearConfirmed,
+            @NotNull @AssertTrue Boolean permanentRetirementConfirmed,
+            @NotBlank @Size(max = 500) String reason) {
+    }
+
     /**
      * 人工发起的“物理结果未知”隔离收口请求。
      *

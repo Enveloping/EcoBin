@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.enveloping.ecobin.device.application.target.FactoryProgressQueryService;
 import org.enveloping.ecobin.device.application.target.TargetDeviceApplication;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.AbnormalDeliveryRetirementRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AcceptanceEvidenceView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignTenantRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.BaselineMeasurementAcceptedView;
@@ -212,6 +213,20 @@ public class PlatformDeviceAssetController {
                         hardwareSn,
                         sessionUid,
                         body), request));
+    }
+
+    @PostMapping("/{hardwareSn}/delivery-sessions/{sessionUid}/"
+            + "abnormal-retirements")
+    public ResponseEntity<TargetApiEnvelope<DeviceAssetView>>
+            retireAbnormalDelivery(
+                    @RequestHeader("Idempotency-Key") UUID operationUid,
+                    @PathVariable String hardwareSn,
+                    @PathVariable UUID sessionUid,
+                    @Valid @RequestBody
+                    AbnormalDeliveryRetirementRequest body,
+                    HttpServletRequest request) {
+        return noStore(application.retireAbnormalDelivery(
+                operationUid, hardwareSn, sessionUid, body), request);
     }
 
     @PostMapping("/{hardwareSn}/delivery-sessions/{sessionUid}/"

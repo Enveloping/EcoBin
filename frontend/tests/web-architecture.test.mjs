@@ -565,6 +565,30 @@ test('blocked delivery recovery closes only an onsite-confirmed unstarted sessio
   assert.doesNotMatch(apiSource, /delivery-sessions[\s\S]*?resumptions/);
 });
 
+test('permanently offline abnormal delivery can be ended only with asset retirement', () => {
+  const apiSource = readFileSync(
+    new URL('src/api/deviceDirectory.ts', webRoot),
+    'utf8',
+  );
+  const drawerSource = readFileSync(new URL(
+    'src/pages/device-management/DeviceAssetDrawer.tsx',
+    webRoot,
+  ), 'utf8');
+  const generatedSource = readFileSync(
+    new URL('src/api/generated/openapi.d.ts', webRoot),
+    'utf8',
+  );
+
+  assert.match(apiSource, /retirePlatformDeviceAfterAbnormalDelivery/);
+  assert.match(apiSource, /abnormal-retirements/);
+  assert.match(drawerSource, /RETIRE_AFTER_ABNORMAL_DELIVERY/);
+  assert.match(drawerSource, /结束异常投递并报废/);
+  assert.match(drawerSource, /permanentRetirementConfirmed/);
+  assert.match(drawerSource, /devicePoweredOffConfirmed/);
+  assert.match(generatedSource, /AbnormalDeliveryRetirementRequest/);
+  assert.doesNotMatch(drawerSource, /结束异常投递并继续使用/);
+});
+
 test('wallet Web slice keeps independent access, generated types and opaque cursors', () => {
   const routeSource = readFileSync(
     new URL('src/router/routes.tsx', webRoot),

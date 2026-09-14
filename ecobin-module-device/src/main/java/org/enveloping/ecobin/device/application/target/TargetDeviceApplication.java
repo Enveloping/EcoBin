@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.device.application.target;
 
+import org.enveloping.ecobin.device.web.v1.DeviceModels.AbnormalDeliveryRetirementRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AcceptanceEvidenceView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignOrganizationRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignTenantRequest;
@@ -186,6 +187,38 @@ public class TargetDeviceApplication {
               AND organization_id = ?
               AND occupancy_kind = 'DELIVERY'
               AND delivery_session_id = ?
+            """;
+    static final String LOCK_ABNORMAL_RETIREMENT_TRANSPORT_SQL = """
+            SELECT onenet_connection_status, offline_since_at
+            FROM dev_device_transport_state
+            WHERE asset_id = ?
+            FOR UPDATE
+            """;
+    static final String CLOSE_ABNORMAL_DELIVERY_FOR_RETIREMENT_SQL = """
+            UPDATE dev_delivery_session
+            SET status = 'DEVICE_ABORTED',
+                ended_at = ?,
+                end_reason = 'OPERATOR_RETIRED_UNKNOWN_DELIVERY',
+                lock_version = lock_version + 1,
+                updated_at = ?
+            WHERE id = ?
+              AND asset_id = ?
+              AND status IN ('IN_PROGRESS', 'RESULT_PENDING_RECOVERY')
+              AND authorization_expires_at <= ?
+              AND device_completed_at IS NULL
+              AND ended_at IS NULL
+              AND end_reason IS NULL
+              AND lock_version = ?
+            """;
+    static final String RETIRE_AFTER_ABNORMAL_DELIVERY_SQL = """
+            UPDATE dev_device_asset
+            SET lifecycle_status = 'RETIRED',
+                retired_at = ?, retirement_reason = ?,
+                control_version = control_version + 1,
+                updated_at = ?
+            WHERE id = ?
+              AND lifecycle_status IN ('NORMAL', 'DISABLED')
+              AND control_version = ?
             """;
     private static final Set<String> SAFE_CONFIGURATION_RESYNC_REASONS =
             Set.of(
@@ -636,6 +669,98 @@ public class TargetDeviceApplication {
                                     )
                                    THEN 1 ELSE 0
                                END AS delivery_recovery_quarantine_available,
+                               CASE
+                                   WHEN task.task_type =
+                                            'START_DELIVERY_SESSION'
+                                    AND task.state IN (
+                                        'PENDING', 'DONE', 'BLOCKED'
+                                    )
+                                    AND task.lease_token IS NULL
+                                    AND task.target_type =
+                                            'DELIVERY_SESSION'
+                                    AND task.target_stable_key =
+                                            delivery.session_uid
+                                    AND delivery.status IN (
+                                        'IN_PROGRESS',
+                                        'RESULT_PENDING_RECOVERY'
+                                    )
+                                    AND delivery.authorization_expires_at
+                                            <= UTC_TIMESTAMP(3)
+                                    AND delivery.device_completed_at IS NULL
+                                    AND delivery.ended_at IS NULL
+                                    AND delivery.end_reason IS NULL
+                                    AND command_row.command_type =
+                                            'START_DELIVERY_SESSION'
+                                    AND command_row.physical_state IN (
+                                        'EDGE_ACCEPTED',
+                                        'PHYSICAL_STARTED',
+                                        'EDGE_RESTARTED'
+                                    )
+                                    AND (
+                                        (
+                                            delivery.offline_occupancy_released_at
+                                                IS NULL
+                                            AND EXISTS (
+                                                SELECT 1
+                                                FROM dev_device_occupancy occupancy
+                                                WHERE occupancy.asset_id =
+                                                        task.source_device_asset_id
+                                                  AND occupancy.tenant_id =
+                                                        task.tenant_id
+                                                  AND occupancy.organization_id =
+                                                        task.organization_id
+                                                  AND occupancy.occupancy_kind =
+                                                        'DELIVERY'
+                                                  AND occupancy.delivery_session_id =
+                                                        delivery.id
+                                            )
+                                        )
+                                        OR (
+                                            delivery.offline_occupancy_released_at
+                                                IS NOT NULL
+                                            AND NOT EXISTS (
+                                                SELECT 1
+                                                FROM dev_device_occupancy occupancy
+                                                WHERE occupancy.asset_id =
+                                                        task.source_device_asset_id
+                                            )
+                                        )
+                                    )
+                                    AND NOT EXISTS (
+                                        SELECT 1
+                                        FROM dev_physical_result physical_result
+                                        WHERE physical_result.command_id =
+                                                command_row.id
+                                    )
+                                    AND NOT EXISTS (
+                                        SELECT 1
+                                        FROM rec_delivery_order delivery_order
+                                        WHERE delivery_order.delivery_session_id =
+                                                delivery.id
+                                    )
+                                    AND NOT EXISTS (
+                                        SELECT 1
+                                        FROM dev_delivery_recovery_quarantine recovery
+                                        WHERE recovery.delivery_session_id =
+                                                delivery.id
+                                          AND recovery.state = 'QUEUED'
+                                    )
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM dev_device_transport_state transport
+                                        WHERE transport.asset_id =
+                                                task.source_device_asset_id
+                                          AND transport.onenet_connection_status =
+                                                'OFFLINE'
+                                          AND transport.offline_since_at <=
+                                                TIMESTAMPADD(
+                                                    SECOND,
+                                                    -600,
+                                                    UTC_TIMESTAMP(3)
+                                                )
+                                    )
+                                   THEN 1 ELSE 0
+                               END AS delivery_manual_retirement_available,
                                clean_row.status AS clean_status,
                                application.status AS application_status,
                                application.edge_persisted_at,
@@ -683,6 +808,8 @@ public class TargetDeviceApplication {
                                 "delivery_not_started_confirmation_available"),
                         rs.getBoolean(
                                 "delivery_recovery_quarantine_available"),
+                        rs.getBoolean(
+                                "delivery_manual_retirement_available"),
                         rs.getString("clean_status"),
                         rs.getString("application_status"),
                         rs.getObject(
@@ -697,7 +824,8 @@ public class TargetDeviceApplication {
             if (!"BLOCKED".equals(task.state())
                     && !("START_DELIVERY_SESSION".equals(
                     task.taskType())
-                    && task.deliveryRecoveryQuarantineAvailable())) {
+                    && (task.deliveryRecoveryQuarantineAvailable()
+                    || task.deliveryManualRetirementAvailable()))) {
                 continue;
             }
             if ("REQUEST_DEVICE_ACCEPTANCE".equals(task.taskType())
@@ -1363,6 +1491,265 @@ public class TargetDeviceApplication {
                         "deliveryNeverStartedConfirmed", true,
                         "originalTaskState", commandTask.taskState()),
                 reason);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public DeviceAssetView retireAbnormalDelivery(
+            UUID operationUid,
+            String hardwareSn,
+            UUID sessionUid,
+            AbnormalDeliveryRetirementRequest request) {
+        Scope platform = authorize(true, null, null, "device.manage");
+        String normalizedHardwareSn = normalizeHardwareSn(hardwareSn);
+        if (sessionUid == null
+                || sessionUid.version() != 4
+                || sessionUid.variant() != 2
+                || request == null
+                || request.expectedTaskUid() == null
+                || request.expectedTaskUid().version() != 4
+                || request.expectedTaskUid().variant() != 2
+                || request.expectedSessionVersion() == null
+                || request.expectedAssetVersion() == null
+                || !Boolean.TRUE.equals(
+                request.physicalOutcomeUnknownConfirmed())
+                || !Boolean.TRUE.equals(request.devicePoweredOffConfirmed())
+                || !Boolean.TRUE.equals(request.motionAreaClearConfirmed())
+                || !Boolean.TRUE.equals(
+                request.deliveryDoorClosedConfirmed())
+                || !Boolean.TRUE.equals(request.mechanismClearConfirmed())
+                || !Boolean.TRUE.equals(
+                request.permanentRetirementConfirmed())) {
+            throw invalid("必须确认原投递结果未知、整机已断电、投递门关闭、机构无卡物、运动范围无人，并确认设备永久报废");
+        }
+        String reason = required(request.reason(), 500, "reason");
+        var normalizedRequest = new AbnormalDeliveryRetirementRequest(
+                request.expectedTaskUid(),
+                request.expectedSessionVersion(),
+                request.expectedAssetVersion(),
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                reason);
+        return command(
+                operationUid,
+                platform,
+                "device.delivery.abnormal-retire",
+                "DEVICE_ASSET",
+                normalizedHardwareSn,
+                normalizedRequest,
+                DeviceAssetView.class,
+                () -> retireAbnormalDelivery(
+                        normalizedHardwareSn,
+                        sessionUid,
+                        normalizedRequest,
+                        reason));
+    }
+
+    private CommandResult<DeviceAssetView> retireAbnormalDelivery(
+            String hardwareSn,
+            UUID sessionUid,
+            AbnormalDeliveryRetirementRequest request,
+            String reason) {
+        // The asset lock serializes this irreversible close with late device
+        // results, ordinary lifecycle control and device-side quarantine.
+        Asset before = asset(hardwareSn, true);
+        if ("RETIRED".equals(before.lifecycleStatus())) {
+            throw conflict(
+                    "DEVICE.RETIRED_IS_FINAL",
+                    "设备已经报废，无需再次处理");
+        }
+        requireVersion(before.controlVersion(), request.expectedAssetVersion());
+        List<DeliveryRecoverySessionRow> sessions = jdbc.query(
+                LOCK_DELIVERY_RECOVERY_SESSION_SQL,
+                (rs, ignored) -> deliveryRecoverySession(rs),
+                sessionUid.toString(),
+                before.id());
+        if (sessions.size() != 1) {
+            throw conflict(
+                    "DEVICE.ABNORMAL_DELIVERY_NOT_FOUND",
+                    "该设备不存在可处理的异常投递，请刷新设备详情");
+        }
+        DeliveryRecoverySessionRow session = sessions.getFirst();
+        requireVersion(
+                session.lockVersion(), request.expectedSessionVersion());
+        List<DeliveryRecoveryCommandTaskRow> commandTasks = jdbc.query(
+                LOCK_DELIVERY_RECOVERY_COMMAND_TASK_SQL,
+                (rs, ignored) -> deliveryRecoveryCommandTask(rs),
+                session.id(),
+                before.id());
+        if (commandTasks.size() != 1) {
+            throw abnormalDeliveryRetirementConflict();
+        }
+        DeliveryRecoveryCommandTaskRow commandTask =
+                commandTasks.getFirst();
+        List<DeliveryRecoveryOccupancyRow> occupancies = jdbc.query(
+                LOCK_DELIVERY_RECOVERY_OCCUPANCY_SQL,
+                (rs, ignored) -> new DeliveryRecoveryOccupancyRow(
+                        rs.getString("occupancy_kind"),
+                        nullableLong(rs, "delivery_session_id")),
+                before.id());
+        DeliveryRecoveryEvidenceRow evidence = jdbc.queryForObject(
+                LOAD_DELIVERY_RECOVERY_EVIDENCE_SQL,
+                (rs, ignored) -> new DeliveryRecoveryEvidenceRow(
+                        rs.getBoolean("command_event_exists"),
+                        rs.getBoolean("physical_result_exists"),
+                        rs.getBoolean("delivery_order_exists")),
+                commandTask.commandId(),
+                commandTask.commandId(),
+                session.id());
+        List<DeliveryRetirementTransportRow> transports = jdbc.query(
+                LOCK_ABNORMAL_RETIREMENT_TRANSPORT_SQL,
+                (rs, ignored) -> new DeliveryRetirementTransportRow(
+                        rs.getString("onenet_connection_status"),
+                        rs.getObject("offline_since_at", LocalDateTime.class)),
+                before.id());
+        boolean activeRecovery = Boolean.TRUE.equals(
+                jdbc.queryForObject("""
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM dev_delivery_recovery_quarantine
+                            WHERE delivery_session_id = ?
+                              AND state = 'QUEUED'
+                        )
+                        """, Boolean.class, session.id()));
+        boolean expectedOccupancy =
+                session.offlineOccupancyReleasedAt() == null
+                        ? occupancies.size() == 1
+                        && occupancies.getFirst().isDelivery(session.id())
+                        : occupancies.isEmpty();
+        LocalDateTime now = databaseNow();
+        if (!canRetireAbnormalDelivery(
+                session,
+                commandTask,
+                transports.size() == 1 ? transports.getFirst() : null,
+                expectedOccupancy,
+                activeRecovery,
+                evidence,
+                before.tenantId(),
+                before.organizationId(),
+                before.id(),
+                request.expectedTaskUid(),
+                sessionUid,
+                now)) {
+            throw abnormalDeliveryRetirementConflict();
+        }
+        requireSingle(jdbc.update(
+                CLOSE_ABNORMAL_DELIVERY_FOR_RETIREMENT_SQL,
+                now,
+                now,
+                session.id(),
+                before.id(),
+                now,
+                session.lockVersion()));
+        requireOccupancyRelease(jdbc.update(
+                RELEASE_CONFIRMED_NOT_STARTED_OCCUPANCY_SQL,
+                before.id(),
+                session.tenantId(),
+                session.organizationId(),
+                session.id()),
+                session.offlineOccupancyReleasedAt());
+
+        // Recheck every other business after the exact stale delivery is
+        // closed. Any remaining use rolls back both the close and retirement.
+        lifecycleControl.requireIdle(before.id(), hardwareSn);
+        requireSingle(jdbc.update(
+                RETIRE_AFTER_ABNORMAL_DELIVERY_SQL,
+                now,
+                reason,
+                now,
+                before.id(),
+                before.controlVersion()));
+        lifecycleControl.cancelDeviceWork(
+                before.id(), hardwareSn, "RETIRED", now);
+        DeviceAssetView response = platformView(hardwareSn);
+        return new CommandResult<>(
+                response,
+                Map.of(
+                        "assetLifecycleStatus", before.lifecycleStatus(),
+                        "assetVersion", before.controlVersion(),
+                        "deliverySessionUid", sessionUid,
+                        "deliveryStatus", session.status(),
+                        "deliverySessionVersion", session.lockVersion(),
+                        "taskUid", commandTask.taskUid()),
+                Map.of(
+                        "assetLifecycleStatus", "RETIRED",
+                        "assetVersion", before.controlVersion() + 1,
+                        "deliverySessionUid", sessionUid,
+                        "deliveryStatus", "DEVICE_ABORTED",
+                        "deliverySessionVersion", session.lockVersion() + 1,
+                        "occupancyReleased", true,
+                        "businessValue", "NONE",
+                        "operatorConfirmations", Map.of(
+                                "physicalOutcomeUnknown", true,
+                                "devicePoweredOff", true,
+                                "motionAreaClear", true,
+                                "deliveryDoorClosed", true,
+                                "mechanismClear", true,
+                                "permanentRetirement", true)),
+                reason);
+    }
+
+    static boolean canRetireAbnormalDelivery(
+            DeliveryRecoverySessionRow session,
+            DeliveryRecoveryCommandTaskRow commandTask,
+            DeliveryRetirementTransportRow transport,
+            boolean expectedOccupancy,
+            boolean activeRecovery,
+            DeliveryRecoveryEvidenceRow evidence,
+            Long assetTenantId,
+            Long assetOrganizationId,
+            long assetId,
+            UUID expectedTaskUid,
+            UUID expectedSessionUid,
+            LocalDateTime now) {
+        return session != null
+                && commandTask != null
+                && transport != null
+                && evidence != null
+                && expectedTaskUid != null
+                && expectedSessionUid != null
+                && now != null
+                && assetTenantId != null
+                && assetOrganizationId != null
+                && session.tenantId() == assetTenantId
+                && session.organizationId() == assetOrganizationId
+                && session.assetId() == assetId
+                && expectedSessionUid.equals(session.sessionUid())
+                && Set.of("IN_PROGRESS", "RESULT_PENDING_RECOVERY")
+                .contains(session.status())
+                && session.authorizationExpiresAt() != null
+                && !session.authorizationExpiresAt().isAfter(now)
+                && session.deviceCompletedAt() == null
+                && session.endedAt() == null
+                && session.endReason() == null
+                && expectedTaskUid.equals(commandTask.taskUid())
+                && "START_DELIVERY_SESSION".equals(commandTask.taskType())
+                && Set.of("PENDING", "DONE", "BLOCKED")
+                .contains(commandTask.taskState())
+                && "DELIVERY_SESSION".equals(commandTask.targetType())
+                && expectedSessionUid.toString().equals(
+                commandTask.targetStableKey())
+                && commandTask.leaseToken() == null
+                && Set.of("EDGE_ACCEPTED", "PHYSICAL_STARTED", "EDGE_RESTARTED")
+                .contains(commandTask.physicalState())
+                && expectedOccupancy
+                && !activeRecovery
+                && !evidence.physicalResultExists()
+                && !evidence.deliveryOrderExists()
+                && "OFFLINE".equals(transport.connectionStatus())
+                && transport.offlineSinceAt() != null
+                && !transport.offlineSinceAt().isAfter(
+                now.minusSeconds(600));
+    }
+
+    private static TargetApiException
+            abnormalDeliveryRetirementConflict() {
+        return conflict(
+                "DEVICE.ABNORMAL_DELIVERY_RETIREMENT_NOT_ALLOWED",
+                "异常投递状态已经变化，或设备尚未连续离线 10 分钟；请刷新详情并按当前提示处理");
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -4458,7 +4845,8 @@ public class TargetDeviceApplication {
             case "START_DELIVERY_SESSION" -> {
                 category = "DELIVERY";
                 boolean uncertain = "RESULT_PENDING_RECOVERY".equals(
-                        task.deliveryStatus());
+                        task.deliveryStatus())
+                        || task.deliveryManualRetirementAvailable();
                 boolean safelyEnded = "PRE_OPEN_ENDED".equals(
                         task.deliveryStatus());
                 state = uncertain
@@ -4474,6 +4862,8 @@ public class TargetDeviceApplication {
                                 ? "原开门授权已经失效，后台也没有收到设备接受、开门或投递结果。系统不会重发开门；现场确认本次投递从未开始后，可以安全结束原投递。"
                                 : task.deliveryRecoveryQuarantineAvailable()
                                 ? "后台无法判断原投递动作是否执行。确认设备已经完整断电重启、投递门关闭、机构无卡物且运动范围无人后，可以要求设备采集新的只读安全证据并隔离结束原业务。已有重量和照片只保存为问题证据；不会创建投递订单、不会增加余额，也不会触发自动提现。"
+                                : task.deliveryManualRetirementAvailable()
+                                ? "设备已连续离线，后台没有收到投递结果，也没有生成订单。若这台设备确定不再使用，可在现场确认断电和门体安全后结束原投递并永久报废。"
                                 : "设备云平台可能已经接收启动请求，但后台无法排除设备曾经接受或执行。系统保留设备占用且不会重发开门，请先让设备上线并联系技术人员核对现场。"
                         : safelyEnded
                                 ? "现场已确认设备没有开门或进入投递流程，原投递不会重发，也不会生成投递订单。故障排除后，请让用户重新扫码发起一次新投递。"
@@ -4484,6 +4874,8 @@ public class TargetDeviceApplication {
                                 ? "CONFIRM_DELIVERY_NOT_STARTED"
                                 : task.deliveryRecoveryQuarantineAvailable()
                                 ? "QUARANTINE_DELIVERY_RECOVERY"
+                                : task.deliveryManualRetirementAvailable()
+                                ? "RETIRE_AFTER_ABNORMAL_DELIVERY"
                                 : "CONTACT_SUPPORT"
                         : "USER_RESTART_REQUIRED");
             }
@@ -5168,6 +5560,43 @@ public class TargetDeviceApplication {
         return rs.wasNull() ? null : value;
     }
 
+    private static DeliveryRecoverySessionRow deliveryRecoverySession(
+            ResultSet rs) throws SQLException {
+        return new DeliveryRecoverySessionRow(
+                rs.getLong("id"),
+                UUID.fromString(rs.getString("session_uid")),
+                rs.getLong("tenant_id"),
+                rs.getLong("organization_id"),
+                rs.getLong("asset_id"),
+                rs.getString("status"),
+                rs.getObject("authorization_expires_at", LocalDateTime.class),
+                rs.getObject("first_edge_accepted_at", LocalDateTime.class),
+                rs.getObject("first_physical_progress_at", LocalDateTime.class),
+                rs.getObject("device_completed_at", LocalDateTime.class),
+                rs.getObject("ended_at", LocalDateTime.class),
+                rs.getString("end_reason"),
+                rs.getObject(
+                        "offline_occupancy_released_at", LocalDateTime.class),
+                rs.getLong("lock_version"));
+    }
+
+    private static DeliveryRecoveryCommandTaskRow
+            deliveryRecoveryCommandTask(ResultSet rs) throws SQLException {
+        return new DeliveryRecoveryCommandTaskRow(
+                rs.getLong("command_id"),
+                rs.getString("physical_state"),
+                rs.getObject("edge_accepted_at", LocalDateTime.class),
+                rs.getObject("physical_started_at", LocalDateTime.class),
+                rs.getObject("physical_ended_at", LocalDateTime.class),
+                UUID.fromString(rs.getString("task_uid")),
+                rs.getString("task_type"),
+                rs.getString("task_state"),
+                rs.getString("blocked_reason_code"),
+                rs.getString("target_type"),
+                rs.getString("target_stable_key"),
+                rs.getString("lease_token"));
+    }
+
     private static UUID optionalUuid(String value) {
         return value == null ? null : UUID.fromString(value);
     }
@@ -5367,6 +5796,17 @@ public class TargetDeviceApplication {
     private record DeliveryRecoveryOccupancyRow(
             String occupancyKind,
             Long deliverySessionId) {
+
+        private boolean isDelivery(long expectedSessionId) {
+            return "DELIVERY".equals(occupancyKind)
+                    && deliverySessionId != null
+                    && deliverySessionId == expectedSessionId;
+        }
+    }
+
+    record DeliveryRetirementTransportRow(
+            String connectionStatus,
+            LocalDateTime offlineSinceAt) {
     }
 
     record DeliveryRecoveryEvidenceRow(
@@ -5388,6 +5828,7 @@ public class TargetDeviceApplication {
             Long deliverySessionVersion,
             boolean deliveryNotStartedConfirmationAvailable,
             boolean deliveryRecoveryQuarantineAvailable,
+            boolean deliveryManualRetirementAvailable,
             String cleanStatus,
             String applicationStatus,
             LocalDateTime edgePersistedAt,

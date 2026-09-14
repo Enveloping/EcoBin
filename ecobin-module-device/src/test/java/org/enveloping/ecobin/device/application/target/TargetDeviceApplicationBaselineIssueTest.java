@@ -50,6 +50,7 @@ class TargetDeviceApplicationBaselineIssueTest {
                         null,
                         false,
                         false,
+                        false,
                         null,
                         null,
                         null,
@@ -90,6 +91,7 @@ class TargetDeviceApplicationBaselineIssueTest {
                         3L,
                         true,
                         true,
+                        false,
                         null,
                         null,
                         null,
@@ -122,6 +124,7 @@ class TargetDeviceApplicationBaselineIssueTest {
                         4L,
                         false,
                         true,
+                        false,
                         null,
                         null,
                         null,
@@ -135,6 +138,39 @@ class TargetDeviceApplicationBaselineIssueTest {
                 "不会创建投递订单",
                 "不会增加余额",
                 "不会触发自动提现");
+    }
+
+    @Test
+    void permanentlyOfflineStartedDeliveryOffersOnlyAtomicRetirement() {
+        var issue = TargetDeviceApplication.taskIssue(
+                new TargetDeviceApplication.TechnicalTaskRow(
+                        24L,
+                        UUID.fromString(
+                                "ed414b4e-05ab-45a2-a7da-b5a20aa5dd5b"),
+                        "START_DELIVERY_SESSION",
+                        "DONE",
+                        null,
+                        null,
+                        LocalDateTime.parse("2026-09-09T13:47:00"),
+                        "IN_PROGRESS",
+                        UUID.fromString(
+                                "80acf8e0-8ff6-4cc3-a6a2-1b22621426cc"),
+                        2L,
+                        false,
+                        false,
+                        true,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null));
+
+        assertThat(issue.title()).isEqualTo("投递物理结果无法确认");
+        assertThat(issue.description()).contains(
+                "连续离线", "没有生成订单", "永久报废");
+        assertThat(issue.nextActions()).containsExactly(
+                "RETIRE_AFTER_ABNORMAL_DELIVERY");
     }
 
     @Test
@@ -155,6 +191,7 @@ class TargetDeviceApplicationBaselineIssueTest {
                         "PRE_OPEN_ENDED",
                         sessionUid,
                         4L,
+                        false,
                         false,
                         false,
                         null,
