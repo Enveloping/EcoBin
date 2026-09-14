@@ -825,6 +825,36 @@
       "sha256": "7e42cb5241395ba54ffa6706034b339f2df494f25c06a8e8b4b2aac604e11bfa"
     },
     {
+      "path": "evidence/hil-uart2-rc26-v40-factory-login-20260914-40/arm64-smoke.txt",
+      "bytes": 867,
+      "sha256": "c0b0574d74c688a7e1f078ec9becf0405915160bed3b60de958bd375e3a3134c"
+    },
+    {
+      "path": "evidence/hil-uart2-rc26-v40-factory-login-20260914-40/backend-allowlist-deployment.txt",
+      "bytes": 706,
+      "sha256": "0c18f9f2d158a61b7b5be7724f712387bc576bb8ffeb491f18cd2801b9eae2a7"
+    },
+    {
+      "path": "evidence/hil-uart2-rc26-v40-factory-login-20260914-40/backend-allowlist-read-only.txt",
+      "bytes": 144,
+      "sha256": "d49962519922d65d9c61fb53b47de44a89a20a13c7ae719bea5253a3dc779955"
+    },
+    {
+      "path": "evidence/hil-uart2-rc26-v40-factory-login-20260914-40/offline-verification.txt",
+      "bytes": 1175,
+      "sha256": "ce5d4318e49cab5abf3d94a1e39398f61105372fe98057f7edaadbd1c4d1c771"
+    },
+    {
+      "path": "evidence/hil-uart2-rc26-v40-factory-login-20260914-40/README.md",
+      "bytes": 1892,
+      "sha256": "cca0a837e343813173607ef7bd27e0aa1210e7868e2517692f658900a99c05eb"
+    },
+    {
+      "path": "evidence/hil-uart2-rc26-v40-factory-login-20260914-40/v40-hil-flash-result.json",
+      "bytes": 689,
+      "sha256": "b094c65d0abc7e6ae8e01704dd3d3983a47f8de3ef0c9bb77fc86bd2e7886271"
+    },
+    {
       "path": "evidence/hil-updater-directory-groups-20260903-17/README.md",
       "bytes": 6484,
       "sha256": "d5af445c43b144c3fad852d4758ed2fb33c95f4b7f4e1d1a68c28778bc3832e8"
@@ -1396,8 +1426,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 21253,
-      "sha256": "edd19f9abc5242fee6f2d1dada61a4ac49fb845b011a9deb88b0fde9976fa8f4"
+      "bytes": 22297,
+      "sha256": "2e4a255532f32275a8e9db68f5be6859b7aa633e35f5f13f27055e8d0b23dfef"
     }
   ],
   "localArtifacts": [
@@ -2046,6 +2076,13 @@
       "sha256": "7579962f3fc550e53b59872fa7f2478f1578ca623ca2379b538f971be7d0a54b"
     },
     {
+      "path": "local/build-v40-hil-image.sh",
+      "bytes": 2198,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "d3bf2f1ca581408b4a91b8d36592ae4115c8653ab1d4855c48bdb502c6248c81"
+    },
+    {
       "path": "local/build-v8.sh",
       "bytes": 9646,
       "classification": "LOCAL_ARTIFACT",
@@ -2296,6 +2333,20 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "107719069bdc0befe609a92b3f09b14c5285d6c9b79531d372074280b06d7d29"
+    },
+    {
+      "path": "local/deploy-v40-backend-allowlist.generated.sh",
+      "bytes": 11407,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "018d74ed04fdd461b1273cb87d2ae48658313d97f942c79b23406c45810adb42"
+    },
+    {
+      "path": "local/deploy-v40-backend-allowlist.sh",
+      "bytes": 2083,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a70a1fbad1cbba964412d2c6a65ecef9e98de3540b1831752145c41869e72666"
     },
     {
       "path": "local/device-power-loss/arm-checkpoint-4-during-observation.sh",
@@ -3173,6 +3224,34 @@
       "sha256": "1b42be05a07ed8c11cf25b65f1d9c1f346a317513fbbea1776e18d9e120cf792"
     },
     {
+      "path": "local/factory-secret/builds/hil-factory-login-20260914-40-uart2-rc26/arm64-smoke.log",
+      "bytes": 947,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "7e7bc59d096cdce851c35acf35f5a543eb2421b9195728e77dd5aeb7558bedb0"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260914-40-uart2-rc26/build-and-offline-verification.log",
+      "bytes": 1392,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "b939a3bcbb11e211d7b995fda1a3b08808ec06d10461b3018593fd0c7549b6a4"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260914-40-uart2-rc26/ecobin-orangepi-zero3-0.1.0-single-card.20260914.40-hil-factory-login.img",
+      "bytes": 2571108352,
+      "classification": "SECRET_BEARING_FACTORY_IMAGE",
+      "digestRecorded": true,
+      "sha256": "21581060db890b0902e2cc270e44b23e1867f6e7bdd8db8eeac44948b258690a"
+    },
+    {
+      "path": "local/factory-secret/builds/hil-factory-login-20260914-40-uart2-rc26/ecobin-orangepi-zero3-0.1.0-single-card.20260914.40-hil-factory-login.img.sha256",
+      "bytes": 140,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9129f4503a6abc00c86e6b82d3f49e1cc86fb816382329f42fd592750fe2fd94"
+    },
+    {
       "path": "local/factory-secret/config/cellular.env",
       "bytes": 464,
       "classification": "SECRET_INPUT",
@@ -3645,6 +3724,34 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "06d6ae0a6b1e85128955f319ac74cd54fbcd4253aae1f91d52dbe57698d24bfa"
+    },
+    {
+      "path": "local/flash-v40-hil-disk1.exit-code.txt",
+      "bytes": 2,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "local/flash-v40-hil-disk1.progress.log",
+      "bytes": 3437,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "3fad08669c53b127b9af5112a286eaceb8965581b66102889ca9db7618b59513"
+    },
+    {
+      "path": "local/flash-v40-hil-disk1.ps1",
+      "bytes": 3125,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "0267bc3a51c8248f66c1b6b29fcfa91b8ea8e1db9f11777a5c25b3669a923769"
+    },
+    {
+      "path": "local/flash-v40-hil-disk1.result.json",
+      "bytes": 706,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "8b1c05c92f85d13bff0e1cdbde4837d0b9db3c859ae11526b7fdcd872ff33608"
     },
     {
       "path": "local/flash-v9-disk1.ps1",
@@ -5131,6 +5238,13 @@
       "sha256": "bc3e7da5b90c73cc086bea997a05f0e8e543352521f8b028397a016e5364501b"
     },
     {
+      "path": "local/update-v40-hil-artifact-catalog.ps1",
+      "bytes": 4878,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "a3c2b592aac3d08ca4b365bac2bbe3a05423efdf45ecb1042a0a8799ca49ef6f"
+    },
+    {
       "path": "local/upstream-cache/Armbian_25.5.1_Orangepizero3_bookworm_current_6.12.23_minimal.img.xz",
       "bytes": 252811660,
       "classification": "UPSTREAM_SOURCE_ARTIFACT",
@@ -5353,6 +5467,20 @@
       "classification": "LOCAL_ARTIFACT",
       "digestRecorded": true,
       "sha256": "9e378cef97bd2704f81d0ec5f98c9b4e33422a28dca785c8f039f60a1b0547f4"
+    },
+    {
+      "path": "local/v40-backend-allowlist-deployment.log",
+      "bytes": 447,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "dfe4d82acf7d16072b34354fc2875756fd1fd6eef5f26ba4acc6975d34ce2fbd"
+    },
+    {
+      "path": "local/v40-backend-allowlist-verification.log",
+      "bytes": 534,
+      "classification": "LOCAL_DIAGNOSTIC",
+      "digestRecorded": true,
+      "sha256": "2f2da6c67d857c1c02b0a0a8cd8802c7863cad5a6968e48b44ae84c3f094efc3"
     },
     {
       "path": "local/v8-inspect.sh",
@@ -5586,6 +5714,13 @@
       "sha256": "8d8c92d698a6c63ac1b441e8b58cb28c4235085eb413fb101665206090d6a5fe"
     },
     {
+      "path": "local/verify-v40-backend-allowlist.sh",
+      "bytes": 2391,
+      "classification": "LOCAL_ARTIFACT",
+      "digestRecorded": true,
+      "sha256": "2bc3dc7217fa89e26e309db97c2c1428f3ed24c5dd270452a125884f474a45ff"
+    },
+    {
       "path": "local/verify-v8.sh",
       "bytes": 9673,
       "classification": "LOCAL_ARTIFACT",
@@ -5601,104 +5736,35 @@
     }
   ],
   "lastIncrementalUpdate": {
-    "updatedAt": "2026-09-10T13:47:09.9044193Z",
-    "method": "V37_EVIDENCE_SUBTREE_AND_EXACT_NAMED_LOCAL_ARTIFACTS",
-    "previousCatalogSha256": "ff9e9e432f5a47e1e0dd3425be2892ead4773e4bd3c1f0c24331013ecb8b3913",
+    "updatedAt": "2026-09-14T07:49:50.4108215Z",
+    "method": "V40_HIL_EVIDENCE_SUBTREE_AND_EXACT_NAMED_LOCAL_ARTIFACTS",
+    "previousCatalogSha256": "2ed38dbed76374563d600269ee5e4d592cafdd726fcbc1232a5d966402ab8ae5",
     "fullScanTimestampRetained": true,
     "untouchedEntriesRehashed": false,
     "refreshedPaths": [
       "README.md",
-      "evidence/hil-weight-report-validation-20260910-37/arm64-smoke.txt",
-      "evidence/hil-weight-report-validation-20260910-37/backend-allowlist-deployment.txt",
-      "evidence/hil-weight-report-validation-20260910-37/backend-allowlist-live-evidence.json",
-      "evidence/hil-weight-report-validation-20260910-37/backend-allowlist-verification.txt",
-      "evidence/hil-weight-report-validation-20260910-37/build-evidence.json",
-      "evidence/hil-weight-report-validation-20260910-37/cache-input-verification-v3.json",
-      "evidence/hil-weight-report-validation-20260910-37/cleanup-evidence.json",
-      "evidence/hil-weight-report-validation-20260910-37/download-cache-evidence.json",
-      "evidence/hil-weight-report-validation-20260910-37/download-cache-v2-evidence.json",
-      "evidence/hil-weight-report-validation-20260910-37/download-cache-v3-evidence.json",
-      "evidence/hil-weight-report-validation-20260910-37/full-cache-offline-probe.txt",
-      "evidence/hil-weight-report-validation-20260910-37/hil-image.sha256",
-      "evidence/hil-weight-report-validation-20260910-37/hil-offline-verification.txt",
-      "evidence/hil-weight-report-validation-20260910-37/offline-bootstrap-evidence.json",
-      "evidence/hil-weight-report-validation-20260910-37/permanent-boundary.txt",
-      "evidence/hil-weight-report-validation-20260910-37/power-loss-recovery.json",
-      "evidence/hil-weight-report-validation-20260910-37/python311-tests.txt",
-      "evidence/hil-weight-report-validation-20260910-37/README.md",
-      "evidence/hil-weight-report-validation-20260910-37/test-evidence.json",
-      "evidence/hil-weight-report-validation-20260910-37/uv-hash-probe.txt",
-      "evidence/hil-weight-report-validation-20260910-37/v35_clock_fixture.py",
-      "evidence/hil-weight-report-validation-20260910-37/v37-flash-progress.txt",
-      "evidence/hil-weight-report-validation-20260910-37/v37-flash-result.json",
-      "evidence/hil-weight-report-validation-20260910-37/candidate-metadata/ecobin-orangepi-zero3-0.1.0-single-card.20260910.37.img.sha256",
-      "evidence/hil-weight-report-validation-20260910-37/candidate-metadata/image-manifest.json",
-      "evidence/hil-weight-report-validation-20260910-37/candidate-metadata/target-media-qualification-evidence.json",
-      "evidence/hil-weight-report-validation-20260910-37/candidate-metadata/locks/apt-packages.lock",
-      "evidence/hil-weight-report-validation-20260910-37/candidate-metadata/locks/builder.lock",
-      "evidence/hil-weight-report-validation-20260910-37/candidate-metadata/locks/image-layout.json",
-      "evidence/hil-weight-report-validation-20260910-37/candidate-metadata/locks/software-payload.lock.json",
-      "evidence/hil-weight-report-validation-20260910-37/candidate-metadata/locks/source.lock.json",
-      "evidence/hil-weight-report-validation-20260910-37/candidate-metadata/schemas/image-manifest.schema.json",
-      "evidence/hil-weight-report-validation-20260910-37/candidate-metadata/schemas/software-payload-lock.schema.json",
-      "evidence/hil-weight-report-validation-20260910-37/candidate-metadata/schemas/target-media-qualification-evidence.schema.json",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/bootstrap-builder-download-cache-v2.sh",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/bootstrap-builder-download-cache.sh",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/bootstrap-builder-offline-uv.sh",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/build-software-payload-cache-v2.sh",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/build-software-payload-cache.sh",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/execute-v37-backend-allowlist.sh",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/pin-cached-requirements-v3.py",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/pin-cached-requirements.py",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/prepare-v37-download-cache.py",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/resume-v37-image.sh",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/run-v37-arm64-smoke.sh",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/test-v37-source.sh",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/v35-installed-quarantine-smoke.py",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/v37-installed-weight-smoke.py",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/verify-v37-backend-allowlist.sh",
-      "evidence/hil-weight-report-validation-20260910-37/executed-recipes/verify-v37-cache-inputs.py",
-      "local/factory-secret/builds/hil-factory-login-20260910-37-weight-report-validation/ecobin-orangepi-zero3-0.1.0-single-card.20260910.37-hil-factory-login.img",
-      "local/factory-secret/builds/hil-factory-login-20260910-37-weight-report-validation/ecobin-orangepi-zero3-0.1.0-single-card.20260910.37-hil-factory-login.img.sha256",
-      "local/factory-secret/builds/hil-factory-login-20260910-37-weight-report-validation/build-and-offline-verification.log",
-      "local/source-bundles/repository-v37-20260910.bundle",
-      "local/prepare-v37-recipes.ps1",
-      "local/prepare-v37-source.py",
-      "local/build-v37-candidate.sh",
-      "local/resume-v37-image.sh",
-      "local/deploy-v37-backend-allowlist.sh",
-      "local/execute-v37-backend-allowlist.sh",
-      "local/verify-v37-backend-allowlist.sh",
-      "local/v37-backend-allowlist-deployment.log",
-      "local/v37-backend-allowlist-verification.log",
-      "local/v37-tools/docker",
-      "local/prepare-v37-offline-bootstrap.py",
-      "local/prepare-v37-download-cache.py",
-      "local/prepare-v37-cache-v2.py",
-      "local/prepare-v37-cache-v3.py",
-      "local/prepare-v37-uv-probe.py",
-      "local/probe-v37-uv-hashes.py",
-      "local/run-v37-uv-probe.sh",
-      "local/probe-v37-full-cache.py",
-      "local/run-v37-full-cache-probe.sh",
-      "local/pin-cached-requirements.py",
-      "local/verify-v37-cache-inputs.py",
-      "local/test-v37-source.sh",
-      "local/build-v37-hil-image.sh",
-      "local/audit-v37-permanent-update-boundary.sh",
-      "local/run-v37-arm64-smoke.sh",
-      "local/v37-installed-weight-smoke.py",
-      "local/verify-v37-final-images.sh",
-      "local/collect-v37-test-evidence.py",
-      "local/collect-v37-evidence.py",
-      "local/archive-v37-public-evidence.sh",
-      "local/cleanup-v37-build-mounts.py",
-      "local/flash-v37-disk1.ps1",
-      "local/flash-v37-disk1.progress.log",
-      "local/flash-v37-disk1.result.json",
-      "local/flash-v37-disk1.exit-code.txt",
-      "local/update-v37-artifact-catalog.ps1"
+      "evidence/hil-uart2-rc26-v40-factory-login-20260914-40/arm64-smoke.txt",
+      "evidence/hil-uart2-rc26-v40-factory-login-20260914-40/backend-allowlist-deployment.txt",
+      "evidence/hil-uart2-rc26-v40-factory-login-20260914-40/backend-allowlist-read-only.txt",
+      "evidence/hil-uart2-rc26-v40-factory-login-20260914-40/offline-verification.txt",
+      "evidence/hil-uart2-rc26-v40-factory-login-20260914-40/README.md",
+      "evidence/hil-uart2-rc26-v40-factory-login-20260914-40/v40-hil-flash-result.json",
+      "local/factory-secret/builds/hil-factory-login-20260914-40-uart2-rc26/ecobin-orangepi-zero3-0.1.0-single-card.20260914.40-hil-factory-login.img",
+      "local/factory-secret/builds/hil-factory-login-20260914-40-uart2-rc26/ecobin-orangepi-zero3-0.1.0-single-card.20260914.40-hil-factory-login.img.sha256",
+      "local/factory-secret/builds/hil-factory-login-20260914-40-uart2-rc26/build-and-offline-verification.log",
+      "local/factory-secret/builds/hil-factory-login-20260914-40-uart2-rc26/arm64-smoke.log",
+      "local/build-v40-hil-image.sh",
+      "local/flash-v40-hil-disk1.ps1",
+      "local/flash-v40-hil-disk1.progress.log",
+      "local/flash-v40-hil-disk1.result.json",
+      "local/flash-v40-hil-disk1.exit-code.txt",
+      "local/deploy-v40-backend-allowlist.sh",
+      "local/deploy-v40-backend-allowlist.generated.sh",
+      "local/verify-v40-backend-allowlist.sh",
+      "local/v40-backend-allowlist-deployment.log",
+      "local/v40-backend-allowlist-verification.log",
+      "local/update-v40-hil-artifact-catalog.ps1"
     ],
-    "finalV37ImageRehashed": true
+    "finalV40HilImageRehashed": true
   }
 }
