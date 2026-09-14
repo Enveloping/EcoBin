@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "artifactClass": "HIL_FACTORY_LOGIN_IMAGE_FLASH_RESULT",
+  "startedAt": "2026-09-14T05:21:01.6026404Z",
+  "completedAt": "2026-09-14T05:25:50.8994776Z",
+  "diskNumber": 1,
+  "diskSerialNumber": "121220160204",
+  "diskBytes": 31268536320,
+  "imageFileName": "ecobin-orangepi-zero3-0.1.0-single-card.20260914.40.img",
+  "imageBytes": 2571108352,
+  "expectedImageSha256": "94e1bf8314310379c579ea469ae742949b7c121fefd8c6455ab0ca9869f2b84d",
+  "writtenBytes": 2571108352,
+  "fullReadbackBytes": 2571108352,
+  "fullReadbackSha256": "94e1bf8314310379c579ea469ae742949b7c121fefd8c6455ab0ca9869f2b84d",
+  "rootPasswordLocked": true,
+  "result": "PASS"
+}
