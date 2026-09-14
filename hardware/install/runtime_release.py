@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 import mmap
 import os
@@ -37,6 +39,7 @@ MAX_ARCHIVE_BYTES = 1_500_000_000
 MAX_LEGACY_CRYPTOGRAPHY_MESSAGE_BYTES = 512 * 1024 * 1024
 MAX_PUBLIC_KEY_BYTES = 16_384
 MAX_PRIVATE_KEY_BYTES = 16_384
+MAX_VENV_RECORD_BYTES = 64 * 1024 * 1024
 ED25519_SIGNATURE_BYTES = 64
 INSTALL_MARKER_VERSION = 1
 INSTALL_COMPLETE_MARKER = ".ecobin-install-complete"
@@ -867,13 +870,170 @@ def _harden_regular_venv_entry(
         os.close(descriptor)
 
 
+def _remove_uv_installer_cache_metadata(
+    venv: Path,
+    *,
+    expected_uid: int | None,
+    expected_gid: int | None,
+) -> None:
+    """Remove uv's wall-clock cache records from an immutable environment.
+
+    ``uv pip install`` writes the installation time into each distribution's
+    private ``uv_cache.json`` and adds that file to ``RECORD``.  EcoBin never
+    manages an installed appliance environment in place, so this cache is not
+    needed at runtime.  Keeping it would make identical locked inputs produce
+    different payload and raw-image bytes on every build.
+    """
+
+    cache_files: list[Path] = []
+    pending = [venv]
+    while pending:
+        directory = pending.pop()
+        try:
+            entries = list(os.scandir(directory))
+        except OSError as error:
+            raise ReleaseValidationError(
+                "cannot inspect installed venv metadata"
+            ) from error
+        for entry in entries:
+            path = Path(entry.path)
+            details = path.lstat()
+            if stat.S_ISDIR(details.st_mode):
+                pending.append(path)
+            elif (
+                stat.S_ISREG(details.st_mode)
+                and entry.name == "uv_cache.json"
+                and path.parent.name.endswith(".dist-info")
+            ):
+                cache_files.append(path)
+
+    for cache_path in sorted(cache_files):
+        cache_details = cache_path.lstat()
+        _harden_regular_venv_entry(
+            cache_path,
+            cache_details,
+            expected_uid=expected_uid,
+            expected_gid=expected_gid,
+        )
+
+        record_path = cache_path.parent / "RECORD"
+        try:
+            record_details = record_path.lstat()
+        except OSError as error:
+            raise ReleaseValidationError(
+                "uv installer cache has no distribution RECORD"
+            ) from error
+        if not stat.S_ISREG(record_details.st_mode) or record_details.st_nlink != 1:
+            raise ReleaseValidationError(
+                "uv installer cache RECORD is not a single regular file"
+            )
+        if expected_uid is not None and record_details.st_uid != expected_uid:
+            raise ReleaseValidationError("installed runtime is not owned by root")
+        if expected_gid is not None and record_details.st_gid != expected_gid:
+            raise ReleaseValidationError("installed runtime is not grouped by root")
+        if (
+            record_details.st_size <= 0
+            or record_details.st_size > MAX_VENV_RECORD_BYTES
+        ):
+            raise ReleaseValidationError("uv installer cache RECORD size is invalid")
+
+        flags = os.O_RDWR | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+        try:
+            descriptor = os.open(record_path, flags)
+        except OSError as error:
+            raise ReleaseValidationError(
+                "cannot securely open uv installer cache RECORD"
+            ) from error
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                not os.path.samestat(record_details, opened)
+                or not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+                or opened.st_size <= 0
+                or opened.st_size > MAX_VENV_RECORD_BYTES
+            ):
+                raise ReleaseValidationError(
+                    "uv installer cache RECORD changed while normalizing"
+                )
+            if expected_uid is not None and opened.st_uid != expected_uid:
+                raise ReleaseValidationError("installed runtime is not owned by root")
+            if expected_gid is not None and opened.st_gid != expected_gid:
+                raise ReleaseValidationError("installed runtime is not grouped by root")
+
+            chunks: list[bytes] = []
+            payload_size = 0
+            while payload_size <= MAX_VENV_RECORD_BYTES:
+                chunk = os.read(
+                    descriptor,
+                    min(
+                        1024 * 1024,
+                        MAX_VENV_RECORD_BYTES + 1 - payload_size,
+                    ),
+                )
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                payload_size += len(chunk)
+            payload = b"".join(chunks)
+            if not payload or len(payload) > MAX_VENV_RECORD_BYTES:
+                raise ReleaseValidationError(
+                    "uv installer cache RECORD size is invalid"
+                )
+            try:
+                text = io.StringIO(payload.decode("utf-8"), newline="")
+                rows = list(csv.reader(text))
+            except (csv.Error, UnicodeError) as error:
+                raise ReleaseValidationError(
+                    "uv installer cache RECORD is malformed"
+                ) from error
+            if not rows or any(len(row) != 3 for row in rows):
+                raise ReleaseValidationError("uv installer cache RECORD is malformed")
+
+            cache_record_name = f"{cache_path.parent.name}/uv_cache.json"
+            matching_rows = [row for row in rows if row[0] == cache_record_name]
+            if len(matching_rows) != 1:
+                raise ReleaseValidationError(
+                    "uv installer cache RECORD does not contain one exact cache entry"
+                )
+            normalized_rows = [row for row in rows if row[0] != cache_record_name]
+            output = io.StringIO(newline="")
+            csv.writer(output, lineterminator="\n").writerows(normalized_rows)
+            normalized = output.getvalue().encode("utf-8")
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            written = 0
+            while written < len(normalized):
+                count = os.write(descriptor, normalized[written:])
+                if count <= 0:
+                    raise OSError("short write while normalizing RECORD")
+                written += count
+            os.ftruncate(descriptor, len(normalized))
+            os.fsync(descriptor)
+        except OSError as error:
+            raise ReleaseValidationError(
+                "cannot normalize uv installer cache RECORD"
+            ) from error
+        finally:
+            os.close(descriptor)
+
+        try:
+            cache_path.unlink()
+            if os.name == "posix":
+                _fsync_directory(cache_path.parent)
+        except OSError as error:
+            raise ReleaseValidationError(
+                "cannot remove uv installer cache metadata"
+            ) from error
+
+
 def harden_venv_permissions(
     venv: str | os.PathLike[str],
     *,
     expected_uid: int | None = 0,
     expected_gid: int | None = 0,
 ) -> None:
-    """Apply canonical read-only code modes without following venv links."""
+    """Normalize installer metadata and apply canonical read-only code modes."""
 
     venv = Path(venv)
     try:
@@ -882,6 +1042,11 @@ def harden_venv_permissions(
         raise ReleaseValidationError("installed release has no regular venv") from error
     if stat.S_ISLNK(root_details.st_mode) or not stat.S_ISDIR(root_details.st_mode):
         raise ReleaseValidationError("installed release has no regular venv")
+    _remove_uv_installer_cache_metadata(
+        venv,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
     _harden_regular_venv_entry(
         venv,
         root_details,

@@ -967,6 +967,77 @@ def test_venv_permission_hardening_removes_wide_write_bits(tmp_path):
     )
 
 
+def test_venv_hardening_removes_nondeterministic_uv_cache_and_record_row(
+    tmp_path,
+):
+    uid, gid = _posix_owner()
+    normalized_records = []
+    for name, timestamp in (("first", 1_789_354_818), ("second", 1_789_356_934)):
+        release = tmp_path / name
+        trusted = tmp_path / f"{name}-python-3.11"
+        venv = _make_test_venv(release, trusted)
+        distribution = (
+            venv
+            / "lib"
+            / "python3.11"
+            / "site-packages"
+            / "demo-1.0.dist-info"
+        )
+        distribution.mkdir(parents=True)
+        cache = distribution / "uv_cache.json"
+        cache.write_text(
+            '{"timestamp":{"secs_since_epoch":'
+            f"{timestamp}"
+            ',"nanos_since_epoch":123},"commit":null,"tags":null,'
+            '"env":{},"directories":{}}',
+            encoding="utf-8",
+        )
+        record = distribution / "RECORD"
+        record.write_text(
+            "demo.py,sha256=fixed,7\n"
+            f"demo-1.0.dist-info/uv_cache.json,sha256={timestamp},126\n"
+            "demo-1.0.dist-info/RECORD,,\n",
+            encoding="utf-8",
+        )
+
+        harden_venv_permissions(
+            venv,
+            expected_uid=uid,
+            expected_gid=gid,
+        )
+
+        assert not cache.exists()
+        normalized_records.append(record.read_bytes())
+
+    assert normalized_records == [
+        b"demo.py,sha256=fixed,7\n"
+        b"demo-1.0.dist-info/RECORD,,\n"
+    ] * 2
+
+
+def test_venv_hardening_rejects_ambiguous_uv_cache_record(tmp_path):
+    uid, gid = _posix_owner()
+    release = tmp_path / "release"
+    trusted = tmp_path / "trusted-python-3.11"
+    venv = _make_test_venv(release, trusted)
+    distribution = venv / "lib" / "demo-1.0.dist-info"
+    distribution.mkdir(parents=True)
+    cache = distribution / "uv_cache.json"
+    cache.write_text("{}", encoding="utf-8")
+    record = distribution / "RECORD"
+    row = "demo-1.0.dist-info/uv_cache.json,sha256=value,2\n"
+    record.write_text(row + row, encoding="utf-8")
+
+    with pytest.raises(ReleaseValidationError, match="one exact cache entry"):
+        harden_venv_permissions(
+            venv,
+            expected_uid=uid,
+            expected_gid=gid,
+        )
+
+    assert cache.exists()
+
+
 def test_venv_permission_hardening_repairs_restrictive_builder_umask(tmp_path):
     uid, gid = _posix_owner()
     release = tmp_path / "release"
