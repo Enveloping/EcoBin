@@ -340,6 +340,12 @@ for clean_directory in \
     fi
 done
 
+assert_rooted_path_has_no_symlink_component var/cache/ldconfig/aux-cache
+if [[ -e "${mount_directory}/var/cache/ldconfig/aux-cache" \
+    || -L "${mount_directory}/var/cache/ldconfig/aux-cache" ]]; then
+    fail "candidate contains nondeterministic ldconfig auxiliary cache"
+fi
+
 shadow_file="${mount_directory}/etc/shadow"
 assert_rooted_path_has_no_symlink_component etc/shadow
 [[ -f "${shadow_file}" && ! -L "${shadow_file}" ]] \

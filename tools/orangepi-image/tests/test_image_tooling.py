@@ -935,6 +935,7 @@ class ImageToolingTest(unittest.TestCase):
             "root/EcoBin/hardware/data",
             "var/log",
             "var/cache/apt/archives",
+            "var/cache/ldconfig",
             "var/lib/apt/lists",
             "tmp",
             "var/tmp",
@@ -1015,6 +1016,9 @@ class ImageToolingTest(unittest.TestCase):
             "state", encoding="ascii"
         )
         (root / "var/log/boot.log").write_text("history", encoding="ascii")
+        (root / "var/cache/ldconfig/aux-cache").write_bytes(
+            b"nondeterministic auxiliary cache"
+        )
 
         result = run_command(
             sys.executable,
@@ -1070,6 +1074,7 @@ class ImageToolingTest(unittest.TestCase):
         self.assertEqual(list((root / "var/lib/ecobin/hardware").iterdir()), [])
         self.assertEqual(list((root / "root/EcoBin/hardware/data").iterdir()), [])
         self.assertEqual(list((root / "var/log").iterdir()), [])
+        self.assertFalse((root / "var/cache/ldconfig/aux-cache").exists())
         shadow_fields = {
             line.split(":", 2)[0]: line.split(":", 2)[1]
             for line in (root / "etc/shadow").read_text(encoding="utf-8").splitlines()

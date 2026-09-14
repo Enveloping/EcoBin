@@ -65,6 +65,10 @@ REMOVE_EXACT_PATHS = (
     "var/lib/NetworkManager/secret_key",
     "var/lib/NetworkManager/seen-bssids",
     "var/lib/NetworkManager/timestamps",
+    # ldconfig recreates this private acceleration cache when needed.  Its
+    # entry order and embedded stat data vary between otherwise identical
+    # builds, while /etc/ld.so.cache (the runtime linker cache) is retained.
+    "var/cache/ldconfig/aux-cache",
     "etc/udev/rules.d/70-persistent-net.rules",
     "root/.ssh",
     "home/orangepi/.ssh",
