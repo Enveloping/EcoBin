@@ -2613,6 +2613,18 @@ def render_session_validator(
                 f"({status} == {enum['PROBE_MISMATCH']} && {boot} != 0)",
                 f"({status} == {enum['ALREADY_BOUND']} && {boot} == 0)",
             ]))
+        if name == "DEVICE_IDENTITY_REPLY":
+            known = int(registry["capabilityPolicy"]["knownMaskHex"], 16)
+            required = int(
+                registry["capabilityPolicy"]["requiredMcuMaskHex"], 16
+            )
+            capability = value("capabilityBitmap")
+            reject(
+                f"({capability} & ~{literal(known)}) != 0"
+            )
+            reject(
+                f"({capability} & {literal(required)}) != {literal(required)}"
+            )
         if name == "WORK_RESULT":
             render_result_conditions(registry, fields, value, reject, is_c)
         if name == "CLEAN_COMPLETION_CONFIRMED":

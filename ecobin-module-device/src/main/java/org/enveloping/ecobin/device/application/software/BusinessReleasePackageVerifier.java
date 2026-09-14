@@ -142,6 +142,10 @@ public class BusinessReleasePackageVerifier {
             "ECOBIN_UART_PROTOCOL_FAMILY",
             "ECOBIN_UART_PROTOCOL_MAJOR",
             "ECOBIN_UART_PROTOCOL_MINOR",
+            "ECOBIN_UART_REGISTRY_VERSION",
+            "ECOBIN_UART_REGISTRY_SHA256",
+            "ECOBIN_ONENET_MAPPING_VERSION",
+            "ECOBIN_ONENET_MAPPING_SHA256",
             "ECOBIN_REQUIRED_FIXED_FRAME_REVISION",
             "ECOBIN_REQUIRED_MCU_CAPABILITY_BITMAP_HEX",
             "ECOBIN_PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX");
@@ -410,9 +414,22 @@ public class BusinessReleasePackageVerifier {
         requireManifest(manifest, "ECOBIN_TARGET_PLATFORM", "linux-arm64");
         requireManifest(manifest, "ECOBIN_EDGE_SCHEMA_VERSION", "40");
         requireManifest(manifest, "ECOBIN_BUSINESS_ALLOWLIST_SHA256", APP_ALLOWLIST_SHA256);
-        requireManifest(manifest, "ECOBIN_UART_PROTOCOL_FAMILY", "FIXED_FRAME");
-        requireManifest(manifest, "ECOBIN_UART_PROTOCOL_MAJOR", "NONE");
-        requireManifest(manifest, "ECOBIN_UART_PROTOCOL_MINOR", "NONE");
+        requireManifest(manifest, "ECOBIN_UART_PROTOCOL_FAMILY", "ECOBIN_UART");
+        requireManifest(manifest, "ECOBIN_UART_PROTOCOL_MAJOR", "2");
+        requireManifest(manifest, "ECOBIN_UART_PROTOCOL_MINOR", "0");
+        requireManifest(manifest, "ECOBIN_UART_REGISTRY_VERSION", "2.0.0-rc.26");
+        requireManifest(manifest, "ECOBIN_UART_REGISTRY_SHA256",
+                "621feafd1523a6906ec0f16d9d7373c7a2b021a97030bd3d01e3fcfb50e9dfc3");
+        requireManifest(manifest, "ECOBIN_ONENET_MAPPING_VERSION", "2.4.0");
+        requireManifest(manifest, "ECOBIN_ONENET_MAPPING_SHA256",
+                "3e74ad04510ce900c667b32976bf13310687700437a0446fa46739be51662d7f");
+        requireManifest(manifest, "ECOBIN_REQUIRED_FIXED_FRAME_REVISION", "NONE");
+        requireManifest(manifest,
+                "ECOBIN_REQUIRED_MCU_CAPABILITY_BITMAP_HEX",
+                "0000000000008100");
+        requireManifest(manifest,
+                "ECOBIN_PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX",
+                "0000000000000000");
         if (!VERSION.matcher(versionName).matches()
                 || !GIT_COMMIT.matcher(manifest.get("ECOBIN_GIT_COMMIT")).matches()
                 || !digits(manifest.get("ECOBIN_SOURCE_DATE_EPOCH"))) {
@@ -432,8 +449,10 @@ public class BusinessReleasePackageVerifier {
                 "ECOBIN_UPDATER_BUSINESS_PROTOCOL_MAJOR", 1, 255);
         int updaterMinor = integer(manifest,
                 "ECOBIN_UPDATER_BUSINESS_PROTOCOL_MINOR", 0, 255);
-        int fixedFrameRevision = integer(manifest,
-                "ECOBIN_REQUIRED_FIXED_FRAME_REVISION", 1, 255);
+        int uartMajor = integer(manifest,
+                "ECOBIN_UART_PROTOCOL_MAJOR", 1, 255);
+        int uartMinor = integer(manifest,
+                "ECOBIN_UART_PROTOCOL_MINOR", 0, 255);
         String required = manifest.get("ECOBIN_REQUIRED_MCU_CAPABILITY_BITMAP_HEX");
         String provided = manifest.get("ECOBIN_PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX");
         if (!BITMAP.matcher(required).matches() || !BITMAP.matcher(provided).matches()) {
@@ -452,10 +471,10 @@ public class BusinessReleasePackageVerifier {
                 communicationMinor,
                 updaterMajor,
                 updaterMinor,
-                "FIXED_FRAME",
+                "ECOBIN_UART",
+                uartMajor,
+                uartMinor,
                 null,
-                null,
-                fixedFrameRevision,
                 required,
                 provided,
                 Map.copyOf(manifest));

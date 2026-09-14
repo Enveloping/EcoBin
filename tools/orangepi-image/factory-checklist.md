@@ -1,5 +1,10 @@
 # EcoBin 香橙派量产写卡与真机验收清单
 
+> **rc.26限制**：下方F3/F1、AA/DD和EE/EF条目属于历史fixed-frame清单，不能用于当前
+> `uart-v2` P7放行。当前必须核对MCU身份及`0x8100`能力、原生配置/设备事实、一次START、
+> 结果保管确认和热点公开事实；真实HMI、RS485与机构HIL仍是未完成门槛。详见
+> [rc.26收口记录](../../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)。
+
 > 本清单必须与受控发布目录、逐台验收报告和后端当前验收代次一起归档。自动测试不能替代真机项目。
 
 ## 写卡工位

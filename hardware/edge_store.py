@@ -1563,6 +1563,10 @@ class EdgeStore:
         from native_control_failure import prepare
         return prepare(self, permit, start_command_uid, device_name=device_name, stage=stage, reason=reason)
 
+    def prepare_native_result_failure(self, permit, start_command_uid, *, device_name):
+        from native_control_failure import prepare_result
+        return prepare_result(self, permit, start_command_uid, device_name=device_name)
+
     def apply_native_control_failure(self, permit, start_command_uid, *, device_name, permit_snapshot):
         from native_control_failure import apply
         return apply(self, permit, start_command_uid, device_name=device_name, permit_snapshot=permit_snapshot)
@@ -3362,6 +3366,40 @@ class EdgeStore:
             ON CONFLICT(state_key) DO UPDATE SET state_value=excluded.state_value, updated_at=excluded.updated_at""",
             (key, str(value), self._now()))
 
+    def synchronize_native_command_sequence(self, boot_id: int, highest_seen: int) -> int:
+        """Raise this boot's durable command-sequence floor to the MCU fact.
+
+        Factory acceptance and the production runtime have separate journals,
+        but may hand over the same live MCU boot.  The read-only identity reply
+        therefore supplies the MCU's highest consumed sequence.  Synchronizing
+        is monotonic: locally reserved higher values are never lowered, and no
+        command row or dispatch authority is created by this operation.
+        """
+        if type(boot_id) is not int or not 1 <= boot_id <= 9007199254740991:
+            raise ValueError("native command sequence requires a positive boot")
+        if type(highest_seen) is not int or not 0 <= highest_seen <= 4294967295:
+            raise ValueError("native highest command sequence is invalid")
+        with self._standalone_native_transaction() as conn:
+            if (
+                boot_id != self._native_counter(conn, "native_current_boot")
+                or not conn.execute(
+                    "SELECT 1 FROM native_mcu_boot WHERE boot_id=?", (boot_id,)
+                ).fetchone()
+            ):
+                raise ValueError("native command sequence requires the recognized boot")
+            key = f"native_command_sequence:{boot_id}"
+            local_floor = self._native_counter(conn, key, 4294967295)
+            local_highest = conn.execute(
+                "SELECT COALESCE(MAX(command_sequence),0) FROM native_mcu_command WHERE mcu_boot_id=?",
+                (boot_id,),
+            ).fetchone()[0]
+            if local_floor < local_highest:
+                raise ValueError("native command counter regressed")
+            synchronized = max(local_floor, highest_seen)
+            if synchronized != local_floor:
+                self._set_native_counter(conn, key, synchronized)
+            return synchronized
+
     def reserve_native_boot_id(self, probe_id: int) -> int:
         """Consume a fresh boot identity for ONE pending probe, before one bind write.
 
@@ -3453,6 +3491,149 @@ class EdgeStore:
             # work completion or a grant to send anything. Keep every old byte.
             conn.execute("UPDATE native_mcu_command SET boot_retired=1 WHERE mcu_boot_id<? AND boot_retired=0", (boot,))
         return True
+
+    def import_factory_native_boot_observation(
+        self,
+        message_name: str,
+        payload: bytes,
+        *,
+        expected_probe_id: int,
+    ) -> bool:
+        """Claim one factory-bound MCU boot in a pristine production ledger.
+
+        Factory acceptance and production intentionally use separate SQLite
+        files.  The already-bound MCU therefore answers production's first
+        fresh probe with the factory high-namespace boot.  Import is limited
+        to that one handoff shape: an exact current probe, a pristine native
+        boot ledger and the reserved factory namespace.  Historical or low
+        foreign boot replies remain unusable.
+        """
+        factory_boot_minimum = 8_000_000_000_000_000
+        if message_name != "BOOT_PROBE_REPLY" or type(expected_probe_id) is not int:
+            return False
+        with self._standalone_native_transaction() as conn:
+            values = self._native_boot_reply_values(message_name, payload)
+            boot_id = values["mcuBootId"]
+            if (
+                values["probeId"] != expected_probe_id
+                or expected_probe_id
+                != self._native_counter(conn, "native_query_sequence")
+                or not factory_boot_minimum <= boot_id <= 9007199254740991
+                or self._native_counter(conn, "native_current_boot") != 0
+                or self._native_counter(conn, "native_boot_sequence") != 0
+                or conn.execute("SELECT 1 FROM native_mcu_boot LIMIT 1").fetchone()
+                or conn.execute(
+                    "SELECT 1 FROM native_mcu_boot_observation LIMIT 1"
+                ).fetchone()
+            ):
+                return False
+            self._set_native_counter(conn, "native_boot_sequence", boot_id)
+            conn.execute(
+                "INSERT INTO native_mcu_boot (boot_id, probe_id) VALUES (?, ?)",
+                (boot_id, expected_probe_id),
+            )
+            self._set_native_counter(conn, "native_current_boot", boot_id)
+            conn.execute(
+                """INSERT INTO device_state (state_key, state_value, updated_at)
+                   VALUES ('native_factory_imported_boot', ?, ?)
+                   ON CONFLICT(state_key) DO UPDATE SET
+                       state_value=excluded.state_value,
+                       updated_at=excluded.updated_at""",
+                (str(boot_id), self._now()),
+            )
+            self._native_boot_observation_values(
+                conn,
+                message_name,
+                payload,
+            )
+            conn.execute(
+                """INSERT INTO native_mcu_boot_observation
+                   (boot_id, probe_id, message_name, payload)
+                   VALUES (?, ?, ?, ?)""",
+                (boot_id, expected_probe_id, message_name, payload),
+            )
+            return True
+
+    def recognize_factory_released_result_baseline(
+        self,
+        boot_id: int,
+        result_sequence: int,
+        work_uid: str,
+    ) -> bool:
+        """Bind the one externally released factory result seen after handoff.
+
+        Factory acceptance and production intentionally use different durable
+        stores.  The MCU can therefore retain the factory CLEAN result in
+        RESULT_RELEASED after production imports the same high-namespace boot.
+        A fresh DEVICE_FACTS reply may bind that exact identity once as an
+        external baseline.  It grants no result custody, command authority or
+        business value; any later different missing result remains fatal.
+        """
+        if (
+            type(boot_id) is not int
+            or not 8_000_000_000_000_000 <= boot_id <= 9_007_199_254_740_991
+            or type(result_sequence) is not int
+            or not 1 <= result_sequence <= 0xFFFFFFFF
+            or not isinstance(work_uid, str)
+        ):
+            return False
+        try:
+            parsed_uid = _uuid.UUID(work_uid)
+        except (AttributeError, TypeError, ValueError):
+            return False
+        if str(parsed_uid) != work_uid or parsed_uid.int == 0:
+            return False
+        expected = _json.dumps(
+            {
+                "mcuBootId": boot_id,
+                "resultSequence": result_sequence,
+                "workUid": work_uid,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        with self._standalone_native_transaction() as conn:
+            existing = conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='native_factory_released_result_baseline'"""
+            ).fetchone()
+            if existing is not None:
+                return existing[0] == expected
+            imported = conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='native_factory_imported_boot'"""
+            ).fetchone()
+            if (
+                imported is None
+                or imported[0] != str(boot_id)
+                or boot_id != self._native_counter(conn, "native_current_boot")
+                or conn.execute(
+                    "SELECT 1 FROM native_mcu_result WHERE mcu_boot_id=? LIMIT 1",
+                    (boot_id,),
+                ).fetchone()
+                or conn.execute(
+                    """SELECT 1 FROM native_mcu_command
+                       WHERE mcu_boot_id=?
+                         AND message_name IN (
+                           'START_DELIVERY_SESSION', 'START_CLEAN_OPERATION',
+                           'MEASURE_BASELINE'
+                         ) LIMIT 1""",
+                    (boot_id,),
+                ).fetchone()
+            ):
+                return False
+            conn.execute(
+                """INSERT INTO device_state (state_key, state_value, updated_at)
+                   VALUES ('native_factory_released_result_baseline', ?, ?)""",
+                (expected, self._now()),
+            )
+            conn.execute(
+                """DELETE FROM device_state
+                   WHERE state_key='native_factory_imported_boot'
+                     AND state_value=?""",
+                (str(boot_id),),
+            )
+            return True
 
     @classmethod
     def _checked_native_boot_observation(cls, conn, row):

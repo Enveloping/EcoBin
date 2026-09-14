@@ -172,8 +172,15 @@ def test_p7_real_executor_and_handoff_are_static_fail_closed_units() -> None:
     handoff = _read("ecobin-factory-handoff.service")
 
     assert "ExecStart=/usr/bin/false" not in executor + handoff
-    assert "-m factory.acceptance_service" in executor
-    assert "-m factory.acceptance_handoff" in handoff
+    assert (
+        "ExecStart=/opt/ecobin/factory-test/current/.venv/bin/python "
+        "-m factory.acceptance_service"
+    ) in executor
+    assert (
+        "ExecStart=/opt/ecobin/factory-test/current/.venv/bin/python "
+        "-m factory.acceptance_handoff"
+    ) in handoff
+    assert "ECOBIN_MCU_PROTOCOL=fixed-frame" not in executor + handoff
     # InaccessiblePaths keeps credentials away from the UART handoff process.
     # The fact gate must bypass that namespace or enrollment can never be
     # observed as complete.
@@ -188,8 +195,8 @@ def test_p7_real_executor_and_handoff_are_static_fail_closed_units() -> None:
     for unit in (executor, handoff):
         assert "DevicePolicy=closed" in unit
         assert "DeviceAllow=/dev/ttyS5 rw" in unit
-        assert "DeviceAllow=/dev/gpiomem rw" in unit
-        assert "DeviceAllow=/dev/mem rw" in unit
+        assert "DeviceAllow=/dev/gpiomem rw" not in unit
+        assert "DeviceAllow=/dev/mem rw" not in unit
     assert "DeviceAllow=char-video4linux rw" in executor
     assert "DeviceAllow=char-video4linux rw" not in handoff
 

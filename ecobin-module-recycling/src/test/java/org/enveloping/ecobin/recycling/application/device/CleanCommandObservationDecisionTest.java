@@ -53,6 +53,17 @@ class CleanCommandObservationDecisionTest {
                 "FAILED",
                 "MCU_RESTART_FINAL_RESULT_UNAVAILABLE"))
                 .isEqualTo(Action.REQUIRE_RECOVERY);
+        assertThat(decide(
+                "IN_PROGRESS", true, "FAILED",
+                "MCU_INITIAL_WEIGHT_UNAVAILABLE"))
+                .isEqualTo(Action.END_PROVEN_BEFORE_UNLOCK);
+        for (String reason : new String[]{
+                "MCU_CLEAN_FINAL_WEIGHT_UNAVAILABLE",
+                "MCU_WORK_CANCELLED",
+                "MCU_WORK_FAILED"}) {
+            assertThat(decide("IN_PROGRESS", true, "FAILED", reason))
+                    .isEqualTo(Action.ABORT_TERMINAL_RESULT);
+        }
     }
 
     @Test
@@ -71,6 +82,9 @@ class CleanCommandObservationDecisionTest {
         for (String status : new String[]{
                 "PRE_UNLOCK_ENDED", "COMPLETED", "ABORTED"}) {
             assertThat(decide(status, true, "ACCEPTED", null))
+                    .isEqualTo(Action.NONE);
+            assertThat(decide(
+                    status, true, "FAILED", "MCU_WORK_FAILED"))
                     .isEqualTo(Action.NONE);
         }
     }

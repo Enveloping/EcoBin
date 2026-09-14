@@ -103,7 +103,7 @@ class AcceptanceConfiguration:
                 values, "ECOBIN_SERIAL_BAUDRATE", 115200
             ),
             protocol_mode=_text(
-                values, "ECOBIN_MCU_PROTOCOL", "fixed-frame"
+                values, "ECOBIN_MCU_PROTOCOL", "uart-v2"
             ).lower(),
             uart_port_count=_integer(values, "ECOBIN_UART_PORT_COUNT", 1),
             boot0_wpi=_integer(values, "ECOBIN_MCU_BOOT0_WPI", 2),
@@ -168,9 +168,9 @@ class AcceptanceConfiguration:
     def validate(self) -> None:
         if self.serial_port != "/dev/ttyS5":
             raise AcceptanceConfigurationError("factory UART must be /dev/ttyS5")
-        if self.serial_baudrate != 115200 or self.protocol_mode != "fixed-frame":
+        if self.serial_baudrate != 115200 or self.protocol_mode != "uart-v2":
             raise AcceptanceConfigurationError(
-                "factory UART must use fixed-frame 115200"
+                "factory UART must use uart-v2 115200"
             )
         if self.uart_port_count != 1:
             raise AcceptanceConfigurationError("factory UART port count must be 1")
@@ -235,6 +235,15 @@ class AcceptanceConfiguration:
             raise AcceptanceConfigurationError(
                 "factory photos must stay under the volatile isolated root"
             )
+
+    @property
+    def native_uart_state_path(self) -> str:
+        """Return the durable UART-v2 state next to, but outside, run state."""
+
+        state = PurePosixPath(self.state_path)
+        suffix = state.suffix or ".json"
+        stem = state.stem if state.suffix else state.name
+        return str(state.with_name(f"{stem}.uart-v2{suffix}"))
 
     def digest_document(self) -> dict[str, object]:
         """Return the exact non-secret hardware/test parameters being proven."""

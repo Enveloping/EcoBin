@@ -1,4 +1,4 @@
-"""Durably stop one native business after control communication is lost.
+"""Durably stop one native business after control loss or an explicit failed result.
 
 The local receipt is frozen before any permanent-ledger mutation.  A process
 restart therefore continues the same failure disposition instead of reviving
@@ -15,10 +15,17 @@ import uart2_protocol as uart
 
 MARKER = "nativeControlFailure"
 PROFILE = "ecobin-native-control-failure-v1"
+RESULT_PROFILE = "ecobin-native-result-failure-v1"
 COMMUNICATION_REASON = "MCU_COMMUNICATION_UNAVAILABLE"
 RESTART_REASON = "EDGE_RESTARTED_BEFORE_START"
 MCU_RESTART_REASON = "MCU_RESTART_FINAL_RESULT_UNAVAILABLE"
 BASELINE_RESULT_REASON = "MCU_BASELINE_RESULT_UNAVAILABLE"
+RESULT_REASONS = {
+    "MCU_INITIAL_WEIGHT_UNAVAILABLE",
+    "MCU_CLEAN_FINAL_WEIGHT_UNAVAILABLE",
+    "MCU_WORK_CANCELLED",
+    "MCU_WORK_FAILED",
+}
 REASONS = {
     COMMUNICATION_REASON,
     RESTART_REASON,
@@ -113,6 +120,39 @@ def _expected_evidence(permit, record, start, device_name, stage, reason, event)
         observationPayloadSha256=event["payloadSha256"])
 
 
+def _result_failure_source(store, conn, permit, record, start):
+    decision = complete_result(store, conn, permit, record, start)
+    if decision is None:
+        return dict(state="WAITING_FOR_COMPLETE_RESULT")
+    if decision["evidence"]["state"] != "MATCHED":
+        return dict(state=decision["evidence"]["state"])
+    value = uart.decode_payload("WORK_RESULT", decision["result"]["payload"])
+    from native_result_evidence import terminal_failure_disposition
+    disposition = terminal_failure_disposition(value)
+    if disposition is None:
+        return dict(state="OTHER_TERMINAL_PATH")
+    return dict(state="QUALIFIED", decision=decision, value=value,
+        disposition=disposition)
+
+
+def _expected_result_evidence(permit, record, start, device_name, source, event):
+    value, disposition = source["value"], source["disposition"]
+    task = source["decision"]["task"]
+    return dict(profile=RESULT_PROFILE, deviceName=device_name, permit=asdict(permit),
+        startCommandUid=record["command_uid"], startMessageName=record["message_name"],
+        sourceMcuBootId=record["mcu_boot_id"], sourceCommandSequence=record["command_sequence"],
+        sourceCommandDigestSha256=start["commandDigestSha256"], portNo=start["portNo"],
+        writeClaimed=True, stage="FAILED", reason=disposition["reason"],
+        businessValue="NONE", resultTaskUid=task["task_uid"],
+        resultMcuBootId=value["mcuBootId"], resultSequence=value["resultSequence"],
+        resultDigestSha256=value["resultDigestSha256"], finishReason=value["finishReason"],
+        failureKind=disposition["kind"], initialKind=value["initialKind"],
+        initialFaultCode=disposition["initialFaultCode"], finalKind=value["finalKind"],
+        finalFaultCode=disposition["finalFaultCode"],
+        cleanBagInterlockRequired=disposition["cleanBagInterlockRequired"],
+        observationEventUid=event["eventUid"], observationPayloadSha256=event["payloadSha256"])
+
+
 def _event(store, command_uid, start_uid, message_name, stage, reason):
     row = store._conn.execute("""SELECT event_uid FROM command_observation
         WHERE command_uid=? AND stage=? AND error_code=?""", (command_uid, stage, reason)).fetchone()
@@ -150,13 +190,26 @@ def _checked_marker(store, permit, record, start, command, device_name):
         raise ValueError("native control failure receipt is malformed")
     evidence = marker["evidence"]
     stage, reason = evidence.get("stage"), evidence.get("reason")
-    if stage not in STAGES or (
-        reason not in REASONS
-        and not (stage == "REJECTED" and reason in _rejection_reasons())
-    ):
-        raise ValueError("native control failure receipt has an unsupported disposition")
+    profile = evidence.get("profile")
+    if profile == PROFILE:
+        if stage not in STAGES or (
+            reason not in REASONS
+            and not (stage == "REJECTED" and reason in _rejection_reasons())
+        ):
+            raise ValueError("native control failure receipt has an unsupported disposition")
+    elif profile == RESULT_PROFILE:
+        if stage != "FAILED" or reason not in RESULT_REASONS:
+            raise ValueError("native result failure receipt has an unsupported disposition")
+    else:
+        raise ValueError("native control failure receipt has an unsupported profile")
     event = _event(store, permit.command_uid, record["command_uid"], record["message_name"], stage, reason)
-    expected = _expected_evidence(permit, record, start, device_name, stage, reason, event)
+    if profile == RESULT_PROFILE:
+        source = _result_failure_source(store, store._conn, permit, record, start)
+        if source["state"] != "QUALIFIED":
+            raise ValueError("native result failure lost its complete result")
+        expected = _expected_result_evidence(permit, record, start, device_name, source, event)
+    else:
+        expected = _expected_evidence(permit, record, start, device_name, stage, reason, event)
     if (evidence != expected or marker.get("evidenceSha256") != canonical_payload_sha256(expected)
             or command["state"] != ("REJECTED" if stage == "REJECTED" else "FAILED")
             or command["last_error"] != reason
@@ -314,6 +367,59 @@ def prepare(store, permit, start_uid, *, device_name, stage, reason):
                     command,
                 ),
             )
+        return _result(marker)
+
+
+def prepare_result(store, permit, start_uid, *, device_name):
+    """Freeze one complete MCU FAILED/CANCELLED packet as a value-free failure."""
+    with store._standalone_native_transaction() as conn:
+        record, start, command = _original(store, permit, start_uid, device_name)
+        result, marker = _checked_marker(store, permit, record, start, command, device_name)
+        if marker is not None:
+            _check_slot_receipt(_slot(store, permit, start["portNo"]), marker)
+            return _result(marker)
+        source = _result_failure_source(store, conn, permit, record, start)
+        if source["state"] != "QUALIFIED":
+            return {"state": source["state"]}
+        disposition = source["disposition"]
+        reason = disposition["reason"]
+        if command["state"] in {"COMPLETED", "FAILED", "REJECTED"}:
+            raise ValueError("native result failure cannot replace another terminal command result")
+        observation = store._record_command_observation_in_tx(
+            conn,
+            command["payload"],
+            "FAILED",
+            mcu_command_uid=start_uid,
+            error_code=reason,
+        )
+        if observation == "CONFLICT":
+            raise ValueError("native result failure command observation conflicts")
+        event = _event(store, permit.command_uid, record["command_uid"],
+            record["message_name"], "FAILED", reason)
+        evidence = _expected_result_evidence(permit, record, start, device_name, source, event)
+        marker = dict(state="PREPARED", evidence=evidence,
+            evidenceSha256=canonical_payload_sha256(evidence))
+        result[MARKER] = marker
+        slot = _slot(store, permit, start["portNo"])
+        if MARKER in slot["context"]:
+            raise ValueError("native result failure has an orphan slot receipt")
+        context = dict(slot["context"])
+        context[MARKER] = _slot_receipt(marker)
+        updated = conn.execute("""UPDATE command_inbox SET state='FAILED', processed_at=?,
+            processing_started_at=NULL, result_json=?, last_error=? WHERE command_uid=? AND state=?""",
+            (store._now(), json.dumps(result, ensure_ascii=False, sort_keys=True), reason,
+             permit.command_uid, command["state"]))
+        if updated.rowcount != 1:
+            raise ValueError("native result failure original command changed")
+        updated = conn.execute("""UPDATE work_slot SET work_state='COMPLETING', context_json=?, updated_at=?
+            WHERE slot_id=1 AND work_uid=? AND work_type=? AND port_no=?""",
+            (json.dumps(context, ensure_ascii=False, sort_keys=True), store._now(),
+             permit.work_uid, permit.work_type, start["portNo"]))
+        if updated.rowcount != 1:
+            raise ValueError("native result failure original slot changed")
+        if permit.work_type == "CLEAN" and disposition["cleanBagInterlockRequired"]:
+            store._set_clean_restart_interlock_in_tx(conn, start["portNo"], True,
+                metadata=_clean_bag_interlock(permit, start, command))
         return _result(marker)
 
 

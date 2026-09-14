@@ -607,7 +607,7 @@ def validate():
             "port_count": UART_PORT_COUNT,
         }
         expected_uart = {
-            "protocol": "fixed-frame",
+            "protocol": "uart-v2",
             "simulated": False,
             "serial_port": "/dev/ttyS5",
             "baudrate": 115200,
@@ -615,8 +615,8 @@ def validate():
         }
         if production_uart != expected_uart:
             raise ValueError(
-                "production runtime requires the fixed Orange Pi UART5 "
-                "boundary (/dev/ttyS5, 115200, fixed-frame, one real port)"
+                "production runtime requires the native Orange Pi UART5 "
+                "boundary (/dev/ttyS5, 115200, uart-v2, one real port)"
             )
         if MCU_UPDATE_ENABLED:
             production_gpio = (

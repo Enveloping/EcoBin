@@ -50,6 +50,9 @@ def owner(store, boot_id, sent):
     runtime.device_name = DEVICE_NAME
     runtime.clock = lambda: 0
     runtime.boot = SimpleNamespace(current_boot=lambda now: boot_id)
+    runtime._identity_boot_id = boot_id
+    runtime.verified_firmware_identity = {"firmwareIdentityHex": "0123456789abcdef"}
+    runtime._mcu_firmware_version = "1.0.1-hil.4"
     runtime.safety = SimpleNamespace(get_mcu_maintenance_status=lambda: None)
     runtime._dispatch_authority = None
     runtime._device_entry_url_link_refresh_pending = True
@@ -87,7 +90,14 @@ def test_native_session_readiness_uses_only_the_current_probe_window(tmp_path):
         current_boot=lambda observed: 42 if observed < 1000 else None
     )
     runtime._mcu_boot_id = 42
+    runtime._identity_boot_id = 0
+    runtime.verified_firmware_identity = None
+    runtime._mcu_firmware_version = ""
     assert runtime.current_mcu_boot_id == 42
+    assert not runtime.mcu_session_ready
+    runtime._identity_boot_id = 42
+    runtime.verified_firmware_identity = {"firmwareIdentityHex": "0123456789abcdef"}
+    runtime._mcu_firmware_version = "1.0.1-hil.4"
     assert runtime.mcu_session_ready
     now[0] = 1000
     assert runtime.current_mcu_boot_id == 0

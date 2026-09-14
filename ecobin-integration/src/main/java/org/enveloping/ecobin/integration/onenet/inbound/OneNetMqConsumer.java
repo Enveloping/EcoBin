@@ -16,6 +16,8 @@ import org.slf4j.MDC;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -38,13 +40,46 @@ import java.util.concurrent.atomic.AtomicBoolean;
         havingValue = "real")
 public class OneNetMqConsumer implements SmartLifecycle {
 
+    private static final long INITIAL_RETRY_DELAY_MILLIS = 1_000L;
+    private static final long MAXIMUM_RETRY_DELAY_MILLIS = 30_000L;
+    private static final int SUBSCRIPTION_CONNECT_TIMEOUT_SECONDS = 10;
+
+    @FunctionalInterface
+    interface SubscriptionConnector {
+        SubscriptionConnection connect(
+                OneNetSubscriptionProperties properties,
+                ConnectingClientRegistrar registrar) throws Exception;
+    }
+
+    @FunctionalInterface
+    interface ConnectingClientRegistrar {
+        boolean register(PulsarClient client);
+    }
+
+    record SubscriptionConnection(
+            PulsarClient client,
+            Consumer<byte[]> consumer) {
+
+        SubscriptionConnection {
+            Objects.requireNonNull(client, "client");
+            Objects.requireNonNull(consumer, "consumer");
+        }
+    }
+
     private final OneNetSubscriptionProperties properties;
     private final ObjectProvider<OneNetMessageHandler> handlerProvider;
     private final ObjectMapper objectMapper;
     private final Environment environment;
     private final OneNetDiagnosticLogger diagnosticLogger;
+    private final SubscriptionConnector subscriptionConnector;
+    private final long initialRetryDelayMillis;
+    private final long maximumRetryDelayMillis;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean stopped = new AtomicBoolean(false);
+    private final Object connectionLock = new Object();
+    private volatile PulsarClient connectingClient;
+    private volatile PulsarClient closedConnectingClient;
     private volatile PulsarClient client;
     private volatile Consumer<byte[]> consumer;
     private volatile Thread worker;
@@ -54,15 +89,45 @@ public class OneNetMqConsumer implements SmartLifecycle {
                             ObjectMapper objectMapper,
                             Environment environment,
                             OneNetDiagnosticLogger diagnosticLogger) {
+        this(
+                properties,
+                handlerProvider,
+                objectMapper,
+                environment,
+                diagnosticLogger,
+                OneNetMqConsumer::openSubscription,
+                INITIAL_RETRY_DELAY_MILLIS,
+                MAXIMUM_RETRY_DELAY_MILLIS);
+    }
+
+    OneNetMqConsumer(OneNetSubscriptionProperties properties,
+                     ObjectProvider<OneNetMessageHandler> handlerProvider,
+                     ObjectMapper objectMapper,
+                     Environment environment,
+                     OneNetDiagnosticLogger diagnosticLogger,
+                     SubscriptionConnector subscriptionConnector,
+                     long initialRetryDelayMillis,
+                     long maximumRetryDelayMillis) {
+        if (initialRetryDelayMillis <= 0
+                || maximumRetryDelayMillis < initialRetryDelayMillis) {
+            throw new IllegalArgumentException(
+                    "invalid OneNet subscription retry delays");
+        }
         this.properties = properties;
         this.handlerProvider = handlerProvider;
         this.objectMapper = objectMapper;
         this.environment = environment;
         this.diagnosticLogger = diagnosticLogger;
+        this.subscriptionConnector = subscriptionConnector;
+        this.initialRetryDelayMillis = initialRetryDelayMillis;
+        this.maximumRetryDelayMillis = maximumRetryDelayMillis;
     }
 
     @Override
     public void start() {
+        if (stopped.get()) {
+            return;
+        }
         if (!properties.isEnabled()) {
             log.info("[OneNet·MQ] onenet.subscription.enabled=false，跳过北向消费者启动");
             return;
@@ -78,6 +143,13 @@ public class OneNetMqConsumer implements SmartLifecycle {
         if (!running.compareAndSet(false, true)) {
             return;
         }
+        // stop() may win after the first lifecycle check but before the CAS.
+        // Recheck the permanent stop fence before creating a worker so a
+        // destroyed bean cannot make even one later connection attempt.
+        if (stopped.get()) {
+            running.set(false);
+            return;
+        }
         worker = new Thread(this::runLoop, "onenet-mq-consumer");
         worker.setDaemon(true);
         worker.start();
@@ -86,42 +158,87 @@ public class OneNetMqConsumer implements SmartLifecycle {
     }
 
     private void runLoop() {
-        long connectionStartedAt = diagnosticLogger.started();
         try {
-            client = PulsarClient.builder()
-                    .serviceUrl(properties.getBrokerUrl())
-                    .allowTlsInsecureConnection(false)
-                    .enableTlsHostnameVerification(true)
-                    .authentication(new OneNetAuthentication(properties.getAccessId(), properties.getSecretKey()))
-                    .build();
-            consumer = client.newConsumer(Schema.BYTES)
-                    .topic(String.format("%s/iot/event", properties.getAccessId()))
-                    .subscriptionName(properties.getSubscriptionName())
-                    .subscriptionType(SubscriptionType.Failover)
-                    .autoUpdatePartitions(Boolean.FALSE)
-                    .subscribe();
-        } catch (Exception e) {
-            log.error(
-                    "[OneNet·MQ] 消费者连接失败，北向上行暂不可用（不影响其它业务）",
-                    diagnosticLogger.sanitized(e));
-            diagnosticLogger.inboundFailure(
-                    null,
-                    "MQ_CONNECTION",
-                    "CONNECTION_FAILURE",
-                    false,
-                    0,
-                    null,
-                    e,
-                    connectionStartedAt);
+            long retryDelayMillis = initialRetryDelayMillis;
+            while (running.get()
+                    && !Thread.currentThread().isInterrupted()) {
+                long connectionStartedAt = diagnosticLogger.started();
+                long connectionInstalledAtNanos = 0L;
+                AtomicBoolean receivedMessage = new AtomicBoolean(false);
+                try {
+                    SubscriptionConnection connection =
+                            subscriptionConnector.connect(
+                                    properties,
+                                    this::installConnectingClient);
+                    if (!installConnection(connection)) {
+                        closeConnection(connection);
+                        return;
+                    }
+                    connectionInstalledAtNanos = System.nanoTime();
+                    consume(
+                            connection.consumer(),
+                            () -> receivedMessage.set(true));
+                    return;
+                } catch (Exception failure) {
+                    // A successful subscription can still be invalidated by a
+                    // broker/network failure in receive().  Remove and close
+                    // that exact connection before attempting a replacement;
+                    // otherwise installConnection would reject the retry and
+                    // the old consumer could spin or leak indefinitely.
+                    closeInstalledConnection();
+                    if (!running.get()
+                            || Thread.currentThread().isInterrupted()) {
+                        return;
+                    }
+                    if (receivedMessage.get()
+                            || connectionInstalledAtNanos != 0L
+                            && System.nanoTime() - connectionInstalledAtNanos
+                            >= maximumRetryDelayMillis * 1_000_000L) {
+                        retryDelayMillis = initialRetryDelayMillis;
+                    }
+                    log.error(
+                            "[OneNet·MQ] 消费者连接失败，将在 {}ms 后重试",
+                            retryDelayMillis,
+                            diagnosticLogger.sanitized(failure));
+                    diagnosticLogger.inboundFailure(
+                            null,
+                            "MQ_CONNECTION",
+                            "CONNECTION_FAILURE_RETRYING",
+                            false,
+                            0,
+                            null,
+                            failure,
+                            connectionStartedAt);
+                    if (!waitForRetry(retryDelayMillis)) {
+                        return;
+                    }
+                    retryDelayMillis = nextRetryDelay(
+                            retryDelayMillis,
+                            maximumRetryDelayMillis);
+                }
+            }
+        } finally {
+            closeInstalledConnection();
+            synchronized (connectionLock) {
+                closedConnectingClient = null;
+            }
             running.set(false);
-            return;
         }
+    }
 
+    private void consume(
+            Consumer<byte[]> activeConsumer,
+            Runnable onMessageReceived) throws Exception {
         while (running.get() && !Thread.currentThread().isInterrupted()) {
-            Message<byte[]> message = null;
+            // A receive failure is a connection failure, not a malformed
+            // message. Let the outer loop close this subscription and apply
+            // bounded retry backoff instead of immediately calling receive()
+            // again on the same broken consumer.
+            Message<byte[]> message = activeConsumer.receive();
+            Objects.requireNonNull(message, "OneNet receive returned null");
+            onMessageReceived.run();
             boolean acknowledge = false;
             try {
-                message = consumer.receive();
                 String messageId = message.getMessageId().toString();
                 try (MDC.MDCCloseable ignored = MDC.putCloseable(
                         "mqMessageId", messageId)) {
@@ -139,32 +256,132 @@ public class OneNetMqConsumer implements SmartLifecycle {
                             diagnosticLogger.sanitized(e));
                 }
             } finally {
-                if (message != null) {
-                    try {
-                        // acknowledge=true 只在消息已可靠落库或已判定为永久毒消息时出现。
-                        // 暂时性失败 negative ACK，让 Pulsar 保留并重投原消息。
-                        if (acknowledge) {
-                            consumer.acknowledge(message);
-                        } else {
-                            consumer.negativeAcknowledge(message);
-                        }
-                    } catch (Exception ackEx) {
-                        log.warn(
-                                "[OneNet·MQ] 消息确认操作失败 type={}",
-                                ackEx.getClass().getSimpleName(),
-                                diagnosticLogger.sanitized(ackEx));
-                        diagnosticLogger.inboundFailure(
-                                message.getMessageId().toString(),
-                                "TRANSPORT_ACK",
-                                "ACK_OPERATION_FAILURE",
-                                false,
-                                message.getData().length,
-                                null,
-                                ackEx,
-                                diagnosticLogger.started());
+                try {
+                    // acknowledge=true 只在消息已可靠落库或已判定为永久毒消息时出现。
+                    // 暂时性失败 negative ACK，让 Pulsar 保留并重投原消息。
+                    if (acknowledge) {
+                        activeConsumer.acknowledge(message);
+                    } else {
+                        activeConsumer.negativeAcknowledge(message);
                     }
+                } catch (Exception ackEx) {
+                    log.warn(
+                            "[OneNet·MQ] 消息确认操作失败 type={}",
+                            ackEx.getClass().getSimpleName(),
+                            diagnosticLogger.sanitized(ackEx));
+                    diagnosticLogger.inboundFailure(
+                            message.getMessageId().toString(),
+                            "TRANSPORT_ACK",
+                            "ACK_OPERATION_FAILURE",
+                            false,
+                            message.getData().length,
+                            null,
+                            ackEx,
+                            diagnosticLogger.started());
                 }
             }
+        }
+    }
+
+    private boolean installConnection(SubscriptionConnection connection) {
+        synchronized (connectionLock) {
+            if (!running.get() || stopped.get()) {
+                connectingClient = null;
+                return false;
+            }
+            if (client != null || consumer != null) {
+                throw new IllegalStateException(
+                        "OneNet subscription connection is already installed");
+            }
+            if (connectingClient != null
+                    && connectingClient != connection.client()) {
+                throw new IllegalStateException(
+                        "OneNet connecting client differs from subscription");
+            }
+            connectingClient = null;
+            client = connection.client();
+            consumer = connection.consumer();
+            return true;
+        }
+    }
+
+    private boolean installConnectingClient(PulsarClient candidate) {
+        Objects.requireNonNull(candidate, "candidate");
+        synchronized (connectionLock) {
+            if (!running.get() || stopped.get()) {
+                return false;
+            }
+            if (connectingClient != null || client != null || consumer != null) {
+                throw new IllegalStateException(
+                        "OneNet subscription connection is already present");
+            }
+            connectingClient = candidate;
+            return true;
+        }
+    }
+
+    private boolean waitForRetry(long retryDelayMillis) {
+        try {
+            Thread.sleep(retryDelayMillis);
+            return running.get() && !stopped.get();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private static long nextRetryDelay(long current, long maximum) {
+        return current >= maximum / 2
+                ? maximum
+                : Math.min(current * 2, maximum);
+    }
+
+    private static SubscriptionConnection openSubscription(
+            OneNetSubscriptionProperties properties,
+            ConnectingClientRegistrar registrar) throws Exception {
+        PulsarClient client = PulsarClient.builder()
+                .serviceUrl(properties.getBrokerUrl())
+                .connectionTimeout(
+                        SUBSCRIPTION_CONNECT_TIMEOUT_SECONDS,
+                        TimeUnit.SECONDS)
+                .lookupTimeout(
+                        SUBSCRIPTION_CONNECT_TIMEOUT_SECONDS,
+                        TimeUnit.SECONDS)
+                .operationTimeout(
+                        SUBSCRIPTION_CONNECT_TIMEOUT_SECONDS,
+                        TimeUnit.SECONDS)
+                .allowTlsInsecureConnection(false)
+                .enableTlsHostnameVerification(true)
+                .authentication(new OneNetAuthentication(
+                        properties.getAccessId(), properties.getSecretKey()))
+                .build();
+        boolean registered = false;
+        try {
+            if (!registrar.register(client)) {
+                throw new InterruptedException(
+                        "OneNet subscription stopped before subscribe");
+            }
+            registered = true;
+            Consumer<byte[]> consumer = client.newConsumer(Schema.BYTES)
+                    .topic(String.format(
+                            "%s/iot/event", properties.getAccessId()))
+                    .subscriptionName(properties.getSubscriptionName())
+                    .subscriptionType(SubscriptionType.Failover)
+                    .autoUpdatePartitions(Boolean.FALSE)
+                    .subscribe();
+            return new SubscriptionConnection(client, consumer);
+        } catch (Exception failure) {
+            // Once registered, the lifecycle owner closes the in-progress
+            // client (including stop while subscribe blocks).  Before
+            // registration this method still owns it.
+            if (!registered) {
+                try {
+                    client.close();
+                } catch (Exception closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+            throw failure;
         }
     }
 
@@ -282,29 +499,76 @@ public class OneNetMqConsumer implements SmartLifecycle {
 
     @Override
     public void stop() {
+        // Bean-destruction fence: this instance is intentionally not restartable.
+        stopped.set(true);
         running.set(false);
-        if (worker != null) {
-            worker.interrupt();
+        Thread activeWorker = worker;
+        if (activeWorker != null) {
+            activeWorker.interrupt();
         }
-        try {
-            if (consumer != null) {
-                consumer.close();
+        closeInstalledConnection();
+        log.info("[OneNet·MQ] 北向消费者已停止");
+    }
+
+    private void closeInstalledConnection() {
+        SubscriptionConnection connection;
+        PulsarClient pendingClient;
+        synchronized (connectionLock) {
+            if (client == null && consumer == null && connectingClient == null) {
+                return;
             }
+            if ((client == null) != (consumer == null)) {
+                throw new IllegalStateException(
+                        "OneNet subscription connection is incomplete");
+            }
+            connection = client == null
+                    ? null
+                    : new SubscriptionConnection(client, consumer);
+            pendingClient = connectingClient;
+            if (pendingClient != null) {
+                closedConnectingClient = pendingClient;
+            }
+            connectingClient = null;
+            client = null;
+            consumer = null;
+        }
+        if (connection != null) {
+            closeConnection(connection);
+        }
+        if (pendingClient != null
+                && (connection == null || pendingClient != connection.client())) {
+            closeClient(pendingClient);
+        }
+    }
+
+    private void closeConnection(SubscriptionConnection connection) {
+        try {
+            connection.consumer().close();
         } catch (Exception e) {
             log.warn(
                     "[OneNet·MQ] 关闭 consumer 异常",
                     diagnosticLogger.sanitized(e));
         }
-        try {
-            if (client != null) {
-                client.close();
+        boolean clientAlreadyClosed;
+        synchronized (connectionLock) {
+            clientAlreadyClosed = closedConnectingClient == connection.client();
+            if (clientAlreadyClosed) {
+                closedConnectingClient = null;
             }
+        }
+        if (!clientAlreadyClosed) {
+            closeClient(connection.client());
+        }
+    }
+
+    private void closeClient(PulsarClient candidate) {
+        try {
+            candidate.close();
         } catch (Exception e) {
             log.warn(
                     "[OneNet·MQ] 关闭 client 异常",
                     diagnosticLogger.sanitized(e));
         }
-        log.info("[OneNet·MQ] 北向消费者已停止");
     }
 
     @Override

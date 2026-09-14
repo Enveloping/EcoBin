@@ -1,5 +1,5 @@
 {
-  "registryVersion": "2.0.0-rc.24",
+  "registryVersion": "2.0.0-rc.26",
   "status": "MCU_REVIEW_REQUIRED",
   "implementationStage": "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED",
   "sessionPolicy": {
@@ -8,8 +8,8 @@
     "commandPayloadValidation": "ALL_FENCED_EDGE_MESSAGES",
     "processMeasurementMessages": ["WORK_PREOPEN_WEIGHT_READY", "WORK_POSTCLOSE_WEIGHT_READY", "WORK_PREUNLOCK_WEIGHT_READY", "CLEAN_FINAL_WEIGHT_READY", "FULLNESS_SAMPLE_RESULT", "BASELINE_MEASUREMENT_RESULT"],
     "bootstrapMessages": ["BOOT_PROBE", "BOOT_PROBE_REPLY", "BIND_BOOT", "BIND_BOOT_REPLY"],
-    "sessionControlMessages": ["COMMAND_DECISION", "QUERY_COMMAND", "COMMAND_QUERY_RESULT", "RESULT_SAVED", "RESULT_SAVED_REPLY", "DEVICE_ENTRY_URL_APPLY_RESULT", "WORK_RESULT", "QUERY_RESULT", "RESULT_QUERY_REPLY", "QUERY_WORK", "WORK_QUERY_REPLY", "QUERY_DEVICE_FACTS", "DEVICE_FACTS_REPLY", "QUERY_PROCESS_EVENT", "PROCESS_EVENT_QUERY_REPLY", "PROCESS_EVENT_SAVED", "PROCESS_EVENT_SAVED_REPLY", "QUERY_ACTUATOR_EVENT", "ACTUATOR_EVENT_QUERY_REPLY", "ACTUATOR_EVENT_SAVED", "ACTUATOR_EVENT_SAVED_REPLY"],
-    "readOnlyMessages": ["QUERY_COMMAND", "QUERY_RESULT", "QUERY_WORK", "QUERY_DEVICE_FACTS", "QUERY_PROCESS_EVENT", "QUERY_ACTUATOR_EVENT"],
+    "sessionControlMessages": ["COMMAND_DECISION", "QUERY_COMMAND", "COMMAND_QUERY_RESULT", "RESULT_SAVED", "RESULT_SAVED_REPLY", "DEVICE_ENTRY_URL_APPLY_RESULT", "WORK_RESULT", "QUERY_RESULT", "RESULT_QUERY_REPLY", "QUERY_WORK", "WORK_QUERY_REPLY", "QUERY_DEVICE_FACTS", "DEVICE_FACTS_REPLY", "QUERY_DEVICE_IDENTITY", "DEVICE_IDENTITY_REPLY", "QUERY_PROCESS_EVENT", "PROCESS_EVENT_QUERY_REPLY", "PROCESS_EVENT_SAVED", "PROCESS_EVENT_SAVED_REPLY", "QUERY_ACTUATOR_EVENT", "ACTUATOR_EVENT_QUERY_REPLY", "ACTUATOR_EVENT_SAVED", "ACTUATOR_EVENT_SAVED_REPLY"],
+    "readOnlyMessages": ["QUERY_COMMAND", "QUERY_RESULT", "QUERY_WORK", "QUERY_DEVICE_FACTS", "QUERY_DEVICE_IDENTITY", "QUERY_PROCESS_EVENT", "QUERY_ACTUATOR_EVENT"],
     "savedResultMessages": ["RESULT_SAVED", "RESULT_SAVED_REPLY", "PROCESS_EVENT_SAVED", "PROCESS_EVENT_SAVED_REPLY", "ACTUATOR_EVENT_SAVED", "ACTUATOR_EVENT_SAVED_REPLY"],
     "bootstrapMaximumSends": 1,
     "commandMaximumSends": 1,
@@ -22,7 +22,7 @@
     "bindTimeout": "FRESH_PROBE_NOT_BIND_RETRY",
     "channelPremise": "REQUESTS_MAY_BE_LOST_DELAYED_REORDERED_BUT_NOT_COPIED",
     "businessGate": "NONZERO_EXACT_TARGET_BOOT",
-    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.24精简正常路径以START作为整次本地业务授权，MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。二维码URL按BEGIN/PART/COMMIT应用，QUERY_COMMAND只查询原决定并可促使MCU重发RAM中匹配的应用结果，不重写屏幕。原过程/动作消息仅供当前诊断或冻结历史读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。成对固件/主入口和现场验证未完成，不可直接发布。"
+    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.26沿用START整次本地业务授权、二维码原子写屏和只读固件身份查询，并由身份回复直接给出当前MCU能力位；查询不驱动、不测量、不改变业务。MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。二维码URL按BEGIN/PART/COMMIT应用，QUERY_COMMAND只查询原决定并可促使MCU重发RAM中匹配的应用结果，不重写屏幕。原过程/动作消息仅供当前诊断或冻结历史读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。成对固件/主入口和现场验证未完成，不可直接发布。"
   },
   "messageLifecyclePolicy": {
     "currentBusinessMessages": [
@@ -31,7 +31,8 @@
       "CONFIG_BEGIN", "CONFIG_DEVICE_BLOCK", "CONFIG_PORT_BLOCK", "CONFIG_COMMIT", "CONFIG_APPLY_RESULT",
       "DEVICE_ENTRY_URL_BEGIN", "DEVICE_ENTRY_URL_PART", "DEVICE_ENTRY_URL_COMMIT", "DEVICE_ENTRY_URL_APPLY_RESULT",
       "START_DELIVERY_SESSION", "START_CLEAN_OPERATION", "MEASURE_BASELINE",
-      "WORK_RESULT", "QUERY_RESULT", "RESULT_QUERY_REPLY", "QUERY_WORK", "WORK_QUERY_REPLY"
+      "WORK_RESULT", "QUERY_RESULT", "RESULT_QUERY_REPLY", "QUERY_WORK", "WORK_QUERY_REPLY",
+      "QUERY_DEVICE_IDENTITY", "DEVICE_IDENTITY_REPLY"
     ],
     "currentDiagnosticMessages": [
       "QUERY_DEVICE_FACTS", "DEVICE_FACTS_REPLY", "WORK_PREOPEN_WEIGHT_READY", "DELIVERY_DOOR_COMMAND_RESULT",
@@ -157,6 +158,7 @@
   },
   "enums": {
     "DeviceFactsStatus": {"wireType":"u8","values":{"AVAILABLE":1,"BOOT_MISMATCH":2,"PORT_UNSUPPORTED":3}},
+    "DeviceIdentityStatus": {"wireType":"u8","values":{"AVAILABLE":1,"BOOT_MISMATCH":2}},
     "ScaleReadStatus": {"wireType":"u8","values":{"NOT_OBSERVED":0,"VALID":1,"TIMEOUT":2,"CRC_ERROR":3,"RANGE_ERROR":4,"PROTOCOL_ERROR":5}},
     "MeasurementObservationState": {"wireType":"u8","values":{"NONE":0,"RUNNING":1,"STABLE_MEAN":2,"TIMEOUT_MEDIAN":3,"UNAVAILABLE":4,"CONFIG_ERROR":5,"BUFFER_FULL":6,"INTERRUPTED":7}},
     "RetainedWorkState": {"wireType":"u8","values":{"NONE":0,"RUNNING":1,"RESULT_HELD":2,"RESULT_RELEASED":3}},
@@ -1163,6 +1165,41 @@
           "name": "retainedResultSequence",
           "type": "u32"
         }
+      ]
+    },
+    {
+      "name": "QUERY_DEVICE_IDENTITY",
+      "id": 71,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "notes": "只读查询当前已绑定启动中的实际固件身份，供热点验收和维护核对。queryId由调用方为本次查询分配；不消耗动作号、不驱动、不测量、不修改配置或业务。",
+      "payload": [
+        {"name":"queryId","type":"u64","minimum":1,"maximum":9007199254740991},
+        {"name":"targetMcuBootId","type":"u64","minimum":1,"maximum":9007199254740991}
+      ]
+    },
+    {
+      "name": "DEVICE_IDENTITY_REPLY",
+      "id": 72,
+      "direction": "MCU_TO_EDGE",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "notes": "回显查询身份及当前启动号，并始终返回编译进当前运行固件的实际非零身份、版本号、端口数、能力位和该启动已接受或拒绝过的最高命令序号；status只说明目标启动是否匹配。调用方仅可在AVAILABLE、启动号精确匹配、能力不含未知位且覆盖requiredMcuMaskHex时绑定身份和能力，并在发送任何新命令前把本地命令序号下限只增不减地同步到highestCommandSequence；旧的同为2.0但没有本字段的回复无效，不能把Pi常量或旧固件清单冒充为当前MCU事实。",
+      "payload": [
+        {"name":"queryId","type":"u64","minimum":1,"maximum":9007199254740991},
+        {"name":"targetMcuBootId","type":"u64","minimum":1,"maximum":9007199254740991},
+        {"name":"currentMcuBootId","type":"u64","minimum":0,"maximum":9007199254740991},
+        {"name":"status","type":"u8","enum":"DeviceIdentityStatus"},
+        {"name":"protocolMajor","type":"u8","const":2},
+        {"name":"protocolMinor","type":"u8","const":0},
+        {"name":"portCount","type":"u8","minimum":0,"maximum":6},
+        {"name":"capabilityBitmap","type":"u64"},
+        {"name":"highestCommandSequence","type":"u32"},
+        {"name":"firmwareVersionCode","type":"u32"},
+        {"name":"firmwareIdentityHigh","type":"u32"},
+        {"name":"firmwareIdentityLow","type":"u32"},
+        {"name":"firmwareVersion","type":"string_u8","maxLength":32}
       ]
     },
     {

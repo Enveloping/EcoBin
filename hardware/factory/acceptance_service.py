@@ -33,11 +33,11 @@ from .acceptance_measurements import (
     valid_sampling,
 )
 from .acceptance_hardware import (
-    FixedFrameAcceptanceMcu,
+    AcceptanceHardwareError,
     FixedRoleCameraProbe,
     OpenCvCapture,
-    ReadOnlyStm32RomProbe,
 )
+from .native_acceptance_mcu import NativeAcceptanceMcu
 from .acceptance_storage import AcceptanceLockBusy, AcceptanceStorageError
 from first_boot.atomic_json import AtomicJsonFile as PublicAtomicJsonFile
 from first_boot.atomic_json import root_group_owner
@@ -58,6 +58,19 @@ _PHYSICAL_FAILED_SAFE_CODES = {
     "delivery": "DELIVERY_FAILED_BUT_APPLICATION_RECOVERED",
     "clean": "CLEAN_FAILED_BUT_APPLICATION_RECOVERED",
 }
+
+
+class _UnavailableRemoteUpdateProbe:
+    """Fail closed if legacy code ever tries absent BOOT0/NRST wiring."""
+
+    @staticmethod
+    def _unsupported(*_args: object, **_kwargs: object) -> None:
+        raise AcceptanceHardwareError("MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED")
+
+    enter_system_bootloader = _unsupported
+    boot_application = _unsupported
+    force_application_selection = _unsupported
+    probe_read_only = _unsupported
 
 
 class AcceptanceCommandError(RuntimeError):
@@ -152,9 +165,25 @@ def _check_summary(value: object) -> dict[str, Any]:
         result["sampling"] = copy.deepcopy(value["sampling"])
     self_test = value.get("selfTest")
     if isinstance(self_test, dict):
-        for key in ("weightGrams", "infraredBlocked", "smokeCode"):
+        for key in (
+            "weightGrams",
+            "infraredBlocked",
+            "smokeCode",
+            "fullnessSensorKind",
+            "fullnessReadStatus",
+            "fullnessDistanceMm",
+            "fullnessDistanceThresholdMm",
+            "fullnessBlocked",
+        ):
             item = self_test.get(key)
-            if type(item) is (bool if key == "infraredBlocked" else int):
+            expected_type = (
+                bool
+                if key in {"infraredBlocked", "fullnessBlocked"}
+                else str
+                if key in {"fullnessSensorKind", "fullnessReadStatus"}
+                else int
+            )
+            if type(item) is expected_type:
                 result["selfTest" + key[0].upper() + key[1:]] = item
     for role in ("outside", "inside"):
         camera = value.get(role)
@@ -173,6 +202,19 @@ def _check_summary(value: object) -> dict[str, Any]:
                 "postWeightGrams",
                 "weightDeltaGrams",
                 "infraredBlocked",
+                "fullnessSensorKind",
+                "fullnessReadStatus",
+                "fullnessDistanceMm",
+                "fullnessDistanceThresholdMm",
+                "fullnessBlocked",
+                "finishReason",
+                "deliveryDoorCommand",
+                "deliveryDoorOutputStatus",
+                "deliveryDoorPhysicalStateBasis",
+                "cleanLockPowerState",
+                "cleanSolenoidHealth",
+                "cleanDoorStateBasis",
+                "cleanerPhysicalCloseConfirmed",
             )
         }
     return result
@@ -188,6 +230,9 @@ def _mcu_identity_summary(value: object) -> dict[str, Any] | None:
             "firmwareVersion",
             "firmwareVersionCode",
             "firmwareIdentityHex",
+            "mcuBootId",
+            "mcuHighestCommandSequence",
+            "mcuCapabilityBitmapHex",
         )
     }
 
@@ -552,14 +597,17 @@ class AcceptanceCommandController:
                     "MCU_UPDATE_LINE_SELECTION_REQUIRED",
                     HTTPStatus.UNPROCESSABLE_ENTITY,
                 )
+            if parameters["mcuUpdateLineInstalled"] is not False:
+                raise AcceptanceCommandError(
+                    "MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED",
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                )
             self._executor.begin_run(
                 image_release_id=self._image_release_id,
                 boot_id=self._boot_id,
                 wall_time_trusted=self._wall_time_trusted,
                 hardware_config_digest=self._config.digest(),
-                mcu_update_line_installed=parameters[
-                    "mcuUpdateLineInstalled"
-                ],
+                mcu_update_line_installed=False,
             )
             return
         if operation == "RESTART_FAILED_RUN":
@@ -582,6 +630,11 @@ class AcceptanceCommandController:
                     "MCU_UPDATE_LINE_SELECTION_REQUIRED",
                     HTTPStatus.UNPROCESSABLE_ENTITY,
                 )
+            if parameters["mcuUpdateLineInstalled"] is not False:
+                raise AcceptanceCommandError(
+                    "MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED",
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                )
             if state.get("status") != "FAILED":
                 raise AcceptanceCommandError(
                     "FAILED_ACCEPTANCE_REQUIRED", HTTPStatus.CONFLICT
@@ -592,9 +645,7 @@ class AcceptanceCommandController:
                 wall_time_trusted=self._wall_time_trusted,
                 hardware_config_digest=self._config.digest(),
                 restart_terminal=True,
-                mcu_update_line_installed=parameters[
-                    "mcuUpdateLineInstalled"
-                ],
+                mcu_update_line_installed=False,
             )
             return
         if operation == "CHECK_MCU":
@@ -960,7 +1011,10 @@ def _wall_time_trusted() -> bool:
 
 
 def build_executor(config: AcceptanceConfiguration) -> FactoryAcceptanceExecutor:
-    mcu = FixedFrameAcceptanceMcu.for_port(config.serial_port)
+    mcu = NativeAcceptanceMcu.for_port(
+        config.serial_port,
+        state_path=config.native_uart_state_path,
+    )
     cameras = FixedRoleCameraProbe(
         outside_source=config.outside_camera,
         inside_source=config.inside_camera,
@@ -968,13 +1022,7 @@ def build_executor(config: AcceptanceConfiguration) -> FactoryAcceptanceExecutor
         capture=OpenCvCapture(),
         shared_group_readable=True,
     )
-    bootloader = ReadOnlyStm32RomProbe(
-        gpio_path=config.gpio_path,
-        boot0_wpi=config.boot0_wpi,
-        reset_wpi=config.reset_wpi,
-        serial_port=config.serial_port,
-        stm32flash_path=config.stm32flash_path,
-    )
+    bootloader = _UnavailableRemoteUpdateProbe()
     return FactoryAcceptanceExecutor(
         mcu=mcu,
         bootloader=bootloader,

@@ -48,6 +48,8 @@ SEMVER_PATTERN = re.compile(
 HEX_16_PATTERN = re.compile(r"^[0-9a-f]{16}$")
 HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 KEY_ID_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9_.-]{0,63}$")
+FIXED_FRAME_APPLICATION_PROTOCOL = "FIXED_FRAME"
+NATIVE_APPLICATION_PROTOCOL = "ECOBIN_UART"
 
 
 class FirmwarePackageError(ValueError):
@@ -217,12 +219,18 @@ def generate_identity(
     version_code: int,
     header_path: Path,
     metadata_path: Path,
+    application_protocol_family: str,
     release_uid: uuid.UUID | None = None,
 ) -> dict:
     if not SEMVER_PATTERN.fullmatch(version) or len(version) > 32:
         raise FirmwarePackageError("version must be ASCII SemVer up to 32 chars")
     if not 1 <= version_code <= 0xFFFFFFFF:
         raise FirmwarePackageError("version code is outside uint32")
+    if application_protocol_family not in {
+        FIXED_FRAME_APPLICATION_PROTOCOL,
+        NATIVE_APPLICATION_PROTOCOL,
+    }:
+        raise FirmwarePackageError("application protocol family is invalid")
     release_uid = release_uid or uuid.uuid4()
     if release_uid.version != 4:
         raise FirmwarePackageError("release UID must be UUIDv4")
@@ -243,6 +251,7 @@ def generate_identity(
         "firmwareVersion": version,
         "firmwareVersionCode": version_code,
         "firmwareIdentityHex": identity.hex(),
+        "applicationProtocolFamily": application_protocol_family,
     }
     _atomic_write(header_path, header)
     _atomic_write(metadata_path, canonical_json(metadata))
@@ -264,6 +273,11 @@ def create_package(
     if not 1 <= len(image) <= MAX_IMAGE_SIZE:
         raise FirmwarePackageError("binary image is empty or exceeds 64 KiB")
     identity = json.loads(identity_metadata_path.read_text(encoding="utf-8"))
+    if identity.get("applicationProtocolFamily") != FIXED_FRAME_APPLICATION_PROTOCOL:
+        raise FirmwarePackageError(
+            "schemaVersion 1 .efw packages support only legacy FIXED_FRAME firmware; "
+            "ECOBIN_UART firmware remote rollout is not implemented"
+        )
     manifest = validate_manifest(
         {
             "schemaVersion": 1,
@@ -396,6 +410,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     identity = subparsers.add_parser("identity")
     identity.add_argument("--version", required=True)
     identity.add_argument("--version-code", required=True, type=int)
+    identity.add_argument(
+        "--application-protocol-family",
+        choices=(FIXED_FRAME_APPLICATION_PROTOCOL, NATIVE_APPLICATION_PROTOCOL),
+        required=True,
+    )
     identity.add_argument("--release-uid", type=uuid.UUID)
     identity.add_argument(
         "--header",
@@ -426,6 +445,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             version_code=args.version_code,
             header_path=args.header,
             metadata_path=args.metadata,
+            application_protocol_family=args.application_protocol_family,
             release_uid=args.release_uid,
         )
     elif args.command == "package":

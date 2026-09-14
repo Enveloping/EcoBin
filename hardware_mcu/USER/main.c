@@ -18,6 +18,7 @@
 
 #define DEVICE(field) (ECOBIN_UART_CONFIG_PREIMAGE_DEVICE_OFFSET + ECOBIN_UART_CONFIG_DEVICE_BLOCK_##field##_OFFSET - ECOBIN_UART_CONFIG_DEVICE_BLOCK_CONTINUE_DELIVERY_WAIT_MS_OFFSET)
 #define START(field) ECOBIN_UART_START_DELIVERY_SESSION_##field##_OFFSET
+#define IDLE_FULLNESS_PERIOD_MS 1000u
 static McuControlEndpoint control;
 static McuWorkPreparation preparation;
 static McuDeliveryExecution delivery;
@@ -26,7 +27,8 @@ static McuDeviceEntryUrl device_entry_url;
 static uint8_t smoke_enabled = 1u, control_tx_failed, initialization_failed;
 static uint8_t display_phase = 0xffu, display_status = 0xffu;
 static uint8_t displayed_measurement[16];
-static uint32_t display_tick, displayed_scale_attempt;
+static uint32_t display_tick, displayed_scale_attempt, idle_fullness_tick;
+static UART3_CommandBatch display_batch;
 
 static uint32_t enter(void) { uint32_t mask = __get_PRIMASK(); __disable_irq(); return mask; }
 static void leave(uint32_t mask) { __set_PRIMASK(mask); }
@@ -190,6 +192,27 @@ static void scale_poll(void) {
     if (ready) (void)NativeUsart_SendScaleQuery(); /* Failure resolves as unreadable, never a reused old frame. */
 }
 
+static void idle_fullness_poll(void) {
+    ActuatorSnapshot snapshot;
+    if (!preparation.fullness_enabled) return;
+    /* Always drain a real raw completion first. A START accepted after the
+     * trigger does not discard, relabel or turn that observation into business
+     * evidence. The unowned poll cannot consume McuFullnessRun's reservation. */
+    (void)McuEnvironmentMonitor_PollUltrasonic(&control.facts);
+    snapshot = ActuatorRuntime_Snapshot();
+    if (preparation.recovery_active || preparation.baseline_active
+        || control.work.status == ECOBIN_UART_WORK_QUERY_STATUS_RUNNING
+        || control.work.result.held || preparation.fullness.present
+        || snapshot.update_latched) return;
+    if (!RuntimeClock_PeriodDue(RuntimeClock_Now(), &idle_fullness_tick,
+        IDLE_FULLNESS_PERIOD_MS)) return;
+    /* Start validates the complete applied configuration/facts identity and
+     * uses the real echo timeout. A reserved business group simply refuses
+     * this raw begin; failure has no admission or actuator side effect. */
+    (void)McuEnvironmentMonitor_StartUltrasonic(&control.facts,
+        &preparation.configuration);
+}
+
 static void hmi_poll(void) {
     uint8_t bytes[32];
     size_t i, count;
@@ -216,56 +239,76 @@ static void hmi_poll(void) {
         }
     }
 }
-static void display_weight(uint8_t result_page) {
+static void display_weight(UART3_CommandBatch *batch) {
     int64_t net = (int64_t)delivery.postclose.grams - preparation.initial.grams;
     uint32_t grams = net > 0 ? (uint32_t)net : 0u;
     uint64_t cents;
-    if (!result_page) return;
     cents = ((uint64_t)grams * ecobin_uart_read_u32_be(preparation.start_payload + START(UNIT_PRICE_TEN_THOUSANDTHS))) / 100000u;
-    UART3_SendScreenVal("page7.n1.val=", (int)(grams / 1000u));
-    UART3_SendScreenVal("page7.n3.val=", (int)((grams % 1000u) / 100u));
-    UART3_SendScreenVal("page7.n2.val=", (int)(cents / 100u));
-    UART3_SendScreenVal("page7.n4.val=", (int)((cents / 10u) % 10u));
-    UART3_SendScreenVal("page7.n5.val=", (int)(cents % 10u));
+    (void)UART3_CommandBatchAppendScreenVal(batch, "page7.n1.val=", (int)(grams / 1000u));
+    (void)UART3_CommandBatchAppendScreenVal(batch, "page7.n3.val=", (int)((grams % 1000u) / 100u));
+    (void)UART3_CommandBatchAppendScreenVal(batch, "page7.n2.val=", (int)(cents / 100u));
+    (void)UART3_CommandBatchAppendScreenVal(batch, "page7.n4.val=", (int)((cents / 10u) % 10u));
+    (void)UART3_CommandBatchAppendScreenVal(batch, "page7.n5.val=", (int)(cents % 10u));
 }
-static void display_price(char *prefix) {
+static void display_price(UART3_CommandBatch *batch, const char *prefix) {
     uint32_t price = ecobin_uart_read_u32_be(preparation.start_payload + START(UNIT_PRICE_TEN_THOUSANDTHS));
     /* The existing screen has a fixed "0." plus one numeric component. Show
      * only a price this layout can represent exactly, never the previous price.
      * General decimal-price formatting remains a small HMI integration item. */
     uint8_t supported = (uint8_t)(price < 10000u && price % 1000u == 0u);
-    UART3_SendScreenVal(prefix, supported ? (int)(price / 1000u) : 0);
-    UART3_SendVisible("n0", supported);
+    (void)UART3_CommandBatchAppendScreenVal(batch, prefix,
+        supported ? (int)(price / 1000u) : 0);
+    (void)UART3_CommandBatchAppendVisible(batch, "n0", supported);
 }
 static void display_poll(void) {
     uint8_t phase = control.work.phase, status = control.work.status;
-    uint32_t mask;
+    uint8_t has_batch = 1u;
+    uint32_t mask, now;
     if (phase == display_phase && status == display_status) return;
-    /* An already queued byte from the previous displayed phase is not a new
-     * round's button. No per-button delivery to Pi or new recovery obligation. */
-    mask = enter(); NativeHmiRx.tail = NativeHmiRx.head; leave(mask);
-    display_phase = phase; display_status = status;
-    if (status != ECOBIN_UART_WORK_QUERY_STATUS_RUNNING) { UART3_SendPage("page0"); return; }
+    UART3_CommandBatchInit(&display_batch);
+    if (status != ECOBIN_UART_WORK_QUERY_STATUS_RUNNING) {
+        (void)UART3_CommandBatchAppendPage(&display_batch, "page0");
+    }
     if (preparation.start_message == ECOBIN_UART_MESSAGE_START_CLEAN_OPERATION) {
-        UART3_SendPage("page8"); return;
+        if (status == ECOBIN_UART_WORK_QUERY_STATUS_RUNNING)
+            (void)UART3_CommandBatchAppendPage(&display_batch, "page8");
+    } else if (status == ECOBIN_UART_WORK_QUERY_STATUS_RUNNING) {
+        switch (phase) {
+        case ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_OPEN_COMMAND:
+            (void)UART3_CommandBatchAppendPage(&display_batch, "page4");
+            break;
+        case ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_OPEN_COUNTDOWN:
+            (void)UART3_CommandBatchAppendPage(&display_batch, "page6");
+            display_price(&display_batch, "page6.n0.val=");
+            (void)UART3_CommandBatchAppendScreenVal(&display_batch, "page6.n1.val=", 0);
+            (void)UART3_CommandBatchAppendScreenVal(&display_batch, "page6.n3.val=", 0);
+            (void)UART3_CommandBatchAppendVisible(&display_batch, "n1", 0u);
+            (void)UART3_CommandBatchAppendVisible(&display_batch, "n3", 0u);
+            break;
+        case ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_WAIT_SELECTION:
+            (void)UART3_CommandBatchAppendPage(&display_batch, "page7");
+            display_price(&display_batch, "page7.n0.val=");
+            display_weight(&display_batch);
+            break;
+        default:
+            has_batch = 0u;
+            break;
+        }
     }
-    switch (phase) {
-    case ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_OPEN_COMMAND:
-        UART3_SendPage("page4"); break;
-    case ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_OPEN_COUNTDOWN:
+    if (has_batch && !UART3_TrySendBatch(&display_batch)) return;
+    /* Only a fully queued page/init batch retires the previous display phase.
+     * RX is then cleared once, so old-page bytes cannot enter the new round. */
+    mask = enter(); NativeHmiRx.tail = NativeHmiRx.head; leave(mask);
+    display_phase = phase;
+    display_status = status;
+    if (status == ECOBIN_UART_WORK_QUERY_STATUS_RUNNING
+        && phase == ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_OPEN_COUNTDOWN) {
         displayed_scale_attempt = preparation.weight.attempt_sequence;
-        UART3_SendPage("page6");
-        display_price("page6.n0.val=");
-        UART3_SendScreenVal("page6.n1.val=", 0);
-        UART3_SendScreenVal("page6.n3.val=", 0);
-        UART3_SendVisible("n1", 0u); UART3_SendVisible("n3", 0u);
-        display_tick = RuntimeClock_Now() - 250u;
-        break;
-    case ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_WAIT_SELECTION:
+        now = RuntimeClock_Now();
+        display_tick = now - 250u;
+    } else if (status == ECOBIN_UART_WORK_QUERY_STATUS_RUNNING
+        && phase == ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_WAIT_SELECTION)
         memcpy(displayed_measurement, delivery.postclose.uid, 16u);
-        UART3_SendPage("page7"); display_price("page7.n0.val="); display_weight(1u); break;
-    default: break;
-    }
 }
 
 static void display_live_weight(void) {
@@ -273,25 +316,39 @@ static void display_live_weight(void) {
     ActuatorDeliveryCycle cycle;
     uint64_t now, deadline;
     int64_t delta;
-    uint32_t grams;
+    uint32_t grams, tick;
     if (display_phase != ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_OPEN_COUNTDOWN
+        || control.work.phase != ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_OPEN_COUNTDOWN
         || control.work.status != ECOBIN_UART_WORK_QUERY_STATUS_RUNNING
-        || !RuntimeClock_PeriodDue(RuntimeClock_Now(), &display_tick, 250u)) return;
+        || (uint32_t)(RuntimeClock_Now() - display_tick) < 250u) return;
+    tick = RuntimeClock_Now();
+    UART3_CommandBatchInit(&display_batch);
     now = now_ms(); cycle = ActuatorRuntime_DeliveryCycle();
     deadline = cycle.opened_at_ms + ecobin_uart_read_u32_be(preparation.start_payload + START(DELIVERY_AUTO_CLOSE_MS));
-    UART3_SendScreenVal("page6.n2.val=", (int)(now < deadline ? (deadline - now + 999u) / 1000u : 0u));
+    (void)UART3_CommandBatchAppendScreenVal(&display_batch, "page6.n2.val=",
+        (int)(now < deadline ? (deadline - now + 999u) / 1000u : 0u));
     if (!McuWeightRun_CopyObservation(&preparation.weight, &observation)
         || observation.status != SCALE_READER_OK || observation.captured_ms > now
         || now - observation.captured_ms > preparation.weight.policy.measurement.maximum_age_ms) {
-        UART3_SendVisible("n1", 0u); UART3_SendVisible("n3", 0u); return;
+        (void)UART3_CommandBatchAppendVisible(&display_batch, "n1", 0u);
+        (void)UART3_CommandBatchAppendVisible(&display_batch, "n3", 0u);
+        if (UART3_TrySendBatch(&display_batch)) display_tick = tick;
+        return;
     }
-    if (observation.attempt_sequence <= displayed_scale_attempt) return;
-    displayed_scale_attempt = observation.attempt_sequence;
+    if (observation.attempt_sequence <= displayed_scale_attempt) {
+        if (UART3_TrySendBatch(&display_batch)) display_tick = tick;
+        return;
+    }
     delta = (int64_t)observation.grams - preparation.initial.grams;
     grams = delta > 0 ? (uint32_t)delta : 0u;
-    UART3_SendScreenVal("page6.n1.val=", (int)(grams / 1000u));
-    UART3_SendScreenVal("page6.n3.val=", (int)((grams % 1000u) / 100u));
-    UART3_SendVisible("n1", 1u); UART3_SendVisible("n3", 1u);
+    (void)UART3_CommandBatchAppendScreenVal(&display_batch, "page6.n1.val=", (int)(grams / 1000u));
+    (void)UART3_CommandBatchAppendScreenVal(&display_batch, "page6.n3.val=", (int)((grams % 1000u) / 100u));
+    (void)UART3_CommandBatchAppendVisible(&display_batch, "n1", 1u);
+    (void)UART3_CommandBatchAppendVisible(&display_batch, "n3", 1u);
+    if (UART3_TrySendBatch(&display_batch)) {
+        display_tick = tick;
+        displayed_scale_attempt = observation.attempt_sequence;
+    }
     /* Display-only delta, not a new first/final measurement or business result. */
 }
 
@@ -317,11 +374,11 @@ int main(void) {
         || !McuWorkPreparation_SetConfigurationApply(&preparation, &control, apply_configuration, 0));
     if (UltrasonicStm32_Init()) (void)McuWorkPreparation_AttachFullness(&preparation, &control);
     USART1_RX_IntEnable();
-    UART3_SendPage("page0");
     for (;;) {
         scale_poll();
         hmi_poll(); /* Old unscoped screen bytes are consumed before a new START. */
         control_poll();
+        idle_fullness_poll();
         (void)McuWorkPreparation_Poll(&preparation, &control, now_ms());
         if (smoke_enabled) (void)McuEnvironmentMonitor_PollSmoke(&control.facts);
         display_poll();

@@ -16691,7 +16691,7 @@
               { "$ref": "#/components/schemas/Sha256Hex" },
               { "type": "null" }
             ],
-            "description": "MCU 已应用的入口 URL 摘要；仅在 deviceEntryUrlMcuApplied=true 时存在。"
+            "description": "MCU 已随完整显示指令原子写入串口屏发送队列的入口 URL 摘要；仅在 deviceEntryUrlMcuApplied=true 时存在。"
           },
           "deviceEntryUrlAppliedMcuBootId": {
             "type": ["integer", "null"],

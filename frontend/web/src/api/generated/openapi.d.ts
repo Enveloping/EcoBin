@@ -9771,8 +9771,19 @@ export interface components {
             cameraUploadHealthy: boolean;
             /** @description V42 及以后证据中，香橙派是否已可靠保存完整设备入口 URL；历史证据为空。 */
             deviceEntryUrlStored?: boolean | null;
-            /** @description 香橙派重新读取本地 URL 后计算的摘要；不代表 MCU 或屏幕状态。 */
+            /** @description 香橙派重新读取本地 URL 后计算的摘要；只证明本机持久化，不代表 MCU 或串口屏状态。 */
             deviceEntryUrlSha256?: components["schemas"]["Sha256Hex"] | null;
+            /** @description 验收证据 v5 中，MCU 是否已把完整二维码显示指令原子写入串口屏发送队列；历史证据为空。 */
+            deviceEntryUrlMcuApplied?: boolean | null;
+            /** @description MCU 已随完整显示指令原子写入串口屏发送队列的入口 URL 摘要；仅在 deviceEntryUrlMcuApplied=true 时存在。 */
+            deviceEntryUrlAppliedSha256?: components["schemas"]["Sha256Hex"] | null;
+            /** @description 执行原子写队列的 MCU 本次启动编号；历史证据或未应用时为空。 */
+            deviceEntryUrlAppliedMcuBootId?: number | null;
+            /**
+             * @description 显示判定依据。按已确认的信任边界，完整指令原子入队即视为串口屏已显示，不继续等待发送完成或屏幕回执。
+             * @enum {string|null}
+             */
+            deviceEntryUrlDisplayBasis?: "UART3_COMMAND_ATOMICALLY_QUEUED" | "NOT_APPLIED" | null;
             mcuSimulated: boolean;
             camerasSimulated: boolean;
             evaluationStatus: components["schemas"]["DeviceAcceptanceStatus"];

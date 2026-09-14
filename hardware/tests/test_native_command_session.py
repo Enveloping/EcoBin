@@ -197,6 +197,35 @@ def test_command_intent_and_single_write_claim_survive_restart(tmp_path):
         store.close()
 
 
+def test_identity_sequence_handoff_only_raises_the_durable_floor(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    try:
+        boot = store.reserve_native_boot_id(store.reserve_native_query_id())
+        assert store.recognize_native_boot_id(boot)
+
+        # Factory acceptance may already have consumed these sequences during
+        # the same live MCU boot, although production SQLite has no command rows.
+        assert store.synchronize_native_command_sequence(boot, 37) == 37
+        record = store.prepare_native_command(
+            "AUTHORIZE_DELIVERY_FIRST_OPEN", COMMAND_UID, boot, open_fields()
+        )
+        assert record["command_sequence"] == 38
+
+        # A delayed/stale lower observation must never reuse a locally reserved
+        # value; synchronization is a floor raise, not an assignment.
+        assert store.synchronize_native_command_sequence(boot, 5) == 38
+        assert store.get_state(f"native_command_sequence:{boot}") == "38"
+
+        with pytest.raises(ValueError, match="recognized boot"):
+            store.synchronize_native_command_sequence(boot + 1, 50)
+        for bad in (-1, 4294967296, True):
+            with pytest.raises(ValueError, match="highest command sequence"):
+                store.synchronize_native_command_sequence(boot, bad)
+    finally:
+        store.close()
+
+
 def test_one_action_write_then_query_after_lost_decision_and_pi_restart(tmp_path, mcu):
     from mcu_session import McuBootSession, McuCommandDispatcher
     path = str(tmp_path / "edge.db")

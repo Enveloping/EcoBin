@@ -2,6 +2,7 @@ import threading
 import time
 
 import main as main_module
+from device_identity import DeviceIdentity
 from main import EcoBinEdge
 
 
@@ -58,3 +59,72 @@ def test_state_change_publish_is_deferred_inside_five_second_window():
         "deferred": True,
     }
     assert edge._runtime_snapshot_requested.is_set()
+
+
+def test_native_snapshot_entry_uses_coherent_runtime_observation(monkeypatch):
+    facts = {"status": "AVAILABLE", "currentMcuBootId": 42, "portNo": 1}
+    identity = {
+        "queryStatus": "OK",
+        "statusCode": 0,
+        "fixedFrameRevision": 2,
+        "firmwareVersionCode": 10_004,
+        "firmwareVersion": "1.0.1-hil.4",
+        "firmwareIdentityHex": "391ce0b83076c981",
+    }
+
+    class NativeUart:
+        compatibility_mode = False
+        port_count = 1
+        uart_state = "READY"
+
+        @staticmethod
+        def current_runtime_observation():
+            return {
+                "mcuBootId": 42,
+                "mcuCapability": 0,
+                "mcuFirmwareVersion": "1.0.1-hil.4",
+                "mcuFirmwareIdentity": identity,
+                "deviceFacts": facts,
+            }
+
+    edge = edge_without_initialization()
+    edge._native_mode = True
+    edge.uart = NativeUart()
+    edge.cloud_transport = object()
+    edge.device_identity = DeviceIdentity("SN-DEMO-0001")
+    edge._last_runtime_snapshot_fingerprint = None
+    calls = []
+
+    def publish(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {
+            "published": False,
+            "skipped_unchanged": True,
+            "payload_sha256": "a" * 64,
+        }
+
+    monkeypatch.setattr("edge_boot._publish_runtime_snapshot", publish)
+
+    edge._publish_runtime_snapshot_now(force=False)
+
+    args, kwargs = calls[0]
+    assert args[4] is None
+    assert kwargs["device_facts"] == facts
+    assert args[3] == {
+        "mcu_boot_id": 42,
+        "mcu_capability": 0,
+        "mcu_firmware_version": "1.0.1-hil.4",
+        "mcu_firmware_identity": identity,
+        "mcu_port_count": 1,
+        "uart_protocol_major": 2,
+        "uart_protocol_minor": 0,
+        "fullness_sensor_kind": "ULTRASONIC",
+        "uart_state": "READY",
+        "compatibility_mode": False,
+    }
+    assert edge._software_runtime_facts()["mcuFirmware"] == {
+        "versionName": "1.0.1-hil.4",
+        "versionCode": 10_004,
+        "identityHex": "391ce0b83076c981",
+        "fixedFrameRevision": 2,
+    }

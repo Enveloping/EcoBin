@@ -27,6 +27,7 @@ import {
   type PendingDeviceEntry,
 } from '../../utils/device-entry-intent'
 import { businessOperationPollDelay } from '../../utils/business-operation-polling'
+import { deliveryAbortedMessage } from '../../utils/business-failure-copy'
 import { requestPhoneBindingBeforeAction } from '../../utils/phone-binding-prompt'
 import { MiniappApiProblem } from '../../utils/request'
 import type {
@@ -88,7 +89,13 @@ const PHASE_TEXT: Record<DeliverySessionPhase, string> = {
   RECOVERY_REQUIRED: '设备结果需要恢复处理，请勿重复扫码',
   BUSINESS_CONFIRMED: '投递已完成',
   PRE_START_FAILED: '设备未能开始本次投递',
-  DEVICE_RESTART_ABORTED: '设备重启，本次投递已取消',
+  DEVICE_RESTART_ABORTED: '本次投递已中止，请按提示处理',
+}
+
+function sessionMessage(session: DeliverySessionView): string {
+  return session.phase === 'DEVICE_RESTART_ABORTED'
+    ? deliveryAbortedMessage(session.endReason)
+    : PHASE_TEXT[session.phase]
 }
 
 // 409 可能是同幂等键并发中的败者，或原请求刚成功后的 ACTIVE 冲突，
@@ -608,7 +615,7 @@ Page({
       this.terminal = true
       this.setData({
         state: 'completed',
-        message: PHASE_TEXT[session.phase],
+        message: sessionMessage(session),
         orderNo: session.deliveryOrderNo || '',
       })
       return
@@ -617,13 +624,13 @@ Page({
       this.terminal = true
       this.setData({
         state: 'ended',
-        message: PHASE_TEXT[session.phase],
+        message: sessionMessage(session),
       })
       return
     }
     this.setData({
       state: 'active',
-      message: PHASE_TEXT[session.phase],
+      message: sessionMessage(session),
     })
   },
 

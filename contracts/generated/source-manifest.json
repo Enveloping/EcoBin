@@ -10,8 +10,8 @@
     "onenet/thing-model.mapping.yaml": "77cd48e9e115b2ede86baf78f134847b4c1b60f1d782b8ce6a8b4b4c614dc385",
     "uart/frozen-v1-runtime.json": "8543a1bd5365cc96fe7606e3c1d121bf6432c38aad42f4a090956475a2643c44",
     "uart/uart-registry.schema.json": "210c67959ee88ebb8e1fd2f11e616d5b911bf4659835212253b1b353b59b2caf",
-    "uart/uart-registry.yaml": "20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2"
+    "uart/uart-registry.yaml": "57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec"
   },
-  "uartRegistrySha256": "20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2",
-  "uartRegistryVersion": "2.0.0-rc.24"
+  "uartRegistrySha256": "57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec",
+  "uartRegistryVersion": "2.0.0-rc.26"
 }

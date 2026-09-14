@@ -34,6 +34,7 @@ from fixed_frame_mcu_adapter import (
 )
 from simulated_camera import capture_simulated_camera, is_simulated_camera_source
 from system.mcu_safe_gpio import GpioCommandError, WiringOpGpio
+import uart2_protocol as uart
 
 
 MAXIMUM_WEIGHT_GRAMS = 350_000
@@ -98,13 +99,27 @@ def deny_network_access():
 
 
 def sanitize_firmware_identity(result: dict) -> dict:
-    """Require a trustworthy F3 MODE=01 revision-2 identity."""
+    """Require a trustworthy revision-2 identity and retain safe diagnostics."""
 
     if not isinstance(result, dict):
         raise AcceptanceHardwareError("MCU_F3_INVALID")
     version = result.get("firmwareVersion")
     identity = result.get("firmwareIdentityHex")
     version_code = result.get("firmwareVersionCode")
+    capability = result.get("mcuCapabilityBitmap")
+    diagnostic_fields = (
+        "mcuBootId",
+        "mcuHighestCommandSequence",
+        "mcuCapabilityBitmap",
+    )
+    diagnostic_presence = tuple(name in result for name in diagnostic_fields)
+    known_capability = int(
+        uart.REGISTRY["capabilityPolicy"]["knownMaskHex"], 16
+    )
+    required_capability = int(
+        uart.REGISTRY["capabilityPolicy"]["requiredMcuMaskHex"],
+        16,
+    )
     if (
         result.get("queryStatus") != "OK"
         or result.get("mode") != 1
@@ -119,14 +134,38 @@ def sanitize_firmware_identity(result: dict) -> dict:
         or not isinstance(identity, str)
         or re.fullmatch(r"[0-9a-fA-F]{16}", identity) is None
         or int(identity, 16) == 0
+        or (
+            any(diagnostic_presence)
+            and (
+                not all(diagnostic_presence)
+                or type(result.get("mcuBootId")) is not int
+                or not 1 <= result["mcuBootId"] <= 9_007_199_254_740_991
+                or type(result.get("mcuHighestCommandSequence")) is not int
+                or not 0 <= result["mcuHighestCommandSequence"] <= 0xFFFFFFFF
+                or type(capability) is not int
+                or capability & ~known_capability
+                or capability & required_capability != required_capability
+            )
+        )
     ):
         raise AcceptanceHardwareError("MCU_F3_NOT_TRUSTED_REVISION_2")
-    return {
+    sanitized = {
         "fixedFrameRevision": 2,
         "firmwareVersion": version,
         "firmwareVersionCode": version_code,
         "firmwareIdentityHex": identity.lower(),
     }
+    if all(diagnostic_presence):
+        sanitized.update(
+            {
+                "mcuBootId": result["mcuBootId"],
+                "mcuHighestCommandSequence": result[
+                    "mcuHighestCommandSequence"
+                ],
+                "mcuCapabilityBitmapHex": f"{capability:016x}",
+            }
+        )
+    return sanitized
 
 
 def sanitize_self_test(result: dict) -> dict:
@@ -136,6 +175,53 @@ def sanitize_self_test(result: dict) -> dict:
         raise AcceptanceHardwareError("MCU_F1_INVALID")
     weight = result.get("weightGrams")
     infrared = result.get("infraredBlocked")
+    fullness_kind = result.get("fullnessSensorKind")
+    fullness = None
+    if fullness_kind is None:
+        if result.get("infraredValid") is True and isinstance(infrared, bool):
+            fullness = {
+                "infraredBlocked": infrared,
+            }
+    elif fullness_kind == "DIGITAL_INFRARED":
+        if (
+            result.get("fullnessReadStatus") == "VALID"
+            and result.get("infraredValid") is True
+            and isinstance(infrared, bool)
+            and result.get("fullnessBlocked") is infrared
+        ):
+            fullness = {
+                "infraredBlocked": infrared,
+                "fullnessSensorKind": fullness_kind,
+                "fullnessReadStatus": "VALID",
+                "fullnessDistanceMm": None,
+                "fullnessDistanceThresholdMm": None,
+                "fullnessBlocked": infrared,
+            }
+    elif fullness_kind == "ULTRASONIC":
+        distance = result.get("fullnessDistanceMm")
+        threshold = result.get("fullnessDistanceThresholdMm")
+        blocked = result.get("fullnessBlocked")
+        if (
+            result.get("fullnessReadStatus") == "VALID"
+            and result.get("infraredValid") is False
+            and type(distance) is int
+            and 0 <= distance <= 4_000
+            and type(threshold) is int
+            and 1 <= threshold <= 4_000
+            and isinstance(blocked, bool)
+            and blocked is (distance < threshold)
+            and infrared is blocked
+        ):
+            fullness = {
+                # Kept for report-v2/P7 readers; the raw fields below make its
+                # ultrasonic threshold meaning explicit.
+                "infraredBlocked": blocked,
+                "fullnessSensorKind": fullness_kind,
+                "fullnessReadStatus": "VALID",
+                "fullnessDistanceMm": distance,
+                "fullnessDistanceThresholdMm": threshold,
+                "fullnessBlocked": blocked,
+            }
     if (
         result.get("queryStatus") != "OK"
         or result.get("communicationHealthy") is not True
@@ -144,18 +230,44 @@ def sanitize_self_test(result: dict) -> dict:
         or not isinstance(weight, int)
         or isinstance(weight, bool)
         or not 0 <= weight <= MAXIMUM_WEIGHT_GRAMS
-        or result.get("infraredValid") is not True
-        or not isinstance(infrared, bool)
+        or fullness is None
         or result.get("smokeCode") != 0
         or result.get("smokeState") != "NORMAL"
         or result.get("smokeSensorHealth") != "OK"
     ):
         raise AcceptanceHardwareError("MCU_F1_UNHEALTHY")
-    return {
+    sanitized = {
         "weightGrams": weight,
-        "infraredBlocked": infrared,
         "smokeCode": 0,
-    }
+    } | fullness
+    sample_identity_fields = (
+        "mcuBootId",
+        "scaleAttemptSequence",
+        "scaleCapturedUptimeMs",
+    )
+    present = tuple(name in result for name in sample_identity_fields)
+    if any(present):
+        boot_id = result.get("mcuBootId")
+        attempt = result.get("scaleAttemptSequence")
+        captured = result.get("scaleCapturedUptimeMs")
+        if (
+            not all(present)
+            or type(boot_id) is not int
+            or not 1 <= boot_id <= 0xFFFFFFFF
+            or type(attempt) is not int
+            or not 1 <= attempt <= 0xFFFFFFFF
+            or type(captured) is not int
+            or not 0 <= captured <= 0xFFFFFFFF
+        ):
+            raise AcceptanceHardwareError("MCU_SCALE_SAMPLE_IDENTITY_INVALID")
+        sanitized.update(
+            {
+                "mcuBootId": boot_id,
+                "scaleAttemptSequence": attempt,
+                "scaleCapturedUptimeMs": captured,
+            }
+        )
+    return sanitized
 
 
 def identities_equal(left: dict, right: dict) -> bool:
@@ -393,6 +505,12 @@ class FixedFrameAcceptanceMcu:
         ) or parser.buffered_length:
             raise AcceptanceHardwareError("CORRUPT_FINAL_RESULT")
         raise AcceptanceHardwareError("FINAL_RESULT_TIMEOUT")
+
+    def confirm_final_result(self, result: dict) -> None:
+        """Legacy DD/EF frames have no separate durable-result release."""
+
+        if not isinstance(result, dict):
+            raise ValueError("factory result must be an object")
 
     def business_input_marker(self) -> dict[int, int]:
         parser = self.adapter._parser  # noqa: SLF001

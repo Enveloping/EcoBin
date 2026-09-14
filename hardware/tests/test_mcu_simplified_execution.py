@@ -43,6 +43,8 @@ def library(tmp_path_factory):
         "ActuatorRuntime_StopForUpdate": (None, []), "RuntimeClock_Advance": (None, [c.c_uint32]),
         "TestPreparation_Weight": (c.c_void_p, [c.c_void_p]),
         "TestPreparation_Facts": (c.c_void_p, [c.c_void_p]),
+        "McuDeviceFacts_PublishFullness": (c.c_uint8, [c.c_void_p, c.c_uint8,
+            c.c_uint8, c.c_uint64, c.c_uint8, c.c_uint16]),
         "McuDeviceFacts_PublishConfiguration": (c.c_uint8, [c.c_void_p, c.c_uint64, c.c_void_p, c.c_void_p, c.c_uint8]),
         "McuWeightRun_StartOwnedAttempt": (c.c_uint32, [c.c_void_p, c.c_uint64]),
         "McuWeightRun_FinishOwnedAttempt": (c.c_uint8, [c.c_void_p, c.c_uint32, c.c_uint32,

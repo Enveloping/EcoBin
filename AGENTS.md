@@ -6,8 +6,8 @@
 ## 当前阶段
 
 - 后端、Web 管理端、小程序基础业务已成形；近期工作集中在 `hardware/` 的香橙派设备侧。
-- Claude Code 最后确认但尚未实施的方向是“清运流程 v3”：MCU 负责屏幕状态机，香橙派只接收按钮事件、保存皮重、计算净重并上报；详见 `docs/architecture/project-context.md`。
-- `hardware/docs/review/uart-protocol-audit.md` 是最近一次 UART 审计结果，问题尚不能视为已修复。
+- 当前本地候选已实现精简业务路线：MCU负责屏幕、按钮、称重和机构状态机，香橙派负责一次START、可靠保存结果、应用新袋皮重、计算净重并上报；尚未通过真实HMI、RS485、机构和断电HIL。
+- UART当前唯一机器来源是`contracts/uart/uart-registry.yaml`的rc.26；`hardware/docs/review/uart-protocol-audit.md`正文是旧文本协议和固定帧路线的历史审计，不能据此判断rc.26现状。
 
 ## 工作约束
 

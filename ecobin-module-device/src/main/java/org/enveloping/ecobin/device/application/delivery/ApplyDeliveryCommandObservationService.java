@@ -100,6 +100,13 @@ public class ApplyDeliveryCommandObservationService {
             case END_BEFORE_OPEN -> endBeforeOpen(
                     tenantId, organizationId, assetId,
                     session, errorCode, projectedAt);
+            case ABORT_TERMINAL_RESULT -> abortValueFreeFailure(
+                    tenantId, organizationId, assetId,
+                    session, errorCode, projectedAt);
+            case ABORT_NATIVE_CONTROL_FAILURE ->
+                    abortNativeControlFailure(
+                            tenantId, organizationId, assetId,
+                            session, errorCode, projectedAt);
             case REQUIRE_RECOVERY -> requireRecovery(
                     tenantId, organizationId, assetId,
                     session, projectedAt);
@@ -303,6 +310,77 @@ public class ApplyDeliveryCommandObservationService {
                 organizationId,
                 assetId),
                 "project uncertain delivery failure");
+    }
+
+    private void abortValueFreeFailure(
+            long tenantId,
+            long organizationId,
+            long assetId,
+            SessionRow session,
+            String errorCode,
+            LocalDateTime receivedAt) {
+        String reason = stableReason(errorCode);
+        requireMatchingOrReleasedOccupancy(
+                tenantId, organizationId, assetId, session);
+        requireSingle(jdbc.update("""
+                        UPDATE dev_delivery_session
+                        SET status = 'DEVICE_ABORTED',
+                            ended_at = ?,
+                            end_reason = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND status IN (
+                              'AUTHORIZATION_QUEUED',
+                              'IN_PROGRESS',
+                              'RESULT_PENDING_RECOVERY'
+                          )
+                        """,
+                receivedAt,
+                reason,
+                receivedAt,
+                session.id(),
+                tenantId,
+                organizationId,
+                assetId),
+                "abort delivery from explicit value-free device failure");
+        requireOccupancyRelease(jdbc.update("""
+                        DELETE FROM dev_device_occupancy
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND occupancy_kind = 'DELIVERY'
+                          AND delivery_session_id = ?
+                        """,
+                tenantId,
+                organizationId,
+                assetId,
+                session.id()),
+                session.offlineOccupancyReleasedAt(),
+                "release value-free failed delivery occupancy");
+    }
+
+    private void abortNativeControlFailure(
+            long tenantId,
+            long organizationId,
+            long assetId,
+            SessionRow session,
+            String errorCode,
+            LocalDateTime receivedAt) {
+        if (!"MCU_COMMUNICATION_UNAVAILABLE".equals(errorCode)) {
+            throw new IllegalArgumentException(
+                    "native control failure requires its exact reason");
+        }
+        abortValueFreeFailure(
+                tenantId,
+                organizationId,
+                assetId,
+                session,
+                errorCode,
+                receivedAt);
     }
 
     static LocalDateTime trustedOperationTime(

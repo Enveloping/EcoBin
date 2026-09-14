@@ -17,12 +17,14 @@
 个人配置，以及每次发布单独生成的 `USER/firmware_identity.h`。这样不会把旧固件、
 开发机状态或某一次发布身份误当成源码提交。
 
-MCU 与香橙派之间的完整通信协议只维护在
-`hardware/docs/单片机-香橙派适配通信协议详细内容.md`；本目录不再保留删节版或副本。
+当前UART v2协议的唯一机器来源是`contracts/uart/uart-registry.yaml`，生成的C产物位于
+`USER/uar/`。`hardware/docs/单片机-香橙派适配通信协议详细内容.md`只保留历史fixed-frame
+线路依据，不能作为rc.26字段定义。
 
 ## 出厂外设模拟固件
 
-`factory_sim/` 是完全独立的 STM32F103C8T6 测试固件和 Clang 构建目标。它通过
+`factory_sim/`是完全独立的历史fixed-frame测试固件和Clang构建目标，不是当前rc.26 P7
+量产验收模拟器。它通过
 真实 USART1 与香橙派通信，但在 MCU 内部模拟缺失的称重、红外、烟感、屏幕按钮和
 机械动作，供设备电源暂时无法带动外设时演练正常出厂流程。其 F3 身份固定为
 `ECOSIM01`，不能冒充本目录下的生产固件或真实硬件在环证据。
@@ -45,11 +47,15 @@ MCU 与香橙派之间的完整通信协议只维护在
 uv run --project hardware --python 3.11 python hardware/mcu_firmware_package.py identity `
   --version 1.0.0 `
   --version-code 10000 `
+  --application-protocol-family ECOBIN_UART `
   --header hardware_mcu/USER/firmware_identity.h `
   --metadata release-output/mcu-1.0.0.identity.json
 ```
 
 `USER/firmware_identity.example.h` 只说明头文件形状，不能作为正式发布身份。
+当前 `.efw` schema 1 与远程升级器只支持旧 `FIXED_FRAME` 固件；上述
+`ECOBIN_UART` 身份可以用于本地构建和人工烧录，但打包命令会明确拒绝，不能把新版
+固件冒充为固定帧修订号 2 后远程下发。
 
 ## 使用 Keil 构建
 
@@ -66,6 +72,10 @@ F2 模式 02 的“停止全部输出并锁存升级执行模式”，以及称�
 “完整 Modbus 应答优先于轮询超时”和限位停机转换，都不依赖 STM32 寄存器，可用 Clang
 在桌面直接回归。相同测试入口还检查清运进入 `page8`、`0x07` 只在同一次有效清运等待
 状态下再次开锁，以及 `0x05` 被接受后才由 MCU 切回 `page0`：
+
+`tests/uart3_atomic_batch_test.c`还直接编译真实`usart3.c`，验证普通页面、初始化和动态值批次
+全有或全无进入UART3软件发送队列，队列不足时零字节发布，后续命令不能撤销已入队二维码。
+该测试只证明“完整指令组已入队”，不等待USART完成、HMI回执或读回。
 
 ```powershell
 cd hardware

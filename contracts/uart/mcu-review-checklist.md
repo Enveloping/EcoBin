@@ -1,5 +1,12 @@
 # EcoBin 原生 UART 2.0 MCU 候选确认单
 
+> **当前候选（2026-09-14）**：UART `2.0.0-rc.26`，73种消息，115200/8N1，状态仍为
+> `MCU_REVIEW_REQUIRED / SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED`。MCU身份必须返回
+> 真实能力位并覆盖`0x8100`；完整HMI指令组原子进入UART3软件发送队列即视为已显示，失败时
+> 零字节发布且不推进显示状态。当前实现和验证边界见
+> [rc.26收口记录](../../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)。
+> 真实HMI、RS485、机构和断电HIL仍未执行，禁止依据下方历史候选数字放行。
+
 > 最新候选 [P1BT：已授权未登记发送的恢复关门撤回](../../hardware/docs/review/uart2-recovery-close-withdrawal-p1bt-2026-09-13.md)：业务库先封住旧发送，永久层另存撤回事实并保留原授权历史；独立继任仅豁免准确祖先，候选循环已接自动核对，不发新动作、不启动云端、不恢复接单，业务39/永久3不变。
 > 撤回专项53项与运行入口19项分别通过，最终集成/扩大回归见实施记录，完整契约25通过。已登记可能发送的未知效果、跨新启动号新动作、完整准入/云端/正常业务与main切换仍待接，P4/P5未完成。
 > 未部署/烧录；OneNet2.2.0/UART rc.22/MySQL V79/权限40及发布25/39门槛不变。外部刷写/HIL不保证共用串口锁；RS485/HMI/完整固件容量保留。两项投递取舍已确认，下方历史“待确认”不再适用。
@@ -43,7 +50,7 @@
 [`generated/uart-layout.json`](generated/uart-layout.json)。本文件只记录评审结论，不在
 这里另建第二套消息号或字段定义。
 
-## 1. 当前状态
+## 1. 历史阶段记录
 
 > 最新硬件[P1AI清运解锁前称重失败](../../hardware/docs/review/uart2-clean-preunlock-failure-p1ai-2026-09-12.md)：首重无结果/中断精确保存后冻结FAILED；零解锁步骤、末重未采集、不伪造人工确认，Pi重启/丢回执不重放、不清占用，上一单数据不串单。
 > rc.19/schema27不变，300项相关及25项完整契约验证通过；扩大回归1668通过/5跳过/1635子测试通过/零失败，ROM50548/RAM6064仅核心探针，历史SQLite偶发1546未宣称修复。已解锁异常/账本/恢复/分类/HMI/main仍待接，P3未整体完成；未部署/烧录，当前无需用户操作。下方为历史。

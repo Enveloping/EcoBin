@@ -58,8 +58,10 @@ class BusinessReleasePackageVerifierTest {
         assertThat(result.packageFormatVersion()).isEqualTo(1);
         assertThat(result.backendCommandContractVersion()).isEqualTo(2);
         assertThat(result.communicationBusinessProtocolMajor()).isEqualTo(1);
-        assertThat(result.uartProtocolFamily()).isEqualTo("FIXED_FRAME");
-        assertThat(result.requiredFixedFrameRevision()).isEqualTo(2);
+        assertThat(result.uartProtocolFamily()).isEqualTo("ECOBIN_UART");
+        assertThat(result.uartProtocolMajor()).isEqualTo(2);
+        assertThat(result.uartProtocolMinor()).isZero();
+        assertThat(result.requiredFixedFrameRevision()).isNull();
     }
 
     @Test
@@ -261,11 +263,15 @@ class BusinessReleasePackageVerifierTest {
                 ECOBIN_COMMUNICATION_BUSINESS_PROTOCOL_MINOR=0
                 ECOBIN_UPDATER_BUSINESS_PROTOCOL_MAJOR=1
                 ECOBIN_UPDATER_BUSINESS_PROTOCOL_MINOR=0
-                ECOBIN_UART_PROTOCOL_FAMILY=FIXED_FRAME
-                ECOBIN_UART_PROTOCOL_MAJOR=NONE
-                ECOBIN_UART_PROTOCOL_MINOR=NONE
-                ECOBIN_REQUIRED_FIXED_FRAME_REVISION=2
-                ECOBIN_REQUIRED_MCU_CAPABILITY_BITMAP_HEX=0000000000000000
+                ECOBIN_UART_PROTOCOL_FAMILY=ECOBIN_UART
+                ECOBIN_UART_PROTOCOL_MAJOR=2
+                ECOBIN_UART_PROTOCOL_MINOR=0
+                ECOBIN_UART_REGISTRY_VERSION=2.0.0-rc.26
+                ECOBIN_UART_REGISTRY_SHA256=621feafd1523a6906ec0f16d9d7373c7a2b021a97030bd3d01e3fcfb50e9dfc3
+                ECOBIN_ONENET_MAPPING_VERSION=2.4.0
+                ECOBIN_ONENET_MAPPING_SHA256=3e74ad04510ce900c667b32976bf13310687700437a0446fa46739be51662d7f
+                ECOBIN_REQUIRED_FIXED_FRAME_REVISION=NONE
+                ECOBIN_REQUIRED_MCU_CAPABILITY_BITMAP_HEX=0000000000008100
                 ECOBIN_PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX=0000000000000000
                 """).formatted(canonicalBusinessAllowlistSha256());
     }

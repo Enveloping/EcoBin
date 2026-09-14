@@ -554,10 +554,22 @@ class OneNetSchemaTests(unittest.TestCase):
         )
         validator.validate(event, schema)
 
-        v4_missing_capability = copy.deepcopy(event)
-        del v4_missing_capability["payload"]["mcuRemoteUpdateCapable"]
         from contractlib import payload_sha256
 
+        v4 = copy.deepcopy(event)
+        v4["payload"]["evidenceSchemaVersion"] = 4
+        for field in (
+            "deviceEntryUrlMcuApplied",
+            "deviceEntryUrlAppliedSha256",
+            "deviceEntryUrlAppliedMcuBootId",
+            "deviceEntryUrlDisplayBasis",
+        ):
+            del v4["payload"][field]
+        v4["payloadSha256"] = payload_sha256(v4["payload"])
+        validator.validate(v4, schema)
+
+        v4_missing_capability = copy.deepcopy(v4)
+        del v4_missing_capability["payload"]["mcuRemoteUpdateCapable"]
         v4_missing_capability["payloadSha256"] = payload_sha256(
             v4_missing_capability["payload"]
         )

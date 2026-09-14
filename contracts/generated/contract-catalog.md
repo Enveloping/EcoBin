@@ -2,8 +2,8 @@
 
 > 本文件由 `contracts/tools/generate_contracts.py` 生成，请勿直接编辑。
 
-- UART Registry：`2.0.0-rc.24`
-- UART Registry SHA-256：`20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2`
+- UART Registry：`2.0.0-rc.26`
+- UART Registry SHA-256：`57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec`
 - UART 状态：`MCU_REVIEW_REQUIRED`
 - 实施阶段：`SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED`；候选不可运行，旧运行制品摘要冻结，不自动覆盖。
 - 单帧预算见 `contracts/uart/generated/message-budget.json`；不代表完整结果/RAM 预算已完成。
@@ -16,6 +16,8 @@
 |---:|---|---|---|---|---:|---:|---:|
 | `0x45` | `QUERY_DEVICE_FACTS` | `currentDiagnosticMessages` | `EDGE_TO_MCU` | 否 | `17` | 31 | 225 |
 | `0x46` | `DEVICE_FACTS_REPLY` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 否 | `226` | 240 | 16 |
+| `0x47` | `QUERY_DEVICE_IDENTITY` | `currentBusinessMessages` | `EDGE_TO_MCU` | 否 | `16` | 30 | 226 |
+| `0x48` | `DEVICE_IDENTITY_REPLY` | `currentBusinessMessages` | `MCU_TO_EDGE` | 否 | `53..85` | 99 | 157 |
 | `0x60` | `ACTUATOR_EVENT_SAVED` | `currentDiagnosticMessages` | `EDGE_TO_MCU` | 否 | `45` | 59 | 197 |
 | `0x61` | `ACTUATOR_EVENT_SAVED_REPLY` | `currentDiagnosticMessages` | `MCU_TO_EDGE` | 否 | `54` | 68 | 188 |
 | `0x5E` | `QUERY_ACTUATOR_EVENT` | `currentDiagnosticMessages` | `EDGE_TO_MCU` | 否 | `20` | 34 | 222 |

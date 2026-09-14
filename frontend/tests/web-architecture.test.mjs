@@ -320,6 +320,11 @@ test('cleaning Web slice separates operation facts from editable records', () =>
   assert.match(operationPage, /RECOVERY_REQUIRED/);
   assert.match(operationPage, /PRE_UNLOCK_ENDED/);
   assert.match(operationPage, /ABORTED/);
+  assert.match(operationPage, /cleanAbortDescription\(detail\.endReason\)/);
+  assert.doesNotMatch(
+    operationPage,
+    /香橙派在固定帧执行期间重启，系统中止操作/,
+  );
   assert.match(recordPage, /expectedVersion:\s*detail\.effective\.version/);
   assert.match(recordPage, /listCleanRecordChanges/);
   assert.match(recordPage, /清运记录修正失败/);
@@ -513,6 +518,11 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.match(drawerSource, /不代表设备当前状态/);
   assert.match(drawerSource, /activeKey=\{evidenceExpanded/);
   assert.match(drawerSource, /模拟来源/);
+  assert.match(drawerSource, /完整显示指令已写入串口屏发送队列/);
+  assert.match(drawerSource, /按设备规则视为已显示/);
+  assert.match(drawerSource, /控制板写入队列的入口摘要/);
+  assert.match(generatedSource, /deviceEntryUrlMcuApplied/);
+  assert.match(generatedSource, /deviceEntryUrlDisplayBasis/);
   assert.doesNotMatch(drawerSource, /模拟器（不能通过）/);
   assert.match(drawerSource, /expectedLatestVersion:\s*current\.versionNo/);
   assert.match(drawerSource, /系统会自动下发配置并测量厂家初始袋皮重/);

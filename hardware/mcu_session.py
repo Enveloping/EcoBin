@@ -69,7 +69,20 @@ class McuBootSession:
     def _observe(self, name: str, payload: bytes, boot_id: int) -> None:
         self._stage = "CONSUMED"  # No exception permits the same reply to bind again.
         self._boot = None
-        if boot_id and self._store.save_native_boot_observation(name, payload):
+        saved = bool(
+            boot_id and self._store.save_native_boot_observation(name, payload)
+        )
+        if (
+            boot_id
+            and not saved
+            and name == "BOOT_PROBE_REPLY"
+        ):
+            saved = self._store.import_factory_native_boot_observation(
+                name,
+                payload,
+                expected_probe_id=self._probe,
+            )
+        if saved:
             self._boot, self._stage = boot_id, "BOUND"
 
     def accept_frame(self, frame: bytes, now_ms: int) -> bool:

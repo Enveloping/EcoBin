@@ -1403,26 +1403,38 @@ class EcoBinEdge:
                 "compatibility_mode",
                 False,
             )
+            native_observation = (
+                self.uart.current_runtime_observation()
+                if getattr(self, "_native_mode", False)
+                else None
+            )
             result = _publish_runtime_snapshot(
                 self.store,
                 self.cloud_transport,
                 self.device_identity,
                 {
                 "mcu_boot_id": (
-                    getattr(self.uart, "_mcu_boot_id", None) or 0
+                    native_observation["mcuBootId"]
+                    if native_observation is not None
+                    else (getattr(self.uart, "_mcu_boot_id", None) or 0)
                 ),
                 "mcu_capability": (
-                    getattr(self.uart, "_mcu_capability", None) or 0
+                    native_observation["mcuCapability"]
+                    if native_observation is not None
+                    else (getattr(self.uart, "_mcu_capability", None) or 0)
                 ),
-                "mcu_firmware_version": getattr(
-                    self.uart,
-                    "_mcu_firmware_version",
-                    "",
+                "mcu_firmware_version": (
+                    native_observation["mcuFirmwareVersion"]
+                    if native_observation is not None
+                    else getattr(self.uart, "_mcu_firmware_version", "")
                 ),
-                "mcu_firmware_identity": getattr(
-                    self.uart,
-                    "verified_firmware_identity",
-                    None,
+                "mcu_firmware_identity": (
+                    native_observation["mcuFirmwareIdentity"]
+                    if native_observation is not None
+                    else getattr(self.uart, "verified_firmware_identity", None)
+                ),
+                "mcu_port_count": (
+                    getattr(self.uart, "port_count", 1)
                 ),
                 "uart_protocol_major": (
                     None if compatibility_mode else 2 if getattr(self, "_native_mode", False) else 1
@@ -1439,7 +1451,12 @@ class EcoBinEdge:
                     else runtime_uart_state(self.store, self.uart)),
                 "compatibility_mode": compatibility_mode,
                 },
-                [],
+                None if native_observation is not None else [],
+                device_facts=(
+                    native_observation["deviceFacts"]
+                    if native_observation is not None
+                    else None
+                ),
                 force=force,
                 previous_payload_sha256=(
                     self._last_runtime_snapshot_fingerprint
@@ -1461,10 +1478,19 @@ class EcoBinEdge:
         compatibility_mode = bool(
             getattr(self.uart, "compatibility_mode", False)
         )
+        native_observation = (
+            self.uart.current_runtime_observation()
+            if getattr(self, "_native_mode", False)
+            else None
+        )
         raw_capability = (
             0
             if compatibility_mode
-            else (getattr(self.uart, "_mcu_capability", None) or 0)
+            else (
+                native_observation["mcuCapability"]
+                if native_observation is not None
+                else (getattr(self.uart, "_mcu_capability", None) or 0)
+            )
         )
         if (
             isinstance(raw_capability, bool)
@@ -1472,10 +1498,10 @@ class EcoBinEdge:
             or not 0 <= raw_capability <= 0xFFFFFFFFFFFFFFFF
         ):
             raw_capability = 0
-        raw_identity = getattr(
-            self.uart,
-            "verified_firmware_identity",
-            None,
+        raw_identity = (
+            native_observation["mcuFirmwareIdentity"]
+            if native_observation is not None
+            else getattr(self.uart, "verified_firmware_identity", None)
         )
         mcu_firmware = None
         if isinstance(raw_identity, dict):

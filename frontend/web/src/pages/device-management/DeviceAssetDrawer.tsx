@@ -875,6 +875,26 @@ function AcceptanceEvidenceFacts({
         <Descriptions.Item label="摄像头来源（诊断）">
           <Tag>{evidence.camerasSimulated ? '模拟来源' : '真实来源'}</Tag>
         </Descriptions.Item>
+        <Descriptions.Item label="设备入口地址保存">
+          {evidence.deviceEntryUrlStored == null ? (
+            <Tag>历史记录未采集</Tag>
+          ) : (
+            <Tag color={evidence.deviceEntryUrlStored ? 'success' : 'error'}>
+              {evidence.deviceEntryUrlStored ? '香橙派已可靠保存' : '未可靠保存'}
+            </Tag>
+          )}
+        </Descriptions.Item>
+        <Descriptions.Item label="二维码显示状态" span={2}>
+          {evidence.deviceEntryUrlMcuApplied == null ? (
+            <Tag>历史记录未采集</Tag>
+          ) : evidence.deviceEntryUrlMcuApplied ? (
+            <Tag color="success">
+              完整显示指令已写入串口屏发送队列（按设备规则视为已显示）
+            </Tag>
+          ) : (
+            <Tag color="error">完整显示指令尚未写入发送队列</Tag>
+          )}
+        </Descriptions.Item>
         <Descriptions.Item label="设备检查时间">
           {formatShanghaiTime(evidence.observedAt)}
         </Descriptions.Item>
@@ -904,6 +924,34 @@ function AcceptanceEvidenceFacts({
                       </Typography.Text>
                     ))}
                   </Space>
+                </Descriptions.Item>
+              )}
+              {evidence.deviceEntryUrlSha256 && (
+                <Descriptions.Item label="香橙派保存的入口摘要">
+                  <Typography.Text copyable code>
+                    {evidence.deviceEntryUrlSha256}
+                  </Typography.Text>
+                </Descriptions.Item>
+              )}
+              {evidence.deviceEntryUrlAppliedSha256 && (
+                <Descriptions.Item label="控制板写入队列的入口摘要">
+                  <Typography.Text copyable code>
+                    {evidence.deviceEntryUrlAppliedSha256}
+                  </Typography.Text>
+                </Descriptions.Item>
+              )}
+              {evidence.deviceEntryUrlAppliedMcuBootId != null && (
+                <Descriptions.Item label="执行写入的控制板启动编号">
+                  <Typography.Text copyable code>
+                    {evidence.deviceEntryUrlAppliedMcuBootId}
+                  </Typography.Text>
+                </Descriptions.Item>
+              )}
+              {evidence.deviceEntryUrlDisplayBasis && (
+                <Descriptions.Item label="二维码显示判定依据">
+                  <Typography.Text code>
+                    {evidence.deviceEntryUrlDisplayBasis}
+                  </Typography.Text>
                 </Descriptions.Item>
               )}
             </Descriptions>

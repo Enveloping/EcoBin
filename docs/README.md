@@ -2,7 +2,7 @@
 
 > 当前设备路线：[精简实施计划](planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)，依据[简化恢复共识](architecture/mcu-edge-simplified-recovery-discussion-2026-09-13.md)。核心共识已收敛，进入新路线本地实施；旧复杂恢复不继续，现状代码与已验证完成范围分开记录。
 
-> 当前增量：[S4发布清单与隔离包保管](../hardware/docs/review/simplified-release-custody-s4-2026-09-14.md)与[二维码URL可靠应用](../hardware/docs/review/uart2-device-entry-url-plan-2026-09-14.md)。当前业务包63文件/schema40/摘要a376d660…，完整运行包74文件；后台包验证器已同步。UART rc.24以START作为正常机械业务入口，并增加非机械二维码配置事务；旧共享测试已迁移，全量硬件回归4185通过/123环境跳过/5子测试通过。真实串口屏/RS485/换袋/断电HIL、Linux/ARM64安装、热点/固件管理和部署仍未完成，不能部署烧录。下方复杂恢复候选均为历史。
+> 当前增量：[UART rc.26能力、串口屏批次、工厂投影与终态失败收口](../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)。当前为UART rc.26、OneNet2.4.0、EdgeStore schema40、数据库V83的本地候选，共73种消息；完整显示指令组原子进入UART3软件发送队列即视为已显示，空间不足时零字节发布并重试。硬件全量首次4258通过/123环境跳过/5子测试通过，已知Windows SQLite强杀恢复1546失败项单独复跑通过。真实串口屏/RS485/机构/断电HIL、Linux/ARM64安装和部署仍未完成，不能部署烧录。下方rc.25及更早记录均为历史。
 
 > 最新候选 [P1BT：已授权未登记发送的恢复关门撤回](../hardware/docs/review/uart2-recovery-close-withdrawal-p1bt-2026-09-13.md)：业务库先封住旧发送，永久层另存撤回事实并保留原授权历史；独立继任仅豁免准确祖先，候选循环已接自动核对，不发新动作、不启动云端、不恢复接单，业务39/永久3不变。
 > 撤回专项53项与运行入口19项分别通过，最终集成/扩大回归见实施记录，完整契约25通过。已登记可能发送的未知效果、跨新启动号新动作、完整准入/云端/正常业务与main切换仍待接，P4/P5未完成。

@@ -44,6 +44,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -64,6 +65,13 @@ public class InterruptedCleanBagRecoveryService {
     static final String ACTION = "clean.interrupted-bag.recover";
     private static final long COMMAND_VALIDITY_SECONDS = 60;
     static final long BASELINE_MEASUREMENT_TIMEOUT_MS = 5_000;
+    private static final Set<String> SUPPORTED_RECOVERY_FAULTS = Set.of(
+            "MCU_RESTART_FINAL_RESULT_UNAVAILABLE",
+            "MCU_COMMUNICATION_UNAVAILABLE",
+            "EDGE_RESTARTED",
+            "MCU_CLEAN_FINAL_WEIGHT_UNAVAILABLE",
+            "MCU_WORK_CANCELLED",
+            "MCU_WORK_FAILED");
 
     static final String LOCK_TARGET_SQL = """
             SELECT operation.id, operation.operation_uid,
@@ -1040,9 +1048,7 @@ public class InterruptedCleanBagRecoveryService {
             long tenantId,
             long organizationId) {
         String faultCode = target.endReason();
-        if (!("MCU_RESTART_FINAL_RESULT_UNAVAILABLE".equals(faultCode)
-                || "MCU_COMMUNICATION_UNAVAILABLE".equals(faultCode)
-                || "EDGE_RESTARTED".equals(faultCode))) {
+        if (!supportsManualRecoveryFault(faultCode)) {
             throw conflict(
                     "CLEAN.RECOVERY_CAUSE_UNSUPPORTED",
                     "当前清运失败原因不能使用袋状态确认入口处理");
@@ -1079,6 +1085,10 @@ public class InterruptedCleanBagRecoveryService {
                     "原清运缺少与终止原因一致的设备故障证据");
         }
         return faultCode;
+    }
+
+    static boolean supportsManualRecoveryFault(String faultCode) {
+        return SUPPORTED_RECOVERY_FAULTS.contains(faultCode);
     }
 
     private ExistingRecovery loadExistingRecovery(

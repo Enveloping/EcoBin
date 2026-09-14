@@ -144,6 +144,61 @@ class BootWireTests(CandidateFixture):
             with self.assertRaises(self.codec.ProtocolError):
                 self.codec.decode_frame(self.codec.encode_frame("BOOT_PROBE", 1, bad), sender_role="EDGE")
 
+    def test_read_only_firmware_identity_is_bound_to_the_queried_boot(self) -> None:
+        request = {"queryId": 51, "targetMcuBootId": 42}
+        self.assertEqual(
+            16,
+            len(self.codec.encode_payload("QUERY_DEVICE_IDENTITY", request)),
+        )
+        reply = request | {
+            "currentMcuBootId": 42,
+            "status": "AVAILABLE",
+            "protocolMajor": 2,
+            "protocolMinor": 0,
+            "portCount": 1,
+            "capabilityBitmap": 0x8100,
+            "highestCommandSequence": 37,
+            "firmwareVersionCode": 10_004,
+            "firmwareIdentityHigh": 0x391CE0B8,
+            "firmwareIdentityLow": 0x3076C981,
+            "firmwareVersion": "1.0.1-hil.4",
+        }
+        payload = self.codec.encode_payload("DEVICE_IDENTITY_REPLY", reply)
+        self.assertEqual(
+            payload,
+            encode_uart_payload(self.registry, "DEVICE_IDENTITY_REPLY", reply),
+        )
+        self.assertEqual(
+            reply,
+            self.codec.decode_payload("DEVICE_IDENTITY_REPLY", payload),
+        )
+        self.assertFalse(
+            self.specs["QUERY_DEVICE_IDENTITY"]["ackRequired"]
+        )
+        self.assertFalse(
+            self.specs["DEVICE_IDENTITY_REPLY"]["ackRequired"]
+        )
+
+        for changed in (
+            request | {"queryId": 0},
+            request | {"targetMcuBootId": 0},
+            reply | {"protocolMajor": 1},
+            reply | {"capabilityBitmap": 0},
+            reply | {"capabilityBitmap": 0x18100},
+            reply | {"firmwareVersion": "x" * 33},
+        ):
+            name = (
+                "QUERY_DEVICE_IDENTITY"
+                if set(changed) == set(request)
+                else "DEVICE_IDENTITY_REPLY"
+            )
+            with self.subTest(message=name, changed=changed):
+                with self.assertRaises((ContractError, self.codec.ProtocolError)):
+                    if name == "QUERY_DEVICE_IDENTITY":
+                        self.codec.encode_payload(name, changed)
+                    else:
+                        encode_uart_payload(self.registry, name, changed)
+
 
 class CommandIdentityTests(CandidateFixture):
     def test_registry_cannot_drop_the_cross_boot_fence(self) -> None:

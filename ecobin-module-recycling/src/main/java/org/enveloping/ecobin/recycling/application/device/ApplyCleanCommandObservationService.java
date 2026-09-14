@@ -79,6 +79,10 @@ public class ApplyCleanCommandObservationService
             case MARK_IN_PROGRESS -> markInProgress(
                     observation, operation, occurredAt);
             case END_BEFORE_UNLOCK -> endBeforeUnlock(
+                    observation, operation, false);
+            case END_PROVEN_BEFORE_UNLOCK -> endBeforeUnlock(
+                    observation, operation, true);
+            case ABORT_TERMINAL_RESULT -> abortTerminalResult(
                     observation, operation);
             case REQUIRE_RECOVERY -> requireRecovery(
                     observation, operation);
@@ -258,16 +262,97 @@ public class ApplyCleanCommandObservationService
                 "create interrupted clean bag interlock");
     }
 
-    private void endBeforeUnlock(
+    private void abortTerminalResult(
             TrustedCleanCommandObservation observation,
             OperationRow operation) {
+        String reason = observation.errorCode();
+        if (!("MCU_CLEAN_FINAL_WEIGHT_UNAVAILABLE".equals(reason)
+                || "MCU_WORK_CANCELLED".equals(reason)
+                || "MCU_WORK_FAILED".equals(reason))) {
+            throw new IllegalArgumentException(
+                    "terminal clean result requires a supported failure code");
+        }
+        requireMatchingOrReleasedOccupancy(observation, operation);
+        requireSingle(jdbc.update("""
+                        UPDATE rec_clean_operation
+                        SET status = 'ABORTED',
+                            edge_saved_confirmed = 1,
+                            first_unlock_may_have_executed = 1,
+                            ended_at = ?,
+                            end_reason = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND status IN (
+                              'PREPARED', 'EDGE_SAVED',
+                              'IN_PROGRESS', 'RECOVERY_REQUIRED'
+                          )
+                        """,
+                observation.receivedAt(),
+                reason,
+                observation.receivedAt(),
+                operation.id(),
+                observation.tenantId(),
+                observation.organizationId(),
+                observation.assetId()),
+                "abort clean from explicit terminal MCU result");
+        requireOccupancyRelease(jdbc.update("""
+                        DELETE FROM dev_device_occupancy
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND occupancy_kind = 'CLEAN'
+                          AND clean_operation_id = ?
+                        """,
+                observation.tenantId(),
+                observation.organizationId(),
+                observation.assetId(),
+                operation.id()),
+                operation.offlineOccupancyReleasedAt(),
+                "release terminal-failed clean occupancy");
+        ensureBagRecoveryInterlock(observation, operation);
+    }
+
+    private void endBeforeUnlock(
+            TrustedCleanCommandObservation observation,
+            OperationRow operation,
+            boolean terminalResultProvesZeroAction) {
         String reason = observation.errorCode();
         if (reason == null || reason.isBlank() || reason.length() > 64) {
             throw new IllegalArgumentException(
                     "pre-unlock clean failure requires a stable error code");
         }
         requireMatchingOrReleasedOccupancy(observation, operation);
-        requireSingle(jdbc.update("""
+        int ended = terminalResultProvesZeroAction
+                ? jdbc.update("""
+                        UPDATE rec_clean_operation
+                        SET status = 'PRE_UNLOCK_ENDED',
+                            first_unlock_may_have_executed = 0,
+                            first_possible_unlock_at = NULL,
+                            ended_at = ?,
+                            end_reason = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND status IN (
+                              'PREPARED', 'EDGE_SAVED',
+                              'IN_PROGRESS', 'RECOVERY_REQUIRED'
+                          )
+                        """,
+                        observation.receivedAt(),
+                        reason,
+                        observation.receivedAt(),
+                        operation.id(),
+                        observation.tenantId(),
+                        observation.organizationId(),
+                        observation.assetId())
+                : jdbc.update("""
                         UPDATE rec_clean_operation
                         SET status = 'PRE_UNLOCK_ENDED',
                             ended_at = ?,
@@ -281,13 +366,14 @@ public class ApplyCleanCommandObservationService
                           AND status IN ('PREPARED', 'EDGE_SAVED')
                           AND first_unlock_may_have_executed = 0
                         """,
-                observation.receivedAt(),
-                reason,
-                observation.receivedAt(),
-                operation.id(),
-                observation.tenantId(),
-                observation.organizationId(),
-                observation.assetId()),
+                        observation.receivedAt(),
+                        reason,
+                        observation.receivedAt(),
+                        operation.id(),
+                        observation.tenantId(),
+                        observation.organizationId(),
+                        observation.assetId());
+        requireSingle(ended,
                 "end clean before unlock");
         requireOccupancyRelease(jdbc.update("""
                         DELETE FROM dev_device_occupancy

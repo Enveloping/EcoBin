@@ -1918,6 +1918,8 @@ public class BusinessReleaseControlPlaneService {
                         nullableInteger(rs, "mcu_fixed_frame_revision"),
                         rs.getString("uart_state"),
                         rs.getString("uart_protocol_family"),
+                        nullableInteger(rs, "uart_protocol_major"),
+                        nullableInteger(rs, "uart_protocol_minor"),
                         rs.getString("capability_bitmap_hex")),
                 hardwareSn);
         if (rows.size() != 1) {
@@ -1980,12 +1982,22 @@ public class BusinessReleaseControlPlaneService {
                 != DEVICE_EVENT_CONTRACT_VERSION) {
             reasons.add("目标业务程序与当前后端业务消息格式不兼容");
         }
-        if (!"FIXED_FRAME".equals(target.uartFamily())
-                || !"FIXED_FRAME".equals(device.uartProtocolFamily())
-                || !"READY".equals(device.uartState())
-                || device.mcuFixedFrameRevision() == null
-                || !device.mcuFixedFrameRevision().equals(
-                target.fixedFrameRevision())) {
+        boolean uartCompatible = "READY".equals(device.uartState())
+                && target.uartFamily().equals(device.uartProtocolFamily());
+        if (uartCompatible && "ECOBIN_UART".equals(target.uartFamily())) {
+            uartCompatible = target.uartMajor() != null
+                    && target.uartMinor() != null
+                    && target.uartMajor().equals(device.uartProtocolMajor())
+                    && target.uartMinor().equals(device.uartProtocolMinor());
+        } else if (uartCompatible
+                && "FIXED_FRAME".equals(target.uartFamily())) {
+            uartCompatible = target.fixedFrameRevision() != null
+                    && target.fixedFrameRevision().equals(
+                    device.mcuFixedFrameRevision());
+        } else {
+            uartCompatible = false;
+        }
+        if (!uartCompatible) {
             reasons.add("目标业务程序与设备当前单片机串口协议不兼容");
         }
         if (!capabilitiesContain(
@@ -3514,6 +3526,8 @@ public class BusinessReleaseControlPlaneService {
                    fact.mcu_fixed_frame_revision,
                    fact.uart_state,
                    fact.uart_protocol_family,
+                   fact.uart_protocol_major,
+                   fact.uart_protocol_minor,
                    fact.capability_bitmap_hex
             FROM dev_device_asset asset
             JOIN dev_device_management_profile profile
@@ -3683,6 +3697,8 @@ public class BusinessReleaseControlPlaneService {
             Integer mcuFixedFrameRevision,
             String uartState,
             String uartProtocolFamily,
+            Integer uartProtocolMajor,
+            Integer uartProtocolMinor,
             String capabilityBitmapHex) {
     }
 

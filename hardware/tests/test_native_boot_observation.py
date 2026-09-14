@@ -99,6 +99,66 @@ def test_foreign_positive_boot_is_consumed_without_becoming_owned(tmp_path, mcu)
         store.close()
 
 
+def test_pristine_production_ledger_claims_one_fresh_factory_namespace_boot(tmp_path, mcu):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    session, sent = CSession(), []
+    write = lambda frame: sent.append(frame) or len(frame)
+    factory_boot = 8_000_000_000_000_123
+    try:
+        previous, bound = c.c_uint64(), CBindReply()
+        assert mcu.McuSession_Probe(c.byref(session), 77, c.byref(previous))
+        assert previous.value == 0
+        assert mcu.McuSession_Bind(
+            c.byref(session),
+            77,
+            factory_boot,
+            c.byref(bound),
+        )
+        boot = McuBootSession(store, write)
+        probe_id = boot.poll(0)
+        response = boot_response(mcu, session, sent[-1])
+        assert boot.accept_frame(response, 1)
+        assert boot.current_boot(1) == factory_boot
+        assert store.get_native_boot(factory_boot)["probe_id"] == probe_id
+        witness = store.get_native_boot_observation(factory_boot)
+        assert witness["probe_id"] == probe_id
+        assert witness["payload"] == uart.decode_frame(
+            response,
+            sender_role="MCU",
+        )["payload"]
+
+        factory_work_uid = str(uuid.uuid4())
+        assert store.recognize_factory_released_result_baseline(
+            factory_boot, 9, factory_work_uid
+        )
+        assert store.recognize_factory_released_result_baseline(
+            factory_boot, 9, factory_work_uid
+        )
+        assert not store.recognize_factory_released_result_baseline(
+            factory_boot, 10, factory_work_uid
+        )
+        assert not store.recognize_factory_released_result_baseline(
+            factory_boot, 9, str(uuid.uuid4())
+        )
+
+        # A later real MCU reset allocates above the imported high namespace;
+        # importing the factory fact never lets the allocator move backward.
+        mcu.McuSession_Init(c.byref(session))
+        boot.poll(1000)
+        assert boot.accept_frame(
+            boot_response(mcu, session, sent[-1]),
+            1001,
+        )
+        bind = uart.decode_payload(
+            "BIND_BOOT",
+            uart.decode_frame(sent[-1], sender_role="EDGE")["payload"],
+        )
+        assert bind["proposedMcuBootId"] == factory_boot + 1
+    finally:
+        store.close()
+
+
 def test_confirmed_mcu_restart_retires_transport_wait_without_resolving_old_action(tmp_path, mcu):
     from mcu_configuration import NativeMcuConfiguration
     from hardware.tests.test_native_configuration import inputs

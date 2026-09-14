@@ -178,7 +178,7 @@ def test_start_requires_explicit_confirmation_and_binds_release_and_config() -> 
             0,
             {
                 "confirmOfflineAcceptance": True,
-                "mcuUpdateLineInstalled": True,
+                "mcuUpdateLineInstalled": False,
             },
         )
     )
@@ -192,6 +192,7 @@ def test_start_requires_explicit_confirmation_and_binds_release_and_config() -> 
     assert begin_values["hardware_config_digest"] == (
         AcceptanceConfiguration.from_mapping({}).digest()
     )
+    assert begin_values["mcu_update_line_installed"] is False
 
 
 def test_controller_checks_persisted_run_against_loaded_configuration() -> None:
@@ -292,6 +293,103 @@ def test_start_requires_explicit_update_line_choice_and_binds_false() -> None:
     begin_values = executor.calls[-1][1]
     assert isinstance(begin_values, dict)
     assert begin_values["mcu_update_line_installed"] is False
+
+
+def test_start_rejects_claim_that_absent_remote_update_lines_are_installed() -> None:
+    controller, executor = _controller()
+
+    with pytest.raises(AcceptanceCommandError) as unsupported:
+        controller.execute(
+            _request(
+                "START",
+                0,
+                {
+                    "confirmOfflineAcceptance": True,
+                    "mcuUpdateLineInstalled": True,
+                },
+            )
+        )
+
+    assert unsupported.value.code == "MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED"
+    assert unsupported.value.status == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert executor.calls == []
+
+
+def test_failed_run_restart_also_rejects_absent_remote_update_lines() -> None:
+    controller, executor = _controller()
+    executor.state.update(status="FAILED", phase="FAILED", revision=4)
+
+    with pytest.raises(AcceptanceCommandError) as unsupported:
+        controller.execute(
+            _request(
+                "RESTART_FAILED_RUN",
+                4,
+                {
+                    "confirmRestartFailedAcceptance": True,
+                    "mcuUpdateLineInstalled": True,
+                },
+            )
+        )
+
+    assert unsupported.value.code == "MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED"
+    assert unsupported.value.status == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert executor.calls == []
+
+
+def test_build_executor_uses_native_uart_and_separate_durable_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = AcceptanceConfiguration.from_mapping({})
+    mcu = object()
+    cameras = object()
+    constructed: dict[str, object] = {}
+
+    def native_for_port(port: str, *, state_path: str) -> object:
+        constructed["port"] = port
+        constructed["nativeStatePath"] = state_path
+        return mcu
+
+    sentinel = object()
+
+    def executor_factory(**values: object) -> object:
+        constructed.update(values)
+        return sentinel
+
+    monkeypatch.setattr(
+        acceptance_service.NativeAcceptanceMcu,
+        "for_port",
+        native_for_port,
+    )
+    monkeypatch.setattr(
+        acceptance_service,
+        "FactoryAcceptanceExecutor",
+        executor_factory,
+    )
+    monkeypatch.setattr(
+        acceptance_service,
+        "FixedRoleCameraProbe",
+        lambda **_values: cameras,
+    )
+    monkeypatch.setattr(
+        acceptance_service,
+        "OpenCvCapture",
+        lambda: object(),
+    )
+
+    result = acceptance_service.build_executor(config)
+
+    assert result is sentinel
+    assert constructed["port"] == "/dev/ttyS5"
+    assert constructed["nativeStatePath"] == config.native_uart_state_path
+    assert constructed["state_path"] == config.state_path
+    assert constructed["mcu"] is mcu
+    assert constructed["cameras"] is cameras
+    bootloader = constructed["bootloader"]
+    with pytest.raises(
+        acceptance_service.AcceptanceHardwareError,
+        match="MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED",
+    ):
+        bootloader.probe_read_only()
 
 
 def test_not_applicable_update_line_allows_delivery_step() -> None:

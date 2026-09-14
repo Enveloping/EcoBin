@@ -23,6 +23,7 @@ class _McuReadOnlyQuery:
                  original_identity: Mapping, *, request_name: str, reply_name: str, interval_ms: int):
         if (request_name, reply_name) not in {
             ("QUERY_WORK", "WORK_QUERY_REPLY"), ("QUERY_DEVICE_FACTS", "DEVICE_FACTS_REPLY"),
+            ("QUERY_DEVICE_IDENTITY", "DEVICE_IDENTITY_REPLY"),
             ("QUERY_COMMAND", "COMMAND_QUERY_RESULT"), ("QUERY_RESULT", "RESULT_QUERY_REPLY"),
             ("QUERY_PROCESS_EVENT", "PROCESS_EVENT_QUERY_REPLY"),
             ("QUERY_ACTUATOR_EVENT", "ACTUATOR_EVENT_QUERY_REPLY")
@@ -169,3 +170,13 @@ class McuDeviceFactsQuery(_McuReadOnlyQuery):
             return None
         age = facts["capturedUptimeMs"] - facts["scaleCapturedUptimeMs"] + now_ms - self._request_started_ms
         return facts["scaleWeightGrams"] if age <= maximum_age_ms else None
+
+
+class McuDeviceIdentityQuery(_McuReadOnlyQuery):
+    """Read-only identity and command high-water observation for one MCU boot."""
+
+    def __init__(self, store: EdgeStore, write: Callable[[bytes], int], *,
+                 target_mcu_boot_id: int, interval_ms: int = 1000):
+        super().__init__(store, write, {"targetMcuBootId": target_mcu_boot_id},
+                         request_name="QUERY_DEVICE_IDENTITY",
+                         reply_name="DEVICE_IDENTITY_REPLY", interval_ms=interval_ms)

@@ -87,6 +87,11 @@ _P7_CHECK_OPTIONAL_FIELDS = {
     "selfTestWeightGrams",
     "selfTestInfraredBlocked",
     "selfTestSmokeCode",
+    "selfTestFullnessSensorKind",
+    "selfTestFullnessReadStatus",
+    "selfTestFullnessDistanceMm",
+    "selfTestFullnessDistanceThresholdMm",
+    "selfTestFullnessBlocked",
     "outsideCaptureNonEmpty",
     "insideCaptureNonEmpty",
     "outsideRoleConfirmed",
@@ -965,13 +970,21 @@ def _validate_acceptance_projection(value: dict[str, Any]) -> None:
 
     identity = value.get("mcuIdentity")
     if identity is not None:
-        identity_fields = {
+        stable_identity_fields = {
             "fixedFrameRevision",
             "firmwareVersion",
             "firmwareVersionCode",
             "firmwareIdentityHex",
         }
-        if not isinstance(identity, dict) or set(identity) != identity_fields:
+        identity_fields = stable_identity_fields | {
+            "mcuBootId",
+            "mcuHighestCommandSequence",
+            "mcuCapabilityBitmapHex",
+        }
+        if (
+            not isinstance(identity, dict)
+            or set(identity) not in (stable_identity_fields, identity_fields)
+        ):
             raise ValueError("P7 MCU identity is invalid")
         if any(
             item is not None
@@ -980,11 +993,26 @@ def _validate_acceptance_projection(value: dict[str, Any]) -> None:
             for item in identity.values()
         ):
             raise ValueError("P7 MCU identity value is invalid")
+        diagnostics = (
+            identity.get("mcuBootId"),
+            identity.get("mcuHighestCommandSequence"),
+            identity.get("mcuCapabilityBitmapHex"),
+        )
+        if any(item is not None for item in diagnostics):
+            if (
+                type(diagnostics[0]) is not int
+                or not 1 <= diagnostics[0] <= 9_007_199_254_740_991
+                or type(diagnostics[1]) is not int
+                or not 0 <= diagnostics[1] <= 0xFFFFFFFF
+                or not isinstance(diagnostics[2], str)
+                or re.fullmatch(r"[0-9a-f]{16}", diagnostics[2]) is None
+            ):
+                raise ValueError("P7 MCU identity diagnostics are invalid")
 
     checks = value.get("checks")
     if not isinstance(checks, dict) or set(checks) != _P7_CHECK_NAMES:
         raise ValueError("P7 checks are invalid")
-    for check in checks.values():
+    for check_name, check in checks.items():
         if not isinstance(check, dict):
             raise ValueError("P7 check is invalid")
         fields = set(check)
@@ -997,17 +1025,135 @@ def _validate_acceptance_projection(value: dict[str, Any]) -> None:
         ):
             raise ValueError("P7 check state is invalid")
         result = check.get("result")
-        if result is not None and (
-            not isinstance(result, dict)
-            or set(result)
-            != {
+        if result is not None:
+            legacy_result_fields = {
                 "preWeightGrams",
                 "postWeightGrams",
                 "weightDeltaGrams",
                 "infraredBlocked",
             }
-        ):
-            raise ValueError("P7 action result is invalid")
+            result_fields = {
+                *legacy_result_fields,
+                "fullnessSensorKind",
+                "fullnessReadStatus",
+                "fullnessDistanceMm",
+                "fullnessDistanceThresholdMm",
+                "fullnessBlocked",
+                "finishReason",
+                "deliveryDoorCommand",
+                "deliveryDoorOutputStatus",
+                "deliveryDoorPhysicalStateBasis",
+                "cleanLockPowerState",
+                "cleanSolenoidHealth",
+                "cleanDoorStateBasis",
+                "cleanerPhysicalCloseConfirmed",
+            }
+            if (
+                not isinstance(result, dict)
+                or set(result) not in (legacy_result_fields, result_fields)
+            ):
+                raise ValueError("P7 action result is invalid")
+            if set(result) == legacy_result_fields:
+                result = result | {
+                    name: None for name in result_fields - legacy_result_fields
+                }
+            for name in (
+                "preWeightGrams",
+                "postWeightGrams",
+                "weightDeltaGrams",
+                "fullnessDistanceMm",
+                "fullnessDistanceThresholdMm",
+            ):
+                if result[name] is not None and type(result[name]) is not int:
+                    raise ValueError("P7 action measurement is invalid")
+            for name in (
+                "infraredBlocked",
+                "fullnessBlocked",
+                "cleanerPhysicalCloseConfirmed",
+            ):
+                if result[name] is not None and type(result[name]) is not bool:
+                    raise ValueError("P7 action flag is invalid")
+            allowed_values = {
+                "fullnessSensorKind": {None, "DIGITAL_INFRARED", "ULTRASONIC"},
+                "fullnessReadStatus": {None, "VALID"},
+                "finishReason": {
+                    None,
+                    "DELIVERY_END",
+                    "DELIVERY_WINDOW_EXPIRED",
+                    "CLEAN_CONFIRMED",
+                },
+                "deliveryDoorCommand": {None, "CLOSE"},
+                "deliveryDoorOutputStatus": {None, "COMMAND_DISPATCHED"},
+                "deliveryDoorPhysicalStateBasis": {None, "NOT_OBSERVABLE"},
+                "cleanLockPowerState": {None, "DEENERGIZED"},
+                "cleanSolenoidHealth": {None, "UNKNOWN"},
+                "cleanDoorStateBasis": {None, "CLEANER_CONFIRMATION"},
+            }
+            if any(
+                result[name] not in allowed
+                for name, allowed in allowed_values.items()
+            ):
+                raise ValueError("P7 action control fact is invalid")
+            kind = result["fullnessSensorKind"]
+            if kind == "ULTRASONIC" and (
+                result["fullnessReadStatus"] != "VALID"
+                or type(result["fullnessDistanceMm"]) is not int
+                or type(result["fullnessDistanceThresholdMm"]) is not int
+                or type(result["fullnessBlocked"]) is not bool
+                or result["fullnessBlocked"]
+                is not (
+                    result["fullnessDistanceMm"]
+                    < result["fullnessDistanceThresholdMm"]
+                )
+                or result["infraredBlocked"] is not result["fullnessBlocked"]
+            ):
+                raise ValueError("P7 ultrasonic fullness fact is invalid")
+            if kind == "DIGITAL_INFRARED" and (
+                result["fullnessReadStatus"] != "VALID"
+                or result["fullnessDistanceMm"] is not None
+                or result["fullnessDistanceThresholdMm"] is not None
+                or type(result["fullnessBlocked"]) is not bool
+                or result["infraredBlocked"] is not result["fullnessBlocked"]
+            ):
+                raise ValueError("P7 infrared fullness fact is invalid")
+            if check_name == "delivery" and result["finishReason"] is not None:
+                if (
+                    result["finishReason"]
+                    not in {"DELIVERY_END", "DELIVERY_WINDOW_EXPIRED"}
+                    or result["deliveryDoorCommand"] != "CLOSE"
+                    or result["deliveryDoorOutputStatus"]
+                    != "COMMAND_DISPATCHED"
+                    or result["deliveryDoorPhysicalStateBasis"]
+                    != "NOT_OBSERVABLE"
+                    or any(
+                        result[name] is not None
+                        for name in (
+                            "cleanLockPowerState",
+                            "cleanSolenoidHealth",
+                            "cleanDoorStateBasis",
+                            "cleanerPhysicalCloseConfirmed",
+                        )
+                    )
+                ):
+                    raise ValueError("P7 delivery control fact is invalid")
+            if check_name == "clean" and result["finishReason"] is not None:
+                if (
+                    result["finishReason"] != "CLEAN_CONFIRMED"
+                    or result["cleanLockPowerState"] != "DEENERGIZED"
+                    or result["cleanSolenoidHealth"] != "UNKNOWN"
+                    or result["cleanDoorStateBasis"]
+                    != "CLEANER_CONFIRMATION"
+                    or result["cleanerPhysicalCloseConfirmed"] is not True
+                    or any(
+                        result[name] is not None
+                        for name in (
+                            "deliveryDoorCommand",
+                            "deliveryDoorOutputStatus",
+                            "deliveryDoorPhysicalStateBasis",
+                        )
+                    )
+                ):
+                    raise ValueError("P7 clean control fact is invalid")
         for name, item in check.items():
             if name == "sampling":
                 if not valid_sampling(item):

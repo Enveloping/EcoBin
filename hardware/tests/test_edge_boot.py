@@ -496,6 +496,127 @@ def test_runtime_snapshot_state_change_bypasses_semantic_dedupe(tmp_path):
     store.close()
 
 
+def native_device_facts(**changes):
+    values = {
+        "status": "AVAILABLE",
+        "portNo": 1,
+        "currentMcuBootId": 456,
+        "capturedUptimeMs": 10_000,
+        "lastDeliveryDoorCommand": "CLOSE",
+        "doorActionActive": True,
+        "pb6Output": False,
+        "pb7Output": True,
+        "pinchPaused": False,
+        "cleanLockPowered": True,
+        "scaleReadStatus": "VALID",
+        "scaleAttemptSequence": 7,
+        "scaleCapturedUptimeMs": 10_000,
+        "scaleWeightGrams": 523,
+        "scaleCalibrationVersion": 4,
+        "measurementSequence": 0,
+        "measurementState": "NONE",
+        "measurementObservedUptimeMs": 0,
+        "measurementElapsedMs": 0,
+        "measurementSampleCount": 0,
+        "measurementWeightGrams": 0,
+        "smokeObservationState": "ALARM",
+        "fullnessObservationKind": "ULTRASONIC",
+        "fullnessReadStatus": "VALID",
+        "fullnessInfraredBlocked": False,
+        "fullnessDistanceMm": 500,
+    }
+    values.update(changes)
+    return values
+
+
+def test_native_runtime_snapshot_projects_only_current_device_facts(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    store.set_edge_boot_id("123")
+    mark_configuration_applied(store)
+    cloud = FakeCloudTransport()
+    info = {
+        "mcu_boot_id": 456,
+        "mcu_port_count": 1,
+        "mcu_firmware_version": "1.0.1-hil.4",
+        "mcu_capability": 0,
+        "uart_protocol_major": 2,
+        "uart_protocol_minor": 0,
+        "uart_state": "READY",
+    }
+
+    _publish_runtime_snapshot(
+        store,
+        cloud,
+        DEVICE_IDENTITY,
+        info,
+        None,
+        device_facts=native_device_facts(),
+    )
+
+    payload = cloud.published[0][1]["payload"]
+    port = payload["ports"][0]
+    assert port["lastDeliveryDoorCommand"] == "CLOSE"
+    assert port["lastDeliveryDoorOutputStatus"] == "COMMAND_DISPATCHED"
+    assert port["deliveryDoorPhysicalStateBasis"] == "NOT_OBSERVABLE"
+    assert port["cleanLockPowerState"] == "ENERGIZED"
+    assert port["weightMeasurementStatus"] == "UNSTABLE"
+    assert port["weightValueAvailable"] is True
+    assert port["reportedWeightGrams"] == 523
+    assert port["weightValueKind"] == "LAST_OBSERVED"
+    assert port["smokeState"] == "ALARM"
+    assert port["smokeSensorHealth"] == "OK"
+    assert port["fullnessSensorKind"] == "ULTRASONIC"
+    assert port["fullnessSensorValue"] == "BLOCKED"
+    assert port["fullnessSampleBasis"] == "NOT_SAMPLED"
+    assert port["representativeDistanceMm"] == 500
+    assert port["fullnessValidSampleCount"] == 1
+    encode_event_post("DEVICE_RUNTIME_SNAPSHOT", cloud.published[0][1])
+    store.close()
+
+
+def test_native_snapshot_never_reuses_old_port_for_missing_or_wrong_boot_facts(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    store.set_edge_boot_id("123")
+    store.set_state(
+        "latest_runtime_ports_json",
+        json.dumps([{"portNo": 1, "reportedWeightGrams": 999}]),
+    )
+    info = {
+        "mcu_boot_id": 456,
+        "mcu_port_count": 1,
+        "uart_protocol_major": 2,
+        "uart_protocol_minor": 0,
+        "uart_state": "STARTING",
+    }
+    for facts in (
+        None,
+        native_device_facts(status="BOOT_MISMATCH"),
+        native_device_facts(currentMcuBootId=455),
+    ):
+        cloud = FakeCloudTransport()
+        _publish_runtime_snapshot(
+            store,
+            cloud,
+            DEVICE_IDENTITY,
+            info,
+            None,
+            device_facts=facts,
+        )
+        payload = cloud.published[0][1]["payload"]
+        port = payload["ports"][0]
+        assert payload["uartState"] == "NEGOTIATING"
+        assert port["weightValueAvailable"] is False
+        assert port["reportedWeightGrams"] is None
+        assert port["smokeState"] == "UNKNOWN"
+        assert port["fullnessSensorValue"] == "CLEAR"
+        assert port["fullnessSampleBasis"] == "NOT_SAMPLED"
+        assert port["fullnessValidSampleCount"] == 0
+        encode_event_post("DEVICE_RUNTIME_SNAPSHOT", cloud.published[0][1])
+    store.close()
+
+
 def test_fixed_frame_runtime_marks_cleaner_confirmation_basis(tmp_path):
     store = EdgeStore(str(tmp_path / "edge.db"))
     store.initialize()

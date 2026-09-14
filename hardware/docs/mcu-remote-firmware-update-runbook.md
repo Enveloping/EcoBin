@@ -1,5 +1,9 @@
 # STM32F103C8T6 远程固件升级实施与操作手册
 
+> **当前仅适用于历史 `FIXED_FRAME` 固件。** UART v2（`ECOBIN_UART`）的远程
+> 固件升级尚未实现；`.efw` schema 1 会拒绝 UART v2 身份。UART v2 固件当前只能按
+> 已确认的人工烧录流程处理，不能使用本文流程登记或下发。
+
 > 适用范围：EcoBin 主板 `ECOBIN_MAINBOARD_V1.1`、MCU `STM32F103C8T6`、
 > 香橙派 Zero 3、固定帧协议修订号 2、OneNet 正式链路。
 >
@@ -128,6 +132,7 @@ openssl pkey -in /secure/mcu-release-private.pem -pubout \
 uv run --directory hardware --python 3.11 python mcu_firmware_package.py identity \
   --version 2.1.0 \
   --version-code 20100 \
+  --application-protocol-family FIXED_FRAME \
   --release-uid <release-uuid-v4> \
   --header ../hardware_mcu/USER/firmware_identity.h \
   --metadata ./tmp/mcu-2.1.0-identity.json

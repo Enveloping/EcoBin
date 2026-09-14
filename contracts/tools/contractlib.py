@@ -1406,6 +1406,19 @@ def validate_uart_payload_semantics(
         elif values["errorCode"] == "NONE":
             raise ContractError("HELLO_ACK INCOMPATIBLE requires a non-NONE error")
 
+    if message_name == "DEVICE_IDENTITY_REPLY":
+        bitmap = values["capabilityBitmap"]
+        known = int(registry["capabilityPolicy"]["knownMaskHex"], 16)
+        required = int(registry["capabilityPolicy"]["requiredMcuMaskHex"], 16)
+        if bitmap & ~known:
+            raise ContractError(
+                "DEVICE_IDENTITY_REPLY capabilityBitmap contains unknown bits"
+            )
+        if bitmap & required != required:
+            raise ContractError(
+                "DEVICE_IDENTITY_REPLY capabilityBitmap misses required capabilities"
+            )
+
     if message_name == "NACK" and values["errorCode"] == "NONE":
         raise ContractError("NACK cannot use errorCode NONE")
 

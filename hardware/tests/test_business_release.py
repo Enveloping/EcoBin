@@ -25,6 +25,8 @@ from install.business_release import (
     COMMUNICATION_BUSINESS_PROTOCOL_MAJOR,
     COMMUNICATION_BUSINESS_PROTOCOL_MINOR,
     DEVICE_EVENT_CONTRACT_VERSION,
+    ONENET_MAPPING_SHA256,
+    ONENET_MAPPING_VERSION,
     PYTHON_SERIES,
     PROVIDED_BUSINESS_CAPABILITY_BITMAP_HEX,
     REQUIRED_FIXED_FRAME_REVISION,
@@ -33,6 +35,8 @@ from install.business_release import (
     UART_PROTOCOL_FAMILY,
     UART_PROTOCOL_MAJOR,
     UART_PROTOCOL_MINOR,
+    UART_REGISTRY_SHA256,
+    UART_REGISTRY_VERSION,
     UPDATER_BUSINESS_PROTOCOL_MAJOR,
     UPDATER_BUSINESS_PROTOCOL_MINOR,
     business_allowlist_sha256,
@@ -97,6 +101,10 @@ def _make_release(root: Path) -> Path:
                 f"ECOBIN_UART_PROTOCOL_FAMILY={UART_PROTOCOL_FAMILY}\n",
                 f"ECOBIN_UART_PROTOCOL_MAJOR={UART_PROTOCOL_MAJOR}\n",
                 f"ECOBIN_UART_PROTOCOL_MINOR={UART_PROTOCOL_MINOR}\n",
+                f"ECOBIN_UART_REGISTRY_VERSION={UART_REGISTRY_VERSION}\n",
+                f"ECOBIN_UART_REGISTRY_SHA256={UART_REGISTRY_SHA256}\n",
+                f"ECOBIN_ONENET_MAPPING_VERSION={ONENET_MAPPING_VERSION}\n",
+                f"ECOBIN_ONENET_MAPPING_SHA256={ONENET_MAPPING_SHA256}\n",
                 "ECOBIN_REQUIRED_FIXED_FRAME_REVISION="
                 f"{REQUIRED_FIXED_FRAME_REVISION}\n",
                 "ECOBIN_REQUIRED_MCU_CAPABILITY_BITMAP_HEX="
@@ -345,7 +353,14 @@ def test_release_tree_requires_exact_identity_and_checksums(tmp_path: Path) -> N
 
     assert manifest["ECOBIN_RELEASE_ID"] == RELEASE_ID
     assert manifest["ECOBIN_BACKEND_COMMAND_CONTRACT_VERSION"] == "2"
-    assert manifest["ECOBIN_REQUIRED_FIXED_FRAME_REVISION"] == "2"
+    assert manifest["ECOBIN_UART_PROTOCOL_FAMILY"] == "ECOBIN_UART"
+    assert manifest["ECOBIN_UART_PROTOCOL_MAJOR"] == "2"
+    assert manifest["ECOBIN_UART_PROTOCOL_MINOR"] == "0"
+    assert manifest["ECOBIN_UART_REGISTRY_VERSION"] == "2.0.0-rc.26"
+    assert manifest["ECOBIN_UART_REGISTRY_SHA256"] == UART_REGISTRY_SHA256
+    assert manifest["ECOBIN_ONENET_MAPPING_VERSION"] == "2.4.0"
+    assert manifest["ECOBIN_ONENET_MAPPING_SHA256"] == ONENET_MAPPING_SHA256
+    assert manifest["ECOBIN_REQUIRED_FIXED_FRAME_REVISION"] == "NONE"
     (release / "app/main.py").write_text("changed\n", encoding="utf-8")
     with pytest.raises(Exception, match="checksum mismatch"):
         validate_business_release_tree(release)

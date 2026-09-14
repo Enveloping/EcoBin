@@ -1,5 +1,5 @@
 // Generated from contracts/uart/uart-registry.yaml.
-// DO NOT EDIT. Registry SHA-256: 20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2
+// DO NOT EDIT. Registry SHA-256: 57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.UUID;
 
 public final class EcobinUartProtocol {
-    public static final String REGISTRY_SHA256 = "20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2";
+    public static final String REGISTRY_SHA256 = "57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec";
     public static final String IMPLEMENTATION_STAGE = "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED";
     public static final int BAUD_RATE = 115200;
     public static final int DATA_BITS = 8;
@@ -25,6 +25,8 @@ public final class EcobinUartProtocol {
     public static final int ACK_REQUIRED = 0x01;
     public static final int MESSAGE_QUERY_DEVICE_FACTS = 0x45;
     public static final int MESSAGE_DEVICE_FACTS_REPLY = 0x46;
+    public static final int MESSAGE_QUERY_DEVICE_IDENTITY = 0x47;
+    public static final int MESSAGE_DEVICE_IDENTITY_REPLY = 0x48;
     public static final int MESSAGE_ACTUATOR_EVENT_SAVED = 0x60;
     public static final int MESSAGE_ACTUATOR_EVENT_SAVED_REPLY = 0x61;
     public static final int MESSAGE_QUERY_ACTUATOR_EVENT = 0x5E;
@@ -147,6 +149,25 @@ public final class EcobinUartProtocol {
     public static final int DEVICE_FACTS_REPLY_RETAINED_WORK_PHASE_OFFSET = 217;
     public static final int DEVICE_FACTS_REPLY_RETAINED_ORIGIN_COMMAND_SEQUENCE_OFFSET = 218;
     public static final int DEVICE_FACTS_REPLY_RETAINED_RESULT_SEQUENCE_OFFSET = 222;
+    public static final int QUERY_DEVICE_IDENTITY_PAYLOAD_MIN_LENGTH = 16;
+    public static final int QUERY_DEVICE_IDENTITY_PAYLOAD_MAX_LENGTH = 16;
+    public static final int QUERY_DEVICE_IDENTITY_QUERY_ID_OFFSET = 0;
+    public static final int QUERY_DEVICE_IDENTITY_TARGET_MCU_BOOT_ID_OFFSET = 8;
+    public static final int DEVICE_IDENTITY_REPLY_PAYLOAD_MIN_LENGTH = 53;
+    public static final int DEVICE_IDENTITY_REPLY_PAYLOAD_MAX_LENGTH = 85;
+    public static final int DEVICE_IDENTITY_REPLY_QUERY_ID_OFFSET = 0;
+    public static final int DEVICE_IDENTITY_REPLY_TARGET_MCU_BOOT_ID_OFFSET = 8;
+    public static final int DEVICE_IDENTITY_REPLY_CURRENT_MCU_BOOT_ID_OFFSET = 16;
+    public static final int DEVICE_IDENTITY_REPLY_STATUS_OFFSET = 24;
+    public static final int DEVICE_IDENTITY_REPLY_PROTOCOL_MAJOR_OFFSET = 25;
+    public static final int DEVICE_IDENTITY_REPLY_PROTOCOL_MINOR_OFFSET = 26;
+    public static final int DEVICE_IDENTITY_REPLY_PORT_COUNT_OFFSET = 27;
+    public static final int DEVICE_IDENTITY_REPLY_CAPABILITY_BITMAP_OFFSET = 28;
+    public static final int DEVICE_IDENTITY_REPLY_HIGHEST_COMMAND_SEQUENCE_OFFSET = 36;
+    public static final int DEVICE_IDENTITY_REPLY_FIRMWARE_VERSION_CODE_OFFSET = 40;
+    public static final int DEVICE_IDENTITY_REPLY_FIRMWARE_IDENTITY_HIGH_OFFSET = 44;
+    public static final int DEVICE_IDENTITY_REPLY_FIRMWARE_IDENTITY_LOW_OFFSET = 48;
+    public static final int DEVICE_IDENTITY_REPLY_FIRMWARE_VERSION_OFFSET = 52;
     public static final int ACTUATOR_EVENT_SAVED_PAYLOAD_MIN_LENGTH = 45;
     public static final int ACTUATOR_EVENT_SAVED_PAYLOAD_MAX_LENGTH = 45;
     public static final int ACTUATOR_EVENT_SAVED_MCU_BOOT_ID_OFFSET = 0;
@@ -1376,6 +1397,30 @@ public final class EcobinUartProtocol {
             if (Byte.toUnsignedInt(payload[198]) > 1 && Byte.toUnsignedInt(payload[215]) == 3 && Byte.toUnsignedInt(payload[217]) != 39) { throw new IllegalArgumentException("invalid session payload"); }
             if ((Byte.toUnsignedInt(payload[198]) == 1 && Integer.toUnsignedLong(ByteBuffer.wrap(payload, 222, 4).order(ByteOrder.BIG_ENDIAN).getInt()) != 0) || (Byte.toUnsignedInt(payload[198]) > 1 && Integer.toUnsignedLong(ByteBuffer.wrap(payload, 222, 4).order(ByteOrder.BIG_ENDIAN).getInt()) == 0)) { throw new IllegalArgumentException("invalid session payload"); }
             return;
+        case MESSAGE_QUERY_DEVICE_IDENTITY:
+            if (payload.length < 16 || payload.length > 16) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
+            return;
+        case MESSAGE_DEVICE_IDENTITY_REPLY:
+            if (payload.length < 53 || payload.length > 85) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 8, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 16, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 0L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 16, 8).order(ByteOrder.BIG_ENDIAN).getLong() > 9007199254740991L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (Byte.toUnsignedInt(payload[24]) != 1 && Byte.toUnsignedInt(payload[24]) != 2) { throw new IllegalArgumentException("invalid session payload"); }
+            if (Byte.toUnsignedInt(payload[25]) != 2L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (Byte.toUnsignedInt(payload[26]) != 0L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (Byte.toUnsignedInt(payload[27]) > 6L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (ByteBuffer.wrap(payload, 28, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 0L) { throw new IllegalArgumentException("invalid session payload"); }
+            if (Byte.toUnsignedInt(payload[52]) == 0 || Byte.toUnsignedInt(payload[52]) > 32 || payload.length != 53 + Byte.toUnsignedInt(payload[52])) { throw new IllegalArgumentException("invalid session payload"); }
+            if ((ByteBuffer.wrap(payload, 28, 8).order(ByteOrder.BIG_ENDIAN).getLong() & ~65535L) != 0) { throw new IllegalArgumentException("invalid session payload"); }
+            if ((ByteBuffer.wrap(payload, 28, 8).order(ByteOrder.BIG_ENDIAN).getLong() & 33024L) != 33024L) { throw new IllegalArgumentException("invalid session payload"); }
+            return;
         case MESSAGE_QUERY_PROCESS_EVENT:
             if (payload.length < 97 || payload.length > 97) { throw new IllegalArgumentException("invalid session payload"); }
             if (ByteBuffer.wrap(payload, 0, 8).order(ByteOrder.BIG_ENDIAN).getLong() < 1L) { throw new IllegalArgumentException("invalid session payload"); }
@@ -2241,6 +2286,8 @@ public final class EcobinUartProtocol {
         return switch (messageType) {
             case MESSAGE_QUERY_DEVICE_FACTS -> false;
             case MESSAGE_DEVICE_FACTS_REPLY -> false;
+            case MESSAGE_QUERY_DEVICE_IDENTITY -> false;
+            case MESSAGE_DEVICE_IDENTITY_REPLY -> false;
             case MESSAGE_ACTUATOR_EVENT_SAVED -> false;
             case MESSAGE_ACTUATOR_EVENT_SAVED_REPLY -> false;
             case MESSAGE_QUERY_ACTUATOR_EVENT -> false;
@@ -2318,6 +2365,8 @@ public final class EcobinUartProtocol {
         return switch (messageType) {
             case MESSAGE_QUERY_DEVICE_FACTS -> Direction.EDGE_TO_MCU;
             case MESSAGE_DEVICE_FACTS_REPLY -> Direction.MCU_TO_EDGE;
+            case MESSAGE_QUERY_DEVICE_IDENTITY -> Direction.EDGE_TO_MCU;
+            case MESSAGE_DEVICE_IDENTITY_REPLY -> Direction.MCU_TO_EDGE;
             case MESSAGE_ACTUATOR_EVENT_SAVED -> Direction.EDGE_TO_MCU;
             case MESSAGE_ACTUATOR_EVENT_SAVED_REPLY -> Direction.MCU_TO_EDGE;
             case MESSAGE_QUERY_ACTUATOR_EVENT -> Direction.EDGE_TO_MCU;

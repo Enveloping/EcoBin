@@ -26,17 +26,17 @@ def _set_production_hardware_boundary(monkeypatch):
         "DEVICE_CAPABILITIES",
         {
             "schemaVersion": 1,
-            "mcuRemoteUpdateCapable": True,
+            "mcuRemoteUpdateCapable": False,
             "factoryReportSha256": "a" * 64,
         },
     )
     monkeypatch.setattr(config, "DEVICE_CAPABILITIES_ERROR", None)
-    monkeypatch.setattr(config, "MCU_PROTOCOL_MODE", "fixed-frame")
+    monkeypatch.setattr(config, "MCU_PROTOCOL_MODE", "uart-v2")
     monkeypatch.setattr(config, "MCU_SIMULATED", False)
     monkeypatch.setattr(config, "SERIAL_PORT", "/dev/ttyS5")
     monkeypatch.setattr(config, "SERIAL_BAUDRATE", 115200)
     monkeypatch.setattr(config, "UART_PORT_COUNT", 1)
-    monkeypatch.setattr(config, "MCU_UPDATE_ENABLED", True)
+    monkeypatch.setattr(config, "MCU_UPDATE_ENABLED", False)
     monkeypatch.setattr(config, "MCU_BOOT0_WPI", 2)
     monkeypatch.setattr(config, "MCU_RESET_WPI", 5)
     monkeypatch.setattr(config, "MCU_BOOT0_ACTIVE_LEVEL", 1)
@@ -234,31 +234,28 @@ def test_production_fails_closed_without_device_capability_fact(monkeypatch):
         config.validate()
 
 
-def test_production_rejects_a_runtime_reset_polarity_override(monkeypatch):
+def test_production_uart_v2_rejects_remote_mcu_update(monkeypatch):
     _set_production_hardware_boundary(monkeypatch)
-    monkeypatch.setattr(config, "MCU_RESET_ACTIVE_LEVEL", 0)
+    monkeypatch.setattr(config, "MCU_UPDATE_ENABLED", True)
 
-    with pytest.raises(ValueError, match="2N7002 reset gate"):
-        config.validate()
-
-
-def test_production_rejects_a_different_uart_or_gpio_mapping(monkeypatch):
-    _set_production_hardware_boundary(monkeypatch)
-    monkeypatch.setattr(config, "SERIAL_PORT", "/dev/ttyS4")
-
-    with pytest.raises(ValueError, match="fixed Orange Pi UART5"):
+    with pytest.raises(
+        ValueError,
+        match="MCU firmware update requires the fixed-frame protocol",
+    ):
         config.validate()
 
 
 @pytest.mark.parametrize(
     ("attribute", "value"),
     [
-        ("GPIO_PATH", "/tmp/gpio"),
-        ("STM32FLASH_PATH", "/tmp/stm32flash"),
-        ("MCU_HARDWARE_COMPATIBILITY", "STM32F103C8T6"),
+        ("MCU_PROTOCOL_MODE", "fixed-frame"),
+        ("MCU_SIMULATED", True),
+        ("SERIAL_PORT", "/dev/ttyS4"),
+        ("SERIAL_BAUDRATE", 9600),
+        ("UART_PORT_COUNT", 6),
     ],
 )
-def test_production_rejects_unlocked_tool_or_mainboard_identity(
+def test_production_rejects_a_non_native_uart_v2_boundary(
     monkeypatch,
     attribute,
     value,
@@ -266,8 +263,20 @@ def test_production_rejects_unlocked_tool_or_mainboard_identity(
     _set_production_hardware_boundary(monkeypatch)
     monkeypatch.setattr(config, attribute, value)
 
-    with pytest.raises(ValueError, match="locked WiringOP"):
+    with pytest.raises(ValueError, match="native Orange Pi UART5"):
         config.validate()
+
+
+def test_production_uart_v2_does_not_require_remote_flash_tools(monkeypatch):
+    _set_production_hardware_boundary(monkeypatch)
+    monkeypatch.setattr(config, "_require_path_under", lambda *args: None)
+    monkeypatch.setattr(config, "MCU_BOOT0_WPI", None)
+    monkeypatch.setattr(config, "MCU_RESET_WPI", None)
+    monkeypatch.setattr(config, "GPIO_PATH", "")
+    monkeypatch.setattr(config, "STM32FLASH_PATH", "")
+    monkeypatch.setattr(config, "MCU_HARDWARE_COMPATIBILITY", "")
+
+    config.validate()
 
 
 def test_production_rejects_hil_overrides_and_simulated_cameras(monkeypatch):

@@ -1,5 +1,11 @@
 # 香橙派可重复量产镜像与首次启动编排计划
 
+> **rc.26导航（2026-09-14）**：当前P7强制使用`uart-v2 / 115200 / 单投口`原生身份、
+> 配置、设备事实、一次START、完整结果保存和`RESULT_SAVED`确认。本文下方出现的F0/F1、
+> DD/EF或`fixed-frame`验收步骤是历史流程，不能用于当前量产放行；更新后的实现边界见
+> [rc.26收口记录](../../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)。
+> 在手册逐步改写完成前，不得直接按历史P7步骤操作真实设备。
+
 > 状态：已于 2026-08-22 获得整体实施授权。P1～P10 的仓库内软件、测试入口和量产手册
 > 已实现并完成首轮 Windows/Linux/Java/契约集成回归。32 GB 实卡布局、
 > Orange Pi/STM32/Air780E/双摄硬件在环验收和首台整机签认尚未完成，因此 layout、目标介质

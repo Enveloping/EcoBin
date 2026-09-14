@@ -10,9 +10,11 @@ from cloud_transport import CloudEvent, CloudTransport
 from device_identity import DeviceIdentity
 from edge_identity import is_valid_edge_boot_id, new_edge_boot_id
 from edge_store import EdgeStore, WORK_TYPE_NONE
+from mcu_configuration import NATIVE_PORT_CONSTANTS
 from onenet_wire import canonical_payload_sha256
 from trusted_clock import sample_clock
 logger = logging.getLogger("edge-boot")
+NATIVE_FACTS_MAXIMUM_AGE_MS = NATIVE_PORT_CONSTANTS["weightMaximumSampleAgeMs"]
 
 
 def _verified_firmware_identity(result):
@@ -582,10 +584,15 @@ def _build_runtime_snapshot_payload(
     mcu_info,
     snapshots,
     *,
+    device_facts=None,
     clock_sample=None,
 ):
     faults = store.list_active_faults()
     compatibility_mode = bool(mcu_info.get("compatibility_mode"))
+    native_mode = bool(
+        not compatibility_mode
+        and mcu_info.get("uart_protocol_major") == 2
+    )
     applied = store.get_latest_applied_configuration()
     ports = (
         _fixed_frame_runtime_ports(
@@ -594,14 +601,23 @@ def _build_runtime_snapshot_payload(
             faults,
         )
         if compatibility_mode
-        else _runtime_ports_from_snapshots(snapshots)
+        else (
+            _native_runtime_ports(
+                mcu_info,
+                device_facts,
+                applied,
+                faults,
+            )
+            if native_mode
+            else _runtime_ports_from_snapshots(snapshots)
+        )
     )
     if ports:
         store.set_state(
             "latest_runtime_ports_json",
             json.dumps(ports, ensure_ascii=False),
         )
-    elif not compatibility_mode:
+    elif not compatibility_mode and not native_mode:
         try:
             ports = json.loads(
                 store.get_state("latest_runtime_ports_json", "[]")
@@ -644,6 +660,8 @@ def _build_runtime_snapshot_payload(
     if not firmware_version:
         firmware_version = None
     uart_state = mcu_info.get("uart_state")
+    if uart_state == "STARTING":
+        uart_state = "NEGOTIATING"
     if uart_state not in {
         "DISCONNECTED",
         "NEGOTIATING",
@@ -690,6 +708,7 @@ def _publish_runtime_snapshot(
     mcu_info,
     snapshots,
     *,
+    device_facts=None,
     force=True,
     previous_payload_sha256=None,
 ):
@@ -698,6 +717,7 @@ def _publish_runtime_snapshot(
         store,
         mcu_info,
         snapshots,
+        device_facts=device_facts,
         clock_sample=sampled_clock,
     )
     payload_sha256 = canonical_payload_sha256(payload)
@@ -932,6 +952,248 @@ def _fixed_frame_runtime_ports(store, applied, faults):
             "faultBitmap": _fault_bitmap(faults, port_no),
         })
     return ports
+
+
+def _native_runtime_ports(mcu_info, facts, applied, faults):
+    """Project one fresh rc.25 DEVICE_FACTS reply without inventing health.
+
+    The current OneNet runtime-port shape has no fields for the literal PB6
+    and PB7 booleans, nor a basis enum for a single ultrasonic/infrared read.
+    The pin pair is therefore represented only by the existing output-status
+    field.  Single environment observations use NOT_SAMPLED as their basis;
+    in particular CLEAR + NOT_SAMPLED is unknown, never proof of normal.
+    """
+    port_count = mcu_info.get("mcu_port_count", 1)
+    if type(port_count) is not int or not 1 <= port_count <= 6:
+        port_count = 1
+    configurations = {}
+    if isinstance(applied, dict):
+        payload = applied.get("payload")
+        if isinstance(payload, dict):
+            for candidate in payload.get("ports", []):
+                if isinstance(candidate, dict) and type(candidate.get("portNo")) is int:
+                    configurations[candidate["portNo"]] = candidate
+    result = []
+    for port_no in range(1, port_count + 1):
+        configuration = configurations.get(port_no, {})
+        configured_kind = configuration.get("fullnessSensorKind", "ULTRASONIC")
+        if configured_kind not in {"ULTRASONIC", "DIGITAL_INFRARED"}:
+            configured_kind = "ULTRASONIC"
+        current = facts if (
+            isinstance(facts, dict)
+            and facts.get("status") == "AVAILABLE"
+            and facts.get("currentMcuBootId") == mcu_info.get("mcu_boot_id")
+            and facts.get("portNo") == port_no
+        ) else None
+        if current is None:
+            port = _unknown_runtime_port(port_no, configured_kind)
+            port["faultBitmap"] = _fault_bitmap(faults, port_no)
+            result.append(port)
+            continue
+        last_command = current.get("lastDeliveryDoorCommand")
+        if last_command not in {"NONE", "OPEN", "CLOSE"}:
+            last_command = "NONE"
+        pb6, pb7 = current.get("pb6Output"), current.get("pb7Output")
+        action_active = current.get("doorActionActive") is True
+        pinch_paused = current.get("pinchPaused") is True
+        expected_pair = {
+            "OPEN": (True, False),
+            "CLOSE": (False, True),
+        }.get(last_command)
+        if expected_pair is None and (pb6, pb7) == (False, False):
+            output_status = "NOT_DISPATCHED"
+        elif action_active and (pb6, pb7) == expected_pair:
+            output_status = "COMMAND_DISPATCHED"
+        elif (
+            last_command == "CLOSE"
+            and action_active
+            and pinch_paused
+            and (pb6, pb7) == (False, False)
+        ):
+            # PB5 pauses a close output. It is an intentional safety state,
+            # not a door fault and not a separate business-admission input.
+            output_status = "NOT_DISPATCHED"
+        elif not action_active and (pb6, pb7) == (False, False):
+            output_status = "NOT_DISPATCHED"
+        else:
+            output_status = "OUTPUT_REJECTED"
+        port = {
+            "portNo": port_no,
+            "lastDeliveryDoorCommand": last_command,
+            "lastDeliveryDoorOutputStatus": output_status,
+            "deliveryDoorPhysicalStateBasis": "NOT_OBSERVABLE",
+            "cleanLockPowerState": (
+                "ENERGIZED" if current.get("cleanLockPowered") is True
+                else "DEENERGIZED"
+            ),
+            # The MCU reports its output command, not electrical feedback from
+            # the solenoid, so a hardware-health claim would be fabricated.
+            "solenoidHealth": "UNKNOWN",
+            "cleanDoorStateBasis": "NOT_OBSERVABLE",
+            "cleanerPhysicalCloseConfirmed": False,
+            **_native_weight_fields(current),
+            **_native_fullness_fields(current, configuration, configured_kind),
+            **_native_smoke_fields(current),
+            "faultBitmap": _fault_bitmap(faults, port_no),
+        }
+        result.append(port)
+    return result
+
+
+def _native_measurement_uid(kind, facts, sequence, observed_uptime):
+    return str(_uuid.uuid5(
+        _uuid.NAMESPACE_URL,
+        "ecobin:uart-v2-runtime:%s:%s:%s:%s" % (
+            facts["currentMcuBootId"],
+            kind,
+            sequence,
+            observed_uptime,
+        ),
+    ))
+
+
+def _native_weight_fields(facts):
+    state = facts.get("measurementState")
+    measurement_sequence = facts.get("measurementSequence")
+    measurement_uptime = facts.get("measurementObservedUptimeMs")
+    scale_uptime = facts.get("scaleCapturedUptimeMs")
+    use_measurement = bool(
+        state in {"STABLE_MEAN", "UNAVAILABLE", "CONFIG_ERROR", "BUFFER_FULL", "INTERRUPTED"}
+        and type(measurement_sequence) is int
+        and measurement_sequence > 0
+        and type(measurement_uptime) is int
+        and type(scale_uptime) is int
+        and measurement_uptime >= scale_uptime
+    )
+    if use_measurement:
+        uid = _native_measurement_uid(
+            "measurement",
+            facts,
+            measurement_sequence,
+            measurement_uptime,
+        )
+        common = {
+            "weightMeasurementUid": uid,
+            "measurementElapsedMs": facts.get("measurementElapsedMs", 0),
+            "weightSampleCount": facts.get("measurementSampleCount", 0),
+            "calibrationVersion": facts.get("scaleCalibrationVersion", 0),
+            "weightMcuBootId": facts["currentMcuBootId"],
+            # DEVICE_FACTS.measurementSequence is not the global reliable
+            # MCU event sequence required by this OneNet field.
+            "weightMcuEventSequence": None,
+        }
+        if state == "STABLE_MEAN":
+            return common | {
+                "weightMeasurementStatus": "STABLE",
+                "weightValueAvailable": True,
+                "reportedWeightGrams": facts["measurementWeightGrams"],
+                "weightValueKind": "STABLE_WINDOW_MEAN",
+                "weightSensorHealth": "OK",
+                "weightFaultCode": None,
+            }
+        status, health = {
+            "CONFIG_ERROR": ("CONFIG_ERROR", "CONFIG_ERROR"),
+            "UNAVAILABLE": ("TIMEOUT", "TIMEOUT"),
+            "BUFFER_FULL": ("SENSOR_FAULT", "SENSOR_FAULT"),
+            "INTERRUPTED": ("SENSOR_FAULT", "UNKNOWN"),
+        }.get(state, ("PROTOCOL_ERROR", "PROTOCOL_ERROR"))
+        return common | {
+            "weightMeasurementStatus": status,
+            "weightValueAvailable": False,
+            "reportedWeightGrams": None,
+            "weightValueKind": "NONE",
+            "weightSensorHealth": health,
+            "weightFaultCode": "WEIGHT_SENSOR",
+        }
+    scale_status = facts.get("scaleReadStatus")
+    scale_sequence = facts.get("scaleAttemptSequence")
+    scale_is_fresh = bool(
+        scale_status == "VALID"
+        and type(scale_sequence) is int
+        and scale_sequence > 0
+        and type(scale_uptime) is int
+        and type(facts.get("capturedUptimeMs")) is int
+        and 0 <= facts["capturedUptimeMs"] - scale_uptime <= NATIVE_FACTS_MAXIMUM_AGE_MS
+    )
+    if scale_is_fresh:
+        return {
+            "weightMeasurementUid": _native_measurement_uid(
+                "scale",
+                facts,
+                scale_sequence,
+                scale_uptime,
+            ),
+            "weightMeasurementStatus": "UNSTABLE",
+            "weightValueAvailable": True,
+            "reportedWeightGrams": facts["scaleWeightGrams"],
+            "weightValueKind": "LAST_OBSERVED",
+            "measurementElapsedMs": 0,
+            "weightSampleCount": 1,
+            "calibrationVersion": facts.get("scaleCalibrationVersion", 0),
+            "weightSensorHealth": "OK",
+            "weightFaultCode": None,
+            "weightMcuBootId": facts["currentMcuBootId"],
+            "weightMcuEventSequence": None,
+        }
+    status, health = {
+        "TIMEOUT": ("TIMEOUT", "TIMEOUT"),
+        "CRC_ERROR": ("PROTOCOL_ERROR", "PROTOCOL_ERROR"),
+        "PROTOCOL_ERROR": ("PROTOCOL_ERROR", "PROTOCOL_ERROR"),
+        "RANGE_ERROR": ("OVERLOAD", "OVERLOAD"),
+    }.get(scale_status, ("SENSOR_FAULT", "UNKNOWN"))
+    return {
+        **_snapshot_measurement_fields({}),
+        "weightMeasurementStatus": status,
+        "weightSensorHealth": health,
+        "weightFaultCode": (
+            "WEIGHT_SENSOR" if scale_status != "NOT_OBSERVED" else None
+        ),
+        "calibrationVersion": facts.get("scaleCalibrationVersion", 0),
+    }
+
+
+def _native_fullness_fields(facts, configuration, configured_kind):
+    kind = facts.get("fullnessObservationKind")
+    if kind not in {"ULTRASONIC", "DIGITAL_INFRARED"}:
+        kind = configured_kind
+    if facts.get("fullnessReadStatus") != "VALID":
+        return {
+            "fullnessSensorKind": kind,
+            "fullnessSensorValue": "CLEAR",
+            "fullnessSampleBasis": "NOT_SAMPLED",
+            "representativeDistanceMm": None,
+            "fullnessValidSampleCount": 0,
+        }
+    if kind == "DIGITAL_INFRARED":
+        blocked = facts.get("fullnessInfraredBlocked") is True
+        distance = None
+    else:
+        distance = facts.get("fullnessDistanceMm")
+        threshold = configuration.get("fullnessDistanceThresholdMm")
+        blocked = bool(
+            type(distance) is int
+            and type(threshold) is int
+            and distance <= threshold
+        )
+    return {
+        "fullnessSensorKind": kind,
+        "fullnessSensorValue": "BLOCKED" if blocked else "CLEAR",
+        # rc.25 reports one observation; claiming MEASURED_MEDIAN would lie.
+        "fullnessSampleBasis": "NOT_SAMPLED",
+        "representativeDistanceMm": distance,
+        "fullnessValidSampleCount": 1,
+    }
+
+
+def _native_smoke_fields(facts):
+    state = facts.get("smokeObservationState")
+    if state == "NORMAL":
+        return {"smokeState": "NORMAL", "smokeSensorHealth": "OK"}
+    if state == "ALARM":
+        return {"smokeState": "ALARM", "smokeSensorHealth": "OK"}
+    if state == "UNAVAILABLE":
+        return {"smokeState": "UNKNOWN", "smokeSensorHealth": "SENSOR_FAULT"}
+    return {"smokeState": "UNKNOWN", "smokeSensorHealth": "UNKNOWN"}
 
 
 def _state_json(store, key):

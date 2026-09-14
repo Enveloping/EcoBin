@@ -20,7 +20,7 @@ from first_boot.facts import FirstBootPaths, SystemFactsProvider
 from first_boot.model import FactoryTestStatus
 from install.runtime_payload_manifest import BUSINESS_APP_FILES, RUNTIME_APP_FILES
 from .test_factory_acceptance_core import _build_executor, _pass_delivery, _set_weight
-from .test_factory_acceptance_handoff import _Bootloader, _Mcu
+from .test_factory_acceptance_handoff import _Mcu
 from .test_factory_seal_controller import _report
 
 
@@ -31,7 +31,7 @@ class NoCommands:
 
 @pytest.mark.parametrize("reference", [28, 400, 500, 1000])
 @pytest.mark.parametrize("update_line", [False, True])
-def test_real_generated_report_survives_all_local_consumers(
+def test_real_generated_report_survives_local_consumers_and_handoff_policy(
     tmp_path: Path, monkeypatch, reference: int, update_line: bool,
 ) -> None:
     executor, model, _serial = _build_executor(tmp_path)
@@ -83,7 +83,7 @@ def test_real_generated_report_survives_all_local_consumers(
     )
     facts = collect_local_factory_facts(seal_paths)
     assert facts.factory_report_sha256 == canonical_factory_report_sha256(report)
-    mcu, bootloader = _Mcu(report["mcuIdentity"]), _Bootloader()
+    mcu = _Mcu(report["mcuIdentity"])
     for name, path in {
         "IMAGE_RELEASE_PATH": release,
         "HANDOFF_FACT_PATH": tmp_path / "handoff.json",
@@ -92,14 +92,18 @@ def test_real_generated_report_survives_all_local_consumers(
         "UART_LOCK_PATH": tmp_path / "locks/handoff-uart.lock",
     }.items():
         monkeypatch.setattr(handoff, name, path)
-    monkeypatch.setattr(handoff.FixedFrameAcceptanceMcu, "for_port", lambda *a, **k: mcu)
-    monkeypatch.setattr(handoff, "ReadOnlyStm32RomProbe", lambda **k: bootloader)
+    monkeypatch.setattr(handoff.NativeAcceptanceMcu, "for_port", lambda *a, **k: mcu)
     monkeypatch.setattr(handoff, "_resolve_business_capability_owner", lambda: None)
     # Neither report validation nor capability validation is mocked.
+    if update_line:
+        with pytest.raises(
+            handoff.AcceptanceHardwareError,
+            match="MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED",
+        ):
+            handoff.run_handoff(config)
+        assert not mcu.opened
+        return
     assert handoff.run_handoff(config)["status"] == "HANDOFF_SAFE"
-    assert bootloader.calls == (
-        ["force_application_selection", "boot_application"] if update_line else []
-    )
     capabilities = AtomicJsonFile(
         tmp_path / "capabilities.json", file_mode=0o640, chmod_existing_parent=False,
     ).read()

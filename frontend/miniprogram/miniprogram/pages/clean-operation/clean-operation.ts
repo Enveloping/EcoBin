@@ -41,6 +41,7 @@ import {
   type PendingCleanBagRecoveryIntent,
 } from '../../utils/clean-bag-recovery-intent'
 import { businessOperationPollDelay } from '../../utils/business-operation-polling'
+import { CLEAN_ABORTED_COPY } from '../../utils/business-failure-copy'
 import {
   autoSelectedCleanPortNo,
   cleanBlockerText,
@@ -158,10 +159,7 @@ function statusCopy(status: CleanOperationStatus): {
         description: '换袋结果已保存。清运记录可在“我的 → 清运记录”查看。',
       }
     case 'ABORTED':
-      return {
-        title: '本次清运已安全中止',
-        description: '设备在执行期间重启，系统已中止原操作并进入安全联锁。请联系管理员现场确认。',
-      }
+      return CLEAN_ABORTED_COPY
   }
 }
 

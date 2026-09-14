@@ -24,7 +24,8 @@ def test_main_uses_one_native_parser_and_real_drivers():
     for symbol in ('McuControlEndpoint_Feed', 'McuWorkPreparation_Poll', 'McuDeliveryExecution_Attach',
                    'McuCleanExecution_Attach', 'NativeUsart_SendScaleQuery', 'McuWeightRun_FinishOwnedAttempt',
                    'McuWeightRun_FinishIdleAttempt', 'McuDeliveryExecution_CloseCurrent',
-                   'McuWorkPreparation_AttachDeviceEntryUrl', 'UART3_TrySendQRCode'):
+                   'McuWorkPreparation_AttachDeviceEntryUrl', 'UART3_TrySendQRCode',
+                   'McuEnvironmentMonitor_StartUltrasonic', 'McuEnvironmentMonitor_PollUltrasonic'):
         assert symbol in source
     assert 'Vision_Process(' not in source
     assert 'McuSafeCloseExecution_Attach' not in source
@@ -32,6 +33,26 @@ def test_main_uses_one_native_parser_and_real_drivers():
     assert 'ActuatorRuntime_SetDoorTarget(MCU_DIRECTION_CLOSE)' in source
     assert source.index('    tick_init();') < source.index('    (void)ADC1_TryInit();')
     assert 'scale_poll();\n        hmi_poll();' in source
+    idle_monitor = source[
+        source.index('static void idle_fullness_poll(void)'):
+        source.index('static void hmi_poll(void)')
+    ]
+    assert idle_monitor.index('McuEnvironmentMonitor_PollUltrasonic') < idle_monitor.index(
+        'control.work.status == ECOBIN_UART_WORK_QUERY_STATUS_RUNNING'
+    ) < idle_monitor.index('RuntimeClock_PeriodDue') < idle_monitor.index(
+        'McuEnvironmentMonitor_StartUltrasonic'
+    )
+    for guard in ('preparation.fullness_enabled', 'preparation.recovery_active',
+                  'preparation.baseline_active', 'control.work.result.held',
+                  'preparation.fullness.present', 'snapshot.update_latched'):
+        assert guard in idle_monitor
+    assert 'IDLE_FULLNESS_PERIOD_MS 1000u' in source
+    assert 'McuFullnessRun_Interrupt' not in idle_monitor
+    assert 'UltrasonicReader_' not in idle_monitor
+    foreground = source[source.index('    for (;;) {'):]
+    assert foreground.index('control_poll();') < foreground.index(
+        'idle_fullness_poll();'
+    ) < foreground.index('McuWorkPreparation_Poll')
 
 
 def test_hmi_url_writer_has_one_bounded_atomic_queue_operation():
@@ -49,7 +70,55 @@ def test_hmi_url_writer_has_one_bounded_atomic_queue_operation():
     # accepted QR command from the TX ring.
     assert 'NativeRx_DiscardOverflow(&NativeHmiTx)' not in source
     assert 'NativeRx_PushIrq(&NativeHmiTx' not in source
-    assert source.count('hmi_try_write(') == 7
+    assert 'USART_IT_TC' not in source and 'USART_FLAG_TC' not in source
+    assert source.count('hmi_try_write(') == 5
+
+
+def test_hmi_page_and_live_display_batches_retire_state_only_after_queue_success():
+    source = (ROOT / 'hardware_mcu/USER/main.c').read_text(encoding='utf-8')
+    display = source[source.index('static void display_poll(void)'):
+                     source.index('static void display_live_weight(void)')]
+    live = source[source.index('static void display_live_weight(void)'):
+                  source.index('int main(void)')]
+
+    assert 'UART3_CommandBatchAppendPage(&display_batch, "page0")' in display
+    assert 'UART3_CommandBatchAppendPage(&display_batch, "page6")' in display
+    assert 'UART3_CommandBatchAppendPage(&display_batch, "page7")' in display
+    assert 'UART3_CommandBatchAppendPage(&display_batch, "page8")' in display
+    queued = display.index('if (has_batch && !UART3_TrySendBatch(&display_batch)) return;')
+    assert queued < display.index('display_phase = phase;')
+    assert queued < display.index('display_status = status;')
+    assert queued < display.index('displayed_scale_attempt = preparation.weight.attempt_sequence;')
+    assert 'UART3_SendPage(' not in display
+    assert 'UART3_SendScreenVal(' not in display
+    assert 'UART3_SendVisible(' not in display
+    assert 'control.work.phase != ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_OPEN_COUNTDOWN' in live
+    assert live.index('if (UART3_TrySendBatch(&display_batch)) {') < live.index(
+        'displayed_scale_attempt = observation.attempt_sequence;'
+    )
+
+
+def test_actual_uart3_batch_and_qr_queue_with_clang(tmp_path):
+    compiler = Path('C:/Program Files/LLVM/bin/clang.exe')
+    if not compiler.is_file():
+        pytest.skip('cached Clang required')
+    executable = tmp_path / 'uart3-atomic-batch.exe'
+    completed = subprocess.run([
+        str(compiler), '-std=c99', '-Wall', '-Wextra', '-Werror',
+        '-D__CC_ARM', '-DUSE_STDPERIPH_DRIVER',
+        '-D__get_PRIMASK=HostGetPrimask',
+        '-D__disable_irq=HostDisableIrq', '-D__set_PRIMASK=HostSetPrimask',
+        '-include', str(ROOT / 'hardware_mcu/tests/uart3_host_intrinsics.h'),
+        '-I', str(ROOT / 'hardware_mcu/USER'),
+        '-I', str(ROOT / 'hardware_mcu/CMSIS'),
+        '-I', str(ROOT / 'hardware_mcu/FWlib/inc'),
+        str(ROOT / 'hardware_mcu/USER/native_serial_buffer.c'),
+        str(ROOT / 'hardware_mcu/USER/usart3.c'),
+        str(ROOT / 'hardware_mcu/tests/uart3_atomic_batch_test.c'),
+        '-o', str(executable),
+    ], text=True, capture_output=True, timeout=30)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    subprocess.run([str(executable)], check=True, timeout=10)
 
 
 def test_native_keil_links_generated_protocol_once_and_uses_real_memory_limits():

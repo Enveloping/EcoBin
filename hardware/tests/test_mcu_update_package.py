@@ -71,6 +71,7 @@ def _package(
         version_code=version_code,
         header_path=identity_dir / "identity.h",
         metadata_path=metadata_path,
+        application_protocol_family="FIXED_FRAME",
         release_uid=uuid.UUID(
             f"{version_code:08x}-1111-4111-8111-{image_byte:012x}"
         ),

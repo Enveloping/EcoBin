@@ -15,6 +15,8 @@
 
 NativeRxBuffer NativeHmiRx;
 NativeRxBuffer NativeHmiTx;
+typedef char uart3_batch_fits_tx_ring[
+    (UART3_COMMAND_BATCH_CAPACITY <= NATIVE_RX_CAPACITY - 1u) ? 1 : -1];
 void NativeHmi_InitBuffer(void) {
     NativeRx_Init(&NativeHmiRx); NativeRx_Init(&NativeHmiTx);
 }
@@ -28,6 +30,99 @@ static uint8_t hmi_try_write(const NativeSerialSpan *spans, size_t count)
     if (queued) USART_ITConfig(USART3, USART_IT_TXE, ENABLE);
     __set_PRIMASK(previous);
     return queued;
+}
+
+static uint8_t batch_append(UART3_CommandBatch *batch,
+    const uint8_t *bytes, size_t length)
+{
+    if (batch == 0 || !batch->valid
+        || batch->length > UART3_COMMAND_BATCH_CAPACITY
+        || (bytes == 0 && length != 0u)
+        || length > (size_t)UART3_COMMAND_BATCH_CAPACITY - batch->length) {
+        if (batch != 0) batch->valid = 0u;
+        return 0u;
+    }
+    if (length != 0u) memcpy(batch->bytes + batch->length, bytes, length);
+    batch->length = (uint16_t)(batch->length + length);
+    return 1u;
+}
+
+static uint8_t batch_append_text(UART3_CommandBatch *batch, const char *text)
+{
+    if (text == 0) {
+        if (batch != 0) batch->valid = 0u;
+        return 0u;
+    }
+    return batch_append(batch, (const uint8_t *)text, strlen(text));
+}
+
+void UART3_CommandBatchInit(UART3_CommandBatch *batch)
+{
+    if (batch == 0) return;
+    batch->length = 0u;
+    batch->valid = 1u;
+}
+
+uint8_t UART3_CommandBatchAppendVisible(UART3_CommandBatch *batch,
+    const char *component, uint8_t visible)
+{
+    static const uint8_t prefix[] = "vis ";
+    static const uint8_t comma[] = {','};
+    static const uint8_t suffix[] = {0xffu, 0xffu, 0xffu};
+    uint8_t state = visible ? '1' : '0';
+    if (component == 0) {
+        if (batch != 0) batch->valid = 0u;
+        return 0u;
+    }
+    return (uint8_t)(batch_append(batch, prefix, sizeof(prefix) - 1u)
+        && batch_append_text(batch, component)
+        && batch_append(batch, comma, sizeof(comma))
+        && batch_append(batch, &state, 1u)
+        && batch_append(batch, suffix, sizeof(suffix)));
+}
+
+uint8_t UART3_CommandBatchAppendScreenVal(UART3_CommandBatch *batch,
+    const char *prefix, int value)
+{
+    static const uint8_t suffix[] = {0xffu, 0xffu, 0xffu};
+    uint8_t digits[10];
+    uint8_t first = sizeof(digits);
+    unsigned int number = value > 0 ? (unsigned int)value : 0u;
+    if (prefix == 0) {
+        if (batch != 0) batch->valid = 0u;
+        return 0u;
+    }
+    do {
+        digits[--first] = (uint8_t)('0' + number % 10u);
+        number /= 10u;
+    } while (number != 0u && first != 0u);
+    return (uint8_t)(batch_append_text(batch, prefix)
+        && batch_append(batch, digits + first, sizeof(digits) - first)
+        && batch_append(batch, suffix, sizeof(suffix)));
+}
+
+uint8_t UART3_CommandBatchAppendPage(UART3_CommandBatch *batch,
+    const char *page)
+{
+    static const uint8_t prefix[] = "page ";
+    static const uint8_t suffix[] = {0xffu, 0xffu, 0xffu};
+    if (page == 0) {
+        if (batch != 0) batch->valid = 0u;
+        return 0u;
+    }
+    return (uint8_t)(batch_append(batch, prefix, sizeof(prefix) - 1u)
+        && batch_append_text(batch, page)
+        && batch_append(batch, suffix, sizeof(suffix)));
+}
+
+uint8_t UART3_TrySendBatch(const UART3_CommandBatch *batch)
+{
+    NativeSerialSpan span;
+    if (batch == 0 || !batch->valid || batch->length == 0u
+        || batch->length > UART3_COMMAND_BATCH_CAPACITY) return 0u;
+    span.bytes = batch->bytes;
+    span.length = batch->length;
+    return hmi_try_write(&span, 1u);
 }
 
 /* UART3 接收缓冲区 */
@@ -100,18 +195,10 @@ void UART3_SendString(char *str)
 /* Trusted current-page component names only, e.g. n1 / n3. */
 void UART3_SendVisible(char *component, unsigned char visible)
 {
-    static const uint8_t prefix[] = "vis ";
-    static const uint8_t comma[] = {','};
-    static const uint8_t suffix[] = {0xffu, 0xffu, 0xffu};
-    uint8_t state = visible ? '1' : '0';
-    NativeSerialSpan spans[5];
-    if (component == 0) return;
-    spans[0].bytes = prefix; spans[0].length = sizeof(prefix) - 1u;
-    spans[1].bytes = (const uint8_t *)component; spans[1].length = strlen(component);
-    spans[2].bytes = comma; spans[2].length = sizeof(comma);
-    spans[3].bytes = &state; spans[3].length = 1u;
-    spans[4].bytes = suffix; spans[4].length = sizeof(suffix);
-    (void)hmi_try_write(spans, 5u);
+    UART3_CommandBatch batch;
+    UART3_CommandBatchInit(&batch);
+    if (UART3_CommandBatchAppendVisible(&batch, component, visible))
+        (void)UART3_TrySendBatch(&batch);
 }
 
 /*
@@ -123,20 +210,10 @@ void UART3_SendVisible(char *component, unsigned char visible)
  */
 void UART3_SendScreenVal(char *prefix, int value)
 {
-    static const uint8_t suffix[] = {0xffu, 0xffu, 0xffu};
-    uint8_t digits[10];
-    uint8_t first = sizeof(digits);
-    unsigned int number = value > 0 ? (unsigned int)value : 0u;
-    NativeSerialSpan spans[3];
-    if (prefix == 0) return;
-    do {
-        digits[--first] = (uint8_t)('0' + number % 10u);
-        number /= 10u;
-    } while (number != 0u && first != 0u);
-    spans[0].bytes = (const uint8_t *)prefix; spans[0].length = strlen(prefix);
-    spans[1].bytes = digits + first; spans[1].length = sizeof(digits) - first;
-    spans[2].bytes = suffix; spans[2].length = sizeof(suffix);
-    (void)hmi_try_write(spans, 3u);
+    UART3_CommandBatch batch;
+    UART3_CommandBatchInit(&batch);
+    if (UART3_CommandBatchAppendScreenVal(&batch, prefix, value))
+        (void)UART3_TrySendBatch(&batch);
 }
 
 /*
@@ -146,14 +223,10 @@ void UART3_SendScreenVal(char *prefix, int value)
  */
 void UART3_SendPage(char *page)
 {
-    static const uint8_t prefix[] = "page ";
-    static const uint8_t suffix[] = {0xffu, 0xffu, 0xffu};
-    NativeSerialSpan spans[3];
-    if (page == 0) return;
-    spans[0].bytes = prefix; spans[0].length = sizeof(prefix) - 1u;
-    spans[1].bytes = (const uint8_t *)page; spans[1].length = strlen(page);
-    spans[2].bytes = suffix; spans[2].length = sizeof(suffix);
-    (void)hmi_try_write(spans, 3u);
+    UART3_CommandBatch batch;
+    UART3_CommandBatchInit(&batch);
+    if (UART3_CommandBatchAppendPage(&batch, page))
+        (void)UART3_TrySendBatch(&batch);
 }
 
 /*

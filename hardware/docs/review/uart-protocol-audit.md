@@ -1,10 +1,10 @@
 # UART 协议审计报告
 
-> **当前状态（2026-07-27）**：默认入口已改为双方重新协商的 9 字节 DD/EF 固定帧
-> 适配层；见
-> [`../单片机-香橙派适配通信协议详细内容.md`](../单片机-香橙派适配通信协议详细内容.md)。
-> 2026-07-25 的 UART 1.0 HIL 仍作为历史证据保留，但不是本分支默认生产入口。
-> 下文是更早的文本协议审计，不能代表当前实现。
+> **当前导航（2026-09-14）**：本地候选已推进为UART v2 rc.26，唯一机器来源是
+> [`../../../contracts/uart/uart-registry.yaml`](../../../contracts/uart/uart-registry.yaml)，当前收口见
+> [rc.26记录](uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)。
+> 本报告正文只保存2026-07-04文本协议及后续固定帧迁移的历史审计，不能代表rc.26现状。
+> rc.26尚未部署、烧录或通过真实串口屏、RS485和机构HIL。
 >
 > 审计日期：2026-07-04
 > 审计范围：`hardware/hardware_layer.py` SerialBridge 协议实现 + `hardware/door_flow.py` 开门闭环

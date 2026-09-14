@@ -46,6 +46,17 @@ PAYLOAD_LOCK_GENERATOR = (
 IMAGE_SOFTWARE_INSTALLER = HARDWARE_ROOT / "system/image_software_installer.py"
 
 
+def test_installed_hardware_environment_selects_native_uart_v2() -> None:
+    environment = (
+        HARDWARE_ROOT / "install/hardware.env.example"
+    ).read_text(encoding="utf-8")
+
+    assert "ECOBIN_MCU_PROTOCOL=uart-v2\n" in environment
+    assert "ECOBIN_MCU_SIMULATED=false\n" in environment
+    assert "ECOBIN_UART_PORT_COUNT=1\n" in environment
+    assert "ECOBIN_MCU_UPDATE_ENABLED=true" not in environment
+
+
 def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
     assert RUNTIME_APP_FILES is SIGNED_RUNTIME_APP_FILES
     assert "factory_seal/admission.py" in RUNTIME_APP_FILES
@@ -57,6 +68,11 @@ def test_image_and_signed_release_share_one_runtime_source_manifest() -> None:
     assert "trusted_clock.py" in FACTORY_APP_RUNTIME_FILES
     assert "factory_progress.py" in RUNTIME_APP_FILES
     assert "factory_progress.py" in FACTORY_APP_RUNTIME_FILES
+    assert "mcu_configuration.py" in FACTORY_APP_RUNTIME_FILES
+    assert "uart_link.py" in FACTORY_APP_RUNTIME_FILES
+    assert "uart_protocol.py" in FACTORY_APP_RUNTIME_FILES
+    assert "uart2_protocol.py" in FACTORY_APP_RUNTIME_FILES
+    assert "uart2_transport.py" in FACTORY_APP_RUNTIME_FILES
     assert "factory_progress.py" in image_installer.ENROLLMENT_FILES
     assert "device_runtime_projection.py" in image_installer.ENROLLMENT_FILES
     assert "business_identity.py" in image_installer.ENROLLMENT_FILES
@@ -235,10 +251,16 @@ def test_factory_app_staging_has_an_isolated_exact_import_closure(
 
     image_installer._stage_factory_app(HARDWARE_ROOT, app)
 
+    assert (app / "factory/native_acceptance_mcu.py").is_file()
+    assert (app / "uart2_protocol.py").is_file()
+    assert (app / "uart2_transport.py").is_file()
+
     _assert_isolated_app_imports(
         app,
         "first_boot.orchestrator",
         "factory.acceptance_service",
+        "factory.acceptance_handoff",
+        "factory.native_acceptance_mcu",
         "device_credentials",
     )
     def assert_same_without_root_owner(

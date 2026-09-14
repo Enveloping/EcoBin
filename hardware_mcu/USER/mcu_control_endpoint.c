@@ -1,7 +1,13 @@
 #include "mcu_control_endpoint.h"
+#include "firmware_identity.h"
 #include <string.h>
 
 typedef char endpoint_ram_budget[(sizeof(McuControlEndpoint) <= 3072u) ? 1 : -1];
+typedef char firmware_version_budget[
+    ((sizeof(ECOBIN_MCU_FIRMWARE_VERSION) - 1u) >= 5u
+        && (sizeof(ECOBIN_MCU_FIRMWARE_VERSION) - 1u) <= 32u) ? 1 : -1];
+
+static const uint8_t firmware_identity[8] = ECOBIN_MCU_FIRMWARE_IDENTITY_BYTES;
 
 static void emit(McuControlEndpoint *endpoint, uint8_t message, uint16_t length) {
     size_t encoded = 0u;
@@ -144,6 +150,46 @@ static void receive(const uint8_t *frame, size_t length, const ecobin_uart_frame
         reply_length = McuDeviceFacts_Capture(&endpoint->facts, &endpoint->work,
             input, view->payload_length, endpoint->payload, sizeof(endpoint->payload));
         if (reply_length) emit(endpoint, ECOBIN_UART_MESSAGE_DEVICE_FACTS_REPLY, (uint16_t)reply_length);
+        break;
+    case ECOBIN_UART_MESSAGE_QUERY_DEVICE_IDENTITY:
+        memcpy(endpoint->payload, input, ECOBIN_UART_QUERY_DEVICE_IDENTITY_PAYLOAD_MAX_LENGTH);
+        ecobin_uart_write_u64_be(endpoint->payload
+            + ECOBIN_UART_DEVICE_IDENTITY_REPLY_CURRENT_MCU_BOOT_ID_OFFSET,
+            endpoint->session.boot_id);
+        endpoint->payload[ECOBIN_UART_DEVICE_IDENTITY_REPLY_STATUS_OFFSET] =
+            ecobin_uart_read_u64_be(input
+                + ECOBIN_UART_QUERY_DEVICE_IDENTITY_TARGET_MCU_BOOT_ID_OFFSET)
+                    == endpoint->session.boot_id
+                ? ECOBIN_UART_DEVICE_IDENTITY_STATUS_AVAILABLE
+                : ECOBIN_UART_DEVICE_IDENTITY_STATUS_BOOT_MISMATCH;
+        endpoint->payload[ECOBIN_UART_DEVICE_IDENTITY_REPLY_PROTOCOL_MAJOR_OFFSET] = 2u;
+        endpoint->payload[ECOBIN_UART_DEVICE_IDENTITY_REPLY_PROTOCOL_MINOR_OFFSET] = 0u;
+        endpoint->payload[ECOBIN_UART_DEVICE_IDENTITY_REPLY_PORT_COUNT_OFFSET] = 1u;
+        ecobin_uart_write_u64_be(endpoint->payload
+            + ECOBIN_UART_DEVICE_IDENTITY_REPLY_CAPABILITY_BITMAP_OFFSET,
+            ECOBIN_UART_CAPABILITY_CONFIG_STAGING_COMMIT
+                | ECOBIN_UART_CAPABILITY_DEVICE_ENTRY_URL_APPLICATION);
+        ecobin_uart_write_u32_be(endpoint->payload
+            + ECOBIN_UART_DEVICE_IDENTITY_REPLY_HIGHEST_COMMAND_SEQUENCE_OFFSET,
+            endpoint->session.highest_sequence);
+        ecobin_uart_write_u32_be(endpoint->payload
+            + ECOBIN_UART_DEVICE_IDENTITY_REPLY_FIRMWARE_VERSION_CODE_OFFSET,
+            (uint32_t)ECOBIN_MCU_FIRMWARE_VERSION_CODE);
+        ecobin_uart_write_u32_be(endpoint->payload
+            + ECOBIN_UART_DEVICE_IDENTITY_REPLY_FIRMWARE_IDENTITY_HIGH_OFFSET,
+            ecobin_uart_read_u32_be(firmware_identity));
+        ecobin_uart_write_u32_be(endpoint->payload
+            + ECOBIN_UART_DEVICE_IDENTITY_REPLY_FIRMWARE_IDENTITY_LOW_OFFSET,
+            ecobin_uart_read_u32_be(firmware_identity + 4u));
+        endpoint->payload[ECOBIN_UART_DEVICE_IDENTITY_REPLY_FIRMWARE_VERSION_OFFSET] =
+            (uint8_t)(sizeof(ECOBIN_MCU_FIRMWARE_VERSION) - 1u);
+        memcpy(endpoint->payload
+                + ECOBIN_UART_DEVICE_IDENTITY_REPLY_FIRMWARE_VERSION_OFFSET + 1u,
+            ECOBIN_MCU_FIRMWARE_VERSION,
+            sizeof(ECOBIN_MCU_FIRMWARE_VERSION) - 1u);
+        emit(endpoint, ECOBIN_UART_MESSAGE_DEVICE_IDENTITY_REPLY,
+            (uint16_t)(ECOBIN_UART_DEVICE_IDENTITY_REPLY_PAYLOAD_MIN_LENGTH
+                + sizeof(ECOBIN_MCU_FIRMWARE_VERSION) - 1u));
         break;
     case ECOBIN_UART_MESSAGE_QUERY_RESULT:
         result_status = McuResultSlot_Query(&endpoint->work.result,

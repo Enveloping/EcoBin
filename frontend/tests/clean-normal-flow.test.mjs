@@ -211,6 +211,8 @@ test('operation page saves before POST, gates phone scan and never links complet
   assert.match(markup, /open-type="getPhoneNumber"/);
   assert.match(markup, /取消后会停留在投口页面，不会扫码，也不会发起清运请求/);
   assert.match(page, /我的 → 清运记录/);
+  assert.match(page, /CLEAN_ABORTED_COPY/);
+  assert.doesNotMatch(page, /设备在执行期间重启/);
   assert.doesNotMatch(markup, /手动输入/);
 });
 

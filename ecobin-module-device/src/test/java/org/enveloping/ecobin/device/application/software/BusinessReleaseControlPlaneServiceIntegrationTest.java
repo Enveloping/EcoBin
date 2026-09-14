@@ -201,11 +201,11 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                 0,
                 1,
                 0,
-                "FIXED_FRAME",
-                null,
-                null,
+                "ECOBIN_UART",
                 2,
-                "0000000000000000",
+                0,
+                null,
+                "0000000000008100",
                 "0000000000000000",
                 Map.of()));
 
@@ -213,7 +213,7 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                 UUID.randomUUID(), draft.releaseUid(), "核对发布包");
         assertThat(verified.statusLabel()).isEqualTo("等待批准");
         assertThat(verified.compatibility().uartProtocol())
-                .isEqualTo("固定帧修订 2");
+                .isEqualTo("EcoBin UART 2.0");
 
         UUID approvalOperation = UUID.randomUUID();
         var approved = service.approve(
@@ -284,6 +284,46 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                 Long.class)).isZero();
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM dev_edge_software_deployment",
+                Long.class)).isZero();
+    }
+
+    @Test
+    void uartV2ReleaseRejectsFixedFrameOrAnotherNegotiatedVersion()
+            throws Exception {
+        var ready = readyRelease();
+        jdbc.update("""
+                UPDATE dev_device_software_fact
+                SET uart_protocol_family = 'FIXED_FRAME',
+                    uart_protocol_major = NULL,
+                    uart_protocol_minor = NULL
+                WHERE asset_id = 1
+                """);
+
+        assertThatThrownBy(() -> service.createRollout(
+                UUID.randomUUID(),
+                new CreateRolloutRequest(
+                        ready.releaseUid(), VALIDATION_SN, List.of(), 1,
+                        "不能把UART v2业务包投放到旧固定帧设备")))
+                .isInstanceOf(TargetApiException.class)
+                .hasMessageContaining("单片机串口协议不兼容");
+
+        jdbc.update("""
+                UPDATE dev_device_software_fact
+                SET uart_protocol_family = 'ECOBIN_UART',
+                    uart_protocol_major = 2,
+                    uart_protocol_minor = 1
+                WHERE asset_id = 1
+                """);
+
+        assertThatThrownBy(() -> service.createRollout(
+                UUID.randomUUID(),
+                new CreateRolloutRequest(
+                        ready.releaseUid(), VALIDATION_SN, List.of(), 1,
+                        "协商版本也必须精确匹配")))
+                .isInstanceOf(TargetApiException.class)
+                .hasMessageContaining("单片机串口协议不兼容");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM dev_edge_software_rollout",
                 Long.class)).isZero();
     }
 
@@ -465,11 +505,11 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                 0,
                 1,
                 0,
-                "FIXED_FRAME",
-                null,
-                null,
+                "ECOBIN_UART",
                 2,
-                "0000000000000000",
+                0,
+                null,
+                "0000000000008100",
                 "0000000000000000",
                 Map.of()));
         BusinessReleaseControlPlaneService transactionAware =
@@ -1069,8 +1109,8 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                         invocation.getArgument(3), invocation.getArgument(4),
                         invocation.getArgument(5), digest, (long) bytes.length,
                         1, 2, 2, 1, 0, 1, 0,
-                        "FIXED_FRAME", null, null, 2,
-                        "0000000000000000", "0000000000000000", Map.of()));
+                        "ECOBIN_UART", 2, 0, null,
+                        "0000000000008100", "0000000000000000", Map.of()));
         service.verify(UUID.randomUUID(), draft.releaseUid(), "校验");
         return service.approve(
                 UUID.randomUUID(), draft.releaseUid(), "批准");
@@ -1084,8 +1124,8 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                 invocation.getArgument(3), invocation.getArgument(4),
                 invocation.getArgument(5), digest, size,
                 1, 2, 2, 1, 0, 1, 0,
-                "FIXED_FRAME", null, null, 2,
-                "0000000000000000", "0000000000000000", Map.of());
+                "ECOBIN_UART", 2, 0, null,
+                "0000000000008100", "0000000000000000", Map.of());
     }
 
     private TrustedPlatformDeviceAssetFactEvent businessProgress(
@@ -1319,6 +1359,8 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                     mcu_fixed_frame_revision INT NOT NULL,
                     uart_state VARCHAR(16) NOT NULL,
                     uart_protocol_family VARCHAR(24) NOT NULL,
+                    uart_protocol_major INT,
+                    uart_protocol_minor INT,
                     capability_bitmap_hex VARCHAR(16) NOT NULL,
                     normalized_payload CLOB NOT NULL
                 )
@@ -1602,7 +1644,7 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                     provided_business_capability_bitmap_hex,
                     declaration_sha256, created_at
                 ) VALUES (?, '1.0.0', 1, ?, 1, 2, 2,
-                          1, 0, 1, 0, 'FIXED_FRAME', NULL, NULL, 2,
+                          1, 0, 1, 0, 'ECOBIN_UART', 2, 0, NULL,
                           '0000000000000000', '0000000000000000', ?, ?)
                 """,
                 CURRENT_RELEASE_UID.toString(),
@@ -1642,13 +1684,16 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                         negotiated_updater_business_major,
                         negotiated_updater_business_minor,
                         mcu_fixed_frame_revision, uart_state,
-                        uart_protocol_family, capability_bitmap_hex,
+                        uart_protocol_family,
+                        uart_protocol_major, uart_protocol_minor,
+                        capability_bitmap_hex,
                         normalized_payload
                     ) VALUES (
                         ?, ?, 'OPEN', 1, 0, 1, 0, 1, ?, 1,
                         '1.0.0', ?,
                         'RUNNING', TRUE, 1, 0, 1, 0,
-                        2, 'READY', 'FIXED_FRAME', '0000000000000000', ?
+                        2, 'READY', 'ECOBIN_UART', 2, 0,
+                        '0000000000008100', ?
                     )
                     """,
                     assetId,
@@ -1730,8 +1775,8 @@ class BusinessReleaseControlPlaneServiceIntegrationTest {
                       "fixedFrameRevision": 2
                     },
                     "uartState": "READY",
-                    "uartProtocol": null,
-                    "capabilityBitmapHex": "0000000000000000"
+                    "uartProtocol": {"major": 2, "minor": 0},
+                    "capabilityBitmapHex": "0000000000008100"
                   }
                 }
                 """.formatted(

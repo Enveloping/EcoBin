@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 import factory.acceptance_handoff as handoff_module
 from factory.acceptance_config import AcceptanceConfiguration
 from factory.acceptance_handoff import run_handoff
@@ -93,7 +95,7 @@ def test_handoff_without_update_line_never_touches_boot0_or_nrst(
         encoding="utf-8",
     )
     mcu = _Mcu(identity)
-    bootloader = _Bootloader()
+    native_construction: dict[str, object] = {}
     monkeypatch.setattr(handoff_module, "IMAGE_RELEASE_PATH", release_path)
     monkeypatch.setattr(handoff_module, "HANDOFF_FACT_PATH", handoff_path)
     monkeypatch.setattr(
@@ -102,14 +104,12 @@ def test_handoff_without_update_line_never_touches_boot0_or_nrst(
         capabilities_path,
     )
     monkeypatch.setattr(
-        handoff_module.FixedFrameAcceptanceMcu,
+        handoff_module.NativeAcceptanceMcu,
         "for_port",
-        lambda *_args, **_kwargs: mcu,
-    )
-    monkeypatch.setattr(
-        handoff_module,
-        "ReadOnlyStm32RomProbe",
-        lambda **_kwargs: bootloader,
+        lambda port, *, state_path: (
+            native_construction.update(port=port, state_path=state_path)
+            or mcu
+        ),
     )
     monkeypatch.setattr(
         handoff_module,
@@ -139,7 +139,10 @@ def test_handoff_without_update_line_never_touches_boot0_or_nrst(
     fact = run_handoff(config)
 
     assert fact["status"] == "HANDOFF_SAFE"
-    assert bootloader.calls == []
+    assert native_construction == {
+        "port": "/dev/ttyS5",
+        "state_path": config.native_uart_state_path,
+    }
     capabilities = AtomicJsonFile(
         capabilities_path,
         file_mode=0o640,
@@ -154,3 +157,51 @@ def test_handoff_without_update_line_never_touches_boot0_or_nrst(
     }
     if os.name != "nt":
         assert capabilities_path.stat().st_mode & 0o777 == 0o640
+
+
+def test_handoff_rejects_legacy_report_that_claims_remote_update_lines(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    report_path = (tmp_path / "report.json").absolute()
+    release_path = (tmp_path / "image-release.json").absolute()
+    AtomicJsonFile(report_path).write(
+        {
+            "schemaVersion": 2,
+            "status": "PASSED",
+            "mcuIdentity": {},
+            "mcuRemoteUpdateCapable": True,
+        }
+    )
+    release_path.write_text(
+        json.dumps({"schemaVersion": 1, "releaseId": "release-1"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(handoff_module, "IMAGE_RELEASE_PATH", release_path)
+    monkeypatch.setattr(
+        handoff_module,
+        "valid_passed_factory_report",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        handoff_module,
+        "mcu_remote_update_capability",
+        lambda _report: True,
+    )
+    monkeypatch.setattr(
+        handoff_module.NativeAcceptanceMcu,
+        "for_port",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("UART must not open for an unsupported report")
+        ),
+    )
+    config = replace(
+        AcceptanceConfiguration.from_mapping({}),
+        report_path=str(report_path),
+    )
+
+    with pytest.raises(
+        handoff_module.AcceptanceHardwareError,
+        match="MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED",
+    ):
+        run_handoff(config)

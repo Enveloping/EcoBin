@@ -1,5 +1,7 @@
 # Linux 定长帧 PTY 模拟器使用说明
 
+> **历史工具**：只用于fixed-frame兼容测试，不是当前UART v2 rc.26量产P7模拟器或真机证据。
+
 ## 1. 用途和边界
 
 `fixed_frame_pty_simulator.py` 在 Linux 上创建一对伪终端（PTY），并把从端通过稳定软

@@ -180,6 +180,50 @@ def terminal_weight_failure_candidate(result):
         and result["finalElapsedMs"] == 5000 and 0 <= result["finalSampleCount"] < 5)
 
 
+def terminal_failure_disposition(result):
+    """Classify every remaining explicit MCU failure without inventing an order.
+
+    The one delivery post-close timeout already has a deliberately narrow
+    abnormal-order policy.  Everything else reported as FAILED/CANCELLED is a
+    failure fact only.  In particular, a clean result whose initial weight was
+    obtained may already have energized the unlock output even when its action
+    sequence is still zero, so it requires the existing bag/tare interlock.
+    """
+    if terminal_weight_failure_candidate(result):
+        return None
+    finish = result["finishReason"]
+    if finish not in {"FAILED", "CANCELLED"}:
+        return None
+    available = {"STABLE_MEAN", "TIMEOUT_MEDIAN"}
+    initial_unavailable = result["initialKind"] not in available
+    zero_action_initial_failure = (
+        initial_unavailable
+        and result["finalKind"] == "NOT_TAKEN"
+        and result["deliveryRoundCount"] == 0
+        and result["cleanActionSequence"] == 0
+        and not result["physicalCloseConfirmed"]
+    )
+    if zero_action_initial_failure:
+        kind, reason = "INITIAL_WEIGHT_UNAVAILABLE", "MCU_INITIAL_WEIGHT_UNAVAILABLE"
+    elif (result["workType"] == "CLEAN_OPERATION" and finish == "FAILED"
+            and result["finalKind"] not in (available | {"NOT_TAKEN", "MCU_RESET_LOST"})):
+        kind, reason = "CLEAN_FINAL_WEIGHT_UNAVAILABLE", "MCU_CLEAN_FINAL_WEIGHT_UNAVAILABLE"
+    elif finish == "CANCELLED":
+        kind, reason = "MCU_REPORTED_CANCELLED", "MCU_WORK_CANCELLED"
+    else:
+        kind, reason = "MCU_REPORTED_FAILED", "MCU_WORK_FAILED"
+    return dict(
+        kind=kind,
+        reason=reason,
+        cleanBagInterlockRequired=(
+            result["workType"] == "CLEAN_OPERATION"
+            and not zero_action_initial_failure
+        ),
+        initialFaultCode=result["initialFaultCode"],
+        finalFaultCode=result["finalFaultCode"],
+    )
+
+
 def execution(store, permit, start_record, start, result, initial, final):
     """Read original command bindings; never confirm an effect or send a command."""
     acceptance = accepted_command_witness(store, start_record)

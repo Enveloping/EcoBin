@@ -1,8 +1,8 @@
 # EcoBin 机器契约
 
-> 当前采用[精简实施计划](../docs/planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)的UART rc.23：START授权MCU自主业务，完整结果可靠交接；不再将逐动作或过程记录确认作为推进条件。199字节最终包布局与历史解码保留，新报告使用v2语义，旧v1报告只读不重写。两端完整接通和现场验证尚未完成；以下P1复杂恢复进度仅为历史，不继续扩展。
+> 当前采用[精简实施计划](../docs/planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)的UART rc.26：START授权MCU自主业务，完整结果可靠交接；不再将逐动作或过程记录确认作为推进条件。73种消息的唯一机器来源是[`uart/uart-registry.yaml`](uart/uart-registry.yaml)，当前收口见[rc.26记录](../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)。仍为`MCU_REVIEW_REQUIRED / SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED`，尚未部署、烧录或通过真实HIL；以下P1复杂恢复进度均为历史。
 
-> OneNet候选2.3.0：APPLY_CONFIGURATION新增明确的UART_V2_SIMPLIFIED档位，原v1摘要保留；固定采样参数由Java/Pi按档位展开到原生UART，不增加管理员填写项。111份生成物一致、完整契约25项通过。既有runtimeSnapshot.ports的34成员结构仍需S4整改/实际导入验证，不能把这次本地校验当成OneNet现场验收。详见[入口与配置记录](../hardware/docs/review/native-business-entry-s1-2026-09-13.md)。
+> OneNet候选2.4.0：`APPLY_CONFIGURATION`明确使用`UART_V2_SIMPLIFIED`档位；固定采样参数由Java/Pi展开到原生UART，不增加管理员填写项。完整机器契约598项、1750个子测试和25项完整校验通过，113份生成文件一致；这些本地证据不能替代OneNet控制台导入或现场验收。
 
 > 最新候选 [P1BT：已授权未登记发送的恢复关门撤回](../hardware/docs/review/uart2-recovery-close-withdrawal-p1bt-2026-09-13.md)：业务库先封住旧发送，永久层另存撤回事实并保留原授权历史；独立继任仅豁免准确祖先，候选循环已接自动核对，不发新动作、不启动云端、不恢复接单，业务39/永久3不变。
 > 撤回专项53项与运行入口19项分别通过，最终集成/扩大回归见实施记录，完整契约25通过。已登记可能发送的未知效果、跨新启动号新动作、完整准入/云端/正常业务与main切换仍待接，P4/P5未完成。
@@ -46,7 +46,7 @@
 详细设计为准；这里负责把字段、单位、枚举、线级编号和校验规则变成可解析、可生成、
 可重复验证的制品。
 
-## 当前状态
+## 历史候选状态
 
 > 最新硬件[P1AI清运解锁前称重失败](../hardware/docs/review/uart2-clean-preunlock-failure-p1ai-2026-09-12.md)：首重无结果/中断精确保存后冻结FAILED；零解锁步骤、末重未采集、不伪造人工确认，Pi重启/丢回执不重放、不清占用，上一单数据不串单。
 > rc.19/schema27不变，300项相关及25项完整契约验证通过；扩大回归1668通过/5跳过/1635子测试通过/零失败，ROM50548/RAM6064仅核心探针，历史SQLite偶发1546未宣称修复。已解锁异常/账本/恢复/分类/HMI/main仍待接，P3未整体完成；未部署/烧录，当前无需用户操作。下方为历史。

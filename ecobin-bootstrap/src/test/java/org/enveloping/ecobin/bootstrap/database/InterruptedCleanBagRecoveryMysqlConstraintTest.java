@@ -25,9 +25,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Exercises the constraints installed by V81 in a disposable MySQL 8.4
+ * Exercises the constraints installed by V81 and narrowed by V83 in a disposable MySQL 8.4
  * database. Temporary LIKE tables retain the migrated CHECK constraints but
- * intentionally omit foreign keys; the full V1..V81 run verifies the foreign
+ * intentionally omit foreign keys; the full V1..V83 run verifies the foreign
  * keys can be installed against their real parent tables.
  */
 @EnabledIfEnvironmentVariable(
@@ -122,6 +122,21 @@ class InterruptedCleanBagRecoveryMysqlConstraintTest {
         assertEquals(1, insertRecovery(row));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "MCU_CLEAN_FINAL_WEIGHT_UNAVAILABLE",
+            "MCU_WORK_CANCELLED",
+            "MCU_WORK_FAILED"
+    })
+    void allowsExplicitTerminalResultFailuresAsManualRecoverySources(
+            String faultCode) throws Exception {
+        Map<String, Object> row = recovery(
+                "RETAIN_OLD_BAG", "COMPLETED", true);
+        row.put("source_fault_code", faultCode);
+
+        assertEquals(1, insertRecovery(row));
+    }
+
     @Test
     void rejectsBlankReasonBackwardsCompletionAndNegativeVersion() {
         Map<String, Object> blank = recovery(
@@ -144,7 +159,10 @@ class InterruptedCleanBagRecoveryMysqlConstraintTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "MCU_RESTART_FINAL_RESULT_UNAVAILABLE",
-            "MCU_COMMUNICATION_UNAVAILABLE"
+            "MCU_COMMUNICATION_UNAVAILABLE",
+            "MCU_CLEAN_FINAL_WEIGHT_UNAVAILABLE",
+            "MCU_WORK_CANCELLED",
+            "MCU_WORK_FAILED"
     })
     void cleanOperationAllowsTheTwoRecoveryFaultsAsAbortedTerminalFacts(
             String reason) throws Exception {
@@ -172,6 +190,8 @@ class InterruptedCleanBagRecoveryMysqlConstraintTest {
     private static Stream<Object[]> invalidCleanTerminalFacts() {
         Timestamp ended = timestamp("2026-09-13T10:00:00Z");
         return Stream.of(
+                new Object[]{"ABORTED", true, true, null, ended,
+                        "MCU_INITIAL_WEIGHT_UNAVAILABLE"},
                 new Object[]{"ABORTED", true, true, null, ended,
                         "WEIGHT_TIMEOUT"},
                 new Object[]{"ABORTED", true, true, null, null,

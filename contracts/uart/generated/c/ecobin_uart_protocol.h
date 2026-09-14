@@ -1,6 +1,6 @@
 /* Generated from contracts/uart/uart-registry.yaml.
  * DO NOT EDIT.
- * Registry SHA-256: 20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2
+ * Registry SHA-256: 57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec
  */
 #ifndef ECOBIN_UART_PROTOCOL_H
 #define ECOBIN_UART_PROTOCOL_H
@@ -14,7 +14,7 @@
 #define inline __inline
 #endif
 
-#define ECOBIN_UART_REGISTRY_SHA256 "20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2"
+#define ECOBIN_UART_REGISTRY_SHA256 "57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec"
 #define ECOBIN_UART_IMPLEMENTATION_STAGE "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED"
 #define ECOBIN_UART_CONFIG_DOMAIN_LENGTH 26u
 #define ECOBIN_UART_CONFIG_DOMAIN_BYTES { 69u, 67u, 79u, 66u, 73u, 78u, 58u, 85u, 65u, 82u, 84u, 58u, 77u, 67u, 85u, 45u, 67u, 79u, 78u, 70u, 73u, 71u, 58u, 118u, 50u, 0u }
@@ -44,6 +44,8 @@
 typedef enum ecobin_uart_message_type {
     ECOBIN_UART_MESSAGE_QUERY_DEVICE_FACTS = 0x45u,
     ECOBIN_UART_MESSAGE_DEVICE_FACTS_REPLY = 0x46u,
+    ECOBIN_UART_MESSAGE_QUERY_DEVICE_IDENTITY = 0x47u,
+    ECOBIN_UART_MESSAGE_DEVICE_IDENTITY_REPLY = 0x48u,
     ECOBIN_UART_MESSAGE_ACTUATOR_EVENT_SAVED = 0x60u,
     ECOBIN_UART_MESSAGE_ACTUATOR_EVENT_SAVED_REPLY = 0x61u,
     ECOBIN_UART_MESSAGE_QUERY_ACTUATOR_EVENT = 0x5Eu,
@@ -119,6 +121,10 @@ typedef uint8_t ecobin_uart_device_facts_status_t;
 #define ECOBIN_UART_DEVICE_FACTS_STATUS_AVAILABLE 1u
 #define ECOBIN_UART_DEVICE_FACTS_STATUS_BOOT_MISMATCH 2u
 #define ECOBIN_UART_DEVICE_FACTS_STATUS_PORT_UNSUPPORTED 3u
+
+typedef uint8_t ecobin_uart_device_identity_status_t;
+#define ECOBIN_UART_DEVICE_IDENTITY_STATUS_AVAILABLE 1u
+#define ECOBIN_UART_DEVICE_IDENTITY_STATUS_BOOT_MISMATCH 2u
 
 typedef uint8_t ecobin_uart_scale_read_status_t;
 #define ECOBIN_UART_SCALE_READ_STATUS_NOT_OBSERVED 0u
@@ -582,6 +588,27 @@ typedef uint8_t ecobin_uart_reset_reason_t;
 #define ECOBIN_UART_DEVICE_FACTS_REPLY_RETAINED_WORK_PHASE_OFFSET 217u
 #define ECOBIN_UART_DEVICE_FACTS_REPLY_RETAINED_ORIGIN_COMMAND_SEQUENCE_OFFSET 218u
 #define ECOBIN_UART_DEVICE_FACTS_REPLY_RETAINED_RESULT_SEQUENCE_OFFSET 222u
+
+#define ECOBIN_UART_QUERY_DEVICE_IDENTITY_PAYLOAD_MIN_LENGTH 16u
+#define ECOBIN_UART_QUERY_DEVICE_IDENTITY_PAYLOAD_MAX_LENGTH 16u
+#define ECOBIN_UART_QUERY_DEVICE_IDENTITY_QUERY_ID_OFFSET 0u
+#define ECOBIN_UART_QUERY_DEVICE_IDENTITY_TARGET_MCU_BOOT_ID_OFFSET 8u
+
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_PAYLOAD_MIN_LENGTH 53u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_PAYLOAD_MAX_LENGTH 85u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_QUERY_ID_OFFSET 0u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_TARGET_MCU_BOOT_ID_OFFSET 8u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_CURRENT_MCU_BOOT_ID_OFFSET 16u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_STATUS_OFFSET 24u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_PROTOCOL_MAJOR_OFFSET 25u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_PROTOCOL_MINOR_OFFSET 26u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_PORT_COUNT_OFFSET 27u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_CAPABILITY_BITMAP_OFFSET 28u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_HIGHEST_COMMAND_SEQUENCE_OFFSET 36u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_FIRMWARE_VERSION_CODE_OFFSET 40u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_FIRMWARE_IDENTITY_HIGH_OFFSET 44u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_FIRMWARE_IDENTITY_LOW_OFFSET 48u
+#define ECOBIN_UART_DEVICE_IDENTITY_REPLY_FIRMWARE_VERSION_OFFSET 52u
 
 #define ECOBIN_UART_ACTUATOR_EVENT_SAVED_PAYLOAD_MIN_LENGTH 45u
 #define ECOBIN_UART_ACTUATOR_EVENT_SAVED_PAYLOAD_MAX_LENGTH 45u
@@ -1628,6 +1655,8 @@ static inline int ecobin_uart_message_ack_required(uint8_t message_type) {
     switch (message_type) {
     case ECOBIN_UART_MESSAGE_QUERY_DEVICE_FACTS: return 0;
     case ECOBIN_UART_MESSAGE_DEVICE_FACTS_REPLY: return 0;
+    case ECOBIN_UART_MESSAGE_QUERY_DEVICE_IDENTITY: return 0;
+    case ECOBIN_UART_MESSAGE_DEVICE_IDENTITY_REPLY: return 0;
     case ECOBIN_UART_MESSAGE_ACTUATOR_EVENT_SAVED: return 0;
     case ECOBIN_UART_MESSAGE_ACTUATOR_EVENT_SAVED_REPLY: return 0;
     case ECOBIN_UART_MESSAGE_QUERY_ACTUATOR_EVENT: return 0;
@@ -1705,6 +1734,8 @@ static inline int ecobin_uart_message_direction(uint8_t message_type) {
     switch (message_type) {
     case ECOBIN_UART_MESSAGE_QUERY_DEVICE_FACTS: return 1;
     case ECOBIN_UART_MESSAGE_DEVICE_FACTS_REPLY: return 2;
+    case ECOBIN_UART_MESSAGE_QUERY_DEVICE_IDENTITY: return 1;
+    case ECOBIN_UART_MESSAGE_DEVICE_IDENTITY_REPLY: return 2;
     case ECOBIN_UART_MESSAGE_ACTUATOR_EVENT_SAVED: return 1;
     case ECOBIN_UART_MESSAGE_ACTUATOR_EVENT_SAVED_REPLY: return 2;
     case ECOBIN_UART_MESSAGE_QUERY_ACTUATOR_EVENT: return 1;
@@ -2098,6 +2129,28 @@ static inline int ecobin_uart_validate_session_payload(
         if (payload[198] == 1 && payload[215] == 3 && (payload[217] != 32 && payload[217] != 33 && payload[217] != 34 && payload[217] != 35 && payload[217] != 36 && payload[217] != 37 && payload[217] != 38 && payload[217] != 39 && payload[217] != 40 && payload[217] != 64)) { return -1; }
         if (payload[198] > 1 && payload[215] == 3 && payload[217] != 39) { return -1; }
         if ((payload[198] == 1 && ecobin_uart_read_u32_be(payload + 222u) != 0) || (payload[198] > 1 && ecobin_uart_read_u32_be(payload + 222u) == 0)) { return -1; }
+        return 0;
+    case ECOBIN_UART_MESSAGE_QUERY_DEVICE_IDENTITY:
+        if (payload == NULL || length < 16u || length > 16u) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 8u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 8u) > UINT64_C(9007199254740991)) { return -1; }
+        return 0;
+    case ECOBIN_UART_MESSAGE_DEVICE_IDENTITY_REPLY:
+        if (payload == NULL || length < 53u || length > 85u) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 0u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 0u) > UINT64_C(9007199254740991)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 8u) < UINT64_C(1)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 8u) > UINT64_C(9007199254740991)) { return -1; }
+        if (ecobin_uart_read_u64_be(payload + 16u) > UINT64_C(9007199254740991)) { return -1; }
+        if (payload[24] != 1 && payload[24] != 2) { return -1; }
+        if (payload[25] != UINT64_C(2)) { return -1; }
+        if (payload[26] != UINT64_C(0)) { return -1; }
+        if (payload[27] > UINT64_C(6)) { return -1; }
+        if (payload[52u] == 0u || payload[52u] > 32u || length != 53u + payload[52u]) { return -1; }
+        if ((ecobin_uart_read_u64_be(payload + 28u) & ~UINT64_C(65535)) != 0) { return -1; }
+        if ((ecobin_uart_read_u64_be(payload + 28u) & UINT64_C(33024)) != UINT64_C(33024)) { return -1; }
         return 0;
     case ECOBIN_UART_MESSAGE_QUERY_PROCESS_EVENT:
         if (payload == NULL || length < 97u || length > 97u) { return -1; }

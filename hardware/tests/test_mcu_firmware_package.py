@@ -42,6 +42,7 @@ def _package(tmp_path: Path):
         version_code=10203,
         header_path=header,
         metadata_path=identity,
+        application_protocol_family="FIXED_FRAME",
         release_uid=release_uid,
     )
     image = tmp_path / "firmware.bin"
@@ -106,6 +107,8 @@ def test_mcu_readme_identity_command_selects_hardware_uv_project(
             "1.0.0",
             "--version-code",
             "10000",
+            "--application-protocol-family",
+            "ECOBIN_UART",
             "--header",
             str(header),
             "--metadata",
@@ -121,6 +124,37 @@ def test_mcu_readme_identity_command_selects_hardware_uv_project(
     assert json.loads(metadata.read_text(encoding="utf-8"))[
         "firmwareVersionCode"
     ] == 10000
+
+
+def test_schema1_package_rejects_native_uart_firmware(tmp_path: Path) -> None:
+    key_path = tmp_path / "signing.pem"
+    _private_key(key_path)
+    identity = tmp_path / "native-identity.json"
+    generate_identity(
+        version="2.0.0-rc.26",
+        version_code=26,
+        header_path=tmp_path / "firmware_identity.h",
+        metadata_path=identity,
+        application_protocol_family="ECOBIN_UART",
+    )
+    image = tmp_path / "native.bin"
+    image.write_bytes(b"native-uart-v2")
+
+    with pytest.raises(
+        FirmwarePackageError,
+        match="support only legacy FIXED_FRAME",
+    ):
+        create_package(
+            image_path=image,
+            identity_metadata_path=identity,
+            private_key_path=key_path,
+            key_id="RELEASE_2026_01",
+            hardware_compatibility="ECOBIN_MAINBOARD_V1.1",
+            build_commit="0123456789abcdef",
+            built_at="2026-09-14T00:00:00Z",
+            output_path=tmp_path / "must-not-exist.efw",
+        )
+    assert not (tmp_path / "must-not-exist.efw").exists()
 
 
 def test_rejects_wrong_board_and_unknown_key(tmp_path: Path):

@@ -11,13 +11,12 @@ import stat
 from .acceptance_config import AcceptanceConfiguration
 from .acceptance_hardware import (
     AcceptanceHardwareError,
-    FixedFrameAcceptanceMcu,
-    ReadOnlyStm32RomProbe,
     deny_network_access,
     identities_equal,
     sanitize_firmware_identity,
     sanitize_self_test,
 )
+from .native_acceptance_mcu import NativeAcceptanceMcu
 from .acceptance_storage import AcceptanceLease, AtomicJsonFile
 from factory_seal.validation import (
     canonical_factory_report_sha256,
@@ -84,21 +83,15 @@ def run_handoff(config: AcceptanceConfiguration) -> dict:
     update_capable = mcu_remote_update_capability(report)
     if update_capable is None:
         raise AcceptanceHardwareError("FACTORY_REPORT_NOT_VALID_FOR_HANDOFF")
+    if update_capable:
+        raise AcceptanceHardwareError("MCU_REMOTE_UPDATE_LINE_NOT_INSTALLED")
     expected_identity = report["mcuIdentity"]
-    mcu = FixedFrameAcceptanceMcu.for_port(config.serial_port)
-    bootloader = ReadOnlyStm32RomProbe(
-        gpio_path=config.gpio_path,
-        boot0_wpi=config.boot0_wpi,
-        reset_wpi=config.reset_wpi,
-        serial_port=config.serial_port,
-        stm32flash_path=config.stm32flash_path,
+    mcu = NativeAcceptanceMcu.for_port(
+        config.serial_port,
+        state_path=config.native_uart_state_path,
     )
     with AcceptanceLease(INSTANCE_LOCK_PATH, UART_LOCK_PATH):
         try:
-            if update_capable:
-                with deny_network_access():
-                    bootloader.force_application_selection()
-                    bootloader.boot_application()
             mcu.open()
             mcu.clear_input_for_recovery()
             mcu.require_business_quiet(quiet_ms=250)

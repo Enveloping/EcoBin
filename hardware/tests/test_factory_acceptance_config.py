@@ -16,12 +16,16 @@ from factory.acceptance_config import (
 )
 
 
-def test_default_configuration_is_the_fixed_production_wiring() -> None:
+def test_default_configuration_is_the_native_uart_v2_production_wiring() -> None:
     config = AcceptanceConfiguration.from_mapping({})
 
     assert config.serial_port == "/dev/ttyS5"
     assert config.serial_baudrate == 115200
-    assert config.protocol_mode == "fixed-frame"
+    assert config.protocol_mode == "uart-v2"
+    assert config.native_uart_state_path == (
+        "/var/lib/ecobin/factory-test/state.uart-v2.json"
+    )
+    assert config.native_uart_state_path != config.state_path
     assert (config.boot0_wpi, config.reset_wpi) == (2, 5)
     assert (config.boot0_active_level, config.reset_active_level) == (1, 1)
     assert config.outside_camera.startswith("/dev/v4l/by-id/")
@@ -94,6 +98,7 @@ def test_digest_is_canonical_and_binds_hardware_but_not_storage_paths() -> None:
         {"ECOBIN_MCU_SIMULATED": "true"},
         {"ECOBIN_SERIAL_PORT": "/dev/ttyUSB0"},
         {"ECOBIN_SERIAL_BAUDRATE": "9600"},
+        {"ECOBIN_MCU_PROTOCOL": "fixed-frame"},
         {"ECOBIN_MCU_PROTOCOL": "legacy"},
         {"ECOBIN_MCU_BOOT0_WPI": "3"},
         {"ECOBIN_MCU_RESET_WPI": "4"},

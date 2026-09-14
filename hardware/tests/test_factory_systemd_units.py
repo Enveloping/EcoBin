@@ -201,8 +201,8 @@ def test_factory_hardware_executor_has_narrow_devices_and_no_network() -> None:
     assert "Conflicts=ecobin-cellular-uplink.service" in executor
     assert "DevicePolicy=closed" in executor
     assert "DeviceAllow=/dev/ttyS5 rw" in executor
-    assert "DeviceAllow=/dev/gpiomem rw" in executor
-    assert "DeviceAllow=/dev/mem rw" in executor
+    assert "DeviceAllow=/dev/gpiomem rw" not in executor
+    assert "DeviceAllow=/dev/mem rw" not in executor
     assert "DeviceAllow=char-video4linux rw" in executor
     assert "TasksMax=64" in executor
     assert "MemoryMax=192M" in executor

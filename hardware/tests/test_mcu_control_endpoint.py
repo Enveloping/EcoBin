@@ -160,6 +160,61 @@ def test_control_queries_return_actual_device_work_and_command_facts(endpoint):
     assert value["outcome"] == "NOT_SEEN" and value["highestCommandSequence"] == 0
 
 
+def test_identity_query_returns_the_actual_running_firmware_without_side_effects(endpoint):
+    bind(endpoint)
+    received = exchange(
+        endpoint,
+        request(
+            "QUERY_DEVICE_IDENTITY",
+            {"queryId": 5, "targetMcuBootId": 42},
+        ),
+    )
+    assert len(received) == 1
+    frame = uart.decode_frame(received[0], sender_role="MCU")
+    assert frame["messageName"] == "DEVICE_IDENTITY_REPLY"
+    values = uart.decode_payload("DEVICE_IDENTITY_REPLY", frame["payload"])
+    assert values == {
+        "queryId": 5,
+        "targetMcuBootId": 42,
+        "currentMcuBootId": 42,
+        "status": "AVAILABLE",
+        "protocolMajor": 2,
+        "protocolMinor": 0,
+        "portCount": 1,
+        "capabilityBitmap": 0x8100,
+        "highestCommandSequence": 0,
+        "firmwareVersionCode": 10_004,
+        "firmwareIdentityHigh": 0x391CE0B8,
+        "firmwareIdentityLow": 0x3076C981,
+        "firmwareVersion": "1.0.1-hil.4",
+    }
+
+    mismatch = exchange(
+        endpoint,
+        request(
+            "QUERY_DEVICE_IDENTITY",
+            {"queryId": 6, "targetMcuBootId": 41},
+        ),
+    )
+    mismatch_values = uart.decode_payload(
+        "DEVICE_IDENTITY_REPLY", uart.decode_frame(mismatch[0])["payload"]
+    )
+    assert mismatch_values["status"] == "BOOT_MISMATCH"
+    assert mismatch_values["currentMcuBootId"] == 42
+    # The read-only query neither consumes the command sequence nor creates work.
+    facts = exchange(
+        endpoint,
+        request(
+            "QUERY_DEVICE_FACTS",
+            {"queryId": 7, "targetMcuBootId": 42, "portNo": 1},
+        ),
+    )
+    fact_values = uart.decode_payload(
+        "DEVICE_FACTS_REPLY", uart.decode_frame(facts[0])["payload"]
+    )
+    assert fact_values["retainedWorkState"] == "NONE"
+
+
 def seed_completed_work(endpoint):
     import uuid
     from hardware.tests.test_native_command_session import CCommand, CDecision
@@ -180,6 +235,23 @@ def seed_completed_work(endpoint):
     result = result_payload()
     assert lib.McuWorkState_Complete(work, result, len(result))
     return result, values
+
+
+def test_identity_query_reports_the_actual_consumed_command_sequence(endpoint):
+    _, original = seed_completed_work(endpoint)
+    frames = exchange(
+        endpoint,
+        request(
+            "QUERY_DEVICE_IDENTITY",
+            {"queryId": 111, "targetMcuBootId": 42},
+        ),
+    )
+    assert len(frames) == 1
+    values = uart.decode_payload(
+        "DEVICE_IDENTITY_REPLY", uart.decode_frame(frames[0])["payload"]
+    )
+    assert values["status"] == "AVAILABLE"
+    assert values["highestCommandSequence"] == original["commandSequence"]
 
 
 def test_complete_result_flows_through_c_wire_and_sqlite_before_precise_release(endpoint, tmp_path):

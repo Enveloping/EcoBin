@@ -19,7 +19,7 @@ from photo_manager import DELIVERY_OPEN_SLOTS, DELIVERY_CLOSE_SLOTS, CLEAN_OPEN_
 from mcu_process_handoff import McuProcessEventHandoff
 from mcu_result_handoff import McuResultHandoff
 from mcu_session import McuBootSession, McuCommandDispatcher
-from mcu_work_query import McuDeviceFactsQuery, McuWorkQuery
+from mcu_work_query import McuDeviceFactsQuery, McuDeviceIdentityQuery, McuWorkQuery
 from native_result_report import NativeResultReporter, check_job_permit
 from native_delivery_issue_report import NativeDeliveryIssueReporter
 from native_device_entry_url import (
@@ -43,6 +43,12 @@ PHOTO_WAIT_MS = int(CAMERA_CAPTURE_GROUP_TIMEOUT_SECONDS * 1000) + 1000
 FACTS_MAXIMUM_AGE_MS = NATIVE_PORT_CONSTANTS["weightMaximumSampleAgeMs"]
 ISSUE_REPORT_BATCH = 10
 _RPC_PENDING = object()
+KNOWN_MCU_CAPABILITY = int(
+    uart.REGISTRY["capabilityPolicy"]["knownMaskHex"], 16
+)
+REQUIRED_MCU_CAPABILITY = int(
+    uart.REGISTRY["capabilityPolicy"]["requiredMcuMaskHex"], 16
+)
 
 
 class NativeBusinessRuntime:
@@ -50,10 +56,6 @@ class NativeBusinessRuntime:
     compatibility_mode = False
     is_simulated = False
     port_count = 1
-    verified_firmware_identity = None  # Not inferred from a successful UART probe.
-    _mcu_firmware_version = ""
-    _mcu_capability = 0
-
     def __init__(self, store, safety, *, device_name, photo_manager=None,
                  connected=lambda: False, clock=lambda: monotonic_ns() // 1000000,
                  communication_timeout_ms=10000):
@@ -65,8 +67,13 @@ class NativeBusinessRuntime:
         self.photo, self.connected, self.clock = photo_manager, connected, clock
         self.timeout_ms = communication_timeout_ms
         self.transport = self.boot = self.dispatcher = self.facts_query = None
+        self.identity_query = None
         self._port = None
         self._mcu_boot_id = 0
+        self._identity_boot_id = 0
+        self.verified_firmware_identity = None
+        self._mcu_firmware_version = ""
+        self._mcu_capability = 0
         self._last_alive = None
         self._opened_at = None
         self._work_query = self._handoff = None
@@ -74,6 +81,15 @@ class NativeBusinessRuntime:
         self._live_starts = set()
         self._facts = None
         self._facts_requested_at = None
+        self._runtime_observation = {
+            "mcuBootId": 0,
+            "mcuCapability": 0,
+            "mcuFirmwareVersion": "",
+            "mcuFirmwareIdentity": None,
+            "deviceFacts": None,
+        }
+        self._environment_fact_keys = {}
+        self._environment_waits = {}
         self._photo_deadlines = {}
         self._rpc = None
         self._start_grants = set()
@@ -106,13 +122,131 @@ class NativeBusinessRuntime:
 
     @property
     def mcu_session_ready(self):
-        return self.current_mcu_boot_id != 0
+        return self._identity_ready(self.current_mcu_boot_id)
 
     def current_device_facts(self):
         """Expose one fresh read-only DEVICE_FACTS observation for acceptance."""
-        if self.boot is None:
+        if self.boot is None or not self._identity_ready(self._mcu_boot_id):
             return None
         return self._fresh_facts(self.clock())
+
+    def current_runtime_observation(self):
+        """Return the foreground owner's coherent, already-fresh snapshot.
+
+        The runtime snapshot publisher runs on another thread and must not
+        advance the UART session clock or inspect mutable query objects.  The
+        foreground poller replaces this small immutable view only after it has
+        checked the current boot, identity and DEVICE_FACTS freshness.
+        """
+        observed = self._runtime_observation
+        return {
+            **observed,
+            "mcuFirmwareIdentity": (
+                dict(observed["mcuFirmwareIdentity"])
+                if isinstance(observed["mcuFirmwareIdentity"], dict)
+                else None
+            ),
+            "deviceFacts": (
+                dict(observed["deviceFacts"])
+                if isinstance(observed["deviceFacts"], dict)
+                else None
+            ),
+        }
+
+    def _refresh_runtime_observation(self, now):
+        current_boot = self.boot.current_boot(now) if self.boot is not None else None
+        identity_ready = self._identity_ready(current_boot)
+        facts = self._fresh_facts(now) if identity_ready else None
+        self._runtime_observation = {
+            "mcuBootId": self._mcu_boot_id,
+            "mcuCapability": self._mcu_capability,
+            "mcuFirmwareVersion": self._mcu_firmware_version if identity_ready else "",
+            "mcuFirmwareIdentity": (
+                dict(self.verified_firmware_identity)
+                if identity_ready
+                else None
+            ),
+            "deviceFacts": facts,
+        }
+
+    def _identity_ready(self, boot_id):
+        return bool(
+            boot_id
+            and self._identity_boot_id == boot_id
+            and isinstance(self.verified_firmware_identity, dict)
+            and self._mcu_firmware_version
+        )
+
+    def _require_identity_ready(self, boot_id):
+        if not self._identity_ready(boot_id):
+            raise JobSafetyError(
+                "MCU_IDENTITY_UNAVAILABLE",
+                "MCU identity and command sequence are not synchronized",
+            )
+
+    def _clear_identity(self):
+        self._identity_boot_id = 0
+        self.verified_firmware_identity = None
+        self._mcu_firmware_version = ""
+        self._mcu_capability = 0
+
+    def _accept_identity_observation(self, now):
+        if self.identity_query is None or self._identity_ready(self._mcu_boot_id):
+            return
+        observed = self.identity_query.observation(now)
+        if observed is None:
+            return
+        boot_id = self._mcu_boot_id
+        version = observed.get("firmwareVersion")
+        version_code = observed.get("firmwareVersionCode")
+        high = observed.get("firmwareIdentityHigh")
+        low = observed.get("firmwareIdentityLow")
+        port_count = observed.get("portCount")
+        capability = observed.get("capabilityBitmap")
+        if (
+            observed.get("status") != "AVAILABLE"
+            or observed.get("targetMcuBootId") != boot_id
+            or observed.get("currentMcuBootId") != boot_id
+            or observed.get("protocolMajor") != 2
+            or observed.get("protocolMinor") != 0
+            or type(port_count) is not int
+            or port_count != 1
+            or type(capability) is not int
+            or capability & ~KNOWN_MCU_CAPABILITY
+            or capability & REQUIRED_MCU_CAPABILITY
+            != REQUIRED_MCU_CAPABILITY
+            or type(version_code) is not int
+            or not 1 <= version_code <= 0xFFFFFFFF
+            or not isinstance(version, str)
+            or not 5 <= len(version) <= 32
+            or not version.isascii()
+            or any(ord(character) < 0x20 or ord(character) > 0x7E for character in version)
+            or type(high) is not int
+            or type(low) is not int
+        ):
+            return
+        identity = (high << 32) | low
+        if identity == 0:
+            return
+        # Factory and production use separate ledgers but can hand over one
+        # live MCU boot. Raise the production sequence floor before any
+        # mutable command can be prepared; local higher reservations win.
+        self.store.synchronize_native_command_sequence(
+            boot_id,
+            observed["highestCommandSequence"],
+        )
+        self._identity_boot_id = boot_id
+        self._mcu_firmware_version = version
+        self._mcu_capability = capability
+        self.port_count = port_count
+        self.verified_firmware_identity = {
+            "queryStatus": "OK",
+            "statusCode": 0,
+            "fixedFrameRevision": 2,
+            "firmwareVersionCode": version_code,
+            "firmwareVersion": version,
+            "firmwareIdentityHex": f"{identity:016x}",
+        }
 
     @property
     def uart_state(self):
@@ -365,6 +499,22 @@ class NativeBusinessRuntime:
         age = facts["capturedUptimeMs"] - facts["scaleCapturedUptimeMs"] + now - self._facts_requested_at
         return facts["scaleWeightGrams"] if 0 <= age <= FACTS_MAXIMUM_AGE_MS else None
 
+    def _require_released_result_custody(self, facts):
+        if facts["retainedWorkState"] != "RESULT_RELEASED":
+            return
+        saved = self.store.get_native_mcu_result(
+            facts["currentMcuBootId"], facts["retainedResultSequence"]
+        )
+        if saved is not None and saved["work_uid"] == facts["retainedWorkUid"]:
+            return
+        if self.store.recognize_factory_released_result_baseline(
+            facts["currentMcuBootId"],
+            facts["retainedResultSequence"],
+            facts["retainedWorkUid"],
+        ):
+            return
+        raise ValueError("MCU released result has no corresponding local custody")
+
     def _clean_bag_interlock_clearance(self, command):
         payload = command["payload"]
         port_no = payload["portNo"]
@@ -435,6 +585,7 @@ class NativeBusinessRuntime:
         self._require_maintenance_free()
         if self.boot is None or self.boot.current_boot(self.clock()) is None:
             raise JobSafetyError("MCU_COMMUNICATION_UNAVAILABLE", "fresh MCU communication required")
+        self._require_identity_ready(self.boot.current_boot(self.clock()))
         payload = command["payload"]
         interlock_clearance = self._clean_bag_interlock_clearance(command)
         configuration, facts = self._check_configuration(payload["config"])
@@ -458,10 +609,7 @@ class NativeBusinessRuntime:
                 raise JobSafetyError("MCU_CONFIGURATION_BUSY", "the applied configuration is reloading after MCU reboot")
             if slot is not None or facts["retainedWorkState"] not in {"NONE", "RESULT_RELEASED"}:
                 raise JobSafetyError("DEVICE_BUSY", "an original business still owns the device")
-            if facts["retainedWorkState"] == "RESULT_RELEASED":
-                saved = self.store.get_native_mcu_result(facts["currentMcuBootId"], facts["retainedResultSequence"])
-                if saved is None or saved["work_uid"] != facts["retainedWorkUid"]:
-                    raise ValueError("MCU released result has no corresponding local custody")
+            self._require_released_result_custody(facts)
         else:
             if slot is None or self._permit(slot) != permit:
                 raise ValueError("native START lost its original slot")
@@ -497,6 +645,7 @@ class NativeBusinessRuntime:
                 "MCU_COMMUNICATION_UNAVAILABLE",
                 "fresh MCU communication is required for baseline measurement",
             )
+        self._require_identity_ready(boot_id)
         payload = command["payload"]
         if payload["emptyBagConfirmed"] is not True:
             raise JobSafetyError(
@@ -545,14 +694,7 @@ class NativeBusinessRuntime:
                     "DEVICE_BUSY",
                     "an original business still owns the device",
                 )
-            if facts["retainedWorkState"] == "RESULT_RELEASED":
-                saved = self.store.get_native_mcu_result(
-                    facts["currentMcuBootId"], facts["retainedResultSequence"]
-                )
-                if saved is None or saved["work_uid"] != facts["retainedWorkUid"]:
-                    raise ValueError(
-                        "MCU released result has no corresponding local custody"
-                    )
+            self._require_released_result_custody(facts)
         else:
             if slot is None or self._permit(slot) != permit:
                 raise ValueError("native baseline lost its original slot")
@@ -916,6 +1058,8 @@ class NativeBusinessRuntime:
         return None
 
     def _device_entry_url_poll(self, now):
+        if not self._identity_ready(self.boot.current_boot(now)):
+            return
         applications = self.store.list_native_device_entry_url_applications()
         # URL display is nonmechanical, but changing the visible page during a
         # delivery/clean operation is intentionally deferred until idle.
@@ -1203,6 +1347,8 @@ class NativeBusinessRuntime:
         return check
 
     def _configuration_poll(self, now):
+        if not self._identity_ready(self.boot.current_boot(now)):
+            return
         app = self.store.get_state("native_configuration_application")
         if self.store.get_work_slot() is not None:
             return
@@ -1367,6 +1513,7 @@ class NativeBusinessRuntime:
         # A new process never adds retained starts to this live-only set.
         if (uid in self._live_starts and not record["write_claimed"]
                 and self.boot.current_boot(now) == record["mcu_boot_id"]
+                and self._identity_ready(record["mcu_boot_id"])
                 and self._photos_ready(permit, before=True, now=now)):
             proof = self._start_authorization(permit, record)
             if proof is not _RPC_PENDING:
@@ -1415,6 +1562,22 @@ class NativeBusinessRuntime:
                 self._complete_delivery_issue(permit, uid)
             return
         if decision["status"] == "COMPLETE_RESULT_AVAILABLE":
+            from native_result_evidence import terminal_failure_disposition
+            value = uart.decode_payload("WORK_RESULT", decision["result"]["payload"])
+            if terminal_failure_disposition(value) is not None:
+                pending = self.store.prepare_native_result_failure(
+                    permit,
+                    uid,
+                    device_name=self.device_name,
+                )
+                if pending.get("state") == "PREPARED":
+                    failed = self.store.get_command(permit.command_uid)
+                    self._complete_control_failure(
+                        permit,
+                        uid,
+                        failed["result"][CONTROL_FAILURE_MARKER],
+                    )
+                return
             if self.photo is not None and not slot["context"].get("native_close_photos_requested"):
                 self._queue_photos(permit, before=False)
                 context = slot["context"] | {"native_close_photos_requested": True}
@@ -1476,6 +1639,7 @@ class NativeBusinessRuntime:
             uid in self._live_starts
             and not record["write_claimed"]
             and self.boot.current_boot(now) == record["mcu_boot_id"]
+            and self._identity_ready(record["mcu_boot_id"])
         ):
             proof = self._start_authorization(permit, record)
             if proof is not _RPC_PENDING:
@@ -1962,6 +2126,151 @@ class NativeBusinessRuntime:
         if disposition not in {"ACCEPTED", "DUPLICATE"}:
             raise RuntimeError("native scale health could not persist its exact fault transition")
 
+    def _environment_configuration(self, port_no=1):
+        applied = self.store.get_latest_applied_configuration()
+        payload = applied.get("payload") if isinstance(applied, dict) else None
+        if not isinstance(payload, dict):
+            return None, None
+        port = next((candidate for candidate in payload.get("ports", [])
+            if isinstance(candidate, dict) and candidate.get("portNo") == port_no), None)
+        device = payload.get("deviceConfig")
+        return port, device if isinstance(device, dict) else None
+
+    def _environment_warning_transition(self, *, component, fault_code,
+                                        evidence_key, abnormal_reason,
+                                        facts):
+        if self._environment_fact_keys.get(component) == evidence_key:
+            return
+        self._environment_fact_keys[component] = evidence_key
+        fault = self.store.get_active_edge_fault(component, fault_code, 1)
+        if abnormal_reason is not None:
+            if fault is not None:
+                return
+            disposition = self.store.observe_fault_and_create_event(
+                device_name=self.device_name,
+                component=component,
+                fault_code=fault_code,
+                severity="WARNING",
+                port_no=1,
+                mcu_boot_id=facts["currentMcuBootId"],
+                detail={
+                    "profile": "native-environment-observation-v1",
+                    "reasonCode": abnormal_reason,
+                    "mcuBootId": facts["currentMcuBootId"],
+                    "capturedUptimeMs": evidence_key[1],
+                },
+            )
+        else:
+            if fault is None:
+                return
+            try:
+                detail = json.loads(fault["detail_json"] or "{}")
+            except (TypeError, ValueError):
+                return
+            if detail.get("profile") != "native-environment-observation-v1":
+                return
+            disposition = self.store.recover_fault_and_create_event(
+                device_name=self.device_name,
+                fault_uid=fault["fault_uid"],
+                component=component,
+                fault_code=fault_code,
+                port_no=1,
+                recovery_evidence=(
+                    f"NATIVE_ENVIRONMENT_NORMAL:{facts['currentMcuBootId']}:{evidence_key[1]}"
+                ),
+                mcu_boot_id=facts["currentMcuBootId"],
+            )
+        if disposition not in {"ACCEPTED", "DUPLICATE"}:
+            raise RuntimeError("native environment warning transition was not persisted")
+
+    def _environment_health_poll(self, now):
+        """Expose optional sensor warnings without changing admission policy."""
+        facts = self._fresh_facts(now)
+        if facts is None or facts.get("status") != "AVAILABLE":
+            return
+        port, device = self._environment_configuration()
+        if port is None or device is None or not facts.get("appliedConfigVersion"):
+            return
+        boot_id = facts["currentMcuBootId"]
+
+        smoke_state = facts.get("smokeObservationState")
+        smoke_enabled = device.get("smokeMonitoringEnabled") is True
+        smoke_reason = None
+        if smoke_enabled:
+            if smoke_state == "ALARM":
+                smoke_reason = "SMOKE_ALARM"
+            elif smoke_state == "UNAVAILABLE":
+                smoke_reason = "SMOKE_SENSOR_UNAVAILABLE"
+            elif smoke_state == "NOT_OBSERVED":
+                identity = (boot_id, facts["appliedConfigVersion"])
+                waiting = self._environment_waits.get("SMOKE_SENSOR")
+                if waiting is None or waiting[:2] != identity:
+                    self._environment_waits["SMOKE_SENSOR"] = (*identity, now)
+                    waiting = self._environment_waits["SMOKE_SENSOR"]
+                if now - waiting[2] < 5000:
+                    smoke_state = None
+                else:
+                    smoke_reason = "SMOKE_NOT_OBSERVED"
+            else:
+                self._environment_waits.pop("SMOKE_SENSOR", None)
+            if smoke_state is not None:
+                self._environment_warning_transition(
+                    component="SMOKE_SENSOR",
+                    fault_code="SMOKE_SENSOR",
+                    evidence_key=(
+                        boot_id,
+                        facts.get("smokeObservedUptimeMs", 0),
+                        smoke_state,
+                    ),
+                    abnormal_reason=smoke_reason,
+                    facts=facts,
+                )
+
+        configured_kind = port.get("fullnessSensorKind")
+        observed_kind = facts.get("fullnessObservationKind")
+        fullness_status = facts.get("fullnessReadStatus")
+        fullness_reason = None
+        if fullness_status == "VALID" and observed_kind == configured_kind:
+            if observed_kind == "DIGITAL_INFRARED":
+                if facts.get("fullnessInfraredBlocked") is True:
+                    fullness_reason = "FULLNESS_BLOCKED"
+            elif observed_kind == "ULTRASONIC":
+                distance = facts.get("fullnessDistanceMm")
+                threshold = port.get("fullnessDistanceThresholdMm")
+                if type(distance) is not int or type(threshold) is not int:
+                    fullness_reason = "FULLNESS_SENSOR_UNAVAILABLE"
+                elif distance <= threshold:
+                    fullness_reason = "FULLNESS_BLOCKED"
+            else:
+                fullness_reason = "FULLNESS_SENSOR_UNAVAILABLE"
+            self._environment_waits.pop("FULLNESS_SENSOR", None)
+        elif fullness_status == "NOT_OBSERVED":
+            identity = (boot_id, facts["appliedConfigVersion"])
+            waiting = self._environment_waits.get("FULLNESS_SENSOR")
+            if waiting is None or waiting[:2] != identity:
+                self._environment_waits["FULLNESS_SENSOR"] = (*identity, now)
+                waiting = self._environment_waits["FULLNESS_SENSOR"]
+            if now - waiting[2] < 5000:
+                return
+            fullness_reason = "FULLNESS_NOT_OBSERVED"
+        else:
+            self._environment_waits.pop("FULLNESS_SENSOR", None)
+            fullness_reason = "FULLNESS_SENSOR_UNAVAILABLE"
+        self._environment_warning_transition(
+            component="FULLNESS_SENSOR",
+            fault_code="FULLNESS_SENSOR_DIAGNOSTIC",
+            evidence_key=(
+                boot_id,
+                facts.get("fullnessCapturedUptimeMs", 0),
+                observed_kind,
+                fullness_status,
+                facts.get("fullnessInfraredBlocked"),
+                facts.get("fullnessDistanceMm"),
+            ),
+            abnormal_reason=fullness_reason,
+            facts=facts,
+        )
+
     def poll(self):
         if self.transport is None:
             raise RuntimeError("native business UART has not been opened by its owner")
@@ -1969,6 +2278,10 @@ class NativeBusinessRuntime:
         for frame in self.transport.poll(now):
             decoded = uart.decode_frame(frame, sender_role="MCU")
             accepted = self.boot.accept_frame(frame, now) or self.dispatcher.accept_frame(frame, now)
+            if self.identity_query and self.identity_query.accept_frame(frame, now):
+                accepted = True
+            if self.identity_query and self.identity_query.conflict_payload is not None:
+                self._clear_identity()
             if decoded["messageName"] == "DEVICE_ENTRY_URL_APPLY_RESULT":
                 accepted = (
                     self._accept_device_entry_url_result(decoded["payload"])
@@ -1997,23 +2310,40 @@ class NativeBusinessRuntime:
                 self._last_alive = now
         boot_id = self.boot.current_boot(now)
         if boot_id and boot_id != self._mcu_boot_id:
+            self._clear_identity()
             self._mcu_boot_id = boot_id
+            self.identity_query = McuDeviceIdentityQuery(
+                self.store,
+                self.transport.write,
+                target_mcu_boot_id=boot_id,
+            )
             self.facts_query = McuDeviceFactsQuery(self.store, self.transport.write,
                 target_mcu_boot_id=boot_id, port_no=1, interval_ms=NATIVE_DEVICE_CONSTANTS["weightPollIntervalMs"])
             self._facts = self._facts_requested_at = None
+            self._refresh_runtime_observation(now)
         now = self.clock()
+        self._accept_identity_observation(now)
         link_unavailable = now - (self._last_alive if self._last_alive is not None else self._opened_at) >= self.timeout_ms
         self._control_failure_poll(now, link_unavailable=link_unavailable)
         self._scale_health_poll(self.clock())
+        self._environment_health_poll(self.clock())
         self._configuration_poll(self.clock())
         self._device_entry_url_poll(self.clock())
         self._work_poll(self.clock())
         self._issue_report_poll()
+        if self.identity_query and not self._identity_ready(self._mcu_boot_id):
+            self.identity_query.poll(self.clock())
         if self.facts_query:
             self.facts_query.poll(self.clock())
         self.boot.poll(self.clock())
+        self._refresh_runtime_observation(self.clock())
+        observable = self.current_runtime_observation()
         return dict(uartState=self.uart_state, mcuBootId=self._mcu_boot_id,
-            activeWorkUid=(self.store.get_work_slot() or {}).get("work_uid"))
+            activeWorkUid=(self.store.get_work_slot() or {}).get("work_uid"),
+            firmwareIdentityHex=(observable["mcuFirmwareIdentity"] or {}).get("firmwareIdentityHex"),
+            deviceFactsFingerprint=(hashlib.sha256(json.dumps(observable["deviceFacts"],
+                sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                if observable["deviceFacts"] is not None else None))
 
     def accept_photo_upload_grant(self, command):
         if self.photo is None:

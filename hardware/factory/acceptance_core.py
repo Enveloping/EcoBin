@@ -11,13 +11,13 @@ from __future__ import annotations
 import copy
 import re
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
 from factory.acceptance_hardware import (
     AcceptanceHardwareError,
-    FixedFrameAcceptanceMcu,
     FixedRoleCameraProbe,
     NetworkAccessForbidden,
     deny_network_access,
@@ -176,7 +176,7 @@ class FactoryAcceptanceExecutor:
     def __init__(
         self,
         *,
-        mcu: FixedFrameAcceptanceMcu,
+        mcu: object,
         bootloader: object,
         cameras: FixedRoleCameraProbe,
         state_path: Path | str = DEFAULT_STATE_PATH,
@@ -192,8 +192,20 @@ class FactoryAcceptanceExecutor:
         weight_sample_timeout_ms: int = DEFAULT_WEIGHT_SAMPLE_TIMEOUT_MS,
         camera_review_ttl_ms: int = DEFAULT_CAMERA_REVIEW_TTL_MS,
     ) -> None:
-        if not isinstance(mcu, FixedFrameAcceptanceMcu):
-            raise TypeError("mcu must be FixedFrameAcceptanceMcu")
+        for method in (
+            "open",
+            "close",
+            "query_identity",
+            "query_self_test",
+            "execute_update_prepare",
+            "write_action_once",
+            "await_final_result",
+            "business_input_marker",
+            "require_business_quiet",
+            "clear_input_for_recovery",
+        ):
+            if not callable(getattr(mcu, method, None)):
+                raise TypeError(f"mcu does not implement {method}")
         for method in (
             "enter_system_bootloader",
             "boot_application",
@@ -741,15 +753,51 @@ class FactoryAcceptanceExecutor:
             + self._weight_stable_sample_count,
         )
         reads = 0
+        last_sample_identity: tuple[int, int, int] | None = None
+        sample_boot_id: int | None = None
         trace = {"samplesGrams": [], "readCount": 0, "resultCode": "SAMPLING"}
         weight_check.setdefault("sampling", {})[stage] = trace
         while reads < maximum_reads:
             reads += 1
             try:
-                weight = self._query_self_test()["weightGrams"]
+                observation = self._query_self_test()
+                weight = observation["weightGrams"]
             except AcceptanceHardwareError as error:
                 trace["resultCode"] = _stable_code(error.code, "WEIGHT_CHECK_FAILED")
                 raise
+            sample_identity = None
+            if all(
+                name in observation
+                for name in (
+                    "mcuBootId",
+                    "scaleAttemptSequence",
+                    "scaleCapturedUptimeMs",
+                )
+            ):
+                sample_identity = (
+                    observation["mcuBootId"],
+                    observation["scaleAttemptSequence"],
+                    observation["scaleCapturedUptimeMs"],
+                )
+                if sample_boot_id is None:
+                    sample_boot_id = sample_identity[0]
+                elif sample_identity[0] != sample_boot_id:
+                    trace["resultCode"] = "MCU_BOOT_CHANGED_DURING_WEIGHT_SAMPLING"
+                    raise AcceptanceHardwareError(
+                        "MCU_BOOT_CHANGED_DURING_WEIGHT_SAMPLING"
+                    )
+                if sample_identity == last_sample_identity:
+                    remaining = deadline - self._monotonic()
+                    if remaining <= 0:
+                        break
+                    interval = min(
+                        remaining,
+                        self._weight_sample_interval_ms / 1000.0,
+                    )
+                    if interval > 0:
+                        self._sleeper(interval)
+                    continue
+                last_sample_identity = sample_identity
             trace["readCount"] += 1
             trace["samplesGrams"].append(weight)
             trace["samplesGrams"] = trace["samplesGrams"][-MAX_RECENT_SAMPLES:]
@@ -1201,6 +1249,7 @@ class FactoryAcceptanceExecutor:
         identity, _self_test = self._query_run_bound_mcu(state)
         active = {
             "type": action,
+            "actionToken": str(uuid.uuid4()),
             "phase": "ARMED",
             "sendAttempts": 0,
             "originalMcuIdentity": identity,
@@ -1215,6 +1264,32 @@ class FactoryAcceptanceExecutor:
         }
         self._save_state(state)
         self._fault(f"{action.lower()}.after_armed")
+
+        prepare_action = getattr(self.mcu, "prepare_action", None)
+        native_action_prepared = False
+        if callable(prepare_action):
+            try:
+                with deny_network_access():
+                    native_identity = prepare_action(
+                        action, active["actionToken"]
+                    )
+                state = self._load_state()
+                if (
+                    state.get("status") != "RUNNING"
+                    or not isinstance(state.get("activeAction"), dict)
+                    or state["activeAction"].get("actionToken")
+                    != active["actionToken"]
+                    or state["activeAction"].get("phase") != "ARMED"
+                ):
+                    raise AcceptanceHardwareError(
+                        "MCU_FACTORY_ACTION_IDENTITY_MISMATCH"
+                    )
+                state["activeAction"]["nativeActionIdentity"] = native_identity
+                self._save_state(state)
+                native_action_prepared = True
+                self._fault(f"{action.lower()}.after_native_action_prepared")
+            except AcceptanceHardwareError as error:
+                raise AcceptanceError(error.code) from error
 
         state = self._load_state()
         active = state["activeAction"]
@@ -1236,7 +1311,10 @@ class FactoryAcceptanceExecutor:
         self._fault(f"{action.lower()}.after_command_journal")
         try:
             with deny_network_access():
-                self.mcu.write_action_once(action)
+                if native_action_prepared:
+                    self.mcu.write_action_once(action, active["actionToken"])
+                else:
+                    self.mcu.write_action_once(action)
             self._fault(f"{action.lower()}.after_serial_write")
             state = self._load_state()
             state["phase"] = f"{action}_WAITING_FINAL_RESULT"
@@ -1255,6 +1333,16 @@ class FactoryAcceptanceExecutor:
             state["checks"][check_name]["result"] = result
             self._save_state(state)
             self._fault(f"{action.lower()}.after_result_recorded")
+
+            # UART v2 retains the exact WORK_RESULT until the host proves it
+            # has durably recorded that same payload.  The fixed-frame facade
+            # implements this as a no-op because DD/EF had no custody reply.
+            confirm_final_result = getattr(
+                self.mcu, "confirm_final_result", None
+            )
+            if callable(confirm_final_result):
+                with deny_network_access():
+                    confirm_final_result(result)
 
             invalid_marker = self.mcu.business_input_marker()
             recovered_identity = self._query_identity()
@@ -1319,6 +1407,9 @@ class FactoryAcceptanceExecutor:
             state["activeAction"]["phase"] = "AWAITING_DOOR_CONFIRMATION"
             state["recovery"]["hardwareVerified"] = True
             state["recovery"]["awaitingDoorConfirmation"] = True
+            state["recovery"]["cleanConfirmationDisposition"] = (
+                "PASS_AFTER_CONFIRMATION"
+            )
             state["recovery"]["resultCode"] = (
                 "CLEAN_DOOR_CONFIRMATION_REQUIRED"
             )
@@ -1467,7 +1558,11 @@ class FactoryAcceptanceExecutor:
             or not isinstance(active, dict)
             or active.get("type") != "CLEAN"
             or active.get("phase") != "AWAITING_DOOR_CONFIRMATION"
-            or not isinstance(clean.get("result"), dict)
+            or recovery.get("cleanConfirmationDisposition")
+            not in {
+                "PASS_AFTER_CONFIRMATION",
+                "FAILED_SAFE_AFTER_CONFIRMATION",
+            }
         ):
             if clean.get("status") == "PASSED":
                 return copy.deepcopy(state)
@@ -1501,9 +1596,17 @@ class FactoryAcceptanceExecutor:
             ) from error
         state = self._load_state()
         prior = state["checks"]["clean"]
+        passed = (
+            state["recovery"]["cleanConfirmationDisposition"]
+            == "PASS_AFTER_CONFIRMATION"
+        )
         state["checks"]["clean"] = {
-            "status": "PASSED",
-            "resultCode": "CLEAN_SAFE_VERIFIED",
+            "status": "PASSED" if passed else "FAILED_SAFE",
+            "resultCode": (
+                "CLEAN_SAFE_VERIFIED"
+                if passed
+                else "CLEAN_FAILED_BUT_APPLICATION_RECOVERED"
+            ),
             "sendAttempts": prior.get("sendAttempts", 1),
             "result": prior.get("result"),
             "postActionSelfTest": prior.get("postActionSelfTest"),
@@ -1511,17 +1614,117 @@ class FactoryAcceptanceExecutor:
             "cleanDoorConfirmed": True,
         }
         state["status"] = "RUNNING"
-        state["phase"] = "CLEAN_SAFE_VERIFIED"
+        state["phase"] = (
+            "CLEAN_SAFE_VERIFIED" if passed else "CLEAN_RECOVERED_SAFE"
+        )
         state["recovery"] = None
         state["activeAction"] = None
         legacy_failure_ready = self._prepare_legacy_safety_failure(state)
         legacy_update_line_failure = self._prepare_legacy_update_line_failure(state)
         saved = self._save_state(state)
-        if legacy_failure_ready or legacy_update_line_failure:
+        if legacy_failure_ready or legacy_update_line_failure or not passed:
             self._fault("legacy_safety.after_recovered_before_finalize")
             self.finalize()
             return copy.deepcopy(self._load_state())
         return saved
+
+    def _recover_native_action_result(
+        self,
+        state: dict,
+        action: str,
+        *,
+        quiet_ms: int,
+    ) -> dict:
+        """Persist an exact held native result, then require human reproof.
+
+        The adapter performs only QUERY_WORK/QUERY_RESULT here; START is never
+        reconstructed or sent again.
+        """
+
+        recover_result = getattr(self.mcu, "recover_final_result", None)
+        if not callable(recover_result):
+            raise AcceptanceHardwareError(
+                "MCU_FACTORY_RECOVERY_INTERFACE_INVALID"
+            )
+        with deny_network_access():
+            result = recover_result(action, timeout_ms=3_000)
+        check_name = self._action_check_name(action)
+        state = self._load_state()
+        active = state.get("activeAction")
+        recovery = state.get("recovery")
+        if (
+            state.get("status") != "RECOVERY_REQUIRED"
+            or not isinstance(active, dict)
+            or active.get("type") != action
+            or not isinstance(recovery, dict)
+            or recovery.get("context") != action
+        ):
+            raise AcceptanceHardwareError("MCU_FACTORY_ACTION_IDENTITY_MISMATCH")
+        state["phase"] = f"{action}_RESULT_RECORDED"
+        active["phase"] = "RESULT_RECORDED"
+        active["result"] = result
+        state["checks"][check_name] = {
+            "status": "RECOVERY_REQUIRED",
+            "resultCode": "FINAL_RESULT_RECOVERED",
+            "sendAttempts": active.get("sendAttempts", 1),
+            "result": result,
+        }
+        self._save_state(state)
+        self._fault(f"{action.lower()}.after_recovered_result_recorded")
+
+        confirm = getattr(self.mcu, "confirm_final_result", None)
+        if callable(confirm):
+            with deny_network_access():
+                confirm(result)
+        invalid_marker = self.mcu.business_input_marker()
+        recovered_identity = self._query_identity()
+        original = recovery["originalMcuIdentity"]
+        if (
+            not identities_equal(original, recovered_identity)
+            or not identities_equal(
+                state.get("mcuIdentity", {}), recovered_identity
+            )
+        ):
+            raise AcceptanceHardwareError("MCU_IDENTITY_CHANGED_AFTER_ACTION")
+        self_test = self._query_self_test()
+        self.mcu.require_business_quiet(
+            quiet_ms=quiet_ms,
+            invalid_marker=invalid_marker,
+        )
+
+        state = self._load_state()
+        active = state["activeAction"]
+        recovery = state["recovery"]
+        recovery["hardwareVerified"] = True
+        if action == "DELIVERY":
+            state["phase"] = "DELIVERY_AWAITING_AREA_CONFIRMATION"
+            active["phase"] = "AWAITING_AREA_CONFIRMATION"
+            recovery["awaitingAreaSafetyConfirmation"] = True
+            recovery["deliveryConfirmationDisposition"] = (
+                "PASS_AFTER_CONFIRMATION"
+            )
+            recovery["resultCode"] = (
+                "DELIVERY_AREA_SAFETY_CONFIRMATION_REQUIRED"
+            )
+            state["checks"][check_name] |= {
+                "resultCode": "DELIVERY_AREA_SAFETY_CONFIRMATION_REQUIRED",
+                "postActionSelfTest": self_test,
+                "operatorAreaSafeConfirmed": False,
+            }
+        else:
+            state["phase"] = "CLEAN_AWAITING_DOOR_CONFIRMATION"
+            active["phase"] = "AWAITING_DOOR_CONFIRMATION"
+            recovery["awaitingDoorConfirmation"] = True
+            recovery["cleanConfirmationDisposition"] = (
+                "PASS_AFTER_CONFIRMATION"
+            )
+            recovery["resultCode"] = "CLEAN_DOOR_CONFIRMATION_REQUIRED"
+            state["checks"][check_name] |= {
+                "resultCode": "CLEAN_DOOR_CONFIRMATION_REQUIRED",
+                "postActionSelfTest": self_test,
+                "cleanDoorConfirmed": False,
+            }
+        return self._save_state(state)
 
     def recover(
         self,
@@ -1562,7 +1765,135 @@ class FactoryAcceptanceExecutor:
                 "USE_DELIVERY_AREA_SAFETY_CONFIRMATION",
                 recovery_required=True,
             )
-        if state.get("mcuUpdateLineInstalled") is not True:
+        confirmed_boot_changed = False
+        if context in ACTION_TYPES:
+            active = state.get("activeAction")
+            action_token = (
+                active.get("actionToken") if isinstance(active, dict) else None
+            )
+            recover_disposition = getattr(
+                self.mcu, "recover_action_disposition", None
+            )
+            retire_action = getattr(self.mcu, "retire_recovery_action", None)
+            if isinstance(action_token, str) and callable(recover_disposition):
+                durable_disposition = recovery.get(
+                    "nativeActionDisposition"
+                )
+                if durable_disposition is None:
+                    try:
+                        with deny_network_access():
+                            disposition = recover_disposition(
+                                context, action_token, timeout_ms=3_000
+                            )
+                    except AcceptanceHardwareError as error:
+                        self._update_recovery_reason(error.code)
+                        raise AcceptanceError(
+                            error.code, recovery_required=True
+                        ) from error
+                elif durable_disposition == "BOOT_CHANGED":
+                    disposition = durable_disposition
+                else:
+                    raise AcceptanceError(
+                        "MCU_FACTORY_RECOVERY_DISPOSITION_INVALID",
+                        recovery_required=True,
+                    )
+                if disposition in {"NOT_PREPARED", "NOT_SENT"}:
+                    if disposition == "NOT_SENT":
+                        if not callable(retire_action):
+                            raise AcceptanceError(
+                                "MCU_FACTORY_RECOVERY_INTERFACE_INVALID",
+                                recovery_required=True,
+                            )
+                        try:
+                            with deny_network_access():
+                                retire_action(context, action_token, disposition)
+                        except AcceptanceHardwareError as error:
+                            self._update_recovery_reason(error.code)
+                            raise AcceptanceError(
+                                error.code, recovery_required=True
+                            ) from error
+                    check_name = self._action_check_name(context)
+                    state = self._load_state()
+                    state["checks"][check_name] = {
+                        "status": "FAILED_SAFE",
+                        "resultCode": f"{context}_INTERRUPTED_BEFORE_COMMAND",
+                        "sendAttempts": 0,
+                        "result": None,
+                    }
+                    state["status"] = "RUNNING"
+                    state["phase"] = f"{context}_INTERRUPTED_BEFORE_COMMAND"
+                    state["recovery"] = None
+                    state["activeAction"] = None
+                    return self._save_state(state)
+                if disposition in {"RESULT_AVAILABLE", "RESULT_RELEASED"}:
+                    try:
+                        return self._recover_native_action_result(
+                            state, context, quiet_ms=quiet_ms
+                        )
+                    except AcceptanceHardwareError as error:
+                        self._update_recovery_reason(error.code)
+                        raise AcceptanceError(
+                            error.code, recovery_required=True
+                        ) from error
+                if disposition == "RUNNING":
+                    self._update_recovery_reason("MCU_FACTORY_WORK_STILL_RUNNING")
+                    raise AcceptanceError(
+                        "MCU_FACTORY_WORK_STILL_RUNNING",
+                        recovery_required=True,
+                    )
+                if disposition == "BOOT_CHANGED":
+                    if not callable(retire_action):
+                        raise AcceptanceError(
+                            "MCU_FACTORY_RECOVERY_INTERFACE_INVALID",
+                            recovery_required=True,
+                        )
+                    if durable_disposition is None:
+                        # Persist the safety-relevant conclusion before
+                        # retiring the adapter journal.  A crash between these
+                        # commits therefore resumes BOOT_CHANGED handling and
+                        # can never degrade to NOT_PREPARED/NOT_SENT.
+                        state = self._load_state()
+                        current_recovery = state.get("recovery")
+                        current_active = state.get("activeAction")
+                        if (
+                            not isinstance(current_recovery, dict)
+                            or current_recovery.get("context") != context
+                            or not isinstance(current_active, dict)
+                            or current_active.get("actionToken")
+                            != action_token
+                        ):
+                            raise AcceptanceError(
+                                "ACCEPTANCE_RECOVERY_STATE_INVALID",
+                                recovery_required=True,
+                            )
+                        current_recovery["nativeActionDisposition"] = (
+                            "BOOT_CHANGED"
+                        )
+                        self._save_state(state)
+                        self._fault(
+                            f"{context.lower()}.after_boot_changed_journal"
+                        )
+                    try:
+                        with deny_network_access():
+                            retire_action(context, action_token, disposition)
+                    except AcceptanceHardwareError as error:
+                        self._update_recovery_reason(error.code)
+                        raise AcceptanceError(
+                            error.code, recovery_required=True
+                        ) from error
+                    self._fault(
+                        f"{context.lower()}.after_native_action_retired"
+                    )
+                    confirmed_boot_changed = True
+                else:
+                    raise AcceptanceError(
+                        "MCU_FACTORY_RECOVERY_DISPOSITION_INVALID",
+                        recovery_required=True,
+                    )
+        if (
+            state.get("mcuUpdateLineInstalled") is not True
+            and not confirmed_boot_changed
+        ):
             # Once AA/EE may have been sent but no valid DD/EF was recorded,
             # F3/F1 plus a short quiet window cannot prove a delayed mechanism
             # will not still move.  Without a proven NRST line there is no
@@ -1579,7 +1910,7 @@ class FactoryAcceptanceExecutor:
                 state,
                 original,
                 quiet_ms=quiet_ms,
-                reset_via_update_line=True,
+                reset_via_update_line=not confirmed_boot_changed,
             )
         except AcceptanceHardwareError as error:
             self._update_recovery_reason(error.code)
@@ -1616,6 +1947,27 @@ class FactoryAcceptanceExecutor:
                 "postActionSelfTest": prior.get("postActionSelfTest"),
                 "recoverySelfTest": self_test,
                 "operatorAreaSafeConfirmed": False,
+            }
+            return self._save_state(state)
+        if context == "CLEAN" and confirmed_boot_changed:
+            state = self._load_state()
+            prior = state.get("checks", {}).get("clean", {})
+            state["phase"] = "CLEAN_AWAITING_DOOR_CONFIRMATION"
+            state["activeAction"]["phase"] = "AWAITING_DOOR_CONFIRMATION"
+            state["recovery"]["awaitingDoorConfirmation"] = True
+            state["recovery"]["cleanConfirmationDisposition"] = (
+                "FAILED_SAFE_AFTER_CONFIRMATION"
+            )
+            state["recovery"]["resultCode"] = (
+                "CLEAN_DOOR_CONFIRMATION_REQUIRED"
+            )
+            state["checks"]["clean"] = {
+                "status": "RECOVERY_REQUIRED",
+                "resultCode": "CLEAN_DOOR_CONFIRMATION_REQUIRED",
+                "sendAttempts": prior.get("sendAttempts", 0),
+                "result": prior.get("result"),
+                "recoverySelfTest": self_test,
+                "cleanDoorConfirmed": False,
             }
             return self._save_state(state)
         if context == "CLEAN" and clean_door_closed_confirmed is not True:
@@ -1682,6 +2034,27 @@ class FactoryAcceptanceExecutor:
                 "postWeightGrams": result.get("postWeightGrams"),
                 "weightDeltaGrams": result.get("weightDeltaGrams"),
                 "infraredBlocked": result.get("infraredBlocked"),
+                "fullnessSensorKind": result.get("fullnessSensorKind"),
+                "fullnessReadStatus": result.get("fullnessReadStatus"),
+                "fullnessDistanceMm": result.get("fullnessDistanceMm"),
+                "fullnessDistanceThresholdMm": result.get(
+                    "fullnessDistanceThresholdMm"
+                ),
+                "fullnessBlocked": result.get("fullnessBlocked"),
+                "finishReason": result.get("finishReason"),
+                "deliveryDoorCommand": result.get("deliveryDoorCommand"),
+                "deliveryDoorOutputStatus": result.get(
+                    "deliveryDoorOutputStatus"
+                ),
+                "deliveryDoorPhysicalStateBasis": result.get(
+                    "deliveryDoorPhysicalStateBasis"
+                ),
+                "cleanLockPowerState": result.get("cleanLockPowerState"),
+                "cleanSolenoidHealth": result.get("cleanSolenoidHealth"),
+                "cleanDoorStateBasis": result.get("cleanDoorStateBasis"),
+                "cleanerPhysicalCloseConfirmed": result.get(
+                    "cleanerPhysicalCloseConfirmed"
+                ),
                 "operatorAreaSafeConfirmed": value.get(
                     "operatorAreaSafeConfirmed"
                 ),
@@ -2035,6 +2408,43 @@ class FactoryAcceptanceExecutor:
             or active.get("sendAttempts") != 0
         ):
             return
+        action_token = active.get("actionToken")
+        inspect_action = getattr(self.mcu, "inspect_action", None)
+        recover_disposition = getattr(
+            self.mcu, "recover_action_disposition", None
+        )
+        if (
+            isinstance(action_token, str)
+            and callable(inspect_action)
+            and callable(recover_disposition)
+        ):
+            observed = inspect_action(action, action_token)
+            if observed is not None:
+                disposition = recover_disposition(action, action_token)
+                if disposition == "NOT_SENT":
+                    retire = getattr(self.mcu, "retire_recovery_action", None)
+                    if not callable(retire):
+                        raise AcceptanceHardwareError(
+                            "MCU_FACTORY_RECOVERY_INTERFACE_INVALID"
+                        )
+                    retire(action, action_token, disposition)
+                elif disposition != "NOT_PREPARED":
+                    active["phase"] = "COMMAND_MAY_HAVE_BEEN_SENT"
+                    active["sendAttempts"] = 1
+                    self._arm_recovery(
+                        state,
+                        context=action,
+                        phase=f"{action}_COMMAND_MAY_HAVE_BEEN_SENT",
+                        original_identity=active["originalMcuIdentity"],
+                        reason=f"{action}_COMMAND_MAY_HAVE_BEEN_SENT",
+                    )
+                    state["checks"][self._action_check_name(action)] = {
+                        "status": "RECOVERY_REQUIRED",
+                        "resultCode": f"{action}_COMMAND_MAY_HAVE_BEEN_SENT",
+                        "sendAttempts": 1,
+                    }
+                    self._save_state(state)
+                    return
         check_name = self._action_check_name(action)
         state["checks"][check_name] = {
             "status": "FAILED_SAFE",

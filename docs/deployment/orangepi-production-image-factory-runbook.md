@@ -1,5 +1,10 @@
 # 香橙派量产镜像、写卡与整机验收手册
 
+> **当前操作限制（2026-09-14）**：当前候选已推进为UART v2 rc.26，P7不再使用F3/F1/F2、
+> AA/DD、EE/EF或历史`factory_sim`作为通过依据。下方相关步骤尚未完成rc.26逐步改写，
+> 暂停据此执行量产放行。现行证据链和未完成HIL门槛见
+> [rc.26收口记录](../../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)。
+
 > 适用硬件：Orange Pi Zero 3 v1.2（H618）+ STM32F103C8T6 +
 > `ECOBIN_MAINBOARD_V1.1`。目标系统为 Debian 12、Linux 6.1、Python 3.11，标称
 > 32 GB TF 卡。设计依据见

@@ -33,6 +33,7 @@ import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
 import { useOrganizationScope } from '@/pages/identity/useOrganizationScope';
 import { formatShanghaiTime } from '@/utils/decimal';
 import { pageHeader, proTableConfig } from '@/utils/pageStyle';
+import { cleanAbortDescription } from './cleanOperationPresentation';
 
 const { RangePicker } = DatePicker;
 
@@ -84,7 +85,7 @@ const statusMeta: Record<
   ABORTED: {
     label: '已中止',
     color: 'error',
-    description: '香橙派在固定帧执行期间重启，系统中止操作并进入安全联锁。',
+    description: '本次清运已中止，请按页面提示处理。',
   },
 };
 
@@ -132,7 +133,9 @@ function OperationDrawer({
             showIcon
             type={detail.status === 'RECOVERY_REQUIRED' ? 'warning' : 'info'}
             message={statusMeta[detail.status].label}
-            description={statusMeta[detail.status].description}
+            description={detail.status === 'ABORTED'
+              ? cleanAbortDescription(detail.endReason)
+              : statusMeta[detail.status].description}
           />
           <Descriptions bordered size="small" column={2}>
             <Descriptions.Item label="操作 UID" span={2}>

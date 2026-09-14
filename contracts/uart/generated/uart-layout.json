@@ -169,6 +169,13 @@
       },
       "wireType": "u8"
     },
+    "DeviceIdentityStatus": {
+      "values": {
+        "AVAILABLE": 1,
+        "BOOT_MISMATCH": 2
+      },
+      "wireType": "u8"
+    },
     "DoorCommandOutputStatus": {
       "values": {
         "COALESCED_WITH_EXISTING_CLOSE": 3,
@@ -622,7 +629,9 @@
       "QUERY_RESULT",
       "RESULT_QUERY_REPLY",
       "QUERY_WORK",
-      "WORK_QUERY_REPLY"
+      "WORK_QUERY_REPLY",
+      "QUERY_DEVICE_IDENTITY",
+      "DEVICE_IDENTITY_REPLY"
     ],
     "currentDiagnosticMessages": [
       "QUERY_DEVICE_FACTS",
@@ -4178,6 +4187,120 @@
       "maximumPayloadLength": 226,
       "minimumPayloadLength": 226
     },
+    "DEVICE_IDENTITY_REPLY": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "offset": 8,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 0,
+          "minimumSize": 8,
+          "name": "currentMcuBootId",
+          "offset": 16,
+          "type": "u64"
+        },
+        {
+          "enum": "DeviceIdentityStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "status",
+          "offset": 24,
+          "type": "u8"
+        },
+        {
+          "const": 2,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "protocolMajor",
+          "offset": 25,
+          "type": "u8"
+        },
+        {
+          "const": 0,
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "protocolMinor",
+          "offset": 26,
+          "type": "u8"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimum": 0,
+          "minimumSize": 1,
+          "name": "portCount",
+          "offset": 27,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "capabilityBitmap",
+          "offset": 28,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "highestCommandSequence",
+          "offset": 36,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "firmwareVersionCode",
+          "offset": 40,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "firmwareIdentityHigh",
+          "offset": 44,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "firmwareIdentityLow",
+          "offset": 48,
+          "type": "u32"
+        },
+        {
+          "maxLength": 32,
+          "maximumSize": 33,
+          "minimumSize": 1,
+          "name": "firmwareVersion",
+          "offset": 52,
+          "type": "string_u8"
+        }
+      ],
+      "id": 72,
+      "maximumPayloadLength": 85,
+      "minimumPayloadLength": 53
+    },
     "END_CLEAN_BEFORE_UNLOCK": {
       "ackRequired": true,
       "category": "COMMAND",
@@ -5258,6 +5381,35 @@
       "id": 69,
       "maximumPayloadLength": 17,
       "minimumPayloadLength": 17
+    },
+    "QUERY_DEVICE_IDENTITY": {
+      "ackRequired": false,
+      "category": "CONTROL",
+      "criticalEvent": false,
+      "direction": "EDGE_TO_MCU",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "queryId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "targetMcuBootId",
+          "offset": 8,
+          "type": "u64"
+        }
+      ],
+      "id": 71,
+      "maximumPayloadLength": 16,
+      "minimumPayloadLength": 16
     },
     "QUERY_PROCESS_EVENT": {
       "ackRequired": false,
@@ -8080,8 +8232,8 @@
     "minor": 0,
     "receiveBufferLimit": 512
   },
-  "registrySha256": "20daadd759c9996b49b03b84406cf406ba49b39cc4f7de894fe1fc2b93125bf2",
-  "registryVersion": "2.0.0-rc.24",
+  "registrySha256": "57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec",
+  "registryVersion": "2.0.0-rc.26",
   "sessionPolicy": {
     "actuatorEventMessages": [
       "DELIVERY_DOOR_COMMAND_RESULT",
@@ -8108,7 +8260,7 @@
     "commandPayloadValidation": "ALL_FENCED_EDGE_MESSAGES",
     "commandSequencePolicy": "DURABLE_MONOTONIC_PER_MCU_BOOT_NO_WRAP",
     "commandTimeout": "QUERY_ORIGINAL_NOT_MECHANICAL_RETRY",
-    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.24精简正常路径以START作为整次本地业务授权，MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。二维码URL按BEGIN/PART/COMMIT应用，QUERY_COMMAND只查询原决定并可促使MCU重发RAM中匹配的应用结果，不重写屏幕。原过程/动作消息仅供当前诊断或冻结历史读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。成对固件/主入口和现场验证未完成，不可直接发布。",
+    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.26沿用START整次本地业务授权、二维码原子写屏和只读固件身份查询，并由身份回复直接给出当前MCU能力位；查询不驱动、不测量、不改变业务。MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。二维码URL按BEGIN/PART/COMMIT应用，QUERY_COMMAND只查询原决定并可促使MCU重发RAM中匹配的应用结果，不重写屏幕。原过程/动作消息仅供当前诊断或冻结历史读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。成对固件/主入口和现场验证未完成，不可直接发布。",
     "probeReuse": "NEVER",
     "processEventMessages": [
       "WORK_PREOPEN_WEIGHT_READY",
@@ -8135,6 +8287,7 @@
       "QUERY_RESULT",
       "QUERY_WORK",
       "QUERY_DEVICE_FACTS",
+      "QUERY_DEVICE_IDENTITY",
       "QUERY_PROCESS_EVENT",
       "QUERY_ACTUATOR_EVENT"
     ],
@@ -8160,6 +8313,8 @@
       "WORK_QUERY_REPLY",
       "QUERY_DEVICE_FACTS",
       "DEVICE_FACTS_REPLY",
+      "QUERY_DEVICE_IDENTITY",
+      "DEVICE_IDENTITY_REPLY",
       "QUERY_PROCESS_EVENT",
       "PROCESS_EVENT_QUERY_REPLY",
       "PROCESS_EVENT_SAVED",

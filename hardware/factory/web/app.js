@@ -1013,6 +1013,28 @@ function measuredFlag(value, yes, no) {
   return value === true ? yes : value === false ? no : "尚未采集";
 }
 
+function fullnessRows(prefix, value) {
+  const field = (name) => prefix
+    ? `${prefix}${name.charAt(0).toUpperCase()}${name.slice(1)}`
+    : name;
+  const kind = value?.[field("fullnessSensorKind")];
+  const blocked = value?.[field("fullnessBlocked")];
+  if (kind === "ULTRASONIC") {
+    return [
+      ["满溢传感器", "超声波测距"],
+      ["实测距离", Number.isInteger(value?.[field("fullnessDistanceMm")])
+        ? `${value[field("fullnessDistanceMm")]} mm` : "尚未采集"],
+      ["满溢距离阈值", Number.isInteger(value?.[field("fullnessDistanceThresholdMm")])
+        ? `${value[field("fullnessDistanceThresholdMm")]} mm` : "尚未采集"],
+      ["满溢判定", measuredFlag(blocked, "已满（距离小于阈值）", "未满")],
+    ];
+  }
+  return [
+    ["满溢传感器", kind === "DIGITAL_INFRARED" ? "数字红外" : "尚未识别"],
+    ["红外遮挡", measuredFlag(value?.[field("infraredBlocked")] ?? blocked, "有遮挡", "无遮挡")],
+  ];
+}
+
 function measurementStatus(check) {
   return ({ NOT_RUN: "尚未采集", RUNNING: "进行中", PASSED: "已通过", FAILED: "未通过", FAILED_SAFE: "失败，已安全恢复", RECOVERY_REQUIRED: "需安全恢复", NOT_APPLICABLE: "未安装，已跳过" })[check?.status] || "待确认";
 }
@@ -1104,8 +1126,11 @@ function updateMeasurements(status) {
   const mcu = checks.mcu || {};
   add("mcu", "控制板与传感器", [
     ["固件版本", factory.mcuIdentity?.firmwareVersion],
+    ["控制板启动编号", Number.isInteger(factory.mcuIdentity?.mcuBootId) ? String(factory.mcuIdentity.mcuBootId) : "旧协议未提供"],
+    ["已接收命令最高序号", Number.isInteger(factory.mcuIdentity?.mcuHighestCommandSequence) ? String(factory.mcuIdentity.mcuHighestCommandSequence) : "旧协议未提供"],
+    ["控制板能力位", factory.mcuIdentity?.mcuCapabilityBitmapHex ? `0x${factory.mcuIdentity.mcuCapabilityBitmapHex}` : "旧协议未提供"],
     ["自检时重量", grams(mcu.selfTestWeightGrams)],
-    ["自检时红外遮挡", measuredFlag(mcu.selfTestInfraredBlocked, "有遮挡", "无遮挡")],
+    ...fullnessRows("selfTest", mcu),
     ["自检时烟雾状态", mcu.selfTestSmokeCode === 0 ? "正常（0）" : "尚未取得有效自检"],
   ]);
   const cameras = checks.cameras || {};
@@ -1130,7 +1155,17 @@ function updateMeasurements(status) {
       ["动作前重量", grams(result.preWeightGrams)],
       ["动作后重量", grams(result.postWeightGrams)],
       ["控制板上报重量差", grams(result.weightDeltaGrams, true)],
-      ["结果帧红外遮挡", measuredFlag(result.infraredBlocked, "有遮挡", "无遮挡")],
+      ...fullnessRows("", result),
+      ...(name === "delivery" ? [
+        ["控制板最终门控制", result.deliveryDoorCommand === "CLOSE" ? "关门" : "尚未取得"],
+        ["门控制输出事实", result.deliveryDoorOutputStatus === "COMMAND_DISPATCHED" ? "关门控制已下发" : "尚未取得"],
+        ["物理门位依据", result.deliveryDoorPhysicalStateBasis === "NOT_OBSERVABLE" ? "无独立门位反馈，不作额外推断" : "尚未取得"],
+      ] : [
+        ["清运锁供电状态", result.cleanLockPowerState === "DEENERGIZED" ? "已断电" : "尚未取得"],
+        ["锁线圈健康", result.cleanSolenoidHealth === "UNKNOWN" ? "无反馈，不作推断" : "尚未取得"],
+        ["清运门关闭依据", result.cleanDoorStateBasis === "CLEANER_CONFIRMATION" && result.cleanerPhysicalCloseConfirmed === true
+          ? "清运员已现场确认" : "尚未取得"],
+      ]),
       [name === "clean" ? "清运门关闭人工确认" : "投递区域事后安全确认",
         measuredFlag(name === "clean" ? check.cleanDoorConfirmed : check.operatorAreaSafeConfirmed, "已确认", "未确认")],
     ]);

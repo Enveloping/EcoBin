@@ -51,6 +51,17 @@ class DeliveryCommandObservationDecisionTest {
                 "IN_PROGRESS", "FAILED", "UART_TIMEOUT"))
                 .isEqualTo(Action.REQUIRE_RECOVERY);
         assertThat(decide(
+                "IN_PROGRESS", "FAILED",
+                "MCU_COMMUNICATION_UNAVAILABLE"))
+                .isEqualTo(Action.ABORT_NATIVE_CONTROL_FAILURE);
+        for (String reason : new String[]{
+                "MCU_INITIAL_WEIGHT_UNAVAILABLE",
+                "MCU_WORK_CANCELLED",
+                "MCU_WORK_FAILED"}) {
+            assertThat(decide("IN_PROGRESS", "FAILED", reason))
+                    .isEqualTo(Action.ABORT_TERMINAL_RESULT);
+        }
+        assertThat(decide(
                 "RESULT_PENDING_RECOVERY", "MCU_ACCEPTED", null))
                 .isEqualTo(Action.MARK_IN_PROGRESS);
     }
@@ -67,6 +78,12 @@ class DeliveryCommandObservationDecisionTest {
         for (String status : new String[]{
                 "BUSINESS_CONFIRMED", "PRE_OPEN_ENDED", "DEVICE_ABORTED"}) {
             assertThat(decide(status, "MCU_ACCEPTED", null))
+                    .isEqualTo(Action.NONE);
+            assertThat(decide(status, "FAILED", "MCU_WORK_FAILED"))
+                    .isEqualTo(Action.NONE);
+            assertThat(decide(
+                    status, "FAILED",
+                    "MCU_COMMUNICATION_UNAVAILABLE"))
                     .isEqualTo(Action.NONE);
         }
     }

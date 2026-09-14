@@ -69,6 +69,25 @@ class InterruptedCleanBagRecoveryServiceTest {
                 .doesNotContain("ORDER BY event.id DESC");
     }
 
+    @Test
+    void manualRecoveryAcceptsOnlyRealBagUncertaintyTerminalReasons() {
+        for (String reason : new String[]{
+                "MCU_RESTART_FINAL_RESULT_UNAVAILABLE",
+                "MCU_COMMUNICATION_UNAVAILABLE",
+                "EDGE_RESTARTED",
+                "MCU_CLEAN_FINAL_WEIGHT_UNAVAILABLE",
+                "MCU_WORK_CANCELLED",
+                "MCU_WORK_FAILED"}) {
+            assertThat(InterruptedCleanBagRecoveryService
+                    .supportsManualRecoveryFault(reason)).isTrue();
+        }
+        assertThat(InterruptedCleanBagRecoveryService
+                .supportsManualRecoveryFault(
+                        "MCU_INITIAL_WEIGHT_UNAVAILABLE")).isFalse();
+        assertThat(InterruptedCleanBagRecoveryService
+                .supportsManualRecoveryFault("WEIGHT_TIMEOUT")).isFalse();
+    }
+
     private static String readSource() {
         try {
             return java.nio.file.Files.readString(java.nio.file.Path.of(

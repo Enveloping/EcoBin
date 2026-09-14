@@ -55,6 +55,7 @@ def build_package(
         version_code=version_code,
         header_path=directory / "firmware_identity.h",
         metadata_path=identity_path,
+        application_protocol_family="FIXED_FRAME",
     )
     image_path = directory / "firmware.bin"
     image_path.write_bytes(

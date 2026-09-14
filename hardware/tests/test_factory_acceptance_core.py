@@ -964,6 +964,82 @@ def test_weight_uses_three_sample_stable_median_for_all_three_stages(
         assert weight["deltaGrams"] == 499
 
 
+def test_native_weight_sampling_counts_only_distinct_mcu_observations(
+    tmp_path: Path,
+) -> None:
+    executor, _model, _factory = _build_executor(
+        tmp_path,
+        executor_options={"weight_sample_interval_ms": 0},
+    )
+    with executor:
+        _begin(executor)
+        executor.check_mcu()
+        observations = iter(
+            (
+                (7, 1_000, 1000),
+                (7, 1_000, 1000),
+                (8, 1_250, 1002),
+                (8, 1_250, 1002),
+                (9, 1_500, 1001),
+            )
+        )
+
+        def query() -> dict:
+            attempt, captured, weight = next(observations)
+            return {
+                "weightGrams": weight,
+                "mcuBootId": 41,
+                "scaleAttemptSequence": attempt,
+                "scaleCapturedUptimeMs": captured,
+            }
+
+        executor._query_self_test = query
+        state = executor.capture_empty_weight()
+
+        weight = state["checks"]["weight"]
+        assert weight["emptyWeightGrams"] == 1001
+        assert weight["emptyStableSamplesGrams"] == [1000, 1002, 1001]
+        assert weight["sampling"]["empty"] == {
+            "samplesGrams": [1000, 1002, 1001],
+            "readCount": 3,
+            "resultCode": "STABLE_WEIGHT_CAPTURED",
+        }
+
+
+def test_native_weight_sampling_rejects_mcu_boot_change(tmp_path: Path) -> None:
+    executor, _model, _factory = _build_executor(
+        tmp_path,
+        executor_options={"weight_sample_interval_ms": 0},
+    )
+    with executor:
+        _begin(executor)
+        executor.check_mcu()
+        observations = iter(((41, 7), (42, 1)))
+
+        def query() -> dict:
+            boot_id, attempt = next(observations)
+            return {
+                "weightGrams": 1000,
+                "mcuBootId": boot_id,
+                "scaleAttemptSequence": attempt,
+                "scaleCapturedUptimeMs": 1_000 + attempt,
+            }
+
+        executor._query_self_test = query
+        with pytest.raises(
+            AcceptanceError,
+            match="MCU_BOOT_CHANGED_DURING_WEIGHT_SAMPLING",
+        ):
+            executor.capture_empty_weight()
+
+        trace = executor.snapshot()["checks"]["weight"]["sampling"]["empty"]
+        assert trace == {
+            "samplesGrams": [1000],
+            "readCount": 1,
+            "resultCode": "MCU_BOOT_CHANGED_DURING_WEIGHT_SAMPLING",
+        }
+
+
 def test_persistent_weight_jitter_times_out_as_unstable(tmp_path: Path) -> None:
     now = [0.0]
 
