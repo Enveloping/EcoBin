@@ -226,3 +226,31 @@ SHA-256为`94e1bf8314310379c579ea469ae742949b7c121fefd8c6455ab0ca9869f2b84d`，�
 尚未冷启动、注入设备秘密、烧录`1.0.2-hil.6`、连接真实串口屏/RS485/机构或执行断电HIL，
 也没有部署到生产设备或后台。因此v40继续是`UNSIGNED_NO_SECRET_CANDIDATE`，不能把本次写卡
 `PASS`解释为真实业务验收或生产发布通过。
+
+## 10. v40受控现场验收镜像
+
+设备装入第9节的无密钥卡后没有出现热点。离线复核manifest确认该卡的artifact class为
+`UNSIGNED_NO_SECRET_CANDIDATE`，`deviceCredentialsPresent=false`、`k1Injected=false`、
+`setupApKeyInjected=false`；首次启动热点监督器在缺少`/etc/ecobin/setup-ap.key`时按设计停止。
+因此该现象不能单独证明香橙派硬件没有启动，直接原因是写入了刻意不含热点密钥的候选。
+
+项目负责人随后要求制作可直接用于现场验收、包含必要输入的镜像。新镜像以第8节第一次v40
+逐字节可复现候选为唯一软件基线，从受保护的v37验收镜像只继承厂家接入密钥、热点密钥和受控
+串口维护登录。注入前后分别校验两份输入的完整镜像摘要；最终镜像不包含旧设备凭证、远程维护
+凭证、注册状态、能力状态、首次启动封存、业务SQLite、NetworkManager连接或SSH主机密钥。
+root登录继续锁定。秘密值及其摘要没有写入普通日志、本文或Git。
+
+最终受控HIL镜像位于Git忽略的本机私有目录，长度为2,571,108,352字节，SHA-256为
+`21581060db890b0902e2cc270e44b23e1867f6e7bdd8db8eeac44948b258690a`。raw布局、ext4配置、
+文件系统一致性、安装软件身份、保护文件权限和首次启动洁净状态均通过离线审计。随后以最终
+镜像只读挂载、ARM64容器断网、仅合成`/tmp`状态可写的方式重新执行smoke：8项验收报告契约、
+Python 3.11、UART v2 rc.26/73消息/`0x8100`能力、EdgeStore schema40、OneNet2.4.0、二维码
+入口、异常账本及28/400/500/1000克称重流程全部通过；`actualHardwareAccess=false`。
+
+生产服务器只读检查确认后端容器为`running/healthy`，但实际认可列表尚无
+`hardware-runtime-20260914-40`。这不会阻止本地热点启动，却会使云端机器验收以软件版本不受
+支持结束；本轮没有修改后台配置。新HIL镜像也尚未写回TF卡，真实热点、注册、UART、HMI、
+RS485、机构和断电测试仍需在重新写卡启动后逐项验证。受控HIL镜像不是正式签名生产镜像。
+
+非秘密构建与验证摘要见
+`hardware/image-artifacts/evidence/hil-uart2-rc26-v40-factory-login-20260914-40/`。

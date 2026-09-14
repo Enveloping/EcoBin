@@ -1,0 +1,9 @@
+8 passed in 7.19s
+installed-uart-config=PASS port=/dev/ttyS5 baud=115200 protocol=uart-v2 portCount=1
+Python 3.11.2
+installed-quarantine-ledger=PASS originalArmedPreserved=true duplicateSafe=true successRejected=true cancelled=true restartEvidenceRetained=true
+installed-communication-import=PASS
+installed-native-rc26=PASS messages=73 requiredMask=0x8100 edgeSchema=40 onenetMapping=2.4.0 qrEntry=true firstFaultLatch=true
+installed-factory-weight=PASS references=28,400,500,1000 sharedReportWeightGate=true inconsistentDeltaRejected=true failureDelta=320 boundedSamples=true portalImport=true actualHardwareAccess=false
+installed-full-report-consumers=PASS completeReports=8 references=28,400,500,1000 firstBootError=NONE true500Observed28Rejected=true
+v40-arm64-smoke=PASS imageReadOnly=true networkIsolated=true syntheticStateOnly=true actualHardwareAccess=false

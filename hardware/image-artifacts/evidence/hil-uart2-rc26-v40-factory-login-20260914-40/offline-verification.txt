@@ -1,0 +1,23 @@
+phase=copy-candidate status=START
+raw-layout-verification=PASS
+phase=copy-candidate status=PASS
+phase=protected-input-injection status=START
+factory secret injection complete
+development-login-injection=PASS rootLocked=true orangepiDefaultPasswordEnabled=true
+ext4-inode-inventory=PASS inodes=53458
+ext4-normalization=PASS inodes=53458 epoch=1783765141
+phase=protected-input-injection status=PASS protectedValuesOrDigestsDisclosed=false
+raw-layout-verification=PASS
+e2fsck=PASS files=53467 totalInodes=156800 usedBlocks=556707 totalBlocks=626688
+ext4-profile-verification=PASS
+image-software-audit=PASS
+development-login-audit=PASS rootLocked=true orangepiDefaultPasswordEnabled=true
+protected-inputs=PASS inheritedFromV37=true valuesOrDigestsDisclosed=false
+clean-first-boot-state=PASS
+camera-config=PASS outside=HSK-UNIQUESKY inside=Generic-USB-Camera exactHardwareEnvironmentAudited=true
+current-source-and-units=PASS gitCommit=31a6b6fca319c252b30574a2cad5bdfdfcf50a76
+candidate-unchanged=PASS
+v37-protected-input-source-unchanged=PASS
+v40-hil-image-bytes=2571108352
+v40-hil-image-sha256=21581060db890b0902e2cc270e44b23e1867f6e7bdd8db8eeac44948b258690a
+v40-hil-image=PASS

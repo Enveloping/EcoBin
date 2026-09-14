@@ -2,6 +2,8 @@
 
 > 当前推进：[MCU与香橙派精简实施计划](../planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)。[UART rc.26能力、串口屏批次、工厂投影与终态失败收口](../../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)已整合真实MCU能力位、原生工厂验收投影、投递控制通信失败的无业务价值终结和统一HMI可信边界。当前为UART rc.26、OneNet2.4.0、EdgeStore schema40、数据库V83的本地候选，共73种消息；完整MCU ROM/bin 60588/65536、RAM12960/20480。硬件全量首次4258通过/123环境跳过/5子测试通过，另有1项已知Windows SQLite强杀恢复1546错误，单项复跑通过。真实串口屏/RS485/机构/断电HIL、Linux/ARM64安装和部署仍未完成，当前不是可部署版本；下方旧候选均为历史。
 
+> 2026-09-14 v40现场验收镜像：此前实际写入TF卡的是无厂家接入/热点密钥的候选，热点未出现是首次启动服务的预期失败关闭。现已从同一v40候选制作受控HIL镜像，只继承厂家接入密钥、热点密钥和受控串口维护登录，不继承旧设备身份、业务数据、网络连接或SSH主机密钥；root仍锁定。镜像长度2,571,108,352字节，SHA-256为`21581060db890b0902e2cc270e44b23e1867f6e7bdd8db8eeac44948b258690a`，离线审计及断网只读ARM64镜像内smoke通过，尚未重新写卡或真实启动。生产后端当前健康但尚未认可`hardware-runtime-20260914-40`，因此重新验收前仍需经明确授权追加该运行版本；本轮只读核查，没有更改线上配置。
+
 > 2026-09-14 异常投递与设备报废分离：[实现与验证](../planning/abnormal-delivery-retirement-2026-09-14.md)。当前 V72 生产发布为 `20260914061433-32504237d0cb`：结束异常投递与报废保持独立，并已修复历史命令补偿任务因设备时间和后台接收时间混用而每 30 秒错误推进会话版本的问题。原绑定入口没有被使用；故障修复没有执行真实异常结束，见[热修复记录](../operations/abnormal-delivery-version-conflict-deployment-2026-09-14.md)。V73 至 V83 硬件候选未纳入本批。
 
 > 2026-09-14二维码URL与HMI收口：[UART v2设备二维码URL可靠应用记录](../../hardware/docs/review/uart2-device-entry-url-plan-2026-09-14.md)及[rc.26收口记录](../../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)。项目负责人确认信任MCU写出完整串口屏指令即显示，否则无法保证任何串口屏显示；“写出”统一定义为完整显示指令组原子进入UART3软件发送队列。页面切换、一次性初始化、实时倒计时/重量和二维码均遵循该边界；失败时零字节发布、不推进显示状态并重试，不追踪USART完成或HMI回执。旧`Stored`字段仍只证明Pi保存，只有匹配的MCU原子入队结果才能完成二维码同步命令。尚未部署、烧录或用真实串口屏验证。

@@ -1,0 +1,5 @@
+checkedAt=2026-09-14 Asia/Shanghai
+server=VM-0-16-ubuntu
+backend=running/healthy
+hardware-runtime-20260914-40=ABSENT
+configurationChanged=false
