@@ -210,14 +210,17 @@ public class TargetDeviceApplication {
               AND end_reason IS NULL
               AND lock_version = ?
             """;
+    // MySQL evaluates single-table UPDATE assignments from left to right. Keep
+    // the values required by the DISABLED constraint ahead of the lifecycle
+    // assignment so the CASE still sees the row's original lifecycle state.
     static final String DISABLE_AFTER_ABNORMAL_DELIVERY_SQL = """
             UPDATE dev_device_asset
-            SET lifecycle_status = 'DISABLED',
-                disabled_at = COALESCE(disabled_at, ?),
+            SET disabled_at = COALESCE(disabled_at, ?),
                 disable_reason = CASE
                     WHEN lifecycle_status = 'NORMAL' THEN ?
                     ELSE disable_reason
                 END,
+                lifecycle_status = 'DISABLED',
                 control_version = control_version + 1,
                 updated_at = ?
             WHERE id = ?

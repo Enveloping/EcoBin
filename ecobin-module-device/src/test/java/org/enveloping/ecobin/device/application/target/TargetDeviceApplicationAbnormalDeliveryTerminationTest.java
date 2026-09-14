@@ -141,6 +141,15 @@ class TargetDeviceApplicationAbnormalDeliveryTerminationTest {
                 .doesNotContain("RETIRED_AT", "RETIREMENT_REASON");
     }
 
+    @Test
+    void disableSqlAssignsReasonBeforeLifecycleForMysqlLeftToRightSemantics() {
+        String disable = upper(TargetDeviceApplication
+                .DISABLE_AFTER_ABNORMAL_DELIVERY_SQL);
+
+        assertThat(disable.indexOf("DISABLE_REASON = CASE"))
+                .isLessThan(disable.indexOf("LIFECYCLE_STATUS = 'DISABLED'"));
+    }
+
     private static boolean allowed(
             TargetDeviceApplication.DeliveryRecoverySessionRow session,
             TargetDeviceApplication.DeliveryRecoveryCommandTaskRow command,
