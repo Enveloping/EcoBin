@@ -164,3 +164,43 @@ ARM64基础镜像、APT包和Python wheel缓存；三轮APT安装下载量均为
 `UNSIGNED_NO_SECRET_CANDIDATE`，没有写TF卡、烧录、部署或连接现场设备。取得新的明确授权后，
 它只能写入明确识别的实验卡、配合人工烧录hil.6做受控HIL，不能作为生产部署镜像；真实HMI、
 RS485、投递/清运机构、掉电组合HIL、第二次独立构建一致性、签名和封存仍是生产发布门槛。
+
+## 8. v40镜像可复现性补口
+
+v39第二次隔离构建没有改变提交、版本、锁定输入或依赖缓存。两轮运行时签名压缩包一致，但软件
+载荷锁和raw镜像摘要不同。只读载荷比较显示，两份锁均为5,442条，顶层字段、路径集合、类型、
+权限和组件版本全部相同；唯一34条原始差异是硬件运行时虚拟环境中17个包各自的
+`uv_cache.json`和对应`RECORD`。`uv 0.12.5`在安装时写入当前秒/纳秒，`RECORD`只因引用其
+摘要而变化。镜像逐文件、权限、属主、链接、扩展属性和4 KiB块比较另发现唯一独立差异为
+`/var/cache/ldconfig/aux-cache`；它是可再生辅助索引，真正的`/etc/ld.so.cache`两轮一致。
+
+修复分成两个提交：
+
+- `156a45e3`在所有不可变虚拟环境加固入口统一删除`uv_cache.json`，并用CSV语义从相邻
+  `RECORD`删除唯一精确对应行；对缺失、重复、畸形、链接、硬链接、尺寸或属主异常执行失败
+  关闭。两个不同安装时钟的单元夹具归一化后字节一致。
+- `31a6b6fc`在最终候选清理时删除`/var/cache/ldconfig/aux-cache`，并让镜像验证器明确拒绝
+  该文件；`/etc/ld.so.cache`不删除。
+
+用于构建的完整提交为`31a6b6fca319c252b30574a2cad5bdfdfcf50a76`；源码包
+`hardware/image-artifacts/local/source-bundles/repository-v40-20260914.bundle`的SHA-256为
+`8EF19065B4C752726E56F21BDCF314DA234A9BE16CDBA4DFC89E2AEEA1D08283`。以相同
+`0.1.0-single-card.20260914.40`版本、发布编号和全部锁定输入，在以下两个隔离目录完整构建：
+
+- `/var/lib/ecobin-image-factory/hil-v40-20260914-repro1`；
+- `/var/lib/ecobin-image-factory/hil-v40-20260914-repro2`。
+
+两轮所有APT依赖下载量均为0字节，并得到以下逐字节一致结果：
+
+- 运行包SHA-256：`b1528daf53f8cd588aac9a105f0a699b638c88cb4519d7d45e7948a5d590fde4`；
+- 软件载荷锁SHA-256：`5456fb02a6e01ae3644452cd4b5ebb533102bd226d30d983ac95f411b137d614`；
+- manifest逐字节一致；
+- raw镜像文件`ecobin-orangepi-zero3-0.1.0-single-card.20260914.40.img`长度
+  2,571,108,352字节，SHA-256均为
+  `94e1bf8314310379c579ea469ae742949b7c121fefd8c6455ab0ca9869f2b84d`。
+
+两份载荷均没有`uv_cache.json`，两份镜像都通过新增的辅助缓存拒绝检查。构建期间`/dev/sdc`
+仅作为WSL交换分区临时停用，结束后已恢复，未写TF卡。v40只更改构建确定性；MCU继续配套既有
+`1.0.2-hil.6 / 10006`，未重新烧录。该镜像仍是`UNSIGNED_NO_SECRET_CANDIDATE`，不能因为
+双构建一致就视为已完成真实香橙派启动/安装、热点、HMI、RS485、机构、掉电HIL、秘密注入、
+正式签名、封存或部署。
