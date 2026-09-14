@@ -51,6 +51,8 @@ Page({
     recentLoading: false,
     recentError: false,
     ongoingDelivery: false,
+    ongoingDeliveryTitle: '',
+    ongoingDeliverySubtitle: '',
   },
 
   onShow() {
@@ -61,6 +63,7 @@ Page({
       const pendingDeviceEntry = peekPendingDeviceEntry()
       const ongoingDelivery = !!pendingDeviceEntry
         && (!!pendingDeviceEntry.accepted || !!pendingDeviceEntry.idempotencyKey)
+      const accepted = !!pendingDeviceEntry?.accepted
       if (
         session.audience === 'miniapp'
         && session.entryMode === 'USER'
@@ -92,6 +95,10 @@ Page({
         showPhoneGrant,
         organizationName: session.organization.displayName,
         ongoingDelivery,
+        ongoingDeliveryTitle: accepted ? '投递进行中' : '投递结果待确认',
+        ongoingDeliverySubtitle: accepted
+          ? '点击查看设备进度'
+          : '点击继续核对',
         ...(shouldAutoLoad ? {
           walletBalanceText: '—',
           walletLoading: false,
@@ -113,6 +120,8 @@ Page({
       phoneBound: false,
       showPhoneGrant: false,
       ongoingDelivery: false,
+      ongoingDeliveryTitle: '',
+      ongoingDeliverySubtitle: '',
       organizationName: '',
       walletBalanceText: '—',
       walletLoading: false,

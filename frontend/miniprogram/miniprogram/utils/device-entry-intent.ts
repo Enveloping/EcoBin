@@ -8,6 +8,7 @@ import {
   parseOrdinaryDeviceLink,
   type DeviceLink,
 } from './ordinary-device-link'
+import { rejectedDeliveryStartDisposition } from './delivery-start-recovery'
 
 export type DeviceEntrySource = 'ORDINARY_LINK' | 'IN_APP_SCAN'
 
@@ -258,6 +259,26 @@ export function releasePendingDeviceStart(
   delete released.startAttemptCount
   delete released.lastStartAttemptAt
   return writePending(released)
+}
+
+/**
+ * 任意一次重试收到明确拒绝后都可以释放准备态。
+ * releasePendingDeviceStart 会继续核对尝试次数，防止迟到响应清理较新的请求。
+ */
+export function releaseRejectedPendingDeviceStart(
+  status: number,
+  entryId: string,
+  portNo: number,
+  idempotencyKey: string,
+  expectedAttemptCount: number,
+): PendingDeviceEntry | undefined {
+  if (rejectedDeliveryStartDisposition(status) !== 'RELEASE') return undefined
+  return releasePendingDeviceStart(
+    entryId,
+    portNo,
+    idempotencyKey,
+    expectedAttemptCount,
+  )
 }
 
 /** 必须在真正发出 POST 前同步持久化，用于区分首次明确拒绝与未知结果恢复。 */

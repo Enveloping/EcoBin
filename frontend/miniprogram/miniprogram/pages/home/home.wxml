@@ -26,8 +26,8 @@
       <t-icon name="time" size="38rpx" color="#10a625" />
     </view>
     <view class="ongoing-copy">
-      <text class="ongoing-title">投递请求处理中</text>
-      <text class="ongoing-sub">点击返回查看设备进度</text>
+      <text class="ongoing-title">{{ongoingDeliveryTitle}}</text>
+      <text class="ongoing-sub">{{ongoingDeliverySubtitle}}</text>
     </view>
     <t-icon name="chevron-right" size="30rpx" color="#a3aaa3" />
   </view>

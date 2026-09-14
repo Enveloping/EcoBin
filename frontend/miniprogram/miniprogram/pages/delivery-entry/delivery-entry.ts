@@ -22,7 +22,7 @@ import {
   markPendingDeviceIdentitySelected,
   peekPendingDeviceEntry,
   preparePendingDeviceStart,
-  releasePendingDeviceStart,
+  releaseRejectedPendingDeviceStart,
   routePendingDeviceEntry,
   type PendingDeviceEntry,
 } from '../../utils/device-entry-intent'
@@ -97,10 +97,6 @@ function sessionMessage(session: DeliverySessionView): string {
     ? deliveryAbortedMessage(session.endReason)
     : PHASE_TEXT[session.phase]
 }
-
-// 409 可能是同幂等键并发中的败者，或原请求刚成功后的 ACTIVE 冲突，
-// 不能释放 key。以下状态才足以证明本次物理意图未被受理。
-const DEFINITE_REJECTION_STATUS = new Set([400, 401, 403, 404, 422])
 
 function portCard(port: DeliveryPortOption): DeliveryPortCard {
   return {
@@ -459,8 +455,9 @@ Page({
         const session = await refreshSession({
           deviceCode,
         }).catch(() => undefined)
-        const firstAttemptReleased = attemptNumber === 1 && attemptedKey
-          ? !!releasePendingDeviceStart(
+        const rejectedStartReleased = attemptedKey
+          ? !!releaseRejectedPendingDeviceStart(
+            error.status,
             entryId,
             portNo,
             attemptedKey,
@@ -476,7 +473,7 @@ Page({
               if (!routePendingDeviceEntry(current)) routeToEntry(current)
             },
             () => {
-              if (firstAttemptReleased) {
+              if (rejectedStartReleased) {
                 dismissUnstartedPendingDeviceEntry(entryId)
               }
             },
@@ -492,11 +489,10 @@ Page({
       if (!restartLatest) {
         if (
           error instanceof MiniappApiProblem
-          && attemptNumber === 1
           && !!attemptedKey
-          && DEFINITE_REJECTION_STATUS.has(error.status)
         ) {
-          releasePendingDeviceStart(
+          releaseRejectedPendingDeviceStart(
+            error.status,
             entryId,
             portNo,
             attemptedKey as string,
