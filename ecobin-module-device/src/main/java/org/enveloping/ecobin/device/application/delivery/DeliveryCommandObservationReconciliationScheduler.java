@@ -51,13 +51,7 @@ public class DeliveryCommandObservationReconciliationScheduler {
                             AND (
                                 delivery_session.first_edge_accepted_at IS NULL
                                 OR delivery_session.first_edge_accepted_at >
-                                    CASE
-                                        WHEN edge_event.device_occurred_at IS NOT NULL
-                                         AND edge_event.device_occurred_at >= delivery_session.created_at
-                                         AND edge_event.device_occurred_at <= edge_event.backend_received_at
-                                        THEN edge_event.device_occurred_at
-                                        ELSE edge_event.backend_received_at
-                                    END
+                                    edge_event.backend_received_at
                             )
                         )
                         OR (
@@ -67,21 +61,9 @@ public class DeliveryCommandObservationReconciliationScheduler {
                                 OR delivery_session.first_edge_accepted_at IS NULL
                                 OR delivery_session.first_physical_progress_at IS NULL
                                 OR delivery_session.first_edge_accepted_at >
-                                    CASE
-                                        WHEN edge_event.device_occurred_at IS NOT NULL
-                                         AND edge_event.device_occurred_at >= delivery_session.created_at
-                                         AND edge_event.device_occurred_at <= edge_event.backend_received_at
-                                        THEN edge_event.device_occurred_at
-                                        ELSE edge_event.backend_received_at
-                                    END
+                                    edge_event.backend_received_at
                                 OR delivery_session.first_physical_progress_at >
-                                    CASE
-                                        WHEN edge_event.device_occurred_at IS NOT NULL
-                                         AND edge_event.device_occurred_at >= delivery_session.created_at
-                                         AND edge_event.device_occurred_at <= edge_event.backend_received_at
-                                        THEN edge_event.device_occurred_at
-                                        ELSE edge_event.backend_received_at
-                                    END
+                                    edge_event.backend_received_at
                             )
                         )
                         OR (
