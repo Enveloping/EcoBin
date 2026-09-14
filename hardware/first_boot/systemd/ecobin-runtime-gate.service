@@ -9,6 +9,6 @@ Type=oneshot
 User=root
 Group=root
 Environment=PYTHONPATH=/opt/ecobin/factory-test/current/app
-ExecStart=/opt/ecobin/factory-test/current/.venv/bin/python -m first_boot.gate --require runtime
+ExecStart=/opt/ecobin/factory-test/current/.venv/bin/python -P -m first_boot.gate --require runtime
 RemainAfterExit=yes
 UMask=0077

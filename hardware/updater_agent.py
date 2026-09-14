@@ -741,6 +741,22 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
         getattr(args, "enable_software_state_reporting", False)
         or remote_business_update_enabled
     )
+    allow_root_business = bool(
+        getattr(args, "allow_root_business", False)
+    )
+    if allow_root_business and not candidate_enabled:
+        raise ValueError(
+            "legacy root business mode requires the stage-four candidate"
+        )
+    if allow_root_business and (
+        mcu_candidate_enabled
+        or business_candidate_enabled
+        or remote_business_update_enabled
+        or software_state_reporting_enabled
+    ):
+        raise ValueError(
+            "legacy root business mode cannot enable software updates"
+        )
     if mcu_candidate_enabled and not candidate_enabled:
         raise ValueError(
             "MCU update candidate requires the stage-four job gate candidate"
@@ -772,7 +788,12 @@ def build_agent(args: argparse.Namespace) -> UpdaterAgent:
             configured_business_uids,
             configured_business_user,
             role="business",
+            allow_root=allow_root_business,
         )
+        if allow_root_business and business_uids != [0]:
+            raise ValueError(
+                "legacy root business mode requires exactly business UID 0"
+            )
         missing = set(business_uids).difference(allowed_uids)
         if missing:
             raise ValueError(
@@ -1115,14 +1136,22 @@ def resolve_role_uids(
     *,
     role: str,
     user_lookup: Callable[[str], int] | None = None,
+    allow_root: bool = False,
 ) -> list[int]:
-    """Resolve one action role without inheriting root diagnosis access."""
+    """Resolve an action role; root requires an explicit migration posture."""
 
     if not isinstance(role, str) or not role:
         raise ValueError("action role must be non-empty")
+    if not isinstance(allow_root, bool):
+        raise ValueError("allow_root must be boolean")
     resolved: set[int] = set()
     for uid in role_uids or ():
-        if isinstance(uid, bool) or not isinstance(uid, int) or uid <= 0:
+        if (
+            isinstance(uid, bool)
+            or not isinstance(uid, int)
+            or uid < 0
+            or (uid == 0 and not allow_root)
+        ):
             raise ValueError(f"--{role}-uid must be positive and non-root")
         resolved.add(uid)
     if role_user is not None:
@@ -1135,7 +1164,12 @@ def resolve_role_uids(
             raise ValueError(
                 f"--{role}-user does not exist: {role_user}"
             ) from error
-        if isinstance(uid, bool) or not isinstance(uid, int) or uid <= 0:
+        if (
+            isinstance(uid, bool)
+            or not isinstance(uid, int)
+            or uid < 0
+            or (uid == 0 and not allow_root)
+        ):
             raise ValueError(
                 f"--{role}-user has an invalid non-root UID: {role_user}"
             )
@@ -1381,6 +1415,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--business-user",
         default=os.getenv("ECOBIN_BUSINESS_USER"),
+    )
+    parser.add_argument(
+        "--allow-root-business",
+        action="store_true",
+        help=(
+            "migration-only: allow the legacy direct root runtime to use "
+            "the permanent job gate; all software update candidates remain "
+            "forbidden"
+        ),
     )
     parser.add_argument(
         "--communication-uid",

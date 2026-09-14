@@ -140,11 +140,7 @@ class SystemdStageActions:
         elif stage in {FirstBootStage.SEALED, FirstBootStage.COMPLETE}:
             if not facts.sealed_valid:
                 return "SEALED_FACT_INVALID"
-            if not facts.uplink_ready or not facts.cellular_profile_active:
-                if not gate_allows("factory-test-passed", facts):
-                    return "FACTORY_TEST_GATE_CLOSED"
-                unit = "ecobin-cellular-uplink.service"
-            elif not facts.handoff_safe:
+            if not facts.handoff_safe:
                 if not gate_allows("handoff", facts):
                     return "HANDOFF_GATE_CLOSED"
                 unit = "ecobin-factory-handoff.service"

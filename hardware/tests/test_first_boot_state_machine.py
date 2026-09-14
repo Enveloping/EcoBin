@@ -143,6 +143,23 @@ def test_runtime_gate_requires_independent_handoff_fact() -> None:
     assert gate_allows("runtime", _accepted(handoff_safe=True))
 
 
+def test_enrolled_device_does_not_regress_when_uplink_is_temporarily_offline() -> None:
+    facts = _accepted(
+        cellular_profile_active=False,
+        uplink_ready=False,
+        time_trusted=False,
+        handoff_safe=True,
+    )
+
+    decision = reconcile(
+        facts,
+        _previous(FirstBootStage.ENROLLMENT_COMPLETE),
+    )
+
+    assert decision.stage is FirstBootStage.ENROLLMENT_COMPLETE
+    assert gate_allows("runtime", facts)
+
+
 @pytest.mark.parametrize(
     "requirement",
     ["factory-test", "factory-test-passed", "enrollment", "handoff", "runtime"],

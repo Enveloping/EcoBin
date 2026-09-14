@@ -2,9 +2,9 @@
 Description=EcoBin Orange Pi hardware gateway
 ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/pending.json
 ConditionPathExists=!/var/lib/ecobin/privileged/business-runtime-cutover/active.json
-Wants=network-online.target ecobin-remote-support.service
+Wants=network-online.target ecobin-remote-support.service ecobin-updater.service
 Requires=ecobin-mcu-safe-gpio.service ecobin-enrollment.service
-After=network-online.target ecobin-mcu-safe-gpio.service ecobin-enrollment.service ecobin-remote-support.service
+After=network-online.target ecobin-mcu-safe-gpio.service ecobin-enrollment.service ecobin-remote-support.service ecobin-updater.service
 ConditionPathExists=/etc/ecobin/device-credentials.json
 StartLimitIntervalSec=0
 
@@ -23,6 +23,7 @@ TimeoutStartSec=180
 KillSignal=SIGTERM
 TimeoutStopSec=25
 Environment=ECOBIN_CONFIG_MODE=production
+Environment=ECOBIN_STAGE4_JOB_GATE_MODE=candidate
 Environment=ECOBIN_BUSINESS_CONTROL_MODE=status
 Environment=ECOBIN_BUSINESS_CONTROL_SOCKET=/run/ecobin/business/control.sock
 Environment=PYTHONUNBUFFERED=1

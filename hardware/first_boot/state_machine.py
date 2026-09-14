@@ -89,6 +89,18 @@ def reconcile(
     if previous_stage not in _PASSED_OR_LATER:
         return Reconciliation(FirstBootStage.FACTORY_TEST_PASSED, facts.public_error_code())
 
+    # Once the independently validated credential bundle exists and the
+    # coordinator has already reached the uplink/enrollment portion of the
+    # flow, a later connectivity outage must not regress the appliance back
+    # into factory networking.  Production owns offline queuing and admission;
+    # first boot only needed a live uplink and trusted time to create the
+    # credentials in the first place.
+    if facts.enrollment_complete and previous_stage in _UPLINK_READY_OR_LATER:
+        return Reconciliation(
+            FirstBootStage.ENROLLMENT_COMPLETE,
+            facts.public_error_code(),
+        )
+
     if not facts.cellular_profile_active or not facts.uplink_ready:
         return Reconciliation(FirstBootStage.UPLINK_REQUIRED, facts.public_error_code())
 
@@ -132,8 +144,6 @@ def gate_allows(requirement: str, facts: FirstBootFacts) -> bool:
     if requirement == "runtime":
         return (
             factory_passed
-            and facts.uplink_ready
-            and facts.time_trusted
             and facts.enrollment_complete
             and facts.handoff_safe
             and (not facts.sealed_exists or facts.sealed_valid)

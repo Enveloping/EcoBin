@@ -12,8 +12,9 @@ Group=ecobin-factory-web
 WorkingDirectory=/opt/ecobin/factory-test/current/app
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONPATH=/opt/ecobin/factory-test/current/app
 EnvironmentFile=/etc/ecobin/hardware.env
-ExecCondition=/opt/ecobin/factory-test/current/.venv/bin/python -m first_boot.gate --require factory-test
+ExecCondition=/opt/ecobin/factory-test/current/.venv/bin/python -P -m first_boot.gate --require factory-test
 ExecStart=/opt/ecobin/factory-test/current/.venv/bin/python -m factory.acceptance_service
 Restart=no
 TimeoutStartSec=30

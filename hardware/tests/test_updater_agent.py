@@ -748,6 +748,12 @@ def test_candidate_requires_non_root_business_identity() -> None:
             None,
             role="business",
         )
+    assert updater_agent.resolve_role_uids(
+        [0],
+        None,
+        role="business",
+        allow_root=True,
+    ) == [0]
     with pytest.raises(ValueError, match="non-empty business UID"):
         class ReadOnlyHandler:
             @staticmethod
@@ -775,6 +781,51 @@ def test_candidate_requires_non_root_business_identity() -> None:
             allowed_uids={0, 3101},
             enable_stage4_candidate=True,
         )
+
+
+def test_legacy_root_business_mode_cannot_enable_software_updates() -> None:
+    parser = updater_agent.build_parser()
+    base = [
+        "--enable-stage4-candidate",
+        "--allow-root-business",
+        "--business-uid",
+        "0",
+    ]
+    for update_switch in (
+        "--enable-mcu-update-candidate",
+        "--enable-business-update-candidate",
+        "--enable-remote-business-update",
+    ):
+        args = parser.parse_args([*base, update_switch])
+        with pytest.raises(ValueError, match="legacy root business"):
+            updater_agent.build_agent(args)
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (
+            ["--allow-root-business", "--business-uid", "0"],
+            "requires the stage-four candidate",
+        ),
+        (
+            [
+                "--enable-stage4-candidate",
+                "--allow-root-business",
+                "--business-uid",
+                "3102",
+            ],
+            "requires exactly business UID 0",
+        ),
+    ],
+)
+def test_legacy_root_business_mode_is_explicit_and_root_only(
+    argv: list[str],
+    message: str,
+) -> None:
+    args = updater_agent.build_parser().parse_args(argv)
+    with pytest.raises(ValueError, match=message):
+        updater_agent.build_agent(args)
 
 
 @requires_unix_socket
@@ -942,6 +993,7 @@ def test_cli_defaults_match_permanent_updater_paths(monkeypatch) -> None:
     assert args.business_signing_keys == "/usr/share/ecobin/business-release-keys"
     assert args.business_uid is None
     assert args.business_user is None
+    assert args.allow_root_business is False
     assert args.business_download_base_url is None
     assert args.communication_uid is None
     assert args.communication_user == "ecobin-communication"

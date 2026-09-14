@@ -123,6 +123,24 @@ def test_unsealed_factory_to_runtime_sequence_keeps_ap_target_running() -> None:
     assert all("stop" not in call for call in runner.calls)
 
 
+def test_enrolled_offline_device_still_starts_local_runtime() -> None:
+    runner = RecordingRunner()
+    actions = SystemdStageActions(runner)
+
+    assert actions.apply(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed(
+            cellular_profile_active=False,
+            uplink_ready=False,
+            time_trusted=False,
+        ),
+    ) == "NONE"
+
+    assert [call[-1] for call in _start_calls(runner)] == [
+        "ecobin-runtime.target"
+    ]
+
+
 def test_mutating_systemd_call_finishes_within_coordinator_stop_budget() -> None:
     runner = RecordingRunner()
     actions = SystemdStageActions(runner)
@@ -353,7 +371,7 @@ def test_incomplete_or_invalid_cutover_stops_both_business_chains(
     assert _start_calls(runner) == []
 
 
-def test_sealed_cold_boot_starts_only_cellular_then_runtime_never_factory() -> None:
+def test_sealed_offline_cold_boot_starts_runtime_and_never_factory() -> None:
     runner = RecordingRunner()
     actions = SystemdStageActions(runner)
 
@@ -367,17 +385,7 @@ def test_sealed_cold_boot_starts_only_cellular_then_runtime_never_factory() -> N
             uplink_ready=False,
         ),
     ) == "NONE"
-    assert actions.apply(
-        FirstBootStage.COMPLETE,
-        _passed(
-            sealed_exists=True,
-            sealed_valid=True,
-            sealed_cleanup_complete=True,
-        ),
-    ) == "NONE"
-
     assert [call[-1] for call in _start_calls(runner)] == [
-        "ecobin-cellular-uplink.service",
         "ecobin-runtime.target",
     ]
     assert not any("factory.target" in " ".join(call) for call in runner.calls)

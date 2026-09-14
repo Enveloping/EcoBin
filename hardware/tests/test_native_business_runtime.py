@@ -94,6 +94,40 @@ class AdvancingClock:
         return self.now
 
 
+def test_native_open_fails_closed_before_uart_when_permanent_gate_is_down(
+    tmp_path,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+
+    def unavailable(*_args, **_kwargs):
+        raise JobSafetyError(
+            "JOB_GATE_UNAVAILABLE",
+            "permanent updater is unavailable",
+        )
+
+    owner = NativeBusinessRuntime(
+        store,
+        PermanentJobSafety(SimpleNamespace(request=unavailable)),
+        device_name="device-1",
+        connected=lambda: True,
+    )
+    port_calls = []
+    try:
+        with pytest.raises(JobSafetyError) as blocked:
+            owner.open(
+                port="host-test-no-device",
+                port_factory=lambda **options: port_calls.append(options),
+            )
+        assert blocked.value.code == "JOB_GATE_UNAVAILABLE"
+        assert port_calls == []
+        assert owner.transport is None
+        assert owner.boot is None
+        assert owner.dispatcher is None
+    finally:
+        store.close()
+
+
 def open_owner(case, clock):
     # Extend the fixture's socket replacement with real maintenance status;
     # do not bypass the production runtime's maintenance-ownership check.
@@ -105,6 +139,77 @@ def open_owner(case, clock):
     case.serial = serial
     owner.open(port="host-test-no-device", port_factory=lambda **options: serial)
     return owner
+
+
+def test_native_open_uses_runtime_communication_timeout_for_boot_freshness(
+    runtime, tmp_path
+):
+    with real_work(runtime, tmp_path, False) as case:
+        case.clock = SimpleNamespace(now=0)
+        owner = NativeBusinessRuntime(
+            case.store,
+            PermanentJobSafety(RuntimeUpdaterClient(case.safety._client.store)),
+            device_name="device-1",
+            connected=lambda: True,
+            clock=lambda: case.clock.now,
+            communication_timeout_ms=4_000,
+        )
+        serial = CSerial(case.wire)
+        try:
+            owner.open(
+                port="host-test-no-device",
+                port_factory=lambda **options: serial,
+            )
+            assert owner.boot._freshness == 4_000
+        finally:
+            owner.close()
+
+
+def test_native_status_does_not_flicker_during_periodic_boot_probe_and_expires(
+    runtime, tmp_path
+):
+    with real_work(runtime, tmp_path, False) as case:
+        retained_context(case)
+        case.clock = SimpleNamespace(now=0)
+        owner = open_owner(case, case.clock)
+        try:
+            poll_until(
+                owner,
+                case.clock,
+                lambda: (
+                    owner.mcu_session_ready
+                    and owner.current_device_facts() is not None
+                ),
+            )
+            boot_id = owner.current_mcu_boot_id
+            _, valid_until = owner.boot.current_boot_window(case.clock.now)
+            next_probe = owner.boot._deadline
+
+            # Refresh DEVICE_FACTS immediately before the boot probe boundary,
+            # then observe the immutable public status after the new probe has
+            # been sent but before its reply has been consumed.
+            case.clock.now = next_probe - 1
+            owner.poll()
+            case.clock.now = next_probe
+            owner.poll()
+            pending = owner.communication_fault_status()
+            assert pending["mcuBootId"] == boot_id
+            assert pending["freshCommunicationConfirmed"] is True
+
+            # The MCU continues answering other queries, but every subsequent
+            # BOOT_PROBE_REPLY is dropped.  Such traffic must not renew the
+            # boot witness; it expires at the original 10-second boundary.
+            case.serial.drop = lambda decoded: (
+                decoded["messageName"] == "BOOT_PROBE_REPLY"
+            )
+            while case.clock.now < valid_until:
+                case.clock.now = min(case.clock.now + 100, valid_until)
+                owner.poll()
+            expired = owner.communication_fault_status()
+            assert expired["mcuBootId"] is None
+            assert expired["freshCommunicationConfirmed"] is False
+        finally:
+            owner.close()
 
 
 def poll_until(owner, clock, predicate, *, count=300):

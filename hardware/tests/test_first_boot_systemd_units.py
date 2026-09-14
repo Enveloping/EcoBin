@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+from install.runtime_payload_manifest import FACTORY_APP_RUNTIME_FILES
 
 
+HARDWARE = Path(__file__).parents[1]
 SYSTEMD = Path(__file__).parents[1] / "first_boot" / "systemd"
 FACTORY_SYSTEMD = Path(__file__).parents[1] / "factory" / "systemd"
 
@@ -151,6 +158,7 @@ def test_existing_production_units_receive_non_persistent_fact_gates() -> None:
             "Environment=PYTHONPATH=/opt/ecobin/factory-test/current/app"
             in unit
         )
+        assert " -P -m first_boot.gate --require " in unit
     assert "--require enrollment" in enrollment
     assert "Conflicts=ecobin-factory-test.service" in enrollment
     assert "--require runtime" in hardware
@@ -162,7 +170,7 @@ def test_existing_production_units_receive_non_persistent_fact_gates() -> None:
     # gets full privileges; the tunnel agent itself remains sandboxed.
     assert (
         "ExecCondition=+/opt/ecobin/factory-test/current/.venv/bin/python "
-        "-m first_boot.gate --require runtime"
+        "-P -m first_boot.gate --require runtime"
         in support
     )
 
@@ -186,7 +194,7 @@ def test_p7_real_executor_and_handoff_are_static_fail_closed_units() -> None:
     # observed as complete.
     assert (
         "ExecCondition=+/opt/ecobin/factory-test/current/.venv/bin/python "
-        "-m first_boot.gate --require handoff"
+        "-P -m first_boot.gate --require handoff"
         in handoff
     )
     assert "Restart=no" in executor
@@ -199,6 +207,51 @@ def test_p7_real_executor_and_handoff_are_static_fail_closed_units() -> None:
         assert "DeviceAllow=/dev/mem rw" not in unit
     assert "DeviceAllow=char-video4linux rw" in executor
     assert "DeviceAllow=char-video4linux rw" not in handoff
+
+
+def test_every_first_boot_gate_uses_safe_python_import_path() -> None:
+    units = (
+        _read("ecobin-runtime-gate.service"),
+        _read("ecobin-cellular-uplink.service"),
+        _read("ecobin-factory-test.service"),
+        _read("ecobin-factory-handoff.service"),
+        _read("ecobin-enrollment.service.d/20-first-boot-gate.conf"),
+        _read("ecobin-hardware.service.d/20-first-boot-gate.conf"),
+        _read("ecobin-remote-support.service.d/20-first-boot-gate.conf"),
+    )
+
+    for unit in units:
+        assert (
+            "Environment=PYTHONPATH=/opt/ecobin/factory-test/current/app"
+            in unit
+        )
+        assert "python -P -m first_boot.gate --require " in unit
+
+
+def test_safe_gate_import_works_in_uninstalled_image_layout(tmp_path) -> None:
+    """The image copies first_boot into app but does not install the project."""
+    app = tmp_path / "app"
+    for package in ("factory", "first_boot", "factory_seal"):
+        shutil.copytree(HARDWARE / package, app / package)
+    for relative in FACTORY_APP_RUNTIME_FILES:
+        source = HARDWARE / relative
+        destination = app / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(app)
+
+    result = subprocess.run(
+        [sys.executable, "-P", "-m", "first_boot.gate", "--help"],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_factory_acceptance_gate_can_read_the_current_boot_id() -> None:

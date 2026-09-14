@@ -75,7 +75,12 @@ def test_native_snapshot_entry_uses_coherent_runtime_observation(monkeypatch):
     class NativeUart:
         compatibility_mode = False
         port_count = 1
-        uart_state = "READY"
+
+        @property
+        def uart_state(self):
+            raise AssertionError(
+                "the caller must not mix a second UART snapshot generation"
+            )
 
         @staticmethod
         def current_runtime_observation():
@@ -85,6 +90,7 @@ def test_native_snapshot_entry_uses_coherent_runtime_observation(monkeypatch):
                 "mcuFirmwareVersion": "1.0.1-hil.4",
                 "mcuFirmwareIdentity": identity,
                 "deviceFacts": facts,
+                "uartState": "READY",
             }
 
     edge = edge_without_initialization()

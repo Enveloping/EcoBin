@@ -460,6 +460,35 @@ def test_operator_clears_exact_communication_fault_only_after_fresh_reply(
         assert stale.value.code == "FAULT_IDENTITY_CHANGED"
 
 
+def test_operator_cannot_clear_fault_from_an_expired_foreground_snapshot(
+    runtime,
+    tmp_path,
+):
+    with dropped_start_decision(runtime, tmp_path) as (case, owner):
+        wait_for_control_failure(case, owner)
+        fresh = owner.communication_fault_status()
+        assert fresh["freshCommunicationConfirmed"] is True
+
+        # Do not poll the UART owner again: this models a blocked foreground
+        # while the independent local-control thread continues serving reads.
+        case.clock.now += 10_001
+        expired = owner.communication_fault_status()
+        assert expired["mcuBootId"] is None
+        assert expired["freshCommunicationConfirmed"] is False
+        assert expired["manualRecoveryEligible"] is False
+
+        with pytest.raises(JobSafetyError) as blocked:
+            owner.confirm_communication_fault_recovered({
+                "expectedFaultUid": fresh["faultUid"],
+                "reason": "前台轮询未恢复，旧快照不能作为通信恢复证据",
+                "causeFixedConfirmed": True,
+            })
+        assert blocked.value.code == "MCU_COMMUNICATION_UNAVAILABLE"
+        assert case.store.get_state(
+            "native_blocking_fault"
+        ) == "MCU_COMMUNICATION_UNAVAILABLE"
+
+
 def test_operator_cannot_clear_communication_fault_without_confirmation(
     runtime,
     tmp_path,

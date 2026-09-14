@@ -1,5 +1,6 @@
 import hashlib
 import json
+import threading
 from types import SimpleNamespace
 import uuid
 
@@ -49,10 +50,28 @@ def owner(store, boot_id, sent):
     runtime.store = store
     runtime.device_name = DEVICE_NAME
     runtime.clock = lambda: 0
-    runtime.boot = SimpleNamespace(current_boot=lambda now: boot_id)
+    runtime.boot = SimpleNamespace(
+        current_boot=lambda now: boot_id,
+        current_boot_window=lambda now: (boot_id, 1_000),
+    )
     runtime._identity_boot_id = boot_id
     runtime.verified_firmware_identity = {"firmwareIdentityHex": "0123456789abcdef"}
     runtime._mcu_firmware_version = "1.0.1-hil.4"
+    runtime._mcu_capability = 0
+    runtime._runtime_observation = {
+        "observedMonotonicMs": 0,
+        "mcuBootId": boot_id,
+        "currentMcuBootId": boot_id,
+        "currentMcuBootValidUntilMs": 1_000,
+        "mcuSessionReady": True,
+        "deviceFactsValidUntilMs": 0,
+        "freshCommunicationConfirmed": False,
+        "freshCommunicationValidUntilMs": 0,
+        "mcuCapability": 0,
+        "mcuFirmwareVersion": runtime._mcu_firmware_version,
+        "mcuFirmwareIdentity": dict(runtime.verified_firmware_identity),
+        "deviceFacts": None,
+    }
     runtime.safety = SimpleNamespace(get_mcu_maintenance_status=lambda: None)
     runtime._dispatch_authority = None
     runtime._device_entry_url_link_refresh_pending = True
@@ -78,31 +97,154 @@ class AcceptanceProbe:
         self.commands.append(command)
 
 
-def test_native_session_readiness_uses_only_the_current_probe_window(tmp_path):
+def test_native_session_readiness_uses_only_foreground_snapshot(tmp_path):
     store = EdgeStore(str(tmp_path / "edge.db"))
     store.initialize()
-    now = [0]
     runtime = NativeBusinessRuntime.__new__(NativeBusinessRuntime)
     runtime.store = store
     runtime._port = SimpleNamespace(is_open=True)
+    now = [100]
     runtime.clock = lambda: now[0]
-    runtime.boot = SimpleNamespace(
-        current_boot=lambda observed: 42 if observed < 1000 else None
-    )
+    runtime.boot = SimpleNamespace(current_boot=lambda observed: (_ for _ in ()).throw(
+        AssertionError("a read-only observer must not inspect the live UART session")
+    ))
     runtime._mcu_boot_id = 42
     runtime._identity_boot_id = 0
     runtime.verified_firmware_identity = None
     runtime._mcu_firmware_version = ""
+    runtime._runtime_observation = {
+        "observedMonotonicMs": 100,
+        "mcuBootId": 42,
+        "currentMcuBootId": 42,
+        "currentMcuBootValidUntilMs": 1_000,
+        "mcuSessionReady": False,
+        "deviceFactsValidUntilMs": 100,
+        "freshCommunicationConfirmed": False,
+        "freshCommunicationValidUntilMs": 100,
+        "mcuCapability": 7,
+        "mcuFirmwareVersion": "",
+        "mcuFirmwareIdentity": None,
+        "deviceFacts": None,
+    }
     assert runtime.current_mcu_boot_id == 42
     assert not runtime.mcu_session_ready
-    runtime._identity_boot_id = 42
-    runtime.verified_firmware_identity = {"firmwareIdentityHex": "0123456789abcdef"}
-    runtime._mcu_firmware_version = "1.0.1-hil.4"
+    assert runtime.communication_fault_status()[
+        "freshCommunicationConfirmed"
+    ] is False
+    runtime._runtime_observation = {
+        **runtime._runtime_observation,
+        "mcuSessionReady": True,
+        "deviceFactsValidUntilMs": 851,
+        "freshCommunicationConfirmed": True,
+        "freshCommunicationValidUntilMs": 851,
+        "mcuFirmwareVersion": "1.0.1-hil.4",
+        "mcuFirmwareIdentity": {"firmwareIdentityHex": "0123456789abcdef"},
+        "deviceFacts": {"status": "AVAILABLE", "currentMcuBootId": 42},
+    }
     assert runtime.mcu_session_ready
-    now[0] = 1000
+    assert runtime.current_device_facts() == {
+        "status": "AVAILABLE",
+        "currentMcuBootId": 42,
+    }
+    assert runtime.communication_fault_status() == {
+        "reasonCode": None,
+        "faultUid": None,
+        "mcuBootId": 42,
+        "freshCommunicationConfirmed": True,
+        "activeWorkUid": None,
+        "manualRecoveryEligible": False,
+    }
+    assert runtime.current_runtime_observation()["mcuBootId"] == 42
+    assert runtime.current_runtime_observation()["mcuCapability"] == 7
+    assert set(runtime.current_runtime_observation()) == {
+        "mcuBootId",
+        "mcuCapability",
+        "mcuFirmwareVersion",
+        "mcuFirmwareIdentity",
+        "deviceFacts",
+        "uartState",
+    }
+    now[0] = 1_000
     assert runtime.current_mcu_boot_id == 0
     assert not runtime.mcu_session_ready
+    assert runtime.current_device_facts() is None
+    assert runtime.communication_fault_status()[
+        "freshCommunicationConfirmed"
+    ] is False
+    expired = runtime.current_runtime_observation()
+    assert expired["mcuBootId"] == 0
+    assert expired["mcuCapability"] == 0
+    assert expired["deviceFacts"] is None
     assert runtime.uart_state == "STARTING"
+    store.close()
+
+
+def test_background_status_cannot_advance_foreground_session_clock(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    sent = []
+    runtime = owner(store, 42, sent)
+    runtime._port = SimpleNamespace(is_open=True)
+
+    class StrictBoot:
+        def __init__(self):
+            self.last_now = -1
+
+        def current_boot(self, now):
+            if now < self.last_now:
+                raise ValueError(
+                    "session clock must be non-negative monotonic milliseconds"
+                )
+            self.last_now = now
+            return 42
+
+        def current_boot_window(self, now):
+            return self.current_boot(now), 1_000
+
+    runtime.boot = StrictBoot()
+    runtime.clock = lambda: 101
+    runtime._runtime_observation = {
+        **runtime._runtime_observation,
+        "observedMonotonicMs": 100,
+        "currentMcuBootId": 42,
+        "currentMcuBootValidUntilMs": 1_000,
+        "mcuSessionReady": True,
+        "freshCommunicationConfirmed": True,
+        "freshCommunicationValidUntilMs": 851,
+    }
+    foreground_inside_store = threading.Event()
+    resume_foreground = threading.Event()
+    original_list = store.list_native_device_entry_url_applications
+
+    def pause_between_same_timestamp_boot_reads():
+        foreground_inside_store.set()
+        assert resume_foreground.wait(2)
+        return original_list()
+
+    store.list_native_device_entry_url_applications = (
+        pause_between_same_timestamp_boot_reads
+    )
+    errors = []
+    before_slot = store.get_work_slot()
+
+    def foreground_poll_fragment():
+        try:
+            runtime._device_entry_url_poll(100)
+        except Exception as error:  # pragma: no cover - asserted below
+            errors.append(error)
+
+    foreground = threading.Thread(target=foreground_poll_fragment)
+    foreground.start()
+    assert foreground_inside_store.wait(2)
+    assert runtime.uart_state == "READY"
+    resume_foreground.set()
+    foreground.join(2)
+
+    assert not foreground.is_alive()
+    assert errors == []
+    assert runtime.boot.last_now == 100
+    assert store.get_work_slot() == before_slot
+    assert store.list_native_commands() == []
     store.close()
 
 
@@ -395,6 +537,9 @@ def test_native_acceptance_v5_keeps_url_proof_after_final_event(
         "fullnessReadStatus": "VALID",
         "fullnessCapturedUptimeMs": 100,
     }
+    runtime._last_alive = 0
+    runtime.timeout_ms = 10_000
+    runtime._refresh_runtime_observation(0)
     assert runtime.mcu_session_ready
     assert runtime.current_mcu_boot_id == boot_id
     runner = DeviceAcceptanceRunner(

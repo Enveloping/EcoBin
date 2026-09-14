@@ -33,12 +33,29 @@ class McuBootSession:
     action still needs an exact target boot checked by the MCU, and its own
     business/ledger authorization. A new instance never trusts persisted 'ready'.
     """
-    def __init__(self, store: EdgeStore, write: Callable[[bytes], int], *, interval_ms: int = 1000):
+    def __init__(
+        self,
+        store: EdgeStore,
+        write: Callable[[bytes], int],
+        *,
+        interval_ms: int = 1000,
+        freshness_ms: int | None = None,
+    ):
         if type(interval_ms) is not int or interval_ms < 1:
             raise ValueError("probe interval must be a positive integer")
+        freshness_ms = interval_ms if freshness_ms is None else freshness_ms
+        if (
+            type(freshness_ms) is not int
+            or freshness_ms < interval_ms
+        ):
+            raise ValueError(
+                "boot freshness must be at least the probe interval"
+            )
         self._store, self._write, self._interval = store, write, interval_ms
+        self._freshness = freshness_ms
         self._last_now = -1
         self._deadline = 0
+        self._boot_valid_until = 0
         self._probe = self._proposed = 0
         self._boot: int | None = None
         self._stage = "UNKNOWN"
@@ -50,14 +67,28 @@ class McuBootSession:
         self._last_now = now_ms
 
     def current_boot(self, now_ms: int) -> int | None:
+        return self.current_boot_window(now_ms)[0]
+
+    def current_boot_window(self, now_ms: int) -> tuple[int | None, int]:
+        """Return the fresh boot and its exclusive monotonic deadline.
+
+        Only the foreground UART owner may call this method.  The deadline is
+        copied into the runtime's immutable observer snapshot so background
+        status readers can expire that snapshot without touching this live
+        session again.
+        """
         self._time(now_ms)
-        return self._boot if now_ms < self._deadline else None
+        return (
+            self._boot if now_ms < self._boot_valid_until else None,
+            self._boot_valid_until,
+        )
 
     def poll(self, now_ms: int) -> int | None:
         self._time(now_ms)
         if now_ms < self._deadline:
             return None
-        self._boot = None
+        if now_ms >= self._boot_valid_until:
+            self._boot = None
         self._stage = "UNKNOWN"
         self._probe = self._store.reserve_native_query_id()
         self._proposed = 0
@@ -66,9 +97,15 @@ class McuBootSession:
         self.last_write_error = _write_once(self._write, _frame("BOOT_PROBE", self._probe, {"probeId": self._probe}))
         return self._probe
 
-    def _observe(self, name: str, payload: bytes, boot_id: int) -> None:
+    def _observe(
+        self,
+        name: str,
+        payload: bytes,
+        boot_id: int,
+    ) -> None:
         self._stage = "CONSUMED"  # No exception permits the same reply to bind again.
         self._boot = None
+        self._boot_valid_until = 0
         saved = bool(
             boot_id and self._store.save_native_boot_observation(name, payload)
         )
@@ -84,6 +121,13 @@ class McuBootSession:
             )
         if saved:
             self._boot, self._stage = boot_id, "BOUND"
+            # Freshness is anchored to the probe attempt, not extended by a
+            # slow reply.  Production retains a bounded positive witness while
+            # the next periodic probe is in flight; a missing reply cannot
+            # extend it.
+            self._boot_valid_until = self._deadline + (
+                self._freshness - self._interval
+            )
 
     def accept_frame(self, frame: bytes, now_ms: int) -> bool:
         self._time(now_ms)
@@ -101,16 +145,29 @@ class McuBootSession:
             return False
         if self._stage == "PROBING" and name == "BOOT_PROBE_REPLY":
             if values["mcuBootId"]:
-                self._observe(name, decoded["payload"], values["mcuBootId"])
+                self._observe(
+                    name,
+                    decoded["payload"],
+                    values["mcuBootId"],
+                )
             else:
                 self._stage = "CONSUMED"
+                # A correlated zero reply proves the MCU has no bound boot for
+                # this start and immediately invalidates an older positive
+                # witness, even if its bounded retention has not elapsed.
+                self._boot = None
+                self._boot_valid_until = 0
                 self._proposed = self._store.reserve_native_boot_id(self._probe)
                 self._stage = "BINDING"
                 self.last_write_error = _write_once(self._write, _frame("BIND_BOOT", self._probe,
                     {"probeId": self._probe, "proposedMcuBootId": self._proposed}))
             return True
         if self._stage == "BINDING" and name == "BIND_BOOT_REPLY" and values["proposedMcuBootId"] == self._proposed:
-            self._observe(name, decoded["payload"], values["mcuBootId"])
+            self._observe(
+                name,
+                decoded["payload"],
+                values["mcuBootId"],
+            )
             return True
         return False
 

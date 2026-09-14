@@ -95,3 +95,13 @@ UART所有权没有改动。
 投递 `START`：动作序号仍为17、发送次数仍为1、结果计数仍为1。验收状态从
 `DELIVERY_WAITING_FINAL_RESULT`进入`DELIVERY_AWAITING_AREA_CONFIRMATION`，等待现场人员确认投递
 区域安全；这项人工安全确认完成前，不把投递动作写成验收通过。
+
+## 6. 2026-09-15 后续完成事实
+
+项目负责人随后完成投递区域安全确认及完整清运现场操作。最终热点厂家验收状态为
+`PASSED/COMPLETE`、revision 41；控制板、双摄、投递、清运和称重检查均为通过，升级线路为
+`NOT_APPLICABLE`。本事实取代上一节“仍等待投递区域安全确认”的现场状态。
+
+该结论只覆盖厂家热点 HIL，不证明后续生产运行时、OneNet、反向 SSH、订单、COS 或资金闭环。
+v40 完成注册后又暴露了首次启动 gate 和 UART v2 作业授权入口问题，继续处理前必须阅读
+[`v40 实机热修复与新镜像继承清单`](v40-live-hotfix-image-carryover-2026-09-15.md)。

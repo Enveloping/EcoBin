@@ -63,6 +63,7 @@ def test_first_positive_boot_reply_survives_pi_restart_without_becoming_fresh(tm
         assert witness["payload"] == uart.decode_frame(positive, sender_role="MCU")["payload"]
         assert witness["probe_id"] == 1
         assert boot.current_boot(2) == 1
+        assert boot.current_boot_window(2) == (1, 1000)
         store.close()
         store = EdgeStore(path)
         store.initialize()
@@ -74,6 +75,203 @@ def test_first_positive_boot_reply_survives_pi_restart_without_becoming_fresh(tm
         assert boot.accept_frame(boot_response(mcu, session, sent[-1]), 1)
         assert boot.current_boot(1) == 1
         assert store.get_native_boot_observation(1) == witness  # bounded first witness
+    finally:
+        store.close()
+
+
+def test_positive_boot_bridges_periodic_probe_reply_gap_but_still_expires(
+    tmp_path, mcu
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    session, sent = CSession(), []
+    write = lambda frame: sent.append(frame) or len(frame)
+    try:
+        boot = McuBootSession(
+            store,
+            write,
+            interval_ms=1_000,
+            freshness_ms=10_000,
+        )
+        boot.poll(0)
+        assert boot.accept_frame(boot_response(mcu, session, sent[-1]), 1)
+        assert boot.accept_frame(boot_response(mcu, session, sent[-1]), 2)
+        assert boot.current_boot_window(2) == (1, 10_000)
+
+        # A periodic probe is outstanding, but the last correlated positive
+        # reply remains usable within the separately bounded freshness window.
+        boot.poll(1_000)
+        assert boot.current_boot_window(1_000) == (1, 10_000)
+        assert boot.accept_frame(
+            boot_response(mcu, session, sent[-1]),
+            1_001,
+        )
+        assert boot.current_boot_window(1_001) == (1, 11_000)
+        for now in range(2_000, 11_000, 1_000):
+            boot.poll(now)
+            assert boot.current_boot(now) == 1
+        assert boot.current_boot_window(11_000) == (None, 11_000)
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize("freshness", [True, 999, 1.5, "1000"])
+def test_boot_freshness_must_be_integer_at_least_probe_interval(
+    tmp_path, freshness
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    try:
+        with pytest.raises(ValueError, match="boot freshness"):
+            McuBootSession(
+                store,
+                lambda frame: len(frame),
+                interval_ms=1_000,
+                freshness_ms=freshness,
+            )
+    finally:
+        store.close()
+
+
+def test_zero_boot_reply_immediately_invalidates_retained_positive_boot(
+    tmp_path, mcu
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    session, sent = CSession(), []
+    write = lambda frame: sent.append(frame) or len(frame)
+    try:
+        boot = McuBootSession(
+            store,
+            write,
+            interval_ms=1_000,
+            freshness_ms=10_000,
+        )
+        boot.poll(0)
+        assert boot.accept_frame(boot_response(mcu, session, sent[-1]), 1)
+        assert boot.accept_frame(boot_response(mcu, session, sent[-1]), 2)
+        assert boot.current_boot(2) == 1
+
+        mcu.McuSession_Init(c.byref(session))
+        boot.poll(1_000)
+        assert boot.accept_frame(boot_response(mcu, session, sent[-1]), 1_001)
+        assert boot.current_boot(1_001) is None
+        assert boot.accept_frame(boot_response(mcu, session, sent[-1]), 1_002)
+        assert boot.current_boot(1_002) == 2
+    finally:
+        store.close()
+
+
+def test_foreign_positive_boot_immediately_invalidates_retained_owned_boot(
+    tmp_path, mcu
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    session, sent = CSession(), []
+    write = lambda frame: sent.append(frame) or len(frame)
+    try:
+        boot = McuBootSession(
+            store,
+            write,
+            interval_ms=1_000,
+            freshness_ms=10_000,
+        )
+        boot.poll(0)
+        assert boot.accept_frame(boot_response(mcu, session, sent[-1]), 1)
+        assert boot.accept_frame(boot_response(mcu, session, sent[-1]), 2)
+        assert boot.current_boot(2) == 1
+
+        # A reset MCU was bound by another owner to an ID not recognized by
+        # this EdgeStore.  The correlated positive reply proves boot 1 is no
+        # longer current, but cannot make the foreign boot usable.
+        mcu.McuSession_Init(c.byref(session))
+        previous, bound = c.c_uint64(), CBindReply()
+        assert mcu.McuSession_Probe(c.byref(session), 77, c.byref(previous))
+        assert mcu.McuSession_Bind(
+            c.byref(session),
+            77,
+            99,
+            c.byref(bound),
+        )
+        boot.poll(1_000)
+        assert boot.accept_frame(
+            boot_response(mcu, session, sent[-1]),
+            1_001,
+        )
+        assert boot.current_boot_window(1_001) == (None, 0)
+        assert store.get_native_boot_observation(99) is None
+    finally:
+        store.close()
+
+
+def test_periodic_probe_short_write_does_not_extend_positive_boot(
+    tmp_path, mcu
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    session, sent, short = CSession(), [], SimpleNamespace(value=False)
+
+    def write(frame):
+        sent.append(frame)
+        return len(frame) - int(short.value)
+
+    try:
+        boot = McuBootSession(
+            store,
+            write,
+            interval_ms=1_000,
+            freshness_ms=10_000,
+        )
+        boot.poll(0)
+        assert boot.accept_frame(boot_response(mcu, session, sent[-1]), 1)
+        assert boot.accept_frame(boot_response(mcu, session, sent[-1]), 2)
+        assert boot.current_boot_window(2) == (1, 10_000)
+
+        short.value = True
+        boot.poll(1_000)
+        assert boot.last_write_error == "SHORT_WRITE"
+        assert boot.current_boot(9_999) == 1
+        assert boot.current_boot_window(10_000) == (None, 10_000)
+    finally:
+        store.close()
+
+
+def test_wrong_or_late_periodic_reply_neither_renews_nor_clears_owned_boot(
+    tmp_path, mcu
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    session, sent = CSession(), []
+    write = lambda frame: sent.append(frame) or len(frame)
+    try:
+        boot = McuBootSession(
+            store,
+            write,
+            interval_ms=1_000,
+            freshness_ms=10_000,
+        )
+        boot.poll(0)
+        assert boot.accept_frame(boot_response(mcu, session, sent[-1]), 1)
+        assert boot.accept_frame(boot_response(mcu, session, sent[-1]), 2)
+        assert boot.current_boot_window(2) == (1, 10_000)
+
+        boot.poll(1_000)
+        correlated = boot_response(mcu, session, sent[-1])
+        decoded = uart.decode_frame(correlated, sender_role="MCU")
+        values = uart.decode_payload(decoded["messageName"], decoded["payload"])
+        values["probeId"] += 1
+        wrong = uart.encode_frame(
+            decoded["messageName"],
+            decoded["txSequence"],
+            uart.encode_payload(decoded["messageName"], values),
+        )
+        assert not boot.accept_frame(wrong, 1_001)
+        assert boot.current_boot_window(1_001) == (1, 10_000)
+
+        # The otherwise valid reply is no longer usable at the response
+        # deadline and therefore cannot extend the retained witness.
+        assert not boot.accept_frame(correlated, 2_000)
+        assert boot.current_boot_window(2_000) == (1, 10_000)
     finally:
         store.close()
 

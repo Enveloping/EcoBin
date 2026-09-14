@@ -189,7 +189,7 @@ LEGACY_GATE_DROP_IN_PATH = (
     "/etc/systemd/system/ecobin-hardware.service.d/20-first-boot-gate.conf"
 )
 LEGACY_GATE_DROP_IN_SHA256 = (
-    "26660ce84b4465fd23f01f546fd78b72e4159be095d3a52e886560bba168f4d9"
+    "fab394bf59494b7030984e6402273fc47d3eaf2fe5294019c85167c2587e9e74"
 )
 LEGACY_GATE_DROP_IN_CONTENT = (
     "[Unit]\n"
@@ -200,7 +200,7 @@ LEGACY_GATE_DROP_IN_CONTENT = (
     "[Service]\n"
     "Environment=PYTHONPATH=/opt/ecobin/factory-test/current/app\n"
     "ExecCondition=/opt/ecobin/factory-test/current/.venv/bin/python "
-    "-m first_boot.gate --require runtime\n"
+    "-P -m first_boot.gate --require runtime\n"
 ).encode("utf-8")
 DROP_IN_CONTENT = (
     "[Unit]\n"

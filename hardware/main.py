@@ -89,6 +89,11 @@ _SYSTEMD_READY_BOOT_STATUSES = frozenset(
     {
         "READY",
         "DEGRADED",
+        # The UART-v2 owner has opened the serial device and its local/cloud
+        # management loops are live.  MCU identity/configuration may still be
+        # converging, so physical START admission remains independently
+        # guarded by NativeBusinessRuntime and the permanent job gate.
+        "NATIVE_STARTING",
         # A retained MCU-update maintenance lock deliberately blocks physical
         # work, but the Edge process must remain available to report and
         # recover that update.  It is therefore process-ready for systemd.
@@ -102,6 +107,51 @@ _SYSTEMD_READY_BOOT_STATUSES = frozenset(
 CLOUD_TRANSPORT_MODE_ENVIRONMENT = "ECOBIN_CLOUD_TRANSPORT_MODE"
 COMMUNICATION_SOCKET_ENVIRONMENT = "ECOBIN_COMMUNICATION_SOCKET"
 DEFAULT_COMMUNICATION_SOCKET = "/run/ecobin/communication/control.sock"
+_NATIVE_RUNTIME_TRACE_KEY_LIMIT = 16
+_NATIVE_RUNTIME_ERROR_SUMMARY_SECONDS = 60.0
+
+
+class _NativeRuntimeErrorReporter:
+    """Keep a persistent native failure from turning into a log flood."""
+
+    def __init__(self, *, clock=time.monotonic) -> None:
+        self._clock = clock
+        self._trace_keys: set[tuple[str, str]] = set()
+        self._suppressed = 0
+        self._last_summary_at = clock()
+
+    def report(self, error: Exception):
+        code = getattr(error, "code", "NATIVE_RUNTIME_FAILED")
+        type_name = type(error).__name__
+        key = (str(code), type_name)
+        now = self._clock()
+        if (
+            key not in self._trace_keys
+            and len(self._trace_keys) < _NATIVE_RUNTIME_TRACE_KEY_LIMIT
+        ):
+            self._trace_keys.add(key)
+            logger.exception(
+                "native runtime blocked: code=%s type=%s",
+                code,
+                type_name,
+            )
+        else:
+            self._suppressed += 1
+        if (
+            self._suppressed
+            and now - self._last_summary_at
+            >= _NATIVE_RUNTIME_ERROR_SUMMARY_SECONDS
+        ):
+            logger.error(
+                "native runtime repeated errors suppressed: count=%d "
+                "latest_code=%s latest_type=%s",
+                self._suppressed,
+                code,
+                type_name,
+            )
+            self._suppressed = 0
+            self._last_summary_at = now
+        return code
 
 
 def notify_systemd_ready(boot_status: str) -> None:
@@ -684,7 +734,8 @@ class EcoBinEdge:
 
     def _current_uart_progress_state(self) -> str:
         if getattr(self, "_native_mode", False):
-            return "FAILED" if self.uart.uart_state == "FAULT" else self.uart.uart_state
+            state = self.uart.uart_state
+            return "FAILED" if state == "FAULT" else state
         if self._uart_recovering.is_set():
             return "RECOVERING"
         if not getattr(self.uart, "is_open", False):
@@ -920,6 +971,7 @@ class EcoBinEdge:
             threading.Thread(target=self._native_remote_support_loop,
                 daemon=True, name="native-support").start()
             previous_status = None
+            error_reporter = _NativeRuntimeErrorReporter()
             while not self._exit_flag.is_set():
                 try:
                     status = self.work.poll()
@@ -930,8 +982,7 @@ class EcoBinEdge:
                 except Exception as error:
                     # Persistence errors must not masquerade as optional camera
                     # failure or permit another START. No retry of an old action.
-                    code = getattr(error, "code", "NATIVE_RUNTIME_FAILED")
-                    logger.error("native runtime blocked: %s", code)
+                    code = error_reporter.report(error)
                     retained = self.store.latch_state_if_empty(
                         "native_blocking_fault",
                         code,
@@ -1455,8 +1506,11 @@ class EcoBinEdge:
                     if compatibility_mode
                     else "ULTRASONIC"
                 ),
-                "uart_state": (self.uart.uart_state if getattr(self, "_native_mode", False)
-                    else runtime_uart_state(self.store, self.uart)),
+                "uart_state": (
+                    native_observation["uartState"]
+                    if native_observation is not None
+                    else runtime_uart_state(self.store, self.uart)
+                ),
                 "compatibility_mode": compatibility_mode,
                 },
                 None if native_observation is not None else [],
@@ -1541,8 +1595,11 @@ class EcoBinEdge:
                 }
         return {
             "mcuFirmware": mcu_firmware,
-            "uartState": (self.uart.uart_state if getattr(self, "_native_mode", False)
-                else runtime_uart_state(self.store, self.uart)),
+            "uartState": (
+                native_observation["uartState"]
+                if native_observation is not None
+                else runtime_uart_state(self.store, self.uart)
+            ),
             "uartProtocol": (
                 None
                 if compatibility_mode

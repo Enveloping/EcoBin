@@ -31,7 +31,10 @@ def test_systemd_ready_uses_abstract_notify_socket(monkeypatch):
     assert sent == [(b"READY=1", "\0ecobin-hardware-ready")]
 
 
-@pytest.mark.parametrize("status", ["DEGRADED", "MCU_UPDATE_FAILED_LOCKED"])
+@pytest.mark.parametrize(
+    "status",
+    ["DEGRADED", "MCU_UPDATE_FAILED_LOCKED", "NATIVE_STARTING"],
+)
 def test_recoverable_or_maintenance_locked_runtime_is_process_ready(
     monkeypatch,
     status,

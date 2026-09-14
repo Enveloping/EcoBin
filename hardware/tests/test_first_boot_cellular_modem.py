@@ -94,6 +94,25 @@ def test_registration_pending_stops_before_packet_attach_is_accepted() -> None:
     assert result.error_code == "CELLULAR_NETWORK_REGISTRATION_PENDING"
 
 
+def test_numeric_cme_sim_not_inserted_is_reported_as_sim_absent() -> None:
+    responses = _Responses(
+        AT="OK",
+        **{
+            "AT+CPIN?": "+CME ERROR: 10",
+            "AT+CEREG?": "+CEREG: 0,0\r\nOK",
+            "AT+CGATT?": "+CGATT: 0\r\nOK",
+        },
+    )
+
+    result = ModemRegistrationProbe(
+        inventory=_Ports(_port()),
+        client=responses,
+    ).probe(_device())
+
+    assert not result.ready
+    assert result.error_code == "CELLULAR_SIM_ABSENT"
+
+
 def test_registration_probe_rejects_an_at_port_from_another_usb_device() -> None:
     responses = _Responses()
 

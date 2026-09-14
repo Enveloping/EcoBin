@@ -12,7 +12,8 @@ Group=root
 WorkingDirectory=/opt/ecobin/factory-test/current/app
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecCondition=/opt/ecobin/factory-test/current/.venv/bin/python -m first_boot.gate --require factory-test-passed
+Environment=PYTHONPATH=/opt/ecobin/factory-test/current/app
+ExecCondition=/opt/ecobin/factory-test/current/.venv/bin/python -P -m first_boot.gate --require factory-test-passed
 ExecStart=/opt/ecobin/factory-test/current/.venv/bin/python -m first_boot.cellular_service
 Restart=on-failure
 RestartSec=10

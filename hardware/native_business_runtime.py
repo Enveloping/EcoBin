@@ -82,7 +82,14 @@ class NativeBusinessRuntime:
         self._facts = None
         self._facts_requested_at = None
         self._runtime_observation = {
+            "observedMonotonicMs": 0,
             "mcuBootId": 0,
+            "currentMcuBootId": 0,
+            "currentMcuBootValidUntilMs": 0,
+            "mcuSessionReady": False,
+            "deviceFactsValidUntilMs": 0,
+            "freshCommunicationConfirmed": False,
+            "freshCommunicationValidUntilMs": 0,
             "mcuCapability": 0,
             "mcuFirmwareVersion": "",
             "mcuFirmwareIdentity": None,
@@ -116,19 +123,81 @@ class NativeBusinessRuntime:
     @property
     def current_mcu_boot_id(self):
         """Return only the MCU boot identity proven by the current probe window."""
-        if not self.is_open or self.boot is None:
+        observed = self._runtime_observation
+        now = self.clock()
+        if (
+            not self.is_open
+            or not self._snapshot_before_deadline(
+                observed,
+                now,
+                "currentMcuBootValidUntilMs",
+            )
+        ):
             return 0
-        return self.boot.current_boot(self.clock()) or 0
+        return observed["currentMcuBootId"]
 
     @property
     def mcu_session_ready(self):
-        return self._identity_ready(self.current_mcu_boot_id)
+        observed = self._runtime_observation
+        now = self.clock()
+        return bool(
+            self.is_open
+            and observed["mcuSessionReady"]
+            and self._snapshot_before_deadline(
+                observed,
+                now,
+                "currentMcuBootValidUntilMs",
+            )
+        )
 
     def current_device_facts(self):
         """Expose one fresh read-only DEVICE_FACTS observation for acceptance."""
-        if self.boot is None or not self._identity_ready(self._mcu_boot_id):
+        observed = self._runtime_observation
+        now = self.clock()
+        if (
+            not self.is_open
+            or not observed["mcuSessionReady"]
+            or not self._snapshot_before_deadline(
+                observed,
+                now,
+                "currentMcuBootValidUntilMs",
+            )
+            or not self._snapshot_before_deadline(
+                observed,
+                now,
+                "deviceFactsValidUntilMs",
+            )
+        ):
             return None
-        return self._fresh_facts(self.clock())
+        facts = observed["deviceFacts"]
+        return dict(facts) if isinstance(facts, dict) else None
+
+    @staticmethod
+    def _snapshot_before_deadline(observed, now, deadline_key):
+        observed_at = observed["observedMonotonicMs"]
+        deadline = observed[deadline_key]
+        return bool(
+            type(now) is int
+            and type(observed_at) is int
+            and type(deadline) is int
+            and 0 <= observed_at <= now < deadline
+        )
+
+    def _uart_state_from_snapshot(self, observed, now):
+        if not self.is_open:
+            return "DISCONNECTED"
+        if self.store.get_state("native_blocking_fault"):
+            return "FAULT"
+        return (
+            "READY"
+            if observed["mcuSessionReady"]
+            and self._snapshot_before_deadline(
+                observed,
+                now,
+                "currentMcuBootValidUntilMs",
+            )
+            else "STARTING"
+        )
 
     def current_runtime_observation(self):
         """Return the foreground owner's coherent, already-fresh snapshot.
@@ -139,26 +208,97 @@ class NativeBusinessRuntime:
         checked the current boot, identity and DEVICE_FACTS freshness.
         """
         observed = self._runtime_observation
+        now = self.clock()
+        boot_fresh = bool(
+            self.is_open
+            and self._snapshot_before_deadline(
+                observed,
+                now,
+                "currentMcuBootValidUntilMs",
+            )
+        )
+        session_ready = bool(
+            boot_fresh
+            and observed["mcuSessionReady"]
+        )
+        facts = (
+            observed["deviceFacts"]
+            if session_ready
+            and self._snapshot_before_deadline(
+                observed,
+                now,
+                "deviceFactsValidUntilMs",
+            )
+            else None
+        )
         return {
-            **observed,
+            "mcuBootId": observed["currentMcuBootId"] if boot_fresh else 0,
+            "mcuCapability": observed["mcuCapability"] if session_ready else 0,
+            "mcuFirmwareVersion": (
+                observed["mcuFirmwareVersion"] if session_ready else ""
+            ),
             "mcuFirmwareIdentity": (
                 dict(observed["mcuFirmwareIdentity"])
-                if isinstance(observed["mcuFirmwareIdentity"], dict)
+                if session_ready
+                and isinstance(observed["mcuFirmwareIdentity"], dict)
                 else None
             ),
             "deviceFacts": (
-                dict(observed["deviceFacts"])
-                if isinstance(observed["deviceFacts"], dict)
+                dict(facts)
+                if isinstance(facts, dict)
                 else None
             ),
+            "uartState": self._uart_state_from_snapshot(observed, now),
         }
 
     def _refresh_runtime_observation(self, now):
-        current_boot = self.boot.current_boot(now) if self.boot is not None else None
+        if self.boot is None:
+            current_boot, boot_valid_until = None, now
+        else:
+            current_boot, boot_valid_until = self.boot.current_boot_window(now)
         identity_ready = self._identity_ready(current_boot)
-        facts = self._fresh_facts(now) if identity_ready else None
+        facts = (
+            self._fresh_facts_for_boot(now, current_boot)
+            if identity_ready
+            else None
+        )
+        facts_valid_until = (
+            min(
+                boot_valid_until,
+                self._facts_requested_at + FACTS_MAXIMUM_AGE_MS + 1,
+            )
+            if facts is not None and self._facts_requested_at is not None
+            else now
+        )
+        fresh_communication = bool(
+            current_boot
+            and facts is not None
+            and facts.get("status") == "AVAILABLE"
+            and facts.get("currentMcuBootId") == current_boot
+            and self._last_alive is not None
+            and 0 <= now - self._last_alive < self.timeout_ms
+        )
+        fresh_communication_valid_until = (
+            min(
+                facts_valid_until,
+                self._last_alive + self.timeout_ms,
+            )
+            if fresh_communication and self._last_alive is not None
+            else now
+        )
         self._runtime_observation = {
+            "observedMonotonicMs": now,
             "mcuBootId": self._mcu_boot_id,
+            "currentMcuBootId": current_boot or 0,
+            "currentMcuBootValidUntilMs": (
+                boot_valid_until if current_boot else now
+            ),
+            "mcuSessionReady": identity_ready,
+            "deviceFactsValidUntilMs": facts_valid_until,
+            "freshCommunicationConfirmed": fresh_communication,
+            "freshCommunicationValidUntilMs": (
+                fresh_communication_valid_until
+            ),
             "mcuCapability": self._mcu_capability,
             "mcuFirmwareVersion": self._mcu_firmware_version if identity_ready else "",
             "mcuFirmwareIdentity": (
@@ -250,11 +390,8 @@ class NativeBusinessRuntime:
 
     @property
     def uart_state(self):
-        if not self.is_open:
-            return "DISCONNECTED"
-        if self.store.get_state("native_blocking_fault"):
-            return "FAULT"
-        return "READY" if self.mcu_session_ready else "STARTING"
+        observed = self._runtime_observation
+        return self._uart_state_from_snapshot(observed, self.clock())
 
     def communication_fault_status(self):
         """Return read-only facts for one explicit operator recovery action."""
@@ -267,9 +404,17 @@ class NativeBusinessRuntime:
                 detail = candidate if isinstance(candidate, dict) else {}
             except (TypeError, ValueError):
                 detail = {}
+        observed = self._runtime_observation
         now = self.clock()
-        facts = self._fresh_facts(now) if self.boot is not None else None
-        current_boot = self.boot.current_boot(now) if self.boot is not None else None
+        boot_fresh = bool(
+            self.is_open
+            and self._snapshot_before_deadline(
+                observed,
+                now,
+                "currentMcuBootValidUntilMs",
+            )
+        )
+        current_boot = observed["currentMcuBootId"] if boot_fresh else None
         native_fault = bool(
             reason == "MCU_COMMUNICATION_UNAVAILABLE"
             and fault is not None
@@ -282,12 +427,12 @@ class NativeBusinessRuntime:
             and detail.get("automaticRecovery") is False
         )
         fresh_communication = bool(
-            current_boot
-            and facts is not None
-            and facts.get("status") == "AVAILABLE"
-            and facts.get("currentMcuBootId") == current_boot
-            and self._last_alive is not None
-            and 0 <= now - self._last_alive < self.timeout_ms
+            observed["freshCommunicationConfirmed"]
+            and self._snapshot_before_deadline(
+                observed,
+                now,
+                "freshCommunicationValidUntilMs",
+            )
         )
         return {
             "reasonCode": reason,
@@ -408,7 +553,14 @@ class NativeBusinessRuntime:
             port_factory = serial.Serial
         self._port = port_factory(port=port, baudrate=baudrate, timeout=0, write_timeout=1, exclusive=True)
         self.transport = NativeUartTransport(self._port)
-        self.boot = McuBootSession(self.store, self.transport.write)
+        # Periodic probes refresh the boot witness.  Keep the last correlated
+        # positive boot usable while the next reply is in flight, but never
+        # beyond the same bounded communication timeout used by this runtime.
+        self.boot = McuBootSession(
+            self.store,
+            self.transport.write,
+            freshness_ms=self.timeout_ms,
+        )
         self.dispatcher = McuCommandDispatcher(self.store, self.boot, self.transport.write,
             arm=self._arm, clock=self.clock)
         self._opened_at = self.clock()
@@ -483,12 +635,18 @@ class NativeBusinessRuntime:
         return row, facts
 
     def _fresh_facts(self, now):
+        return self._fresh_facts_for_boot(
+            now,
+            self.boot.current_boot(now),
+        )
+
+    def _fresh_facts_for_boot(self, now, current_boot):
         # Starting a new query does not invalidate a previously verified reply.
         # Its age is still measured from THAT reply's original request, not the
         # latest poll or a retransmitted sample. A new MCU boot invalidates it.
         facts = self._facts
         if (facts is None or self._facts_requested_at is None
-                or facts["currentMcuBootId"] != self.boot.current_boot(now)
+                or facts["currentMcuBootId"] != current_boot
                 or not 0 <= now - self._facts_requested_at <= FACTS_MAXIMUM_AGE_MS):
             return None
         return dict(facts)
@@ -2112,12 +2270,17 @@ class NativeBusinessRuntime:
         else:
             if fault is not None:
                 return
-            if facts["scaleReadStatus"] == "NOT_OBSERVED":
+            if facts["scaleReadStatus"] in {"NOT_OBSERVED", "VALID"}:
+                # A VALID sample can still be too old for admission when the
+                # foreground loop is briefly delayed.  Admission already
+                # fails closed through _fresh_weight(); do not manufacture a
+                # device fault for one stale scheduling window.  Five seconds
+                # without any newer usable sample is a real stale-scale fault.
                 identity = (facts["currentMcuBootId"], facts["appliedConfigVersion"])
                 if self._scale_wait is None or self._scale_wait[:2] != identity:
                     self._scale_wait = (*identity, now)
                 if now - self._scale_wait[2] < 5000:
-                    return  # Still no new admission; allow initial acquisition to report its status.
+                    return
             disposition = self.store.observe_fault_and_create_event(device_name=self.device_name,
                 component="WEIGHT_SENSOR", fault_code="WEIGHT_SENSOR", severity="BLOCK_PORT", port_no=1,
                 mcu_boot_id=facts["currentMcuBootId"], detail=dict(profile="native-scale-read-v1",
@@ -2338,7 +2501,7 @@ class NativeBusinessRuntime:
         self.boot.poll(self.clock())
         self._refresh_runtime_observation(self.clock())
         observable = self.current_runtime_observation()
-        return dict(uartState=self.uart_state, mcuBootId=self._mcu_boot_id,
+        return dict(uartState=observable["uartState"], mcuBootId=observable["mcuBootId"],
             activeWorkUid=(self.store.get_work_slot() or {}).get("work_uid"),
             firmwareIdentityHex=(observable["mcuFirmwareIdentity"] or {}).get("firmwareIdentityHex"),
             deviceFactsFingerprint=(hashlib.sha256(json.dumps(observable["deviceFacts"],

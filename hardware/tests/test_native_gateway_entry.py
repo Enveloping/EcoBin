@@ -10,6 +10,33 @@ from command_processor import CommandProcessor
 from hardware.tests.test_command_processor import make_store, valid_service_command
 
 
+def test_native_runtime_error_trace_is_bounded_and_repeats_are_summarized(
+    monkeypatch,
+):
+    now = [0.0]
+    traces = []
+    summaries = []
+    monkeypatch.setattr(main.logger, "exception", lambda *args: traces.append(args))
+    monkeypatch.setattr(main.logger, "error", lambda *args: summaries.append(args))
+    reporter = main._NativeRuntimeErrorReporter(clock=lambda: now[0])
+
+    error = RuntimeError("persistent failure")
+    reporter.report(error)
+    for _ in range(20):
+        reporter.report(error)
+
+    assert len(traces) == 1
+    assert summaries == []
+    now[0] = 60.0
+    reporter.report(error)
+    assert len(traces) == 1
+    assert len(summaries) == 1
+    assert summaries[0][1] == 21
+
+    reporter.report(ValueError("a different failure class"))
+    assert len(traces) == 2
+
+
 def test_native_gateway_owns_uart_and_commands_on_one_foreground_thread(monkeypatch):
     edge = main.EcoBinEdge.__new__(main.EcoBinEdge)
     edge._native_mode = True
@@ -58,6 +85,25 @@ def test_native_factory_progress_uses_supported_state_without_a_legacy_probe(sta
     edge._native_mode = True
     edge.uart = SimpleNamespace(uart_state=state)
     assert edge._current_uart_progress_state() == progress
+
+
+def test_native_factory_progress_reads_one_snapshot_generation():
+    edge = main.EcoBinEdge.__new__(main.EcoBinEdge)
+    edge._native_mode = True
+
+    class Uart:
+        reads = 0
+
+        @property
+        def uart_state(self):
+            self.reads += 1
+            if self.reads > 1:
+                raise AssertionError("factory progress mixed UART snapshots")
+            return "FAULT"
+
+    edge.uart = Uart()
+    assert edge._current_uart_progress_state() == "FAILED"
+    assert edge.uart.reads == 1
 
 
 def test_native_cloud_connect_wait_does_not_block_foreground_uart(monkeypatch):

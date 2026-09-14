@@ -104,7 +104,7 @@ def test_permanent_state_and_socket_directories_are_least_privilege() -> None:
     )
 
 
-def test_silent_permanent_units_are_local_only_and_independently_sandboxed() -> None:
+def test_legacy_direct_runtime_has_uart_v2_permanent_job_authority() -> None:
     communication = _unit("ecobin-communication.service")
     updater = _unit("ecobin-updater.service")
 
@@ -113,7 +113,8 @@ def test_silent_permanent_units_are_local_only_and_independently_sandboxed() -> 
     assert "User=ecobin-updater" in updater
     assert "Group=ecobin-updater-ipc" in updater
     assert "communication_agent.py --state /var/lib/ecobin/communication/communication.db" in communication
-    assert "updater_agent.py --state /var/lib/ecobin/updater/updater.db" in updater
+    assert "updater_agent.py --enable-stage4-candidate" in updater
+    assert "--state /var/lib/ecobin/updater/updater.db" in updater
     assert "--allowed-uid 0" in communication
     assert "--allowed-user ecobin-business" in communication
     assert "--allowed-user ecobin-updater" in communication
@@ -122,7 +123,11 @@ def test_silent_permanent_units_are_local_only_and_independently_sandboxed() -> 
     assert "--allowed-user ecobin-business" in updater
     assert "--socket-group ecobin-communication-ipc" in communication
     assert "--socket-group ecobin-updater-ipc" in updater
-    assert "--enable-stage4-candidate" not in updater
+    assert "--enable-stage4-candidate" in updater
+    assert "--allow-root-business" in updater
+    assert "--business-uid 0" in updater
+    assert "--enable-mcu-update-candidate" not in updater
+    assert "--enable-business-update-candidate" not in updater
     assert "--enable-software-state-reporting" not in updater
     assert "--enable-remote-business-update" not in updater
     assert "--enable-updater-event-reporting" not in communication
@@ -186,7 +191,16 @@ def test_legacy_business_service_exposes_only_read_only_local_status() -> None:
         "/run/ecobin/business/control.sock"
     ) in hardware
     assert "ECOBIN_BUSINESS_CONTROL_MODE=candidate" not in hardware
-    assert "ECOBIN_STAGE4_JOB_GATE_MODE=candidate" not in hardware
+    assert "ECOBIN_STAGE4_JOB_GATE_MODE=candidate" in hardware
+    assert "ecobin-updater.service" in _unit_directives(hardware, "Wants")
+    assert "ecobin-updater.service" in _unit_directives(hardware, "After")
+    # Losing the gate stops new admissions, but must not kill UART custody of
+    # a result that the MCU may already be completing.
+    for directive in ("Requires", "BindsTo", "PartOf"):
+        assert "ecobin-updater.service" not in _unit_directives(
+            hardware,
+            directive,
+        )
 
 
 def test_cutover_candidate_units_are_static_mutually_exclusive_and_non_root() -> None:

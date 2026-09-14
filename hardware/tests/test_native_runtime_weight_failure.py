@@ -37,6 +37,84 @@ def fault_events(case, fault_uid, event_type):
         and json.loads(row["payload_json"])["payload"]["faultUid"] == fault_uid]
 
 
+def publish_idle_scale_fact(owner, case, *, now, captured, status="VALID"):
+    facts = dict(owner._facts)
+    facts.update(
+        status="AVAILABLE",
+        appliedConfigVersion=max(1, facts["appliedConfigVersion"]),
+        capturedUptimeMs=captured,
+        scaleCapturedUptimeMs=captured - 1_000,
+        scaleAttemptSequence=facts["scaleAttemptSequence"] + 1,
+        scaleReadStatus=status,
+    )
+    owner._facts = facts
+    owner._facts_requested_at = now
+    case.clock.now = now
+    return facts
+
+
+def test_one_valid_but_stale_idle_sample_does_not_flash_scale_fault(
+    runtime, tmp_path
+):
+    with completed_first_work(runtime, tmp_path) as (case, owner):
+        await_start_facts(case, owner)
+        started = case.clock.now
+        stale = publish_idle_scale_fact(
+            owner,
+            case,
+            now=started,
+            captured=20_000,
+        )
+        owner._scale_health_poll(started)
+        assert scale_fault(case) is None
+
+        fresh = dict(stale)
+        fresh.update(
+            capturedUptimeMs=20_250,
+            scaleCapturedUptimeMs=20_250,
+            scaleAttemptSequence=stale["scaleAttemptSequence"] + 1,
+        )
+        case.clock.now = started + 250
+        owner._facts = fresh
+        owner._facts_requested_at = case.clock.now
+        owner._scale_health_poll(case.clock.now)
+        assert owner._scale_wait is None
+        assert not any(
+            row["event_type"] == "DEVICE_FAULT_OBSERVED"
+            and json.loads(row["payload_json"])["payload"].get("component")
+            == "WEIGHT_SENSOR"
+            for row in case.store.list_pending_events()
+        )
+
+
+def test_valid_scale_sample_stale_for_five_seconds_becomes_real_fault(
+    runtime, tmp_path
+):
+    with completed_first_work(runtime, tmp_path) as (case, owner):
+        await_start_facts(case, owner)
+        started = case.clock.now
+        for elapsed in (0, 4_999):
+            publish_idle_scale_fact(
+                owner,
+                case,
+                now=started + elapsed,
+                captured=30_000 + elapsed,
+            )
+            owner._scale_health_poll(case.clock.now)
+            assert scale_fault(case) is None
+
+        publish_idle_scale_fact(
+            owner,
+            case,
+            now=started + 5_000,
+            captured=35_000,
+        )
+        owner._scale_health_poll(case.clock.now)
+        fault = scale_fault(case)
+        assert fault is not None
+        assert json.loads(fault["detail_json"])["readStatus"] == "VALID"
+
+
 @contextmanager
 def terminal_failure(runtime, tmp_path):
     with completed_first_work(runtime, tmp_path) as (case, owner):

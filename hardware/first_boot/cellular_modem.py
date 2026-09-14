@@ -203,7 +203,11 @@ class ModemRegistrationProbe:
 
         sim = replies["AT+CPIN?"].upper()
         if "+CPIN: READY" not in sim or not _command_ok(sim):
-            if "NOT INSERTED" in sim or "SIM ABSENT" in sim:
+            if (
+                "NOT INSERTED" in sim
+                or "SIM ABSENT" in sim
+                or re.search(r"\+CME ERROR:\s*10(?:\s|$)", sim)
+            ):
                 return ModemRegistration(False, "CELLULAR_SIM_ABSENT")
             if any(marker in sim for marker in ("SIM PIN", "SIM PUK", "PH-NET")):
                 return ModemRegistration(False, "CELLULAR_SIM_LOCKED")
