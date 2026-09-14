@@ -613,6 +613,112 @@ SHA-256 `60710f7c8162df0735e15984bd11e018617c92f2425569ffa13391be62a40e88`，两
 本轮没有发起清运、没有打开清运门、没有解锁清运机构、没有发送任何清运动作指令。清运只由
 自动化测试和协议测试覆盖，真实清运 HIL 仍明确未完成；不得用上述投递结果替代清运通过。
 
+### 5.9 v41 可复现镜像构建、敏感材料隔离与最终在线复核
+
+现场验证完成且源码不再变化后，先提交最终运行时源码：
+`0650dbe89e1232916709be8ed3cb3f4c07ef91e9`（`fix(hardware): stabilize v40 native runtime`）。
+该提交包含本轮运行时、unit、测试和前述过程记录；明确没有包含项目负责人保留的
+`hardware_mcu/USER/STM32-DEMO.uvprojx` 与 `hardware_mcu.zip`。用于镜像构建的离线 Git bundle
+为 `hardware/image-artifacts/local/source-bundles/repository-v41-20260915.bundle`，SHA-256 为
+`2cae5cc925d0618f2fde4ad46312d18591f9d471526964f5f1f2d198a9a42ebf`；`git bundle verify`
+通过，bundle 中唯一 HEAD 精确指向上述提交并包含完整历史。
+
+v41 构建锁定值如下：
+
+| 输入 | SHA-256 |
+|---|---|
+| `uv.lock` | `9d42ea99614e3763c739887b29e2c3c9bfb6293e014706b525fc7db3e9bb27c8` |
+| 镜像构建器输入 | `da6b71eed4f3bc0d9563883e750c760c79da7864016f04edcd0b74f9bf79d5aa` |
+| APT 输入 | `65969460a6f4a9c05ed56c53f1d054dda689e6496fd1878daa5f4000997aa53c` |
+| 源码输入 | `3b6a72a2bc2870d713c0835cab8d9c5bc8b8809f1952c2b65c39a19dc6eb605f` |
+| 镜像布局输入 | `3bc5ca7191bb88b813edb66f7677660aa16f38e117f8dfaeeba80f2fa1fb4389` |
+
+仅复用依赖下载缓存 `/var/cache/ecobin-image-builder/arm64-py311-9d42ea99614e3763` 和固定基础镜像；
+没有复用 v40 运行时归档或 v40 软件载荷。分别在
+`/var/lib/ecobin-image-factory/hil-v41-20260915-repro1` 与
+`/var/lib/ecobin-image-factory/hil-v41-20260915-repro2` 从提交源码独立生成两次候选，结果逐字节一致：
+
+| 产物 | 两次构建共同 SHA-256 |
+|---|---|
+| 新运行时归档 | `dba4d188cd5fab25f087e2e6975aaf9fb8373fefe4f0e7bf32afcf578b18f3ac` |
+| 新软件载荷锁 | `8adb90b3151a9d108e32eab521f672d981f609f2e3c046ac16e77981842a3093` |
+| 2,571,108,352 字节未注入厂家材料的候选镜像 | `319e4106849795510acfe9b794cbb7cfe7c8e5c94b7e68af3146fd1bac0f3f02` |
+
+候选清单标记为 `UNSIGNED_NO_SECRET_CANDIDATE`，软件版本为
+`0.1.0-single-card.20260915.41`，release 为 `single-card-hil-20260915-41`，运行时为
+`hardware-runtime-20260915-41`，`sourceDirty=false`。作为对照，v40 的运行时归档、软件载荷锁和
+候选镜像摘要分别为
+`b1528daf53f8cd588aac9a105f0a699b638c88cb4519d7d45e7948a5d590fde4`、
+`5456fb02a6e01ae3644452cd4b5ebb533102bd226d30d983ac95f411b137d614`、
+`94e1bf8314310379c579ea469ae742949b7c121fefd8c6455ab0ca9869f2b84d`，均与 v41 不同。
+
+构建过程中保留了两个编排问题及其修复，避免下次把包装器故障误认为镜像主体故障：
+
+1. 第一次候选的构建主体已经通过，但执行中的包装脚本被并发编辑，退出时触发 shell 语法错误，
+   因而该次包装器退出码为 1。交换分区仍已恢复，之后不再在脚本运行中修改同一文件，并用第二次
+   独立构建证明产物一致。
+2. 第二次候选主体通过后，包装器误报 `/dev/sdc swap not restored`。根因是 util-linux 2.39.3
+   下 `swapon --show --output NAME` 的输出格式被错误解析，实际交换分区已恢复。检查改为
+   `swapon --show=NAME --noheadings --raw`，并增加“操作前记录意图、退出时按实际状态恢复、恢复后
+   强制断言”；随后确认 `/dev/sdc` 处于活动状态。
+
+准备注入厂家材料时又发现，原 `factory-secret` 位于 DrvFS，Windows ACL 曾允许普通 Users 读取、
+Authenticated Users 修改，不能作为敏感构建目录。第一次最终镜像尝试在 `copy-candidate` 刚开始
+时即被中断，早于任何密钥注入；不完整目录被隔离为
+`hardware/image-artifacts/local/factory-secret/builds/aborted-before-secret-injection-20260915-41`，
+其中只有候选副本和 34 字节开始日志，没有摘要文件或密钥，明确不是有效成品。ACL 第一次收紧时
+把目录继承参数错误应用到普通文件，曾使文件直接 ACL 为空并导致本账户也无法读取；随即按“目录
+设置继承权限、每个普通文件设置直接权限”修复。最终整个 `factory-secret` 树仅当前 Windows
+账户、`SYSTEM` 和 `Administrators` 具有 Full Control；v40 受保护来源仍可读取，且摘要保持
+`21581060db890b0902e2cc270e44b23e1867f6e7bdd8db8eeac44948b258690a`。
+
+最终厂家/HIL 镜像改在真正的 WSL ext4 私有目录
+`/var/lib/ecobin-image-factory/private/hil-factory-login-20260915-41-uart2-rc26` 中构建；目录为
+root:root 0700，镜像为 root:root 0600。整个 v41 候选镜像是唯一软件基底；v40 受保护镜像只提取
+`enrollment.key`、`setup-ap.key` 和 `orangepi` 密码散列字段，没有继承旧运行时、unit、数据库、
+设备身份、OneNet 凭证、SSH 主机密钥或网络运行状态。构建及离线检查全部通过：原始分区布局、
+`e2fsck`、ext4 安全属性、镜像软件清单、root 账户锁定、厂家登录、受保护材料同源、干净首次启动、
+摄像头规则和源码提交均符合要求。
+
+最终成品为：
+
+- 文件：`ecobin-orangepi-zero3-0.1.0-single-card.20260915.41-hil-factory-login.img`；
+- 大小：2,571,108,352 字节；
+- SHA-256：`297a400aa5d15423139ac084ba5e05cc075520c871a7a716048b4da54ad6aff6`。
+
+对候选与最终 HIL 镜像做全文件树差异审计，共 53,461 个条目保持一致；变化仅限预先批准的三个
+厂家材料路径，启动分区前缀继续继承 v41 候选。账户散列按来源值和元数据精确比较但不输出内容，
+两个密钥均确认是 0600 普通文件且与受保护来源一致。差异审计日志为 277 字节、SHA-256
+`5a7b5cbfb564fba0ddede3e8054033e056d089b906f1fee5127458d2ed7bdf75`。
+
+ARM64 离线冒烟测试第一次虽然通过，但检查输出暴露包装器仍调用 v35 的旧辅助脚本，因此不计入
+最终证据。修正为 v41 专用辅助脚本后重新运行并通过：Python 3.11.2、UART `/dev/ttyS5` 115200
+及 uart-v2、更新器隔离/重启与 `updater-20260915-41` release、8 组厂家报告样例、通信模块导入、
+rc.26 共 73 种消息及能力掩码、EdgeStore schema 40、OneNet 2.4、二维码入口、28/400/500/1000 g
+参考重量和报告校验均正常。测试使用只读镜像、合成状态且完全禁网，没有访问真实硬件。最终冒烟
+日志为 982 字节、SHA-256
+`1c9c03f70a26df1026b7945b79b1634f6db297d369adde27d3102b3885c374d5`；构建及离线验证日志为
+1,392 字节、SHA-256
+`ffe2bace459576ae051e057c1fd164cea0ca2ef01f62e181ad9ffb703b0a0e45`。
+
+成品及摘要、构建日志、冒烟日志、差异日志已经复制回 Windows 受限目录
+`hardware/image-artifacts/local/factory-secret/builds/hil-factory-login-20260915-41-uart2-rc26`。
+Windows 对整幅 2.57 GB 镜像和三个日志做完整回读，摘要与 ext4 私有构建区一致；目标目录和每个
+文件的显式 ACL 也只包含当前账户、`SYSTEM` 和 `Administrators`。该镜像目前只是已验证待写卡
+产物：本轮没有插拔或写入 TF 卡，也没有把 v41 加入后台认可列表；这两项仍需项目负责人明确
+授权后单独执行，不能把离线镜像通过当作写卡回读或新卡验收通过。
+
+最后于设备时间 2026-09-14 22:11 UTC 再通过串口做只读在线复核。`ecobin-hardware.service` 仍为
+PID `310298`、`active/running`，启动时间仍是 21:01:35 UTC，累计 `NRestarts=15` 没有增加；
+updater、cellular-uplink、remote-support 也均为 `active/running` 且没有累计重启。最近 90 秒每
+5 秒持续发布设备运行快照并收到 OneNet 回执。warning 查询只出现两条本次 `sudo -n true` 因无
+缓存密码而被拒的只读探测记录，没有设备应用 warning；因此没有为最后核对再次提权、替换、重启
+或发起业务。普通 `orangepi` 用户因运行目录权限不能列出控制 socket，这个结果不作为 socket
+不存在的判断；其前面的受权数据库、控制端点和 100 次连续查询证据仍是最终业务状态依据。
+
+本节镜像构建和末次复核都没有再次发送投递 START，也没有发出任何清运、清运门或清运解锁
+指令。真实清运 HIL 仍未执行。
+
 ## 6. 当前卡实际热修改清单
 
 重新烧卡会丢失下列现场修改：
