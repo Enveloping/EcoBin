@@ -2,7 +2,7 @@
 
 > 当前推进：[MCU与香橙派精简实施计划](../planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)。[UART rc.26能力、串口屏批次、工厂投影与终态失败收口](../../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)已整合真实MCU能力位、原生工厂验收投影、投递控制通信失败的无业务价值终结和统一HMI可信边界。当前为UART rc.26、OneNet2.4.0、EdgeStore schema40、数据库V83的本地候选，共73种消息；完整MCU ROM/bin 60588/65536、RAM12960/20480。硬件全量首次4258通过/123环境跳过/5子测试通过，另有1项已知Windows SQLite强杀恢复1546错误，单项复跑通过。真实串口屏/RS485/机构/断电HIL、Linux/ARM64安装和部署仍未完成，当前不是可部署版本；下方旧候选均为历史。
 
-> 2026-09-14 异常投递与设备报废分离：[实现与验证](../planning/abnormal-delivery-retirement-2026-09-14.md)。用户纠正原绑定设计后，本地实现已改为只结束原会话、释放精确占用并安全禁用设备；不写报废时间或报废原因。管理员随后独立选择恢复或报废。原绑定版本仍在线，拆分修正尚未重新部署；部署时继续使用现网V72独立兼容分支，不带入V73至V83硬件候选。
+> 2026-09-14 异常投递与设备报废分离：[实现与验证](../planning/abnormal-delivery-retirement-2026-09-14.md)。V72 兼容修正版已部署为 `20260914054917-646ab11784ae`：结束异常投递只结束原会话、释放精确占用并安全禁用设备，不写报废时间或报废原因；管理员随后独立选择恢复或报废。原绑定入口没有被使用并已下线，见[部署记录](../operations/abnormal-delivery-termination-separation-deployment-2026-09-14.md)；V73 至 V83 硬件候选未纳入本批。
 
 > 2026-09-14二维码URL与HMI收口：[UART v2设备二维码URL可靠应用记录](../../hardware/docs/review/uart2-device-entry-url-plan-2026-09-14.md)及[rc.26收口记录](../../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)。项目负责人确认信任MCU写出完整串口屏指令即显示，否则无法保证任何串口屏显示；“写出”统一定义为完整显示指令组原子进入UART3软件发送队列。页面切换、一次性初始化、实时倒计时/重量和二维码均遵循该边界；失败时零字节发布、不推进显示状态并重试，不追踪USART完成或HMI回执。旧`Stored`字段仍只证明Pi保存，只有匹配的MCU原子入队结果才能完成二维码同步命令。尚未部署、烧录或用真实串口屏验证。
 
