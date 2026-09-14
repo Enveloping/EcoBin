@@ -84,9 +84,10 @@ P7工厂验收现在强制使用`uart-v2 / 115200 / 单投口`原生入口。验
 - ARMCC5完整原生固件构建成功：RO 60,432字节，ROM/bin 60,588/65,536字节，
   RAM 12,960/20,480字节，分别剩余4,948和7,520字节。
 
-本轮没有连接现场设备、修改OneNet线上配置、运行真实MySQL迁移、部署后端或香橙派、制作镜像、
-写TF卡、烧录MCU/HMI，也没有驱动真实机构。后续仍需分别取得授权并完成真实串口屏冒烟、
-RS485称重、投递/清运机构、掉电组合HIL、Linux/ARM64安装和实际部署验收。
+上述首轮验证当时没有连接现场设备、修改OneNet线上配置、运行真实MySQL迁移、部署后端或
+香橙派、制作镜像、写TF卡、烧录MCU/HMI，也没有驱动真实机构。此后新增的本地ARM64候选与
+安装检查见第7节；它仍不替代真实串口屏、RS485称重、投递/清运机构、掉电组合HIL和实际部署
+验收。
 
 ## 6. 侧向审查后的终态补口
 
@@ -113,3 +114,53 @@ RS485称重、投递/清运机构、掉电组合HIL、Linux/ARM64安装和实际
 
 另已生成一个基于补口前检查点`f5427911`的ARM64无秘密候选，用于证明缓存构建链可工作；它不含
 上述补口，因此不是最终候选，也不得部署或写卡。最终候选必须从补口后的新提交重新构建。
+
+## 7. 补口后v39本地候选与hil.6固件
+
+补口代码已保存为提交`5b2f7fde1f675d9408c9b68c22d0de1ae0c103fb`，并由该提交重新生成
+完整历史源码包`hardware/image-artifacts/local/source-bundles/repository-v39-20260914.bundle`。
+包内`HEAD`精确指向该提交，SHA-256为
+`808DC58DC8333418457B05ED09EC5F7B04E6196831BCFA63F61B7744C94A5D93`。
+
+配套MCU人工烧录产物位于
+`hardware/image-artifacts/local/mcu-uart2-rc26-20260914-hil6`，使用身份
+`1.0.2-hil.6 / 10006 / 55e09a9352c3b025`，发布编号为
+`d16d1621-5fbd-4278-ae78-748534d95f20`。ARMCC5完整构建结果为RO 60,520字节、
+ROM/bin 60,676/65,536字节、RAM 12,960/20,480字节；BIN、HEX、AXF的SHA-256分别为：
+
+- `8D30CAF7FA6C530F13BEE4EB59B259C2568DCE48F56E8A14E6D7D9777A7BFDB3`；
+- `3EA8E4956922EE1228A5834F4D08095083F6C3E76CCEEADFD847647875060405`；
+- `F8274F3F9770BBCA93AAB815FA7E8387E405651EBFBFDB8CAAA0B6E94E7E0157`。
+
+`ECOBIN_UART`原生固件仍不支持当前固定帧远程升级包格式，因此没有生成`.efw`；不能把这个缺失
+解释成打包失败，也不能用旧升级器远程下发hil.6。
+
+ARM64候选输出证据目录为
+`/var/lib/ecobin-image-factory/hil-v39-20260914-rc26/candidate-single-card-hil-20260914-39`，
+精确镜像文件名为`ecobin-orangepi-zero3-0.1.0-single-card.20260914.39.img`，文件长度
+2,571,108,352字节，版本`0.1.0-single-card.20260914.39`，镜像SHA-256为
+`bb44f07e0439ff4f8f3f9dca29941be2d61543e0edbe4290d03dd4a77f9d44d8`。应用载荷锁摘要为
+`9579bccd4cce9bffd2223fe96d407f8ef5d13d6f2eb70354717efd00ef7c0bb1`，运行包摘要为
+`a9b7625c5efe35c8fb71bd1169c28a0f12442ece168fa63ca3b0c66021558d67`；对应文件分别是
+`software-payload-20260914-39/software-payload.lock.json`和
+`runtime/hardware-runtime-20260914-39/ecobin-hardware-hardware-runtime-20260914-39.tar.gz`。
+同一受控目录保留`build-v39-candidate.log`、镜像`.sha256`和manifest。构建复用了锁定的
+ARM64基础镜像、APT包和Python wheel缓存；三轮APT安装下载量均为0字节。
+
+候选在构建结束后又单独运行一次`verify-image.sh --candidate`，镜像摘要、只读布局、ext4配置、
+无设备秘密、账号锁定、软件安装审计和manifest复核均通过。这只是验证命令与构建步骤分开执行，
+不是第二次独立构建，也不证明生产发布所需的双构建字节一致、签名或封存。随后
+`run-v39-arm64-smoke.sh`在ARM64容器中以断网、镜像只读、仅`/tmp`合成状态可写的方式验证：
+
+- Python 3.11.2，`/dev/ttyS5 / 115200 / uart-v2 / 单投口`；
+- UART注册表`2.0.0-rc.26`共73种消息，Edge/MCU必需能力掩码均为`0x8100`；
+- EdgeStore schema 40、OneNet映射2.4.0、二维码发送入口和首次阻断故障锁存；
+- 由合成输入生成的8份完整验收报告fixture，以及28、400、500、1000克四种参考重量、热点
+  网页称重样本展示和共同报告校验门；它不是现场放置砝码取得的数据，也不涉及串口屏显示。
+
+固件相关定向回归83项通过；ARM64 smoke全部通过。以上只证明本地软件产物可以安装、导入和
+处理合成数据，准确说是“ARM64容器内镜像安装/导入smoke完成”，真实香橙派启动和安装尚未完成；
+它也不证明真实热点能启动、串口屏实际显示、RS485称重准确、门机构动作或掉电恢复。v39仍是
+`UNSIGNED_NO_SECRET_CANDIDATE`，没有写TF卡、烧录、部署或连接现场设备。取得新的明确授权后，
+它只能写入明确识别的实验卡、配合人工烧录hil.6做受控HIL，不能作为生产部署镜像；真实HMI、
+RS485、投递/清运机构、掉电组合HIL、第二次独立构建一致性、签名和封存仍是生产发布门槛。
