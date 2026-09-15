@@ -80,10 +80,11 @@
 - 第二处修复：MCU 最终结果中的辅助事实不可用时，不再对启动默认采集时间 0 执行“数据过期”
   校验；提交 `5bf89e67`。
 - 主要文件：`hardware/factory/native_acceptance_mcu.py`。
-- 当前卡：两次修改均已热修；投递结果从 `MCU_FULLNESS_FACT_STALE` 恢复，未重发 START，
+- 此前 v40 卡：两次修改均已热修；投递结果从 `MCU_FULLNESS_FACT_STALE` 恢复，未重发 START，
   2026-09-15 后续现场完成投递区域安全确认和完整清运，厂家验收最终为
   `PASSED/COMPLETE`、revision 41。前一日修复记录停留在投递安全确认前，本条后续事实取代其
-  “尚未完成”状态；这仍只是厂家 HIL，不是生产订单或资金闭环。
+  “尚未完成”状态；这仍只是厂家 HIL，不是生产订单或资金闭环。5.12 起记录的是后来重烧的
+  v41 新卡，其独立验收状态最终为 revision 39，两个修订号不属于同一轮状态文件。
 
 ### 3.4 MCU 启动编号宽度
 
@@ -788,6 +789,122 @@ root 私有 0600 备份，只原子替换一个认可列表键，然后重载运
 及热点、UART、RS485、OneNet、反向 SSH 和业务现场验收，不能把上述三项离线/后台结果等同于
 新卡设备验收通过。真实清运 HIL 仍未执行。
 
+### 5.12 v41 新卡投递验收提前超时及现场热修
+
+v41 新卡在厂家热点验收中完成投递机构动作后，页面没有进入正常的“确认投递区域安全”，而是
+进入“执行受控恢复”。串口只读取证确认这不是网页遗漏刷新：私有验收状态为
+`RECOVERY_REQUIRED / DELIVERY_WAITING_FINAL_RESULT`，原因
+`MCU_FACTORY_WORK_QUERY_TIMEOUT`；投递 `START` 只发送一次并已被 MCU 接受，但香橙派当时尚未
+保存 `WORK_RESULT`。对应 MCU 启动编号为 `8000000000000001`，命令序号为 5，UART 账本的
+`workResultCount=0`、`lastQueryId=1284`。
+
+根因是三层等待时间与 MCU 合法流程包络矛盾，而不是机构、RS485 称重或 MCU 查询入口失效：
+
+- 验收核心只等待 60 秒；Portal 到执行器的 IPC 最多等待 75 秒；浏览器动作请求最多等待 85 秒；
+- 厂家验收要求的一轮投递最慢路径约为首重 5 秒、开门后自动关闭 120 秒、关门行程等待 30 秒、
+  末重 5 秒、继续/结束选择 30 秒，尚未计算串口查询、结果映射、可靠保存和确认余量；正常业务
+  虽允许用户选择 `CONTINUE` 开始下一轮，但厂家验收不把可无限重复的继续轮次纳入单次测试；
+- `await_final_result()` 在 MCU 返回 `RUNNING` 后立即继续查询，没有节流。现场 60 秒窗口内累计
+  到 1,284 个查询编号；最后一次查询共用了即将耗尽的总截止时间，因此总流程到期还会被误写成
+  单次查询无回复；
+- 原 3 秒恢复查询若发生在 MCU 仍正常收尾时只会得到 `RUNNING`，因此重复点击恢复看起来也没有
+  进展。正常投递完成后本应显示“确认投递区域安全”，不能把该页面混同为异常恢复。
+
+修复只涉及香橙派厂家验收程序，不改变 MCU 协议、HMI 按钮映射或机构控制：核心默认投递等待改为
+210 秒，清运等待改为 320 秒；IPC 和浏览器分别改为 360 秒、380 秒。IPC 额外覆盖动作前身份/
+配置核对和结果后的身份、事实及可靠保存确认，浏览器再为 IPC 响应返回留出余量。工作查询改为
+每秒最多一次，每次只等待 250 毫秒；连续三次查询无回复仍快速上报控制
+通信故障，只有本次厂家验收约定窗口耗尽才写 `FINAL_RESULT_TIMEOUT`。新增测试直接由生产配置计算时间
+包络，同时验证响应正常但持续 `RUNNING` 时不会查询洪泛或误报离线。专项回归 61 项通过，扩大
+验收回归 271 项通过、3 项按环境跳过；动作时间修复中间树的全量 `hardware/tests` 回归为
+4,298 项通过、126 项按平台条件跳过、5 个子测试通过。该次全量结果早于本节后续结果/查询竞态与
+严格投影边界补丁，不能作为最终提交树的回归结论；最终树必须另行重跑全量测试。
+
+现场通过 COM3 上传后先逐文件核对摘要，再将原文件备份到
+`/var/lib/ecobin/hotfix-backups/v41-factory-action-timeout-20260915-01`，停止两个厂家服务后在同一
+文件系统内原子替换，执行 `daemon-reload` 并重新启动。两个服务均为 `active/running`、
+`NRestarts=0`。替换前后摘要为：
+
+| 文件 | 替换前 SHA-256 | 替换后 SHA-256 |
+|---|---|---|
+| `factory/acceptance_core.py` | `1501ea76a8e7726fefef5d115ff3d466e9c289035acd022f65a46c8c86a1e576` | `3f35f06efea49a182a889b430650def326ccc120f08278a08e730ee32f179695` |
+| `factory/acceptance_portal_client.py` | `2a4371c542353231a03279151871504710bdc2a770cd36269b22dc5d35fe86df` | `c3265b3ecb72ca939ccd3116b7ca90e12b9fe17ea8d49235701e1104b6318427` |
+| `factory/native_acceptance_mcu.py` | `548c800d554b61bc3ad88916489faeb7dc5a8a50abb5ba9ad3cc2621f6f1cd75` | `8470c148855201bf476c5dd34af9cd6775b75efd652d9c476da66e7725629b64` |
+| `factory/web/app.js` | `66f556abf842873b925e14045a880b486a39aa286a645dd644079aa05301952d` | `3bb7555a35efe01481df36ce8ed4558b88473a179304f9cbcb2c46911bfbc51f` |
+
+热修后对原动作执行一次带原工作身份的 `RECOVER`。它没有重发 `START`，也没有发出清运指令；
+MCU 返回此前保留的完整结果，香橙派可靠保存并完成 `RESULT_SAVED` 确认。结果为
+`DELIVERY_WINDOW_EXPIRED`，首重 28 g、末重 30 g、差值 2 g，辅助满溢事实明确为
+`UNAVAILABLE`。验收状态从 revision 27 进入 revision 29 的
+`DELIVERY_AWAITING_AREA_CONFIRMATION`，当前唯一允许动作是 `CONFIRM_DELIVERY_AREA_SAFE`。这证明
+原故障来自香橙派提前结束等待；但软件不能代替现场人员确认门、障碍物和人员安全，因此投递验收
+当时尚未最终标记通过。设备系统时间仍未可信，本文以状态序号、持久身份和摘要为主要证据。
+
+该恢复动作本身没有修改或烧录 MCU/HMI，没有再次驱动投递机构，没有发起清运，也没有伪造厂家
+验收证据。随后热点操作端继续提交了投递区域安全确认、一次清运操作和清运门关闭确认；本代理没有
+发送这些请求。最终私有状态到达 revision 39 的 `PASSED / COMPLETE`：投递为
+`DELIVERY_SAFE_VERIFIED`，清运为 `CLEAN_SAFE_VERIFIED`，清运首末重量均为 30 g，MCU UART 账本
+保存两个结果且两个动作均已释放。下一镜像必须从包含本节正式源码和测试的提交重新构建，不能只
+保留当前卡热替换。
+
+### 5.13 可选满溢读取导致已通过验收在总览中显示未知
+
+revision 39 已有完整且有效的通过报告，验收执行器按设计以退出码 0 停止，运行目标、硬件服务和
+MQTT 均已启动。但热点总览仍把“本机硬件验收”显示为 `UNKNOWN / STATUS_UNAVAILABLE`。原因是
+验收投影的严格读取器落后于当前事实模型两处：它没有登记 MCU 自检新增的
+`selfTestSmokeState`、`selfTestSmokeSensorHealth` 字段，也只接受满溢读取状态 `VALID`，没有接受
+已确认不阻断业务的 `NOT_OBSERVED`、`UNAVAILABLE`。因此执行器发布的有效
+`acceptance.json` 被首启总览误当成无效来源；这只影响显示和后续流程定位，不推翻本机通过报告。
+
+源码修复让投影读取器与验收事实生成器采用同一规则：数字红外和超声波都接受上述两个非阻断状态；
+非有效读取不得携带伪造的距离或遮挡结论，超声波仍保留 1..4000 mm 范围内的已配置阈值；烟感
+代码、状态和健康度必须组成合法元组。新增正反测试使用本机实测形状
+（超声波 `UNAVAILABLE`、距离为空、阈值 600 mm，烟感状态字段存在）验证本机节点仍为
+`COMPLETED`。首次热替换暴露并定位了遗漏的烟感字段，随后第二次原子替换完成闭环：
+
+| 项目 | SHA-256 / 结果 |
+|---|---|
+| 原 `first_boot/factory_flow.py` | `0e5707b049d5d029332585cf4174c9ea4723bbe32760d5de6969ee75aaa7e879` |
+| 第一次替换（仅满溢规则，保留作诊断证据） | `18cf2e9f3fe65130d09ad862823528beeaa9b4522433a68b8f1cb73c0518e62c` |
+| 第二次替换（恢复现场投影） | `0aa2437db922b73ab35b428e169416927c62b30013e9e4f4c23b36a91e6c9e91` |
+| 最终替换（加入严格自检、历史结果与事实范围校验） | `7b945221d8ffc12fffc1ded38795d8aec6cdfde932e576a1bca773a3b8d90112` |
+| 现场备份 | `/var/lib/ecobin/hotfix-backups/v41-factory-flow-unavailable-20260915-01`、`...-02`、`/var/lib/ecobin/hotfix-backups/v41-factory-final-followup-20260915-01` 及 `/var/lib/ecobin/hotfix-backups/v41-factory-strict-final-20260915-01` |
+| 最终专项回归 | 96 项通过 |
+
+重启首启编排器后，它依照 systemd 关系重启了一次正式硬件服务；没有发出机构动作。硬件服务约
+25 秒后恢复，UART 为 `READY`、MQTT 为 `CONNECTED`，相关服务 `NRestarts=0`、错误码
+`NONE`。最终热点投影为：本机硬件验收 `COMPLETED`、运行时与 MQTT `COMPLETED`，当前步骤
+`FACTORY_BAGS / SCAN_DEVICE_AND_FACTORY_BAGS`，即等待现场扫描设备并录入厂家袋。
+
+最后一轮跟进替换同时加入 `WORK_RESULT` 与 `WORK_QUERY_REPLY` 交错到达的回归：若最终结果已在
+等待查询回复期间按原业务身份可靠写入，即使该次查询回复丢失，也重新读取持久状态并继续映射和
+确认，不把已取得的结果误报成第三次查询超时。现场跟进部署的三个最终摘要均匹配；部署脚本的
+首次末尾检查因读取到重启前遗留的运行投影，在硬件服务仍为 `activating` 时提前退出 1。文件替换
+已经完成，后续重新等待新心跳，硬件服务恢复 `active`，连续 6 轮无动作查询均为错误码 `NONE`、
+本机验收和运行时 `COMPLETED`、当前步骤 `FACTORY_BAGS`。该部署检查竞态只影响脚本最终判定，
+没有触发机构动作；后续镜像构建/热修脚本应在等待前清除旧投影或同时校验新的运行时心跳时间。
+
+提交前的最终严格性复核又关闭三类“读取有效报告时误接受矛盾事实”的边界：烟感代码必须是精确
+整数，不能利用 Python 中布尔值与 0/1 相等的规则穿透；超声波有效距离限定为 0..4000 mm、阈值
+限定为 1..4000 mm，非有效读取不得携带距离或遮挡判断；`fullnessSensorKind` 为空只代表历史四字段
+结果，所有新增字段必须同时为空。正向回归同时锁定原始历史四字段和展开后新增字段全为空的兼容
+读取，反向回归锁定“历史形状夹带单个新满溢事实”会被拒绝。
+
+最终两文件现场替换前再次验证私有报告为 `PASSED / COMPLETE` 且没有活动厂家动作，备份目录为
+`/var/lib/ecobin/hotfix-backups/v41-factory-strict-final-20260915-01`。替换后的
+`factory/acceptance_core.py` 和 `first_boot/factory_flow.py` 摘要分别为
+`3f35f06efea49a182a889b430650def326ccc120f08278a08e730ee32f179695`、
+`7b945221d8ffc12fffc1ded38795d8aec6cdfde932e576a1bca773a3b8d90112`。重启首启编排后，首启、热点、
+硬件、通信服务均为 `active/running` 且 `NRestarts=0`，最近十分钟 warning 级日志为空；连续 6 次
+无动作热点状态查询均返回错误码 `NONE`、验收 `PASSED / COMPLETE`、本机验收 `COMPLETED`，当前
+节点保持 `FACTORY_BAGS`。
+
+以上全部源码、测试和记录收口后，从最终工作树重新执行
+`uv run --project hardware --python 3.11 python -m pytest -q hardware/tests`，结果为
+4,311 项通过、126 项按既有平台/硬件条件跳过、5 个子测试通过，耗时 852.07 秒。Python 3.11
+语法编译、热点 JavaScript 语法检查和 `git diff --check` 同时通过。这一轮才是本次提交树的最终
+全量回归证据。
+
 ## 6. 当前卡实际热修改清单
 
 重新烧卡会丢失下列现场修改：
@@ -797,6 +914,7 @@ root 私有 0600 备份，只原子替换一个认可列表键，然后重载运
 | 厂家验收 `acceptance_service.py`、`acceptance_hardware.py`、`native_acceptance_mcu.py` | 已热修 | 提交 `780d2ecb`、`5bf89e67` |
 | 厂家封存 `validation.py`、`weight_validation.py` | 已热修 | 提交 `780d2ecb` |
 | 热点页面 `hardware/factory/web/app.js` | 已热修 | 提交 `780d2ecb` |
+| v41 厂家动作时间包络、IPC/网页等待、工作查询节流及通过报告总览兼容 | 当前 v41 新卡已热修；本机验收已完成，等待扫描厂家袋 | 本次待提交源码；下一镜像必须重新构建 |
 | 厂家运行目录 `first_boot/state_machine.py` | 已热修 | 本次已验证候选 |
 | 厂家运行目录 `first_boot/orchestrator.py` | 已热修 | 本次已验证候选 |
 | 厂家运行目录 `first_boot/cellular_modem.py` | 已热修 | 本次已验证候选 |

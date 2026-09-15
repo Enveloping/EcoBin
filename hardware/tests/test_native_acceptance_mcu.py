@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import uart2_protocol as uart
+import factory.native_acceptance_mcu as native_acceptance_mcu
 
 from factory.acceptance_hardware import (
     AcceptanceHardwareError,
@@ -342,6 +343,31 @@ class StartWriteFailureSerial(ScriptedSerial):
             self.fail_start_once = False
             raise OSError("simulated power loss before UART accepted START")
         return super().write(frame)
+
+
+class DropWorkQuerySerial(ScriptedSerial):
+    def _reply(self, name, values):
+        if name == "QUERY_WORK":
+            return
+        super()._reply(name, values)
+
+
+class ResultWithoutWorkQueryReplySerial(ScriptedSerial):
+    def _reply(self, name, values):
+        if name != "QUERY_WORK":
+            super()._reply(name, values)
+            return
+        if self.held_result is None:
+            work = self.active_work
+            assert work is not None
+            self.held_result = _work_result_payload(
+                boot_id=self.boot_id,
+                command=work["command"],
+                work_uid=work["workUid"],
+                work_type=work["workType"],
+                changes=self.result_changes,
+            )
+            self.enqueue_raw("WORK_RESULT", self.held_result)
 
 
 class SimulatedPowerLoss(BaseException):
@@ -1204,6 +1230,113 @@ def test_recovery_of_running_work_is_stable_error_and_never_sends_start(tmp_path
     assert len(
         [name for name, _ in serial_port.writes if name.startswith("START_")]
     ) == starts_before
+
+
+def test_waiting_for_running_work_is_bounded_and_reports_overall_timeout(
+    tmp_path,
+    monkeypatch,
+):
+    """A responsive RUNNING MCU must not be flooded or mislabeled offline."""
+
+    state_path = tmp_path / "native-uart-state.json"
+    serial_port = ScriptedSerial(
+        state_path=state_path,
+        initial_boot_id=42,
+        emit_work_result=False,
+    )
+    monkeypatch.setattr(
+        native_acceptance_mcu,
+        "WORK_QUERY_INTERVAL_SECONDS",
+        0.03,
+    )
+    mcu = NativeAcceptanceMcu.for_port(
+        state_path=state_path,
+        serial_factory=lambda **arguments: serial_port,
+    )
+    try:
+        mcu.write_action_once("DELIVERY")
+        with pytest.raises(AcceptanceHardwareError) as failure:
+            mcu.await_final_result("DELIVERY", timeout_ms=120)
+    finally:
+        mcu.close()
+
+    assert failure.value.code == "FINAL_RESULT_TIMEOUT"
+    work_queries = [
+        values for name, values in serial_port.writes if name == "QUERY_WORK"
+    ]
+    # A scheduler waking exactly on the 120 ms boundary may start the fifth
+    # paced query before observing the overall deadline.
+    assert 2 <= len(work_queries) <= 5
+
+
+def test_three_missing_work_query_replies_report_control_communication_fault(
+    tmp_path,
+    monkeypatch,
+):
+    state_path = tmp_path / "native-uart-state.json"
+    serial_port = DropWorkQuerySerial(
+        state_path=state_path,
+        initial_boot_id=42,
+        emit_work_result=False,
+    )
+    monkeypatch.setattr(
+        native_acceptance_mcu,
+        "WORK_QUERY_INTERVAL_SECONDS",
+        0.001,
+    )
+    monkeypatch.setattr(
+        native_acceptance_mcu,
+        "COMMAND_RESPONSE_TIMEOUT_MS",
+        10,
+    )
+    mcu = NativeAcceptanceMcu.for_port(
+        state_path=state_path,
+        serial_factory=lambda **arguments: serial_port,
+    )
+    try:
+        mcu.write_action_once("DELIVERY")
+        with pytest.raises(AcceptanceHardwareError) as failure:
+            mcu.await_final_result("DELIVERY", timeout_ms=500)
+    finally:
+        mcu.close()
+
+    assert failure.value.code == "MCU_FACTORY_WORK_QUERY_TIMEOUT"
+    assert sum(name == "QUERY_WORK" for name, _ in serial_port.writes) == 3
+
+
+def test_result_journaled_while_work_query_reply_is_lost_still_completes(
+    tmp_path,
+    monkeypatch,
+):
+    state_path = tmp_path / "native-uart-state.json"
+    serial_port = ResultWithoutWorkQueryReplySerial(
+        state_path=state_path,
+        initial_boot_id=42,
+        emit_work_result=False,
+    )
+    monkeypatch.setattr(
+        native_acceptance_mcu,
+        "COMMAND_RESPONSE_TIMEOUT_MS",
+        10,
+    )
+    mcu = NativeAcceptanceMcu.for_port(
+        state_path=state_path,
+        serial_factory=lambda **arguments: serial_port,
+    )
+    try:
+        mcu.write_action_once("DELIVERY")
+        result = mcu.await_final_result("DELIVERY", timeout_ms=100)
+        mcu.confirm_final_result(result)
+    finally:
+        mcu.close()
+
+    assert result["finishReason"] == "DELIVERY_END"
+    assert sum(name == "QUERY_WORK" for name, _ in serial_port.writes) == 1
+    saved = json.loads(state_path.read_text(encoding="utf-8"))
+    assert saved["workResultCount"] == 1
+    assert saved["activeAction"]["mappedResult"] == result
+    assert saved["activeAction"]["resultSavedWriteAttempted"] is True
+    assert saved["activeAction"]["released"] is True
 
 
 def test_uart_v2_factory_update_prepare_is_explicitly_unsupported(tmp_path):

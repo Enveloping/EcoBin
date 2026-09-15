@@ -12,7 +12,9 @@ let lastProgressAnnouncement = null;
 
 const REQUEST_TIMEOUT_MS = Object.freeze({
   status: 10000,
-  action: 85000,
+  // Longer than the 360 s portal IPC bound, which itself exceeds the MCU's
+  // complete 300 s clean-operation envelope. Physical START remains one-shot.
+  action: 380000,
   seal: 12000,
 });
 
@@ -470,7 +472,7 @@ const ACTIONS = Object.freeze({
     parameters: () => ({ reviewNonce: currentStatus.factoryTest.cameraReview.nonce, outsideRoleConfirmed: true, insideRoleConfirmed: true }),
   },
   CHECK_UPGRADE_LINE: { label: "检查控制板远程升级线路", prompt: "这项操作只检查远程升级能力，不会改写控制板程序。确认设备周围安全？", parameters: () => ({ confirmReadOnlyBootloaderProbe: true }) },
-  RUN_DELIVERY: { label: "执行投递硬件测试", prompt: "将真实驱动投递机构。确认周围无人、机构无阻挡？", parameters: () => ({ operatorAreaSafeConfirmed: true }) },
+  RUN_DELIVERY: { label: "执行投递硬件测试", prompt: "将真实驱动投递机构。本项只验收一轮：关门并进入选择页后，请选择结束投递，不要选择继续投递。确认周围无人、机构无阻挡？", parameters: () => ({ operatorAreaSafeConfirmed: true }) },
   CONFIRM_DELIVERY_AREA_SAFE: { label: "确认投递区域安全", prompt: "请现场检查机构已停止、周围无人且没有阻挡物。确认安全？", parameters: () => ({ operatorAreaSafeConfirmed: true }) },
   RUN_CLEAN: { label: "执行清运硬件测试", prompt: "将真实驱动清运锁。确认周围无人、机构无阻挡？", parameters: () => ({ operatorAreaSafeConfirmed: true }) },
   CONFIRM_CLEAN_DOOR: { label: "确认清运门已关闭", prompt: "请现场观察并确认清运门已经完全关闭。", parameters: () => ({ cleanDoorClosedConfirmed: true }) },
@@ -501,7 +503,7 @@ const ACTION_INSTRUCTIONS = Object.freeze({
   CAPTURE_CAMERAS: "拍摄本次临时画面，用于确认箱外和箱内摄像头。",
   CONFIRM_CAMERAS: "查看两张临时画面，确认摄像头角色正确。",
   CHECK_UPGRADE_LINE: "只读检查远程升级线路，完成后控制板会返回日常程序。",
-  RUN_DELIVERY: "操作会真实驱动机构；开始前确认人员和障碍物已经离开。",
+  RUN_DELIVERY: "操作会真实驱动机构；本项只验收一轮，关门后请选择结束投递，不要选择继续投递。开始前确认人员和障碍物已经离开。",
   CONFIRM_DELIVERY_AREA_SAFE: "动作结束后重新检查现场，再确认区域安全。",
   RUN_CLEAN: "操作会真实驱动清运锁；开始前确认现场安全。",
   CONFIRM_CLEAN_DOOR: "动作结束后现场确认清运门已经完全关闭。",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import re
 
 import pytest
@@ -14,6 +15,43 @@ from factory.acceptance_config import (
     AcceptanceConfigurationError,
     parse_environment_file,
 )
+from factory.acceptance_core import DEFAULT_ACTION_TIMEOUT_MS
+from factory.acceptance_portal_client import EXECUTE_TIMEOUT_SECONDS
+from factory.native_acceptance_mcu import (
+    FACTORY_CLEAN_OPERATION_WINDOW_MS,
+    FACTORY_DEVICE_CONFIG,
+    FACTORY_PORT_CONFIG,
+)
+
+
+def test_action_timeout_chain_covers_required_factory_workflows() -> None:
+    weight_timeout = FACTORY_PORT_CONFIG["weightMeasurementTimeoutMs"]
+    required_single_delivery_round_budget = (
+        weight_timeout
+        + FACTORY_DEVICE_CONFIG["deliveryAutoCloseMs"]
+        + FACTORY_DEVICE_CONFIG["deliveryDoorTravelWaitMs"]
+        + weight_timeout
+        + FACTORY_DEVICE_CONFIG["continueDeliveryWaitMs"]
+    )
+    clean_budget = weight_timeout + FACTORY_CLEAN_OPERATION_WINDOW_MS
+
+    assert (
+        DEFAULT_ACTION_TIMEOUT_MS["DELIVERY"]
+        >= required_single_delivery_round_budget + 10_000
+    )
+    assert DEFAULT_ACTION_TIMEOUT_MS["CLEAN"] >= clean_budget + 10_000
+    assert (
+        EXECUTE_TIMEOUT_SECONDS * 1_000
+        >= max(DEFAULT_ACTION_TIMEOUT_MS.values()) + 30_000
+    )
+
+    app = (Path(__file__).parents[1] / "factory" / "web" / "app.js").read_text(
+        encoding="utf-8"
+    )
+    browser_timeout = int(
+        re.search(r"action:\s*(\d+)", app).group(1)  # type: ignore[union-attr]
+    )
+    assert browser_timeout >= EXECUTE_TIMEOUT_SECONDS * 1_000 + 10_000
 
 
 def test_default_configuration_is_the_native_uart_v2_production_wiring() -> None:

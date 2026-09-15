@@ -101,6 +101,69 @@ def _p7_projection(
     }
 
 
+def _current_p7_projection_with_unavailable_ultrasonic() -> dict[str, object]:
+    acceptance = _p7_projection()
+    acceptance["checks"]["mcu"].update(
+        {
+            "selfTestSmokeCode": 0,
+            "selfTestSmokeState": "NORMAL",
+            "selfTestSmokeSensorHealth": "OK",
+            "selfTestFullnessSensorKind": "ULTRASONIC",
+            "selfTestFullnessReadStatus": "UNAVAILABLE",
+            "selfTestFullnessDistanceThresholdMm": 600,
+            "selfTestWeightGrams": 28,
+        }
+    )
+    acceptance["checks"]["delivery"]["result"] = {
+        "preWeightGrams": 28,
+        "postWeightGrams": 30,
+        "weightDeltaGrams": 2,
+        "infraredBlocked": None,
+        "fullnessSensorKind": "ULTRASONIC",
+        "fullnessReadStatus": "UNAVAILABLE",
+        "fullnessDistanceMm": None,
+        "fullnessDistanceThresholdMm": 600,
+        "fullnessBlocked": None,
+        "finishReason": "DELIVERY_WINDOW_EXPIRED",
+        "deliveryDoorCommand": "CLOSE",
+        "deliveryDoorOutputStatus": "COMMAND_DISPATCHED",
+        "deliveryDoorPhysicalStateBasis": "NOT_OBSERVABLE",
+        "cleanLockPowerState": None,
+        "cleanSolenoidHealth": None,
+        "cleanDoorStateBasis": None,
+        "cleanerPhysicalCloseConfirmed": None,
+    }
+    return acceptance
+
+
+def _legacy_delivery_result(*, expanded: bool) -> dict[str, object]:
+    result: dict[str, object] = {
+        "preWeightGrams": 28,
+        "postWeightGrams": 30,
+        "weightDeltaGrams": 2,
+        "infraredBlocked": None,
+    }
+    if expanded:
+        result.update(
+            {
+                "fullnessSensorKind": None,
+                "fullnessReadStatus": None,
+                "fullnessDistanceMm": None,
+                "fullnessDistanceThresholdMm": None,
+                "fullnessBlocked": None,
+                "finishReason": None,
+                "deliveryDoorCommand": None,
+                "deliveryDoorOutputStatus": None,
+                "deliveryDoorPhysicalStateBasis": None,
+                "cleanLockPowerState": None,
+                "cleanSolenoidHealth": None,
+                "cleanDoorStateBasis": None,
+                "cleanerPhysicalCloseConfirmed": None,
+            }
+        )
+    return result
+
+
 def _create_empty_delivery_store(paths: FactoryFlowPaths) -> None:
     with sqlite3.connect(paths.edge_store) as connection:
         connection.executescript(
@@ -238,6 +301,199 @@ def test_invalid_p7_source_is_unknown_instead_of_running(tmp_path: Path) -> None
     ).publish(
         FirstBootStage.FACTORY_TEST_RUNNING,
         FirstBootFacts(system_prepared=True, factory_portal_ready=True),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    assert projection["nodes"][1]["state"] == "UNKNOWN"
+
+
+def test_passed_p7_accepts_nonblocking_unavailable_ultrasonic_fact(
+    tmp_path: Path,
+) -> None:
+    """An optional failed reading must not hide an otherwise valid P7 pass."""
+
+    paths = _paths(tmp_path)
+    acceptance = _current_p7_projection_with_unavailable_ultrasonic()
+    _write(paths.acceptance, acceptance)
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    local_acceptance = projection["nodes"][1]
+    assert local_acceptance["state"] == "COMPLETED"
+    assert {step["id"]: step["state"] for step in local_acceptance["steps"]}[
+        "DELIVERY"
+    ] == "COMPLETED"
+
+
+@pytest.mark.parametrize(
+    "updates",
+    (
+        {
+            "selfTestSmokeCode": 0,
+            "selfTestSmokeState": "ALARM",
+            "selfTestSmokeSensorHealth": "OK",
+        },
+        {
+            "selfTestSmokeCode": True,
+            "selfTestSmokeState": "ALARM",
+            "selfTestSmokeSensorHealth": "ALARM",
+        },
+        {
+            "selfTestFullnessSensorKind": "ULTRASONIC",
+            "selfTestFullnessReadStatus": "UNAVAILABLE",
+            "selfTestFullnessDistanceThresholdMm": -999,
+        },
+        {
+            "selfTestFullnessSensorKind": "ULTRASONIC",
+            "selfTestFullnessReadStatus": "UNAVAILABLE",
+            "selfTestFullnessDistanceMm": 100,
+            "selfTestFullnessDistanceThresholdMm": 600,
+        },
+    ),
+)
+def test_malformed_current_p7_mcu_facts_remain_unavailable(
+    tmp_path: Path,
+    updates: dict[str, object],
+) -> None:
+    paths = _paths(tmp_path)
+    acceptance = _p7_projection()
+    acceptance["checks"]["mcu"].update(updates)
+    _write(paths.acceptance, acceptance)
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    assert projection["nodes"][1]["state"] == "UNKNOWN"
+
+
+def test_passed_p7_accepts_not_observed_smoke_fact(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    acceptance = _p7_projection()
+    acceptance["checks"]["mcu"].update(
+        {
+            "selfTestSmokeCode": 3,
+            "selfTestSmokeState": "NOT_OBSERVED",
+            "selfTestSmokeSensorHealth": "NOT_OBSERVED",
+        }
+    )
+    _write(paths.acceptance, acceptance)
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    assert projection["nodes"][1]["state"] == "COMPLETED"
+
+
+@pytest.mark.parametrize(
+    "updates",
+    (
+        {
+            "fullnessDistanceThresholdMm": -999,
+        },
+        {
+            "fullnessReadStatus": "VALID",
+            "fullnessDistanceMm": 5_000,
+            "fullnessDistanceThresholdMm": 600,
+            "fullnessBlocked": False,
+            "infraredBlocked": False,
+        },
+    ),
+)
+def test_malformed_p7_action_fullness_fact_remains_unavailable(
+    tmp_path: Path,
+    updates: dict[str, object],
+) -> None:
+    paths = _paths(tmp_path)
+    acceptance = _current_p7_projection_with_unavailable_ultrasonic()
+    acceptance["checks"]["delivery"]["result"].update(updates)
+    _write(paths.acceptance, acceptance)
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    assert projection["nodes"][1]["state"] == "UNKNOWN"
+
+
+@pytest.mark.parametrize("expanded", (False, True))
+def test_p7_accepts_raw_and_expanded_legacy_action_result(
+    tmp_path: Path,
+    expanded: bool,
+) -> None:
+    paths = _paths(tmp_path)
+    acceptance = _p7_projection()
+    acceptance["checks"]["delivery"]["result"] = _legacy_delivery_result(
+        expanded=expanded
+    )
+    _write(paths.acceptance, acceptance)
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    assert projection["nodes"][1]["state"] == "COMPLETED"
+
+
+def test_current_p7_action_cannot_disguise_fullness_fact_as_legacy_result(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    acceptance = _p7_projection()
+    acceptance["checks"]["delivery"]["result"] = _legacy_delivery_result(
+        expanded=True
+    )
+    acceptance["checks"]["delivery"]["result"]["fullnessReadStatus"] = (
+        "VALID"
+    )
+    _write(paths.acceptance, acceptance)
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
         error_code="NONE",
         seal=_seal(),
     )

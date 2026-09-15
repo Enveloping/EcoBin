@@ -53,6 +53,18 @@ REPORT_STATUSES = {
     "RECOVERY_REQUIRED",
 }
 ACTION_TYPES = {"DELIVERY", "CLEAN"}
+DEFAULT_ACTION_TIMEOUT_MS = {
+    # Factory acceptance requires one delivery round.  Cover its configured
+    # 5 s first weight, 120 s open window, 30 s close travel wait, 5 s final
+    # weight, and 30 s end/continue selection window, plus bounded
+    # UART/result-persistence headroom.  Repeated CONTINUE rounds are not part
+    # of this one-round acceptance contract and are intentionally not
+    # represented as an unbounded timeout.
+    "DELIVERY": 210_000,
+    # The MCU owns a 300 s operator window for a clean operation.  Keep enough
+    # headroom for its first/final weight and result custody handshake.
+    "CLEAN": 320_000,
+}
 REQUIRED_PASSED_CHECKS = (
     "mcu",
     "weight",
@@ -1230,7 +1242,7 @@ class FactoryAcceptanceExecutor:
         action: str,
         *,
         operator_area_safe_confirmed: bool,
-        timeout_ms: int = 60_000,
+        timeout_ms: int | None = None,
         quiet_ms: int = 150,
     ) -> dict:
         """Send BB+AA or EE once, persist the final result, then verify safety."""
@@ -1238,6 +1250,8 @@ class FactoryAcceptanceExecutor:
         self._require_open()
         if action not in ACTION_TYPES:
             raise ValueError("action must be DELIVERY or CLEAN")
+        if timeout_ms is None:
+            timeout_ms = DEFAULT_ACTION_TIMEOUT_MS[action]
         if operator_area_safe_confirmed is not True:
             raise AcceptanceError("OPERATOR_SAFETY_CONFIRMATION_REQUIRED")
         if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool) or timeout_ms <= 0:

@@ -45,10 +45,13 @@ MAXIMUM_WEIGHT_FACT_AGE_MS = 750
 MAXIMUM_ENVIRONMENT_FACT_AGE_MS = 1_000
 COMMAND_RESPONSE_TIMEOUT_MS = 250
 RESULT_CONFIRM_TIMEOUT_MS = 3_000
+WORK_QUERY_INTERVAL_SECONDS = 1.0
+MAXIMUM_CONSECUTIVE_WORK_QUERY_TIMEOUTS = 3
 MAXIMUM_PENDING_REPLY_FRAMES = 256
 MAXIMUM_COMPLETED_ACTIONS = 16
 FACTORY_CONFIG_VERSION = 3
 FACTORY_CONFIG_PROFILE = "ECOBIN_FACTORY_UART_V2_ONE_PORT_V2"
+FACTORY_CLEAN_OPERATION_WINDOW_MS = 300_000
 FACTORY_DEVICE_CONFIG = {
     "continueDeliveryWaitMs": 30_000,
     "negativeWeightThresholdGrams": 500,
@@ -457,7 +460,7 @@ class NativeAcceptanceMcu:
         else:
             values = common | {
                 "operationUid": work_uid,
-                "operationWindowMs": 300_000,
+                "operationWindowMs": FACTORY_CLEAN_OPERATION_WINDOW_MS,
             }
         values["commandDigestSha256"] = uart.compute_command_digest(name, values)
         payload = uart.encode_payload(name, values)
@@ -658,12 +661,49 @@ class NativeAcceptanceMcu:
         active = self._require_active_action(action)
         if active["targetMcuBootId"] != self._ensure_boot(deadline):
             raise AcceptanceHardwareError("MCU_FACTORY_ACTION_BOOT_CHANGED")
+        next_work_query = time.monotonic()
+        consecutive_query_timeouts = 0
         while not active.get("resultPayloadHex") and time.monotonic() < deadline:
             self._poll_frames()
             active = self._require_active_action(action)
             if active.get("resultPayloadHex"):
                 break
-            reply = self._query_work(active, deadline)
+            now = time.monotonic()
+            if now < next_work_query:
+                remaining = min(deadline, next_work_query) - now
+                if remaining > 0:
+                    time.sleep(min(POLL_INTERVAL_SECONDS, remaining))
+                continue
+            reply_deadline = min(
+                deadline,
+                now + COMMAND_RESPONSE_TIMEOUT_MS / 1_000.0,
+            )
+            try:
+                reply = self._query_work(active, reply_deadline)
+            except AcceptanceHardwareError as error:
+                if error.code != "MCU_FACTORY_WORK_QUERY_TIMEOUT":
+                    raise
+                # WORK_RESULT is journaled independently while _query_work()
+                # waits for its correlated reply.  The final result can
+                # therefore be durable even when that reply is lost; always
+                # refresh before classifying or counting a query timeout.
+                active = self._require_active_action(action)
+                if active.get("resultPayloadHex"):
+                    break
+                if time.monotonic() >= deadline:
+                    break
+                consecutive_query_timeouts += 1
+                if (
+                    consecutive_query_timeouts
+                    >= MAXIMUM_CONSECUTIVE_WORK_QUERY_TIMEOUTS
+                ):
+                    raise
+                next_work_query = (
+                    time.monotonic() + WORK_QUERY_INTERVAL_SECONDS
+                )
+                continue
+            consecutive_query_timeouts = 0
+            next_work_query = time.monotonic() + WORK_QUERY_INTERVAL_SECONDS
             if reply["status"] == "RESULT_HELD":
                 self._query_result_from_work(reply, deadline)
             elif reply["status"] in {"NOT_FOUND", "IDENTITY_CONFLICT"}:
@@ -671,6 +711,7 @@ class NativeAcceptanceMcu:
             elif reply["status"] == "BOOT_MISMATCH":
                 raise AcceptanceHardwareError("MCU_FACTORY_ACTION_BOOT_CHANGED")
             active = self._require_active_action(action)
+        active = self._require_active_action(action)
         if not active.get("resultPayloadHex"):
             raise AcceptanceHardwareError("FINAL_RESULT_TIMEOUT")
         return self._map_and_store_action_result(action, deadline)

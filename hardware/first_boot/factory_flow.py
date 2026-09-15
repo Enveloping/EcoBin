@@ -87,6 +87,8 @@ _P7_CHECK_OPTIONAL_FIELDS = {
     "selfTestWeightGrams",
     "selfTestInfraredBlocked",
     "selfTestSmokeCode",
+    "selfTestSmokeState",
+    "selfTestSmokeSensorHealth",
     "selfTestFullnessSensorKind",
     "selfTestFullnessReadStatus",
     "selfTestFullnessDistanceMm",
@@ -1075,7 +1077,12 @@ def _validate_acceptance_projection(value: dict[str, Any]) -> None:
                     raise ValueError("P7 action flag is invalid")
             allowed_values = {
                 "fullnessSensorKind": {None, "DIGITAL_INFRARED", "ULTRASONIC"},
-                "fullnessReadStatus": {None, "VALID"},
+                "fullnessReadStatus": {
+                    None,
+                    "VALID",
+                    "NOT_OBSERVED",
+                    "UNAVAILABLE",
+                },
                 "finishReason": {
                     None,
                     "DELIVERY_END",
@@ -1095,27 +1102,76 @@ def _validate_acceptance_projection(value: dict[str, Any]) -> None:
             ):
                 raise ValueError("P7 action control fact is invalid")
             kind = result["fullnessSensorKind"]
-            if kind == "ULTRASONIC" and (
-                result["fullnessReadStatus"] != "VALID"
-                or type(result["fullnessDistanceMm"]) is not int
-                or type(result["fullnessDistanceThresholdMm"]) is not int
-                or type(result["fullnessBlocked"]) is not bool
-                or result["fullnessBlocked"]
-                is not (
-                    result["fullnessDistanceMm"]
-                    < result["fullnessDistanceThresholdMm"]
-                )
-                or result["infraredBlocked"] is not result["fullnessBlocked"]
+            if kind is None and any(
+                result[name] is not None
+                for name in result_fields - legacy_result_fields
             ):
-                raise ValueError("P7 ultrasonic fullness fact is invalid")
-            if kind == "DIGITAL_INFRARED" and (
-                result["fullnessReadStatus"] != "VALID"
-                or result["fullnessDistanceMm"] is not None
-                or result["fullnessDistanceThresholdMm"] is not None
-                or type(result["fullnessBlocked"]) is not bool
-                or result["infraredBlocked"] is not result["fullnessBlocked"]
-            ):
-                raise ValueError("P7 infrared fullness fact is invalid")
+                raise ValueError("P7 legacy action result is invalid")
+            if kind == "ULTRASONIC":
+                read_status = result["fullnessReadStatus"]
+                if read_status == "VALID":
+                    if (
+                        type(result["fullnessDistanceMm"]) is not int
+                        or not 0 <= result["fullnessDistanceMm"] <= 4_000
+                        or type(result["fullnessDistanceThresholdMm"]) is not int
+                        or not 1
+                        <= result["fullnessDistanceThresholdMm"]
+                        <= 4_000
+                        or type(result["fullnessBlocked"]) is not bool
+                        or result["fullnessBlocked"]
+                        is not (
+                            result["fullnessDistanceMm"]
+                            < result["fullnessDistanceThresholdMm"]
+                        )
+                        or result["infraredBlocked"]
+                        is not result["fullnessBlocked"]
+                    ):
+                        raise ValueError(
+                            "P7 ultrasonic fullness fact is invalid"
+                        )
+                elif read_status in {"NOT_OBSERVED", "UNAVAILABLE"}:
+                    if (
+                        result["fullnessDistanceMm"] is not None
+                        or type(result["fullnessDistanceThresholdMm"]) is not int
+                        or not 1
+                        <= result["fullnessDistanceThresholdMm"]
+                        <= 4_000
+                        or result["fullnessBlocked"] is not None
+                        or result["infraredBlocked"] is not None
+                    ):
+                        raise ValueError(
+                            "P7 ultrasonic fullness fact is invalid"
+                        )
+                else:
+                    raise ValueError("P7 ultrasonic fullness fact is invalid")
+            if kind == "DIGITAL_INFRARED":
+                read_status = result["fullnessReadStatus"]
+                if read_status == "VALID":
+                    if (
+                        result["fullnessDistanceMm"] is not None
+                        or result["fullnessDistanceThresholdMm"] is not None
+                        or type(result["fullnessBlocked"]) is not bool
+                        or result["infraredBlocked"]
+                        is not result["fullnessBlocked"]
+                    ):
+                        raise ValueError(
+                            "P7 infrared fullness fact is invalid"
+                        )
+                elif read_status in {"NOT_OBSERVED", "UNAVAILABLE"}:
+                    if any(
+                        result[name] is not None
+                        for name in (
+                            "fullnessDistanceMm",
+                            "fullnessDistanceThresholdMm",
+                            "fullnessBlocked",
+                            "infraredBlocked",
+                        )
+                    ):
+                        raise ValueError(
+                            "P7 infrared fullness fact is invalid"
+                        )
+                else:
+                    raise ValueError("P7 infrared fullness fact is invalid")
             if check_name == "delivery" and result["finishReason"] is not None:
                 if (
                     result["finishReason"]
@@ -1154,6 +1210,90 @@ def _validate_acceptance_projection(value: dict[str, Any]) -> None:
                     )
                 ):
                     raise ValueError("P7 clean control fact is invalid")
+        if check_name == "mcu":
+            smoke_code = check.get("selfTestSmokeCode")
+            smoke_state = check.get("selfTestSmokeState")
+            smoke_health = check.get("selfTestSmokeSensorHealth")
+            if (
+                "selfTestSmokeState" in check
+                or "selfTestSmokeSensorHealth" in check
+            ):
+                if type(smoke_code) is not int or (
+                    smoke_code,
+                    smoke_state,
+                    smoke_health,
+                ) not in {
+                    (0, "NORMAL", "OK"),
+                    (1, "ALARM", "ALARM"),
+                    (2, "UNAVAILABLE", "UNAVAILABLE"),
+                    (3, "NOT_OBSERVED", "NOT_OBSERVED"),
+                }:
+                    raise ValueError("P7 MCU smoke fact is invalid")
+            elif "selfTestSmokeCode" in check and (
+                type(smoke_code) is not int
+                or smoke_code not in {0, 1, 2, 3}
+            ):
+                raise ValueError("P7 MCU smoke fact is invalid")
+
+            fullness_kind = check.get("selfTestFullnessSensorKind")
+            fullness_status = check.get("selfTestFullnessReadStatus")
+            current_fullness_fields = {
+                "selfTestFullnessSensorKind",
+                "selfTestFullnessReadStatus",
+                "selfTestFullnessDistanceMm",
+                "selfTestFullnessDistanceThresholdMm",
+                "selfTestFullnessBlocked",
+            }
+            if current_fullness_fields & set(check):
+                infrared = check.get("selfTestInfraredBlocked")
+                distance = check.get("selfTestFullnessDistanceMm")
+                threshold = check.get("selfTestFullnessDistanceThresholdMm")
+                blocked = check.get("selfTestFullnessBlocked")
+                if fullness_kind == "ULTRASONIC":
+                    if fullness_status == "VALID":
+                        valid_fullness = (
+                            type(distance) is int
+                            and 0 <= distance <= 4_000
+                            and type(threshold) is int
+                            and 1 <= threshold <= 4_000
+                            and type(blocked) is bool
+                            and blocked is (distance < threshold)
+                            and infrared is blocked
+                        )
+                    else:
+                        valid_fullness = (
+                            fullness_status
+                            in {"NOT_OBSERVED", "UNAVAILABLE"}
+                            and "selfTestFullnessDistanceMm" not in check
+                            and type(threshold) is int
+                            and 1 <= threshold <= 4_000
+                            and "selfTestFullnessBlocked" not in check
+                            and "selfTestInfraredBlocked" not in check
+                        )
+                elif fullness_kind == "DIGITAL_INFRARED":
+                    if fullness_status == "VALID":
+                        valid_fullness = (
+                            type(infrared) is bool
+                            and type(blocked) is bool
+                            and blocked is infrared
+                            and "selfTestFullnessDistanceMm" not in check
+                            and "selfTestFullnessDistanceThresholdMm"
+                            not in check
+                        )
+                    else:
+                        valid_fullness = (
+                            fullness_status
+                            in {"NOT_OBSERVED", "UNAVAILABLE"}
+                            and "selfTestInfraredBlocked" not in check
+                            and "selfTestFullnessDistanceMm" not in check
+                            and "selfTestFullnessDistanceThresholdMm"
+                            not in check
+                            and "selfTestFullnessBlocked" not in check
+                        )
+                else:
+                    valid_fullness = False
+                if not valid_fullness:
+                    raise ValueError("P7 MCU fullness fact is invalid")
         for name, item in check.items():
             if name == "sampling":
                 if not valid_sampling(item):

@@ -12,6 +12,10 @@ from typing import Any
 
 DEFAULT_CONTROL_SOCKET = Path("/run/ecobin/factory-test/control.sock")
 MAXIMUM_IPC_RESPONSE_BYTES = 64 * 1024
+# The core timeout starts only when final-result waiting begins.  The IPC layer
+# also covers the pre-action identity/configuration proof and post-result
+# identity, facts, and RESULT_SAVED handshake.
+EXECUTE_TIMEOUT_SECONDS = 360.0
 
 
 class AcceptancePortalClientError(RuntimeError):
@@ -41,7 +45,10 @@ class AcceptancePortalClient:
                 "ACCEPTANCE_REQUEST_BUSY", HTTPStatus.CONFLICT
             )
         try:
-            return self._request(request, timeout_seconds=75.0)
+            return self._request(
+                request,
+                timeout_seconds=EXECUTE_TIMEOUT_SECONDS,
+            )
         finally:
             self._mutation_lock.release()
 
