@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -460,14 +461,33 @@ class FactoryFlowProjector:
         command = command if isinstance(command, dict) else {}
         command_state = _code(command.get("state"), "NOT_RECEIVED")
         command_received = bool(command)
+        entry_qr_state = _code(
+            durable_value.get("deviceEntryUrlState"),
+            "STATUS_UNAVAILABLE",
+        )
         if runtime_state != "COMPLETED":
             bags_state = "PENDING"
         elif not durable_available:
             bags_state = "UNKNOWN"
         elif command_received:
             bags_state = "COMPLETED"
-        else:
+        elif entry_qr_state == "APPLIED":
             bags_state = "WAITING_OPERATOR"
+        elif entry_qr_state == "FAILED":
+            bags_state = "BLOCKED"
+        else:
+            bags_state = "ACTIVE"
+        if command_received or entry_qr_state == "APPLIED":
+            entry_qr_step = _bool_step("DEVICE_ENTRY_QR", True)
+        elif entry_qr_state == "FAILED":
+            entry_qr_step = _step(
+                "DEVICE_ENTRY_QR",
+                "BLOCKED",
+                "DEVICE_ENTRY_QR_FAILED",
+                "DEVICE_ENTRY_QR_FAILED",
+            )
+        else:
+            entry_qr_step = _bool_step("DEVICE_ENTRY_QR", False)
         nodes.append(_node(
             "FACTORY_BAGS",
             bags_state,
@@ -475,13 +495,20 @@ class FactoryFlowProjector:
             if bags_state == "UNKNOWN"
             else "P8_REQUEST_RECEIVED"
             if command_received
-            else "SCAN_DEVICE_AND_FACTORY_BAGS",
-            "NONE",
-            ((
+            else "SCAN_DEVICE_AND_FACTORY_BAGS"
+            if entry_qr_state == "APPLIED"
+            else "DEVICE_ENTRY_QR_FAILED"
+            if entry_qr_state == "FAILED"
+            else "PREPARING_DEVICE_ENTRY_QR",
+            "DEVICE_ENTRY_QR_FAILED"
+            if bags_state == "BLOCKED"
+            else "NONE",
+            (
+                entry_qr_step,
                 _bool_step("P8_REQUEST", command_received)
                 if durable_available
                 else _unknown_step("P8_REQUEST")
-            ),),
+            ),
         ))
 
         event = durable_value.get("event")
@@ -1435,7 +1462,16 @@ def _read_acceptance_delivery(path: Path) -> _SourceSnapshot:
                ORDER BY rowid DESC LIMIT 1"""
         ).fetchone()
         if command is None:
-            return _SourceSnapshot(True, {})
+            entry_url_state = _read_device_entry_url_state(connection)
+            return _SourceSnapshot(
+                True,
+                {"deviceEntryUrlState": entry_url_state},
+            )
+        # Receiving the P8 request proves that the operator already completed
+        # the device/bag scan.  QR application evidence is only a prerequisite
+        # before that point, so a later damaged QR row must not erase this
+        # durable history or hide the otherwise readable command.
+        entry_url_state = "PENDING"
         command_uid = command["command_uid"]
         command_state = command["state"]
         command_error = command["last_error"]
@@ -1464,12 +1500,13 @@ def _read_acceptance_delivery(path: Path) -> _SourceSnapshot:
                ORDER BY edge_event_sequence DESC LIMIT 1""",
             (command_uid,),
         ).fetchone()
-    except (OSError, sqlite3.Error):
+    except (OSError, sqlite3.Error, TypeError, ValueError):
         return _SourceSnapshot(False, {})
     finally:
         if connection is not None:
             connection.close()
     result: dict[str, Any] = {
+        "deviceEntryUrlState": entry_url_state,
         "command": {
             "state": command_state,
             "lastError": command_error or "NONE",
@@ -1492,6 +1529,87 @@ def _read_acceptance_delivery(path: Path) -> _SourceSnapshot:
             "platformAccepted": platform_accepted_at is not None,
         }
     return _SourceSnapshot(True, result)
+
+
+def _read_device_entry_url_state(
+    connection: sqlite3.Connection,
+) -> str:
+    rows = connection.execute(
+        """SELECT state_key, state_value FROM device_state
+           WHERE state_key IN (
+               'device_entry_url',
+               'native_device_entry_url_applied_evidence',
+               'native_device_entry_url_reload'
+           )"""
+    ).fetchall()
+    values = {row["state_key"]: row["state_value"] for row in rows}
+    raw_stored = values.get("device_entry_url")
+    if raw_stored is None:
+        return "MISSING"
+    stored = json.loads(raw_stored)
+    if not isinstance(stored, dict) or set(stored) != {
+        "deviceEntryUrl",
+        "deviceEntryUrlSha256",
+        "issuedAt",
+    }:
+        raise ValueError("stored device entry URL shape is invalid")
+    url = stored["deviceEntryUrl"]
+    digest = stored["deviceEntryUrlSha256"]
+    if (
+        not isinstance(url, str)
+        or not url.startswith("https://")
+        or not 1 <= len(url) <= 192
+        or not isinstance(digest, str)
+        or _HEX_64.fullmatch(digest) is None
+    ):
+        raise ValueError("stored device entry URL is invalid")
+    try:
+        actual_digest = hashlib.sha256(url.encode("ascii")).hexdigest()
+    except UnicodeEncodeError as error:
+        raise ValueError("stored device entry URL is not ASCII") from error
+    if actual_digest != digest:
+        raise ValueError("stored device entry URL digest differs")
+
+    raw_evidence = values.get(
+        "native_device_entry_url_applied_evidence"
+    )
+    if raw_evidence is not None:
+        evidence = json.loads(raw_evidence)
+        if not isinstance(evidence, dict) or set(evidence) != {
+            "deviceEntryUrlSha256",
+            "applicationUid",
+            "mcuCommandUid",
+            "mcuBootId",
+            "mcuEventSequence",
+            "status",
+            "faultCode",
+            "basis",
+        }:
+            raise ValueError("device entry URL evidence shape is invalid")
+        if (
+            evidence["deviceEntryUrlSha256"] == digest
+            and type(evidence["mcuBootId"]) is int
+            and evidence["mcuBootId"] > 0
+            and type(evidence["mcuEventSequence"]) is int
+            and evidence["mcuEventSequence"] > 0
+            and evidence["status"] == "APPLIED"
+            and evidence["faultCode"] is None
+            and evidence["basis"]
+            == "UART3_COMMAND_ATOMICALLY_QUEUED"
+        ):
+            return "APPLIED"
+
+    raw_reload = values.get("native_device_entry_url_reload")
+    if raw_reload is not None:
+        reload = json.loads(raw_reload)
+        if not isinstance(reload, dict):
+            raise ValueError("device entry URL reload is invalid")
+        if (
+            reload.get("deviceEntryUrlSha256") == digest
+            and reload.get("state") == "FAILED"
+        ):
+            return "FAILED"
+    return "PENDING"
 
 
 def _read_validated_json(

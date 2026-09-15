@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -168,6 +169,11 @@ def _create_empty_delivery_store(paths: FactoryFlowPaths) -> None:
     with sqlite3.connect(paths.edge_store) as connection:
         connection.executescript(
             """
+            CREATE TABLE device_state (
+                state_key TEXT PRIMARY KEY,
+                state_value TEXT,
+                updated_at TEXT
+            );
             CREATE TABLE command_inbox (
                 command_uid TEXT,
                 command_type TEXT,
@@ -183,6 +189,37 @@ def _create_empty_delivery_store(paths: FactoryFlowPaths) -> None:
                 edge_event_sequence INTEGER
             );
             """
+        )
+
+
+def _insert_current_device_entry_url_proof(paths: FactoryFlowPaths) -> None:
+    url = "https://www.jinshoubao.com/d/factory"
+    digest = hashlib.sha256(url.encode("ascii")).hexdigest()
+    stored = {
+        "deviceEntryUrl": url,
+        "deviceEntryUrlSha256": digest,
+        "issuedAt": "2026-09-15T00:00:00.000Z",
+    }
+    evidence = {
+        "deviceEntryUrlSha256": digest,
+        "applicationUid": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "mcuCommandUid": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "mcuBootId": 1,
+        "mcuEventSequence": 1,
+        "status": "APPLIED",
+        "faultCode": None,
+        "basis": "UART3_COMMAND_ATOMICALLY_QUEUED",
+    }
+    with sqlite3.connect(paths.edge_store) as connection:
+        connection.executemany(
+            "INSERT INTO device_state VALUES (?, ?, '2026-09-15T00:00:00Z')",
+            (
+                ("device_entry_url", json.dumps(stored)),
+                (
+                    "native_device_entry_url_applied_evidence",
+                    json.dumps(evidence),
+                ),
+            ),
         )
 
 
@@ -692,6 +729,7 @@ def test_healthy_store_without_p8_request_waits_for_factory_scan(
     with sqlite3.connect(paths.edge_store) as connection:
         connection.execute("DELETE FROM event_outbox")
         connection.execute("DELETE FROM command_inbox")
+    _insert_current_device_entry_url_proof(paths)
 
     projection = FactoryFlowProjector(
         paths,
@@ -707,6 +745,92 @@ def test_healthy_store_without_p8_request_waits_for_factory_scan(
     bags = projection["nodes"][5]
     assert bags["state"] == "WAITING_OPERATOR"
     assert bags["detailCode"] == "SCAN_DEVICE_AND_FACTORY_BAGS"
+
+
+def test_factory_scan_waits_for_the_enrolled_qr_apply_result(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    _write_completed_sources(paths)
+    with sqlite3.connect(paths.edge_store) as connection:
+        connection.execute("DELETE FROM event_outbox")
+        connection.execute("DELETE FROM command_inbox")
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    bags = projection["nodes"][5]
+    assert bags["state"] == "ACTIVE"
+    assert bags["detailCode"] == "PREPARING_DEVICE_ENTRY_QR"
+    assert bags["errorCode"] == "NONE"
+    assert bags["steps"][0] == {
+        "id": "DEVICE_ENTRY_QR",
+        "state": "PENDING",
+        "detailCode": "PENDING",
+        "errorCode": "NONE",
+    }
+
+
+def test_received_p8_request_does_not_regress_when_qr_proof_is_missing(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    _write_completed_sources(paths)
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    bags = projection["nodes"][5]
+    assert bags["state"] == "COMPLETED"
+    assert bags["detailCode"] == "P8_REQUEST_RECEIVED"
+    assert bags["steps"][0]["state"] == "COMPLETED"
+    assert bags["steps"][1]["state"] == "COMPLETED"
+
+
+def test_received_p8_request_does_not_regress_when_qr_proof_is_corrupt(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    _write_completed_sources(paths)
+    _insert_current_device_entry_url_proof(paths)
+    with sqlite3.connect(paths.edge_store) as connection:
+        connection.execute(
+            """UPDATE device_state SET state_value='{'
+               WHERE state_key='native_device_entry_url_applied_evidence'"""
+        )
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    bags = projection["nodes"][5]
+    assert bags["state"] == "COMPLETED"
+    assert bags["detailCode"] == "P8_REQUEST_RECEIVED"
+    assert bags["steps"][0]["state"] == "COMPLETED"
+    assert bags["steps"][1]["state"] == "COMPLETED"
 
 
 def test_unavailable_store_is_unknown_instead_of_waiting_for_scan(

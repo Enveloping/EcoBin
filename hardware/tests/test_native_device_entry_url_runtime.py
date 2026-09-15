@@ -9,6 +9,7 @@ from device_acceptance import DeviceAcceptanceRunner
 from edge_store import EdgeStore
 from mcu_session import McuCommandDispatcher
 from native_business_runtime import NativeBusinessRuntime
+from native_device_entry_url import enrolled_source
 from onenet_wire import canonical_payload_sha256, encode_event_post
 import uart2_protocol as uart
 
@@ -45,7 +46,7 @@ def command(command_type="SYNC_DEVICE_ENTRY_URL"):
     }
 
 
-def owner(store, boot_id, sent):
+def owner(store, boot_id, sent, *, enrolled_url=False):
     runtime = NativeBusinessRuntime.__new__(NativeBusinessRuntime)
     runtime.store = store
     runtime.device_name = DEVICE_NAME
@@ -75,6 +76,11 @@ def owner(store, boot_id, sent):
     runtime.safety = SimpleNamespace(get_mcu_maintenance_status=lambda: None)
     runtime._dispatch_authority = None
     runtime._device_entry_url_link_refresh_pending = True
+    runtime._enrolled_device_entry_url = (
+        enrolled_source(DEVICE_NAME, URL)
+        if enrolled_url
+        else None
+    )
     runtime.dispatcher = McuCommandDispatcher(
         store,
         runtime.boot,
@@ -391,6 +397,189 @@ def test_sync_waits_for_apply_result_and_uart_reconnect_builds_reload(tmp_path):
         reconnect_sent[0], sender_role="EDGE"
     )["messageName"] == "DEVICE_ENTRY_URL_BEGIN"
     assert store.get_command(cloud["commandUid"])["state"] == "COMPLETED"
+
+
+def test_enrolled_url_is_applied_without_a_cloud_sync_command(tmp_path):
+    """The encrypted enrollment result is enough to start the UART write."""
+
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    boot_id = store.reserve_native_boot_id(store.reserve_native_query_id())
+    assert store.recognize_native_boot_id(boot_id)
+    assert store.save_device_entry_url(
+        URL,
+        URL_SHA256,
+        "2030-01-01T00:00:00.000Z",
+    )["disposition"] == "SAVED"
+    sent = []
+    runtime = owner(store, boot_id, sent, enrolled_url=True)
+
+    runtime._device_entry_url_poll(0)
+
+    assert uart.decode_frame(
+        sent[0], sender_role="EDGE"
+    )["messageName"] == "DEVICE_ENTRY_URL_BEGIN"
+    reload = store.get_native_device_entry_url_reload()
+    assert reload["continuation"] == "LOCAL_RELOAD"
+    assert reload["sourceCommandUid"] \
+        == runtime._enrolled_device_entry_url["sourceUid"]
+    assert store.get_command(reload["sourceCommandUid"]) is None
+    accept_last_command(store, runtime, sent, boot_id)
+
+    finish_application(store, runtime, sent, boot_id, 1)
+
+    evidence = store.get_native_device_entry_url_applied_evidence()
+    assert evidence["deviceEntryUrlSha256"] == URL_SHA256
+    assert evidence["mcuBootId"] == boot_id
+    assert not any(
+        row["event_type"] == "DEVICE_ENTRY_URL_APPLICATION_RESULT"
+        for row in store.list_pending_events(100)
+    )
+    store.close()
+
+
+def test_enrolled_url_reloads_after_uart_reconnect_without_cloud_command(
+    tmp_path,
+):
+    """A new UART owner must write the enrolled URL on the new link."""
+
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    boot_id = store.reserve_native_boot_id(store.reserve_native_query_id())
+    assert store.recognize_native_boot_id(boot_id)
+    store.save_device_entry_url(
+        URL,
+        URL_SHA256,
+        "2030-01-01T00:00:00.000Z",
+    )
+    first_sent = []
+    first = owner(store, boot_id, first_sent, enrolled_url=True)
+    first._device_entry_url_poll(0)
+    accept_last_command(store, first, first_sent, boot_id)
+    first_journal = finish_application(
+        store,
+        first,
+        first_sent,
+        boot_id,
+        1,
+    )
+    assert store.get_native_device_entry_url_applied_evidence() is not None
+
+    second_sent = []
+    second = owner(store, boot_id, second_sent, enrolled_url=True)
+    second._device_entry_url_poll(0)
+
+    reload = store.get_native_device_entry_url_reload()
+    assert reload["state"] == "WAITING"
+    assert reload["sourceCommandUid"] \
+        == second._enrolled_device_entry_url["sourceUid"]
+    assert reload["attempt"]["applicationUid"] \
+        != first_journal["attempt"]["applicationUid"]
+    assert store.get_native_device_entry_url_applied_evidence() is None
+    assert uart.decode_frame(
+        second_sent[0], sender_role="EDGE"
+    )["messageName"] == "DEVICE_ENTRY_URL_BEGIN"
+    store.close()
+
+
+def test_enrolled_url_reloads_after_mcu_restart_without_cloud_command(
+    tmp_path,
+):
+    """The enrollment authority remains usable after MCU RAM is reset."""
+
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    first_boot = store.reserve_native_boot_id(store.reserve_native_query_id())
+    assert store.recognize_native_boot_id(first_boot)
+    store.save_device_entry_url(
+        URL,
+        URL_SHA256,
+        "2030-01-01T00:00:00.000Z",
+    )
+    first_sent = []
+    first = owner(store, first_boot, first_sent, enrolled_url=True)
+    first._device_entry_url_poll(0)
+    accept_last_command(store, first, first_sent, first_boot)
+    finish_application(store, first, first_sent, first_boot, 1)
+
+    second_boot = store.reserve_native_boot_id(store.reserve_native_query_id())
+    assert second_boot > first_boot
+    assert store.recognize_native_boot_id(second_boot)
+    second_sent = []
+    second = owner(store, second_boot, second_sent, enrolled_url=True)
+    second._device_entry_url_poll(0)
+
+    reload = store.get_native_device_entry_url_reload()
+    assert reload["state"] == "WAITING"
+    assert reload["sourceCommandUid"] \
+        == second._enrolled_device_entry_url["sourceUid"]
+    assert reload["attempt"]["targetMcuBootId"] == second_boot
+    assert store.get_native_device_entry_url_applied_evidence() is None
+    assert uart.decode_frame(
+        second_sent[0], sender_role="EDGE"
+    )["messageName"] == "DEVICE_ENTRY_URL_BEGIN"
+    store.close()
+
+
+def test_enrolled_url_waits_until_the_device_is_idle(tmp_path, monkeypatch):
+    """Registration does not bypass the existing business-idle guard."""
+
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    boot_id = store.reserve_native_boot_id(store.reserve_native_query_id())
+    assert store.recognize_native_boot_id(boot_id)
+    store.save_device_entry_url(
+        URL,
+        URL_SHA256,
+        "2030-01-01T00:00:00.000Z",
+    )
+    sent = []
+    runtime = owner(store, boot_id, sent, enrolled_url=True)
+    original_get_work_slot = store.get_work_slot
+    monkeypatch.setattr(
+        store,
+        "get_work_slot",
+        lambda: {"workUid": "busy-delivery"},
+    )
+
+    runtime._device_entry_url_poll(0)
+
+    assert sent == []
+    assert store.get_native_device_entry_url_reload() is None
+
+    monkeypatch.setattr(store, "get_work_slot", original_get_work_slot)
+    runtime._device_entry_url_poll(0)
+
+    assert uart.decode_frame(
+        sent[0], sender_role="EDGE"
+    )["messageName"] == "DEVICE_ENTRY_URL_BEGIN"
+    store.close()
+
+
+def test_a_different_stored_url_does_not_borrow_enrollment_authority(
+    tmp_path,
+):
+    """A failed remote change cannot masquerade as the enrolled URL."""
+
+    changed_url = "https://www.jinshoubao.com/device-entry/remote-change"
+    changed_digest = hashlib.sha256(changed_url.encode("ascii")).hexdigest()
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    boot_id = store.reserve_native_boot_id(store.reserve_native_query_id())
+    assert store.recognize_native_boot_id(boot_id)
+    store.save_device_entry_url(
+        changed_url,
+        changed_digest,
+        "2030-01-01T00:00:00.000Z",
+    )
+    sent = []
+    runtime = owner(store, boot_id, sent, enrolled_url=True)
+
+    runtime._device_entry_url_poll(0)
+
+    assert sent == []
+    assert store.get_native_device_entry_url_reload() is None
+    store.close()
 
 
 def test_restart_queries_the_original_commit_before_any_new_attempt(tmp_path):

@@ -23,6 +23,9 @@ APPLICATION_COMMANDS = frozenset({
     "REQUEST_DEVICE_ACCEPTANCE",
 })
 CONTINUATIONS = APPLICATION_COMMANDS | {"LOCAL_RELOAD"}
+ENROLLED_SOURCE_NAMESPACE = uuid.UUID(
+    "9addc6d6-9751-5aa5-b9fc-1b511f560512"
+)
 
 
 def validate_url(url: str, sha256: str) -> bytes:
@@ -51,6 +54,40 @@ def validate_url(url: str, sha256: str) -> bytes:
     ):
         raise ValueError("device entry URL SHA-256 mismatch")
     return encoded
+
+
+def enrolled_source(device_name: str, url: str) -> dict:
+    """Build the stable local authority installed by encrypted enrollment."""
+
+    if (
+        not isinstance(device_name, str)
+        or not 1 <= len(device_name) <= 64
+        or any(
+            not (
+                character.isascii()
+                and (character.isalnum() or character in "_.:-")
+            )
+            for character in device_name
+        )
+    ):
+        raise ValueError("enrolled device entry URL device name is invalid")
+    if not isinstance(url, str):
+        raise ValueError("enrolled device entry URL is invalid")
+    try:
+        digest = hashlib.sha256(url.encode("ascii")).hexdigest()
+    except UnicodeEncodeError as error:
+        raise ValueError("enrolled device entry URL must be ASCII") from error
+    validate_url(url, digest)
+    return {
+        "deviceEntryUrl": url,
+        "deviceEntryUrlSha256": digest,
+        "sourceUid": str(
+            uuid.uuid5(
+                ENROLLED_SOURCE_NAMESPACE,
+                f"{device_name}\n{digest}",
+            )
+        ),
+    }
 
 
 def _uuid(value: str, field: str) -> str:

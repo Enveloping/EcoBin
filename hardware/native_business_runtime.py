@@ -25,6 +25,7 @@ from native_delivery_issue_report import NativeDeliveryIssueReporter
 from native_device_entry_url import (
     JOURNAL_KEY as DEVICE_ENTRY_URL_JOURNAL_KEY,
     encode_command as encode_device_entry_url_command,
+    enrolled_source as enrolled_device_entry_url_source,
     new_journal as new_device_entry_url_journal,
     new_reload_journal as new_device_entry_url_reload_journal,
     rebase_journal as rebase_device_entry_url_journal,
@@ -58,7 +59,8 @@ class NativeBusinessRuntime:
     port_count = 1
     def __init__(self, store, safety, *, device_name, photo_manager=None,
                  connected=lambda: False, clock=lambda: monotonic_ns() // 1000000,
-                 communication_timeout_ms=10000):
+                 communication_timeout_ms=10000,
+                 enrolled_device_entry_url=None):
         if not isinstance(safety, PermanentJobSafety) or not safety.enabled:
             raise ValueError("native business requires the permanent job authority")
         if type(communication_timeout_ms) is not int or communication_timeout_ms < 1000:
@@ -113,6 +115,14 @@ class NativeBusinessRuntime:
         self._runtime_instance_uid = str(uuid.uuid4())
         self._dispatch_authority = None
         self._device_entry_url_link_refresh_pending = True
+        self._enrolled_device_entry_url = (
+            None
+            if enrolled_device_entry_url is None
+            else enrolled_device_entry_url_source(
+                device_name,
+                enrolled_device_entry_url,
+            )
+        )
         self.reporter = NativeResultReporter(store, safety, device_name=device_name, photo_manager=photo_manager)
         self.issue_reporter = NativeDeliveryIssueReporter(store, device_name=device_name)
 
@@ -1243,9 +1253,21 @@ class NativeBusinessRuntime:
                     active["deviceEntryUrlSha256"],
                 )
             )
-            # A locally stored URL which never reached APPLIED is not a reload
-            # authority. Its original cloud command already carries the
-            # terminal failure and must not be silently retried here.
+            enrolled = getattr(self, "_enrolled_device_entry_url", None)
+            if (
+                source_command_uid is None
+                and enrolled is not None
+                and enrolled["deviceEntryUrl"] == active["deviceEntryUrl"]
+                and enrolled["deviceEntryUrlSha256"]
+                == active["deviceEntryUrlSha256"]
+            ):
+                # The encrypted enrollment bundle is already the permanent
+                # authority for the first device URL. It does not need a
+                # second cloud command before the existing UART transaction.
+                source_command_uid = enrolled["sourceUid"]
+            # A different locally stored URL still needs its original cloud
+            # authority. This prevents a failed remote update from silently
+            # becoming an enrollment URL after restart.
             if source_command_uid is None:
                 return
             reload = self.store.get_native_device_entry_url_reload()

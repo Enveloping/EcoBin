@@ -270,15 +270,19 @@ class EcoBinEdge:
         self.factory_seal_gate = FactorySealProductionGate(
             FactorySealPaths(edge_store=Path(EDGE_STORE_PATH))
         )
+        enrolled_identity = (
+            DEVICE_CREDENTIALS
+            if DEVICE_CREDENTIALS is not None
+            else BUSINESS_IDENTITY
+        )
+        self._enrolled_device_entry_url = (
+            enrolled_identity.device_entry_url
+            if enrolled_identity is not None
+            else None
+        )
         _seed_enrolled_device_entry_url(
             self.store,
-            (
-                DEVICE_CREDENTIALS.device_entry_url
-                if DEVICE_CREDENTIALS is not None
-                else BUSINESS_IDENTITY.device_entry_url
-                if BUSINESS_IDENTITY is not None
-                else None
-            ),
+            self._enrolled_device_entry_url,
         )
 
         # -- 读取 boot ID --
@@ -938,7 +942,12 @@ class EcoBinEdge:
         from native_business_runtime import NativeBusinessRuntime
         return NativeBusinessRuntime(self.store, self.job_safety,
             device_name=DEVICE_NAME,
-            connected=lambda: self.cloud_transport.connected)
+            connected=lambda: self.cloud_transport.connected,
+            enrolled_device_entry_url=getattr(
+                self,
+                "_enrolled_device_entry_url",
+                None,
+            ))
 
     def _run_native(self):
         """One foreground UART owner; reuse cloud/photo/management services.

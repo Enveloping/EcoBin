@@ -216,6 +216,8 @@ const DETAIL_DESCRIPTIONS = Object.freeze({
   WAITING_ONENET_ACCEPTANCE: "验收信息已可靠保存，正在等待云端设备平台接收。",
   WAITING_BACKEND_CONFIRMATION: "云端设备平台已接收，正在等待后台确认。",
   SCAN_DEVICE_AND_FACTORY_BAGS: "请切换到厂家小程序，扫描设备和每个投口的初始袋码。",
+  PREPARING_DEVICE_ENTRY_QR: "正在把设备二维码发送到串口屏，完成后才能扫描设备和初始袋码。",
+  DEVICE_ENTRY_QR_FAILED: "设备二维码未能显示，请保留设备通电并联系技术人员处理。",
   P8_REQUEST_RECEIVED: "初始袋码已经登记完整，后台已发起云端自动验收。",
   REQUEST_RECEIVED: "设备已经收到云端验收请求，正在开始采集验收信息。",
   PERSISTENT_STORE_CHECK: "正在检查本地数据能否安全保存。",
@@ -239,6 +241,7 @@ const DETAIL_DESCRIPTIONS = Object.freeze({
 const ERROR_DESCRIPTIONS = Object.freeze({
   NONE: "当前没有错误",
   STATUS_UNAVAILABLE: "状态来源暂时不可用",
+  DEVICE_ENTRY_QR_FAILED: "设备二维码下发失败",
   SYSTEM_FACTS_INVALID: "无法读取设备基础状态",
   FACTORY_TEST_GATE_CLOSED: "本机硬件检查尚未完成",
   FACTORY_TEST_FAILED: "本机硬件检查未通过",
