@@ -1073,7 +1073,11 @@ def test_new_real_mcu_boot_invalidates_even_a_younger_than_750ms_cached_read(run
         assert case.store.get_work_slot() is None
 
 
-def test_optional_environment_facts_warn_and_recover_without_blocking_start(runtime, tmp_path):
+def test_optional_environment_facts_warn_and_recover_without_blocking_start(
+    runtime,
+    tmp_path,
+    monkeypatch,
+):
     with completed_first_work(runtime, tmp_path) as (case, owner):
         apply_configuration(case, owner)
         await_start_facts(case, owner)
@@ -1091,6 +1095,14 @@ def test_optional_environment_facts_warn_and_recover_without_blocking_start(runt
         })
         owner._facts = facts
         owner._facts_requested_at = case.clock.now
+        # A retained legacy fullness projection must not become a business
+        # admission rule.  The current distance is an auxiliary device fact,
+        # just like smoke, and is reported without deciding whether to start.
+        monkeypatch.setattr(
+            case.store,
+            "get_port_fullness_state",
+            lambda port_no, bag_uid: "FULL",
+        )
 
         owner._environment_health_poll(case.clock.now)
         owner._environment_health_poll(case.clock.now)

@@ -843,10 +843,10 @@ class NativeBusinessRuntime:
             raise JobSafetyError("WEIGHT_UNAVAILABLE", "a fresh actual scale read is required")
         if facts["updateLatched"] or facts["lastDeliveryDoorCommand"] != "CLOSE" or facts["cleanLockPowered"]:
             raise JobSafetyError("MCU_CONTROL_NOT_READY", "MCU close/lock control is not ready")
-        # PB5 and optional smoke/ranging/camera readings are not admission faults.
-        if command["commandType"] == "START_DELIVERY_SESSION":
-            if self.store.get_port_fullness_state(payload["portNo"], payload["bagUid"]) == "FULL":
-                raise JobSafetyError("PORT_FULL", "the original bag is already known full")
+        # PB5 and optional smoke/ranging/camera readings are reported facts only.
+        # A retained legacy fullness projection must never become a business
+        # admission rule: ranging uses the latest device-fact snapshot exactly
+        # like smoke and does not decide whether a delivery may start.
         slot = self.store.get_work_slot()
         if permit is None:
             if any(row["payload"].get("mcuConfigurationProfile") == PROFILE

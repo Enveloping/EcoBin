@@ -349,6 +349,7 @@ const ERROR_DESCRIPTIONS = Object.freeze({
   MCU_RESET_LINE_REQUIRED_FOR_RECOVERY: "设备控制板复位线路未安装，无法完成安全恢复",
   APPLICATION_RECOVERY_FAILED: "设备控制板未能恢复到日常运行程序",
   MCU_FULLNESS_FACT_UNAVAILABLE: "满溢传感器没有可用读数；请检查探头和接线后按页面提示恢复。",
+  MCU_FULLNESS_FACT_STALE: "旧版本遗留的测距过期状态；当前版本直接使用设备事实快照中的最近观测，不再因此阻断。",
   MCU_WEIGHT_FACT_STALE: "称重读数已过期；请确认承重面稳定后按页面提示恢复。",
   MCU_SMOKE_FACT_STALE: "烟雾传感器读数已过期；请检查模块后按页面提示恢复。",
   FINAL_RESULT_TIMEOUT: "控制板未在时限内返回硬件动作结果；请先确认机构安全，再执行受控恢复。",

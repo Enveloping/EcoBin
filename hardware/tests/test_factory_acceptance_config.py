@@ -72,6 +72,7 @@ def test_hotspot_explains_native_recovery_errors_without_generic_fallback() -> N
     )
     assert 'FINAL_RESULT_TIMEOUT: "控制板未在时限内返回硬件动作结果' in app
     assert 'MCU_FACTORY_WORK_STILL_RUNNING: "控制板仍在执行上次硬件动作' in app
+    assert 'MCU_FULLNESS_FACT_STALE: "旧版本遗留的测距过期状态' in app
 
 
 def test_default_configuration_is_the_native_uart_v2_production_wiring() -> None:

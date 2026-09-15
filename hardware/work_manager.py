@@ -3936,7 +3936,8 @@ class WorkManager:
         config = payload["config"]
         self._require_applied_config(config)
         # 后端只判断它能权威确认的身份、归属、OneNet 在线和整机占位。
-        # 满溢、安全传感器、重启清运锁等现场事实必须在香橙派写串口前判断。
+        # 重启清运锁等业务安全事实必须在香橙派写串口前判断。超声波测距
+        # 与烟雾状态一样只作为辅助设备事实上报，不参与投递准入。
         if self._store.clean_restart_interlock_active(
             payload["portNo"]
         ):
@@ -3944,11 +3945,6 @@ class WorkManager:
                 command,
                 "CLEAN_RESTARTED_CLEAN_REQUIRED",
             )
-        if self._store.get_port_fullness_state(
-            payload["portNo"],
-            payload["bagUid"],
-        ) == "FULL":
-            return self._reject_command(command, "PORT_FULL")
         safety_error = self._safety_rejection(payload["portNo"])
         if safety_error:
             return self._reject_command(command, safety_error)

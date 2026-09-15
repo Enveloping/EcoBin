@@ -88,7 +88,6 @@ def test_fault_weight_is_retained_but_not_usable_for_delivery():
             AdmissionStore(interlocked=True),
             "CLEAN_RESTARTED_CLEAN_REQUIRED",
         ),
-        (AdmissionStore(fullness="FULL"), "PORT_FULL"),
     ],
 )
 def test_delivery_physical_admission_is_enforced_locally(
@@ -101,6 +100,17 @@ def test_delivery_physical_admission_is_enforced_locally(
 
     assert result == {"acked": False, "error": expected}
     assert store.observations == [("REJECTED", expected)]
+
+
+def test_legacy_fullness_projection_is_not_a_delivery_admission_rule():
+    store = AdmissionStore(fullness="FULL")
+    manager = WorkManager(store, object(), None, None)
+    manager._safety_rejection = lambda port_no: "WEIGHT_UNAVAILABLE"
+
+    result = manager.start_delivery_command(delivery_command())
+
+    assert result == {"acked": False, "error": "WEIGHT_UNAVAILABLE"}
+    assert store.observations == [("REJECTED", "WEIGHT_UNAVAILABLE")]
 
 
 def test_candidate_job_gate_disables_all_legacy_debug_entry_points():
