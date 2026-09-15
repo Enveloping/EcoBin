@@ -719,6 +719,49 @@ updater、cellular-uplink、remote-support 也均为 `active/running` 且没有�
 本节镜像构建和末次复核都没有再次发送投递 START，也没有发出任何清运、清运门或清运解锁
 指令。真实清运 HIL 仍未执行。
 
+### 5.10 v41 写卡及完整回读
+
+项目负责人插入目标 TF 卡并明确回复“确认覆盖磁盘 1”后，先以只读方式重新识别 Windows 磁盘：
+磁盘 0 是 1,024,209,543,168 字节的系统 NVMe；唯一外接目标是磁盘 1，设备名
+`Mass Storage Device`，USB，总容量 31,268,536,320 字节，序列号 `121220160204`，状态
+`Online / Healthy`，且 `IsBoot=false`、`IsSystem=false`。写卡脚本同时固定磁盘编号、序列号、
+容量、写卡器脚本摘要、镜像字节数和镜像摘要，任一项不符都会在打开物理盘写入前失败关闭。
+
+写卡器 `tools/orangepi-image/Write-HilImageToDisk.ps1` 的复核摘要为
+`2117d2e231ae001187e04c48c64e56b4fca5a21d99ec308777d7e015e69c9d78`。本次专用脚本为 Git
+忽略的现场工具 `hardware/image-artifacts/local/flash-v41-hil-disk1.ps1`，语法检查通过，摘要为
+`3bd2cb68c8607f4afa165e937ad97b9d265df3ea59c261de68eae34ae62f6448`；它使用 UAC 取得物理盘
+写权限，不接收模糊磁盘选择，也不覆盖既有写卡证据。
+
+2026-09-15 02:35:15 UTC 开始校验，02:35:23 UTC 完成目标和镜像门禁，随后向磁盘 1 写入
+2,571,108,352 字节。02:37:52 UTC 写入完成并 flush；02:37:53 UTC 开始从 TF 卡同一范围完整
+回读，02:40:07 UTC 完成。结果为：
+
+| 项目 | 结果 |
+|---|---|
+| 源镜像 SHA-256 | `297a400aa5d15423139ac084ba5e05cc075520c871a7a716048b4da54ad6aff6` |
+| 实际写入字节数 | 2,571,108,352 |
+| 完整回读字节数 | 2,571,108,352 |
+| TF 卡回读 SHA-256 | `297a400aa5d15423139ac084ba5e05cc075520c871a7a716048b4da54ad6aff6` |
+| root 密码状态 | locked |
+| 最终结果/退出码 | `PASS` / `0` |
+
+写卡后再次读取磁盘身份，仍是磁盘 1、序列号 `121220160204`、31,268,536,320 字节、
+`Online / Healthy`，没有被替换或掉线。Windows 将镜像中的第一分区显示为 `Unknown` 是因为该
+分区为 Linux ext4，不是写卡失败；剩余卡容量由镜像中的首次启动扩容服务在目标机冷启动时处理。
+
+永久证据及其 SHA-256 为：
+
+| 证据 | SHA-256 |
+|---|---|
+| `flash-v41-hil-disk1.progress.log` | `265fdfa782cd9081b3f76cb88d136507e399cdb89a3b5755eccaf43973192cec` |
+| `flash-v41-hil-disk1.result.json` | `337cb560116731b8386427c1239dd3c1db82d52f0075c4c68f0f66fb178fe534` |
+| `flash-v41-hil-disk1.exit-code.txt` | `9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa` |
+
+本步骤只完成 TF 卡物理写入和逐字节回读，没有启动新卡、没有伪造厂家验收、没有发起投递或
+清运，也没有修改后台版本认可列表。v41 是否被后台接受仍需在实际厂家验收前单独确认；写卡
+PASS 不能替代新卡冷启动、热点、UART、RS485、OneNet、反向 SSH 或业务现场验收。
+
 ## 6. 当前卡实际热修改清单
 
 重新烧卡会丢失下列现场修改：
