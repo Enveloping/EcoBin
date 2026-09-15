@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import edge_boot as edge_boot_module
@@ -571,7 +572,57 @@ def test_native_runtime_snapshot_projects_only_current_device_facts(tmp_path):
     assert port["fullnessSampleBasis"] == "NOT_SAMPLED"
     assert port["representativeDistanceMm"] == 500
     assert port["fullnessValidSampleCount"] == 1
+    assert uuid.UUID(port["weightMeasurementUid"]).version == 4
     encode_event_post("DEVICE_RUNTIME_SNAPSHOT", cloud.published[0][1])
+    store.close()
+
+
+def test_native_runtime_snapshot_reuses_uuid4_only_for_same_weight_observation(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    store.set_edge_boot_id("123")
+    mark_configuration_applied(store)
+    info = {
+        "mcu_boot_id": 456,
+        "mcu_port_count": 1,
+        "uart_protocol_major": 2,
+        "uart_protocol_minor": 0,
+        "uart_state": "READY",
+    }
+
+    first_cloud = FakeCloudTransport()
+    _publish_runtime_snapshot(
+        store, first_cloud, DEVICE_IDENTITY, info, None,
+        device_facts=native_device_facts(),
+    )
+    first_uid = first_cloud.published[0][1]["payload"]["ports"][0][
+        "weightMeasurementUid"
+    ]
+    same_cloud = FakeCloudTransport()
+    _publish_runtime_snapshot(
+        store, same_cloud, DEVICE_IDENTITY, info, None,
+        device_facts=native_device_facts(),
+    )
+    changed_cloud = FakeCloudTransport()
+    _publish_runtime_snapshot(
+        store, changed_cloud, DEVICE_IDENTITY, info, None,
+        device_facts=native_device_facts(
+            scaleAttemptSequence=8,
+            scaleCapturedUptimeMs=10_100,
+            capturedUptimeMs=10_100,
+        ),
+    )
+    same_uid = same_cloud.published[0][1]["payload"]["ports"][0][
+        "weightMeasurementUid"
+    ]
+    changed_uid = changed_cloud.published[0][1]["payload"]["ports"][0][
+        "weightMeasurementUid"
+    ]
+
+    assert first_uid == same_uid
+    assert changed_uid != first_uid
+    assert uuid.UUID(first_uid).version == 4
+    assert uuid.UUID(changed_uid).version == 4
     store.close()
 
 

@@ -412,7 +412,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V81 application exited before readiness`n$diagnostic"
+            throw "correct V83 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -450,7 +450,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V81 application did not become ready; " +
+    throw "correct V83 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -1302,8 +1302,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 81) {
-        throw "correct target must contain 81 successful Flyway migrations"
+    if ($historyCount -ne 83) {
+        throw "correct target must contain 83 successful Flyway migrations"
     }
 
     Invoke-MySql -Database "" -Sql @"
@@ -1824,7 +1824,7 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 81
+        targetVersion = 83
         domainTables = 138
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
@@ -1833,7 +1833,7 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV81Ready = $true
+        correctV83Ready = $true
         deviceLifecycleCancellationV72 = $true
         tenantDevicePolicyV71 = $true
         devicePolicyV70UpgradePreserved = $true

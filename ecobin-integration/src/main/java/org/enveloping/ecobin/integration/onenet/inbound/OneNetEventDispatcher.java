@@ -55,6 +55,9 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     private static final String UUID_V4 =
             "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
                     + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
+    private static final String UUID_V4_OR_V5 =
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}"
+                    + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
     private static final String SHA256 = "^[0-9a-f]{64}$";
     private static final Pattern IMAGE_COMMUNICATION_VERSION =
             Pattern.compile("^communication-([0-9]{8}-[0-9]{2,6})$");
@@ -3212,7 +3215,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                         wire,
                         "weightMeasurementUidPresent",
                         "weightMeasurementUid",
-                        UUID_V4,
+                        UUID_V4_OR_V5,
                         64));
         String measurementStatus = enumText(
                 integer(wire, "weightMeasurementStatus"),

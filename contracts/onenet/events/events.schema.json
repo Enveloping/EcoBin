@@ -2049,7 +2049,7 @@
         "cleanerPhysicalCloseConfirmed": { "type": "boolean" },
         "weightMeasurementUid": {
           "oneOf": [
-            { "$ref": "../common.schema.json#/$defs/uuid" },
+            { "$ref": "../common.schema.json#/$defs/uuidV4OrV5" },
             { "type": "null" }
           ]
         },
@@ -2175,7 +2175,7 @@
           },
           "then": {
             "properties": {
-              "weightMeasurementUid": { "$ref": "../common.schema.json#/$defs/uuid" },
+              "weightMeasurementUid": { "$ref": "../common.schema.json#/$defs/uuidV4OrV5" },
               "weightMeasurementStatus": { "const": "UNSTABLE" },
               "weightValueAvailable": { "const": true },
               "reportedWeightGrams": { "$ref": "../common.schema.json#/$defs/signedInt32Grams" },

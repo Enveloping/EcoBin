@@ -113,6 +113,14 @@ class RuntimeMedianTransactionTest {
     }
 
     @Test
+    void runtimeReceiverAcceptsLegacyDeterministicUuidV5MeasurementIdentity() {
+        String legacyIdentity = "93b05006-9ed9-5d09-a48e-3b80eb3ef215";
+        port(0).put("weightMeasurementUid", legacyIdentity);
+        assertEquals(TrustedDeviceEventApplyResult.APPLIED, apply());
+        assertEquals(legacyIdentity, runtime(1).get("weight_measurement_uid"));
+    }
+
+    @Test
     void medianWithOmittedFaultEvidenceIsRejectedBeforeChangingCurrentRuntime() {
         port(0).remove("weightFaultCode");
         assertThrows(IllegalArgumentException.class, this::apply);

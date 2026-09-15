@@ -2455,7 +2455,8 @@ public class TrustedOrangePiRuntimeFactService
                 || !"OK".equals(requiredText(port, "weightSensorHealth"))
                 || !requiredBoolean(port, "weightValueAvailable")
                 || !port.has("weightFaultCode") || !port.get("weightFaultCode").isNull()
-                || nullableUuid(port, "weightMeasurementUid") == null
+                || nullableRuntimeMeasurementUuid(
+                        port, "weightMeasurementUid") == null
                 || grams < Integer.MIN_VALUE || grams > Integer.MAX_VALUE
                 || nonNegativeLong(port, "measurementElapsedMs") != 5000
                 || count < 5 || count > 32 || calibration > 4_294_967_295L
@@ -3738,6 +3739,28 @@ public class TrustedOrangePiRuntimeFactService
                 || !parsed.toString().equals(value)) {
             throw new IllegalArgumentException(
                     field + " must be a lowercase UUIDv4");
+        }
+        return parsed;
+    }
+
+    private static UUID nullableRuntimeMeasurementUuid(
+            JsonNode node, String field) {
+        String value = nullableText(node, field);
+        if (value == null) {
+            return null;
+        }
+        UUID parsed;
+        try {
+            parsed = UUID.fromString(value);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException(
+                    field + " must be a UUID", exception);
+        }
+        if ((parsed.version() != 4 && parsed.version() != 5)
+                || parsed.variant() != 2
+                || !parsed.toString().equals(value)) {
+            throw new IllegalArgumentException(
+                    field + " must be a lowercase UUIDv4 or UUIDv5");
         }
         return parsed;
     }

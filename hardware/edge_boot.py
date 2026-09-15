@@ -603,6 +603,7 @@ def _build_runtime_snapshot_payload(
         if compatibility_mode
         else (
             _native_runtime_ports(
+                store,
                 mcu_info,
                 device_facts,
                 applied,
@@ -954,7 +955,7 @@ def _fixed_frame_runtime_ports(store, applied, faults):
     return ports
 
 
-def _native_runtime_ports(mcu_info, facts, applied, faults):
+def _native_runtime_ports(store, mcu_info, facts, applied, faults):
     """Project one fresh rc.25 DEVICE_FACTS reply without inventing health.
 
     The current OneNet runtime-port shape has no fields for the literal PB6
@@ -1031,7 +1032,7 @@ def _native_runtime_ports(mcu_info, facts, applied, faults):
             "solenoidHealth": "UNKNOWN",
             "cleanDoorStateBasis": "NOT_OBSERVABLE",
             "cleanerPhysicalCloseConfirmed": False,
-            **_native_weight_fields(current),
+            **_native_weight_fields(store, port_no, current),
             **_native_fullness_fields(current, configuration, configured_kind),
             **_native_smoke_fields(current),
             "faultBitmap": _fault_bitmap(faults, port_no),
@@ -1040,19 +1041,38 @@ def _native_runtime_ports(mcu_info, facts, applied, faults):
     return result
 
 
-def _native_measurement_uid(kind, facts, sequence, observed_uptime):
-    return str(_uuid.uuid5(
-        _uuid.NAMESPACE_URL,
-        "ecobin:uart-v2-runtime:%s:%s:%s:%s" % (
-            facts["currentMcuBootId"],
-            kind,
-            sequence,
-            observed_uptime,
-        ),
-    ))
+def _native_measurement_uid(store, port_no, kind, facts, sequence, observed_uptime):
+    """Return one persisted UUIDv4 for one immutable MCU weight observation."""
+    source = "%s:%s:%s:%s" % (
+        facts["currentMcuBootId"],
+        kind,
+        sequence,
+        observed_uptime,
+    )
+    state_key = f"port_{port_no}_native_{kind}_weight_identity_json"
+    try:
+        stored = json.loads(store.get_state(state_key, "{}"))
+        stored_uid = stored.get("uid")
+        parsed = _uuid.UUID(stored_uid) if isinstance(stored_uid, str) else None
+        if (
+            stored.get("source") == source
+            and parsed is not None
+            and parsed.version == 4
+            and parsed.variant == _uuid.RFC_4122
+            and str(parsed) == stored_uid
+        ):
+            return stored_uid
+    except (TypeError, ValueError, json.JSONDecodeError):
+        pass
+    measurement_uid = str(_uuid.uuid4())
+    store.set_state(
+        state_key,
+        json.dumps({"source": source, "uid": measurement_uid}, sort_keys=True),
+    )
+    return measurement_uid
 
 
-def _native_weight_fields(facts):
+def _native_weight_fields(store, port_no, facts):
     state = facts.get("measurementState")
     measurement_sequence = facts.get("measurementSequence")
     measurement_uptime = facts.get("measurementObservedUptimeMs")
@@ -1067,6 +1087,8 @@ def _native_weight_fields(facts):
     )
     if use_measurement:
         uid = _native_measurement_uid(
+            store,
+            port_no,
             "measurement",
             facts,
             measurement_sequence,
@@ -1118,6 +1140,8 @@ def _native_weight_fields(facts):
     if scale_is_fresh:
         return {
             "weightMeasurementUid": _native_measurement_uid(
+                store,
+                port_no,
                 "scale",
                 facts,
                 scale_sequence,

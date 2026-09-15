@@ -189,7 +189,7 @@ ALTER TABLE dev_port_runtime_state
             AND trusted_runtime_edge_event_id IS NOT NULL
             AND trusted_runtime_sequence IS NOT NULL
             AND weight_measurement_uid IS NOT NULL
-            AND weight_measurement_uid REGEXP '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+            AND weight_measurement_uid REGEXP '^[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
             AND weight_measurement_status = 'UNSTABLE'
             AND weight_value_available = 1
             AND reported_weight_grams BETWEEN -2147483648 AND 2147483647

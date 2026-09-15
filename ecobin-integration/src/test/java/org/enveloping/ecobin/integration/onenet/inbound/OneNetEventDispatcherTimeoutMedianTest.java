@@ -309,6 +309,21 @@ class OneNetEventDispatcherTimeoutMedianTest {
         assertEquals(fixture.payload(), accept(fixture));
     }
 
+    @Test
+    void runtimeAcceptsLegacyDeterministicUuidV5MeasurementIdentity()
+            throws Exception {
+        Fixture fixture = fixture(
+                "device-runtime-snapshot", "deviceRuntimeSnapshot");
+        ObjectNode wire = (ObjectNode) fixture.wire().path("ports").get(0);
+        ObjectNode semantic =
+                (ObjectNode) fixture.payload().path("ports").get(0);
+        String identity = "93b05006-9ed9-5d09-a48e-3b80eb3ef215";
+        changeField(
+                wire, semantic, "weightMeasurementUid", identity, identity);
+
+        assertEquals(fixture.payload(), accept(fixture));
+    }
+
     private JsonNode accept(Fixture fixture) throws Exception {
         fixture.wire().put("payloadSha256", hash(fixture.payload()));
         dispatcher.handle(decrypted(fixture), "offline-median", TRANSPORT);
