@@ -1391,7 +1391,12 @@ WHERE table_schema = '$($databaseNames.Correct)'
         throw "V71 global fullness policy seed is missing"
     }
     $lifecycleProbeSql = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'tools/database/tests/device-lifecycle-cancellation-probe.sql')
-    $lifecycleProbe = @(Invoke-MySql -Database $databaseNames.Correct -Sql $lifecycleProbeSql)
+    $lifecycleProbe = @(
+        (Invoke-MySql `
+            -Database $databaseNames.Correct `
+            -Sql $lifecycleProbeSql) -split "`r?`n" |
+            Where-Object { $_.Length -gt 0 }
+    )
     if ($lifecycleProbe.Count -ne 2 -or $lifecycleProbe[0] -ne "MCU_LOCAL_CANCELLATION`t2" -or $lifecycleProbe[1] -ne "EDGE_LOCAL_CANCELLATION`t2") {
         throw "V72 must allow cancellation of both planned and unsent queued upgrades"
     }
