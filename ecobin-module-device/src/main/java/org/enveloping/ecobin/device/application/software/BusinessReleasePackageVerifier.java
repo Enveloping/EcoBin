@@ -50,7 +50,7 @@ public class BusinessReleasePackageVerifier {
     private static final Pattern GIT_COMMIT = Pattern.compile("^[0-9a-f]{40}$");
     private static final Pattern BITMAP = Pattern.compile("^[0-9a-f]{16}$");
     private static final String APP_ALLOWLIST_SHA256 =
-            "a376d6605629faf8a20de0459d1094296ef65cb7574de174bbbae054f6e2804d";
+            "5184614782c36ca2de21ac6da2cf362f1999fc52ef7dda867bfbfe01b2eaeadf";
     private static final Set<String> TOP_LEVEL = Set.of(
             "app", "wheelhouse", "migrations", "manifest.env", "release.env",
             "requirements-runtime.txt", "requirements-offline.txt", "SHA256SUMS");
@@ -58,6 +58,7 @@ public class BusinessReleasePackageVerifier {
             "", "app", "app/factory_seal", "app/system",
             "wheelhouse", "migrations");
     private static final Set<String> APP_FILES = Set.of(
+            "bounded_worker.py",
             "uart2_protocol.py",
             "mcu_action_evidence.py",
             "work_recovery.py",
@@ -82,6 +83,7 @@ public class BusinessReleasePackageVerifier {
             "mcu_result_handoff.py",
             "mcu_configuration.py",
             "uart2_transport.py",
+            "uart_request_tracker.py",
             "business_identity.py",
             "business_control.py",
             "native_fault_control_cli.py",
