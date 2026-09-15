@@ -8,6 +8,7 @@ import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SubscriptionType;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.core.env.Environment;
@@ -84,6 +85,7 @@ public class OneNetMqConsumer implements SmartLifecycle {
     private volatile Consumer<byte[]> consumer;
     private volatile Thread worker;
 
+    @Autowired
     public OneNetMqConsumer(OneNetSubscriptionProperties properties,
                             ObjectProvider<OneNetMessageHandler> handlerProvider,
                             ObjectMapper objectMapper,

@@ -6,6 +6,7 @@ import org.apache.pulsar.client.api.PulsarClientException;
 import org.enveloping.ecobin.integration.onenet.OneNetDiagnosticLogger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.env.Environment;
 import tools.jackson.databind.ObjectMapper;
@@ -23,6 +24,19 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class OneNetMqConsumerRetryTest {
+
+    @Test
+    void productionConstructorIsExplicitlySelectedForDependencyInjection()
+            throws NoSuchMethodException {
+        var constructor = OneNetMqConsumer.class.getConstructor(
+                OneNetSubscriptionProperties.class,
+                ObjectProvider.class,
+                ObjectMapper.class,
+                Environment.class,
+                OneNetDiagnosticLogger.class);
+
+        assertThat(constructor.getAnnotation(Autowired.class)).isNotNull();
+    }
 
     private OneNetMqConsumer subject;
 
