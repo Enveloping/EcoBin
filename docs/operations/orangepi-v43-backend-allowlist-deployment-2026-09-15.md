@@ -209,8 +209,65 @@ OneNet对每一条及其后续重试都返回`2308`。例如设备序号29、95�
   `deviceEntryUrlAppliedSha2Present`、`deviceEntryUrlAppliedSha2`、
   `deviceEntryUrlAppliedMcuBPresent`、`deviceEntryUrlAppliedMcuB`、
   `deviceEntryUrlDisplayBasiPresent`和`deviceEntryUrlDisplayBasi`；生产旧模型既不接受枚举值3，
-  也没有这八个字段，因此OneNet在北向转发前以2308拒绝。当前一条实机线级报文为1,954字节、
-  45个输出字段，与v43生成投影完全一致。
+也没有这八个字段，因此OneNet在北向转发前以2308拒绝。当前一条实机线级报文为1,954字节、
+45个输出字段，与v43生成投影完全一致。
+
+## OneNet 模型同步后的后端修复与生产部署（跨至 2026-09-16）
+
+项目负责人在 OneNet 控制台重新导入当前物模型后，设备验收事件的上行回复从 `2308` 变为
+`200`。这证明事件已经越过 OneNet 物模型校验，但当时生产后端仍把线级
+`evidenceSchemaVersion=3`（业务证据 v5）隔离为“不支持的枚举值”。同一设备的周期运行快照还
+持续因为 v43 使用确定性 UUIDv5 作为 `weightMeasurementUid` 而被旧后端隔离；这两类都是后端
+兼容边界，不是相机或 COS 阻塞。
+
+本次实现和提交分为：
+
+- `1eb6c65765ca341b2f3ac8cf19b6437f7ed09b49`：后端验收证据接受线级枚举 3；运行重量测量编号
+  单独允许符合 RFC 的 UUIDv4/UUIDv5，照片等其他编号继续只允许 UUIDv4；V75 数据库约束同步
+  兼容 UUIDv5。未来香橙派源码改为对同一不可变测量事实持久化随机 UUIDv4，同一事实重报复用、
+  新事实生成新编号；已写卡 v43 不作原地篡改。
+- `489e2f1c`：补齐当前设备业务运行包的精确后端文件白名单；
+- `b4afdff5`：修复 V72 生产续跑探针按行解析；
+- `736a9e1adeefd318aadf22b207eaef61c12151d1`：首次激活暴露真实 OneNet 模式下多构造器未明确
+  注入的问题，给生产构造器增加显式注入并加入回归测试。
+
+专项验证包括 Python 3.11 的 `hardware/tests/test_edge_boot.py` 18 项通过，OneNet 运行快照解析
+77 项通过，数据库迁移/epoch 关键测试 18 项通过，H02 静态权限检查通过；一次性 MySQL 8.4.10
+从旧纪元到 V83 的完整 F07 验证通过。最终提交上的正式构建再次运行 Maven 全量测试（bootstrap
+模块汇总 298 项通过、181 项环境跳过）及 Web 生产构建，发布源码状态为干净。
+
+生产变更前确认没有活动投递、清运或软件部署。停止应用后创建了不落明文的全库流式压缩加密
+备份：
+`/var/backups/ecobin/h02/20260915T155159Z/ecobin-full-pre-v83-20260915T155159Z.sql.gz.cms`，
+大小 25,658,415 字节，SHA-256 为
+`05c5ecd5c5ddcfabef142d28e2bcfc904fd6aa51b47d0b89b47fcb3ee9c0477e`，权限为
+`root:root 0600`。随后生产库从 V72 前向迁移到 V83，最终为 138 张领域表、83 条成功迁移；
+运行账号列级授权正反检查通过，schema owner 已重新锁定。
+
+第一份发布 `20260915154954-b4afdff59b07` 安装后在激活门被真实生产配置拦下：数据库 epoch
+检查已经通过，但 Spring 无法为 OneNet 消费者选择构造器，后端健康检查失败，Web 没有启动，
+因此没有对外放行。修复后重新从干净提交全量测试、构建和安装，当前激活发布为
+`20260915160954-736a9e1adeef`：
+
+- 后端镜像 ID：`sha256:c4996335799dd203c2f852d671f558989671fd6a31312f6d14dadac48980a27d`；
+- Web 镜像 ID：`sha256:e08fa014b94db8deb2b69591b6411a83641725610b3b635e4efec17f7dc09d29`；
+- systemd、后端/Web 容器、生产预检、运行秘密探针、后端内置健康检查和 Web 回环入口全部
+  通过，两个应用容器重启数为 0；
+- v43 后端允许版本仍存在，远程业务程序下发配置没有在本次变更中开启。
+
+新后端启动后，OneNet 重投的积压数据中已有 21 条 `DEVICE_ACCEPTANCE_EVIDENCE` 和 192 条
+`DEVICE_RUNTIME_SNAPSHOT` 进入可靠收件箱并完成处理；从本次激活时刻起，
+`evidenceSchemaVersion has an unsupported enum value` 与
+`weightMeasurementUid has an invalid format` 两类新增隔离合计为 0。历史隔离记录没有删除、确认
+或补造业务结果。积压验收证据属于已经取消或过期的旧挑战，因此只作无动作处理，不会错误恢复
+旧验收；积压运行快照也不会覆盖更新的设备事实。
+
+当前最新验收请求尚未形成匹配的新证据。它前三次下行遇到临时传输失败，第四次 OneNet 返回
+HTTP 200 / 业务码 `10415`，属于服务参数或物模型校验的永久技术失败；同时 OneNet 生命周期在
+UTC `16:14:18` 上报该设备离线。故本次已经证明“新验收/重量格式可被后端接收”，但尚不能宣称
+当前厂家验收闭环通过。设备重新在线后仍需观察新挑战是否成功下发、相同挑战的新证据是否落入
+`dev_device_acceptance_evidence`，以及最终失败原因是否仅为真实传感器自检事实；不得用积压旧
+事件或手工数据库修改代替。
 
 服务器现有产品级下行密钥调用OneNet只读`QueryThingModel`返回
 `iot.common.authPermissionDeny`，不能用该密钥补做控制台在线导出；以上结论由9月11日已保存的
