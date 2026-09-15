@@ -315,6 +315,12 @@ v40/v41运行时归档或软件载荷。两次相互独立的候选构建逐字�
 运行状态。ARM64测试在镜像只读、网络隔离、使用合成状态且禁止真实硬件访问的条件下通过，覆盖
 UART rc.26配置、二维码入口、结果隔离账本、称重规则和验收报告消费者。
 
+第一次受控注入虽然使用的实际来源路径和摘要均指向v41，但继承脚本仍输出
+`inheritedFromV40`和`v40-protected-input-source-unchanged`旧证据标签。该问题不改变镜像内容，
+但会让后续审查误读密钥来源，因此未保留该产物；修正证据标签并重新构建后才形成下述最终镜像。
+受保护注入会重写ext4元数据，重建后的HIL整镜像摘要不作为候选可复现性证明；正式判据是上面的
+候选双构建逐字节一致、最终镜像仅有三个获准路径的全树差异审计，以及写卡后的全范围回读摘要。
+
 最终受控镜像为
 `hardware/image-artifacts/local/factory-secret/builds/hil-factory-login-20260915-42-uart2-rc26/ecobin-orangepi-zero3-0.1.0-single-card.20260915.42-hil-factory-login.img`，
 大小2,571,108,352字节，SHA-256为
