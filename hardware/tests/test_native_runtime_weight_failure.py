@@ -93,6 +93,9 @@ def test_valid_scale_sample_stale_for_five_seconds_becomes_real_fault(
     with completed_first_work(runtime, tmp_path) as (case, owner):
         await_start_facts(case, owner)
         started = case.clock.now
+        # This unit drives scale-health directly without periodic boot polls;
+        # keep its independently required boot witness valid through 5 s.
+        owner.boot._boot_valid_until = started + 5_001
         for elapsed in (0, 4_999):
             publish_idle_scale_fact(
                 owner,

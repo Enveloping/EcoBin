@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from time import monotonic_ns
 import uuid
 from typing import Optional
 
@@ -18,8 +19,17 @@ from edge_store import (
     FACTORY_SEAL_RETRYABLE_ERROR_CODES,
     FACTORY_SEAL_TERMINAL_ERROR_CODES,
 )
+from bounded_worker import SingleSlotWorker
 
 logger = logging.getLogger("command-processor")
+
+
+def _remote_support_open(controller, parameters):
+    return controller.open_session(**parameters)
+
+
+def _remote_support_close(controller, parameters):
+    return controller.close_session(**parameters)
 
 
 class CommandProcessor:
@@ -52,6 +62,33 @@ class CommandProcessor:
         self._wake_event = threading.Event()
         self._grant_lock = threading.Lock()
         self._volatile_cos_grants: dict[str, dict] = {}
+        self._last_completion_queue_duration_ms = 0.0
+        self._native_owner = getattr(uart_link, "native_protocol", None) == 2
+        self._acceptance_snapshots = {}
+        self._remote_completions = {}
+        self._acceptance_worker = (
+            SingleSlotWorker(
+                "native-acceptance",
+                wake_owner=self.wake,
+            )
+            if (
+                self._native_owner
+                and self._acceptance is not None
+                and all(
+                    callable(getattr(self._acceptance, name, None))
+                    for name in ("prepare", "execute_external", "complete")
+                )
+            )
+            else None
+        )
+        self._remote_worker = (
+            SingleSlotWorker(
+                "native-remote-support",
+                wake_owner=self.wake,
+            )
+            if self._native_owner and self._remote_support is not None
+            else None
+        )
 
     def offer_cos_grant(
         self,
@@ -142,7 +179,92 @@ class CommandProcessor:
         self._wake_event.wait(timeout_s)
         self._wake_event.clear()
 
+    def close(self) -> None:
+        """Stop accepting background results before stores are closed."""
+        for worker in (self._acceptance_worker, self._remote_worker):
+            if worker is not None:
+                worker.close(timeout_s=2.0)
+        self._acceptance_snapshots.clear()
+        self._remote_completions.clear()
+
+    @property
+    def last_completion_queue_duration_ms(self) -> float:
+        return self._last_completion_queue_duration_ms
+
+    def _drain_worker_completions(self) -> bool:
+        if self._acceptance_worker is not None:
+            completion = self._acceptance_worker.take_completion()
+            if completion is not None:
+                snapshot = self._acceptance_snapshots.pop(
+                    completion.key,
+                    None,
+                )
+                if snapshot is None:
+                    raise RuntimeError("acceptance worker completion lost its snapshot")
+                if completion.error is not None:
+                    self._acceptance.report_progress(
+                        "FAILED",
+                        self._acceptance._progress_error_code(
+                            completion.error
+                        ),
+                    )
+                    self._store.fail_command(
+                        completion.key,
+                        _error_code(completion.error),
+                    )
+                    logger.error(
+                        "command %s failed in acceptance worker: %s",
+                        completion.key,
+                        completion.error,
+                    )
+                else:
+                    self._acceptance.complete(
+                        snapshot,
+                        completion.value,
+                    )
+                return True
+        if self._remote_worker is not None:
+            completion = self._remote_worker.take_completion()
+            if completion is not None:
+                result = self._remote_completions.pop(
+                    completion.key,
+                    None,
+                )
+                if result is None:
+                    raise RuntimeError("remote worker completion lost its command")
+                if completion.error is not None:
+                    self._store.fail_command(
+                        completion.key,
+                        _error_code(completion.error),
+                    )
+                    logger.error(
+                        "command %s failed in remote worker: %s",
+                        completion.key,
+                        completion.error,
+                    )
+                else:
+                    self._store.complete_command(
+                        completion.key,
+                        result | {"disposition": completion.value},
+                    )
+                return True
+        return False
+
     def process_next(self) -> bool:
+        completion_started = monotonic_ns()
+        drained_completion = self._drain_worker_completions()
+        self._last_completion_queue_duration_ms = (
+            (monotonic_ns() - completion_started) / 1_000_000
+            if drained_completion
+            else 0.0
+        )
+        if drained_completion:
+            return True
+        if (
+            (self._acceptance_worker is not None and self._acceptance_worker.busy)
+            or (self._remote_worker is not None and self._remote_worker.busy)
+        ):
+            return False
         # claim_next_command 先把一条 SQLite 记录置为处理中。进程重启后的恢复逻辑
         # 依据持久状态判断，不依赖 MQTT 回调栈或内存队列是否还存在。
         row = self._store.claim_next_command()
@@ -432,7 +554,18 @@ class CommandProcessor:
                 with self._grant_lock:
                     self._volatile_cos_grants[command["commandUid"]] = grant
             return
-        self._acceptance.run(command)
+        if self._acceptance_worker is None:
+            self._acceptance.run(command)
+            return
+        snapshot = self._acceptance.prepare(command)
+        self._acceptance_snapshots[command["commandUid"]] = snapshot
+        if not self._acceptance_worker.submit(
+            command["commandUid"],
+            self._acceptance.execute_external,
+            snapshot,
+        ):
+            self._acceptance_snapshots.pop(command["commandUid"], None)
+            raise RuntimeError("native acceptance worker slot is unavailable")
 
     def _sync_device_entry_url(self, command: dict) -> None:
         record = self._persist_and_dispatch_device_entry_url(command)
@@ -452,13 +585,27 @@ class CommandProcessor:
         if self._remote_support is None:
             raise RuntimeError("remote support controller is required")
         payload = command["payload"]
-        disposition = self._remote_support.open_session(
+        parameters = dict(
             session_uid=payload["sessionUid"],
             command_uid=command["commandUid"],
             device_name=command["targetDeviceName"],
             remote_port=payload["remotePort"],
             expires_at=payload["expiresAt"],
         )
+        if self._remote_worker is not None:
+            self._remote_completions[command["commandUid"]] = {
+                "sessionUid": payload["sessionUid"],
+            }
+            if not self._remote_worker.submit(
+                command["commandUid"],
+                _remote_support_open,
+                self._remote_support,
+                parameters,
+            ):
+                self._remote_completions.pop(command["commandUid"], None)
+                raise RuntimeError("native remote-support worker slot is unavailable")
+            return
+        disposition = self._remote_support.open_session(**parameters)
         self._store.complete_command(
             command["commandUid"],
             {
@@ -471,10 +618,24 @@ class CommandProcessor:
         if self._remote_support is None:
             raise RuntimeError("remote support controller is required")
         session_uid = command["payload"]["sessionUid"]
-        disposition = self._remote_support.close_session(
+        parameters = dict(
             session_uid=session_uid,
             command_uid=command["commandUid"],
         )
+        if self._remote_worker is not None:
+            self._remote_completions[command["commandUid"]] = {
+                "sessionUid": session_uid,
+            }
+            if not self._remote_worker.submit(
+                command["commandUid"],
+                _remote_support_close,
+                self._remote_support,
+                parameters,
+            ):
+                self._remote_completions.pop(command["commandUid"], None)
+                raise RuntimeError("native remote-support worker slot is unavailable")
+            return
+        disposition = self._remote_support.close_session(**parameters)
         self._store.complete_command(
             command["commandUid"],
             {

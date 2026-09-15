@@ -985,6 +985,19 @@ class EcoBinEdge:
                 try:
                     status = self.work.poll()
                     self.commands.process_next()
+                    observe_completion = getattr(
+                        self.uart,
+                        "observe_external_completion_queue",
+                        None,
+                    )
+                    if observe_completion is not None:
+                        observe_completion(
+                            getattr(
+                                self.commands,
+                                "last_completion_queue_duration_ms",
+                                0.0,
+                            )
+                        )
                     if status != previous_status:
                         previous_status = status
                         self._request_runtime_snapshot()
@@ -1629,6 +1642,10 @@ class EcoBinEdge:
                 logger.exception(
                     "business local control service did not stop cleanly"
                 )
+        try:
+            self.commands.close()
+        except Exception:
+            logger.exception("command background workers did not stop cleanly")
         try:
             self.uart.close()
         except Exception:

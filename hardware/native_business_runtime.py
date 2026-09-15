@@ -8,6 +8,7 @@ Serial creation, polling and commands must all run on the same foreground thread
 from dataclasses import asdict, fields
 import hashlib
 import json
+import logging
 import os
 from time import monotonic_ns
 import uuid
@@ -22,6 +23,7 @@ from mcu_session import McuBootSession, McuCommandDispatcher
 from mcu_work_query import McuDeviceFactsQuery, McuDeviceIdentityQuery, McuWorkQuery
 from native_result_report import NativeResultReporter, check_job_permit
 from native_delivery_issue_report import NativeDeliveryIssueReporter
+from bounded_worker import SingleSlotWorker
 from native_device_entry_url import (
     JOURNAL_KEY as DEVICE_ENTRY_URL_JOURNAL_KEY,
     encode_command as encode_device_entry_url_command,
@@ -36,6 +38,9 @@ from native_job_rpc import NativeJobRpc
 from onenet_wire import validate_command_envelope
 from uart2_transport import NativeUartTransport
 import uart2_protocol as uart
+
+
+logger = logging.getLogger("native-uart-owner")
 
 
 IDENTITY_FIELDS = {"mcuCommandUid", "commandDigestSha256", "targetMcuBootId", "commandSequence"}
@@ -59,7 +64,7 @@ class NativeBusinessRuntime:
     port_count = 1
     def __init__(self, store, safety, *, device_name, photo_manager=None,
                  connected=lambda: False, clock=lambda: monotonic_ns() // 1000000,
-                 communication_timeout_ms=10000,
+                 communication_timeout_ms=5000,
                  enrolled_device_entry_url=None):
         if not isinstance(safety, PermanentJobSafety) or not safety.enabled:
             raise ValueError("native business requires the permanent job authority")
@@ -76,8 +81,6 @@ class NativeBusinessRuntime:
         self.verified_firmware_identity = None
         self._mcu_firmware_version = ""
         self._mcu_capability = 0
-        self._last_alive = None
-        self._opened_at = None
         self._work_query = self._handoff = None
         self._query_start_uid = None
         self._live_starts = set()
@@ -107,14 +110,24 @@ class NativeBusinessRuntime:
         self._reported_issues = set()
         self._issue_reports_pending = set()
         self._issue_report_cursor = ""
+        self._issue_report_worker = None
+        self._issue_report_snapshots = {}
         self._scale_wait = None
-        self._control_wait_uid = None
-        self._control_wait_since = None
         self._baseline_recovery_deadlines = {}
         self._baseline_release_recovery_deadlines = {}
         self._runtime_instance_uid = str(uuid.uuid4())
         self._dispatch_authority = None
         self._device_entry_url_link_refresh_pending = True
+        self._owner_stall_threshold_ms = 250.0
+        self._owner_stall_log_interval_ms = 60_000
+        self._last_owner_stall_log_ms = -60_000
+        self._communication_fault_request_boundary = 0
+        self._last_owner_timings = {
+            "serialPollMs": 0.0,
+            "databaseShortTransactionsMs": 0.0,
+            "completionQueueMs": 0.0,
+            "totalMs": 0.0,
+        }
         self._enrolled_device_entry_url = (
             None
             if enrolled_device_entry_url is None
@@ -125,6 +138,61 @@ class NativeBusinessRuntime:
         )
         self.reporter = NativeResultReporter(store, safety, device_name=device_name, photo_manager=photo_manager)
         self.issue_reporter = NativeDeliveryIssueReporter(store, device_name=device_name)
+
+    def owner_timing_snapshot(self):
+        return dict(self._last_owner_timings)
+
+    def _record_owner_timings(
+        self,
+        *,
+        started_ns,
+        serial_ns,
+        completion_ns,
+    ):
+        total_ns = monotonic_ns() - started_ns
+        database_ns = max(0, total_ns - serial_ns - completion_ns)
+        self._last_owner_timings = {
+            "serialPollMs": serial_ns / 1_000_000,
+            "databaseShortTransactionsMs": database_ns / 1_000_000,
+            "completionQueueMs": completion_ns / 1_000_000,
+            "totalMs": total_ns / 1_000_000,
+        }
+        now = self.clock()
+        if (
+            self._last_owner_timings["totalMs"]
+            >= self._owner_stall_threshold_ms
+            and now - self._last_owner_stall_log_ms
+            >= self._owner_stall_log_interval_ms
+        ):
+            self._last_owner_stall_log_ms = now
+            logger.warning(
+                "UART_OWNER_STALLED serialPollMs=%.3f "
+                "databaseShortTransactionsMs=%.3f "
+                "completionQueueMs=%.3f totalMs=%.3f",
+                self._last_owner_timings["serialPollMs"],
+                self._last_owner_timings["databaseShortTransactionsMs"],
+                self._last_owner_timings["completionQueueMs"],
+                self._last_owner_timings["totalMs"],
+            )
+
+    def observe_external_completion_queue(self, duration_ms):
+        """Merge command-worker completion cost into owner diagnostics."""
+        if not isinstance(duration_ms, (int, float)) or duration_ms <= 0:
+            return
+        self._last_owner_timings["completionQueueMs"] += duration_ms
+        self._last_owner_timings["totalMs"] += duration_ms
+        now = self.clock()
+        if (
+            duration_ms >= self._owner_stall_threshold_ms
+            and now - self._last_owner_stall_log_ms
+            >= self._owner_stall_log_interval_ms
+        ):
+            self._last_owner_stall_log_ms = now
+            logger.warning(
+                "UART_OWNER_STALLED completionQueueMs=%.3f totalMs=%.3f",
+                self._last_owner_timings["completionQueueMs"],
+                self._last_owner_timings["totalMs"],
+            )
 
     @property
     def is_open(self):
@@ -280,20 +348,23 @@ class NativeBusinessRuntime:
             if facts is not None and self._facts_requested_at is not None
             else now
         )
+        transport = getattr(self, "transport", None)
+        requests = getattr(transport, "requests", None)
+        last_matched = getattr(requests, "last_matched_ms", None)
         fresh_communication = bool(
             current_boot
             and facts is not None
             and facts.get("status") == "AVAILABLE"
             and facts.get("currentMcuBootId") == current_boot
-            and self._last_alive is not None
-            and 0 <= now - self._last_alive < self.timeout_ms
+            and last_matched is not None
+            and 0 <= now - last_matched < self.timeout_ms
         )
         fresh_communication_valid_until = (
             min(
                 facts_valid_until,
-                self._last_alive + self.timeout_ms,
+                last_matched + self.timeout_ms,
             )
-            if fresh_communication and self._last_alive is not None
+            if fresh_communication and last_matched is not None
             else now
         )
         self._runtime_observation = {
@@ -562,7 +633,11 @@ class NativeBusinessRuntime:
             import serial
             port_factory = serial.Serial
         self._port = port_factory(port=port, baudrate=baudrate, timeout=0, write_timeout=1, exclusive=True)
-        self.transport = NativeUartTransport(self._port)
+        self.transport = NativeUartTransport(
+            self._port,
+            reply_timeout_ms=self.timeout_ms,
+            clock=self.clock,
+        )
         # Periodic probes refresh the boot witness.  Keep the last correlated
         # positive boot usable while the next reply is in flight, but never
         # beyond the same bounded communication timeout used by this runtime.
@@ -573,12 +648,16 @@ class NativeBusinessRuntime:
         )
         self.dispatcher = McuCommandDispatcher(self.store, self.boot, self.transport.write,
             arm=self._arm, clock=self.clock)
-        self._opened_at = self.clock()
         self.store.recover_native_device_entry_url_commands()
         self._restore_configuration()
         self._rpc = NativeJobRpc()
+        self._issue_report_worker = SingleSlotWorker(
+            "native-issue-evidence",
+        )
 
     def close(self):
+        if self._issue_report_worker is not None:
+            self._issue_report_worker.close(timeout_s=2.0)
         if self._port is not None:
             self._port.close()
         if self._rpc is not None:
@@ -1667,7 +1746,6 @@ class NativeBusinessRuntime:
         slot = self.store.get_work_slot()
         if slot is None:
             self._work_query = self._handoff = self._query_start_uid = None
-            self._control_wait_uid = self._control_wait_since = None
             return
         permit = self._permit(slot)
         uid = slot["context"]["start_mcu_command_uid"]
@@ -1738,8 +1816,9 @@ class NativeBusinessRuntime:
         if decision["status"] == "DELIVERY_ISSUE_ARCHIVED":
             self._live_starts.discard(uid)
             self._start_grants.discard(uid)
-            if self._report_issue(permit.work_uid):
-                self._complete_delivery_issue(permit, uid)
+            if permit.work_uid not in self._reported_issues:
+                self._issue_reports_pending.add(permit.work_uid)
+            self._complete_delivery_issue(permit, uid)
             return
         if decision["status"] == "COMPLETE_RESULT_AVAILABLE":
             from native_result_evidence import terminal_failure_disposition
@@ -1994,7 +2073,6 @@ class NativeBusinessRuntime:
         self._start_grants.discard(uid)
         self._baseline_recovery_deadlines.pop(uid, None)
         self._baseline_release_recovery_deadlines.pop(uid, None)
-        self._control_wait_uid = self._control_wait_since = None
 
     def _latch_control_communication_fault(self, *, reason, mcu_boot_id):
         current = self.store.get_state("native_blocking_fault")
@@ -2003,15 +2081,116 @@ class NativeBusinessRuntime:
         # A different already-blocking fault must not be erased.  The UART
         # journal is independent and still makes this new failure visible.
         if self.store.get_active_edge_fault("UART", "UART_PROTOCOL") is None:
+            self._communication_fault_request_boundary = (
+                self.transport.requests.last_registered_sequence
+                if self.transport is not None
+                else 0
+            )
             disposition = self.store.observe_fault_and_create_event(device_name=self.device_name,
                 component="UART", fault_code="UART_PROTOCOL", severity="BLOCK_DEVICE",
                 mcu_boot_id=mcu_boot_id or None,
                 detail=dict(profile="native-control-communication-v1", reasonCode=reason,
-                    automaticRecovery=False))
+                    automaticRecovery=True))
             if disposition not in {"ACCEPTED", "DUPLICATE"}:
                 raise RuntimeError("native communication fault could not be persisted")
 
-    def _control_failure_poll(self, now, *, link_unavailable):
+    @staticmethod
+    def _request_event_matches_command(event, record):
+        if not event.critical:
+            return False
+        expected = uart.decode_payload(
+            record["message_name"],
+            record["payload"],
+        )
+        return all(
+            event.identity.get(key) == expected.get(key)
+            for key in IDENTITY_FIELDS
+        )
+
+    def _recover_communication_from_matches(self, matches):
+        """Recover only the exact auto-recoverable UART timeout fault."""
+        if not matches:
+            return
+        fault = self.store.get_active_edge_fault("UART", "UART_PROTOCOL")
+        if fault is None:
+            return
+        try:
+            detail = json.loads(fault["detail_json"] or "{}")
+        except (TypeError, ValueError):
+            return
+        if (
+            detail.get("profile") != "native-control-communication-v1"
+            or detail.get("reasonCode")
+            != "MCU_COMMUNICATION_UNAVAILABLE"
+            or detail.get("automaticRecovery") is not True
+        ):
+            return
+        match = next((
+            candidate
+            for candidate in matches
+            if (
+                candidate.late
+                or candidate.request_sequence
+                > self._communication_fault_request_boundary
+            )
+        ), None)
+        if match is None:
+            return
+        reply = match.reply or {}
+        boot_id = next((
+            value
+            for key in (
+                "currentMcuBootId",
+                "mcuBootId",
+                "proposedMcuBootId",
+                "targetMcuBootId",
+            )
+            if type(value := reply.get(key)) is int and value > 0
+        ), None)
+
+        def json_value(value):
+            return value.hex() if isinstance(value, bytes) else value
+
+        evidence = json.dumps(
+            {
+                "profile": "native-control-communication-auto-recovery-v1",
+                "requestName": match.request_name,
+                "replyName": match.reply_name,
+                "requestIdentity": {
+                    key: json_value(value)
+                    for key, value in match.identity.items()
+                },
+                "requestWrittenMonotonicMs": match.written_at_ms,
+                "requestSequence": match.request_sequence,
+                "replyObservedMonotonicMs": match.observed_at_ms,
+                "lateReply": match.late,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        disposition = (
+            self.store.recover_native_control_communication_fault_automatically(
+                device_name=self.device_name,
+                fault_uid=fault["fault_uid"],
+                mcu_boot_id=boot_id,
+                recovery_evidence=evidence,
+            )
+        )
+        if disposition not in {"ACCEPTED", "CONFLICT"}:
+            raise RuntimeError(
+                "native automatic communication recovery was not persisted"
+            )
+        if disposition == "ACCEPTED":
+            self._communication_fault_request_boundary = 0
+
+    def _control_failure_poll(
+        self,
+        now,
+        *,
+        request_timeouts=(),
+        write_failures=(),
+    ):
         """Start one durable exit only after the configured communication deadline."""
         from native_control_failure import (
             MARKER,
@@ -2020,10 +2199,10 @@ class NativeBusinessRuntime:
             MCU_RESTART_REASON,
             RESTART_REASON,
         )
+        request_timed_out = bool(request_timeouts)
         slot = self.store.get_work_slot()
         if slot is None:
-            self._control_wait_uid = self._control_wait_since = None
-            if link_unavailable:
+            if request_timed_out:
                 self._latch_control_communication_fault(reason=COMMUNICATION_REASON,
                     mcu_boot_id=self._mcu_boot_id)
             return
@@ -2045,12 +2224,6 @@ class NativeBusinessRuntime:
             # failure merely to release occupancy.
             release = slot["context"].get("nativeBaselineMcuRelease")
             if release is None:
-                release_deadline = (
-                    self.store.native_baseline_release_deadline_status(
-                        uid,
-                        communication_timeout_ms=self.timeout_ms,
-                    )
-                )
                 observed = (
                     self._handoff.observation(now)
                     if self._query_start_uid == uid
@@ -2071,14 +2244,14 @@ class NativeBusinessRuntime:
                 )
                 recovery_pending = (
                     inherited
-                    and not link_unavailable
+                    and not request_timed_out
                     and (
                         recovery_deadline is None
                         or now < recovery_deadline
                     )
                 )
                 if (
-                    (link_unavailable or release_deadline["expired"])
+                    request_timed_out
                     and not recovery_pending
                     and not (
                         isinstance(observed, dict)
@@ -2114,13 +2287,15 @@ class NativeBusinessRuntime:
             if pending.get("state") == "PREPARED":
                 self._start_grants.discard(uid)
             return
-        exact_command_timeout = False
-        if record["write_claimed"] and record["decision_outcome"] is None:
-            if self._control_wait_uid != uid:
-                self._control_wait_uid, self._control_wait_since = uid, now
-            exact_command_timeout = now - self._control_wait_since >= self.timeout_ms
-        else:
-            self._control_wait_uid = self._control_wait_since = None
+        exact_command_timeout = any(
+            self._request_event_matches_command(event, record)
+            for event in request_timeouts
+        )
+        local_write_failure = next((
+            event.error
+            for event in write_failures
+            if self._request_event_matches_command(event, record)
+        ), None)
         baseline_mcu_restarted = (
             permit.work_type == "BASELINE"
             and record["write_claimed"]
@@ -2150,8 +2325,9 @@ class NativeBusinessRuntime:
                     # bounded grace deadline above.
                     return
         if (
-            not link_unavailable
+            not request_timed_out
             and not exact_command_timeout
+            and local_write_failure is None
             and not baseline_mcu_restarted
             and not baseline_result_timeout
         ):
@@ -2160,8 +2336,10 @@ class NativeBusinessRuntime:
         reason = (
             MCU_RESTART_REASON
             if baseline_mcu_restarted
+            else local_write_failure
+            if local_write_failure is not None
             else COMMUNICATION_REASON
-            if link_unavailable or exact_command_timeout
+            if request_timed_out or exact_command_timeout
             else BASELINE_RESULT_REASON
         )
         pending = self.store.prepare_native_control_failure(permit, uid,
@@ -2170,7 +2348,10 @@ class NativeBusinessRuntime:
             return  # A complete final packet or an earlier terminal policy wins the race.
         self._live_starts.discard(uid)
         self._start_grants.discard(uid)
-        if not baseline_mcu_restarted:
+        if (
+            not baseline_mcu_restarted
+            and (request_timed_out or exact_command_timeout)
+        ):
             self._latch_control_communication_fault(reason=COMMUNICATION_REASON,
                 mcu_boot_id=record["mcu_boot_id"])
 
@@ -2206,15 +2387,18 @@ class NativeBusinessRuntime:
             device_name=self.device_name, permit_snapshot=snapshot)
         self._prepared_completions.pop(key, None)
 
-    def _report_issue(self, work_uid):
+    def _report_issue(self, work_uid, snapshot, cursor):
         if work_uid in self._reported_issues:
-            return True
-        created = self.issue_reporter.prepare(work_uid, limit=ISSUE_REPORT_BATCH)
-        if len(created) == ISSUE_REPORT_BATCH:
-            return False  # Limit new events per call; remaining evidence continues next time.
+            return True, cursor
+        batch = self.issue_reporter.persist_batch(
+            snapshot,
+            cursor=cursor,
+            limit=ISSUE_REPORT_BATCH,
+        )
+        if not batch["done"]:
+            return False, batch["cursor"]
         self._reported_issues.add(work_uid)
-        self._issue_reports_pending.discard(work_uid)
-        return True
+        return True, batch["cursor"]
 
     def _issue_report_poll(self):
         # A crash can happen after late bytes commit but before their OneNet
@@ -2222,15 +2406,58 @@ class NativeBusinessRuntime:
         # new late packets also enqueue their exact original work in memory.
         # No active slot is needed, and no historical result is projected onto
         # the new work/bag. The original event uniqueness provides deduplication.
+        worker = self._issue_report_worker
+        if worker is None:
+            return
+        completion = worker.take_completion()
+        if completion is not None:
+            if completion.error is not None:
+                raise completion.error
+            self._issue_report_snapshots[completion.key] = (
+                completion.value,
+                0,
+            )
+        if self._issue_report_snapshots:
+            work_uid, (snapshot, cursor) = next(
+                iter(self._issue_report_snapshots.items())
+            )
+            done, cursor = self._report_issue(
+                work_uid,
+                snapshot,
+                cursor,
+            )
+            if done:
+                self._issue_report_snapshots.pop(work_uid, None)
+                if work_uid not in self._issue_reports_pending:
+                    self._reported_issues.add(work_uid)
+                if self._issue_report_cursor is not None:
+                    self._issue_report_cursor = work_uid
+            else:
+                self._issue_report_snapshots[work_uid] = (
+                    snapshot,
+                    cursor,
+                )
+            return
+        if worker.busy:
+            return
+        work_uid = None
         if self._issue_reports_pending:
-            self._report_issue(next(iter(self._issue_reports_pending)))
+            work_uid = next(iter(self._issue_reports_pending))
+            self._issue_reports_pending.discard(work_uid)
+            self._reported_issues.discard(work_uid)
         elif self._issue_report_cursor is not None:
             page = self.store.list_native_delivery_issue_work_uids(
                 after_work_uid=self._issue_report_cursor, limit=1)
             if not page:
                 self._issue_report_cursor = None
-            elif self._report_issue(page[0]):
-                self._issue_report_cursor = page[0]
+            else:
+                work_uid = page[0]
+        if work_uid is not None and not worker.submit(
+            work_uid,
+            self.issue_reporter.render,
+            work_uid,
+        ):
+            raise RuntimeError("native issue evidence worker slot is unavailable")
 
     def _complete_delivery_issue(self, permit, uid):
         confirmation = self.store.get_native_delivery_issue_confirmation(permit.work_uid,
@@ -2459,8 +2686,12 @@ class NativeBusinessRuntime:
     def poll(self):
         if self.transport is None:
             raise RuntimeError("native business UART has not been opened by its owner")
+        owner_started_ns = monotonic_ns()
         now = self.clock()
-        for frame in self.transport.poll(now):
+        serial_started_ns = monotonic_ns()
+        frames = self.transport.poll(now)
+        serial_ns = monotonic_ns() - serial_started_ns
+        for frame in frames:
             decoded = uart.decode_frame(frame, sender_role="MCU")
             accepted = self.boot.accept_frame(frame, now) or self.dispatcher.accept_frame(frame, now)
             if self.identity_query and self.identity_query.accept_frame(frame, now):
@@ -2491,8 +2722,35 @@ class NativeBusinessRuntime:
                 if self.store.get_native_delivery_issue(work_uid) is not None:
                     self._reported_issues.discard(work_uid)
                     self._issue_reports_pending.add(work_uid)
-            if accepted:
-                self._last_alive = now
+        matches = self.transport.requests.take_matches()
+        # A command-query reply can arrive after the query object's short
+        # observation window.  The transport tracker still has its exact
+        # query/command identity, so retain that decision as late evidence.
+        for match in matches:
+            if (
+                match.critical
+                and match.late
+                and match.reply_name == "COMMAND_QUERY_RESULT"
+                and match.reply is not None
+            ):
+                self.store.save_native_command_observation(
+                    "COMMAND_QUERY_RESULT",
+                    uart.encode_payload(
+                        "COMMAND_QUERY_RESULT",
+                        match.reply,
+                    ),
+                )
+        self._recover_communication_from_matches(matches)
+        self.transport.requests.expire(now)
+        request_timeouts = self.transport.requests.take_timeouts()
+        write_failures = self.transport.requests.take_write_failures()
+        for failure in write_failures:
+            logger.error(
+                "%s requestName=%s channel=%s",
+                failure.error,
+                failure.request_name,
+                failure.channel,
+            )
         boot_id = self.boot.current_boot(now)
         if boot_id and boot_id != self._mcu_boot_id:
             self._clear_identity()
@@ -2508,14 +2766,19 @@ class NativeBusinessRuntime:
             self._refresh_runtime_observation(now)
         now = self.clock()
         self._accept_identity_observation(now)
-        link_unavailable = now - (self._last_alive if self._last_alive is not None else self._opened_at) >= self.timeout_ms
-        self._control_failure_poll(now, link_unavailable=link_unavailable)
+        self._control_failure_poll(
+            now,
+            request_timeouts=request_timeouts,
+            write_failures=write_failures,
+        )
         self._scale_health_poll(self.clock())
         self._environment_health_poll(self.clock())
         self._configuration_poll(self.clock())
         self._device_entry_url_poll(self.clock())
         self._work_poll(self.clock())
+        completion_started_ns = monotonic_ns()
         self._issue_report_poll()
+        completion_ns = monotonic_ns() - completion_started_ns
         if self.identity_query and not self._identity_ready(self._mcu_boot_id):
             self.identity_query.poll(self.clock())
         if self.facts_query:
@@ -2523,12 +2786,18 @@ class NativeBusinessRuntime:
         self.boot.poll(self.clock())
         self._refresh_runtime_observation(self.clock())
         observable = self.current_runtime_observation()
-        return dict(uartState=observable["uartState"], mcuBootId=observable["mcuBootId"],
+        result = dict(uartState=observable["uartState"], mcuBootId=observable["mcuBootId"],
             activeWorkUid=(self.store.get_work_slot() or {}).get("work_uid"),
             firmwareIdentityHex=(observable["mcuFirmwareIdentity"] or {}).get("firmwareIdentityHex"),
             deviceFactsFingerprint=(hashlib.sha256(json.dumps(observable["deviceFacts"],
                 sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
                 if observable["deviceFacts"] is not None else None))
+        self._record_owner_timings(
+            started_ns=owner_started_ns,
+            serial_ns=serial_ns,
+            completion_ns=completion_ns,
+        )
+        return result
 
     def accept_photo_upload_grant(self, command):
         if self.photo is None:

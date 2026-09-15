@@ -1,5 +1,17 @@
 # EcoBin 协作与实施上下文
 
+> **2026-09-15 UART按请求超时与线程隔离候选：**香橙派不再按“最后一条MCU消息后静默10秒”
+> 制造通信故障；只有需要回复的请求完整写出后连续5秒没有精确匹配回复才超时。短写/写异常
+> 记为本机UART写失败，周期查询可由同类后续精确回复恢复，START等关键命令仍独立等待。迟到
+> 回复或故障后新请求的精确回复只恢复通信故障，不恢复原失败业务、袋状态或业务价值。设备
+> 验收摄像头/COS、远程维护socket及问题证据生成已移出UART所有者线程。最终专项为
+> `300 passed, 29 skipped`；Python 3.11完整硬件回归为
+> `4334 passed, 126 skipped, 1 failed, 5 subtests passed`，唯一失败仍是既有Windows SQLite
+> 强杀恢复竞态，单项原样复跑通过。本候选尚未提交、构建新镜像、加入后台认可或执行真实
+> HMI、RS485、机构和断电HIL；详见
+> [控制通信失败收口](hardware/docs/review/native-control-communication-failure-s2-2026-09-13.md)及
+> [v40/v41继承清单](hardware/docs/review/v40-live-hotfix-image-carryover-2026-09-15.md)。
+
 > **2026-09-15 v42 设备二维码修复镜像已写卡：**从提交
 > `f6e250194642f76da228da517ff95f87e45e7979`重新生成
 > `hardware-runtime-20260915-42`、`software-payload-20260915-42`和

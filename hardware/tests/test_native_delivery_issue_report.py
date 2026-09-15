@@ -46,6 +46,49 @@ def test_actual_archived_delivery_reports_only_issue_and_exact_original_evidence
         assert case.safety.get_job_permit(case.permit.permit_uid)["state"] == "ACTIVE"
 
 
+def test_issue_snapshot_renders_without_writes_then_persists_in_bounded_foreground_batches(
+    runtime,
+    tmp_path,
+):
+    from native_delivery_issue_report import NativeDeliveryIssueReporter
+    with executed_action_case(
+        runtime,
+        tmp_path,
+        clean_work=False,
+        cloud_command_factory=original_command,
+    ) as case:
+        wire = RecoveryWire(case, runtime)
+        NativeWorkRecovery(
+            case.store,
+            wire.reset_mcu(),
+            clock=lambda: wire.now,
+        ).archive_delivery(
+            case.permit,
+            case.start["mcuCommandUid"],
+            device_name="device-1",
+        )
+        reporter = NativeDeliveryIssueReporter(
+            case.store,
+            device_name="device-1",
+        )
+        with ThreadPoolExecutor(1) as pool:
+            snapshot = pool.submit(
+                reporter.render,
+                case.permit.work_uid,
+            ).result()
+        assert case.store.list_pending_events() == []
+        batch = reporter.persist_batch(snapshot, limit=1)
+        assert len(batch["created"]) == 1
+        assert len(case.store.list_pending_events()) == 1
+        while not batch["done"]:
+            batch = reporter.persist_batch(
+                snapshot,
+                cursor=batch["cursor"],
+                limit=10,
+            )
+        assert reporter.prepare(case.permit.work_uid) == []
+
+
 def test_real_outbox_relays_frozen_issue_evidence_without_treating_transport_ack_as_business_success(runtime, tmp_path):
     from native_delivery_issue_report import NativeDeliveryIssueReporter
     from business_outbox_relay import BusinessOutboxRelay

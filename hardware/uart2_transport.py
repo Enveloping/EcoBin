@@ -7,16 +7,23 @@ stop an external bridge from replaying bytes; direct-UART no-copy is required.
 from collections import deque
 import math
 import threading
+from time import monotonic_ns
 
 import uart2_protocol as uart
+from uart_request_tracker import UartRequestReplyTracker
 
 
 class NativeUartTransport:
-    def __init__(self, serial_port):
+    def __init__(self, serial_port, *, reply_timeout_ms=5000,
+                 clock=lambda: monotonic_ns() // 1_000_000):
         self._port = serial_port
         self._owner = threading.get_ident()
         self._parser = uart.StreamParser(sender_role="MCU")
         self._last_now = -1
+        self._clock = clock
+        self.requests = UartRequestReplyTracker(
+            timeout_ms=reply_timeout_ms,
+        )
         self.diagnostics: deque[str] = deque(maxlen=32)
         self._check_endpoint()
 
@@ -35,7 +42,34 @@ class NativeUartTransport:
         self._check_endpoint()
         decoded = uart.decode_frame(frame, sender_role="EDGE")
         uart.decode_payload(decoded["messageName"], decoded["payload"])
-        return self._port.write(frame)
+        try:
+            count = self._port.write(frame)
+        except OSError:
+            now = max(self._last_now, self._clock())
+            self.diagnostics.append(
+                "UART_WRITE_FAILED:" + decoded["messageName"]
+            )
+            self.requests.record_write_failure(
+                frame,
+                now,
+                "UART_WRITE_FAILED",
+            )
+            raise
+        # The five-second reply deadline starts after the endpoint returns
+        # from a complete write, never from the beginning of this owner poll.
+        now = max(self._last_now, self._clock())
+        if type(count) is int and count == len(frame):
+            self.requests.register_complete_write(frame, now)
+        else:
+            self.diagnostics.append(
+                "UART_SHORT_WRITE:" + decoded["messageName"]
+            )
+            self.requests.record_write_failure(
+                frame,
+                now,
+                "UART_SHORT_WRITE",
+            )
+        return count
 
     def poll(self, now_ms: int) -> list[bytes]:
         """At most 512 input bytes per call, each complete frame delivered once."""
@@ -57,5 +91,11 @@ class NativeUartTransport:
             except ValueError:
                 self.diagnostics.append("PAYLOAD_REJECTED")
                 continue
-            frames.append(uart.encode_frame(frame["messageName"], frame["txSequence"], frame["payload"]))
+            encoded = uart.encode_frame(
+                frame["messageName"],
+                frame["txSequence"],
+                frame["payload"],
+            )
+            self.requests.accept_reply(encoded, now_ms)
+            frames.append(encoded)
         return frames

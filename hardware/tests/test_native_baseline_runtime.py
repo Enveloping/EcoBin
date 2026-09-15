@@ -23,6 +23,23 @@ from contracts.tests.test_uart_v2_process_measurement import (
 import uart2_protocol as uart
 
 
+def _command_timeout(case):
+    record = case.store.get_native_command(case.native_uid)
+    values = uart.decode_payload(record["message_name"], record["payload"])
+    return SimpleNamespace(
+        critical=True,
+        identity={
+            key: values[key]
+            for key in (
+                "mcuCommandUid",
+                "commandDigestSha256",
+                "targetMcuBootId",
+                "commandSequence",
+            )
+        },
+    )
+
+
 def _structured_interlock():
     return {
         "profile": "native-clean-bag-interlock-v1",
@@ -382,7 +399,8 @@ def test_saved_result_without_mcu_release_latches_fault_and_retains_result_path(
                 """UPDATE native_process_receipt
                    SET created_at=datetime('now', '-3 seconds')"""
             )
-        owner._control_failure_poll(0, link_unavailable=False)
+        timeout = SimpleNamespace(critical=False)
+        owner._control_failure_poll(0, request_timeouts=(timeout,))
         command = case.store.get_command(case.command["commandUid"])
         assert command["state"] == "WAITING_MCU_RESULT"
         assert "nativeControlFailure" not in (command["result"] or {})
@@ -428,7 +446,7 @@ def test_aged_saved_result_after_pi_restart_queries_before_release_fault(
     restarted.dispatcher = SimpleNamespace(poll=lambda uid, now: None)
     restarted._rpc = NativeJobRpc()
     try:
-        restarted._control_failure_poll(0, link_unavailable=False)
+        restarted._control_failure_poll(0)
         assert case.store.get_state("native_blocking_fault") in {None, ""}
         restarted._work_poll(0)
         query = next(
@@ -441,14 +459,14 @@ def test_aged_saved_result_after_pi_restart_queries_before_release_fault(
             _process_reply(query, case, "HELD"),
             0,
         )
-        restarted._control_failure_poll(999, link_unavailable=False)
+        restarted._control_failure_poll(999)
         assert case.store.get_state("native_blocking_fault") in {None, ""}
 
         # Match NativeBusinessRuntime.poll(): control failure decisions run
         # before work/query progress on every tick.  The first HELD answer has
         # been consumed, so the second query must still get its bounded chance
         # to observe the MCU's RELEASED custody state.
-        restarted._control_failure_poll(1000, link_unavailable=False)
+        restarted._control_failure_poll(1000)
         assert case.store.get_state("native_blocking_fault") in {None, ""}
         restarted._work_poll(1000)
         query = [
@@ -461,7 +479,7 @@ def test_aged_saved_result_after_pi_restart_queries_before_release_fault(
             _process_reply(query, case, "RELEASED"),
             1000,
         )
-        restarted._control_failure_poll(1001, link_unavailable=False)
+        restarted._control_failure_poll(1001)
         for _ in range(100):
             restarted._work_poll(1001)
             if case.store.get_work_slot() is None:
@@ -482,7 +500,7 @@ def test_aged_saved_result_after_pi_restart_queries_before_release_fault(
         case.store.close()
 
 
-def test_aged_saved_result_with_persistent_held_state_latches_bounded_fault(
+def test_persistent_exact_held_replies_do_not_create_a_communication_fault(
     tmp_path,
 ):
     case = _baseline_case(tmp_path, interlock=True)
@@ -511,7 +529,7 @@ def test_aged_saved_result_with_persistent_held_state_latches_bounded_fault(
     try:
         # First real poll-order round: control permits recovery, work asks, MCU
         # still owns the already-saved result and answers HELD.
-        restarted._control_failure_poll(0, link_unavailable=False)
+        restarted._control_failure_poll(0)
         restarted._work_poll(0)
         first_query = next(
             frame
@@ -524,10 +542,9 @@ def test_aged_saved_result_with_persistent_held_state_latches_bounded_fault(
             0,
         )
 
-        # A second exact query remains allowed at the normal one-second
-        # interval.  Another HELD answer must not renew the fixed recovery
-        # bound indefinitely.
-        restarted._control_failure_poll(1000, link_unavailable=False)
+        # A second exact HELD answer proves communication, but does not invent
+        # the missing RELEASED custody fact or release the work slot.
+        restarted._control_failure_poll(1000)
         assert case.store.get_state("native_blocking_fault") in {None, ""}
         restarted._work_poll(1000)
         second_query = [
@@ -540,17 +557,15 @@ def test_aged_saved_result_with_persistent_held_state_latches_bounded_fault(
             _process_reply(second_query, case, "HELD"),
             1000,
         )
-        restarted._control_failure_poll(1999, link_unavailable=False)
+        restarted._control_failure_poll(1999)
         assert case.store.get_state("native_blocking_fault") in {None, ""}
 
-        restarted._control_failure_poll(2000, link_unavailable=False)
-        assert case.store.get_state("native_blocking_fault") == (
-            "MCU_COMMUNICATION_UNAVAILABLE"
-        )
+        restarted._control_failure_poll(2000)
+        assert case.store.get_state("native_blocking_fault") in {None, ""}
         assert case.store.get_active_edge_fault(
             "UART",
             "UART_PROTOCOL",
-        )["severity"] == "BLOCK_DEVICE"
+        ) is None
         assert case.store.get_work_slot() is not None
         assert case.store.get_command(case.command["commandUid"])["state"] in {
             "WAITING_MCU_RESULT",
@@ -595,7 +610,7 @@ def test_aged_saved_result_uses_recognized_new_boot_without_latching_fault(
     owner.dispatcher = SimpleNamespace(poll=lambda uid, now: None)
     owner._rpc = NativeJobRpc()
     try:
-        owner._control_failure_poll(0, link_unavailable=False)
+        owner._control_failure_poll(0)
         assert case.store.get_state("native_blocking_fault") in {None, ""}
         for _ in range(100):
             owner._work_poll(0)
@@ -802,7 +817,7 @@ def test_explicit_mcu_rejection_is_not_disguised_as_timeout(tmp_path):
     owner._rpc = NativeJobRpc()
     try:
         _save_decision(case, "REJECTED", "SAFETY_BLOCKED")
-        owner._control_failure_poll(0, link_unavailable=False)
+        owner._control_failure_poll(0)
         _drain_failure(owner, case)
         command = case.store.get_command(case.command["commandUid"])
         assert command["state"] == "REJECTED"
@@ -849,11 +864,12 @@ def test_accepted_baseline_without_result_waits_for_communication_deadline(tmp_p
     owner._rpc = NativeJobRpc()
     try:
         _save_decision(case)
-        owner._control_failure_poll(999, link_unavailable=False)
+        owner._control_failure_poll(999)
         assert case.store.get_command(case.command["commandUid"])["state"] == "WAITING_MCU_RESULT"
         assert case.store.get_work_slot() is not None
 
-        owner._control_failure_poll(1000, link_unavailable=True)
+        timeout = type("Timeout", (), {"critical": False})()
+        owner._control_failure_poll(1000, request_timeouts=(timeout,))
         _drain_failure(owner, case)
         command = case.store.get_command(case.command["commandUid"])
         assert command["state"] == "FAILED"
@@ -881,8 +897,11 @@ def test_write_claimed_timeout_retires_dispatch_and_releases_successor_gate(
     owner.boot = SimpleNamespace(current_boot=lambda now: case.boot_id)
     owner._rpc = NativeJobRpc()
     try:
-        owner._control_failure_poll(0, link_unavailable=False)
-        owner._control_failure_poll(1000, link_unavailable=False)
+        owner._control_failure_poll(0)
+        owner._control_failure_poll(
+            1000,
+            request_timeouts=(_command_timeout(case),),
+        )
         _drain_failure(owner, case)
         command = case.store.get_command(case.command["commandUid"])
         assert command["state"] == "FAILED"
@@ -936,8 +955,11 @@ def test_reopen_backfills_legacy_applied_control_failure_dispatch_retirement(
     owner.boot = SimpleNamespace(current_boot=lambda now: case.boot_id)
     owner._rpc = NativeJobRpc()
     try:
-        owner._control_failure_poll(0, link_unavailable=False)
-        owner._control_failure_poll(1000, link_unavailable=False)
+        owner._control_failure_poll(0)
+        owner._control_failure_poll(
+            1000,
+            request_timeouts=(_command_timeout(case),),
+        )
         _drain_failure(owner, case)
         command = case.store.get_command(case.command["commandUid"])
         assert command["result"]["nativeControlFailure"]["state"] == "APPLIED"
@@ -1182,7 +1204,7 @@ def test_healthy_link_cannot_keep_accepted_baseline_without_result_forever_after
     first._rpc = NativeJobRpc()
     try:
         _save_decision(case)
-        first._control_failure_poll(999, link_unavailable=False)
+        first._control_failure_poll(999)
         assert case.store.get_command(case.command["commandUid"])["state"] == "WAITING_MCU_RESULT"
     finally:
         first._rpc.close()
@@ -1212,16 +1234,16 @@ def test_healthy_link_cannot_keep_accepted_baseline_without_result_forever_after
     restarted.dispatcher = SimpleNamespace(poll=lambda uid, now: None)
     restarted._rpc = NativeJobRpc()
     try:
-        restarted._control_failure_poll(0, link_unavailable=False)
+        restarted._control_failure_poll(0)
         assert case.store.get_command(case.command["commandUid"])["state"] == "WAITING_MCU_RESULT"
         restarted._work_poll(0)
         assert any(
             uart.decode_frame(frame)["messageName"] == "QUERY_PROCESS_EVENT"
             for frame in sent
         )
-        restarted._control_failure_poll(999, link_unavailable=False)
+        restarted._control_failure_poll(999)
         assert case.store.get_command(case.command["commandUid"])["state"] == "WAITING_MCU_RESULT"
-        restarted._control_failure_poll(1000, link_unavailable=False)
+        restarted._control_failure_poll(1000)
         failed = case.store.get_command(case.command["commandUid"])
         assert failed["state"] == "FAILED"
         assert failed["last_error"] == "MCU_BASELINE_RESULT_UNAVAILABLE"
@@ -1265,7 +1287,7 @@ def test_expired_accepted_baseline_gets_query_only_chance_to_recover_held_result
     restarted.dispatcher = SimpleNamespace(poll=lambda uid, now: None)
     restarted._rpc = NativeJobRpc()
     try:
-        restarted._control_failure_poll(0, link_unavailable=False)
+        restarted._control_failure_poll(0)
         assert case.store.get_command(case.command["commandUid"])["state"] == "WAITING_MCU_RESULT"
         restarted._work_poll(0)
         query_frame = next(
@@ -1301,7 +1323,7 @@ def test_expired_accepted_baseline_gets_query_only_chance_to_recover_held_result
             0,
         )
         assert case.store.get_command(case.command["commandUid"])["state"] == "WAITING_MCU_RESULT"
-        restarted._control_failure_poll(1000, link_unavailable=False)
+        restarted._control_failure_poll(1000)
         restarted._work_poll(1000)
         query_frame = [
             frame
@@ -1385,7 +1407,7 @@ def test_explicit_interrupted_command_recovery_preserves_native_baseline_state(
     restarted.dispatcher = SimpleNamespace(poll=lambda uid, now: None)
     restarted._rpc = NativeJobRpc()
     try:
-        restarted._control_failure_poll(0, link_unavailable=False)
+        restarted._control_failure_poll(0)
         if state == "ACCEPTED_NO_RESULT":
             restarted._work_poll(0)
             assert any(
@@ -1393,7 +1415,7 @@ def test_explicit_interrupted_command_recovery_preserves_native_baseline_state(
                 == "QUERY_PROCESS_EVENT"
                 for frame in sent
             )
-            restarted._control_failure_poll(1000, link_unavailable=False)
+            restarted._control_failure_poll(1000)
         _drain_failure(restarted, case)
         command = case.store.get_command(case.command["commandUid"])
         assert command["state"] == "FAILED"
@@ -1418,7 +1440,7 @@ def test_mcu_restart_closes_baseline_without_creating_or_clearing_bag_lock(tmp_p
     owner._rpc = NativeJobRpc()
     try:
         _save_decision(case)
-        owner._control_failure_poll(1, link_unavailable=False)
+        owner._control_failure_poll(1)
         _drain_failure(owner, case)
         command = case.store.get_command(case.command["commandUid"])
         assert command["state"] == "FAILED"
@@ -1508,7 +1530,7 @@ def test_atomic_baseline_intent_survives_commit_boundary_and_retires_without_sen
     restarted._rpc = NativeJobRpc()
     case = SimpleNamespace(store=store)
     try:
-        restarted._control_failure_poll(0, link_unavailable=False)
+        restarted._control_failure_poll(0)
         _drain_failure(restarted, case)
         failed = store.get_command(command_uid)
         assert failed["state"] == "FAILED"

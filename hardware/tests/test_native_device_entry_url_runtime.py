@@ -726,7 +726,9 @@ def test_native_acceptance_v5_keeps_url_proof_after_final_event(
         "fullnessReadStatus": "VALID",
         "fullnessCapturedUptimeMs": 100,
     }
-    runtime._last_alive = 0
+    runtime.transport = SimpleNamespace(
+        requests=SimpleNamespace(last_matched_ms=0)
+    )
     runtime.timeout_ms = 10_000
     runtime._refresh_runtime_observation(0)
     assert runtime.mcu_session_ready

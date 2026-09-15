@@ -1305,6 +1305,84 @@ class EdgeStore:
                     break
             return created
 
+    def prepare_native_delivery_issue_report_snapshot(
+        self,
+        work_uid,
+        *,
+        device_name,
+        expected_issue,
+        sources,
+        limit=50,
+    ):
+        """Persist a bounded batch from an already-rendered immutable archive."""
+        from native_delivery_issue_report import checked_report, ARCHIVE_EVENT
+        from onenet_wire import build_event_envelope, encode_event_post
+        from work_recovery import canonical
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("native issue report batch must contain 1..100 new events")
+        if not isinstance(sources, (list, tuple)):
+            raise ValueError("native issue report sources must be bounded snapshot data")
+        with self._standalone_native_transaction() as conn:
+            issue = self.get_native_delivery_issue(work_uid)
+            if (
+                issue is None
+                or issue["deviceName"] != device_name
+                or canonical(issue) != canonical(expected_issue)
+            ):
+                raise ValueError("native issue report snapshot changed before persistence")
+            created = []
+            for key, event_type, payload in sources:
+                if (
+                    not isinstance(key, tuple)
+                    or len(key) != 3
+                    or not isinstance(payload, dict)
+                ):
+                    raise ValueError("native issue report snapshot is malformed")
+                existing = conn.execute(
+                    """SELECT * FROM native_delivery_issue_report
+                       WHERE issue_uid=? AND evidence_kind=?
+                         AND evidence_index=? AND part_index=?""",
+                    (issue["issueUid"], *key),
+                ).fetchone()
+                expected = (key, event_type, payload)
+                if existing:
+                    checked_report(self, existing, issue, expected)
+                    continue
+                uid = (
+                    issue["issueUid"]
+                    if event_type == ARCHIVE_EVENT
+                    else self._new_uid()
+                )
+                event = build_event_envelope(
+                    device_name=device_name,
+                    event_uid=uid,
+                    edge_event_sequence=self._next_seq(conn),
+                    event_type=event_type,
+                    target_type="DELIVERY_SESSION",
+                    target_uid=work_uid,
+                    command_uid=issue["permit"]["command_uid"],
+                    payload=payload,
+                )
+                encode_event_post(event_type, event)
+                self._insert_event(conn, event, event_type)
+                conn.execute(
+                    """INSERT INTO native_delivery_issue_report
+                       (event_uid,issue_uid,device_name,evidence_kind,
+                        evidence_index,part_index,event_sha256)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (
+                        uid,
+                        issue["issueUid"],
+                        device_name,
+                        *key,
+                        canonical_payload_sha256(event),
+                    ),
+                )
+                created.append(uid)
+                if len(created) == limit:
+                    break
+            return created
+
     def _migrate_v33(self) -> None:
         """Irreversible delivery issue verdict; not business completion/admission."""
         self._conn.execute("""CREATE TABLE IF NOT EXISTS native_delivery_issue (
@@ -10591,6 +10669,123 @@ class EdgeStore:
                 raise RuntimeError(
                     "native communication admission latch changed"
                 )
+            return "ACCEPTED"
+
+    def recover_native_control_communication_fault_automatically(
+        self,
+        *,
+        device_name: str,
+        fault_uid: str,
+        mcu_boot_id: int | None,
+        recovery_evidence: str,
+    ) -> str:
+        """Atomically recover only an auto-recoverable request timeout.
+
+        Unlike the historical operator action, a matched UART reply need not
+        wait for the failed business slot to be released.  This transaction
+        changes only the exact UART fault and its admission latch; the
+        original command, work slot, bag and permanent ledger are untouched.
+        """
+        valid_boot = (
+            mcu_boot_id is None
+            or (
+                type(mcu_boot_id) is int
+                and 1 <= mcu_boot_id <= 9_007_199_254_740_991
+            )
+        )
+        if (
+            not device_name
+            or device_name == "UNKNOWN_DEVICE"
+            or not isinstance(fault_uid, str)
+            or not fault_uid
+            or not valid_boot
+            or not isinstance(recovery_evidence, str)
+            or not recovery_evidence
+            or len(recovery_evidence) > 1024
+        ):
+            return "REJECTED"
+        with self.transaction(immediate=True):
+            state = self._conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='native_blocking_fault'"""
+            ).fetchone()
+            blocking_reason = (
+                state["state_value"] if state is not None else ""
+            )
+            fault = self._conn.execute(
+                """SELECT * FROM edge_fault_state
+                   WHERE fault_uid=?""",
+                (fault_uid,),
+            ).fetchone()
+            if fault is None:
+                return "UNKNOWN"
+            if (
+                fault["lifecycle"] != "OBSERVED"
+                or fault["scope_key"] != "DEVICE"
+                or fault["port_no"] is not None
+                or fault["component"] != "UART"
+                or fault["fault_code"] != "UART_PROTOCOL"
+                or fault["severity"] != "BLOCK_DEVICE"
+            ):
+                return "CONFLICT"
+            try:
+                detail = _json.loads(fault["detail_json"] or "{}")
+            except (TypeError, ValueError, _json.JSONDecodeError):
+                return "CONFLICT"
+            if (
+                detail.get("profile")
+                != "native-control-communication-v1"
+                or detail.get("reasonCode")
+                != "MCU_COMMUNICATION_UNAVAILABLE"
+                or detail.get("automaticRecovery") is not True
+            ):
+                return "CONFLICT"
+
+            now = self._now()
+            updated = self._conn.execute(
+                """UPDATE edge_fault_state
+                   SET lifecycle='RECOVERED', recovered_at=?,
+                       recovery_evidence=?
+                   WHERE fault_uid=? AND lifecycle='OBSERVED'""",
+                (now, recovery_evidence, fault_uid),
+            )
+            if updated.rowcount != 1:
+                return "CONFLICT"
+            sequence = self._next_seq(self._conn)
+            event_uid = self._new_uid()
+            event = build_event_envelope(
+                event_uid=event_uid,
+                device_name=device_name,
+                edge_event_sequence=sequence,
+                event_type="DEVICE_FAULT_RECOVERED",
+                target_type="DEVICE_ASSET",
+                target_uid=device_name,
+                payload={
+                    "faultUid": fault_uid,
+                    "portNo": None,
+                    "component": "UART",
+                    "severity": "BLOCK_DEVICE",
+                    "faultCode": "UART_PROTOCOL",
+                    "mcuBootId": mcu_boot_id,
+                    "mcuEventSequence": None,
+                },
+            )
+            self._insert_event(
+                self._conn,
+                event,
+                "DEVICE_FAULT_RECOVERED",
+            )
+            if blocking_reason == "MCU_COMMUNICATION_UNAVAILABLE":
+                cleared = self._conn.execute(
+                    """UPDATE device_state SET state_value='', updated_at=?
+                       WHERE state_key='native_blocking_fault'
+                         AND state_value='MCU_COMMUNICATION_UNAVAILABLE'""",
+                    (now,),
+                )
+                if cleared.rowcount != 1:
+                    raise RuntimeError(
+                        "native communication admission latch changed"
+                    )
             return "ACCEPTED"
 
     @staticmethod

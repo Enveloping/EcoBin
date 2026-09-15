@@ -5,6 +5,7 @@ parts with immutable artifact identity/digest. No truncation, COS grant or actio
 """
 import hashlib
 import json
+from dataclasses import dataclass
 
 from work_recovery import canonical
 from onenet_wire import canonical_payload_sha256
@@ -14,6 +15,13 @@ import uart2_protocol as uart
 ARCHIVE_EVENT = "DELIVERY_ISSUE_ARCHIVED"
 EVIDENCE_EVENT = "DELIVERY_ISSUE_EVIDENCE_APPENDED"
 PART_BYTES = 256
+
+
+@dataclass(frozen=True)
+class IssueReportSnapshot:
+    work_uid: str
+    issue_json: str
+    source_records: tuple[str, ...]
 
 
 def validate_envelope(event):
@@ -188,3 +196,65 @@ class NativeDeliveryIssueReporter:
 
     def prepare(self, work_uid, *, limit=50):
         return self.store.prepare_native_delivery_issue_reports(work_uid, device_name=self.device_name, limit=limit)
+
+    def render(self, work_uid):
+        """Read and render the immutable archive without writing SQLite."""
+        issue = self.store.get_native_delivery_issue(work_uid)
+        if issue is None or issue["deviceName"] != self.device_name:
+            raise ValueError(
+                "native issue report requires the original archived device/work"
+            )
+        sources = [
+            {
+                "key": list(key),
+                "eventType": event_type,
+                "payload": payload,
+            }
+            for key, event_type, payload in report_sources(self.store, issue)
+        ]
+        return IssueReportSnapshot(
+            work_uid=work_uid,
+            issue_json=json.dumps(
+                issue,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            source_records=tuple(
+                json.dumps(
+                    source,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                for source in sources
+            ),
+        )
+
+    def persist_batch(self, snapshot, *, cursor=0, limit=50):
+        if not isinstance(snapshot, IssueReportSnapshot):
+            raise ValueError("native issue persistence requires its snapshot")
+        if type(cursor) is not int or not 0 <= cursor <= len(snapshot.source_records):
+            raise ValueError("native issue snapshot cursor is invalid")
+        records = snapshot.source_records[cursor:cursor + limit]
+        sources = [
+            (
+                tuple(item["key"]),
+                item["eventType"],
+                item["payload"],
+            )
+            for item in (json.loads(record) for record in records)
+        ]
+        created = self.store.prepare_native_delivery_issue_report_snapshot(
+            snapshot.work_uid,
+            device_name=self.device_name,
+            expected_issue=json.loads(snapshot.issue_json),
+            sources=sources,
+            limit=limit,
+        )
+        next_cursor = cursor + len(records)
+        return {
+            "created": created,
+            "cursor": next_cursor,
+            "done": next_cursor == len(snapshot.source_records),
+        }

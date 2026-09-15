@@ -39,6 +39,7 @@ def verify_source_schema_version(source_root):
 
 
 RUNTIME_APP_FILES = (
+    "bounded_worker.py",
     "uart2_protocol.py",
     "mcu_action_evidence.py",
     "work_recovery.py",
@@ -63,6 +64,7 @@ RUNTIME_APP_FILES = (
     "mcu_result_handoff.py",
     "mcu_configuration.py",
     "uart2_transport.py",
+    "uart_request_tracker.py",
     "business_identity.py",
     "business_control.py",
     "native_fault_control_cli.py",
@@ -282,4 +284,5 @@ FACTORY_APP_RUNTIME_FILES = (
     "uart_protocol.py",
     "uart2_protocol.py",
     "uart2_transport.py",
+    "uart_request_tracker.py",
 )

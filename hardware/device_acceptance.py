@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+from dataclasses import dataclass
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -17,6 +19,17 @@ logger = logging.getLogger("device-acceptance")
 
 MAXIMUM_SENSOR_EVIDENCE_AGE_SECONDS = 10 * 60
 MAXIMUM_WEIGHT_GRAMS = 350_000
+
+
+@dataclass(frozen=True)
+class AcceptanceSnapshot:
+    """Immutable hand-off from the UART owner to the camera/COS worker."""
+
+    command_json: str
+    grant_json: str
+    evidence_json: str
+    owner_thread_id: int
+    background_required: bool
 
 
 class DeviceAcceptanceRunner:
@@ -67,7 +80,12 @@ class DeviceAcceptanceRunner:
         if self._current_progress_phase != "REQUEST_RECEIVED":
             self.report_progress("REQUEST_RECEIVED")
         try:
-            return self._run(command)
+            snapshot = self.prepare(command)
+            external = self._execute_external(
+                snapshot,
+                enforce_background=False,
+            )
+            return self.complete(snapshot, external)
         except Exception as error:
             self.report_progress(
                 "FAILED",
@@ -91,7 +109,8 @@ class DeviceAcceptanceRunner:
                 type(error).__name__,
             )
 
-    def _run(self, command: dict[str, Any]) -> dict[str, Any]:
+    def prepare(self, command: dict[str, Any]) -> AcceptanceSnapshot:
+        """Freeze all UART/database evidence before any slow external work."""
         payload = command["payload"]
         challenge_uid = payload["challengeUid"]
         expected_port_count = payload["expectedPortCount"]
@@ -126,28 +145,38 @@ class DeviceAcceptanceRunner:
             or "UNKNOWN"
         )[:64]
         native_url_application = getattr(self._uart, "native_protocol", None) == 2
+        runtime_provider = getattr(
+            self._uart,
+            "current_runtime_observation",
+            None,
+        )
+        runtime_snapshot = (
+            runtime_provider()
+            if native_url_application and callable(runtime_provider)
+            else None
+        )
         session_communication_healthy = bool(
-            getattr(self._uart, "is_open", False)
-            and getattr(self._uart, "mcu_session_ready", False)
-            # The simplified native boot probe is itself the current
-            # communication proof. It does not fabricate a firmware version;
-            # retain UNKNOWN until that separate diagnostic is implemented.
-            and (
-                native_url_application
-                or mcu_firmware_version != "UNKNOWN"
+            (
+                isinstance(runtime_snapshot, dict)
+                and runtime_snapshot.get("uartState") == "READY"
+                and runtime_snapshot.get("mcuBootId", 0) > 0
+            )
+            if native_url_application
+            else (
+                getattr(self._uart, "is_open", False)
+                and getattr(self._uart, "mcu_session_ready", False)
+                and mcu_firmware_version != "UNKNOWN"
             )
         )
 
-        sensor_result = self._sensor_evidence(expected_port_count)
+        sensor_result = self._sensor_evidence(
+            expected_port_count,
+            runtime_snapshot=runtime_snapshot,
+        )
         mcu_communication_healthy = (
             sensor_result["communicationHealthy"]
             if getattr(self._uart, "compatibility_mode", False)
             else session_communication_healthy
-        )
-        self.report_progress("CAMERA_CAPTURE")
-        camera_result = self._camera_evidence(
-            challenge_uid,
-            grant,
         )
         device_entry_url = self._store.get_device_entry_url()
         device_entry_url_stored = device_entry_url is not None
@@ -161,10 +190,14 @@ class DeviceAcceptanceRunner:
             if native_url_application
             else None
         )
-        current_mcu_boot_id = getattr(
-            self._uart,
-            "current_mcu_boot_id",
-            getattr(self._uart, "_mcu_boot_id", 0),
+        current_mcu_boot_id = (
+            runtime_snapshot.get("mcuBootId", 0)
+            if isinstance(runtime_snapshot, dict)
+            else getattr(
+                self._uart,
+                "current_mcu_boot_id",
+                getattr(self._uart, "_mcu_boot_id", 0),
+            )
         )
         device_entry_url_mcu_applied = bool(
             applied_url is not None
@@ -190,20 +223,10 @@ class DeviceAcceptanceRunner:
             ),
             "mcuCommunicationHealthy": mcu_communication_healthy,
             "sensorsHealthy": sensor_result["healthy"],
-            "camerasCaptureHealthy": camera_result[
-                "captureHealthy"
-            ],
-            "cameraUploadHealthy": camera_result["uploadHealthy"],
             "mcuSimulated": mcu_simulated,
             "mcuRemoteUpdateCapable": self._mcu_remote_update_capable,
-            "camerasSimulated": camera_result["camerasSimulated"],
             "verifiedPortCount": sensor_result["verifiedPortCount"],
-            "verifiedCameraCount": camera_result[
-                "verifiedCameraCount"
-            ],
             "sensorSampleSha256": sensor_result["sha256"],
-            "cameraCaptureSha256": camera_result["captureSha256"],
-            "cameraUploadSha256": camera_result["uploadSha256"],
             "deviceEntryUrlStored": device_entry_url_stored,
             "deviceEntryUrlSha256": device_entry_url_sha256,
         }
@@ -226,6 +249,77 @@ class DeviceAcceptanceRunner:
                     else "NOT_APPLIED"
                 ),
             })
+        return AcceptanceSnapshot(
+            command_json=json.dumps(
+                command,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            grant_json=json.dumps(
+                grant,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            evidence_json=json.dumps(
+                evidence,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            owner_thread_id=threading.get_ident(),
+            background_required=native_url_application,
+        )
+
+    def execute_external(
+        self,
+        snapshot: AcceptanceSnapshot,
+    ) -> dict[str, Any]:
+        return self._execute_external(snapshot, enforce_background=True)
+
+    def _execute_external(
+        self,
+        snapshot: AcceptanceSnapshot,
+        *,
+        enforce_background: bool,
+    ) -> dict[str, Any]:
+        if not isinstance(snapshot, AcceptanceSnapshot):
+            raise ValueError("acceptance worker requires an immutable snapshot")
+        if (
+            enforce_background
+            and snapshot.background_required
+            and threading.get_ident() == snapshot.owner_thread_id
+        ):
+            raise RuntimeError("native acceptance external work ran on UART owner")
+        command = json.loads(snapshot.command_json)
+        grant = json.loads(snapshot.grant_json)
+        self.report_progress("CAMERA_CAPTURE")
+        return self._camera_evidence(
+            command["payload"]["challengeUid"],
+            grant,
+        )
+
+    def complete(
+        self,
+        snapshot: AcceptanceSnapshot,
+        camera_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist worker output on the original foreground owner only."""
+        if not isinstance(snapshot, AcceptanceSnapshot):
+            raise ValueError("acceptance completion requires its snapshot")
+        if threading.get_ident() != snapshot.owner_thread_id:
+            raise RuntimeError("acceptance completion left its foreground owner")
+        command = json.loads(snapshot.command_json)
+        evidence = json.loads(snapshot.evidence_json)
+        evidence.update({
+            "camerasCaptureHealthy": camera_result["captureHealthy"],
+            "cameraUploadHealthy": camera_result["uploadHealthy"],
+            "camerasSimulated": camera_result["camerasSimulated"],
+            "verifiedCameraCount": camera_result["verifiedCameraCount"],
+            "cameraCaptureSha256": camera_result["captureSha256"],
+            "cameraUploadSha256": camera_result["uploadSha256"],
+        })
         self.report_progress("EVIDENCE_PERSISTENCE")
         event = self._store.complete_device_acceptance(
             command,
@@ -235,20 +329,20 @@ class DeviceAcceptanceRunner:
         logger.info(
             "device acceptance evidence recorded: challenge=%s "
             "hardware_ok=%s",
-            challenge_uid,
+            evidence["challengeUid"],
             all((
-                persistent_store_healthy,
-                configuration_persistence_healthy,
-                trusted_time_healthy,
-                mcu_communication_healthy,
-                sensor_result["healthy"],
+                evidence["persistentStoreHealthy"],
+                evidence["configurationPersistenceHealthy"],
+                evidence["trustedTimeHealthy"],
+                evidence["mcuCommunicationHealthy"],
+                evidence["sensorsHealthy"],
                 camera_result["captureHealthy"],
                 camera_result["uploadHealthy"],
-                device_entry_url_stored,
+                evidence["deviceEntryUrlStored"],
             )),
         )
         return {
-            "challengeUid": challenge_uid,
+            "challengeUid": evidence["challengeUid"],
             "evidenceEventUid": event["eventUid"],
             "disposition": "EVIDENCE_RECORDED",
         }
@@ -306,13 +400,21 @@ class DeviceAcceptanceRunner:
             )
             return False
 
-    def _sensor_evidence(self, expected_port_count: int) -> dict[str, Any]:
+    def _sensor_evidence(
+        self,
+        expected_port_count: int,
+        *,
+        runtime_snapshot: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if getattr(self._uart, "compatibility_mode", False):
             facts = self._fixed_frame_sensor_facts(
                 expected_port_count
             )
         elif getattr(self._uart, "native_protocol", None) == 2:
-            facts = self._uart_v2_sensor_facts(expected_port_count)
+            facts = self._uart_v2_sensor_facts(
+                expected_port_count,
+                runtime_snapshot=runtime_snapshot,
+            )
         else:
             facts = self._uart_v1_sensor_facts(expected_port_count)
         return {
@@ -328,9 +430,20 @@ class DeviceAcceptanceRunner:
     def _uart_v2_sensor_facts(
         self,
         expected_port_count: int,
+        *,
+        runtime_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        provider = getattr(self._uart, "current_device_facts", None)
-        observation = provider() if callable(provider) else None
+        if isinstance(runtime_snapshot, dict):
+            observation = runtime_snapshot.get("deviceFacts")
+            snapshot_boot_id = runtime_snapshot.get("mcuBootId", 0)
+        else:
+            provider = getattr(self._uart, "current_device_facts", None)
+            observation = provider() if callable(provider) else None
+            snapshot_boot_id = getattr(
+                self._uart,
+                "current_mcu_boot_id",
+                0,
+            )
         fresh = isinstance(observation, dict)
         configured_port_count = getattr(self._uart, "port_count", 1)
         if (
@@ -359,7 +472,7 @@ class DeviceAcceptanceRunner:
             and observation.get("status") == "AVAILABLE"
             and observation.get("portNo") == 1
             and observation.get("currentMcuBootId")
-                == getattr(self._uart, "current_mcu_boot_id", 0)
+                == snapshot_boot_id
             and observation.get("appliedConfigVersion", 0) > 0
             and observation.get("configStaging") is False
             and observation.get("scaleReadStatus") == "VALID"
@@ -379,7 +492,9 @@ class DeviceAcceptanceRunner:
             "verifiedPortCount": configured_port_count,
             "fresh": fresh,
             "communicationHealthy": bool(
-                getattr(self._uart, "mcu_session_ready", False)
+                runtime_snapshot.get("uartState") == "READY"
+                if isinstance(runtime_snapshot, dict)
+                else getattr(self._uart, "mcu_session_ready", False)
             ),
             "observation": observation,
             "healthy": bool(
