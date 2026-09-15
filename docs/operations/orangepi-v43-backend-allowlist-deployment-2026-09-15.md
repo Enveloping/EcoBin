@@ -161,8 +161,9 @@ UART持续轮询、迟到回复恢复，以及投递/清运/断电HIL均未执�
 ### 云端验收信息停在设备平台已接收
 
 投递步骤通过后，现场继续推进到“采集并上传验收信息”，页面子步骤“云端设备平台已接收”长期
-显示“进行中”。该文案只证明设备事件已被OneNet设备平台接受，不等于后端北向消费、验收记录
-落库或设备收到最终确认已经完成。
+显示“进行中”。这里的“进行中”不能解释为已经接收成功；设备投影只有在取得OneNet成功回复后
+才会完成该子步骤，活动态的准确含义仍是等待OneNet接受。即使该子步骤以后完成，也仍不等于
+后端北向消费、验收记录落库或设备收到最终确认已经完成。
 
 现场期间对生产服务器执行只读核对：后端容器健康、重启次数为0，OneNet北向Pulsar消费者已经
 成功订阅且仍在持续接收同一设备的配置进度和运行快照。该设备在UTC
@@ -179,3 +180,54 @@ UART持续轮询、迟到回复恢复，以及投递/清运/断电HIL均未执�
 成功。开发机当时仍在普通WLAN地址`192.168.1.149`，不在厂家热点网段，尚未读取设备本地
 `event_outbox`的事件编号、平台接收时间和MQTT回复关联。不得通过手工重复验收、补造后台记录、
 清除设备待办或确认隔离记录来绕过。
+
+### 香橙派本机只读诊断与根因
+
+随后没有切换开发机网络，而是从正式后台创建15分钟短期远程维护会话，通过只监听服务器回环
+地址的反向SSH访问该香橙派。香橙派本机请求`http://10.42.0.1/api/v1/status`成功；只读检查本地
+SQLite、运行日志和实际线级编码完成后，维护会话主动关闭为`CLOSED`，端口22011租约释放，
+`leaseCleanupPending=false`。没有重启服务、修改设备记录、直接占用UART或执行机构动作。
+
+设备本机证据排除了“照片仍在采集或COS仍在上传”：热点状态中`CAMERA_CAPTURE`、
+`COS_UPLOAD_READBACK`和`EVIDENCE_RECORDED`均已完成，只有`ONENET_TRANSPORT_ACCEPTED`保持
+`WAITING_ONENET_ACCEPTANCE`，`PLATFORM_CONFIRMED`尚未开始。本地验收命令均为`COMPLETED /`
+`EVIDENCE_RECORDED`；每次自动重发的新验收请求都会再次拍摄、上传并形成新的可靠验收事件。
+
+截至只读维护结束，日志和数据库已看到UTC `14:00`至`14:45`至少九轮验收证据。每条
+`DEVICE_ACCEPTANCE_EVIDENCE`都仍为`PENDING`，`confirmed_at`和`platform_accepted_at`均为空；
+OneNet对每一条及其后续重试都返回`2308`。例如设备序号29、95、161、228、295、362、429、
+500和567的验收事件均未被错误编号或其他事件回复冒充成功；同一时段远程维护状态等其他事件能
+取得`200`并由后台确认，证明MQTT连接、事件回复编号关联和后端北向链路不是整体中断。
+
+根因是设备线级物模型与生产OneNet控制台物模型没有同步：
+
+- 9月11日最后一次生产导入和逐字段核验记录为18个服务、22个事件；当时
+  `deviceAcceptanceEvidence`只有37个输出字段，`evidenceSchemaVersion`只允许v3/v4；
+- v43实际携带当前OneNet 2.4投影：18个服务、25个事件；验收事件为v5、45个输出字段，线级
+  `evidenceSchemaVersion=3`表示业务版本v5；
+- 新增的八个输出字段为`deviceEntryUrlMcuAppliedPresent`、`deviceEntryUrlMcuApplied`、
+  `deviceEntryUrlAppliedSha2Present`、`deviceEntryUrlAppliedSha2`、
+  `deviceEntryUrlAppliedMcuBPresent`、`deviceEntryUrlAppliedMcuB`、
+  `deviceEntryUrlDisplayBasiPresent`和`deviceEntryUrlDisplayBasi`；生产旧模型既不接受枚举值3，
+  也没有这八个字段，因此OneNet在北向转发前以2308拒绝。当前一条实机线级报文为1,954字节、
+  45个输出字段，与v43生成投影完全一致。
+
+服务器现有产品级下行密钥调用OneNet只读`QueryThingModel`返回
+`iot.common.authPermissionDeny`，不能用该密钥补做控制台在线导出；以上结论由9月11日已保存的
+生产导入核验、当前机器生成候选、实机45字段编码及全部事件的2308回复交叉确定。修复前必须由
+有控制台权限的操作者导入并保存当前
+`contracts/onenet/generated/onenet-thing-model.candidate.json`，然后再逐项核对18服务、25事件、
+0属性及零字段差异；仅增加后端允许版本不会改变OneNet的字段校验。
+
+另有一个不会被物模型同步自动解决的后续门槛：实机验收证据中持久存储、可信时间、配置、MCU
+通信、双摄、COS回读和二维码应用均为`true`，但`sensorsHealthy=false`。当前设备事实显示称重和
+烟感可用，满溢事实为`fullnessReadStatus=UNAVAILABLE`；v43验收采集器要求满溢读数也为`VALID`，
+而本地厂家报告仍允许该情形以`PASSED`完成。后端收到事件后会据此加入
+`SENSOR_SELF_TEST_FAILED`，所以同步OneNet模型以后，本轮也不能直接判通过。必须先确认是满溢
+传感器/接线确实不可用，还是本地厂家验收与云端验收规则口径矛盾；不能把`false`改成`true`、
+手工补确认或复用旧证据绕过。
+
+本机`report.json`同时确认前述投递延迟的现场终因确为`DELIVERY_WINDOW_EXPIRED`：操作员在开门页
+请求关门后经历30秒门行程等待，进入继续/结束选择窗口后没有再点击“结束投递”，再等30秒窗口
+到期才产生最终结果。因此第一项不是结果已经到达香橙派后又被固定压住，而是MCU按当前两阶段
+交互尚未形成最终结果；后续应单独优化页面提示或已确认关门后的验收路径，不能删除机械行程等待。
