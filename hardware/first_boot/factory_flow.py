@@ -524,6 +524,7 @@ class FactoryFlowProjector:
                 or event.get("confirmed") is True
             )
         )
+        acceptance_decision = event.get("acceptanceDecision")
         p8_phase = _code(runtime_value.get("p8Phase"), "IDLE")
         command_error = _code(command.get("lastError"), "NONE")
         p8_started = p8_phase != "IDLE"
@@ -601,6 +602,9 @@ class FactoryFlowProjector:
         elif not seal_available:
             cloud_state = "UNKNOWN"
             cloud_detail = "STATUS_UNAVAILABLE"
+        elif acceptance_decision == "FAILED":
+            cloud_state = "BLOCKED"
+            cloud_detail = "CLOUD_ACCEPTANCE_FAILED"
         elif seal_authorized:
             cloud_state = "COMPLETED"
             cloud_detail = "CLOUD_ACCEPTANCE_PASSED"
@@ -611,7 +615,9 @@ class FactoryFlowProjector:
             "CLOUD_DECISION_AND_AUTHORIZATION",
             cloud_state,
             cloud_detail,
-            "NONE",
+            "CLOUD_ACCEPTANCE_FAILED"
+            if cloud_state == "BLOCKED"
+            else "NONE",
             (
                 _bool_step("EVIDENCE_CONFIRMED", event_confirmed),
                 _bool_step(
@@ -1493,7 +1499,16 @@ def _read_acceptance_delivery(path: Path) -> _SourceSnapshot:
         ):
             return _SourceSnapshot(False, {})
         event = connection.execute(
-            """SELECT state, confirmed_at, platform_accepted_at
+            """SELECT state, confirmed_at, platform_accepted_at,
+                      (
+                          SELECT confirmation.payload_json
+                          FROM confirmation_inbox confirmation
+                          WHERE confirmation.event_uid = json_extract(
+                              event_outbox.payload_json, '$.eventUid'
+                          )
+                          ORDER BY confirmation.rowid DESC
+                          LIMIT 1
+                      ) AS confirmation_payload_json
                FROM event_outbox
                WHERE event_type='DEVICE_ACCEPTANCE_EVIDENCE'
                  AND json_extract(payload_json, '$.commandUid')=?
@@ -1528,6 +1543,28 @@ def _read_acceptance_delivery(path: Path) -> _SourceSnapshot:
             "confirmed": confirmed_at is not None,
             "platformAccepted": platform_accepted_at is not None,
         }
+        confirmation_json = event["confirmation_payload_json"]
+        if confirmation_json is not None:
+            confirmation = json.loads(confirmation_json)
+            references = confirmation.get("resultReferences")
+            if not isinstance(references, list):
+                return _SourceSnapshot(False, {})
+            decisions = [
+                reference.get("key")
+                for reference in references
+                if isinstance(reference, dict)
+                and reference.get("type") == "DEVICE_ACCEPTANCE"
+            ]
+            if (
+                len(decisions) > 1
+                or any(
+                    decision not in {"PASSED", "FAILED"}
+                    for decision in decisions
+                )
+            ):
+                return _SourceSnapshot(False, {})
+            if decisions:
+                result["event"]["acceptanceDecision"] = decisions[0]
     return _SourceSnapshot(True, result)
 
 

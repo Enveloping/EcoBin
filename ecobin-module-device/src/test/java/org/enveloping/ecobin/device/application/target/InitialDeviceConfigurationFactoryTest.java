@@ -24,6 +24,8 @@ class InitialDeviceConfigurationFactoryTest {
         assertThat(request.expectedLatestVersion()).isZero();
         assertThat(request.device().continueDeliveryWaitMs())
                 .isEqualTo(30_000L);
+        assertThat(request.device().deliveryDoorTravelWaitMs())
+                .isEqualTo(3_000L);
         assertThat(request.device().negativeWeightThresholdGram())
                 .isEqualTo(500L);
         assertThat(request.ports()).hasSize(2);

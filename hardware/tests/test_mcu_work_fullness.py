@@ -1,14 +1,11 @@
 """Autonomous work keeps weight authority separate from optional fullness diagnostics."""
 import ctypes as c
-import hashlib
 import uuid
 
 import pytest
 
 import uart2_protocol as uart
 from edge_store import EdgeStore
-from mcu_configuration import NativeMcuConfiguration
-from hardware.tests.test_mcu_config_collection import changed, configuration_parts
 from hardware.tests.test_mcu_work_preparation import (
     configured,
     exchange,
@@ -20,29 +17,6 @@ from hardware.tests.test_mcu_work_preparation import (
 )
 from hardware.tests.test_native_configuration import inputs
 from hardware.tests.test_mcu_device_facts import scale_frame
-
-
-def configuration_with_fullness_settle(settle_ms):
-    """Build the same real configuration with one explicitly re-digested test value."""
-    parts, vector = configuration_parts()
-    parts[2] = changed(parts[2], fullnessSettleWaitMs=settle_ms)
-
-    def semantic_bytes(name, first_field, raw):
-        offset = next(field["offset"] for field in uart.MESSAGE_SPECS[name]["fields"]
-                      if field["name"] == first_field)
-        return raw[offset:]
-
-    values = vector["components"]
-    preimage = bytes.fromhex(uart.REGISTRY["digestProfiles"]["mcuPayloadSha256"]["domainHex"])
-    preimage += values["configVersion"].to_bytes(8, "big")
-    preimage += bytes.fromhex(values["contentSha256"]) + bytes([len(values["ports"])])
-    preimage += semantic_bytes("CONFIG_DEVICE_BLOCK", "continueDeliveryWaitMs", parts[1][1])
-    preimage += b"".join(semantic_bytes("CONFIG_PORT_BLOCK", "portNo", part[1])
-                         for part in parts[2:-1])
-    candidate_values = inputs()
-    candidate_values["ports"][0]["fullnessSettleWaitMs"] = settle_ms
-    candidate_values["expected_sha256"] = hashlib.sha256(preimage).hexdigest()
-    return NativeMcuConfiguration(**candidate_values)
 
 
 def process_scope(start, *, clean, terminal):
@@ -82,8 +56,7 @@ def release_diagnostic(runtime, tmp_path, scope, now, suffix):
     return event
 
 
-def begin_work(runtime, tmp_path, *, clean=False, inspect_terminal_diagnostic=False,
-               fullness_settle_ms=None):
+def begin_work(runtime, tmp_path, *, clean=False, inspect_terminal_diagnostic=False):
     lib, endpoint, preparation, _, keepalive, *_ = runtime
     lib.TestUltrasonic_Init()
     assert lib.McuWorkPreparation_AttachFullness(preparation, endpoint)
@@ -92,9 +65,7 @@ def begin_work(runtime, tmp_path, *, clean=False, inspect_terminal_diagnostic=Fa
     assert lib.McuDeliveryExecution_Attach(delivery, preparation, endpoint)
     assert lib.McuCleanExecution_Attach(cleanup, preparation, endpoint)
     assert lib.ActuatorRuntime_SetDoorTarget(1)  # MCU boot policy: command CLOSE.
-    candidate = (configuration_with_fullness_settle(fullness_settle_ms)
-                 if fullness_settle_ms is not None else None)
-    configured(runtime, applied=True, candidate=candidate)
+    configured(runtime, applied=True)
     name = "START_CLEAN_OPERATION" if clean else "START_DELIVERY_SESSION"
     start = start_values(name)
     assert exchange(runtime, name, start)[0][1]["outcome"] == "ACCEPTED"
@@ -149,41 +120,6 @@ def held_result(runtime, start, now, *, clean=False):
     return responses[1][1]
 
 
-def advance_ultrasonic(runtime, now, sensor_us, delta_us):
-    before = sensor_us // 1000
-    sensor_us += delta_us
-    runtime[0].TestUltrasonic_Advance(delta_us)
-    return now + sensor_us // 1000 - before, sensor_us
-
-
-def collect_fullness(runtime, now, sensor_us, distances):
-    """Complete one real optional sensor group while the weight run remains pending."""
-    lib, endpoint, preparation, *_ = runtime
-    if not lib.TestUltrasonic_Trigger():
-        now, sensor_us = advance_ultrasonic(runtime, now, sensor_us, 70000)
-        lib.McuWorkPreparation_Poll(preparation, endpoint, now)
-    assert lib.TestUltrasonic_Trigger()
-    triggered_us = sensor_us
-    for index, distance in enumerate(distances):
-        now, sensor_us = advance_ultrasonic(runtime, now, sensor_us, 15)
-        if distance is None:
-            now, sensor_us = advance_ultrasonic(
-                runtime, now, sensor_us, inputs()["ports"][0]["fullnessEchoTimeoutUs"])
-        else:
-            lib.TestUltrasonic_Edge(1)
-            pulse_us = (distance * 58 + 9) // 10
-            now, sensor_us = advance_ultrasonic(runtime, now, sensor_us, pulse_us)
-            lib.TestUltrasonic_Edge(0)
-        lib.McuWorkPreparation_Poll(preparation, endpoint, now)
-        if index < len(distances) - 1:
-            triggered_us += 70000
-            now, sensor_us = advance_ultrasonic(runtime, now, sensor_us,
-                                                triggered_us - sensor_us)
-            lib.McuWorkPreparation_Poll(preparation, endpoint, now)
-            assert lib.TestUltrasonic_Trigger()
-    return now, sensor_us
-
-
 def add_weight_sample(runtime, now, measurement, value):
     lib, endpoint, preparation, *_ = runtime
     weight = lib.TestPreparation_Weight(preparation)
@@ -219,6 +155,17 @@ def device_facts(runtime, now, query_id=91):
         "queryId": query_id, "targetMcuBootId": 42, "portNo": 1}, now=now)[0][1]
 
 
+def assert_no_business_fullness(event):
+    """The fixed wire tail remains zero for compatibility, never a sample."""
+    assert event["workFullnessStatus"] == "NOT_SAMPLED"
+    assert event["fullnessGroupSequence"] == 0
+    assert event["workFullnessSensorValue"] == "NOT_OBSERVED"
+    assert event["fullnessRequestedSampleCount"] == 0
+    assert event["fullnessCompletedSampleCount"] == 0
+    assert event["fullnessValidSampleCount"] == 0
+    assert not event["fullnessDistancePresent"]
+
+
 def test_default_optional_source_never_delays_or_changes_autonomous_result(runtime, tmp_path):
     delivery, cleanup, start, now = begin_work(runtime, tmp_path)
     _, _, now = begin_terminal_measurement(runtime, (delivery, cleanup), start, now)
@@ -238,30 +185,18 @@ def test_default_optional_source_never_delays_or_changes_autonomous_result(runti
 
 
 @pytest.mark.parametrize("clean", [False, True])
-@pytest.mark.parametrize("distances,basis,valid,distance", [
-    ([1000, 1100, 1200, 900, 800], "MEASURED_MEDIAN", 5, 1000),
-    ([None] * 5, "NO_ECHO_CLEAR_FALLBACK", 0, 0),
-    ([1000, None, None, None, None], "INSUFFICIENT_VALID_SAMPLES_CLEAR_FALLBACK", 1, 0),
-])
-def test_optional_group_reports_only_actual_samples_while_work_finishes_locally(
-        runtime, tmp_path, clean, distances, basis, valid, distance):
+def test_terminal_business_weight_never_starts_or_waits_for_ultrasonic(
+        runtime, tmp_path, clean):
     delivery, cleanup, start, now = begin_work(
-        runtime, tmp_path, clean=clean, inspect_terminal_diagnostic=True,
-        fullness_settle_ms=0)
+        runtime, tmp_path, clean=clean, inspect_terminal_diagnostic=True)
     _, _, now = begin_terminal_measurement(runtime, (delivery, cleanup), start, now, clean=clean)
-    now, _ = collect_fullness(runtime, now, 0, distances)
+    assert not runtime[0].TestUltrasonic_Trigger()
     now = finish_weight(runtime, now, [1000] * 5)
     scope = process_scope(start, clean=clean, terminal=True)
     reply, event = query_process(runtime, scope, now)
     assert reply["status"] == "HELD"
     assert event["reportedWeightGrams"] == 1000
-    assert event["workFullnessStatus"] == "COMPLETE"
-    assert event["workFullnessBasis"] == basis
-    assert event["fullnessValidSampleCount"] == valid
-    assert event["fullnessCompletedSampleCount"] == event["fullnessRequestedSampleCount"] == 5
-    assert event["fullnessDistancePresent"] == (basis == "MEASURED_MEDIAN")
-    assert event["fullnessDistanceMm"] == distance
-    assert event["fullnessConfigContentSha256"] == start["configContentSha256"]
+    assert_no_business_fullness(event)
     if clean:
         result = held_result(runtime, start, now, clean=True)
         assert result["finishReason"] == "CLEAN_CONFIRMED"
@@ -272,19 +207,17 @@ def test_optional_group_reports_only_actual_samples_while_work_finishes_locally(
         assert result["finishReason"] == "DELIVERY_END"
     assert result["finalWeightGrams"] == 1000
     assert not any(key.startswith("fullness") or key.startswith("workFullness") for key in result)
-    facts = device_facts(runtime, now)
-    assert facts["fullnessReadStatus"] == ("VALID" if distances[-1] is not None else "UNAVAILABLE")
-    assert facts["fullnessDistanceMm"] == (distances[-1] or 0)
+    assert device_facts(runtime, now)["fullnessReadStatus"] == "NOT_OBSERVED"
 
 
 @pytest.mark.parametrize("cause", ["update", "context", "weight_timeout"])
-def test_interruption_preserves_partial_weight_and_sensor_facts_without_fabricating_clear(
+def test_interruption_stops_weight_without_starting_or_changing_distance_fact(
         runtime, tmp_path, cause):
     delivery, cleanup, start, began = begin_work(
-        runtime, tmp_path, inspect_terminal_diagnostic=True, fullness_settle_ms=0)
+        runtime, tmp_path, inspect_terminal_diagnostic=True)
     _, _, now = begin_terminal_measurement(runtime, (delivery, cleanup), start, began)
     measurement_began = now
-    now, sensor_us = collect_fullness(runtime, now, 0, [1000])
+    assert not runtime[0].TestUltrasonic_Trigger()
     now = add_weight_sample(runtime, now, 2, 900)
     if cause == "update":
         runtime[0].ActuatorRuntime_StopForUpdate()
@@ -299,20 +232,14 @@ def test_interruption_preserves_partial_weight_and_sensor_facts_without_fabricat
     assert result["finalSampleCount"] == 1 and result["finalWeightGrams"] == 0
     reply, event = query_process(runtime, process_scope(start, clean=False, terminal=True), now)
     assert reply["status"] == "HELD"
-    assert event["workFullnessStatus"] == "INTERRUPTED"
-    assert event["fullnessCompletedSampleCount"] == event["fullnessValidSampleCount"] == 1
-    assert event["workFullnessSensorValue"] == "NOT_OBSERVED"
-    assert event["workFullnessBasis"] == "NONE"
-    assert not event["fullnessDistancePresent"] and event["fullnessDistanceMm"] == 0
-    assert event["fullnessStopReason"] == "CALLER_CANCELLED"
-    assert sensor_us > 0
+    assert_no_business_fullness(event)
+    assert device_facts(runtime, now)["fullnessReadStatus"] == "NOT_OBSERVED"
 
 
-def test_continued_delivery_uses_new_measurement_and_fullness_groups(runtime, tmp_path):
+def test_continued_delivery_uses_new_weight_measurement_without_distance_groups(runtime, tmp_path):
     delivery, cleanup, start, now = begin_work(
-        runtime, tmp_path, inspect_terminal_diagnostic=True, fullness_settle_ms=0)
+        runtime, tmp_path, inspect_terminal_diagnostic=True)
     _, _, now = begin_terminal_measurement(runtime, (delivery, cleanup), start, now)
-    now, sensor_us = collect_fullness(runtime, now, 0, [1000] * 5)
     now = finish_weight(runtime, now, [900] * 5)
     scope = process_scope(start, clean=False, terminal=True)
     _, first = query_process(runtime, scope, now)
@@ -323,19 +250,14 @@ def test_continued_delivery_uses_new_measurement_and_fullness_groups(runtime, tm
     now = tick(runtime, now, 100)
     now = tick(runtime, now, inputs()["device"]["deliveryDoorTravelWaitMs"])
     assert work_state(runtime, start, now)["phase"] == "DELIVERY_POSTCLOSE_MEASURING"
-    now, sensor_us = advance_ultrasonic(runtime, now, sensor_us, 70000)
-    runtime[0].McuWorkPreparation_Poll(runtime[2], runtime[1], now)
-    now, sensor_us = collect_fullness(runtime, now, sensor_us, [None] * 5)
+    assert not runtime[0].TestUltrasonic_Trigger()
     now = finish_weight(runtime, now, [1400] * 5, measurement=3)
     second_scope = scope | {"stepSequence": 2}
     _, second = query_process(runtime, second_scope, now)
     assert second["roundIndex"] == 2
     assert second["measurementUid"] != first["measurementUid"]
-    assert second["fullnessGroupSequence"] == first["fullnessGroupSequence"] + 1
     assert second["reportedWeightGrams"] == 1400
-    assert second["fullnessValidSampleCount"] == 0
-    assert second["workFullnessBasis"] == "NO_ECHO_CLEAR_FALLBACK"
-    assert not second["fullnessDistancePresent"] and second["fullnessDistanceMm"] == 0
+    assert_no_business_fullness(second)
     assert select_delivery(runtime, delivery, second["measurementUid"], now)
     result = held_result(runtime, start, now)
     assert result["deliveryRoundCount"] == 2

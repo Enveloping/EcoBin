@@ -95,12 +95,12 @@ def parse_args() -> argparse.Namespace:
 
 def _sample_configuration(
     version: int,
-    door_travel_wait_ms: int = 30000,
+    door_travel_wait_ms: int = 3000,
 ) -> dict:
     if not 1 <= version <= 9007199254740991:
         raise ValueError("config version must be in 1..9007199254740991")
-    if not 30000 <= door_travel_wait_ms <= 45000:
-        raise ValueError("door travel wait must be in 30000..45000 ms")
+    if not 3000 <= door_travel_wait_ms <= 45000:
+        raise ValueError("door travel wait must be in 3000..45000 ms")
     config_fingerprint = json.dumps(
         {
             "version": version,

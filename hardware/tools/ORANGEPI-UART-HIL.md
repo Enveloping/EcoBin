@@ -43,7 +43,7 @@ hardware\tools\orangepi-uart-hil.cmd Full -ConfirmPhysicalAction
 | `-SerialPort` | `/dev/ttyS5` | 香橙派 UART 设备 |
 | `-ConfigVersion` | 当前 Unix 毫秒 | 必须在 `1..9007199254740991` |
 | `-EdgeBootId` | 当前 Unix 毫秒派生值 | 自动限制在 OneNet/JSON 安全整数范围 |
-| `-DoorTravelWaitMs` | `30000` | OPEN 后现场观察等待，范围 30～45 秒 |
+| `-DoorTravelWaitMs` | `3000` | OPEN 后现场观察等待，范围 3～45 秒 |
 | `-RepeatConfiguration` | 关闭 | `Configure` 时重放相同配置并验证幂等 |
 | `-RequiredCapabilities` | `0x300` | HELLO 必需能力掩码 |
 | `-DryRun` | 关闭 | 只打印 SSH 命令，不连接设备 |

@@ -236,6 +236,10 @@ def test_sample_configuration_exposes_door_travel_wait():
         compute_native_mcu_payload_sha256(command["payload"])
     )
 
+    assert _sample_configuration(25)["payload"]["deviceConfig"][
+        "deliveryDoorTravelWaitMs"
+    ] == 3000
+
 
 @pytest.mark.parametrize("version", [0, 9007199254740992])
 def test_sample_configuration_rejects_unsafe_version(version):
@@ -245,7 +249,7 @@ def test_sample_configuration_rejects_unsafe_version(version):
 
 def test_sample_configuration_rejects_unsafe_door_tuning():
     with pytest.raises(ValueError, match="door travel wait"):
-        _sample_configuration(23, door_travel_wait_ms=29999)
+        _sample_configuration(23, door_travel_wait_ms=2999)
 
 
 def test_apply_sample_configuration_waits_for_result_and_acks_it():
@@ -359,7 +363,7 @@ def test_door_hil_cycle_waits_for_travel_before_safe_close(monkeypatch):
     )
     assert "actualOutputMs" not in result["safeCloseResult"]["payload"]
     assert len(link.acks) == 4
-    assert sleeps == [30.0]
+    assert sleeps == [3.0]
 
 
 def test_safe_close_only_acks_command_and_result():

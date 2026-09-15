@@ -19,11 +19,11 @@
 
 当前UART v2协议的唯一机器来源是`contracts/uart/uart-registry.yaml`，生成的C产物位于
 `USER/uar/`。`hardware/docs/单片机-香橙派适配通信协议详细内容.md`只保留历史fixed-frame
-线路依据，不能作为rc.26字段定义。
+线路依据，不能作为rc.27字段定义。
 
 ## 出厂外设模拟固件
 
-`factory_sim/`是完全独立的历史fixed-frame测试固件和Clang构建目标，不是当前rc.26 P7
+`factory_sim/`是完全独立的历史fixed-frame测试固件和Clang构建目标，不是当前rc.27 P7
 量产验收模拟器。它通过
 真实 USART1 与香橙派通信，但在 MCU 内部模拟缺失的称重、红外、烟感、屏幕按钮和
 机械动作，供设备电源暂时无法带动外设时演练正常出厂流程。其 F3 身份固定为

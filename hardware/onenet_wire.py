@@ -63,6 +63,7 @@ RESULT_REFERENCE_TYPE_BY_CODE = {
     6: "PHOTO_SLOT",
     7: "DEVICE_FAULT",
     8: "PORT_FULLNESS_STATE",
+    9: "DEVICE_ACCEPTANCE",
 }
 CLEAN_END_REASON_BY_CODE = {
     1: "CLEANER_CANCELLED",
@@ -1921,7 +1922,7 @@ def validate_configuration_payload(payload: Mapping[str, Any]) -> str | None:
         "negativeWeightThresholdGrams": (1, 4_294_967_295),
         "deliveryAutoCloseMs": (1000, 600_000),
         "weightMeasurementTimeoutMs": (5000, 5000) if native else (1000, 6000),
-        "deliveryDoorTravelWaitMs": (30_000, 45_000),
+        "deliveryDoorTravelWaitMs": (3_000, 45_000),
         "cleanSolenoidPulseMs": (1, 5000),
     }
     heartbeat_fields = {"edgeHeartbeatIntervalMs", "edgeHeartbeatMissThreshold"}

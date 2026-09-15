@@ -49,15 +49,18 @@ WORK_QUERY_INTERVAL_SECONDS = 1.0
 MAXIMUM_CONSECUTIVE_WORK_QUERY_TIMEOUTS = 3
 MAXIMUM_PENDING_REPLY_FRAMES = 256
 MAXIMUM_COMPLETED_ACTIONS = 16
-FACTORY_CONFIG_VERSION = 3
-FACTORY_CONFIG_PROFILE = "ECOBIN_FACTORY_UART_V2_ONE_PORT_V2"
+FACTORY_CONFIG_VERSION = 4
+FACTORY_CONFIG_PROFILE = "ECOBIN_FACTORY_UART_V2_ONE_PORT_V3"
 FACTORY_CLEAN_OPERATION_WINDOW_MS = 300_000
 FACTORY_DEVICE_CONFIG = {
+    # This is the operator's screen-selection window after post-close
+    # weighing, not a mechanical delay.  Preserve enough time to choose
+    # CONTINUE or END deliberately.
     "continueDeliveryWaitMs": 30_000,
     "negativeWeightThresholdGrams": 500,
     "deliveryAutoCloseMs": 120_000,
     "weightMeasurementTimeoutMs": 5_000,
-    "deliveryDoorTravelWaitMs": 30_000,
+    "deliveryDoorTravelWaitMs": 3_000,
     "cleanSolenoidPulseMs": 1_000,
     "smokeMonitoringEnabled": True,
 }
@@ -342,15 +345,6 @@ class NativeAcceptanceMcu:
                 fullness_blocked = distance < FACTORY_PORT_CONFIG[
                     "fullnessDistanceThresholdMm"
                 ]
-        # Only a VALID sample claims a current physical observation.
-        # UNAVAILABLE/NOT_OBSERVED remain non-blocking auxiliary facts.
-        if fullness_status == "VALID":
-            NativeAcceptanceMcu._require_fresh_observation(
-                captured,
-                facts["fullnessCapturedUptimeMs"],
-                MAXIMUM_ENVIRONMENT_FACT_AGE_MS,
-                "MCU_FULLNESS_FACT_STALE",
-            )
         return {
             "queryStatus": "OK",
             "communicationHealthy": True,
@@ -1492,7 +1486,6 @@ class NativeAcceptanceMcu:
 
     @staticmethod
     def _map_fullness(facts: dict) -> dict:
-        captured = facts["capturedUptimeMs"]
         kind = facts["fullnessObservationKind"]
         status = facts["fullnessReadStatus"]
         if kind not in {"DIGITAL_INFRARED", "ULTRASONIC"} or status not in {
@@ -1501,13 +1494,6 @@ class NativeAcceptanceMcu:
             "UNAVAILABLE",
         }:
             raise AcceptanceHardwareError("MCU_FULLNESS_FACT_UNAVAILABLE")
-        if status == "VALID":
-            NativeAcceptanceMcu._require_fresh_observation(
-                captured,
-                facts["fullnessCapturedUptimeMs"],
-                MAXIMUM_ENVIRONMENT_FACT_AGE_MS,
-                "MCU_FULLNESS_FACT_STALE",
-            )
         if status != "VALID":
             return {
                 "infraredBlocked": None,

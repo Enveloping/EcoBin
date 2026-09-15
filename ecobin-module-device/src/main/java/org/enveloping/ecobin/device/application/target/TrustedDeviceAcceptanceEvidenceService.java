@@ -144,6 +144,9 @@ public class TrustedDeviceAcceptanceEvidenceService
                         eventUid,
                         payloadSha256,
                         "NO_ACTION_REQUIRED",
+                        acceptanceDecision(
+                                existing.evaluationStatus(),
+                                existing.edgeSoftwareVersion()),
                         receivedAt);
                 return new DeviceAcceptanceEvidenceApplyResult(
                         asset.id(), asset.acceptanceStatus(), false);
@@ -156,6 +159,9 @@ public class TrustedDeviceAcceptanceEvidenceService
                         eventUid,
                         payloadSha256,
                         "NO_ACTION_REQUIRED",
+                        acceptanceDecision(
+                                asset.acceptanceStatus(),
+                                facts.edgeSoftwareVersion()),
                         receivedAt);
                 return new DeviceAcceptanceEvidenceApplyResult(
                         asset.id(), asset.acceptanceStatus(), false);
@@ -180,6 +186,9 @@ public class TrustedDeviceAcceptanceEvidenceService
                         eventUid,
                         payloadSha256,
                         "NO_ACTION_REQUIRED",
+                        acceptanceDecision(
+                                asset.acceptanceStatus(),
+                                facts.edgeSoftwareVersion()),
                         receivedAt);
                 return new DeviceAcceptanceEvidenceApplyResult(
                         asset.id(), asset.acceptanceStatus(), false);
@@ -342,17 +351,22 @@ public class TrustedDeviceAcceptanceEvidenceService
                         receivedAt,
                         asset.id()), "review accepted device evidence");
             }
+            String effectiveAcceptanceStatus =
+                    "PASSED".equals(asset.acceptanceStatus())
+                            ? "PASSED" : evaluationStatus;
             confirmationService.ensureApplied(
                     asset.id(),
                     hardwareSn,
                     eventUid,
                     payloadSha256,
                     "UPDATED",
+                    acceptanceDecision(
+                            effectiveAcceptanceStatus,
+                            facts.edgeSoftwareVersion()),
                     receivedAt);
             return new DeviceAcceptanceEvidenceApplyResult(
                     asset.id(),
-                    "PASSED".equals(asset.acceptanceStatus())
-                            ? "PASSED" : evaluationStatus,
+                    effectiveAcceptanceStatus,
                     true);
         });
     }
@@ -424,14 +438,17 @@ public class TrustedDeviceAcceptanceEvidenceService
             String evidenceUid,
             byte[] digest) {
         return jdbc.query("""
-                        SELECT evidence_uid, evidence_sha256
+                        SELECT evidence_uid, evidence_sha256,
+                               evaluation_status, edge_software_version
                         FROM dev_device_acceptance_evidence
                         WHERE evidence_uid = ?
                            OR (asset_id = ? AND evidence_sha256 = ?)
                         LIMIT 1
                         """,
                 (rs, ignored) -> new ExistingEvidence(
-                        rs.getString("evidence_uid")),
+                        rs.getString("evidence_uid"),
+                        rs.getString("evaluation_status"),
+                        rs.getString("edge_software_version")),
                 evidenceUid,
                 assetId,
                 digest).stream().findFirst().orElse(null);
@@ -768,7 +785,27 @@ public class TrustedDeviceAcceptanceEvidenceService
             boolean factoryBagsComplete) {
     }
 
-    private record ExistingEvidence(String evidenceUid) {
+    static String acceptanceDecision(
+            String status,
+            String edgeSoftwareVersion) {
+        // Result-reference enum 9 was introduced with runtime v44.  Older
+        // devices would decode that enum as an integer and reject the entire
+        // confirmation, so keep their existing confirmation shape.
+        int separator = edgeSoftwareVersion == null
+                ? -1 : edgeSoftwareVersion.lastIndexOf('-');
+        boolean capable = edgeSoftwareVersion != null
+                && edgeSoftwareVersion.matches(
+                        "hardware-runtime-[0-9]{8}-[1-9][0-9]{0,3}")
+                && Integer.parseInt(
+                        edgeSoftwareVersion.substring(separator + 1)) >= 44;
+        return capable && Set.of("PASSED", "FAILED").contains(status)
+                ? status : null;
+    }
+
+    private record ExistingEvidence(
+            String evidenceUid,
+            String evaluationStatus,
+            String edgeSoftwareVersion) {
     }
 
     record Evidence(

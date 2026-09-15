@@ -359,7 +359,7 @@ class UartRegistryTests(unittest.TestCase):
             port_fields["fullnessDistanceThresholdMm"]["notes"],
         )
         self.assertEqual(
-            (30000, 45000),
+            (3000, 45000),
             (
                 device_fields["deliveryDoorTravelWaitMs"]["minimum"],
                 device_fields["deliveryDoorTravelWaitMs"]["maximum"],

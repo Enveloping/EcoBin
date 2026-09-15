@@ -55,8 +55,8 @@ REPORT_STATUSES = {
 ACTION_TYPES = {"DELIVERY", "CLEAN"}
 DEFAULT_ACTION_TIMEOUT_MS = {
     # Factory acceptance requires one delivery round.  Cover its configured
-    # 5 s first weight, 120 s open window, 30 s close travel wait, 5 s final
-    # weight, and 30 s end/continue selection window, plus bounded
+    # 5 s first weight, 120 s open window, 3 s close travel wait, 5 s final
+    # weight, and the 30 s operator selection window, plus bounded
     # UART/result-persistence headroom.  Repeated CONTINUE rounds are not part
     # of this one-round acceptance contract and are intentionally not
     # represented as an unbounded timeout.

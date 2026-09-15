@@ -113,7 +113,7 @@ journal。只有实时探测已表现为泛化的 HTTPS 失败时，已知校时
    HSK/UNIQUESKY、缺失时回退到旧 DECXIN，内摄首选 Generic USB Camera、缺失时回退到旧
    icSpring；随后生成带 nonce 的临时照片，由操作员看过后再确认角色。新旧型号同时存在时
    始终使用首选，某角色全部缺失时失败关闭，不会借用另一角色的摄像头；
-4. 升级线与业务UART分开记录。当前ECOBIN_UART固件不支持通过rc.26远程更新；没有另行批准
+4. 升级线与业务UART分开记录。当前ECOBIN_UART固件不支持通过rc.27远程更新；没有另行批准
    的实装链路时报告`NOT_APPLICABLE`及`mcuRemoteUpdateCapable=false`，不发送历史F2帧；
 5. 投递和清运只验证本机硬件，不建单、不写生产数据库、不上传图片、不访问后端。每项只写出
    一次原生START，MCU自主称重、处理屏幕按钮和控制机构；验收器查询同一作业的完整

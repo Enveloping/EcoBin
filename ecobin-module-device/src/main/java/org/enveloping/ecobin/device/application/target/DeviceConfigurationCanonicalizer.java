@@ -259,8 +259,8 @@ public class DeviceConfigurationCanonicalizer
                         : defaultLong(request.weightMeasurementTimeoutMs(), 6_000),
                 1_000, 6_000, "整机称重超时");
         long travelWait = range(
-                defaultLong(request.deliveryDoorTravelWaitMs(), 30_000),
-                30_000, 45_000, "投递门机械行程等待");
+                defaultLong(request.deliveryDoorTravelWaitMs(), 3_000),
+                3_000, 45_000, "投递门机械行程等待");
         long pulse = range(
                 defaultLong(request.cleanSolenoidPulseMs(), 1_000),
                 1, 5_000, "清运电磁阀脉冲");

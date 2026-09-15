@@ -423,6 +423,87 @@ def test_simulators_are_diagnostic_and_functional_checks_still_pass(
     store.close()
 
 
+@pytest.mark.parametrize("fullness_status", ["UNAVAILABLE", "NOT_OBSERVED"])
+def test_native_acceptance_treats_missing_auxiliary_fullness_as_warning(
+    fullness_status,
+):
+    class NativeUart:
+        port_count = 1
+
+    runner = object.__new__(DeviceAcceptanceRunner)
+    runner._uart = NativeUart()
+    runner._maximum_sensor_age_seconds = 1
+    observation = {
+        "status": "AVAILABLE",
+        "portNo": 1,
+        "currentMcuBootId": 42,
+        "capturedUptimeMs": 10_000,
+        "appliedConfigVersion": 3,
+        "configStaging": False,
+        "scaleReadStatus": "VALID",
+        "scaleWeightGrams": 28,
+        "scaleCapturedUptimeMs": 9_900,
+        "smokeObservationState": "NORMAL",
+        "smokeObservedUptimeMs": 9_950,
+        "fullnessObservationKind": "ULTRASONIC",
+        "fullnessReadStatus": fullness_status,
+        "fullnessCapturedUptimeMs": 0,
+        "fullnessDistanceMm": 0,
+        "fullnessInfraredBlocked": False,
+    }
+
+    result = runner._uart_v2_sensor_facts(
+        1,
+        runtime_snapshot={
+            "uartState": "READY",
+            "mcuBootId": 42,
+            "deviceFacts": observation,
+        },
+    )
+
+    assert result["communicationHealthy"] is True
+    assert result["healthy"] is True
+
+
+def test_native_acceptance_uses_old_valid_fullness_snapshot_without_age_gate():
+    class NativeUart:
+        port_count = 1
+
+    runner = object.__new__(DeviceAcceptanceRunner)
+    runner._uart = NativeUart()
+    runner._maximum_sensor_age_seconds = 1
+    observation = {
+        "status": "AVAILABLE",
+        "portNo": 1,
+        "currentMcuBootId": 42,
+        "capturedUptimeMs": 10_000,
+        "appliedConfigVersion": 3,
+        "configStaging": False,
+        "scaleReadStatus": "VALID",
+        "scaleWeightGrams": 28,
+        "scaleCapturedUptimeMs": 9_900,
+        "smokeObservationState": "NORMAL",
+        "smokeObservedUptimeMs": 9_950,
+        "fullnessObservationKind": "ULTRASONIC",
+        "fullnessReadStatus": "VALID",
+        "fullnessCapturedUptimeMs": 100,
+        "fullnessDistanceMm": 203,
+        "fullnessInfraredBlocked": False,
+    }
+
+    result = runner._uart_v2_sensor_facts(
+        1,
+        runtime_snapshot={
+            "uartState": "READY",
+            "mcuBootId": 42,
+            "deviceFacts": observation,
+        },
+    )
+
+    assert result["communicationHealthy"] is True
+    assert result["healthy"] is True
+
+
 def test_factory_simulation_identity_and_missing_update_lines_are_reported(
     tmp_path,
     monkeypatch,

@@ -102,7 +102,8 @@ class RuntimeSafetyConfigurationTest {
             "V80__offline_occupancy_release.sql",
             "V81__interrupted_clean_bag_recovery.sql",
             "V82__device_entry_url_mcu_application_evidence.sql",
-            "V83__terminal_mcu_result_failure.sql"
+            "V83__terminal_mcu_result_failure.sql",
+            "V84__delivery_door_travel_wait.sql"
     };
 
     @Test

@@ -20,8 +20,8 @@ param(
     [ValidateRange(1, 6)]
     [int]$PortCount = 1,
 
-    [ValidateRange(30000, 45000)]
-    [int]$DoorTravelWaitMs = 30000,
+    [ValidateRange(3000, 45000)]
+    [int]$DoorTravelWaitMs = 3000,
 
     [ValidateRange(1, 300)]
     [int]$BootRecoveryTimeoutSeconds = 45,

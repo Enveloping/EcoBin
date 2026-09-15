@@ -11,6 +11,8 @@ import org.enveloping.ecobin.integration.onenet.OneNetDiagnosticLogger;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetCanonicalJson;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.ResponseEntity;
@@ -555,8 +557,14 @@ class OneNetClientReliableSubmissionTest {
                         .asText());
     }
 
-    @Test
-    void projectsPortFullnessStateConfirmationReference()
+    @ParameterizedTest
+    @CsvSource({
+            "PORT_FULLNESS_STATE, 8",
+            "DEVICE_ACCEPTANCE, 9"
+    })
+    void projectsConfirmationReferenceType(
+            String referenceType,
+            int expectedCode)
             throws Exception {
         ObjectNode envelope = (ObjectNode) objectMapper.readTree(
                 Files.readString(contractPath(
@@ -564,7 +572,7 @@ class OneNetClientReliableSubmissionTest {
                                 + "confirm-edge-event.command.json")));
         ((ObjectNode) envelope.path("payload")
                 .path("resultReferences").get(0))
-                .put("type", "PORT_FULLNESS_STATE")
+                .put("type", referenceType)
                 .put("key", "8498e540-3ba6-43ce-b00f-1cef766de064");
         UUID commandUid = UUID.fromString(
                 "60000000-0000-4000-8000-000000000002");
@@ -591,7 +599,7 @@ class OneNetClientReliableSubmissionTest {
         JsonNode actual = objectMapper.valueToTree(
                 request.getValue().getBody());
         assertEquals(
-                8,
+                expectedCode,
                 actual.path("params")
                         .path("resultReferences")
                         .get(0)

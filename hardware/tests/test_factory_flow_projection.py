@@ -188,6 +188,12 @@ def _create_empty_delivery_store(paths: FactoryFlowPaths) -> None:
                 platform_accepted_at TEXT,
                 edge_event_sequence INTEGER
             );
+            CREATE TABLE confirmation_inbox (
+                confirmation_uid TEXT PRIMARY KEY,
+                event_uid TEXT,
+                outcome TEXT,
+                payload_json TEXT
+            );
             """
         )
 
@@ -578,6 +584,53 @@ def test_projection_reaches_cloud_pass_and_waits_for_local_seal(
     )
     assert sealed["overallState"] == "COMPLETED"
     assert all(node["state"] == "COMPLETED" for node in sealed["nodes"])
+
+
+def test_backend_failed_acceptance_blocks_instead_of_waiting_for_seal(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    _write_completed_sources(paths)
+    with sqlite3.connect(paths.edge_store) as connection:
+        event_uid = "30000000-0000-4000-8000-000000000001"
+        connection.execute(
+            "UPDATE event_outbox SET payload_json=?",
+            (json.dumps({
+                "commandUid": COMMAND_UID,
+                "eventUid": event_uid,
+            }),),
+        )
+        connection.execute(
+            "INSERT INTO confirmation_inbox VALUES (?, ?, ?, ?)",
+            (
+                "60000000-0000-4000-8000-000000000001",
+                event_uid,
+                "BUSINESS_APPLIED",
+                json.dumps({
+                    "resultReferences": [
+                        {"type": "DEVICE_ACCEPTANCE", "key": "FAILED"}
+                    ]
+                }),
+            ),
+        )
+
+    projection = FactoryFlowProjector(
+        paths,
+        owner=lambda _path: None,
+        monotonic=lambda: 100.0,
+    ).publish(
+        FirstBootStage.ENROLLMENT_COMPLETE,
+        _passed_facts(),
+        error_code="NONE",
+        seal=_seal(),
+    )
+
+    cloud = {
+        node["id"]: node for node in projection["nodes"]
+    }["CLOUD_DECISION_AND_AUTHORIZATION"]
+    assert cloud["state"] == "BLOCKED"
+    assert cloud["detailCode"] == "CLOUD_ACCEPTANCE_FAILED"
+    assert cloud["errorCode"] == "CLOUD_ACCEPTANCE_FAILED"
 
 
 def test_onenet_transport_acceptance_does_not_confirm_backend_business(

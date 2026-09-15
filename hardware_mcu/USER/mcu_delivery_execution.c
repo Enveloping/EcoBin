@@ -158,6 +158,11 @@ static void poll(McuControlEndpoint *endpoint, uint64_t now, void *context) {
         }
         owner->selection_deadline_ms = now + duration;
         McuWorkState_SetPhase(&endpoint->work, ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_WAIT_SELECTION);
+        /* An END/CONTINUE tap made after the accepted local close request may
+         * arrive before this measurement exists because the HMI navigates its
+         * own pages immediately. The intent becomes effective only now, after
+         * it can be associated with this exact round's retained measurement. */
+        if (owner->selection) owner->selected_at_ms = now;
     }
     if (owner->postclose_state != 3u) return;
     if (!owner->selection && now >= owner->selection_deadline_ms) {
@@ -173,6 +178,7 @@ static void poll(McuControlEndpoint *endpoint, uint64_t now, void *context) {
         owner->postclose_state = 0u;
         owner->selection = 0u;
         owner->selection_deadline_ms = owner->selected_at_ms = 0u;
+        owner->close_requested = 0u;
         memset(&owner->postclose, 0, sizeof(owner->postclose));
         memset(&owner->postclose_meta, 0, sizeof(owner->postclose_meta));
         begin_cycle(owner, endpoint, MAX_UPTIME, now);
@@ -184,9 +190,26 @@ static void poll(McuControlEndpoint *endpoint, uint64_t now, void *context) {
 }
 
 uint8_t McuDeliveryExecution_CloseCurrent(McuDeliveryExecution *owner, McuControlEndpoint *endpoint, uint64_t now) {
+    uint8_t accepted;
     if (owner == NULL || endpoint == NULL || owner->preparation == NULL
         || !context_valid(owner, endpoint, now) || !owner->active) return 0u;
-    return ActuatorRuntime_RequestDeliveryClose(owner->cycle_token);
+    accepted = ActuatorRuntime_RequestDeliveryClose(owner->cycle_token);
+    if (accepted) owner->close_requested = 1u;
+    return accepted;
+}
+
+uint8_t McuDeliveryExecution_RequestSelection(McuDeliveryExecution *owner,
+    McuControlEndpoint *endpoint, uint8_t selection, uint64_t now) {
+    if (owner == NULL || endpoint == NULL || owner->preparation == NULL
+        || (selection != ECOBIN_UART_DELIVERY_SELECTION_CONTINUE
+            && selection != ECOBIN_UART_DELIVERY_SELECTION_END)
+        || !context_valid(owner, endpoint, now) || !owner->close_requested
+        || owner->selection || owner->postclose_state == 3u) return 0u;
+    owner->selection = selection;
+    /* Acceptance is deliberately deferred until the exact post-close
+     * measurement exists; poll() records that later completion time. */
+    owner->selected_at_ms = 0u;
+    return 1u;
 }
 
 uint8_t McuDeliveryExecution_Select(McuDeliveryExecution *owner, McuControlEndpoint *endpoint,

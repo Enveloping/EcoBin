@@ -30,8 +30,6 @@ typedef struct {
 typedef struct {
     McuConfiguration configuration;
     McuWeightRun weight;
-    McuFullnessRun fullness;
-    uint32_t fullness_measurement_sequence;
     uint8_t fullness_enabled;
     McuResultMeasurement initial;
     McuProcessMeasurementMeta initial_meta;
@@ -69,10 +67,8 @@ uint8_t McuWorkPreparation_Attach(McuWorkPreparation *owner, McuControlEndpoint 
 uint8_t McuWorkPreparation_SetConfigurationApply(McuWorkPreparation *owner, McuControlEndpoint *endpoint,
     McuPreparationApplyConfiguration apply, void *context);
 /* Explicit boot-only attachment after real ultrasonic source initialization.
- * Poll the real source alongside post-close/clean-final weight acquisition.
- * Diagnostics may include the actual group; it is never required for weighing.
- * No separate cloud detection, movement, current-bag decision or business release.
- * Without attachment/available source, the event explicitly says NOT_SAMPLED. */
+ * It only enables the independent environment-fact poller in main. Delivery,
+ * clean and weight acquisition never start, reserve or wait for ranging. */
 uint8_t McuWorkPreparation_AttachFullness(McuWorkPreparation *owner, McuControlEndpoint *endpoint);
 uint8_t McuWorkPreparation_AttachDeviceEntryUrl(McuWorkPreparation *owner,
     McuControlEndpoint *endpoint, McuDeviceEntryUrl *state,
@@ -102,9 +98,8 @@ uint8_t McuWorkPreparation_PollMeasurement(McuWorkPreparation *owner, McuControl
     uint64_t now_ms, uint8_t message, uint16_t step, McuResultMeasurement *measurement,
     McuProcessMeasurementMeta *meta);
 /* Called only after the action owner validates the original interrupted work.
- * Stop both unfinished acquisitions, retaining independently terminal results.
- * A source not yet started must remain NOT_SAMPLED; this is not a new attempt.
- * No phase change, slot release or loss of already captured observations. */
+ * Stop the unfinished business weight acquisition. Independent environment
+ * observations are neither started nor changed by this business operation. */
 uint8_t McuWorkPreparation_InterruptMeasurement(McuWorkPreparation *owner, uint64_t now_ms);
 /* Foreground only, between Feed calls. Ingress must first drain genuinely owned
  * captured frames through owner->weight; local IDs do not prove RS485 ownership.

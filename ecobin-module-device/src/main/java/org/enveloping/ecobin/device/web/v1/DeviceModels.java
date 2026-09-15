@@ -627,7 +627,7 @@ public final class DeviceModels {
             @NotNull @Min(1) Long negativeWeightThresholdGram,
             Long deliveryAutoCloseMs,
             Long weightMeasurementTimeoutMs,
-            Long deliveryDoorTravelWaitMs,
+            @Min(3_000) Long deliveryDoorTravelWaitMs,
             Long cleanSolenoidPulseMs,
             Boolean smokeMonitoringEnabled) {
     }

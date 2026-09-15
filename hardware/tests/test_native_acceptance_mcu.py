@@ -684,10 +684,6 @@ def test_self_test_maps_only_fresh_actual_device_facts(tmp_path):
             "MCU_SMOKE_FACT_STALE",
         ),
         (
-            {"fullnessCapturedUptimeMs": 8_000},
-            "MCU_FULLNESS_FACT_STALE",
-        ),
-        (
             {
                 "fullnessObservationKind": "NONE",
                 "fullnessReadStatus": "NOT_OBSERVED",
@@ -1076,6 +1072,69 @@ def test_delivery_keeps_signed_weights_and_stale_auxiliary_unavailable_fact(
     assert result["fullnessDistanceThresholdMm"] == 600
     assert result["fullnessBlocked"] is None
     assert result["infraredBlocked"] is None
+
+
+def test_delivery_uses_last_valid_fullness_snapshot_without_age_gate(
+    tmp_path,
+):
+    """Auxiliary fullness is copied from the latest fact snapshot as-is."""
+    state_path = tmp_path / "native-uart-state.json"
+    serial_port = ScriptedSerial(
+        state_path=state_path,
+        initial_boot_id=42,
+        facts_changes={
+            "fullnessObservationKind": "ULTRASONIC",
+            "fullnessReadStatus": "VALID",
+            "fullnessCapturedUptimeMs": 8_000,
+            "fullnessDistanceMm": 203,
+            "fullnessInfraredBlocked": False,
+        },
+    )
+    mcu = NativeAcceptanceMcu.for_port(
+        state_path=state_path,
+        serial_factory=lambda **arguments: serial_port,
+    )
+    try:
+        mcu.write_action_once("DELIVERY")
+        result = mcu.await_final_result("DELIVERY", timeout_ms=500)
+        mcu.confirm_final_result(result)
+    finally:
+        mcu.close()
+
+    assert result["weightDeltaGrams"] == 480
+    assert result["fullnessSensorKind"] == "ULTRASONIC"
+    assert result["fullnessReadStatus"] == "VALID"
+    assert result["fullnessDistanceMm"] == 203
+    assert result["fullnessBlocked"] is True
+    assert result["infraredBlocked"] is True
+    assert [name for name, _ in serial_port.writes].count("RESULT_SAVED") == 1
+
+
+def test_self_test_uses_last_valid_fullness_snapshot_without_age_gate(tmp_path):
+    state_path = tmp_path / "native-uart-state.json"
+    serial_port = ScriptedSerial(
+        state_path=state_path,
+        initial_boot_id=42,
+        facts_changes={
+            "fullnessObservationKind": "ULTRASONIC",
+            "fullnessReadStatus": "VALID",
+            "fullnessCapturedUptimeMs": 8_000,
+            "fullnessDistanceMm": 203,
+            "fullnessInfraredBlocked": False,
+        },
+    )
+    mcu = NativeAcceptanceMcu.for_port(
+        state_path=state_path,
+        serial_factory=lambda **arguments: serial_port,
+    )
+    try:
+        result = mcu.query_self_test(timeout_ms=1_000)
+    finally:
+        mcu.close()
+
+    assert result["fullnessReadStatus"] == "VALID"
+    assert result["fullnessDistanceMm"] == 203
+    assert result["fullnessBlocked"] is True
 
 
 def test_failed_work_result_is_journaled_but_never_mapped_to_success(tmp_path):

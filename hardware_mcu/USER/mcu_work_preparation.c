@@ -43,8 +43,6 @@ static void bound(McuControlEndpoint *endpoint, void *context) {
     McuWorkPreparation *owner = (McuWorkPreparation *)context;
     McuConfiguration_Init(&owner->configuration, endpoint->session.boot_id, owner->port_count);
     McuWeightRun_Init(&owner->weight);
-    McuFullnessRun_Init(&owner->fullness);
-    owner->fullness_measurement_sequence = 0u;
     memset(&owner->initial, 0, sizeof(owner->initial));
     memset(&owner->initial_meta, 0, sizeof(owner->initial_meta));
     memset(&owner->baseline, 0, sizeof(owner->baseline));
@@ -407,8 +405,8 @@ uint8_t McuWorkPreparation_SetConfigurationApply(McuWorkPreparation *owner, McuC
 uint8_t McuWorkPreparation_AttachFullness(McuWorkPreparation *owner, McuControlEndpoint *endpoint) {
     if (owner == NULL || endpoint == NULL || endpoint->application_context != owner
         || endpoint->session.boot_id != 0u || endpoint->feeding || owner->fullness_enabled
-        || !UltrasonicReader_Claim(&owner->fullness)) return 0u;
-    if (!UltrasonicReader_Release(&owner->fullness)) return 0u;
+        || !UltrasonicReader_Claim(owner)) return 0u;
+    if (!UltrasonicReader_Release(owner)) return 0u;
     owner->fullness_enabled = 1u;
     return 1u;
 }
@@ -442,11 +440,7 @@ uint8_t McuWorkPreparation_InterruptMeasurement(McuWorkPreparation *owner, uint6
     if (owner == NULL) return 0u;
     sequence = owner->weight.measurement.result.measurement_id;
     if (!McuWeightRun_Interrupt(&owner->weight, sequence, now)) return 0u;
-    /* Weight may already be terminal, so its status alone cannot signal a
-     * business interruption to the independently pending sensor group. */
-    if (owner->fullness.present) McuFullnessRun_Interrupt(&owner->fullness);
-    else owner->fullness_measurement_sequence = sequence;
-    return 1u; /* Optional-source cleanup never blocks the business fault exit. */
+    return 1u;
 }
 
 uint8_t McuWorkPreparation_PollMeasurement(McuWorkPreparation *owner, McuControlEndpoint *endpoint,
@@ -455,7 +449,7 @@ uint8_t McuWorkPreparation_PollMeasurement(McuWorkPreparation *owner, McuControl
     McuConfigWeightPolicy policy;
     ScaleReaderObservation observation;
     uint8_t uid[16], scope[ECOBIN_UART_QUERY_PROCESS_EVENT_PAYLOAD_MAX_LENGTH - 8u];
-    uint8_t expected_phase, expected_type, fullness_ready = 1u;
+    uint8_t expected_phase, expected_type;
     uint32_t event_sequence;
     uint64_t observed;
     size_t length;
@@ -485,29 +479,7 @@ uint8_t McuWorkPreparation_PollMeasurement(McuWorkPreparation *owner, McuControl
      * The core elapsed time is frozen at resolution / acquisition deadline. */
     observed = result.status == WEIGHT_MEASUREMENT_PENDING ? now : owner->weight.started_ms + result.elapsed_ms;
     if (!McuDeviceFacts_PublishMeasurement(&endpoint->facts, &result, policy.config_version, observed)) return 0u;
-    if (owner->fullness_enabled && (message == ECOBIN_UART_MESSAGE_WORK_POSTCLOSE_WEIGHT_READY
-        || message == ECOBIN_UART_MESSAGE_CLEAN_FINAL_WEIGHT_READY)) {
-        if (owner->fullness_measurement_sequence != result.measurement_id) {
-            if (owner->fullness.present && McuFullnessRun_Interrupt(&owner->fullness))
-                McuFullnessRun_Retire(&owner->fullness, owner->fullness.result.sequence);
-            /* One attempt to establish this phase's group. Unsupported or
-             * unavailable source is explicitly NOT_SAMPLED, not a CLEAR result.
-             * Never retry into a different phase or start sampling after stop. */
-            if (!owner->fullness.present) {
-                owner->fullness_measurement_sequence = result.measurement_id;
-                if (result.status != WEIGHT_MEASUREMENT_INTERRUPTED && !ActuatorRuntime_Snapshot().update_latched)
-                    McuFullnessRun_Begin(&owner->fullness, &endpoint->facts, &owner->configuration);
-            }
-        }
-        if (owner->fullness.present && owner->fullness_measurement_sequence == result.measurement_id)
-            fullness_ready = result.status == WEIGHT_MEASUREMENT_INTERRUPTED || ActuatorRuntime_Snapshot().update_latched
-                ? McuFullnessRun_Interrupt(&owner->fullness) : McuFullnessRun_Poll(&owner->fullness);
-    }
     if (result.status == WEIGHT_MEASUREMENT_PENDING) return 1u;
-    /* Auxiliary sampling is best effort. It cannot extend a completed weight
-     * acquisition or keep this business waiting for a broken optional source. */
-    if (!fullness_ready && owner->fullness.present)
-        McuFullnessRun_Interrupt(&owner->fullness);
     if (result.status != WEIGHT_MEASUREMENT_STABLE_MEAN && result.status != WEIGHT_MEASUREMENT_TIMEOUT_MEDIAN
         && result.status != WEIGHT_MEASUREMENT_UNAVAILABLE && result.status != WEIGHT_MEASUREMENT_INTERRUPTED) return 0u;
     if (measurement->event_sequence == 0u) {
@@ -535,11 +507,8 @@ uint8_t McuWorkPreparation_PollMeasurement(McuWorkPreparation *owner, McuControl
         meta->observed_uptime_ms = observed;
         meta->step_sequence = step;
     }
-    length = owner->fullness.present && owner->fullness_measurement_sequence == result.measurement_id
-        ? McuProcessMeasurement_BuildWorkEventWithFullness(&endpoint->work, measurement, meta,
-            &owner->fullness, message, owner->scratch, sizeof(owner->scratch))
-        : McuProcessMeasurement_BuildWorkEvent(&endpoint->work, measurement, meta,
-            message, owner->scratch, sizeof(owner->scratch));
+    length = McuProcessMeasurement_BuildWorkEvent(&endpoint->work, measurement, meta,
+        message, owner->scratch, sizeof(owner->scratch));
     memcpy(scope, endpoint->work.identity, MCU_WORK_IDENTITY_LENGTH);
     scope[ECOBIN_UART_QUERY_PROCESS_EVENT_EVENT_MESSAGE_TYPE_OFFSET - 8u] = message;
     ecobin_uart_write_u16_be(scope + ECOBIN_UART_QUERY_PROCESS_EVENT_STEP_SEQUENCE_OFFSET - 8u, step);
@@ -552,7 +521,6 @@ uint8_t McuWorkPreparation_PollMeasurement(McuWorkPreparation *owner, McuControl
         McuProcessEventSlot_Freeze(&endpoint->process_event, scope, sizeof(scope),
             message, owner->scratch, length);
     McuWeightRun_Retire(&owner->weight, result.measurement_id);
-    if (owner->fullness.present) McuFullnessRun_Retire(&owner->fullness, owner->fullness.result.sequence);
     return 2u;
 }
 

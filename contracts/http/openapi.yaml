@@ -8415,7 +8415,7 @@
           },
           "deliveryDoorTravelWaitMs": {
             "type": ["integer", "null"],
-            "minimum": 1
+            "minimum": 3000
           },
           "cleanSolenoidPulseMs": {
             "type": ["integer", "null"],
@@ -9089,7 +9089,7 @@
           "negativeWeightThresholdGram": {"type": "integer", "minimum": 1},
           "deliveryAutoCloseMs": {"type": "integer", "minimum": 1},
           "weightMeasurementTimeoutMs": {"type": "integer", "minimum": 1},
-          "deliveryDoorTravelWaitMs": {"type": "integer", "minimum": 1},
+          "deliveryDoorTravelWaitMs": {"type": "integer", "minimum": 3000},
           "cleanSolenoidPulseMs": {"type": "integer", "minimum": 1},
           "smokeMonitoringEnabled": {"type": "boolean"}
         }

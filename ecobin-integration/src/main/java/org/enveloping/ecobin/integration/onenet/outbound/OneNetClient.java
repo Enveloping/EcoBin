@@ -2730,6 +2730,7 @@ public class OneNetClient
             case "PHOTO_SLOT" -> 6;
             case "DEVICE_FAULT" -> 7;
             case "PORT_FULLNESS_STATE" -> 8;
+            case "DEVICE_ACCEPTANCE" -> 9;
             default -> throw new IllegalArgumentException(
                     "unsupported confirmation result reference");
         };

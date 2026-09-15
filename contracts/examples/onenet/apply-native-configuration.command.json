@@ -8,14 +8,14 @@
     "applicationUid": "10000000-0000-4000-8000-000000000002",
     "config": {
       "contentSha256": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
-      "mcuPayloadSha256": "ec5b3394e4a044a5f0aa7f328ba79135dc7d816369a046d71de81dec3adacba1",
+      "mcuPayloadSha256": "0a0d42e4f4adb45bb29eacc1f5d7caac20c7dd92894eeee17beecc85ae1bf0c5",
       "version": 8
     },
     "deviceConfig": {
       "cleanSolenoidPulseMs": 1000,
       "continueDeliveryWaitMs": 30000,
       "deliveryAutoCloseMs": 120000,
-      "deliveryDoorTravelWaitMs": 30000,
+      "deliveryDoorTravelWaitMs": 3000,
       "edgeHeartbeatIntervalMs": 3600000,
       "edgeHeartbeatMissThreshold": 3,
       "negativeWeightThresholdGrams": 500,
@@ -69,7 +69,7 @@
     ]
   },
   "payloadSchemaVersion": 2,
-  "payloadSha256": "e3ffef0e6928056bc3b2c474af6d1f49a15b55095fc472f6e02359ce8d5d43be",
+  "payloadSha256": "69a6f4746858e8c569dafc5ad95b4a8e4723e86fe8a56ab075f1dc05956b47c1",
   "schemaVersion": 2,
   "target": {
     "type": "CONFIGURATION_APPLICATION",

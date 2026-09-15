@@ -19,6 +19,7 @@ from factory.acceptance_core import DEFAULT_ACTION_TIMEOUT_MS
 from factory.acceptance_portal_client import EXECUTE_TIMEOUT_SECONDS
 from factory.native_acceptance_mcu import (
     FACTORY_CLEAN_OPERATION_WINDOW_MS,
+    FACTORY_CONFIG_VERSION,
     FACTORY_DEVICE_CONFIG,
     FACTORY_PORT_CONFIG,
 )
@@ -52,6 +53,25 @@ def test_action_timeout_chain_covers_required_factory_workflows() -> None:
         re.search(r"action:\s*(\d+)", app).group(1)  # type: ignore[union-attr]
     )
     assert browser_timeout >= EXECUTE_TIMEOUT_SECONDS * 1_000 + 10_000
+
+
+def test_factory_delivery_uses_real_door_travel_and_preserves_operator_selection_time() -> None:
+    assert FACTORY_CONFIG_VERSION == 4
+    assert FACTORY_DEVICE_CONFIG["deliveryDoorTravelWaitMs"] == 3_000
+    assert FACTORY_DEVICE_CONFIG["continueDeliveryWaitMs"] == 30_000
+
+    app = (Path(__file__).parents[1] / "factory" / "web" / "app.js").read_text(
+        encoding="utf-8"
+    )
+    assert "请在设备屏幕选择结束投递" in app
+
+
+def test_hotspot_explains_native_recovery_errors_without_generic_fallback() -> None:
+    app = (Path(__file__).parents[1] / "factory" / "web" / "app.js").read_text(
+        encoding="utf-8"
+    )
+    assert 'FINAL_RESULT_TIMEOUT: "控制板未在时限内返回硬件动作结果' in app
+    assert 'MCU_FACTORY_WORK_STILL_RUNNING: "控制板仍在执行上次硬件动作' in app
 
 
 def test_default_configuration_is_the_native_uart_v2_production_wiring() -> None:

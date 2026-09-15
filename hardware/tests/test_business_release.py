@@ -356,9 +356,9 @@ def test_release_tree_requires_exact_identity_and_checksums(tmp_path: Path) -> N
     assert manifest["ECOBIN_UART_PROTOCOL_FAMILY"] == "ECOBIN_UART"
     assert manifest["ECOBIN_UART_PROTOCOL_MAJOR"] == "2"
     assert manifest["ECOBIN_UART_PROTOCOL_MINOR"] == "0"
-    assert manifest["ECOBIN_UART_REGISTRY_VERSION"] == "2.0.0-rc.26"
+    assert manifest["ECOBIN_UART_REGISTRY_VERSION"] == "2.0.0-rc.27"
     assert manifest["ECOBIN_UART_REGISTRY_SHA256"] == UART_REGISTRY_SHA256
-    assert manifest["ECOBIN_ONENET_MAPPING_VERSION"] == "2.4.0"
+    assert manifest["ECOBIN_ONENET_MAPPING_VERSION"] == "2.5.0"
     assert manifest["ECOBIN_ONENET_MAPPING_SHA256"] == ONENET_MAPPING_SHA256
     assert manifest["ECOBIN_REQUIRED_FIXED_FRAME_REVISION"] == "NONE"
     (release / "app/main.py").write_text("changed\n", encoding="utf-8")

@@ -1,6 +1,6 @@
 /* Generated from contracts/uart/uart-registry.yaml.
  * DO NOT EDIT.
- * Registry SHA-256: 57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec
+ * Registry SHA-256: 7843c34c5fe2fd3c574186fe2a4c2b7f477b7ff5d6e284b91123a3ecb6fafb05
  */
 #ifndef ECOBIN_UART_PROTOCOL_H
 #define ECOBIN_UART_PROTOCOL_H
@@ -14,7 +14,7 @@
 #define inline __inline
 #endif
 
-#define ECOBIN_UART_REGISTRY_SHA256 "57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec"
+#define ECOBIN_UART_REGISTRY_SHA256 "7843c34c5fe2fd3c574186fe2a4c2b7f477b7ff5d6e284b91123a3ecb6fafb05"
 #define ECOBIN_UART_IMPLEMENTATION_STAGE "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED"
 #define ECOBIN_UART_CONFIG_DOMAIN_LENGTH 26u
 #define ECOBIN_UART_CONFIG_DOMAIN_BYTES { 69u, 67u, 79u, 66u, 73u, 78u, 58u, 85u, 65u, 82u, 84u, 58u, 77u, 67u, 85u, 45u, 67u, 79u, 78u, 70u, 73u, 71u, 58u, 118u, 50u, 0u }
@@ -2719,7 +2719,7 @@ static inline int ecobin_uart_validate_session_payload(
         if (ecobin_uart_read_u32_be(payload + 158u) < UINT64_C(1000)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 158u) > UINT64_C(600000)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 162u) != UINT64_C(5000)) { return -1; }
-        if (ecobin_uart_read_u32_be(payload + 166u) < UINT64_C(30000)) { return -1; }
+        if (ecobin_uart_read_u32_be(payload + 166u) < UINT64_C(3000)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 166u) > UINT64_C(45000)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 170u) < UINT64_C(1)) { return -1; }
         if (ecobin_uart_read_u32_be(payload + 170u) > UINT64_C(5000)) { return -1; }

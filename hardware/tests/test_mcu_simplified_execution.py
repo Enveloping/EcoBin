@@ -34,6 +34,7 @@ def library(tmp_path_factory):
         "McuDeliveryExecution_Attach": (c.c_uint8, [c.c_void_p] * 3),
         "McuCleanExecution_Attach": (c.c_uint8, [c.c_void_p] * 3),
         "McuDeliveryExecution_Select": (c.c_uint8, [c.c_void_p] * 3 + [c.c_uint8, c.c_uint64]),
+        "McuDeliveryExecution_RequestSelection": (c.c_uint8, [c.c_void_p, c.c_void_p, c.c_uint8, c.c_uint64]),
         "McuDeliveryExecution_CloseCurrent": (c.c_uint8, [c.c_void_p, c.c_void_p, c.c_uint64]),
         "McuCleanExecution_Request": (c.c_uint8, [c.c_void_p] * 3 + [c.c_uint8, c.c_uint16, c.c_uint64]),
         "McuControlEndpoint_ReserveActuatorEvents": (c.c_uint8, [c.c_void_p, c.c_uint8, c.POINTER(Reservation)]),
@@ -292,6 +293,29 @@ def test_early_local_close_keeps_dead_time_and_duplicate_does_not_extend_it(runt
     assert facts["pb7Output"] and facts["lastDeliveryDoorCommand"] == "CLOSE"
     assert state(runtime, start, now)["phase"] == "DELIVERY_CLOSE_TRAVEL_WAIT"
     assert not lib.McuDeliveryExecution_CloseCurrent(delivery, endpoint, now)  # released cycle
+
+
+def test_end_clicked_immediately_after_local_close_is_retained_until_postclose_weight(runtime):
+    delivery, _, start, now = setup(runtime)
+    lib, endpoint, preparation, *_ = runtime
+    end = uart.REGISTRY["enums"]["DeliverySelection"]["values"]["END"]
+
+    assert not lib.McuDeliveryExecution_RequestSelection(delivery, endpoint, end, now)
+    now = tick(runtime, now, 100)
+    assert lib.McuDeliveryExecution_CloseCurrent(delivery, endpoint, now)
+    assert lib.McuDeliveryExecution_RequestSelection(delivery, endpoint, end, now)
+    assert not lib.McuDeliveryExecution_RequestSelection(delivery, endpoint, end, now)
+
+    now = tick(runtime, now, 100)
+    assert state(runtime, start, now)["phase"] == "DELIVERY_CLOSE_TRAVEL_WAIT"
+    now = tick(runtime, now, inputs()["device"]["deliveryDoorTravelWaitMs"])
+    now = take_samples(runtime, [800] * 5, start=now, measurement=2)
+    lib.McuWorkPreparation_Poll(preparation, endpoint, now)
+
+    result = final(runtime, start, now)
+    assert result["finishReason"] == "DELIVERY_END"
+    assert result["finalWeightGrams"] == 800
+    assert result["deliveryRoundCount"] == 1
 
 
 def test_duplicate_start_does_not_reopen_and_old_second_authorization_is_explicitly_rejected(runtime):

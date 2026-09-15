@@ -1,6 +1,6 @@
 """Generated from contracts/uart/uart-registry.yaml.
 
-DO NOT EDIT. Registry SHA-256: 57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec
+DO NOT EDIT. Registry SHA-256: 7843c34c5fe2fd3c574186fe2a4c2b7f477b7ff5d6e284b91123a3ecb6fafb05
 Compatible with Python 3.11+.
 """
 
@@ -11,7 +11,7 @@ import hashlib
 import uuid
 from typing import Any, Mapping
 
-REGISTRY_SHA256 = "57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec"
+REGISTRY_SHA256 = "7843c34c5fe2fd3c574186fe2a4c2b7f477b7ff5d6e284b91123a3ecb6fafb05"
 BAUD_RATE = 115200
 DATA_BITS = 8
 PARITY = "NONE"
@@ -2122,9 +2122,9 @@ REGISTRY = {'bitmaps': {'PortFaultBitmap': {'bits': {'CLEAN_SOLENOID_FAULT': 1,
                             'type': 'u32',
                             'unit': 'ms'},
                            {'maximum': 45000,
-                            'minimum': 30000,
+                            'minimum': 3000,
                             'name': 'deliveryDoorTravelWaitMs',
-                            'notes': 'V1 默认和硬下限 30000；OPEN/CLOSE '
+                            'notes': '当前实机关门固定行程等待为3000；OPEN/CLOSE '
                                      '方向电平持续锁存直到相反命令或复位，本字段仅是固定机械行程等待，不控制 GPIO 释放，也不是门位故障超时',
                             'type': 'u32',
                             'unit': 'ms'},
@@ -3002,7 +3002,7 @@ REGISTRY = {'bitmaps': {'PortFaultBitmap': {'bits': {'CLEAN_SOLENOID_FAULT': 1,
                     '称重250ms目标，最近5点跨度不超过100g取均值，最长5s按既定有效点中位数；不做自动校准。始终不可读时本次失败，新真实读数恢复前停接单提示人工，恢复只允许新业务、旧失败不改。非重启最终称重失败保留系统异常审核，不自动给钱。',
                     'START即授权一次本地业务，不再分离首次开门授权；清运真实人工结束意图一次锁存，之后MCU称重/锁断电并冻结结果，不伪造第二次按键。MCU不新增Flash结果日志。新正常结果生产/分类要求有效首末重，通用解码仍保留旧已保存缺测包，旧v1报告保持原文。',
                     '烟感/测距/相机采集失败及烟雾报警只提示，不单独阻断。必要存储损坏停接单交人工。仅断网且MCU/存储正常时原业务完成并待补报，离线不接新业务；连续离线超过10分钟后台释放用户/设备占用，但保留原结果身份和补报，不转成问题归档。'],
- 'registryVersion': '2.0.0-rc.26',
+ 'registryVersion': '2.0.0-rc.27',
  'semanticRules': [{'id': 'DEVICE_ENTRY_URL_APPLICATION',
                     'kind': 'DEVICE_ENTRY_URL_APPLICATION',
                     'messages': ['DEVICE_ENTRY_URL_BEGIN',
@@ -3135,7 +3135,7 @@ REGISTRY = {'bitmaps': {'PortFaultBitmap': {'bits': {'CLEAN_SOLENOID_FAULT': 1,
                    {'id': 'WORK_FULLNESS_EVIDENCE',
                     'kind': 'MEASUREMENT_VALIDITY',
                     'messages': ['WORK_POSTCLOSE_WEIGHT_READY', 'CLEAN_FINAL_WEIGHT_READY'],
-                    'notes': '满溢整组观察随原作业/轮次/清运动作的末重记录精确交接，不创建后端检测任务。uptimeMs仍是重量解析终态时刻，满溢有独立开始/最后采集/冻结时间，允许晚于重量时刻，不刷新重量。NOT_SAMPLED整组槽全零，不冒充CLEAR。实际组仅支持本板超声波，保留原配置全摘要和MCU摘要、原阈值/数量；COMPLETE要求采够，足够有效取中位数并严格小于阈值才BLOCKED，0有效与不足有效分别明确CLEAR回退。INTERRUPTED保留部分数量/原配置/取消原因，无判断/距离/回退。该记录不修改袋状态、资金或接单；Pi须另核对原配置和业务，并沿V25在对应业务被后端确认后计算当前袋状态。'},
+                    'notes': 'rc.27起测距与业务称重完全解耦：投递/清运不启动、不保留也不等待超声波组，当前生产入口始终把本扩展编码为NOT_SAMPLED且整组槽全零。字段只为既有线布局兼容而保留；测距由独立环境监控写入DEVICE_FACTS_REPLY，验收和展示直接读取最近事实快照，不参与订单、资金、接单或业务推进。'},
                    {'id': 'FULLNESS_CLEAR_FALLBACK',
                     'kind': 'FULLNESS_SAMPLE_FALLBACK',
                     'messages': ['FULLNESS_SAMPLE_RESULT', 'STATE_SNAPSHOT_PORT'],
@@ -3221,7 +3221,7 @@ REGISTRY = {'bitmaps': {'PortFaultBitmap': {'bits': {'CLEAN_SOLENOID_FAULT': 1,
                    'commandSequencePolicy': 'DURABLE_MONOTONIC_PER_MCU_BOOT_NO_WRAP',
                    'commandTimeout': 'QUERY_ORIGINAL_NOT_MECHANICAL_RETRY',
                    'notes': '询问/分配编号在香橙派 SQLite '
-                            '提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.26沿用START整次本地业务授权、二维码原子写屏和只读固件身份查询，并由身份回复直接给出当前MCU能力位；查询不驱动、不测量、不改变业务。MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。二维码URL按BEGIN/PART/COMMIT应用，QUERY_COMMAND只查询原决定并可促使MCU重发RAM中匹配的应用结果，不重写屏幕。原过程/动作消息仅供当前诊断或冻结历史读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。成对固件/主入口和现场验证未完成，不可直接发布。',
+                            '提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.27沿用START整次本地业务授权、二维码原子写屏和只读固件身份查询，并由身份回复直接给出当前MCU能力位；查询不驱动、不测量、不改变业务。MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。二维码URL按BEGIN/PART/COMMIT应用，QUERY_COMMAND只查询原决定并可促使MCU重发RAM中匹配的应用结果，不重写屏幕。原过程/动作消息仅供当前诊断或冻结历史读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。rc.27仅将已实机确认的关门固定行程等待下限改为3秒，线级布局不变。成对固件/主入口和现场验证未完成，不可直接发布。',
                    'probeReuse': 'NEVER',
                    'processEventMessages': ['WORK_PREOPEN_WEIGHT_READY',
                                             'WORK_POSTCLOSE_WEIGHT_READY',
@@ -4776,10 +4776,10 @@ MESSAGE_SPECS = {'ACK': {'ackRequired': False,
                                      'unit': 'ms'},
                                     {'maximum': 45000,
                                      'maximumSize': 4,
-                                     'minimum': 30000,
+                                     'minimum': 3000,
                                      'minimumSize': 4,
                                      'name': 'deliveryDoorTravelWaitMs',
-                                     'notes': 'V1 默认和硬下限 30000；OPEN/CLOSE '
+                                     'notes': '当前实机关门固定行程等待为3000；OPEN/CLOSE '
                                               '方向电平持续锁存直到相反命令或复位，本字段仅是固定机械行程等待，不控制 GPIO '
                                               '释放，也不是门位故障超时',
                                      'offset': 166,

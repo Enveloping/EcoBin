@@ -705,7 +705,8 @@
             "CONFIGURATION_APPLICATION",
             "PHOTO_SLOT",
             "DEVICE_FAULT",
-            "PORT_FULLNESS_STATE"
+            "PORT_FULLNESS_STATE",
+            "DEVICE_ACCEPTANCE"
           ]
         },
         "key": {

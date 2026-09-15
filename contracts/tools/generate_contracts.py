@@ -1201,7 +1201,7 @@ def build_uart_digest_vectors(
         "negativeWeightThresholdGrams": 500,
         "deliveryAutoCloseMs": 120000,
         "weightMeasurementTimeoutMs": 5000,
-        "deliveryDoorTravelWaitMs": 30000,
+        "deliveryDoorTravelWaitMs": 3000,
         "cleanSolenoidPulseMs": 1000,
         "smokeMonitoringEnabled": True,
         "weightPollIntervalMs": 250,
@@ -4280,6 +4280,10 @@ def build_onenet_examples(digest_vectors: list[dict[str, Any]] | None = None) ->
             "negativeWeightThresholdGrams": 500,
             "deliveryAutoCloseMs": 120000,
             "weightMeasurementTimeoutMs": 6000,
+            # The profile-less example is the frozen UART v1 compatibility
+            # path, whose immutable registry still requires 30 seconds.  The
+            # native UART v2 example below is built from the rc.27 digest
+            # vector and uses the real three-second travel wait.
             "deliveryDoorTravelWaitMs": 30000,
             "cleanSolenoidPulseMs": 1000,
             "smokeMonitoringEnabled": True,

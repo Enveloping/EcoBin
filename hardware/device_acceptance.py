@@ -467,6 +467,15 @@ class DeviceAcceptanceRunner:
             )
 
         weight = observation.get("scaleWeightGrams") if fresh else None
+        fullness_status = (
+            observation.get("fullnessReadStatus") if fresh else None
+        )
+        fullness_acceptable = bool(
+            fresh
+            and observation.get("fullnessObservationKind")
+                in {"ULTRASONIC", "DIGITAL_INFRARED"}
+            and fullness_status in {"VALID", "UNAVAILABLE", "NOT_OBSERVED"}
+        )
         sample_healthy = bool(
             fresh
             and observation.get("status") == "AVAILABLE"
@@ -481,10 +490,9 @@ class DeviceAcceptanceRunner:
             and recent("scaleCapturedUptimeMs")
             and observation.get("smokeObservationState") == "NORMAL"
             and recent("smokeObservedUptimeMs")
-            and observation.get("fullnessObservationKind")
-                in {"ULTRASONIC", "DIGITAL_INFRARED"}
-            and observation.get("fullnessReadStatus") == "VALID"
-            and recent("fullnessCapturedUptimeMs")
+            # Fullness is auxiliary.  Copy the latest MCU fact snapshot as-is;
+            # its observation age does not decide business or acceptance.
+            and fullness_acceptable
         )
         return {
             "mode": "UART_V2_SIMPLIFIED",

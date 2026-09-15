@@ -6109,7 +6109,7 @@
     }
   },
   "generated": true,
-  "mappingVersion": "2.4.0",
+  "mappingVersion": "2.5.0",
   "projection": {
     "dataProtocol": "OneJSON",
     "enumEncoding": "JSON string enums are encoded as OneNet integer enums; generated wire mapping is authoritative for integer-to-symbol conversion.",

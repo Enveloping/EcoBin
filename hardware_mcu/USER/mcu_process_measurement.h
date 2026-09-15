@@ -19,14 +19,16 @@ typedef struct {
  * Caller-owned non-overlapping scratch; returns payload length or zero. Failure
  * may alter scratch but never work/measurement/meta. No UID allocation, event
  * retention, ACK, send, measurement, GPIO, work release or authorization here.
- * FULLNESS uses the work-event extension below. BASELINE has a separate
- * command-scoped encoder because it is not a delivery/clean work state.
+ * The active rc.27 business path uses this base encoder and leaves the fixed
+ * fullness extension as NOT_SAMPLED. BASELINE has a separate command-scoped
+ * encoder because it is not a delivery/clean work state.
  */
 size_t McuProcessMeasurement_BuildWorkEvent(const McuWorkState *work,
     const McuResultMeasurement *measurement, const McuProcessMeasurementMeta *meta,
     uint8_t message_type, uint8_t *scratch, size_t capacity);
-/* Extended terminal post-close/clean-final record, from the still-held actual
- * group owner and its frozen policy (not caller-supplied replacement settings).
+/* Historical compatibility encoder, not called by the rc.27 business path.
+ * It remains testable while old retained records can still be decoded. From a
+ * still-held actual group owner and its frozen policy (not replacement settings).
  * The original weight timestamp remains unchanged; sensor times are separate.
  * Base encoder explicitly emits NOT_SAMPLED when there was no sensor group.
  * Neither encoder samples/retires, allocates events or implies Pi custody. */

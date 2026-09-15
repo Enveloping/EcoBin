@@ -1,8 +1,8 @@
 # EcoBin 机器契约
 
-> 当前采用[精简实施计划](../docs/planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)的UART rc.26：START授权MCU自主业务，完整结果可靠交接；不再将逐动作或过程记录确认作为推进条件。73种消息的唯一机器来源是[`uart/uart-registry.yaml`](uart/uart-registry.yaml)，当前收口见[rc.26记录](../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)。仍为`MCU_REVIEW_REQUIRED / SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED`，尚未部署、烧录或通过真实HIL；以下P1复杂恢复进度均为历史。
+> 当前采用[精简实施计划](../docs/planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)的UART rc.27：START授权MCU自主业务，完整结果可靠交接；不再将逐动作或过程记录确认作为推进条件。rc.27不改变报文布局或消息集合，只把实际关门行程等待的合法下限改为3秒。73种消息的唯一机器来源是[`uart/uart-registry.yaml`](uart/uart-registry.yaml)，前一版能力收口见[rc.26记录](../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)，本次时序修复见[v44记录](../hardware/docs/review/v44-acceptance-distance-and-delivery-timing-2026-09-16.md)。仍为`MCU_REVIEW_REQUIRED / SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED`，尚未通过真实HIL。
 
-> OneNet候选2.4.0：`APPLY_CONFIGURATION`明确使用`UART_V2_SIMPLIFIED`档位；固定采样参数由Java/Pi展开到原生UART，不增加管理员填写项。完整机器契约598项、1750个子测试和25项完整校验通过，113份生成文件一致；这些本地证据不能替代OneNet控制台导入或现场验收。
+> OneNet候选2.5.0：在既有确认结果引用中增加设备验收结论，供v44热点页区分“后台失败”与“继续等待封存授权”；`APPLY_CONFIGURATION`继续使用`UART_V2_SIMPLIFIED`档位。机器契约及生成文件验证结果见[v44记录](../hardware/docs/review/v44-acceptance-distance-and-delivery-timing-2026-09-16.md)；本地证据不能替代OneNet控制台导入或现场验收。
 
 > 最新候选 [P1BT：已授权未登记发送的恢复关门撤回](../hardware/docs/review/uart2-recovery-close-withdrawal-p1bt-2026-09-13.md)：业务库先封住旧发送，永久层另存撤回事实并保留原授权历史；独立继任仅豁免准确祖先，候选循环已接自动核对，不发新动作、不启动云端、不恢复接单，业务39/永久3不变。
 > 撤回专项53项与运行入口19项分别通过，最终集成/扩大回归见实施记录，完整契约25通过。已登记可能发送的未知效果、跨新启动号新动作、完整准入/云端/正常业务与main切换仍待接，P4/P5未完成。

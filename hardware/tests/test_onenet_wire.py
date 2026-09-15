@@ -161,6 +161,7 @@ def test_decode_confirmation_maps_all_result_reference_types():
         "PHOTO_SLOT",
         "DEVICE_FAULT",
         "PORT_FULLNESS_STATE",
+        "DEVICE_ACCEPTANCE",
     ]
     params = {
         "scalarFields": {
@@ -169,7 +170,7 @@ def test_decode_confirmation_maps_all_result_reference_types():
         },
         "resultReferences": [
             {"type": code, "key": f"reference-{code}"}
-            for code in range(1, 9)
+            for code in range(1, 10)
         ],
     }
 

@@ -1,10 +1,11 @@
 # EcoBin 原生 UART 2.0 MCU 候选确认单
 
-> **当前候选（2026-09-14）**：UART `2.0.0-rc.26`，73种消息，115200/8N1，状态仍为
+> **当前候选（2026-09-16）**：UART `2.0.0-rc.27`，73种消息，115200/8N1，状态仍为
 > `MCU_REVIEW_REQUIRED / SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED`。MCU身份必须返回
 > 真实能力位并覆盖`0x8100`；完整HMI指令组原子进入UART3软件发送队列即视为已显示，失败时
-> 零字节发布且不推进显示状态。当前实现和验证边界见
-> [rc.26收口记录](../../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)。
+> 零字节发布且不推进显示状态。rc.27仅放宽关门行程等待到3秒，不改变线协议；当前实现和验证
+> 边界见[v44记录](../../hardware/docs/review/v44-acceptance-distance-and-delivery-timing-2026-09-16.md)，
+> 前一版能力边界见[rc.26收口记录](../../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)。
 > 真实HMI、RS485、机构和断电HIL仍未执行，禁止依据下方历史候选数字放行。
 
 > 最新候选 [P1BT：已授权未登记发送的恢复关门撤回](../../hardware/docs/review/uart2-recovery-close-withdrawal-p1bt-2026-09-13.md)：业务库先封住旧发送，永久层另存撤回事实并保留原授权历史；独立继任仅豁免准确祖先，候选循环已接自动核对，不发新动作、不启动云端、不恢复接单，业务39/永久3不变。

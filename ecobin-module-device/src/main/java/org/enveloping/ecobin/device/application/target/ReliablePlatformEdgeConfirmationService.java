@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -59,6 +60,31 @@ public class ReliablePlatformEdgeConfirmationService {
             String originalPayloadSha256,
             String effectKind,
             LocalDateTime processedAt) {
+        ensureApplied(
+                assetId,
+                hardwareSn,
+                originalEventUid,
+                originalPayloadSha256,
+                effectKind,
+                null,
+                processedAt);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void ensureApplied(
+            long assetId,
+            String hardwareSn,
+            String originalEventUid,
+            String originalPayloadSha256,
+            String effectKind,
+            String acceptanceDecision,
+            LocalDateTime processedAt) {
+        if (acceptanceDecision != null
+                && !Set.of("PASSED", "FAILED").contains(
+                        acceptanceDecision)) {
+            throw new IllegalArgumentException(
+                    "acceptanceDecision must be PASSED or FAILED");
+        }
         String taskKey = TASK_TYPE + ":"
                 + originalEventUid.toUpperCase(Locale.ROOT);
         Integer existing = jdbc.queryForObject("""
@@ -84,7 +110,13 @@ public class ReliablePlatformEdgeConfirmationService {
         payload.put("outcome", "BUSINESS_APPLIED");
         payload.put("processedAt", instant(processedAt));
         payload.put("quarantineUid", null);
-        payload.put("resultReferences", List.of());
+        payload.put(
+                "resultReferences",
+                acceptanceDecision == null
+                        ? List.of()
+                        : List.of(Map.of(
+                                "type", "DEVICE_ACCEPTANCE",
+                                "key", acceptanceDecision)));
 
         Map<String, Object> target = new LinkedHashMap<>();
         target.put("type", "EDGE_EVENT");

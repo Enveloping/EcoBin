@@ -47,7 +47,7 @@ final class InitialDeviceConfigurationFactory {
                         500L,
                         120_000L,
                         6_000L,
-                        30_000L,
+                        3_000L,
                         1_000L,
                         true);
         List<ConfigurationPortRequest> ports =

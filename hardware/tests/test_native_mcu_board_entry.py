@@ -24,6 +24,7 @@ def test_main_uses_one_native_parser_and_real_drivers():
     for symbol in ('McuControlEndpoint_Feed', 'McuWorkPreparation_Poll', 'McuDeliveryExecution_Attach',
                    'McuCleanExecution_Attach', 'NativeUsart_SendScaleQuery', 'McuWeightRun_FinishOwnedAttempt',
                    'McuWeightRun_FinishIdleAttempt', 'McuDeliveryExecution_CloseCurrent',
+                   'McuDeliveryExecution_RequestSelection',
                    'McuWorkPreparation_AttachDeviceEntryUrl', 'UART3_TrySendQRCode',
                    'McuEnvironmentMonitor_StartUltrasonic', 'McuEnvironmentMonitor_PollUltrasonic'):
         assert symbol in source
@@ -44,8 +45,9 @@ def test_main_uses_one_native_parser_and_real_drivers():
     )
     for guard in ('preparation.fullness_enabled', 'preparation.recovery_active',
                   'preparation.baseline_active', 'control.work.result.held',
-                  'preparation.fullness.present', 'snapshot.update_latched'):
+                  'snapshot.update_latched'):
         assert guard in idle_monitor
+    assert 'preparation.fullness.present' not in idle_monitor
     assert 'IDLE_FULLNESS_PERIOD_MS 1000u' in source
     assert 'McuFullnessRun_Interrupt' not in idle_monitor
     assert 'UltrasonicReader_' not in idle_monitor

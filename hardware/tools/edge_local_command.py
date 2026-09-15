@@ -128,7 +128,7 @@ def build_sample_configuration_command(
     *,
     device_name: str,
     config_version: int,
-    door_travel_wait_ms: int = 30000,
+    door_travel_wait_ms: int = 3000,
     command_uid: str | None = None,
     application_uid: str | None = None,
     ttl_seconds: int = DEFAULT_COMMAND_TTL_SECONDS,
@@ -142,9 +142,9 @@ def build_sample_configuration_command(
         raise LocalCommandError(
             "config_version must be in 1..9007199254740991"
         )
-    if not 30000 <= door_travel_wait_ms <= 45000:
+    if not 3000 <= door_travel_wait_ms <= 45000:
         raise LocalCommandError(
-            "door_travel_wait_ms must be in 30000..45000"
+            "door_travel_wait_ms must be in 3000..45000"
         )
     if ttl_seconds <= 0:
         raise LocalCommandError("ttl_seconds must be greater than zero")
@@ -231,7 +231,7 @@ def queue_sample_configuration(
     *,
     device_name: str,
     config_version: int,
-    door_travel_wait_ms: int = 30000,
+    door_travel_wait_ms: int = 3000,
     command_uid: str | None = None,
     application_uid: str | None = None,
     ttl_seconds: int = DEFAULT_COMMAND_TTL_SECONDS,

@@ -1,5 +1,5 @@
 {
-  "registryVersion": "2.0.0-rc.26",
+  "registryVersion": "2.0.0-rc.27",
   "status": "MCU_REVIEW_REQUIRED",
   "implementationStage": "SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED",
   "sessionPolicy": {
@@ -22,7 +22,7 @@
     "bindTimeout": "FRESH_PROBE_NOT_BIND_RETRY",
     "channelPremise": "REQUESTS_MAY_BE_LOST_DELAYED_REORDERED_BUT_NOT_COPIED",
     "businessGate": "NONZERO_EXACT_TARGET_BOOT",
-    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.26沿用START整次本地业务授权、二维码原子写屏和只读固件身份查询，并由身份回复直接给出当前MCU能力位；查询不驱动、不测量、不改变业务。MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。二维码URL按BEGIN/PART/COMMIT应用，QUERY_COMMAND只查询原决定并可促使MCU重发RAM中匹配的应用结果，不重写屏幕。原过程/动作消息仅供当前诊断或冻结历史读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。成对固件/主入口和现场验证未完成，不可直接发布。"
+    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.27沿用START整次本地业务授权、二维码原子写屏和只读固件身份查询，并由身份回复直接给出当前MCU能力位；查询不驱动、不测量、不改变业务。MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。二维码URL按BEGIN/PART/COMMIT应用，QUERY_COMMAND只查询原决定并可促使MCU重发RAM中匹配的应用结果，不重写屏幕。原过程/动作消息仅供当前诊断或冻结历史读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。rc.27仅将已实机确认的关门固定行程等待下限改为3秒，线级布局不变。成对固件/主入口和现场验证未完成，不可直接发布。"
   },
   "messageLifecyclePolicy": {
     "currentBusinessMessages": [
@@ -1589,7 +1589,7 @@
         { "name": "negativeWeightThresholdGrams", "type": "u32", "minimum": 1, "unit": "g" },
         { "name": "deliveryAutoCloseMs", "type": "u32", "minimum": 1000, "maximum": 600000, "unit": "ms", "notes": "V1 默认 120000；触摸屏可无限次重置该倒计时" },
         { "name": "weightMeasurementTimeoutMs", "type": "u32", "const": 5000, "unit": "ms", "notes": "原生首版固定5秒，与每个投口相同；不得沿用旧6秒配置" },
-        { "name": "deliveryDoorTravelWaitMs", "type": "u32", "minimum": 30000, "maximum": 45000, "unit": "ms", "notes": "V1 默认和硬下限 30000；OPEN/CLOSE 方向电平持续锁存直到相反命令或复位，本字段仅是固定机械行程等待，不控制 GPIO 释放，也不是门位故障超时" },
+        { "name": "deliveryDoorTravelWaitMs", "type": "u32", "minimum": 3000, "maximum": 45000, "unit": "ms", "notes": "当前实机关门固定行程等待为3000；OPEN/CLOSE 方向电平持续锁存直到相反命令或复位，本字段仅是固定机械行程等待，不控制 GPIO 释放，也不是门位故障超时" },
         { "name": "cleanSolenoidPulseMs", "type": "u32", "minimum": 1, "maximum": 5000, "unit": "ms", "notes": "候选默认 1000；须经实机验证后调优，不得超过固件硬上限 5000" },
         { "name": "smokeMonitoringEnabled", "type": "bool" },
         { "name": "weightPollIntervalMs", "type": "u32", "const": 250, "unit": "ms", "notes": "已确认的单请求目标周期；实际响应速度待真机验证，不自动退回600毫秒" },
@@ -2456,7 +2456,7 @@
     {
       "id": "WORK_FULLNESS_EVIDENCE", "kind": "MEASUREMENT_VALIDITY",
       "messages": ["WORK_POSTCLOSE_WEIGHT_READY", "CLEAN_FINAL_WEIGHT_READY"],
-      "notes": "满溢整组观察随原作业/轮次/清运动作的末重记录精确交接，不创建后端检测任务。uptimeMs仍是重量解析终态时刻，满溢有独立开始/最后采集/冻结时间，允许晚于重量时刻，不刷新重量。NOT_SAMPLED整组槽全零，不冒充CLEAR。实际组仅支持本板超声波，保留原配置全摘要和MCU摘要、原阈值/数量；COMPLETE要求采够，足够有效取中位数并严格小于阈值才BLOCKED，0有效与不足有效分别明确CLEAR回退。INTERRUPTED保留部分数量/原配置/取消原因，无判断/距离/回退。该记录不修改袋状态、资金或接单；Pi须另核对原配置和业务，并沿V25在对应业务被后端确认后计算当前袋状态。"
+      "notes": "rc.27起测距与业务称重完全解耦：投递/清运不启动、不保留也不等待超声波组，当前生产入口始终把本扩展编码为NOT_SAMPLED且整组槽全零。字段只为既有线布局兼容而保留；测距由独立环境监控写入DEVICE_FACTS_REPLY，验收和展示直接读取最近事实快照，不参与订单、资金、接单或业务推进。"
     },
     {
       "id": "FULLNESS_CLEAR_FALLBACK",

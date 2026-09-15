@@ -442,6 +442,6 @@
     }
   },
   "notes": "仅当前已登记消息的单帧预算；不代表未来完整结果分段或 MCU RAM/栈预算已完成。",
-  "registrySha256": "57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec",
-  "registryVersion": "2.0.0-rc.26"
+  "registrySha256": "7843c34c5fe2fd3c574186fe2a4c2b7f477b7ff5d6e284b91123a3ecb6fafb05",
+  "registryVersion": "2.0.0-rc.27"
 }

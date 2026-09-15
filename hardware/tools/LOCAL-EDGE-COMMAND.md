@@ -14,7 +14,7 @@ python3 tools/apply_sample_configuration.py --config-version 24
 ```
 
 输出中的 `inboxState` 必须为 `COMPLETED`，才能开始投递。该配置使用
-120 秒投递关门倒计时、30 秒门行程等待、6000 ms 称重超时和 1000 ms
+120 秒投递关门倒计时、3 秒门行程等待、6000 ms 称重超时和 1000 ms
 清运锁脉冲。
 
 ## 开启投递流程

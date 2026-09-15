@@ -2,13 +2,13 @@
 
 > 本文件由 `contracts/tools/generate_contracts.py` 生成，请勿直接编辑。
 
-- UART Registry：`2.0.0-rc.26`
-- UART Registry SHA-256：`57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec`
+- UART Registry：`2.0.0-rc.27`
+- UART Registry SHA-256：`7843c34c5fe2fd3c574186fe2a4c2b7f477b7ff5d6e284b91123a3ecb6fafb05`
 - UART 状态：`MCU_REVIEW_REQUIRED`
 - 实施阶段：`SIMPLIFIED_BUSINESS_INTEGRATION_NOT_RELEASED`；候选不可运行，旧运行制品摘要冻结，不自动覆盖。
 - 单帧预算见 `contracts/uart/generated/message-budget.json`；不代表完整结果/RAM 预算已完成。
 - UART 物理链路：`115200 baud / 8N1 / no flow control`
-- OneNet Mapping：`2.4.0` / `IMPLEMENTATION_CANDIDATE`
+- OneNet Mapping：`2.5.0` / `IMPLEMENTATION_CANDIDATE`
 
 ## UART 消息
 

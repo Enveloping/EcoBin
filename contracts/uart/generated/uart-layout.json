@@ -2635,10 +2635,10 @@
         {
           "maximum": 45000,
           "maximumSize": 4,
-          "minimum": 30000,
+          "minimum": 3000,
           "minimumSize": 4,
           "name": "deliveryDoorTravelWaitMs",
-          "notes": "V1 默认和硬下限 30000；OPEN/CLOSE 方向电平持续锁存直到相反命令或复位，本字段仅是固定机械行程等待，不控制 GPIO 释放，也不是门位故障超时",
+          "notes": "当前实机关门固定行程等待为3000；OPEN/CLOSE 方向电平持续锁存直到相反命令或复位，本字段仅是固定机械行程等待，不控制 GPIO 释放，也不是门位故障超时",
           "offset": 166,
           "type": "u32",
           "unit": "ms"
@@ -8232,8 +8232,8 @@
     "minor": 0,
     "receiveBufferLimit": 512
   },
-  "registrySha256": "57354f9fc3a9fb33d767fa2a24b2d06e50c4f37025a5ff171b134177ffdcf6ec",
-  "registryVersion": "2.0.0-rc.26",
+  "registrySha256": "7843c34c5fe2fd3c574186fe2a4c2b7f477b7ff5d6e284b91123a3ecb6fafb05",
+  "registryVersion": "2.0.0-rc.27",
   "sessionPolicy": {
     "actuatorEventMessages": [
       "DELIVERY_DOOR_COMMAND_RESULT",
@@ -8260,7 +8260,7 @@
     "commandPayloadValidation": "ALL_FENCED_EDGE_MESSAGES",
     "commandSequencePolicy": "DURABLE_MONOTONIC_PER_MCU_BOOT_NO_WRAP",
     "commandTimeout": "QUERY_ORIGINAL_NOT_MECHANICAL_RETRY",
-    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.26沿用START整次本地业务授权、二维码原子写屏和只读固件身份查询，并由身份回复直接给出当前MCU能力位；查询不驱动、不测量、不改变业务。MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。二维码URL按BEGIN/PART/COMMIT应用，QUERY_COMMAND只查询原决定并可促使MCU重发RAM中匹配的应用结果，不重写屏幕。原过程/动作消息仅供当前诊断或冻结历史读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。成对固件/主入口和现场验证未完成，不可直接发布。",
+    "notes": "询问/分配编号在香橙派 SQLite 提交后消耗，重启不复用。MCU只在RAM保存启动编号，已有非零编号不重绑；每条命令核对目标启动。rc.27沿用START整次本地业务授权、二维码原子写屏和只读固件身份查询，并由身份回复直接给出当前MCU能力位；查询不驱动、不测量、不改变业务。MCU自行称重、开关控制、接收按钮和结束，不等待Pi第二开门授权、过程保存或动作证明。二维码URL按BEGIN/PART/COMMIT应用，QUERY_COMMAND只查询原决定并可促使MCU重发RAM中匹配的应用结果，不重写屏幕。原过程/动作消息仅供当前诊断或冻结历史读取，不是新业务推进前置条件。完整WORK_RESULT仍须SQLite提交后精确确认；Pi自身重启只查询原业务，不重发START。rc.27仅将已实机确认的关门固定行程等待下限改为3秒，线级布局不变。成对固件/主入口和现场验证未完成，不可直接发布。",
     "probeReuse": "NEVER",
     "processEventMessages": [
       "WORK_PREOPEN_WEIGHT_READY",

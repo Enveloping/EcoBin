@@ -197,12 +197,12 @@ static void idle_fullness_poll(void) {
     if (!preparation.fullness_enabled) return;
     /* Always drain a real raw completion first. A START accepted after the
      * trigger does not discard, relabel or turn that observation into business
-     * evidence. The unowned poll cannot consume McuFullnessRun's reservation. */
+     * evidence. Business work never owns or waits for this ranging source. */
     (void)McuEnvironmentMonitor_PollUltrasonic(&control.facts);
     snapshot = ActuatorRuntime_Snapshot();
     if (preparation.recovery_active || preparation.baseline_active
         || control.work.status == ECOBIN_UART_WORK_QUERY_STATUS_RUNNING
-        || control.work.result.held || preparation.fullness.present
+        || control.work.result.held
         || snapshot.update_latched) return;
     if (!RuntimeClock_PeriodDue(RuntimeClock_Now(), &idle_fullness_tick,
         IDLE_FULLNESS_PERIOD_MS)) return;
@@ -229,10 +229,16 @@ static void hmi_poll(void) {
                     bytes[i] == 0x05u ? ECOBIN_UART_MESSAGE_CLEAN_FINISH_REQUESTED : ECOBIN_UART_MESSAGE_CLEAN_UNLOCK_REQUESTED,
                     clean.action_sequence, now_ms());
         } else if (preparation.start_message == ECOBIN_UART_MESSAGE_START_DELIVERY_SESSION) {
-            if ((bytes[i] == 0x02u || bytes[i] == 0x06u)
-                && display_phase == ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_WAIT_SELECTION)
-                (void)McuDeliveryExecution_Select(&delivery, &control, displayed_measurement,
-                    bytes[i] == 0x02u ? ECOBIN_UART_DELIVERY_SELECTION_END : ECOBIN_UART_DELIVERY_SELECTION_CONTINUE, now_ms());
+            if (bytes[i] == 0x02u || bytes[i] == 0x06u) {
+                uint8_t selection = bytes[i] == 0x02u
+                    ? ECOBIN_UART_DELIVERY_SELECTION_END : ECOBIN_UART_DELIVERY_SELECTION_CONTINUE;
+                if (display_phase == ECOBIN_UART_MCU_WORK_PHASE_DELIVERY_WAIT_SELECTION)
+                    (void)McuDeliveryExecution_Select(&delivery, &control,
+                        displayed_measurement, selection, now_ms());
+                else
+                    (void)McuDeliveryExecution_RequestSelection(&delivery, &control,
+                        selection, now_ms());
+            }
             if (bytes[i] == 0x00u || bytes[i] == 0x04u)
                 (void)McuDeliveryExecution_CloseCurrent(&delivery, &control, now_ms());
             /* 01/03 never bypass START or drive pins from the screen. */

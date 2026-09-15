@@ -59,6 +59,33 @@ class ReliablePlatformEdgeConfirmationServiceTest {
     }
 
     @Test
+    void acceptanceFailureIsReturnedInTheReliableConfirmation() {
+        Fixture fixture = fixture(0);
+
+        fixture.service().ensureApplied(
+                13L,
+                "test-device-1",
+                EVENT_UID,
+                "11".repeat(32),
+                "UPDATED",
+                "FAILED",
+                LocalDateTime.of(2026, 8, 7, 12, 0));
+
+        ArgumentCaptor<ReliablePlatformDeviceControlTaskRegistration> captor =
+                ArgumentCaptor.forClass(
+                        ReliablePlatformDeviceControlTaskRegistration.class);
+        verify(fixture.registrationPort()).register(captor.capture());
+        JsonNode references = new ObjectMapper().readTree(
+                captor.getValue().executionEnvelope())
+                .path("payload").path("resultReferences");
+        assertEquals(1, references.size());
+        assertEquals("DEVICE_ACCEPTANCE",
+                references.get(0).path("type").asText());
+        assertEquals("FAILED",
+                references.get(0).path("key").asText());
+    }
+
+    @Test
     void existingConfirmationMakesDuplicateEvidenceANoOp() {
         Fixture fixture = fixture(1);
 

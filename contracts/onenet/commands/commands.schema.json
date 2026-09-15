@@ -90,7 +90,7 @@
         },
         "deliveryDoorTravelWaitMs": {
           "type": "integer",
-          "minimum": 30000,
+          "minimum": 3000,
           "maximum": 45000
         },
         "cleanSolenoidPulseMs": {

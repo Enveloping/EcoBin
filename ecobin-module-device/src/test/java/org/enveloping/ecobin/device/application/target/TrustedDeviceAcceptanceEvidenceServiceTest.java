@@ -44,6 +44,19 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                     "https://www.jinshoubao.com/device-entry/");
 
     @Test
+    void acceptanceDecisionReferenceIsOnlySentToCapableRuntime() {
+        assertThat(TrustedDeviceAcceptanceEvidenceService.acceptanceDecision(
+                "FAILED", "hardware-runtime-20260916-44"))
+                .isEqualTo("FAILED");
+        assertThat(TrustedDeviceAcceptanceEvidenceService.acceptanceDecision(
+                "FAILED", "hardware-runtime-20260915-43"))
+                .isNull();
+        assertThat(TrustedDeviceAcceptanceEvidenceService.acceptanceDecision(
+                "PASSED", "hardware-runtime-20260917-45"))
+                .isEqualTo("PASSED");
+    }
+
+    @Test
     void simulationProvenanceDoesNotFailFunctionalAcceptance() {
         TrustedDeviceAcceptanceEvidenceService service = service();
         LocalDateTime observedAt = LocalDateTime.of(
