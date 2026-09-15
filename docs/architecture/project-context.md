@@ -1,5 +1,14 @@
 # EcoBin 项目上下文（Claude Code → Codex）
 
+> 2026-09-15 v41镜像与后台认可：提交`0650dbe8`的运行时重新生成
+> `0.1.0-single-card.20260915.41` / `hardware-runtime-20260915-41`，没有复用v40运行时归档或
+> 软件载荷。受控厂家镜像2,571,108,352字节，SHA-256为
+> `297a400aa5d15423139ac084ba5e05cc075520c871a7a716048b4da54ad6aff6`；指定TF卡写入和完整
+> 回读摘要一致。生产后台经用户授权只在原精确列表尾部追加`hardware-runtime-20260915-41`，
+> v40及全部既有值保留，实际容器环境、生产预检、秘密隔离、后端/Web健康和原镜像身份独立
+> 复核通过，远程业务下发继续关闭。新卡尚未冷启动和完成厂家/现场验收。见
+> [v41后台认可部署记录](../operations/orangepi-v41-backend-allowlist-deployment-2026-09-15.md)。
+
 > 当前推进：[MCU与香橙派精简实施计划](../planning/mcu-edge-simplified-implementation-plan-2026-09-13.md)。[UART rc.26能力、串口屏批次、工厂投影与终态失败收口](../../hardware/docs/review/uart2-rc26-capability-hmi-factory-projection-terminal-closure-2026-09-14.md)已整合真实MCU能力位、原生工厂验收投影、投递控制通信失败的无业务价值终结和统一HMI可信边界。当前为UART rc.26、OneNet2.4.0、EdgeStore schema40、数据库V83的本地候选，共73种消息；完整MCU ROM/bin 60588/65536、RAM12960/20480。硬件全量首次4258通过/123环境跳过/5子测试通过，另有1项已知Windows SQLite强杀恢复1546错误，单项复跑通过。真实串口屏/RS485/机构/断电HIL、Linux/ARM64安装和部署仍未完成，当前不是可部署版本；下方旧候选均为历史。
 > 2026-09-14 v40实机热点首步验收已修复：Unix socket网页动作与原生UART恢复为同一线程所有者；真实RS485连续读取到稳定绝对零点`-25623 g`，工厂观测范围按350 kg量程改为有符号范围，加载差值规则不变；超声波`UNAVAILABLE`按非核心传感器规则展示留证而不阻断。实机`CHECK_MCU`已由失败变为HTTP 200并进入`MCU_CHECK_PASSED`，尚未执行其余整机动作。详见[修复记录](../../hardware/docs/review/v40-hotspot-acceptance-repair-2026-09-14.md)。
 
