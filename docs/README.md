@@ -225,7 +225,7 @@ Registry为2.0.0-rc.4、schema19；一致设备事实快照和运行接线未完
 
 - [投递异常隔离收口部署与新卡账本启用](operations/delivery-quarantine-deployment-2026-09-11.md)：2026-09-11 OneNet 18/22、V69 和后端/Web 已上线；经确认完成 v37 保留数据切换、仅账本模式修正和永久激活，更新器重启保持、后台兼容接入正常。未执行异常收口或机构动作，新 F3 `0x0B` 尚不满足收口安全要求。
 - [香橙派量产镜像、写卡与整机验收手册](deployment/orangepi-production-image-factory-runbook.md)：从输入锁、两次构建、受控注密、签名发布和写卡复读，到离线硬件验收、Air780E 注册、云端授权、单向封存、冷启动放行与返工边界；当前真实 HIL 和 32 GB 布局锁未完成，不得量产放行。
-- [v43 UART超时隔离镜像构建与后台认可](operations/orangepi-v43-backend-allowlist-deployment-2026-09-15.md)：提交`244dd4ea`重新生成运行时、载荷和受控镜像，两次候选逐字节一致，离线差异审计及断网只读ARM64冒烟通过；生产后台只追加`hardware-runtime-20260915-43`并独立复核。镜像尚未写卡，当前v42卡和真实HIL状态没有改变。
+- [v43 UART超时隔离镜像构建、写卡与后台认可](operations/orangepi-v43-backend-allowlist-deployment-2026-09-15.md)：提交`244dd4ea`重新生成运行时、载荷和受控镜像，两次候选逐字节一致，离线差异审计及断网只读ARM64冒烟通过；指定TF卡完整写入、刷新和全镜像范围回读摘要一致，生产后台只追加`hardware-runtime-20260915-43`并独立复核。卡尚未冷启动，真实HIL仍待执行。
 - [v37 自定义重量报告校验镜像证据](../hardware/image-artifacts/evidence/hil-weight-report-validation-20260910-37/README.md)：2026-09-10 已将跨环节重量校验修复制成镜像，2180 项自动化测试及镜像内 ARM64 完整报告测试通过，指定 TF 卡完整写入/回读摘要一致。断电后验证已完成软件包并复用缓存，只重做中断的镜像组装；随后补齐后台认可配置，设备新报告已通过云端机器验收，实物称重精度仍未校准。
 - [v37 后端认可版本部署与现场复验](operations/orangepi-v37-backend-allowlist-deployment-2026-09-10.md)：用户确认后只追加 v37 并重载既有应用，备份及独立健康/配置核验通过；21:44 新报告通过、原失败记录保留，设备已确认封存授权。不部署 V69、OneNet 新模型或后端代码。
 - [v36 称重标准与采样展示镜像证据](../hardware/image-artifacts/evidence/hil-weight-reference-20260910-36/README.md)：2026-09-10 已完成镜像、2121 项自动化测试、ARM64 离线执行及指定 TF 卡完整写入/回读，摘要一致；保留并验证下载缓存复用。用户随后冷启动发现非 500 克报告被下游拒绝，该软件缺陷已在 v37 修复并写卡；真实 500 克测得约 28 克的精度问题仍未解决。后续诊断见[称重报告校验记录](../hardware/docs/review/factory-weight-reference-and-measurements-2026-09-10.md)。
