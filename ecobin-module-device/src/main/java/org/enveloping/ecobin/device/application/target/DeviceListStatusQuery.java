@@ -95,19 +95,23 @@ public class DeviceListStatusQuery {
                             rs.getObject("reported_weight_grams", Long.class),
                             rs.getObject("weight_value_available", Boolean.class),
                             rs.getString("weight_sensor_health"), rs.getString("weight_measurement_status"),
-                            time(rs, "last_observed_at"), null, null, rs.getString("infrared_value"),
+                            time(rs, "last_observed_at"), null, null, null,
+                            rs.getString("infrared_value"),
                             rs.getString("infrared_sensor_health"), portFaults));
         }, assets.stream().map(asset -> asset.assetUid().toString()).toArray());
 
         Map<UUID, UUID> currentReports = fullness.currentReports(references);
-        Map<UUID, WeightFact> facts = new LinkedHashMap<>();
+        Map<UUID, FullnessFact> facts = new LinkedHashMap<>();
         if (!currentReports.isEmpty()) {
             jdbc.query("""
-                    SELECT state_change_uid, port_id, weight_full, device_occurred_at
+                    SELECT state_change_uid, port_id, reported_state,
+                           weight_full, device_occurred_at
                     FROM dev_fullness_state_fact WHERE state_change_uid IN (%s)
                     """.formatted(placeholders(currentReports.size())), rs -> {
                 facts.put(UUID.fromString(rs.getString("state_change_uid")),
-                        new WeightFact(rs.getLong("port_id"), rs.getObject("weight_full", Boolean.class),
+                        new FullnessFact(rs.getLong("port_id"),
+                                overallFull(rs.getString("reported_state")),
+                                rs.getObject("weight_full", Boolean.class),
                                 time(rs, "device_occurred_at")));
             }, currentReports.values().stream().map(UUID::toString).toArray());
         }
@@ -152,37 +156,39 @@ public class DeviceListStatusQuery {
         if (currentReports.isEmpty()) {
             return Map.of();
         }
-        Map<UUID, WeightFact> facts = new LinkedHashMap<>();
+        Map<UUID, FullnessFact> facts = new LinkedHashMap<>();
         jdbc.query("""
-                SELECT state_change_uid, port_id, weight_full,
+                SELECT state_change_uid, port_id, reported_state, weight_full,
                        device_occurred_at
                 FROM dev_fullness_state_fact
                 WHERE state_change_uid IN (%s)
                 """.formatted(placeholders(currentReports.size())), rs -> {
             facts.put(UUID.fromString(rs.getString("state_change_uid")),
-                    new WeightFact(
+                    new FullnessFact(
                             rs.getLong("port_id"),
+                            overallFull(rs.getString("reported_state")),
                             rs.getObject("weight_full", Boolean.class),
                             time(rs, "device_occurred_at")));
         }, currentReports.values().stream().map(UUID::toString).toArray());
         Map<Integer, CurrentWeightFullness> result = new LinkedHashMap<>();
         currentReports.forEach((token, reportUid) -> {
-            WeightFact fact = facts.get(reportUid);
+            FullnessFact fact = facts.get(reportUid);
             Integer portNo = portNumbers.get(token);
             if (fact != null && portNo != null) {
                 result.put(portNo, new CurrentWeightFullness(
-                        fact.full(), fact.observedAt()));
+                        fact.weightFull(), fact.observedAt()));
             }
         });
         return Map.copyOf(result);
     }
 
-    private static DeviceListPortView withWeightFact(PortRow row, WeightFact fact) {
+    private static DeviceListPortView withWeightFact(PortRow row, FullnessFact fact) {
         var port = row.port();
         boolean matches = fact != null && row.portId() == fact.portId();
         return new DeviceListPortView(port.portNo(), port.displayName(), port.reportedWeightGrams(),
                 port.weightValueAvailable(), port.weightSensorHealth(), port.weightMeasurementStatus(),
-                port.observedAt(), matches ? fact.full() : null, matches ? fact.observedAt() : null,
+                port.observedAt(), matches ? fact.overallFull() : null,
+                matches ? fact.weightFull() : null, matches ? fact.observedAt() : null,
                 port.infraredValue(), port.infraredSensorHealth(), port.faults());
     }
 
@@ -203,6 +209,14 @@ public class DeviceListStatusQuery {
         }
     }
 
+    private static Boolean overallFull(String state) {
+        return switch (state == null ? "" : state) {
+            case "FULL" -> true;
+            case "NOT_FULL" -> false;
+            default -> null;
+        };
+    }
+
     private static String value(ResultSet rs, String column) throws SQLException {
         String value = rs.getString(column);
         return value == null ? "" : value;
@@ -212,7 +226,9 @@ public class DeviceListStatusQuery {
         return value == null ? null : value.toInstant(ZoneOffset.UTC);
     }
     private static String placeholders(int count) { return String.join(",", Collections.nCopies(count, "?")); }
-    private record WeightFact(long portId, Boolean full, Instant observedAt) { }
+    private record FullnessFact(
+            long portId, Boolean overallFull, Boolean weightFull,
+            Instant observedAt) { }
     public record CurrentWeightFullness(Boolean full, Instant observedAt) { }
     private record PortRow(UUID assetUid, UUID token, Long portId, List<String> faults,
                            Instant observedAt, DeviceListPortView port) { }

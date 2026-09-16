@@ -43,7 +43,7 @@ class DeviceListStatusQueryTest {
         jdbc.execute("CREATE TABLE rec_port_capacity_state(port_id BIGINT, tenant_id BIGINT, organization_id BIGINT, current_bag_id BIGINT, current_fullness_state_change_id BIGINT)");
         jdbc.execute("CREATE TABLE rec_bag_current_occupancy(port_id BIGINT, tenant_id BIGINT, organization_id BIGINT, bag_id BIGINT, occupancy_type VARCHAR)");
         jdbc.execute("CREATE TABLE rec_fullness_state_change(id BIGINT, state_change_uid VARCHAR(36), port_id BIGINT, tenant_id BIGINT, organization_id BIGINT, bag_id BIGINT, disposition VARCHAR)");
-        jdbc.execute("CREATE TABLE dev_fullness_state_fact(state_change_uid VARCHAR(36), port_id BIGINT, weight_full BOOLEAN, device_occurred_at TIMESTAMP)");
+        jdbc.execute("CREATE TABLE dev_fullness_state_fact(state_change_uid VARCHAR(36), port_id BIGINT, reported_state VARCHAR, weight_full BOOLEAN, device_occurred_at TIMESTAMP)");
         jdbc.update("INSERT INTO dev_device_asset VALUES (1, ?, 7, 9), (2, ?, 8, 10)", ASSET.toString(), UUID.randomUUID().toString());
         jdbc.update("INSERT INTO dev_port VALUES (11, 1, 7, 9, 1), (12, 1, 7, 9, 2), (21, 2, 8, 10, 1)");
         jdbc.update("INSERT INTO dev_device_runtime_state VALUES (1, 'DISCONNECTED', 'OK', 'OK', 'OK', TIMESTAMP '2026-09-12 08:00:00')");
@@ -53,7 +53,7 @@ class DeviceListStatusQueryTest {
         jdbc.update("INSERT INTO rec_port_capacity_state VALUES (11, 7, 9, 100, 1)");
         jdbc.update("INSERT INTO rec_bag_current_occupancy VALUES (11, 7, 9, 100, 'PORT_BOUND')");
         jdbc.update("INSERT INTO rec_fullness_state_change VALUES (1, ?, 11, 7, 9, 100, 'APPLIED')", REPORT.toString());
-        jdbc.update("INSERT INTO dev_fullness_state_fact VALUES (?, 11, FALSE, TIMESTAMP '2026-09-12 07:00:00')", REPORT.toString());
+        jdbc.update("INSERT INTO dev_fullness_state_fact VALUES (?, 11, 'NOT_FULL', FALSE, TIMESTAMP '2026-09-12 07:00:00')", REPORT.toString());
     }
 
     @Test
@@ -65,12 +65,14 @@ class DeviceListStatusQueryTest {
         assertThat(first.portNo()).isEqualTo(1);
         assertThat(first.displayName()).isEqualTo("纸类");
         assertThat(first.reportedWeightGrams()).isEqualTo(1200);
+        assertThat(first.overallFull()).isFalse();
         assertThat(first.weightFull()).isFalse();
         assertThat(first.infraredValue()).isEqualTo("BLOCKED");
         assertThat(first.fullnessObservedAt()).isBefore(first.observedAt());
         var second = result.listStatus().ports().getLast();
         assertThat(second.portNo()).isEqualTo(2);
         assertThat(second.reportedWeightGrams()).isNull();
+        assertThat(second.overallFull()).isNull();
         assertThat(second.weightFull()).isNull();
         assertThat(second.infraredValue()).isNull();
     }
@@ -78,12 +80,16 @@ class DeviceListStatusQueryTest {
     @Test
     void bagReplacementAndStaleReportsCannotLeakTheOldWeightDecision() {
         jdbc.update("UPDATE rec_bag_current_occupancy SET bag_id = 101");
+        assertThat(read().listStatus().ports().getFirst().overallFull()).isNull();
         assertThat(read().listStatus().ports().getFirst().weightFull()).isNull();
         jdbc.update("UPDATE rec_port_capacity_state SET current_bag_id = 101");
+        assertThat(read().listStatus().ports().getFirst().overallFull()).isNull();
         assertThat(read().listStatus().ports().getFirst().weightFull()).isNull();
         jdbc.update("UPDATE rec_fullness_state_change SET bag_id = 101, disposition = 'STALE_SEQUENCE'");
+        assertThat(read().listStatus().ports().getFirst().overallFull()).isNull();
         assertThat(read().listStatus().ports().getFirst().weightFull()).isNull();
         jdbc.update("UPDATE rec_fullness_state_change SET disposition = 'NO_STATE_CHANGE'");
+        assertThat(read().listStatus().ports().getFirst().overallFull()).isFalse();
         assertThat(read().listStatus().ports().getFirst().weightFull()).isFalse();
     }
 
@@ -108,7 +114,8 @@ class DeviceListStatusQueryTest {
 
     @Test
     void currentPointerWinsOverAnotherNewerOrForeignPhysicalFact() {
-        jdbc.update("INSERT INTO dev_fullness_state_fact VALUES (?, 11, TRUE, TIMESTAMP '2026-09-12 09:00:00')", UUID.randomUUID().toString());
+        jdbc.update("INSERT INTO dev_fullness_state_fact VALUES (?, 11, 'FULL', TRUE, TIMESTAMP '2026-09-12 09:00:00')", UUID.randomUUID().toString());
+        assertThat(read().listStatus().ports().getFirst().overallFull()).isFalse();
         assertThat(read().listStatus().ports().getFirst().weightFull()).isFalse();
         jdbc.update("UPDATE dev_fullness_state_fact SET port_id = 21 WHERE state_change_uid = ?", REPORT.toString());
         assertThat(read().listStatus().ports().getFirst().weightFull()).isNull();

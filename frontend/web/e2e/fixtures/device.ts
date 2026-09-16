@@ -131,6 +131,8 @@ export function permanentDeviceRuntime(deviceCode: string) {
     occupied: false,
     occupancyKind: null,
     occupiedAt: null,
+    lastDeliveryAt: '2026-08-24T02:40:00.000Z',
+    lastCleanAt: '2026-08-23T08:20:00.000Z',
     ports: [{
       deviceCode,
       portNo: 1,
@@ -151,6 +153,8 @@ export function permanentDeviceRuntime(deviceCode: string) {
       weightValueAvailable: true,
       reportedWeightGrams: 1200,
       weightValueKind: 'STABLE_WINDOW_MEAN',
+      weightFull: false,
+      weightFullObservedAt: '2026-08-24T03:00:02.000Z',
       infraredValue: 'CLEAR',
       infraredSensorHealth: 'OK',
       fullnessSensorKind: 'ULTRASONIC',
@@ -165,4 +169,3 @@ export function permanentDeviceRuntime(deviceCode: string) {
     fetchedAt: '2026-08-24T03:00:05.000Z',
   };
 }
-

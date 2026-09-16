@@ -2609,9 +2609,8 @@ test('device drawer separates current runtime from collapsed historical acceptan
     drawer.getByText('设备在线', { exact: true }),
   ).toBeVisible();
   await expect(drawer.getByText('设备控制板通信', { exact: true })).not.toBeVisible();
-  await drawer.getByRole('button', { name: /部件与时间明细$/, exact: false }).click();
+  await drawer.getByRole('button', { name: /细节数据$/, exact: false }).click();
   await expect(drawer.getByText('设备控制板通信', { exact: true })).toBeVisible();
-  await drawer.getByRole('button', { name: /部件与时间明细$/, exact: false }).click();
   await expect(drawer.getByText('可回收物投口', { exact: false }))
     .toBeVisible();
   await expect(
@@ -2763,7 +2762,7 @@ test('failed acceptance reevaluation refreshes CSRF and reports once', async ({
   await expect(
     page.getByText('已根据最新设备检查记录重新核对验收结果'),
   ).toBeVisible();
-  await drawer.getByRole('button', { name: /设备资料$/, exact: false }).click();
+  await drawer.getByRole('button', { name: /细节数据$/, exact: false }).click();
   await expect(
     drawer.getByText('设备功能检查通过', { exact: true }),
   ).toBeVisible();
@@ -3038,9 +3037,7 @@ test('platform registers an asset without factory bags and writes tenant ownersh
     key: expect.any(String),
   });
   const drawer = page.locator('.ant-drawer').filter({ hasText: hardwareSn });
-  await expect(
-    drawer.getByText('业务可用状态', { exact: true }),
-  ).toBeVisible();
+  await expect(drawer.getByText('业务可用状态', { exact: true })).toHaveCount(0);
   await expect(
     drawer.getByText('当前状态无法确认', { exact: true }).first(),
   ).toBeVisible();
@@ -3056,7 +3053,6 @@ test('platform registers an asset without factory bags and writes tenant ownersh
     body: { tenantCode, expectedVersion: 0 },
     key: expect.any(String),
   });
-  await drawer.getByRole('button', { name: /设备资料$/, exact: false }).click();
   await expect(drawer.getByText(tenantCode, { exact: true })).toBeVisible();
   expect(legacyRequests).toEqual([]);
 });

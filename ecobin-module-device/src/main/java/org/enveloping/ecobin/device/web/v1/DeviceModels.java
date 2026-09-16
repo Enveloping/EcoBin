@@ -114,7 +114,8 @@ public final class DeviceModels {
             int portNo, String displayName,
             Long reportedWeightGrams, Boolean weightValueAvailable,
             String weightSensorHealth, String weightMeasurementStatus,
-            Instant observedAt, Boolean weightFull, Instant fullnessObservedAt,
+            Instant observedAt, Boolean overallFull, Boolean weightFull,
+            Instant fullnessObservedAt,
             String infraredValue, String infraredSensorHealth,
             List<String> faults) {
         public DeviceListPortView { faults = List.copyOf(faults); }

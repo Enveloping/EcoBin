@@ -128,7 +128,7 @@ async function setup(page: Page, fixtures = [deviceFixture()]) {
 async function openDevice(page: Page, sn = hardwareSn) {
   await page.getByRole('button', { name: `查看设备 ${sn}`, exact: true }).click();
   const drawer = page.locator('.ant-drawer');
-  await expect(drawer.getByText('最近运行状态', { exact: true })).toBeVisible();
+  await expect(drawer.getByText('投口数据与状态', { exact: true })).toBeVisible();
   await expect.poll(async () => {
     const box = await drawer.locator('.ant-drawer-content-wrapper').boundingBox();
     return box ? Math.round(box.x + box.width) : 0;
@@ -140,9 +140,12 @@ test('device defaults keep essentials and reveal records and QR only on request'
   const state = await setup(page);
   await page.goto('/devices');
   const drawer = await openDevice(page);
-  await expect(drawer.getByText('最近上报：部件状态正常', { exact: true })).toBeVisible();
-  await expect(drawer.getByText('最近重量 1200 克', { exact: true })).toBeVisible();
-  await expect(drawer.getByText('接入与封存 · 已完成', { exact: true })).toBeVisible();
+  await expect(drawer.getByText('1200 克', { exact: true })).toBeVisible();
+  await expect(drawer.getByText('V3 · 已生效', { exact: true })).toBeVisible();
+  await expect(drawer.getByText('接入与封存 · 已完成', { exact: true })).not.toBeVisible();
+  await expect(drawer.getByText('业务可用状态', { exact: true })).toHaveCount(0);
+  await expect(drawer.getByText('最近运行状态', { exact: true })).toHaveCount(0);
+  await expect(drawer.getByText('部件与时间明细', { exact: true })).toHaveCount(0);
   for (const label of ['设备控制板通信', '设备型号', '业务程序版本', '袋码更新次数', '设备问题与安全恢复']) {
     await expect(drawer.getByText(label, { exact: true })).not.toBeVisible();
   }
@@ -150,17 +153,26 @@ test('device defaults keep essentials and reveal records and QR only on request'
   await expect(drawer.getByText(/example\.test\/entry/)).not.toBeVisible();
   await page.screenshot({ path: test.info().outputPath('device-default.png') });
 
-  const software = drawer.getByRole('button', { name: /软件与管理详情$/, exact: false });
-  await software.focus();
-  await software.press('Enter');
+  const details = drawer.getByRole('button', { name: /细节数据$/, exact: false });
+  await details.focus();
+  await details.press('Enter');
   await expect(drawer.getByText('business-test-1.0', { exact: true })).toBeVisible();
-  await software.press('Enter');
-  await drawer.getByRole('button', { name: /设备资料$/, exact: false }).click();
   await expect(drawer.getByText('ECOBIN-V1', { exact: true })).toBeVisible();
+  await expect(drawer.getByText('接入与封存 · 已完成', { exact: true })).toBeVisible();
+
+  const portRow = drawer.getByRole('row').filter({ hasText: '可回收物投口' });
+  await portRow.getByRole('button').click();
+  const primaryPortFacts = drawer.locator('.device-port-runtime-primary');
+  const primaryHeightBefore = await primaryPortFacts.evaluate(element => element.getBoundingClientRect().height);
+  await drawer.getByRole('button', { name: /报修信息/, exact: false }).click();
+  await expect(drawer.getByText('ACTUATOR_FAULT', { exact: true })).toHaveCount(0);
+  await expect(drawer.getByText('CLOSED', { exact: true }).first()).toBeVisible();
+  const primaryHeightAfter = await primaryPortFacts.evaluate(element => element.getBoundingClientRect().height);
+  expect(primaryHeightAfter).toBe(primaryHeightBefore);
+
   await drawer.getByRole('button', { name: /接入与封存 · 已完成$/, exact: false }).click();
   await expect(drawer.getByRole('group', { name: '设备出厂接入节点链' })).toBeVisible();
   await drawer.getByRole('button', { name: /接入与封存 · 已完成$/, exact: false }).click();
-  await drawer.getByRole('button', { name: /设备资料$/, exact: false }).click();
   await drawer.getByRole('button', { name: /设备二维码$/, exact: false }).click();
   const qr = page.getByRole('dialog', { name: '设备二维码', exact: true });
   await expect(qr.getByRole('img', { name: /设备入口二维码$/ })).toBeVisible();
@@ -186,18 +198,20 @@ test('unknown health, port faults, pending enrollment and stale reads remain vis
   state.configurationFails = true;
   await page.goto('/devices');
   const drawer = await openDevice(page);
-  for (const text of ['摄像头：未知', '设备控制板通信：故障', '门驱动：驱动机构故障', '烟雾：报警', '重量测量：不稳定', '烟雾报警待排查', '配置读取失败']) {
+  for (const text of ['门驱动：驱动机构故障', '烟雾：报警', '重量测量：不稳定', '烟雾报警待排查', '配置读取失败']) {
     await expect(drawer.getByText(text, { exact: true })).toBeVisible();
   }
-  await expect(drawer.getByText('最近上报：部件状态正常', { exact: true })).not.toBeVisible();
+  for (const text of ['摄像头：未知', '设备控制板通信：故障']) {
+    await expect(drawer.getByText(text, { exact: true })).not.toBeVisible();
+  }
+  await drawer.getByRole('button', { name: /细节数据$/, exact: false }).click();
+  await expect(drawer.getByText('设备控制板通信', { exact: true })).toBeVisible();
   await expect(drawer.getByText('袋码更新次数', { exact: true })).not.toBeVisible();
   await expect(drawer.getByText('下一步', { exact: true })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('device-faults.png') });
   state.runtimeFails = true;
-  await drawer.getByRole('button', { name: /立即刷新$/, exact: false }).click();
-  await expect(drawer.getByText('当前状态无法确认', { exact: true })).toBeVisible();
+  await drawer.getByRole('button', { name: /刷新设备数据$/, exact: false }).click();
   await expect(drawer.getByText('设备状态刷新失败，以下是上一次成功结果', { exact: true })).toBeVisible();
-  await expect(drawer.getByText('摄像头：未知', { exact: true })).toBeVisible();
   expect(state.writes).toEqual([]);
 });
 
@@ -206,7 +220,9 @@ test('active maintenance keeps status and close visible while credentials and cl
   state.remote = remoteFixture();
   await page.goto('/devices');
   const drawer = await openDevice(page);
-  const remote = drawer.getByRole('region', { name: '远程维护', exact: true });
+  await drawer.getByRole('button', { name: '远程维护', exact: true }).click();
+  const remoteDialog = page.getByRole('dialog', { name: '远程维护', exact: true });
+  const remote = remoteDialog.getByRole('region', { name: '远程维护', exact: true });
   await expect(remote.getByRole('button', { name: /立即关闭$/, exact: false })).toBeVisible();
   await expect(remote.getByText('已开放', { exact: true })).toBeVisible();
   await expect(remote.getByText('test-public-certificate-only', { exact: true })).not.toBeVisible();
@@ -275,13 +291,10 @@ test('switching devices resets disclosures and ignores a late configuration resp
   await page.goto('/devices');
   let drawer = await openDevice(page);
   await expect.poll(() => pending).toBe(true);
-  await drawer.getByRole('button', { name: /设备资料$/, exact: false }).click();
-  await drawer.getByRole('button', { name: /软件与管理详情$/, exact: false }).click();
-  await drawer.getByRole('button', { name: /部件与时间明细$/, exact: false }).click();
+  await drawer.getByRole('button', { name: /细节数据$/, exact: false }).click();
   await drawer.getByRole('button', { name: '关闭', exact: true }).click();
   drawer = await openDevice(page, secondSn);
   resolveLate();
-  await expect(drawer.getByText('最近上报：部件状态正常', { exact: true })).toBeVisible();
   for (const label of ['设备型号', '业务程序版本', '设备控制板通信', '配置应用失败']) {
     await expect(drawer.getByText(label, { exact: true })).not.toBeVisible();
   }

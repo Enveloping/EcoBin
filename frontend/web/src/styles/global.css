@@ -149,6 +149,16 @@ textarea {
   border-inline-end: 1px solid #e2e8f0;
 }
 
+.data-table-workbench .ant-table-thead > tr > th:first-child,
+.data-table-workbench .ant-table-tbody > tr > td:first-child {
+  border-inline-start: 1px solid #e2e8f0;
+}
+
+.data-table-workbench .ant-table-thead > tr > th:last-child,
+.data-table-workbench .ant-table-tbody > tr > td:last-child {
+  border-inline-end: 1px solid #e2e8f0;
+}
+
 .table-link {
   padding: 0;
   color: #0f766e;

@@ -1,6 +1,7 @@
-.device-list-ports { display: grid; gap: 4px; }
-.device-list-port { display: flex; align-items: baseline; gap: 10px; min-height: 24px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.device-list-fixed-row > td { height: 96px; padding-top: 6px !important; padding-bottom: 6px !important; overflow: hidden; }
+.device-list-ports { display: grid; grid-template-rows: repeat(var(--device-port-count), minmax(0, 1fr)); height: 84px; overflow: hidden; }
+.device-list-port { display: flex; align-items: center; gap: 8px; min-height: 0; height: 100%; overflow: hidden; white-space: nowrap; font-size: 12px; line-height: 14px; font-variant-numeric: tabular-nums; }
 .device-list-port-label { color: var(--ant-color-text-tertiary, #8c8c8c); font-size: 12px; }
-.device-list-faults { color: var(--ant-color-error-text, #cf1322); max-width: 230px; }
-.device-list-faults > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.device-list-port:focus-visible, .device-list-faults:focus-visible { outline: 2px solid var(--ant-color-primary, #1677ff); outline-offset: 3px; border-radius: 2px; }
+.device-list-condition { margin-inline-end: 0; }
+.device-list-address { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device-list-port:focus-visible, .device-list-condition:focus-visible { outline: 2px solid var(--ant-color-primary, #1677ff); outline-offset: 3px; border-radius: 2px; }

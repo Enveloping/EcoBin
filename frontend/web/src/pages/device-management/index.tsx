@@ -57,7 +57,7 @@ import {
   connectivityColors,
   connectivityLabels,
 } from './devicePresentation';
-import { DeviceFaults, DeviceIdentifier, DevicePortMetric, listAcceptanceLabels } from './DeviceListCells';
+import { DeviceCondition, DeviceIdentifier, DevicePortMetric, listAcceptanceLabels } from './DeviceListCells';
 
 interface AssetFormValues {
   hardwareSn: string;
@@ -192,8 +192,19 @@ export default function DeviceManagementPage() {
       },
     },
     {
-      title: '故障原因', key: 'faults', search: false, width: 180,
-      render: (_, asset) => <DeviceFaults asset={asset} />,
+      title: '状态', key: 'condition', search: false, width: 75,
+      render: (_, asset) => <DeviceCondition asset={asset} />,
+    },
+    {
+      title: '安装地址', key: 'installationAddress', search: false, width: 150,
+      render: (_, asset) => {
+        const address = asset.installationProfile?.address?.trim() || '尚未设置';
+        return <Tooltip title={address} trigger={['hover', 'focus']}>
+          <Typography.Text className="device-list-address" type={address === '尚未设置' ? 'secondary' : undefined} tabIndex={0}>
+            {address}
+          </Typography.Text>
+        </Tooltip>;
+      },
     },
     {
       title: '投口重量', key: 'portWeight', search: false, width: 120,
@@ -436,9 +447,10 @@ export default function DeviceManagementPage() {
           {...proTableConfig}
           actionRef={actionRef}
           rowKey="assetUid"
+          onRow={() => ({ className: 'device-list-fixed-row' })}
           columns={columns}
           columnsState={{
-            persistenceKey: `ecobin.web.columns.devices.${mode}.v1`,
+            persistenceKey: `ecobin.web.columns.devices.${mode}.v2`,
             persistenceType: 'localStorage',
             defaultValue: {
               modelCode: { show: false },

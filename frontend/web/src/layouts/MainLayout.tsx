@@ -87,7 +87,7 @@ export default function MainLayout() {
       fixSiderbar
       location={{ pathname: selectedMenuKey(location.pathname, location.search) }}
       route={{ path: '/', routes: menuData }}
-      siderWidth={208}
+      siderWidth={156}
       collapsedButtonRender={false}
       siderMenuType="sub"
       // 浅色侧边栏：白底 + 绿色选中高亮

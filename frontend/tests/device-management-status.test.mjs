@@ -185,18 +185,22 @@ test('device directory and drawer expose only display-only operator controls', (
     import.meta.url,
   ), 'utf8');
 
-  assert.match(directory, /title: '故障原因'/);
-  assert.match(directory, /DeviceFaults/);
+  assert.match(directory, /title: '状态'/);
+  assert.match(directory, /title: '安装地址'/);
+  assert.match(directory, /DeviceCondition/);
+  assert.match(directory, /className: 'device-list-fixed-row'/);
   assert.match(directory, /机构无需手动启用设备/);
   assert.doesNotMatch(directory, /联网即可使用/);
-  assert.match(drawer, /业务可用状态/);
+  assert.doesNotMatch(drawer, /title="业务可用状态"/);
+  assert.match(drawer, /label: '细节数据'/);
+  assert.match(drawer, /label: '报修信息（报修时使用）'/);
+  assert.match(drawer, /className="device-port-runtime-primary"/);
   assert.match(drawer, /deviceManagementDetail\(runtimeLoad\.data\)/);
-  assert.match(drawer, /runtimeUnavailable=\{runtimeLoad\.status === 'error'\}/);
-  assert.match(drawer, /下面显示的是上一次成功读取的记录，不能据此开始新的投递或清运/);
-  assert.match(drawer, /这是上一次成功读取的状态/);
-  assert.match(drawer, /label: '软件与管理详情'/);
+  assert.match(drawer, /function DeviceManagementAttention/);
+  assert.match(drawer, /if \(!attentionRequired\) return null/);
+  assert.doesNotMatch(drawer, /label: '软件与管理详情'/);
   assert.doesNotMatch(drawer, /name=\{\['ports', index, 'unitPriceYuanPerKg'\]\}/);
-  assert.match(drawer, /通信版本（报修时使用）/);
+  assert.match(drawer, /通信版本/);
   assert.doesNotMatch(drawer, /detail\.(?:businessReleaseUid|businessPackageSha256|sourceEventUid|mcuFirmwareIdentityHex|managementStateSequence)/);
   assert.doesNotMatch(drawer, /\{reason\.code\}/);
   assert.doesNotMatch(drawer, /开始业务程序更新|取消业务程序更新|下发业务发布/);

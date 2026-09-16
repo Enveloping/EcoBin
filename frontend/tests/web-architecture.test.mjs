@@ -512,7 +512,10 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.match(drawerSource, /mcuSimulated/);
   assert.match(drawerSource, /camerasSimulated/);
   assert.match(drawerSource, /本次验收尚未保存设备检查记录/);
-  assert.match(drawerSource, /最近运行状态/);
+  assert.doesNotMatch(drawerSource, /最近运行状态/);
+  assert.doesNotMatch(drawerSource, /部件与时间明细/);
+  assert.match(drawerSource, /投口数据/);
+  assert.match(drawerSource, /label: '细节数据'/);
   assert.match(drawerSource, /15_000/);
   assert.match(drawerSource, /设备检查历史记录/);
   assert.match(drawerSource, /不代表设备当前状态/);

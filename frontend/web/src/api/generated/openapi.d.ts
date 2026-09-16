@@ -9050,6 +9050,8 @@ export interface components {
             weightMeasurementStatus: string | null;
             /** Format: date-time */
             observedAt: string | null;
+            /** @description 当前在用袋最近已应用上报中的综合满溢结论，已经按该次上报携带的生效配置模式计算；无有效上报为 null。 */
+            overallFull: boolean | null;
             /** @description 当前在用袋最近已应用上报中的重量满溢判断；无有效上报为 null。 */
             weightFull: boolean | null;
             /** Format: date-time */

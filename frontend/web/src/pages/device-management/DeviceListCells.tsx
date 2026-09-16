@@ -1,4 +1,5 @@
-import { Space, Tooltip, Typography } from 'antd';
+import { Space, Tag, Tooltip, Typography } from 'antd';
+import type { CSSProperties } from 'react';
 import type { DeviceAsset } from '@/api/deviceDirectory';
 import { formatShanghaiTime } from '@/utils/decimal';
 import { deviceManagementSummary } from './deviceManagementPresentation';
@@ -6,6 +7,13 @@ import './device-list.css';
 
 type Port = NonNullable<DeviceAsset['listStatus']>['ports'][number];
 type PortMetric = 'weight' | 'weightFull' | 'infraredFull';
+type MetricTone = 'success' | 'danger' | 'secondary' | undefined;
+
+interface MetricValue {
+  text: string;
+  tone: MetricTone;
+  tip: string;
+}
 
 export const listAcceptanceLabels: Record<string, string> = {
   PENDING: '待验收', FAILED: '未通过', PASSED: '已通过',
@@ -37,35 +45,32 @@ function observedAt(time: string | null | undefined) {
   return time ? `采集于 ${formatShanghaiTime(time)}` : '尚未收到有效上报';
 }
 
-export function DeviceFaults({ asset }: { asset: DeviceAsset }) {
+export function DeviceCondition({ asset }: { asset: DeviceAsset }) {
   const management = deviceManagementSummary(asset);
-  const reason = management?.primaryReason;
+  const managementAbnormal = management?.businessAdmission === 'PAUSED'
+    || management?.compatibility === 'INCOMPATIBLE';
+  const reason = managementAbnormal ? management?.primaryReason ?? null : null;
   const faults = [...new Set([
     ...(reason ? [reason.title] : []),
     ...(asset.listStatus?.faults ?? []),
     ...(asset.listStatus?.ports ?? []).flatMap(port => port.faults.map(fault => `${port.portNo} 口：${fault}`)),
   ])];
-  if (!faults.length) {
-    const waiting = management?.businessAdmission === 'PAUSED' || management?.businessAdmission === 'UNKNOWN';
-    return <Tooltip title={waiting ? '设备未上报具体原因' : `无已上报故障；${observedAt(asset.listStatus?.observedAt)}`}>
-      <Typography.Text type="secondary">{waiting ? '原因未上报' : '—'}</Typography.Text>
-    </Tooltip>;
-  }
-  return <Tooltip title={<>{faults.map(fault => <div key={fault}>{fault}</div>)}
-    {reason?.description && <div>{reason.description}</div>}
-    <div>{observedAt(asset.listStatus?.observedAt ?? management?.observedAt)}</div>
-  </>} trigger={['hover', 'focus']}>
-    <div tabIndex={0} className="device-list-faults">
-      {faults.slice(0, 2).map(fault => <div key={fault}>{fault}</div>)}
-      {faults.length > 2 && <Typography.Text type="secondary">另 {faults.length - 2} 项</Typography.Text>}
-    </div>
+  const abnormal = managementAbnormal || faults.length > 0;
+  return <Tooltip
+    title={abnormal ? '设备存在明确异常，进入详情查看具体原因' : '未发现明确异常'}
+    trigger={['hover', 'focus']}
+  >
+    <Tag color={abnormal ? 'error' : 'success'} tabIndex={0} className="device-list-condition">
+      {abnormal ? '异常' : '正常'}
+    </Tag>
   </Tooltip>;
 }
 
-function metricValue(port: Port | undefined, metric: PortMetric) {
+function metricValue(port: Port | undefined, metric: PortMetric): MetricValue {
   if (metric === 'weightFull') {
     const full = port?.weightFull;
-    return { text: full == null ? '未上报' : full ? '已满' : '未满', danger: full === true,
+    return { text: full == null ? '未上报' : full ? '已满' : '未满',
+      tone: full == null ? 'secondary' : full ? 'danger' : 'success',
       tip: `当前袋最近一次重量判断；${observedAt(port?.fullnessObservedAt)}` };
   }
   if (metric === 'infraredFull') {
@@ -73,16 +78,23 @@ function metricValue(port: Port | undefined, metric: PortMetric) {
     const full = known && port.infraredValue === 'BLOCKED' ? true
       : known && port.infraredValue === 'CLEAR' ? false : null;
     const fault = port?.infraredSensorHealth && !['OK', 'UNKNOWN'].includes(port.infraredSensorHealth);
-    return { text: full == null ? fault ? '故障' : '未知' : full ? '已满' : '未满', danger: full === true || !!fault,
+    return { text: full == null ? fault ? '故障' : '未知' : full ? '已满' : '未满',
+      tone: fault || full === true ? 'danger' : full === false ? 'success' : 'secondary',
       tip: `红外遮挡观测；遮挡显示已满，无遮挡显示未满。${observedAt(port?.observedAt)}` };
   }
   const known = port?.weightValueAvailable === true && port.weightSensorHealth === 'OK'
     && port.observedAt
     && Number.isSafeInteger(port.reportedWeightGrams);
   const fault = port?.weightSensorHealth && !['OK', 'UNKNOWN'].includes(port.weightSensorHealth);
-  return { text: known ? `${(port!.reportedWeightGrams! / 1000).toLocaleString('zh-CN', { maximumFractionDigits: 3 })} kg`
-    : fault ? '故障' : '未知', danger: !!fault,
-    tip: `设备称重读数（含袋）${port?.weightMeasurementStatus === 'UNSTABLE' ? '，读数未稳定' : ''}；${observedAt(port?.observedAt)}` };
+  const overallFull = port?.overallFull;
+  return {
+    text: known
+      ? `${(port!.reportedWeightGrams! / 1000).toLocaleString('zh-CN', { maximumFractionDigits: 3 })} kg`
+      : fault ? '故障' : '未知',
+    tone: fault ? 'danger' : !known ? 'secondary'
+      : overallFull === true ? 'danger' : overallFull === false ? 'success' : undefined,
+    tip: `设备称重读数（含袋）；综合满溢${overallFull == null ? '尚未上报' : overallFull ? '为已满' : '为未满'}${port?.weightMeasurementStatus === 'UNSTABLE' ? '，读数未稳定' : ''}；${observedAt(port?.observedAt)}`,
+  };
 }
 
 export function DevicePortMetric({ asset, metric }: { asset: DeviceAsset; metric: PortMetric }) {
@@ -91,14 +103,15 @@ export function DevicePortMetric({ asset, metric }: { asset: DeviceAsset; metric
     ...Array.from({ length: Math.min(6, Math.max(1, asset.expectedPortCount)) }, (_, index) => index + 1),
     ...reported.map(port => port.portNo),
   ])].sort((a, b) => a - b);
-  return <div className="device-list-ports">
+  const gridStyle = { '--device-port-count': numbers.length } as CSSProperties;
+  return <div className="device-list-ports" style={gridStyle}>
     {numbers.map(portNo => {
       const port = reported.find(item => item.portNo === portNo);
       const value = metricValue(port, metric);
       return <Tooltip key={portNo} title={`${port?.displayName ?? `投口 ${portNo}`} · ${value.tip}`} trigger={['hover', 'focus']}>
         <div className="device-list-port" tabIndex={0} data-port-no={portNo}>
           <span className="device-list-port-label">{portNo} 口</span>
-          <Typography.Text type={value.danger ? 'danger' : value.text === '未知' || value.text === '未上报' ? 'secondary' : undefined}>
+          <Typography.Text type={value.tone}>
             {value.text}
           </Typography.Text>
         </div>
