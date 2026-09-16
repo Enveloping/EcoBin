@@ -64,6 +64,14 @@ textarea {
   outline: none;
 }
 
+.ant-pro-sider.ant-layout-sider {
+  border-inline-end: 1px solid #e2e8f0;
+}
+
+.ant-pro-sider .ant-menu {
+  border-inline-end: 0 !important;
+}
+
 .compliance-footer {
   display: flex;
   width: 100%;
@@ -134,6 +142,11 @@ textarea {
 .data-table-workbench > .ant-pro-card:only-child {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
+}
+
+.data-table-workbench .ant-table-thead > tr > th:not(:last-child),
+.data-table-workbench .ant-table-tbody > tr > td:not(:last-child) {
+  border-inline-end: 1px solid #e2e8f0;
 }
 
 .table-link {

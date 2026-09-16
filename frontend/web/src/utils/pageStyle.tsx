@@ -10,7 +10,7 @@ export function pageHeader(title: ReactNode, subTitle?: ReactNode) {
   return {
     title: <span className="page-title">{title}</span>,
     subTitle,
-    header: { style: { paddingBottom: 13 } },
+    header: { style: { paddingBottom: 10 } },
     style: { paddingBottom: 0 },
   };
 }

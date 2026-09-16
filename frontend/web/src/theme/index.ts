@@ -72,11 +72,11 @@ export const lightTheme: ThemeConfig = {
     Table: {
       headerBg: palette.bgSubtle,
       headerColor: palette.textPrimary,
-      headerSplitColor: 'transparent',
+      headerSplitColor: palette.borderStrong,
       borderColor: palette.border,
       rowHoverBg: '#F3F8F7',
-      cellPaddingBlock: 11,
-      cellPaddingInline: 13,
+      cellPaddingBlock: 9,
+      cellPaddingInline: 12,
       headerSortHoverBg: '#E8EEF2',
     },
     Tag: {
