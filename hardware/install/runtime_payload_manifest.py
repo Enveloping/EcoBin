@@ -86,6 +86,7 @@ RUNTIME_APP_FILES = (
     "edge_identity.py",
     "edge_store.py",
     "edge_store_prepare.py",
+    "fullness_transition.py",
     "fixed_frame_health_recovery.py",
     "fixed_frame_mcu_adapter.py",
     "fixed_frame_mcu_maintenance.py",

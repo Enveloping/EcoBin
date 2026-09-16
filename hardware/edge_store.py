@@ -1708,8 +1708,10 @@ class EdgeStore:
             return dict(state="REPORT_CREATED", eventUid=binding["eventUid"])
 
     def create_native_result_report(self, permit, start_command_uid: str, *, device_name,
-                                   photo_manager=None, permit_snapshot=None, ledgers=None):
+                                   photo_manager=None, permit_snapshot=None, ledgers=None,
+                                   device_facts=None):
         from native_result_report import original_authority, report_payload, pending_photos, report_binding, supports_result_policy, check_job_permit
+        from fullness_transition import build_fullness_transition
         from work_recovery import original_work, complete_result
         from onenet_wire import build_event_envelope, encode_event_post
         import uart2_protocol as uart
@@ -1735,16 +1737,64 @@ class EdgeStore:
             event_type = "CLEAN_COMPLETE" if work_type == "CLEAN_OPERATION" else "DELIVERY_COMPLETE"
             photos = (photo_manager.get_completion_photo_facts(permit.work_uid, work_type)
                 if photo_manager is not None else pending_photos(work_type))
+            business_payload = report_payload(value, evidence, command, photos)
             event = build_event_envelope(device_name=device_name, event_uid=decision["task"]["task_uid"],
                 edge_event_sequence=self._next_seq(conn), event_type=event_type,
                 target_type=work_type, target_uid=permit.work_uid, command_uid=permit.command_uid,
-                payload=report_payload(value, evidence, command, photos))
+                payload=business_payload)
             encode_event_post(event_type, event)
             self._insert_event(conn, event, event_type)
-            conn.execute("""UPDATE native_result_report_outbox SET state='REPORT_CREATED', event_uid=?, report_json=?
+            normal_result = value["finishReason"] in {
+                "DELIVERY_END",
+                "DELIVERY_WINDOW_EXPIRED",
+                "CLEAN_CONFIRMED",
+            }
+            if device_facts is not None and not isinstance(device_facts, dict):
+                raise ValueError("native result device facts snapshot is malformed")
+            fullness_transition = None
+            if normal_result:
+                clean = work_type == "CLEAN_OPERATION"
+                final_measurement = business_payload[
+                    "cleanerConfirmedFinalMeasurement"
+                    if clean
+                    else "finalPostCloseMeasurement"
+                ]
+                fullness_transition = build_fullness_transition(
+                    store=self,
+                    port_no=value["portNo"],
+                    bag_uid=(command["newBagUid"] if clean else command["bagUid"]),
+                    source_work_type=work_type,
+                    source_work_uid=permit.work_uid,
+                    device_name=device_name,
+                    measurement=final_measurement,
+                    sensor_observation=(
+                        dict(device_facts)
+                        if isinstance(device_facts, dict)
+                        else None
+                    ),
+                    confirmation_basis=(
+                        "MCU_INDEPENDENT_RECHECK"
+                        if isinstance(device_facts, dict)
+                        else None
+                    ),
+                    baseline_weight_grams=(
+                        final_measurement["reportedWeightGrams"]
+                        if clean
+                        else None
+                    ),
+                    reset_for_new_bag=clean,
+                )
+            if fullness_transition is not None:
+                self._apply_fullness_transition_in_tx(
+                    conn,
+                    fullness_transition,
+                )
+            updated = conn.execute("""UPDATE native_result_report_outbox SET state='REPORT_CREATED', event_uid=?, report_json=?
                 WHERE mcu_boot_id=? AND result_sequence=? AND state='PENDING_CLASSIFICATION'""",
                 (event["eventUid"], _json.dumps(report_binding(permit, start_command_uid, saved, event, device_name), sort_keys=True),
                     saved["mcu_boot_id"], saved["result_sequence"]))
+            if updated.rowcount != 1:
+                raise RuntimeError("native result report task changed during atomic creation")
             return dict(state="REPORT_CREATED", eventUid=event["eventUid"])
 
     def _migrate_v30(self) -> None:

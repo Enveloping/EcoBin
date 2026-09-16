@@ -1078,7 +1078,14 @@ def _native_weight_fields(store, port_no, facts):
     measurement_uptime = facts.get("measurementObservedUptimeMs")
     scale_uptime = facts.get("scaleCapturedUptimeMs")
     use_measurement = bool(
-        state in {"STABLE_MEAN", "UNAVAILABLE", "CONFIG_ERROR", "BUFFER_FULL", "INTERRUPTED"}
+        state in {
+            "STABLE_MEAN",
+            "TIMEOUT_MEDIAN",
+            "UNAVAILABLE",
+            "CONFIG_ERROR",
+            "BUFFER_FULL",
+            "INTERRUPTED",
+        }
         and type(measurement_sequence) is int
         and measurement_sequence > 0
         and type(measurement_uptime) is int
@@ -1110,6 +1117,15 @@ def _native_weight_fields(store, port_no, facts):
                 "weightValueAvailable": True,
                 "reportedWeightGrams": facts["measurementWeightGrams"],
                 "weightValueKind": "STABLE_WINDOW_MEAN",
+                "weightSensorHealth": "OK",
+                "weightFaultCode": None,
+            }
+        if state == "TIMEOUT_MEDIAN":
+            return common | {
+                "weightMeasurementStatus": "UNSTABLE",
+                "weightValueAvailable": True,
+                "reportedWeightGrams": facts["measurementWeightGrams"],
+                "weightValueKind": "TIMEOUT_MEDIAN",
                 "weightSensorHealth": "OK",
                 "weightFaultCode": None,
             }

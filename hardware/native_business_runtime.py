@@ -136,7 +136,13 @@ class NativeBusinessRuntime:
                 enrolled_device_entry_url,
             )
         )
-        self.reporter = NativeResultReporter(store, safety, device_name=device_name, photo_manager=photo_manager)
+        self.reporter = NativeResultReporter(
+            store,
+            safety,
+            device_name=device_name,
+            photo_manager=photo_manager,
+            device_facts_provider=self.current_device_facts,
+        )
         self.issue_reporter = NativeDeliveryIssueReporter(store, device_name=device_name)
 
     def owner_timing_snapshot(self):

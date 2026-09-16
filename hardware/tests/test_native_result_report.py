@@ -211,6 +211,239 @@ def original_command(command, start, config):
         target=dict(type="CLEAN_OPERATION" if clean else "DELIVERY_SESSION", uid=payload["operationUid" if clean else "sessionUid"]))
 
 
+def install_fullness_configuration(case, *, mode="SENSOR_ONLY",
+                                   kind="DIGITAL_INFRARED"):
+    from hardware.tests.test_native_configuration import inputs
+
+    original = case.store.get_command(case.permit.command_uid)["payload"]
+    identity = original["payload"]["config"]
+    port = dict(inputs()["ports"][0])
+    port.update(
+        fullnessMode=mode,
+        fullnessSensorKind=kind,
+        configuredFullWeightGrams=100,
+        fullnessDistanceThresholdMm=600,
+    )
+    payload = {"config": identity, "ports": [port]}
+    with case.store.transaction() as conn:
+        conn.execute(
+            """INSERT INTO configuration_state
+               (application_uid, command_uid, device_name, config_version,
+                content_sha256, mcu_payload_sha256, payload_json,
+                part_command_uids_json, state, edge_saved_at, applied_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 'APPLIED', ?, ?)""",
+            (
+                str(uuid.uuid4()),
+                str(uuid.uuid4()),
+                "device-1",
+                identity["version"],
+                identity["contentSha256"],
+                identity["mcuPayloadSha256"],
+                json.dumps(payload),
+                "2026-09-16T00:00:00.000Z",
+                "2026-09-16T00:00:00.000Z",
+            ),
+        )
+    return port
+
+
+def native_device_facts(*, blocked=True):
+    return {
+        "status": "AVAILABLE",
+        "portNo": 1,
+        "currentMcuBootId": 1,
+        "capturedUptimeMs": 4_000_000,
+        "fullnessObservationKind": "DIGITAL_INFRARED",
+        "fullnessReadStatus": "VALID",
+        # Old auxiliary observations remain usable; no freshness gate applies.
+        "fullnessCapturedUptimeMs": 1,
+        "fullnessInfraredBlocked": blocked,
+        "fullnessDistanceMm": 0,
+    }
+
+
+@pytest.mark.parametrize("clean", [False, True])
+def test_native_report_atomically_projects_current_or_new_bag_fullness(
+    runtime,
+    tmp_path,
+    clean,
+):
+    from native_result_report import NativeResultReporter
+
+    with executed_action_case(
+        runtime,
+        tmp_path,
+        clean_work=clean,
+        cloud_command_factory=original_command,
+    ) as case:
+        saved = (
+            RecoveryWire(case, runtime).finish_clean()
+            if clean
+            else RecoveryWire(case, runtime).finish_delivery()
+        )
+        install_fullness_configuration(case)
+        reads = []
+
+        def facts():
+            reads.append(True)
+            return native_device_facts()
+
+        reporter = NativeResultReporter(
+            case.store,
+            case.safety,
+            device_name="device-1",
+            device_facts_provider=facts,
+        )
+        report = reporter.prepare(
+            case.permit,
+            case.start["mcuCommandUid"],
+        )
+        assert report["state"] == "REPORT_CREATED"
+        events = case.store.list_pending_events(10)
+        assert [event["event_type"] for event in events] == [
+            "CLEAN_COMPLETE" if clean else "DELIVERY_COMPLETE",
+            "FULLNESS_STATE_CHANGED",
+        ]
+        completion = json.loads(events[0]["payload_json"])
+        fullness = json.loads(events[1]["payload_json"])
+        validate_event(completion)
+        validate_event(fullness)
+        command = case.store.get_command(case.permit.command_uid)["payload"]
+        expected_bag = command["payload"][
+            "newBagUid" if clean else "bagUid"
+        ]
+        final = completion["payload"][
+            "cleanerConfirmedFinalMeasurement"
+            if clean
+            else "finalPostCloseMeasurement"
+        ]
+        assert fullness["payload"]["bagUid"] == expected_bag
+        assert fullness["payload"]["state"] == "FULL"
+        assert fullness["payload"]["confirmationBasis"] == (
+            "MCU_INDEPENDENT_RECHECK"
+        )
+        assert fullness["payload"]["fullnessSensorValue"] == "BLOCKED"
+        assert fullness["payload"]["totalWeightMeasurement"] == final
+        assert fullness["payload"]["baselineWeightGrams"] == (
+            final["reportedWeightGrams"] if clean else None
+        )
+        assert case.store.get_port_fullness_state(1, expected_bag) == "FULL"
+        if clean:
+            # The local fullness calculation uses the new tare immediately,
+            # while formal baseline application still waits for backend
+            # confirmation in NativeBusinessCompleter.
+            assert case.store.get_bag_baseline(expected_bag) is None
+
+        assert reporter.prepare(
+            case.permit,
+            case.start["mcuCommandUid"],
+        ) == report
+        assert len(reads) == 1
+        assert case.store.save_native_mcu_result(saved["payload"])[
+            "taskUid"
+        ] == report["eventUid"]
+        assert reporter.prepare(
+            case.permit,
+            case.start["mcuCommandUid"],
+        ) == report
+        assert len(reads) == 1
+
+        case.store.close()
+        case.store.initialize()
+
+        def unexpected_read():
+            raise AssertionError("existing report re-read DEVICE_FACTS")
+
+        restarted = NativeResultReporter(
+            case.store,
+            case.safety,
+            device_name="device-1",
+            device_facts_provider=unexpected_read,
+        )
+        assert restarted.prepare(
+            case.permit,
+            case.start["mcuCommandUid"],
+        ) == report
+        assert len(
+            [
+                event
+                for event in case.store.list_pending_events(10)
+                if event["event_type"] == "FULLNESS_STATE_CHANGED"
+            ]
+        ) == 1
+
+
+@pytest.mark.parametrize(
+    "failure_target,trigger_sql",
+    [
+        (
+            "completion",
+            """CREATE TRIGGER fail_native_completion
+               BEFORE INSERT ON event_outbox
+               WHEN NEW.event_type='DELIVERY_COMPLETE'
+               BEGIN SELECT RAISE(ABORT, 'injected completion failure'); END""",
+        ),
+        (
+            "fullness",
+            """CREATE TRIGGER fail_native_fullness
+               BEFORE INSERT ON port_fullness_state
+               BEGIN SELECT RAISE(ABORT, 'injected fullness failure'); END""",
+        ),
+        (
+            "report",
+            """CREATE TRIGGER fail_native_report
+               BEFORE UPDATE ON native_result_report_outbox
+               WHEN NEW.state='REPORT_CREATED'
+               BEGIN SELECT RAISE(ABORT, 'injected report failure'); END""",
+        ),
+    ],
+)
+def test_native_completion_fullness_and_report_state_roll_back_together(
+    runtime,
+    tmp_path,
+    failure_target,
+    trigger_sql,
+):
+    from native_result_report import NativeResultReporter
+
+    with executed_action_case(
+        runtime,
+        tmp_path,
+        clean_work=False,
+        cloud_command_factory=original_command,
+    ) as case:
+        RecoveryWire(case, runtime).finish_delivery()
+        install_fullness_configuration(case)
+        reporter = NativeResultReporter(
+            case.store,
+            case.safety,
+            device_name="device-1",
+            device_facts_provider=native_device_facts,
+        )
+        with case.store.transaction() as conn:
+            conn.execute(trigger_sql)
+
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match=f"injected {failure_target} failure",
+        ):
+            reporter.prepare(case.permit, case.start["mcuCommandUid"])
+
+        assert case.store.list_pending_events(10) == []
+        assert case.store._conn.execute(
+            "SELECT COUNT(*) FROM port_fullness_state"
+        ).fetchone()[0] == 0
+        task = case.store.list_native_result_report_tasks()[0]
+        assert task["state"] == "PENDING_CLASSIFICATION"
+        assert task["event_uid"] is None
+        with case.store.transaction() as conn:
+            conn.execute(f"DROP TRIGGER fail_native_{failure_target}")
+        assert reporter.prepare(
+            case.permit,
+            case.start["mcuCommandUid"],
+        )["state"] == "REPORT_CREATED"
+
+
 def test_actual_delivery_result_creates_one_reliable_report_from_original_authority(runtime, tmp_path):
     with executed_action_case(runtime, tmp_path, clean_work=False, cloud_command_factory=original_command) as case:
         wire = case.wire = RecoveryWire(case, runtime)

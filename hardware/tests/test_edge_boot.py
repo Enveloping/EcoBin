@@ -4,6 +4,8 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 import edge_boot as edge_boot_module
 from cloud_transport import CloudEvent
 from device_identity import DeviceIdentity
@@ -574,6 +576,109 @@ def test_native_runtime_snapshot_projects_only_current_device_facts(tmp_path):
     assert port["fullnessValidSampleCount"] == 1
     assert uuid.UUID(port["weightMeasurementUid"]).version == 4
     encode_event_post("DEVICE_RUNTIME_SNAPSHOT", cloud.published[0][1])
+    store.close()
+
+
+def test_native_runtime_snapshot_projects_timeout_median_not_latest_raw_value(
+    tmp_path,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    store.set_edge_boot_id("123")
+    mark_configuration_applied(store)
+    cloud = FakeCloudTransport()
+    info = {
+        "mcu_boot_id": 456,
+        "mcu_port_count": 1,
+        "uart_protocol_major": 2,
+        "uart_protocol_minor": 0,
+        "uart_state": "READY",
+    }
+    facts = native_device_facts(
+        scaleWeightGrams=999,
+        measurementSequence=8,
+        measurementState="TIMEOUT_MEDIAN",
+        measurementObservedUptimeMs=10_000,
+        measurementElapsedMs=5_000,
+        measurementSampleCount=20,
+        measurementWeightGrams=850,
+    )
+
+    _publish_runtime_snapshot(
+        store,
+        cloud,
+        DEVICE_IDENTITY,
+        info,
+        None,
+        device_facts=facts,
+    )
+
+    port = cloud.published[0][1]["payload"]["ports"][0]
+    assert port["weightMeasurementStatus"] == "UNSTABLE"
+    assert port["weightValueAvailable"] is True
+    assert port["reportedWeightGrams"] == 850
+    assert port["reportedWeightGrams"] != facts["scaleWeightGrams"]
+    assert port["weightValueKind"] == "TIMEOUT_MEDIAN"
+    assert port["weightSensorHealth"] == "OK"
+    assert port["weightFaultCode"] is None
+    assert port["measurementElapsedMs"] == 5_000
+    assert port["weightSampleCount"] == 20
+    assert port["calibrationVersion"] == 4
+    assert uuid.UUID(port["weightMeasurementUid"]).version == 4
+    encode_event_post("DEVICE_RUNTIME_SNAPSHOT", cloud.published[0][1])
+    store.close()
+
+
+@pytest.mark.parametrize(
+    "changes,expected",
+    [
+        (
+            {
+                "measurementSequence": 8,
+                "measurementState": "STABLE_MEAN",
+                "measurementObservedUptimeMs": 10_000,
+                "measurementElapsedMs": 1_500,
+                "measurementSampleCount": 5,
+                "measurementWeightGrams": 700,
+            },
+            ("STABLE", True, 700, "STABLE_WINDOW_MEAN", "OK"),
+        ),
+        (
+            {},
+            ("UNSTABLE", True, 523, "LAST_OBSERVED", "OK"),
+        ),
+        (
+            {
+                "measurementSequence": 8,
+                "measurementState": "UNAVAILABLE",
+                "measurementObservedUptimeMs": 10_000,
+                "measurementElapsedMs": 5_000,
+                "measurementSampleCount": 0,
+                "measurementWeightGrams": 0,
+            },
+            ("TIMEOUT", False, None, "NONE", "TIMEOUT"),
+        ),
+    ],
+)
+def test_native_weight_projection_regresses_stable_raw_and_fault_terminals(
+    tmp_path,
+    changes,
+    expected,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    fields = edge_boot_module._native_weight_fields(
+        store,
+        1,
+        native_device_facts(**changes),
+    )
+    assert (
+        fields["weightMeasurementStatus"],
+        fields["weightValueAvailable"],
+        fields["reportedWeightGrams"],
+        fields["weightValueKind"],
+        fields["weightSensorHealth"],
+    ) == expected
     store.close()
 
 

@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 from device_identity import DeviceIdentity
+from fullness_transition import (
+    build_fullness_transition,
+    new_bag_default_transition,
+)
 from trusted_clock import local_deadline_reference, raw_utc_now
 from edge_store import (
     EdgeStore,
@@ -5277,128 +5281,24 @@ class WorkManager:
         source_work_uid: str,
         device_name: str,
         measurement: dict[str, Any],
-        infrared_blocked: Optional[bool],
-        fixed_frame: bool,
+        sensor_observation: Optional[dict[str, Any]],
+        confirmation_basis: Optional[str],
         baseline_weight_grams: Optional[int] = None,
         reset_for_new_bag: bool = False,
     ) -> Optional[dict[str, Any]]:
-        """Build a reliable event only for a locally confirmed state change.
-
-        A missing or failed observation never changes the current bag. A bag
-        replacement deliberately starts at NOT_FULL; this mirrors the cloud
-        rule that only an explicit current-bag FULL fact blocks delivery.
-        """
-        if not bag_uid:
-            return None
-        applied = self._store.get_latest_applied_configuration()
-        if not applied:
-            return self._new_bag_default_transition(
-                port_no,
-                bag_uid,
-                device_name,
-            ) if reset_for_new_bag else None
-        port_config = next(
-            (
-                port
-                for port in applied["payload"].get("ports", [])
-                if port.get("portNo") == port_no
-            ),
-            None,
+        return build_fullness_transition(
+            store=self._store,
+            port_no=port_no,
+            bag_uid=bag_uid,
+            source_work_type=source_work_type,
+            source_work_uid=source_work_uid,
+            device_name=device_name,
+            measurement=measurement,
+            sensor_observation=sensor_observation,
+            confirmation_basis=confirmation_basis,
+            baseline_weight_grams=baseline_weight_grams,
+            reset_for_new_bag=reset_for_new_bag,
         )
-        if not port_config or port_config.get("enabled") is not True:
-            return self._new_bag_default_transition(
-                port_no,
-                bag_uid,
-                device_name,
-            ) if reset_for_new_bag else None
-
-        total_weight = _delivery_usable_weight(measurement)
-        if baseline_weight_grams is None:
-            baseline = self._store.get_bag_baseline(bag_uid)
-            if baseline is not None:
-                baseline_weight_grams = baseline.get("weight_grams")
-        configured_full_weight = port_config.get(
-            "configuredFullWeightGrams"
-        )
-        weight_available = (
-            isinstance(total_weight, int)
-            and not isinstance(total_weight, bool)
-            and isinstance(baseline_weight_grams, int)
-            and not isinstance(baseline_weight_grams, bool)
-            and isinstance(configured_full_weight, int)
-            and not isinstance(configured_full_weight, bool)
-            and configured_full_weight > 0
-        )
-        weight_full = None
-        fullness_percent_hundredths = None
-        if weight_available:
-            net_weight = max(0, total_weight - baseline_weight_grams)
-            weight_full = net_weight >= configured_full_weight
-            fullness_percent_hundredths = (
-                net_weight * 10_000 // configured_full_weight
-            )
-        sensor_available = isinstance(infrared_blocked, bool)
-        mode = port_config.get("fullnessMode")
-        decided_state: Optional[str] = None
-        if mode == "SENSOR_ONLY" and sensor_available:
-            decided_state = "FULL" if infrared_blocked else "NOT_FULL"
-        elif mode == "WEIGHT_ONLY" and weight_available:
-            decided_state = "FULL" if weight_full else "NOT_FULL"
-        elif mode == "SENSOR_OR_WEIGHT":
-            if (sensor_available and infrared_blocked) or weight_full is True:
-                decided_state = "FULL"
-            elif sensor_available and weight_available:
-                decided_state = "NOT_FULL"
-
-        if decided_state is None:
-            return self._new_bag_default_transition(
-                port_no,
-                bag_uid,
-                device_name,
-            ) if reset_for_new_bag else None
-
-        state_change_uid = _new_uid()
-        event_uid = _new_uid()
-        measurement_fact = _measurement_fact(measurement)
-        payload = {
-            "stateChangeUid": state_change_uid,
-            "portNo": port_no,
-            "bagUid": bag_uid,
-            "state": decided_state,
-            "sourceWorkType": source_work_type,
-            "sourceWorkUid": source_work_uid,
-            "fullnessMode": mode,
-            "fullnessSensorKind": (
-                "DIGITAL_INFRARED"
-                if fixed_frame
-                else port_config.get("fullnessSensorKind")
-            ),
-            "fullnessSensorValue": (
-                "NOT_SAMPLED"
-                if not sensor_available
-                else ("BLOCKED" if infrared_blocked else "CLEAR")
-            ),
-            "confirmationBasis": (
-                "FIXED_FRAME_CACHED_FINAL_OBSERVATION"
-                if fixed_frame
-                else "MCU_INDEPENDENT_RECHECK"
-            ),
-            "totalWeightMeasurement": measurement_fact,
-            "baselineWeightGrams": baseline_weight_grams,
-            "configuredFullWeightGrams": configured_full_weight,
-            "fullnessPercentHundredths": fullness_percent_hundredths,
-            "weightFull": weight_full,
-            "frozenConfig": _frozen_config(applied["payload"]["config"]),
-        }
-        return {
-            "port_no": port_no,
-            "bag_uid": bag_uid,
-            "state": decided_state,
-            "state_change_uid": state_change_uid,
-            "event_uid": event_uid,
-            "device_name": device_name,
-            "payload": payload,
-        }
 
     @staticmethod
     def _new_bag_default_transition(
@@ -5406,15 +5306,7 @@ class WorkManager:
         bag_uid: str,
         device_name: str,
     ) -> dict[str, Any]:
-        return {
-            "port_no": port_no,
-            "bag_uid": bag_uid,
-            "state": "NOT_FULL",
-            "state_change_uid": _new_uid(),
-            "event_uid": _new_uid(),
-            "device_name": device_name,
-            "payload": {},
-        }
+        return new_bag_default_transition(port_no, bag_uid, device_name)
 
     def start_delivery_session(self, session_uid, port_no, unit_price_ten_thousandths,
                                bag_qr_code, negative_weight_threshold_grams=500):
@@ -5681,8 +5573,12 @@ class WorkManager:
             source_work_uid=ctx.get("session_uid", work_uid),
             device_name=ctx.get("device_name") or "UNKNOWN_DEVICE",
             measurement=final_measurement,
-            infrared_blocked=payload["infraredBlocked"],
-            fixed_frame=True,
+            sensor_observation={
+                "fullnessObservationKind": "DIGITAL_INFRARED",
+                "fullnessReadStatus": "VALID",
+                "fullnessInfraredBlocked": payload["infraredBlocked"],
+            },
+            confirmation_basis="FIXED_FRAME_CACHED_FINAL_OBSERVATION",
         )
         completion_evidence = {
             "eventType": "DELIVERY_COMPLETE",
@@ -5887,8 +5783,14 @@ class WorkManager:
                     ctx.get("device_name") or "UNKNOWN_DEVICE"
                 ),
                 measurement=final_measurement,
-                infrared_blocked=payload["infraredBlocked"],
-                fixed_frame=True,
+                sensor_observation={
+                    "fullnessObservationKind": "DIGITAL_INFRARED",
+                    "fullnessReadStatus": "VALID",
+                    "fullnessInfraredBlocked": payload["infraredBlocked"],
+                },
+                confirmation_basis=(
+                    "FIXED_FRAME_CACHED_FINAL_OBSERVATION"
+                ),
                 baseline_weight_grams=post_weight,
                 reset_for_new_bag=True,
             ),
@@ -6412,8 +6314,24 @@ class WorkManager:
                         ctx.get("device_name") or "UNKNOWN_DEVICE"
                     ),
                     measurement=ctx.get("final_measurement") or {},
-                    infrared_blocked=ctx.get("infrared_blocked"),
-                    fixed_frame=False,
+                    sensor_observation=(
+                        {
+                            "fullnessObservationKind": (
+                                "DIGITAL_INFRARED"
+                            ),
+                            "fullnessReadStatus": "VALID",
+                            "fullnessInfraredBlocked": ctx[
+                                "infrared_blocked"
+                            ],
+                        }
+                        if isinstance(ctx.get("infrared_blocked"), bool)
+                        else None
+                    ),
+                    confirmation_basis=(
+                        "MCU_INDEPENDENT_RECHECK"
+                        if isinstance(ctx.get("infrared_blocked"), bool)
+                        else None
+                    ),
                 ),
                 mcu_receive_generation=mcu_receive_generation,
                 mcu_boot_id=payload.get("mcuBootId"),
@@ -7026,8 +6944,22 @@ class WorkManager:
                     ctx.get("device_name") or "UNKNOWN_DEVICE"
                 ),
                 measurement=ctx.get("final_measurement") or {},
-                infrared_blocked=ctx.get("infrared_blocked"),
-                fixed_frame=False,
+                sensor_observation=(
+                    {
+                        "fullnessObservationKind": "DIGITAL_INFRARED",
+                        "fullnessReadStatus": "VALID",
+                        "fullnessInfraredBlocked": ctx[
+                            "infrared_blocked"
+                        ],
+                    }
+                    if isinstance(ctx.get("infrared_blocked"), bool)
+                    else None
+                ),
+                confirmation_basis=(
+                    "MCU_INDEPENDENT_RECHECK"
+                    if isinstance(ctx.get("infrared_blocked"), bool)
+                    else None
+                ),
                 baseline_weight_grams=final_usable,
                 reset_for_new_bag=True,
             ),

@@ -219,12 +219,16 @@ def confirmation_for_report(store, conn, task, command, device_name, *, persiste
 
 
 class NativeResultReporter:
-    def __init__(self, store, safety, *, device_name, photo_manager=None):
+    def __init__(self, store, safety, *, device_name, photo_manager=None,
+                 device_facts_provider=None):
         if not isinstance(safety, PermanentJobSafety) or not safety.enabled:
             raise ValueError("native result reporting requires permanent job safety")
         if not isinstance(device_name, str) or not device_name:
             raise ValueError("native result reporting requires the device identity")
+        if device_facts_provider is not None and not callable(device_facts_provider):
+            raise ValueError("native device facts provider must be callable")
         self.store, self.safety, self.device_name, self.photo = store, safety, device_name, photo_manager
+        self.device_facts_provider = device_facts_provider
 
     def prepare(self, permit, start_command_uid, *, permit_snapshot=_UNQUERIED_PERMIT):
         if not isinstance(permit, JobPermit):
@@ -254,5 +258,12 @@ class NativeResultReporter:
         original = (self.safety.get_job_permit(permit.permit_uid)
             if permit_snapshot is _UNQUERIED_PERMIT else permit_snapshot)
         check_job_permit(permit, original)
+        device_facts = None
+        if self.device_facts_provider is not None:
+            provided = self.device_facts_provider()
+            if provided is not None and not isinstance(provided, dict):
+                raise ValueError("native device facts provider returned a malformed snapshot")
+            device_facts = dict(provided) if provided is not None else None
         return self.store.create_native_result_report(permit, start_command_uid,
-            device_name=self.device_name, photo_manager=self.photo, permit_snapshot=original)
+            device_name=self.device_name, photo_manager=self.photo, permit_snapshot=original,
+            device_facts=device_facts)
