@@ -50,7 +50,7 @@ public class BusinessReleasePackageVerifier {
     private static final Pattern GIT_COMMIT = Pattern.compile("^[0-9a-f]{40}$");
     private static final Pattern BITMAP = Pattern.compile("^[0-9a-f]{16}$");
     private static final String APP_ALLOWLIST_SHA256 =
-            "5184614782c36ca2de21ac6da2cf362f1999fc52ef7dda867bfbfe01b2eaeadf";
+            "8625e35202b9695936414b7dc6942af2c49de013f2e6eee3ee64701d4b3f1a97";
     private static final Set<String> TOP_LEVEL = Set.of(
             "app", "wheelhouse", "migrations", "manifest.env", "release.env",
             "requirements-runtime.txt", "requirements-offline.txt", "SHA256SUMS");
@@ -101,6 +101,7 @@ public class BusinessReleasePackageVerifier {
             "edge_identity.py",
             "edge_store.py",
             "edge_store_prepare.py",
+            "fullness_transition.py",
             "fixed_frame_health_recovery.py",
             "fixed_frame_mcu_adapter.py",
             "fixed_frame_mcu_maintenance.py",
