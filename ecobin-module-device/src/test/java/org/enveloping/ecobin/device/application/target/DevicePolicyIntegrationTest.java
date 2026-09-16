@@ -377,7 +377,7 @@ public class DevicePolicyIntegrationTest {
     private static String code(long id) { return "Dv_" + "a".repeat(24) + id; }
 
     @Test
-    void recognizedNativeSoftwarePublishesNewProfileWithoutRewritingLegacyHistory() {
+    void softwareProfileChangesDoNotRepublishConfigurationAndManualPublicationStaysNative() {
         asset(1, "NORMAL", "PASSED", 9L);
         tx.executeWithoutResult(status -> activation.reconcileInCurrentTransaction(1, UUID.randomUUID()));
         var oldEnvelope = configurationEnvelope(1);
@@ -388,22 +388,15 @@ public class DevicePolicyIntegrationTest {
         assertThat(configurationEnvelope(1)).isEqualTo(oldEnvelope);
         assertThat(jdbc.queryForObject("SELECT content_sha256 FROM dev_config_version WHERE version_no=1", byte[].class))
                 .containsExactly(oldHash);
-        var nativeEnvelope = new ObjectMapper().readTree(configurationEnvelope(2));
-        assertThat(nativeEnvelope.path("payload").path("mcuConfigurationProfile").asString())
-                .isEqualTo("UART_V2_SIMPLIFIED");
-        assertThat(jdbc.queryForObject("SELECT weight_measurement_timeout_ms FROM dev_config_version WHERE version_no=2", Long.class))
-                .isEqualTo(5_000L);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dev_port_config_snapshot WHERE config_version_id=2 AND weight_required_sample_count=5 AND weight_maximum_fluctuation_g=100", Integer.class)).isEqualTo(2);
-        tx.executeWithoutResult(status -> app.reconcileAutomaticActivation(1));
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dev_config_version", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dev_config_version", Integer.class)).isEqualTo(1);
 
         jdbc.update("UPDATE dev_device_compatibility_projection SET compatibility_status='UNKNOWN'");
         jdbc.update("UPDATE dev_device_software_fact SET uart_state='DISCONNECTED'");
         tx.executeWithoutResult(status -> app.reconcileAutomaticActivation(1));
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dev_config_version", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dev_config_version", Integer.class)).isEqualTo(1);
         var defaults = initial.create("EC-M0", 2);
         tx.execute(status -> app.releaseConfiguration(UUID.randomUUID(), "org", code(1),
-                new ConfigurationReleaseRequest(2L, "离线时调整配置", defaults.device(),
+                new ConfigurationReleaseRequest(1L, "离线时调整配置", defaults.device(),
                         defaults.ports().stream().map(port -> new ConfigurationPortRequest(port.portNo(), "更新" + port.portNo(),
                                 port.enabled(), port.unitPriceYuanPerKg(), port.fullnessMode(), port.fullnessWeightKg(),
                                 port.deliverySettleDelayMs(), port.fullnessInitialDelayMs(), port.fullnessRecheckDelayMs(),
@@ -412,21 +405,23 @@ public class DevicePolicyIntegrationTest {
                                 port.weightStableWindowMs(), port.weightMaximumFluctuationGram(), port.weightRequiredSampleCount(),
                                 port.weightMeasurementTimeoutMs(), port.weightMinimumGram(), port.weightMaximumGram(),
                                 port.calibrationVersion(), port.infraredSampleTimeoutMs(), port.deliveryDoorOperationTimeoutMs())).toList())));
-        assertThat(new ObjectMapper().readTree(configurationEnvelope(3)).path("payload").path("mcuConfigurationProfile").asString())
+        assertThat(new ObjectMapper().readTree(configurationEnvelope(2)).path("payload").path("mcuConfigurationProfile").asString())
                 .isEqualTo("UART_V2_SIMPLIFIED");
     }
 
     @Test
-    void initialActivationUsesNativeOnlyWhenTheWholeInstalledReleaseIsRecognized() {
+    void initialActivationUsesNativeProfileWithoutSoftwareFacts() {
         asset(1, "NORMAL", "PASSED", 9L);
-        recognizedNativeSoftware(1, "BASE_COMPATIBLE");
         tx.executeWithoutResult(status -> activation.reconcileInCurrentTransaction(1, UUID.randomUUID()));
         assertThat(configurationEnvelope(1)).contains("UART_V2_SIMPLIFIED");
+        assertThat(jdbc.queryForObject("SELECT weight_measurement_timeout_ms FROM dev_config_version", Long.class))
+                .isEqualTo(5_000L);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dev_port_config_snapshot WHERE config_version_id=1 AND weight_required_sample_count=5 AND weight_maximum_fluctuation_g=100", Integer.class)).isEqualTo(2);
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"unknown", "package", "version", "sequence", "release", "major", "minor", "asset", "stale", "notReady"})
-    void aHashOrUnrecognizedOrMismatchedRuntimeCannotSelectNative(String mismatch) {
+    void softwareRecognitionDoesNotGateNativeProfile(String mismatch) {
         asset(1, "NORMAL", "PASSED", 9L);
         recognizedNativeSoftware(1, "BASE_COMPATIBLE");
         switch (mismatch) {
@@ -442,8 +437,8 @@ public class DevicePolicyIntegrationTest {
             case "notReady" -> jdbc.update("UPDATE dev_device_software_fact SET uart_state='NEGOTIATING'");
         }
         tx.executeWithoutResult(status -> activation.reconcileInCurrentTransaction(1, UUID.randomUUID()));
-        assertThat(configurationEnvelope(1)).doesNotContain("mcuConfigurationProfile");
-        assertThat(jdbc.queryForObject("SELECT weight_measurement_timeout_ms FROM dev_config_version", Long.class)).isEqualTo(6_000L);
+        assertThat(configurationEnvelope(1)).contains("UART_V2_SIMPLIFIED");
+        assertThat(jdbc.queryForObject("SELECT weight_measurement_timeout_ms FROM dev_config_version", Long.class)).isEqualTo(5_000L);
     }
 
     private void recognizedNativeSoftware(long assetId, String compatibility) {

@@ -8687,6 +8687,8 @@
           "weightValueAvailable",
           "reportedWeightGrams",
           "weightValueKind",
+          "weightFull",
+          "weightFullObservedAt",
           "infraredValue",
           "infraredSensorHealth",
           "fullnessSensorKind",
@@ -8718,6 +8720,13 @@
           "weightValueAvailable": {"type": ["boolean", "null"]},
           "reportedWeightGrams": {"type": ["integer", "null"], "format": "int64"},
           "weightValueKind": {"type": ["string", "null"], "maxLength": 32},
+          "weightFull": {"type": ["boolean", "null"]},
+          "weightFullObservedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
           "infraredValue": {"type": ["string", "null"], "maxLength": 64},
           "infraredSensorHealth": {"type": "string", "maxLength": 32},
           "fullnessSensorKind": {"type": ["string", "null"], "maxLength": 32},
@@ -8974,6 +8983,8 @@
           "occupied",
           "occupancyKind",
           "occupiedAt",
+          "lastDeliveryAt",
+          "lastCleanAt",
           "ports",
           "fetchedAt"
         ],
@@ -8995,6 +9006,20 @@
               {"$ref": "#/components/schemas/UtcTimestamp"},
               {"type": "null"}
             ]
+          },
+          "lastDeliveryAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ],
+            "description": "该设备最近一笔已形成订单的投递后台接收时间。"
+          },
+          "lastCleanAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ],
+            "description": "该设备最近一笔完成清运的完成时间。"
           },
           "ports": {
             "type": "array",

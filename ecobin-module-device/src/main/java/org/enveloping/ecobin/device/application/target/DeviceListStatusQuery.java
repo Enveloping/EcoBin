@@ -123,6 +123,60 @@ public class DeviceListStatusQuery {
         }).toList();
     }
 
+    /** Returns the current bag's applied weight-fullness fact for one device. */
+    @Transactional(propagation = Propagation.MANDATORY, readOnly = true)
+    public Map<Integer, CurrentWeightFullness> currentWeightFullness(
+            long assetId,
+            Long tenantId,
+            Long organizationId) {
+        if (tenantId == null || organizationId == null) {
+            return Map.of();
+        }
+        Map<UUID, RecyclingDevicePortRef> references = new LinkedHashMap<>();
+        Map<UUID, Integer> portNumbers = new LinkedHashMap<>();
+        jdbc.query("""
+                SELECT id, port_no
+                FROM dev_port
+                WHERE tenant_id = ?
+                  AND organization_id = ?
+                  AND asset_id = ?
+                ORDER BY port_no
+                """, rs -> {
+            UUID token = UUID.randomUUID();
+            long portId = rs.getLong("id");
+            references.put(token, refs.issue(
+                    tenantId, organizationId, portId));
+            portNumbers.put(token, rs.getInt("port_no"));
+        }, tenantId, organizationId, assetId);
+        Map<UUID, UUID> currentReports = fullness.currentReports(references);
+        if (currentReports.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, WeightFact> facts = new LinkedHashMap<>();
+        jdbc.query("""
+                SELECT state_change_uid, port_id, weight_full,
+                       device_occurred_at
+                FROM dev_fullness_state_fact
+                WHERE state_change_uid IN (%s)
+                """.formatted(placeholders(currentReports.size())), rs -> {
+            facts.put(UUID.fromString(rs.getString("state_change_uid")),
+                    new WeightFact(
+                            rs.getLong("port_id"),
+                            rs.getObject("weight_full", Boolean.class),
+                            time(rs, "device_occurred_at")));
+        }, currentReports.values().stream().map(UUID::toString).toArray());
+        Map<Integer, CurrentWeightFullness> result = new LinkedHashMap<>();
+        currentReports.forEach((token, reportUid) -> {
+            WeightFact fact = facts.get(reportUid);
+            Integer portNo = portNumbers.get(token);
+            if (fact != null && portNo != null) {
+                result.put(portNo, new CurrentWeightFullness(
+                        fact.full(), fact.observedAt()));
+            }
+        });
+        return Map.copyOf(result);
+    }
+
     private static DeviceListPortView withWeightFact(PortRow row, WeightFact fact) {
         var port = row.port();
         boolean matches = fact != null && row.portId() == fact.portId();
@@ -159,6 +213,7 @@ public class DeviceListStatusQuery {
     }
     private static String placeholders(int count) { return String.join(",", Collections.nCopies(count, "?")); }
     private record WeightFact(long portId, Boolean full, Instant observedAt) { }
+    public record CurrentWeightFullness(Boolean full, Instant observedAt) { }
     private record PortRow(UUID assetUid, UUID token, Long portId, List<String> faults,
                            Instant observedAt, DeviceListPortView port) { }
 }

@@ -241,7 +241,6 @@ public class TargetDeviceApplication {
     private final AuditPort auditPort;
     private final ObjectMapper objectMapper;
     private final DeviceConfigurationCanonicalizer canonicalizer;
-    private final McuConfigurationProfileProvider configurationProfiles;
     private final RuntimeSnapshotPolicyProvider runtimeSnapshotPolicyProvider;
     private final DevicePolicyProvider devicePolicyProvider;
     private final DevicePolicyStore devicePolicyStore;
@@ -364,7 +363,6 @@ public class TargetDeviceApplication {
         this.objectMapper = objectMapper;
         this.activationService = activationService;
         this.canonicalizer = canonicalizer;
-        this.configurationProfiles = new McuConfigurationProfileProvider(jdbc, objectMapper);
         this.runtimeSnapshotPolicyProvider = runtimeSnapshotPolicyProvider;
         this.taskRegistrationPort = taskRegistrationPort;
         this.taskStatusPort = taskStatusPort;
@@ -2048,7 +2046,7 @@ public class TargetDeviceApplication {
                 asset.expectedPortCount(),
                 runtimePolicy.fallbackIntervalMs(),
                 RuntimeSnapshotPolicyProvider.FIXED_MISS_THRESHOLD,
-                configurationProfiles.forPublication(asset.id()));
+                McuConfigurationProfile.UART_V2_SIMPLIFIED);
         Optional<ConfigurationVersionRow> previous = latestVersion == 0
                 ? Optional.empty()
                 : findConfigurationVersion(scope, asset.id(), latestVersion);
@@ -2746,8 +2744,6 @@ public class TargetDeviceApplication {
                 || asset.organizationId() == null) {
             return;
         }
-        // Publish a changed encoding before activation can schedule an old-profile baseline.
-        ensureCurrentMcuConfigurationProfile(asset, systemAssignedScope(asset), UUID.randomUUID());
         activationService.reconcileInCurrentTransaction(
                 asset.id(), UUID.randomUUID());
         ensureCurrentRuntimeSnapshotPolicy(
@@ -2756,25 +2752,6 @@ public class TargetDeviceApplication {
                 policy,
                 UUID.randomUUID());
         ensureCurrentDevicePolicy(asset, systemAssignedScope(asset), UUID.randomUUID());
-    }
-
-    private void ensureCurrentMcuConfigurationProfile(
-            Asset asset, Scope scope, UUID correlationUid) {
-        var recognized = configurationProfiles.recognized(asset.id());
-        if (recognized.isEmpty()
-                || recognized.get() == configurationProfiles.latestFrozen(asset.id())) {
-            return;
-        }
-        ConfigurationVersionRow latest = latestConfigurationVersion(scope, asset.id());
-        if (latest == null) {
-            return;
-        }
-        var request = cloneConfigurationRequest(latest.versionNo(),
-                "按已认可的设备软件同步单片机配置档位 " + recognized.get().name(),
-                latest, configurationPorts(scope, asset.id(), latest.id()));
-        releaseConfiguration(correlationUid, scope, asset,
-                platformConfigurationApplicationCollectionUrl(asset.hardwareSn()),
-                request, true, "SYSTEM");
     }
 
     private boolean ensureCurrentRuntimeSnapshotPolicy(
@@ -4010,6 +3987,11 @@ public class TargetDeviceApplication {
     }
 
     private DeviceRuntimeView runtimeView(RuntimeHead head) {
+        Map<Integer, DeviceListStatusQuery.CurrentWeightFullness>
+                weightFullness = listStatusQuery == null
+                ? Map.of()
+                : listStatusQuery.currentWeightFullness(
+                        head.assetId(), head.tenantId(), head.organizationId());
         List<PortRuntimeView> ports = jdbc.query("""
                         SELECT port.port_no,
                                COALESCE(snapshot.display_name,
@@ -4071,9 +4053,13 @@ public class TargetDeviceApplication {
                         WHERE port.asset_id = ?
                         ORDER BY port.port_no
                         """,
-                (rs, ignored) -> new PortRuntimeView(
+                (rs, ignored) -> {
+                    int portNo = rs.getInt("port_no");
+                    DeviceListStatusQuery.CurrentWeightFullness fullness =
+                            weightFullness.get(portNo);
+                    return new PortRuntimeView(
                         head.deviceCode(),
-                        rs.getInt("port_no"),
+                        portNo,
                         rs.getString("display_name"),
                         rs.getObject("business_enabled", Boolean.class),
                         rs.getString("delivery_door_state"),
@@ -4093,6 +4079,8 @@ public class TargetDeviceApplication {
                         rs.getObject("weight_value_available", Boolean.class),
                         nullableLong(rs, "reported_weight_grams"),
                         rs.getString("weight_value_kind"),
+                        fullness == null ? null : fullness.full(),
+                        fullness == null ? null : fullness.observedAt(),
                         rs.getString("infrared_value"),
                         rs.getString("infrared_sensor_health"),
                         rs.getString("fullness_sensor_kind"),
@@ -4102,7 +4090,8 @@ public class TargetDeviceApplication {
                         rs.getString("smoke_sensor_health"),
                         rs.getString("safety_status"),
                         instant(rs, "last_observed_at"),
-                        nullableLong(rs, "runtime_version")),
+                        nullableLong(rs, "runtime_version"));
+                },
                 head.assetId());
         return new DeviceRuntimeView(
                 head.deviceCode(),
@@ -4115,6 +4104,8 @@ public class TargetDeviceApplication {
                 head.occupancyKind() != null,
                 head.occupancyKind(),
                 head.occupiedAt(),
+                head.lastDeliveryAt(),
+                head.lastCleanAt(),
                 ports,
                 databaseNow().toInstant(ZoneOffset.UTC));
     }
@@ -4122,6 +4113,8 @@ public class TargetDeviceApplication {
     private static String runtimeHeadSelect() {
         return """
                 SELECT asset.id AS asset_id,
+                       asset.tenant_id,
+                       asset.organization_id,
                        asset.device_public_code,
                        asset.lifecycle_status,
                        asset.acceptance_status,
@@ -4208,7 +4201,23 @@ public class TargetDeviceApplication {
                        software_fact.uart_protocol_minor
                            AS management_uart_protocol_minor,
                        occupancy.occupancy_kind,
-                       occupancy.acquired_at AS occupied_at
+                       occupancy.acquired_at AS occupied_at,
+                       (
+                           SELECT MAX(delivery.backend_received_at)
+                           FROM rec_delivery_order delivery
+                           WHERE delivery.tenant_id = asset.tenant_id
+                             AND delivery.organization_id =
+                                 asset.organization_id
+                             AND delivery.asset_id = asset.id
+                       ) AS last_delivery_at,
+                       (
+                           SELECT MAX(clean.completed_at)
+                           FROM rec_clean_record clean
+                           WHERE clean.tenant_id = asset.tenant_id
+                             AND clean.organization_id =
+                                 asset.organization_id
+                             AND clean.asset_id = asset.id
+                       ) AS last_clean_at
                 FROM dev_device_asset asset
                 LEFT JOIN dev_device_transport_state transport
                   ON transport.asset_id = asset.id
@@ -4281,6 +4290,8 @@ public class TargetDeviceApplication {
                 nullableLong(rs, "runtime_version"));
         return new RuntimeHead(
                 rs.getLong("asset_id"),
+                nullableLong(rs, "tenant_id"),
+                nullableLong(rs, "organization_id"),
                 rs.getString("device_public_code"),
                 rs.getString("lifecycle_status"),
                 rs.getString("acceptance_status"),
@@ -4289,7 +4300,9 @@ public class TargetDeviceApplication {
                 health,
                 deviceManagementStatus(rs),
                 rs.getString("occupancy_kind"),
-                instant(rs, "occupied_at"));
+                instant(rs, "occupied_at"),
+                instant(rs, "last_delivery_at"),
+                instant(rs, "last_clean_at"));
     }
 
     private Optional<DeviceAssetView> findAssetView(
@@ -5741,6 +5754,8 @@ public class TargetDeviceApplication {
 
     private record RuntimeHead(
             long assetId,
+            Long tenantId,
+            Long organizationId,
             String deviceCode,
             String lifecycleStatus,
             String acceptanceStatus,
@@ -5749,7 +5764,9 @@ public class TargetDeviceApplication {
             RuntimeHealthSummary health,
             DeviceManagementStatusView deviceManagement,
             String occupancyKind,
-            Instant occupiedAt) {
+            Instant occupiedAt,
+            Instant lastDeliveryAt,
+            Instant lastCleanAt) {
     }
 
     private record Tenant(long id, String code, String status) {

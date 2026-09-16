@@ -14,19 +14,16 @@ import static org.mockito.Mockito.*;
 class AutomaticDeviceActivationSchedulerSqlTest {
 
     @Test
-    void scanIncludesRecognizedProfileChangesAndProcessesEachAssetOnce() {
+    void scanProcessesEachIncompleteAssetOnce() {
         var jdbc = mock(JdbcTemplate.class);
         var application = mock(TargetDeviceApplication.class);
         when(jdbc.query(eq(AutomaticDeviceActivationScheduler.FIND_INCOMPLETE_ASSET_IDS_SQL),
                 org.mockito.ArgumentMatchers.<RowMapper<Long>>any())).thenReturn(List.of(1L, 2L));
-        when(jdbc.query(eq(McuConfigurationProfileProvider.PROFILE_CHANGE_ASSET_IDS_SQL),
-                org.mockito.ArgumentMatchers.<RowMapper<Long>>any())).thenReturn(List.of(2L, 3L));
 
         new AutomaticDeviceActivationScheduler(jdbc, application).reconcileIncompleteAssets();
 
         verify(application).reconcileAutomaticActivation(1L);
         verify(application).reconcileAutomaticActivation(2L);
-        verify(application).reconcileAutomaticActivation(3L);
         verifyNoMoreInteractions(application);
     }
 

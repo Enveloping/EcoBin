@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -34,7 +35,7 @@ class DeviceListStatusQueryTest {
         fullness = new RecyclingDeviceListFullnessAdapter(jdbc);
         query = new DeviceListStatusQuery(jdbc, refs, fullness);
         jdbc.execute("CREATE TABLE dev_device_asset(id BIGINT, asset_uid VARCHAR(36), tenant_id BIGINT, organization_id BIGINT)");
-        jdbc.execute("CREATE TABLE dev_port(id BIGINT, asset_id BIGINT, port_no INT)");
+        jdbc.execute("CREATE TABLE dev_port(id BIGINT, asset_id BIGINT, tenant_id BIGINT, organization_id BIGINT, port_no INT)");
         jdbc.execute("CREATE TABLE dev_device_runtime_state(asset_id BIGINT, mcu_link_status VARCHAR, camera_health VARCHAR, local_storage_health VARCHAR, clock_sync_health VARCHAR, last_heartbeat_at TIMESTAMP)");
         jdbc.execute("CREATE TABLE dev_port_runtime_state(asset_id BIGINT, port_id BIGINT, reported_weight_grams BIGINT, weight_value_available BOOLEAN, weight_sensor_health VARCHAR, weight_measurement_status VARCHAR, infrared_value VARCHAR, infrared_sensor_health VARCHAR, last_observed_at TIMESTAMP, delivery_door_actuator_health VARCHAR, clean_solenoid_health VARCHAR, smoke_state VARCHAR, smoke_sensor_health VARCHAR, safety_status VARCHAR)");
         jdbc.execute("CREATE TABLE dev_config_version(id BIGINT, asset_id BIGINT, version_no BIGINT)");
@@ -44,7 +45,7 @@ class DeviceListStatusQueryTest {
         jdbc.execute("CREATE TABLE rec_fullness_state_change(id BIGINT, state_change_uid VARCHAR(36), port_id BIGINT, tenant_id BIGINT, organization_id BIGINT, bag_id BIGINT, disposition VARCHAR)");
         jdbc.execute("CREATE TABLE dev_fullness_state_fact(state_change_uid VARCHAR(36), port_id BIGINT, weight_full BOOLEAN, device_occurred_at TIMESTAMP)");
         jdbc.update("INSERT INTO dev_device_asset VALUES (1, ?, 7, 9), (2, ?, 8, 10)", ASSET.toString(), UUID.randomUUID().toString());
-        jdbc.update("INSERT INTO dev_port VALUES (11, 1, 1), (12, 1, 2), (21, 2, 1)");
+        jdbc.update("INSERT INTO dev_port VALUES (11, 1, 7, 9, 1), (12, 1, 7, 9, 2), (21, 2, 8, 10, 1)");
         jdbc.update("INSERT INTO dev_device_runtime_state VALUES (1, 'DISCONNECTED', 'OK', 'OK', 'OK', TIMESTAMP '2026-09-12 08:00:00')");
         jdbc.update("INSERT INTO dev_port_runtime_state VALUES (1, 11, 1200, TRUE, 'OK', 'STABLE', 'BLOCKED', 'OK', TIMESTAMP '2026-09-12 08:00:00', 'OK', 'OK', 'NORMAL', 'OK', 'SAFE')");
         jdbc.update("INSERT INTO dev_config_version VALUES (1, 1, 1), (2, 1, 2)");
@@ -84,6 +85,25 @@ class DeviceListStatusQueryTest {
         assertThat(read().listStatus().ports().getFirst().weightFull()).isNull();
         jdbc.update("UPDATE rec_fullness_state_change SET disposition = 'NO_STATE_CHANGE'");
         assertThat(read().listStatus().ports().getFirst().weightFull()).isFalse();
+    }
+
+    @Test
+    void detailProjectionUsesTheSameCurrentBagWeightDecision() {
+        Map<Integer, DeviceListStatusQuery.CurrentWeightFullness> current =
+                tx.execute(status -> query.currentWeightFullness(1, 7L, 9L));
+        assertThat(current).containsOnlyKeys(1);
+        assertThat(current.get(1).full()).isFalse();
+        assertThat(current.get(1).observedAt())
+                .isEqualTo(Instant.parse("2026-09-12T07:00:00Z"));
+
+        jdbc.update("UPDATE rec_bag_current_occupancy SET bag_id = 101");
+        Map<Integer, DeviceListStatusQuery.CurrentWeightFullness> stale =
+                tx.execute(status -> query.currentWeightFullness(1, 7L, 9L));
+        assertThat(stale).isEmpty();
+        Map<Integer, DeviceListStatusQuery.CurrentWeightFullness> unassigned =
+                tx.execute(status ->
+                        query.currentWeightFullness(1, null, null));
+        assertThat(unassigned).isEmpty();
     }
 
     @Test

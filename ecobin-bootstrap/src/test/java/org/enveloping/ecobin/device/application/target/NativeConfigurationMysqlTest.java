@@ -18,7 +18,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.DriverManager;
 import java.util.HexFormat;
-import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,7 +35,6 @@ class NativeConfigurationMysqlTest {
     private TransactionTemplate tx;
     private AutomaticDeviceActivationService activation;
     private TargetDeviceApplication app;
-    private McuConfigurationProfileProvider profiles;
     private String schema;
 
     @BeforeEach
@@ -74,7 +72,6 @@ class NativeConfigurationMysqlTest {
         app = new TargetDeviceApplication(jdbc, null, null, mapper, activation, canonicalizer, runtime,
                 tasks, mock(ReliableDeviceTaskStatusPort.class), mock(ReliableTaskWakePort.class), refs,
                 "test-product", null, null);
-        profiles = new McuConfigurationProfileProvider(jdbc, mapper);
         jdbc.update("INSERT INTO dev_device_asset VALUES (1, 'TEST-NATIVE-1', 'Dv_aaaaaaaaaaaaaaaaaaaaaaaa1', 'EC-M0', 2, 7, 9, 'PASSED', 'NORMAL', 0)");
         jdbc.update("INSERT INTO dev_port VALUES (11, 1, 7, 9, 1), (12, 1, 7, 9, 2)");
     }
@@ -92,62 +89,52 @@ class NativeConfigurationMysqlTest {
     }
 
     @Test
-    void actualProducersAndScannerUpgradeOncePreserveHistoryAndNeverDowngradeForTimeout() {
+    void actualProducersAlwaysPublishNativeAndSoftwareFactsDoNotRepublish() {
         initial();
-        // A completed legacy configuration must not schedule its baseline before the upgrade.
         jdbc.update("UPDATE dev_config_application SET status='APPLIED'");
         String original = envelope(1);
         byte[] hash = jdbc.queryForObject("SELECT content_sha256 FROM dev_config_version WHERE version_no=1", byte[].class);
+        JsonNode published = mapper.readTree(original);
+        assertThat(published.path("payload").path("mcuConfigurationProfile").asString()).isEqualTo("UART_V2_SIMPLIFIED");
+        assertThat(published.path("payload").path("config").size()).isEqualTo(3);
+        assertThat(published.path("payload").path("ports").get(0).size()).isEqualTo(19);
+        assertThat(jdbc.queryForObject("SELECT weight_measurement_timeout_ms FROM dev_config_version WHERE version_no=1", Long.class)).isEqualTo(5_000);
+
         recognizedNative();
-        assertThat(changedAssets()).containsExactly(1L);
         reconcile();
-        assertThat(changedAssets()).isEmpty();
         assertThat(envelope(1)).isEqualTo(original);
         assertThat(jdbc.queryForObject("SELECT content_sha256 FROM dev_config_version WHERE version_no=1", byte[].class)).containsExactly(hash);
-        JsonNode latest = mapper.readTree(envelope(2));
-        assertThat(latest.path("payload").path("mcuConfigurationProfile").asString()).isEqualTo("UART_V2_SIMPLIFIED");
-        assertThat(latest.path("payload").path("config").size()).isEqualTo(3);
-        assertThat(latest.path("payload").path("ports").get(0).size()).isEqualTo(19);
-        assertThat(profiles.latestFrozen(1)).isEqualTo(McuConfigurationProfile.UART_V2_SIMPLIFIED);
-        assertThat(jdbc.queryForObject("SELECT weight_measurement_timeout_ms FROM dev_config_version WHERE version_no=2", Long.class)).isEqualTo(5_000);
-        reconcile();
-        assertThat(versionCount()).isEqualTo(2);
+        assertThat(versionCount()).isEqualTo(1);
+
         jdbc.update("UPDATE dev_device_compatibility_projection SET compatibility_status='UNKNOWN'");
         jdbc.update("UPDATE dev_device_software_fact SET uart_state='DISCONNECTED'");
-        assertThat(changedAssets()).isEmpty();
-        assertThat(profiles.forPublication(1)).isEqualTo(McuConfigurationProfile.UART_V2_SIMPLIFIED);
         reconcile();
-        assertThat(versionCount()).isEqualTo(2);
+        assertThat(versionCount()).isEqualTo(1);
     }
 
     @Test
-    void recognizedNativeInitialConfigurationDoesNotNeedExistingAppliedConfiguration() {
-        recognizedNative();
+    void nativeInitialConfigurationDoesNotNeedSoftwareFactsOrExistingConfiguration() {
         initial();
-        assertThat(profiles.latestFrozen(1)).isEqualTo(McuConfigurationProfile.UART_V2_SIMPLIFIED);
+        assertThat(envelope(1)).contains("UART_V2_SIMPLIFIED");
         assertThat(jdbc.queryForObject("SELECT status FROM dev_config_application", String.class)).isEqualTo("PENDING");
-        assertThat(changedAssets()).isEmpty();
     }
 
     @Test
-    void onlyRecognizedFixedFrameSwitchCanPublishANewLegacyProfile() {
+    void recognizedFixedFrameSoftwareCannotDowngradeNewConfiguration() {
         recognizedNative();
-        initial();
-        String nativeOriginal = envelope(1);
         jdbc.update("UPDATE dev_edge_software_release SET uart_protocol_family='FIXED_FRAME', uart_protocol_major=NULL, uart_protocol_minor=NULL, required_fixed_frame_revision=3");
         jdbc.update("UPDATE dev_device_software_fact SET uart_protocol_family='FIXED_FRAME', uart_protocol_major=NULL, uart_protocol_minor=NULL, mcu_fixed_frame_revision=3");
-        assertThat(changedAssets()).containsExactly(1L);
+        initial();
+        String nativeOriginal = envelope(1);
+        assertThat(nativeOriginal).contains("UART_V2_SIMPLIFIED");
         reconcile();
-        assertThat(profiles.latestFrozen(1)).isEqualTo(McuConfigurationProfile.LEGACY_V1);
-        assertThat(envelope(2)).doesNotContain("mcuConfigurationProfile");
         assertThat(envelope(1)).isEqualTo(nativeOriginal);
-        assertThat(changedAssets()).isEmpty();
+        assertThat(versionCount()).isEqualTo(1);
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"unknown", "hash", "version", "sequence", "uid", "major", "minor", "asset", "factSequence", "notReady", "disabled", "unassigned"})
-    void unknownOrMismatchedSoftwareAndUnavailableAssetsCannotEnterProfileChangeScan(String mismatch) {
-        initial();
+    @ValueSource(strings = {"unknown", "hash", "version", "sequence", "uid", "major", "minor", "asset", "factSequence", "notReady"})
+    void unknownOrMismatchedSoftwareCannotChangeNewPublicationProfile(String mismatch) {
         recognizedNative();
         switch (mismatch) {
             case "unknown" -> jdbc.update("UPDATE dev_device_compatibility_projection SET compatibility_status='UNKNOWN'");
@@ -160,13 +147,10 @@ class NativeConfigurationMysqlTest {
             case "asset" -> jdbc.update("UPDATE dev_device_software_fact SET asset_id=2");
             case "factSequence" -> jdbc.update("UPDATE dev_device_software_fact SET management_state_sequence=8");
             case "notReady" -> jdbc.update("UPDATE dev_device_software_fact SET uart_state='NEGOTIATING'");
-            case "disabled" -> jdbc.update("UPDATE dev_device_asset SET lifecycle_status='DISABLED'");
-            case "unassigned" -> jdbc.update("UPDATE dev_device_asset SET organization_id=NULL");
         }
-        assertThat(changedAssets()).isEmpty();
-        reconcile();
+        initial();
         assertThat(versionCount()).isEqualTo(1);
-        assertThat(envelope(1)).doesNotContain("mcuConfigurationProfile");
+        assertThat(envelope(1)).contains("UART_V2_SIMPLIFIED");
     }
 
     private void recognizedNative() {
@@ -179,7 +163,6 @@ class NativeConfigurationMysqlTest {
     private void initial() { tx.executeWithoutResult(status -> activation.reconcileInCurrentTransaction(1, UUID.randomUUID())); }
     private void reconcile() { tx.executeWithoutResult(status -> app.reconcileAutomaticActivation(1)); }
     private int versionCount() { return jdbc.queryForObject("SELECT COUNT(*) FROM dev_config_version", Integer.class); }
-    private List<Long> changedAssets() { return jdbc.queryForList(McuConfigurationProfileProvider.PROFILE_CHANGE_ASSET_IDS_SQL, Long.class); }
     private String envelope(long version) {
         return jdbc.queryForObject("SELECT command.semantic_payload FROM dev_device_command command JOIN dev_config_application application ON application.id=command.config_application_id JOIN dev_config_version config ON config.id=application.config_version_id WHERE config.version_no=?", String.class, version);
     }

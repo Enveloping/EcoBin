@@ -420,6 +420,8 @@ class TargetDeviceMysqlIntegrationTest {
         assertTrue(unknownRuntime.path("health")
                 .path("trustedRuntimeReceivedAt").isNull());
         assertEquals(0, unknownRuntime.path("ports").size());
+        assertTrue(unknownRuntime.path("lastDeliveryAt").isNull());
+        assertTrue(unknownRuntime.path("lastCleanAt").isNull());
 
         UUID presenceEventUid = UUID.randomUUID();
         TrustedInboxReceipt presenceReceipt = trustedInbox.receive(

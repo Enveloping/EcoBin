@@ -137,11 +137,9 @@ class OneNetClientReliableSubmissionTest {
     }
 
     @Test
-    void projectsFrozenConfigurationEnvelopeToGeneratedWireContract()
+    void projectsNativeConfigurationEnvelopeToGeneratedWireContract()
             throws Exception {
-        String envelope = Files.readString(contractPath(
-                "contracts/examples/onenet/"
-                        + "apply-configuration.command.json"));
+        String envelope = nativeConfigurationEnvelope();
         when(restTemplate.postForEntity(
                 anyString(),
                 any(HttpEntity.class),
@@ -177,6 +175,17 @@ class OneNetClientReliableSubmissionTest {
         ObjectNode expected = (ObjectNode) wireExample
                 .path("callServiceApiBodyTemplate")
                 .deepCopy();
+        ObjectNode expectedParams = (ObjectNode) expected.path("params");
+        expectedParams.put("mcuConfigurationProfilePresent", true);
+        ObjectNode expectedDeviceConfig =
+                (ObjectNode) expectedParams.path("deviceConfig");
+        expectedDeviceConfig.put("weightMeasurementTimeoutMs", 5_000);
+        for (JsonNode port : expectedParams.path("ports")) {
+            ObjectNode expectedPort = (ObjectNode) port;
+            expectedPort.put("weightMaximumFluctuationGrams", 100);
+            expectedPort.put("weightRequiredSampleCount", 5);
+            expectedPort.put("weightMeasurementTimeoutMs", 5_000);
+        }
         expected.put("product_id", PRODUCT_ID);
         expected.put("device_name", HARDWARE_SN);
         assertEquals(expected, actual);
@@ -185,6 +194,47 @@ class OneNetClientReliableSubmissionTest {
                         .digest(objectMapper.writeValueAsBytes(
                                 request.getValue().getBody())),
                 result.requestSha256());
+    }
+
+    @Test
+    void rejectsLegacyConfigurationBeforeCallingOneNet()
+            throws Exception {
+        String envelope = Files.readString(contractPath(
+                "contracts/examples/onenet/"
+                        + "apply-configuration.command.json"));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(envelope, COMMAND_UID));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PERMANENT_FAILURE,
+                result.outcome());
+        assertEquals(
+                "COMMAND_PROJECTION_INVALID",
+                result.externalErrorCode());
+        verify(restTemplate, never()).postForEntity(
+                anyString(), any(HttpEntity.class), eq(String.class));
+    }
+
+    @Test
+    void rejectsUnsupportedConfigurationProfileBeforeCallingOneNet()
+            throws Exception {
+        ObjectNode envelope = (ObjectNode) objectMapper.readTree(
+                nativeConfigurationEnvelope());
+        ((ObjectNode) envelope.path("payload"))
+                .put("mcuConfigurationProfile", "UART_V2_FUTURE");
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(objectMapper.writeValueAsString(envelope), COMMAND_UID));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PERMANENT_FAILURE,
+                result.outcome());
+        assertEquals(
+                "COMMAND_PROJECTION_INVALID",
+                result.externalErrorCode());
+        verify(restTemplate, never()).postForEntity(
+                anyString(), any(HttpEntity.class), eq(String.class));
     }
 
     @Test
@@ -1259,6 +1309,24 @@ class OneNetClientReliableSubmissionTest {
                 envelope,
                 commandUid,
                 "APPLY_CONFIGURATION");
+    }
+
+    private String nativeConfigurationEnvelope() throws Exception {
+        ObjectNode envelope = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "apply-configuration.command.json")));
+        ObjectNode payload = (ObjectNode) envelope.path("payload");
+        payload.put("mcuConfigurationProfile", "UART_V2_SIMPLIFIED");
+        ((ObjectNode) payload.path("deviceConfig"))
+                .put("weightMeasurementTimeoutMs", 5_000);
+        for (JsonNode port : payload.path("ports")) {
+            ObjectNode nativePort = (ObjectNode) port;
+            nativePort.put("weightMaximumFluctuationGrams", 100);
+            nativePort.put("weightRequiredSampleCount", 5);
+            nativePort.put("weightMeasurementTimeoutMs", 5_000);
+        }
+        return objectMapper.writeValueAsString(envelope);
     }
 
     private void expectInitialDeliveryCosGrant(

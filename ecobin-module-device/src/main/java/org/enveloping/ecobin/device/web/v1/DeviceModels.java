@@ -551,6 +551,8 @@ public final class DeviceModels {
             boolean occupied,
             String occupancyKind,
             Instant occupiedAt,
+            Instant lastDeliveryAt,
+            Instant lastCleanAt,
             List<PortRuntimeView> ports,
             Instant fetchedAt) {
 
@@ -579,6 +581,8 @@ public final class DeviceModels {
             Boolean weightValueAvailable,
             Long reportedWeightGrams,
             String weightValueKind,
+            Boolean weightFull,
+            Instant weightFullObservedAt,
             String infraredValue,
             String infraredSensorHealth,
             String fullnessSensorKind,

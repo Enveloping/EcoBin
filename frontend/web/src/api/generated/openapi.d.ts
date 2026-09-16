@@ -6239,6 +6239,8 @@ export interface components {
             /** Format: int64 */
             reportedWeightGrams: number | null;
             weightValueKind: string | null;
+            weightFull: boolean | null;
+            weightFullObservedAt: components["schemas"]["UtcTimestamp"] | null;
             infraredValue: string | null;
             infraredSensorHealth: string;
             fullnessSensorKind: string | null;
@@ -6326,6 +6328,10 @@ export interface components {
             /** @enum {string|null} */
             occupancyKind: "DELIVERY" | "CLEAN" | null;
             occupiedAt: components["schemas"]["UtcTimestamp"] | null;
+            /** @description 该设备最近一笔已形成订单的投递后台接收时间。 */
+            lastDeliveryAt: components["schemas"]["UtcTimestamp"] | null;
+            /** @description 该设备最近一笔完成清运的完成时间。 */
+            lastCleanAt: components["schemas"]["UtcTimestamp"] | null;
             ports: components["schemas"]["DevicePortRuntime"][];
             fetchedAt: components["schemas"]["UtcTimestamp"];
         };
