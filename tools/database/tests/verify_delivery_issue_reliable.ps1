@@ -51,10 +51,10 @@ GRANT ALL PRIVILEGES ON $database.* TO 'ecobin_schema_owner'@'%';
 GRANT SET_ANY_DEFINER ON *.* TO 'ecobin_schema_owner'@'%';
 "@ | Out-Null
     & ./mvnw.cmd -o -q -pl ecobin-bootstrap flyway:migrate "-Dflyway.url=$url" `
-        '-Dflyway.user=ecobin_schema_owner' '-Dflyway.password=' '-Dflyway.target=83'
-    if ($LASTEXITCODE -ne 0) { throw 'Full V1..V83 migration failed' }
+        '-Dflyway.user=ecobin_schema_owner' '-Dflyway.password=' '-Dflyway.target=84'
+    if ($LASTEXITCODE -ne 0) { throw 'Full V1..V84 migration failed' }
     $history = Invoke-TestSql "SELECT CONCAT(COUNT(*),':',MAX(CAST(version AS UNSIGNED))) FROM $database.flyway_schema_history WHERE success=1;"
-    if ($history -ne '83:83') { throw 'Expected all 83 successful migrations' }
+    if ($history -ne '84:84') { throw 'Expected all 84 successful migrations' }
     $tables = @(Invoke-TestSql "SELECT table_name FROM information_schema.tables WHERE table_schema='$database' AND table_name<>'flyway_schema_history' ORDER BY table_name;")
     if ($tables.Count -ne 138) { throw 'Expected 138 domain tables' }
     $catalog = Import-PowerShellDataFile tools/database/h02-runtime-grants.psd1
@@ -96,7 +96,7 @@ GRANT SET_ANY_DEFINER ON *.* TO 'ecobin_schema_owner'@'%';
         '-Dtest=DeliveryIssueReliableMysqlIntegrationTest,InterruptedCleanBagRecoveryMysqlConstraintTest,TerminalMcuResultFailureMysqlIntegrationTest' `
         '-Dsurefire.failIfNoSpecifiedTests=false'
     if ($LASTEXITCODE -ne 0) { throw 'Issue reliable integration tests failed' }
-    Write-Output 'PASS: V1..V83, 138 domain tables, runtime catalog 42, real issue inbox and terminal-result/clean-bag-recovery constraints'
+    Write-Output 'PASS: V1..V84, 138 domain tables, runtime catalog 42, real issue inbox and terminal-result/clean-bag-recovery constraints'
 }
 finally {
     $env:JAVA_HOME = $oldJava

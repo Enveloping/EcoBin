@@ -1110,15 +1110,18 @@ WHERE table_schema = '$DatabaseName'
                 $existingMaxVersion -eq 82) -or
             ($existingDomainTableCount -eq 138 -and
                 $existingHistoryCount -eq 83 -and
-                $existingMaxVersion -eq 83)
+                $existingMaxVersion -eq 83) -or
+            ($existingDomainTableCount -eq 138 -and
+                $existingHistoryCount -eq 84 -and
+                $existingMaxVersion -eq 84)
         )
         if (-not $resumeLayoutValid) {
             throw (
-                "Migrated resume requires a complete V30 through V83 " +
+                "Migrated resume requires a complete V30 through V84 " +
                 "target database"
             )
         }
-        if ($existingMaxVersion -lt 83) {
+        if ($existingMaxVersion -lt 84) {
             # Check before changing the owner account so a stale local tunnel
             # fails without opening a database mutation window.
             if ($RemoteHost.Length -gt 0) {
@@ -1237,13 +1240,13 @@ GRANT SELECT (
     TO 'ecobin_trigger_definer'@'%';
 "@ | Out-Null
 
-        Invoke-FlywayMigration -Target 83 -OwnerPassword $ownerPassword
-        $currentMigrationVersion = 83
+        Invoke-FlywayMigration -Target 84 -OwnerPassword $ownerPassword
+        $currentMigrationVersion = 84
         $migrationCompleted = $true
     }
 
     # Converge the trigger definer even when a resumed database is already at
-    # V83. MySQL preserves column grants under their old table/column names
+    # V84. MySQL preserves column grants under their old table/column names
     # across V36/V39 renames, so remove those historical entries explicitly
     # before applying the exact current grant matrix.
     Invoke-RootSql -Sql @"
@@ -1443,8 +1446,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 83) {
-        throw "Expected eighty-three successful Flyway migrations"
+    if ($historyCount -ne 84) {
+        throw "Expected eighty-four successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
@@ -1761,7 +1764,7 @@ WHERE user = 'ecobin_schema_owner' AND host = '%';
     if (-not $migrationCompleted) {
         if ($upgradeExistingMigratedEnvironment) {
             Write-Warning (
-                "The target may contain a failed forward migration up to V83. " +
+                "The target may contain a failed forward migration up to V84. " +
                 "It was intentionally preserved. Restore from the " +
                 "pre-migration backup; do not run Flyway repair. " +
                 "Container=$ContainerName Volume=$VolumeName"
